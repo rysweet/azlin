@@ -71,6 +71,7 @@ class VMProvisioner:
     7. Rust
     8. Golang
     9. .NET 10 RC
+    10. astral-uv (uv package manager)
     """
 
     # Valid VM sizes whitelist (2025 current-gen SKUs)
@@ -365,6 +366,9 @@ runcmd:
   - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
   - apt update
   - apt install gh -y
+
+  # astral-uv (uv package manager)
+  - snap install astral-uv --classic
 
   # Node.js (via NodeSource)
   - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
