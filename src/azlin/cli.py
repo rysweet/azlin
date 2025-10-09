@@ -1259,6 +1259,109 @@ def ps(
         sys.exit(1)
 
 
+@main.command()
+@click.argument('vm_identifier', type=str)
+@click.option('--resource-group', '--rg', help='Resource group (required for VM name)', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--no-tmux', is_flag=True, help='Skip tmux session')
+@click.option('--tmux-session', help='Tmux session name (default: vm_identifier)', type=str)
+@click.option('--user', default='azureuser', help='SSH username (default: azureuser)', type=str)
+@click.option('--key', help='SSH private key path', type=click.Path(exists=True))
+@click.argument('remote_command', nargs=-1, type=str)
+def connect(
+    vm_identifier: str,
+    resource_group: Optional[str],
+    config: Optional[str],
+    no_tmux: bool,
+    tmux_session: Optional[str],
+    user: str,
+    key: Optional[str],
+    remote_command: tuple
+):
+    """Connect to existing VM via SSH.
+
+    VM_IDENTIFIER can be either:
+    - VM name (requires --resource-group or default config)
+    - IP address (direct connection)
+
+    Use -- to separate remote command from options.
+
+    \b
+    Examples:
+        # Connect to VM by name
+        azlin connect my-vm
+
+        # Connect to VM by name with explicit resource group
+        azlin connect my-vm --rg my-resource-group
+
+        # Connect by IP address
+        azlin connect 20.1.2.3
+
+        # Connect without tmux
+        azlin connect my-vm --no-tmux
+
+        # Connect with custom tmux session name
+        azlin connect my-vm --tmux-session dev
+
+        # Connect and run command
+        azlin connect my-vm -- ls -la
+
+        # Connect with custom SSH user
+        azlin connect my-vm --user myuser
+
+        # Connect with custom SSH key
+        azlin connect my-vm --key ~/.ssh/custom_key
+    """
+    try:
+        # Parse remote command
+        command = ' '.join(remote_command) if remote_command else None
+
+        # Convert key path to Path object
+        key_path = Path(key).expanduser() if key else None
+
+        # Get resource group from config if not specified
+        if not VMConnector._is_valid_ip(vm_identifier):
+            rg = ConfigManager.get_resource_group(resource_group, config)
+            if not rg:
+                click.echo(
+                    "Error: Resource group required for VM name.\n"
+                    "Use --resource-group or set default in ~/.azlin/config.toml",
+                    err=True
+                )
+                sys.exit(1)
+        else:
+            rg = resource_group
+
+        # Connect to VM
+        click.echo(f"Connecting to {vm_identifier}...")
+
+        success = VMConnector.connect(
+            vm_identifier=vm_identifier,
+            resource_group=rg,
+            use_tmux=not no_tmux,
+            tmux_session=tmux_session,
+            remote_command=command,
+            ssh_user=user,
+            ssh_key_path=key_path
+        )
+
+        sys.exit(0 if success else 1)
+
+    except VMConnectorError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.exception("Unexpected error in connect command")
+        sys.exit(1)
+
+
 if __name__ == '__main__':
     main()
 
