@@ -38,8 +38,8 @@ class ConfigError(Exception):
 class AzlinConfig:
     """Azlin configuration data."""
     default_resource_group: Optional[str] = None
-    default_region: str = "eastus"
-    default_vm_size: str = "Standard_D2s_v3"
+    default_region: str = "westus2"  # westus2 has better capacity than eastus
+    default_vm_size: str = "Standard_B2s"  # Widely available, affordable burstable VM
     last_vm_name: Optional[str] = None
     notification_command: str = "imessR"
 
@@ -52,8 +52,8 @@ class AzlinConfig:
         """Create from dictionary."""
         return cls(
             default_resource_group=data.get('default_resource_group'),
-            default_region=data.get('default_region', 'eastus'),
-            default_vm_size=data.get('default_vm_size', 'Standard_D2s_v3'),
+            default_region=data.get('default_region', 'westus2'),
+            default_vm_size=data.get('default_vm_size', 'Standard_B2s'),
             last_vm_name=data.get('last_vm_name'),
             notification_command=data.get('notification_command', 'imessR')
         )
