@@ -14,6 +14,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from typing import Optional
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,17 @@ class NotificationHandler:
     - Safe subprocess execution
     """
 
-    IMESSR_COMMAND = "imessr"
+    @classmethod
+    def _get_notification_command(cls) -> str:
+        """Get notification command from config."""
+        try:
+            # Import here to avoid circular dependency
+            from azlin.config_manager import ConfigManager
+            config = ConfigManager.load_config()
+            return config.notification_command
+        except Exception:
+            # Fallback to default if config not available
+            return "imessR"
 
     @classmethod
     def send_notification(
@@ -85,12 +96,13 @@ class NotificationHandler:
 
         # Send notification
         try:
-            logger.debug(f"Sending notification via imessR: {message}")
+            notification_cmd = cls._get_notification_command()
+            logger.debug(f"Sending notification via {notification_cmd}: {message}")
 
             # Build command
-            args = [cls.IMESSR_COMMAND, message]
+            args = [notification_cmd, message]
 
-            # Execute imessR
+            # Execute notification command
             result = subprocess.run(
                 args,
                 capture_output=True,
@@ -138,24 +150,25 @@ class NotificationHandler:
     @classmethod
     def is_imessr_available(cls) -> bool:
         """
-        Check if imessR is installed.
+        Check if notification command is installed.
 
         Returns:
-            bool: True if imessR is available
+            bool: True if notification command is available
 
         Security: Uses shutil.which (safe)
 
         Example:
             >>> if NotificationHandler.is_imessr_available():
-            ...     print("imessR is installed")
+            ...     print("Notification command is installed")
         """
-        result = shutil.which(cls.IMESSR_COMMAND)
+        notification_cmd = cls._get_notification_command()
+        result = shutil.which(notification_cmd)
         available = result is not None
 
         if available:
-            logger.debug(f"imessR found at {result}")
+            logger.debug(f"{notification_cmd} found at {result}")
         else:
-            logger.debug("imessR not found in PATH")
+            logger.debug(f"{notification_cmd} not found in PATH")
 
         return available
 

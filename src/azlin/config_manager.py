@@ -41,6 +41,7 @@ class AzlinConfig:
     default_region: str = "eastus"
     default_vm_size: str = "Standard_D2s_v3"
     last_vm_name: Optional[str] = None
+    notification_command: str = "imessR"
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -53,7 +54,8 @@ class AzlinConfig:
             default_resource_group=data.get('default_resource_group'),
             default_region=data.get('default_region', 'eastus'),
             default_vm_size=data.get('default_vm_size', 'Standard_D2s_v3'),
-            last_vm_name=data.get('last_vm_name')
+            last_vm_name=data.get('last_vm_name'),
+            notification_command=data.get('notification_command', 'imessR')
         )
 
 

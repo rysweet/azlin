@@ -96,6 +96,9 @@ class VMProvisioner:
         'koreacentral', 'koreasouth'
     }
 
+    # Fallback regions to try if SKU unavailable (in order of preference)
+    FALLBACK_REGIONS = ['westus2', 'centralus', 'eastus2', 'westus', 'westeurope']
+
     def __init__(self, subscription_id: Optional[str] = None):
         """Initialize VM provisioner.
 
@@ -167,6 +170,130 @@ class VMProvisioner:
             True if valid
         """
         return region.lower() in self.VALID_REGIONS
+
+    def check_sku_availability(
+        self,
+        vm_size: str,
+        region: str,
+        progress_callback: Optional[Callable[[str], None]] = None
+    ) -> bool:
+        """Check if VM SKU is available in the specified region.
+
+        Args:
+            vm_size: VM size to check
+            region: Azure region
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            True if SKU is available, False otherwise
+
+        Note:
+            Uses 'az vm list-skus' to check for capacity restrictions.
+        """
+        def report_progress(msg: str):
+            if progress_callback:
+                progress_callback(msg)
+            logger.info(msg)
+
+        try:
+            report_progress(f"Checking SKU availability: {vm_size} in {region}...")
+
+            # Query Azure for SKU availability
+            result = subprocess.run(
+                [
+                    'az', 'vm', 'list-skus',
+                    '--location', region,
+                    '--size', vm_size,
+                    '--output', 'json'
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True
+            )
+
+            skus = json.loads(result.stdout)
+
+            if not skus:
+                report_progress(f"SKU {vm_size} not found in region {region}")
+                return False
+
+            # Check for restrictions
+            for sku in skus:
+                restrictions = sku.get('restrictions', [])
+                if restrictions:
+                    for restriction in restrictions:
+                        if restriction.get('type') == 'Location':
+                            report_progress(
+                                f"SKU {vm_size} has location restrictions in {region}"
+                            )
+                            return False
+
+            report_progress(f"SKU {vm_size} is available in {region}")
+            return True
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"SKU availability check timed out for {region}")
+            return False
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"SKU availability check failed: {e.stderr}")
+            return False
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse SKU availability response")
+            return False
+        except Exception as e:
+            logger.warning(f"SKU availability check error: {e}")
+            return False
+
+    def find_available_region(
+        self,
+        vm_size: str,
+        preferred_region: str,
+        progress_callback: Optional[Callable[[str], None]] = None
+    ) -> Optional[str]:
+        """Find an available region for the specified VM size.
+
+        Tries the preferred region first, then falls back to other regions.
+
+        Args:
+            vm_size: VM size to check
+            preferred_region: Preferred region to try first
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            Available region name, or None if none found
+
+        Example:
+            >>> provisioner = VMProvisioner()
+            >>> region = provisioner.find_available_region('Standard_B2s', 'eastus')
+            >>> if region:
+            ...     print(f"Using region: {region}")
+        """
+        def report_progress(msg: str):
+            if progress_callback:
+                progress_callback(msg)
+            logger.info(msg)
+
+        # Try preferred region first
+        if self.check_sku_availability(vm_size, preferred_region, progress_callback):
+            return preferred_region
+
+        # Try fallback regions
+        report_progress(
+            f"SKU {vm_size} not available in {preferred_region}, "
+            f"trying fallback regions..."
+        )
+
+        for region in self.FALLBACK_REGIONS:
+            if region == preferred_region:
+                continue  # Already tried
+
+            if self.check_sku_availability(vm_size, region, progress_callback):
+                report_progress(f"Found available region: {region}")
+                return region
+
+        report_progress(f"SKU {vm_size} not available in any fallback regions")
+        return None
 
     def create_resource_group(
         self,
@@ -298,6 +425,27 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
             logger.info(msg)
 
         try:
+            # Check SKU availability and find best region
+            available_region = self.find_available_region(
+                config.size,
+                config.location,
+                progress_callback
+            )
+
+            if not available_region:
+                raise ProvisioningError(
+                    f"VM size {config.size} not available in {config.location} "
+                    f"or any fallback regions. Please try a different VM size."
+                )
+
+            # Update config if region changed
+            if available_region != config.location:
+                report_progress(
+                    f"Using {available_region} instead of {config.location} "
+                    f"due to SKU availability"
+                )
+                config.location = available_region
+
             # Create resource group
             report_progress(f"Creating resource group: {config.resource_group}")
             self.create_resource_group(config.resource_group, config.location)
