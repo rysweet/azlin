@@ -141,9 +141,12 @@ class VMProvisioner:
         Raises:
             ValueError: If validation fails
         """
-        # Validate VM size
+        # Validate VM size (case-insensitive)
         if not self.validate_vm_size(size):
-            raise ValueError(f"Invalid VM size: {size}")
+            raise ValueError(
+                f"Invalid VM size: {size}. "
+                f"Valid sizes: {', '.join(sorted(self.VALID_VM_SIZES))}"
+            )
 
         # Validate region
         if not self.validate_region(location):
@@ -161,7 +164,7 @@ class VMProvisioner:
         )
 
     def validate_vm_size(self, size: str) -> bool:
-        """Validate VM size against whitelist.
+        """Validate VM size against whitelist (case-insensitive).
 
         Args:
             size: VM size to validate
@@ -169,7 +172,9 @@ class VMProvisioner:
         Returns:
             True if valid
         """
-        return size in self.VALID_VM_SIZES
+        # Azure accepts VM sizes in any case, so validate case-insensitively
+        size_upper = size.upper()
+        return any(s.upper() == size_upper for s in self.VALID_VM_SIZES)
 
     def validate_region(self, region: str) -> bool:
         """Validate Azure region against whitelist.
