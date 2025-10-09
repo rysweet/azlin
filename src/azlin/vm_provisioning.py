@@ -14,7 +14,8 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Optional, Callable, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -361,6 +362,77 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
             raise ProvisioningError(f"VM provisioning failed: {e.stderr}")
         except json.JSONDecodeError:
             raise ProvisioningError("Failed to parse VM creation response")
+
+    def provision_vm_pool(
+        self,
+        configs: List[VMConfig],
+        progress_callback: Optional[Callable[[str], None]] = None,
+        max_workers: int = 10
+    ) -> List[VMDetails]:
+        """Provision multiple VMs in parallel.
+
+        Args:
+            configs: List of VM configurations
+            progress_callback: Optional callback for progress updates
+            max_workers: Maximum parallel workers
+
+        Returns:
+            List of VMDetails for successfully provisioned VMs
+
+        Raises:
+            ProvisioningError: If all provisioning attempts fail
+        """
+        def report_progress(msg: str):
+            if progress_callback:
+                progress_callback(msg)
+            logger.info(msg)
+
+        if not configs:
+            return []
+
+        # Create resource groups first (they may be shared)
+        unique_rgs = {(config.resource_group, config.location) for config in configs}
+        for rg, location in unique_rgs:
+            try:
+                self.create_resource_group(rg, location)
+            except ProvisioningError as e:
+                logger.warning(f"Resource group creation failed: {e}")
+
+        report_progress(f"Provisioning {len(configs)} VMs in parallel with {max_workers} workers...")
+
+        results = []
+        errors = []
+
+        num_workers = min(max_workers, len(configs))
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Submit all provisioning tasks
+            future_to_config = {
+                executor.submit(self.provision_vm, config, None): config
+                for config in configs
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_config):
+                config = future_to_config[future]
+                try:
+                    vm_details = future.result()
+                    results.append(vm_details)
+                    report_progress(f"✓ {config.name} provisioned: {vm_details.public_ip}")
+                except Exception as e:
+                    error_msg = f"✗ {config.name} failed: {str(e)}"
+                    errors.append(error_msg)
+                    report_progress(error_msg)
+
+        # If all failed, raise error
+        if not results and errors:
+            raise ProvisioningError(
+                f"All VM provisioning failed. Errors: {'; '.join(errors)}"
+            )
+
+        report_progress(f"Pool provisioning complete: {len(results)}/{len(configs)} successful")
+
+        return results
 
 
 __all__ = ['VMProvisioner', 'VMConfig', 'VMDetails', 'ProvisioningError']

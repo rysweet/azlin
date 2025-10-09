@@ -8,7 +8,15 @@ Philosophy:
 
 The azlin CLI automates the creation of Azure Ubuntu VMs with development tools,
 SSH connection, and optional GitHub repository setup.
+
+Version 2.0 Features:
+- Config storage with TOML (~/.azlin/config.toml)
+- VM listing and status management
+- Interactive session selection
+- Remote command execution
+- Parallel VM provisioning (pools)
+- Enhanced CLI with subcommands
 """
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"
 __all__ = ["__version__"]
