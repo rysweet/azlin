@@ -40,6 +40,7 @@ from azlin.vm_manager import VMManager, VMInfo, VMManagerError
 from azlin.remote_exec import RemoteExecutor, WCommandExecutor, PSCommandExecutor, RemoteExecError
 from azlin.terminal_launcher import TerminalLauncher, TerminalConfig
 from azlin.vm_lifecycle import VMLifecycleManager, VMLifecycleError, DeletionSummary
+from azlin.vm_connector import VMConnector, VMConnectorError
 
 logger = logging.getLogger(__name__)
 
@@ -690,6 +691,7 @@ def main(
     \b
     COMMANDS:
         list          List VMs in resource group
+        connect       Connect to existing VM via SSH
         w             Run 'w' command on all VMs
         ps            Run 'ps aux' on all VMs
         kill          Delete a VM and all resources
