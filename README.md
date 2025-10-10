@@ -77,14 +77,14 @@ This project follows the **brick philosophy**: self-contained modules with clear
 Start here if you're implementing azlin:
 
 1. **[BUILDER_QUICKSTART.md](BUILDER_QUICKSTART.md)** - Start here! 5-minute guide to get building
-2. **[ARCHITECTURE_SUMMARY.md](ARCHITECTURE_SUMMARY.md)** - High-level overview of the system
-3. **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete architecture specification
+2. **[ARCHITECTURE_SUMMARY.md](docs/ARCHITECTURE_SUMMARY.md)** - High-level overview of the system
+3. **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Complete architecture specification
 4. **[MODULE_SPEC_TEMPLATE.md](MODULE_SPEC_TEMPLATE.md)** - Template for implementing each module
-5. **[TEST_STRATEGY.md](TEST_STRATEGY.md)** - Comprehensive testing approach
+5. **[TEST_STRATEGY.md](docs/TEST_STRATEGY.md)** - Comprehensive testing approach
 
 ### For Architects
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Full system design
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Full system design
 - **.claude/context/PHILOSOPHY.md** - Development philosophy
 - **.claude/context/PATTERNS.md** - Proven patterns and solutions
 
@@ -112,9 +112,11 @@ azlin/
 ├── docs/                         # Architecture documentation
 │   ├── ARCHITECTURE.md           # Complete system design
 │   ├── ARCHITECTURE_SUMMARY.md  # Quick reference
-│   ├── BUILDER_QUICKSTART.md    # Builder onboarding
-│   ├── MODULE_SPEC_TEMPLATE.md  # Module implementation guide
-│   └── TEST_STRATEGY.md         # Testing approach
+│   ├── QUICK_REFERENCE.md        # Command reference
+│   ├── README.md                 # Documentation index
+│   ├── TEST_STRATEGY.md          # Testing approach
+│   ├── UV_USAGE.md               # uv package manager guide
+│   └── archive/                  # Historical documentation
 │
 └── .claude/                      # Claude framework
     ├── agents/                   # Agent definitions
@@ -164,7 +166,7 @@ azlin follows security best practices:
 - **Comprehensive .gitignore** - Prevents accidental credential commits
 - **No arbitrary command execution** - All commands validated
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) Security Architecture section for details.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) Security Architecture section for details.
 
 ## Testing
 
@@ -194,7 +196,7 @@ pytest tests/
 pytest tests/ -m "unit"
 ```
 
-See [TEST_STRATEGY.md](TEST_STRATEGY.md) for complete testing approach.
+See [TEST_STRATEGY.md](docs/TEST_STRATEGY.md) for complete testing approach.
 
 ## Implementation Status
 
@@ -263,6 +265,6 @@ This project is part of the Microsoft Hackathon 2025 and follows the **amplihack
 
 **Ready to build?** Start with [BUILDER_QUICKSTART.md](BUILDER_QUICKSTART.md)
 
-**Need the big picture?** Read [ARCHITECTURE_SUMMARY.md](ARCHITECTURE_SUMMARY.md)
+**Need the big picture?** Read [ARCHITECTURE_SUMMARY.md](docs/ARCHITECTURE_SUMMARY.md)
 
-**Want full details?** See [ARCHITECTURE.md](ARCHITECTURE.md)
+**Want full details?** See [ARCHITECTURE.md](docs/ARCHITECTURE.md)

@@ -518,12 +518,20 @@ tramp
 # ============================================
 # Claude Code traces (keep structure, ignore content)
 .claude-trace/*.json
+.claude-trace/*.jsonl
+.claude-trace/*.html
 .claude-trace/**/*.json
+.claude-trace/**/*.jsonl
+.claude-trace/**/*.html
 
 # Claude Code runtime metrics and logs
 .claude/runtime/metrics/*.jsonl
 .claude/runtime/logs/**/*.log
 .claude/runtime/logs/**/*.jsonl
+
+# Security analysis artifacts (generated, not source)
+SECURITY*.md
+SECURITY*.txt
 
 # Temporary files
 *.tmp
