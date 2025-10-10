@@ -96,49 +96,50 @@ class HomeSyncManager:
     """
 
     # SECURITY LAYER 1: Glob patterns for path-based blocking (NOT regex)
-    # SECURITY FIX: Use glob patterns to prevent regex bypass vulnerabilities
+    # CRITICAL FIX: Remove ** prefix - Path.match() requires relative paths without **
+    # The ** prefix breaks matching and would allow ALL credential files through!
     BLOCKED_GLOBS = [
         # SSH keys (private) - Matches id_rsa, id_ed25519 but NOT id_rsa.pub
-        '**/.ssh/id_*[!.pub]',
-        '**/.ssh/*_key',
-        '**/.ssh/*.pem',
+        '.ssh/id_*[!.pub]',
+        '.ssh/*_key',
+        '.ssh/*.pem',
         # AWS
-        '**/.aws/credentials',
-        '**/.aws/config',
+        '.aws/credentials',
+        '.aws/config',
         # GCP
-        '**/.config/gcloud/**/*.json',
-        '**/.config/gcloud/credentials*',
-        '**/.config/gcloud/access_tokens.db',
+        '.config/gcloud/**/*.json',
+        '.config/gcloud/credentials*',
+        '.config/gcloud/access_tokens.db',
         # Azure
-        '**/.azure/**',
+        '.azure/**',
         # Generic credential files
-        '**/*.key',
-        '**/*.pem',
-        '**/*.p12',
-        '**/*.pfx',
-        '**/credentials',
-        '**/credentials.*',
-        '**/*credentials*',
-        '**/.env',
-        '**/.env.*',
+        '*.key',
+        '*.pem',
+        '*.p12',
+        '*.pfx',
+        'credentials',
+        'credentials.*',
+        '*credentials*',
+        '.env',
+        '.env.*',
         # Caches and databases
-        '**/*.db',
-        '**/*.sqlite',
-        '**/*.sqlite3',
-        '**/.git/**',
-        '**/__pycache__/**',
-        '**/*.pyc',
-        '**/.mozilla/**',
-        '**/.chrome/**',
-        '**/.config/**/*cache*',
-        '**/.config/**/*Cache*',
+        '*.db',
+        '*.sqlite',
+        '*.sqlite3',
+        '.git/**',
+        '__pycache__/**',
+        '*.pyc',
+        '.mozilla/**',
+        '.chrome/**',
+        '.config/**/*cache*',
+        '.config/**/*Cache*',
     ]
 
     # Whitelist overrides blacklist
     ALLOWED_GLOBS = [
-        '**/.ssh/config',
-        '**/.ssh/known_hosts',
-        '**/.ssh/*.pub',
+        '.ssh/config',
+        '.ssh/known_hosts',
+        '.ssh/*.pub',
     ]
 
     # SECURITY LAYER 2: Dangerous symlink targets
