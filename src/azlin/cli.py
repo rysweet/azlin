@@ -1041,11 +1041,46 @@ def main(
                 click.echo(f"\nProvisioning failed with exit code {exit_code}", err=True)
                 sys.exit(exit_code)
 
-        # Pool provisioning (placeholder for now)
+        # Pool provisioning
         if pool and pool > 1:
-            click.echo(f"\nPool provisioning ({pool} VMs) is not yet fully implemented.")
-            click.echo("Creating first VM...")
-            # Fall through to standard provisioning
+            click.echo(f"\nProvisioning pool of {pool} VMs in parallel...")
+
+            # Generate SSH keys
+            ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+            # Create VM configs for pool
+            configs = []
+            for i in range(pool):
+                vm_name_pool = f"{vm_name}-{i+1:02d}"
+                config = orchestrator.provisioner.create_vm_config(
+                    name=vm_name_pool,
+                    resource_group=final_rg or f"azlin-rg-{int(time.time())}",
+                    location=final_region,
+                    size=final_vm_size,
+                    ssh_public_key=ssh_key_pair.public_key_content
+                )
+                configs.append(config)
+
+            # Provision VMs in parallel
+            try:
+                vms_details = orchestrator.provisioner.provision_vm_pool(
+                    configs,
+                    progress_callback=lambda msg: click.echo(f"  {msg}"),
+                    max_workers=min(10, pool)
+                )
+
+                click.echo(f"\n✓ Successfully provisioned {len(vms_details)}/{pool} VMs")
+                click.echo("\nProvisioned VMs:")
+                click.echo("=" * 80)
+                for vm in vms_details:
+                    click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
+                click.echo("=" * 80)
+
+                sys.exit(0)
+
+            except Exception as e:
+                click.echo(f"\nPool provisioning failed: {e}", err=True)
+                sys.exit(1)
 
         exit_code = orchestrator.run()
         sys.exit(exit_code)
