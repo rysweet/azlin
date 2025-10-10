@@ -61,7 +61,54 @@ azlin
 
 # Create VM and clone a repo
 azlin --repo https://github.com/microsoft/vscode
+
+# Sync your dotfiles to existing VMs
+azlin sync
+
+# Copy files to/from VMs
+azlin cp myfile.txt vm1:~/
+azlin cp vm1:~/data.txt ./
 ```
+
+## New in v2.1.0
+
+### Home Directory Sync
+
+Automatically sync your configuration files from `~/.azlin/home/` to all VMs:
+
+```bash
+# Setup: Place your dotfiles in ~/.azlin/home/
+mkdir -p ~/.azlin/home
+cp ~/.bashrc ~/.vimrc ~/.gitconfig ~/.azlin/home/
+
+# Auto-syncs on VM creation and login
+azlin  # Dotfiles automatically synced after provisioning
+
+# Manual sync to specific VM
+azlin sync --vm-name my-vm
+
+# Preview what would be synced
+azlin sync --dry-run
+```
+
+**Security**: Automatically blocks SSH keys, cloud credentials, .env files, and other secrets.
+
+### Bidirectional File Transfer
+
+Copy files between your local machine and VMs:
+
+```bash
+# Copy local file to VM
+azlin cp report.pdf vm1:~/documents/
+
+# Copy from VM to local
+azlin cp vm1:~/results.tar.gz ./
+
+# Preview transfer
+azlin cp --dry-run large-dataset.zip vm1:~/
+```
+
+**Security**: 7-layer path validation prevents directory traversal and credential exfiltration.
 
 ## Architecture Documentation
 
