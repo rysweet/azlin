@@ -19,6 +19,7 @@ import sys
 import os
 import logging
 import time
+import subprocess
 import click
 from pathlib import Path
 from typing import Optional, List
@@ -663,7 +664,136 @@ def generate_vm_name(
     return f"azlin-{timestamp}"
 
 
-@click.group(invoke_without_command=True)
+def execute_command_on_vm(
+    vm: VMInfo,
+    command: str,
+    ssh_key_path: Path
+) -> int:
+    """Execute a command on a VM and display output.
+
+    Args:
+        vm: VM to execute command on
+        command: Command to execute
+        ssh_key_path: Path to SSH private key
+
+    Returns:
+        Exit code from command execution
+    """
+    if not vm.is_running():
+        click.echo(f"Error: VM '{vm.name}' is not running (status: {vm.get_status_display()})", err=True)
+        return 1
+
+    if not vm.public_ip:
+        click.echo(f"Error: VM '{vm.name}' has no public IP", err=True)
+        return 1
+
+    click.echo(f"\nExecuting on {vm.name} ({vm.public_ip}): {command}")
+    click.echo("=" * 60)
+
+    ssh_config = SSHConfig(
+        host=vm.public_ip,
+        user="azureuser",
+        key_path=ssh_key_path
+    )
+
+    try:
+        # Build SSH command with the remote command
+        args = SSHConnector.build_ssh_command(ssh_config, command)
+
+        # Execute and stream output
+        result = subprocess.run(args)
+
+        click.echo("=" * 60)
+        if result.returncode == 0:
+            click.echo(f"Command completed successfully on {vm.name}")
+        else:
+            click.echo(f"Command failed on {vm.name} with exit code {result.returncode}", err=True)
+
+        return result.returncode
+
+    except Exception as e:
+        click.echo(f"Error executing command on {vm.name}: {e}", err=True)
+        return 1
+
+
+def select_vm_for_command(
+    vms: List[VMInfo],
+    command: str
+) -> Optional[VMInfo]:
+    """Show interactive menu to select VM for command execution.
+
+    Args:
+        vms: List of available VMs
+        command: Command that will be executed
+
+    Returns:
+        Selected VM or None to provision new VM
+    """
+    click.echo("\n" + "=" * 60)
+    click.echo(f"Command to execute: {command}")
+    click.echo("=" * 60)
+    click.echo("\nAvailable VMs:")
+
+    for idx, vm in enumerate(vms, 1):
+        status = vm.get_status_display()
+        ip = vm.public_ip or "No IP"
+        click.echo(f"  {idx}. {vm.name} - {status} - {ip}")
+
+    click.echo(f"  n. Create new VM and execute")
+    click.echo("=" * 60)
+
+    choice = input("\nSelect VM (number or 'n' for new): ").strip().lower()
+
+    if choice == 'n':
+        return None  # Signal to create new VM
+
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(vms):
+            return vms[idx]
+        else:
+            click.echo("Invalid selection")
+            return None
+    except ValueError:
+        click.echo("Invalid input")
+        return None
+
+
+class AzlinGroup(click.Group):
+    """Custom Click group that handles -- delimiter for command passthrough."""
+
+    def main(self, *args, **kwargs):
+        """Override main to handle -- delimiter before any Click processing."""
+        # Check if -- is in sys.argv BEFORE Click processes anything
+        if '--' in sys.argv:
+            delimiter_idx = sys.argv.index('--')
+            # Store the command for later
+            passthrough_args = sys.argv[delimiter_idx + 1:]
+            if passthrough_args:
+                # Remove everything from -- onwards so Click doesn't see it
+                sys.argv = sys.argv[:delimiter_idx]
+                # We'll pass this through the context
+                if not hasattr(self, '_passthrough_command'):
+                    self._passthrough_command = ' '.join(passthrough_args)
+
+        return super().main(*args, **kwargs)
+
+    def invoke(self, ctx):
+        """Pass the passthrough command to the context."""
+        if hasattr(self, '_passthrough_command'):
+            ctx.obj = {'passthrough_command': self._passthrough_command}
+        return super().invoke(ctx)
+
+
+@click.group(
+    cls=AzlinGroup,
+    invoke_without_command=True,
+    context_settings={
+        "ignore_unknown_options": True,
+        "allow_extra_args": True,
+        "allow_interspersed_args": False
+    }
+)
 @click.pass_context
 @click.option('--repo', help='GitHub repository URL to clone', type=str)
 @click.option('--vm-size', help='Azure VM size', type=str)
@@ -763,11 +893,68 @@ def main(
 
     # If no subcommand, check for interactive mode or provision
     if ctx.invoked_subcommand is None:
-        # Check for command after --
+        # Check for passthrough command from custom AzlinGroup
         command = None
-        if '--' in sys.argv:
-            delimiter_idx = sys.argv.index('--')
-            command = ' '.join(sys.argv[delimiter_idx + 1:])
+        if ctx.obj and 'passthrough_command' in ctx.obj:
+            command = ctx.obj['passthrough_command']
+        elif ctx.args:
+            # If no explicit --, check if we have extra args from Click
+            command = ' '.join(ctx.args)
+
+        # COMMAND EXECUTION MODE: azlin -- <command>
+        if command:
+            try:
+                # Load config to get resource group
+                azlin_config = ConfigManager.load_config(config)
+                rg = resource_group or azlin_config.default_resource_group
+
+                # Get SSH key
+                ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+                # List running VMs
+                if rg:
+                    vms = VMManager.list_vms(rg, include_stopped=False)
+                    vms = VMManager.filter_by_prefix(vms, "azlin")
+                    vms = VMManager.sort_by_created_time(vms)
+                    # Only include running VMs with IPs
+                    vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+                else:
+                    vms = []
+
+                # Handle based on number of VMs
+                if len(vms) == 0:
+                    # No VMs - provision new one and execute
+                    click.echo(f"\nNo running VMs found. Provisioning new VM to execute: {command}")
+                    # Fall through to provisioning with command set
+
+                elif len(vms) == 1:
+                    # Auto-select single VM and execute
+                    vm = vms[0]
+                    click.echo(f"\nAuto-selecting VM: {vm.name}")
+                    exit_code = execute_command_on_vm(vm, command, ssh_key_pair.private_path)
+                    sys.exit(exit_code)
+
+                else:
+                    # Multiple VMs - show selection menu
+                    selected_vm = select_vm_for_command(vms, command)
+
+                    if selected_vm:
+                        # Execute on selected VM
+                        exit_code = execute_command_on_vm(selected_vm, command, ssh_key_pair.private_path)
+                        sys.exit(exit_code)
+                    else:
+                        # User chose to create new VM
+                        click.echo("\nProvisioning new VM...")
+                        # Fall through to provisioning with command set
+
+            except ConfigError:
+                # No config - will provision new VM
+                click.echo(f"\nNo configuration found. Provisioning new VM to execute: {command}")
+                # Fall through to provisioning with command set
+
+            except Exception as e:
+                click.echo(f"Error: {e}", err=True)
+                sys.exit(1)
 
         # If no special args, try interactive mode
         if not any([repo, pool, name, command]):
@@ -850,34 +1037,71 @@ def main(
 
         # Execute command if specified
         if command and not pool:
-            click.echo(f"\nCommand: {command}")
-            click.echo("Will execute after provisioning...\n")
+            click.echo(f"\nCommand to execute: {command}")
+            click.echo("Provisioning VM first...\n")
 
+            # Disable auto-connect for command execution mode
+            orchestrator.auto_connect = False
             exit_code = orchestrator.run()
 
             if exit_code == 0 and orchestrator.vm_details:
-                # Launch terminal with command
-                try:
-                    terminal_config = TerminalConfig(
-                        ssh_host=orchestrator.vm_details.public_ip,
-                        ssh_user="azureuser",
-                        ssh_key_path=orchestrator.ssh_keys,
-                        command=command,
-                        title=f"azlin - {command}"
-                    )
-                    TerminalLauncher.launch(terminal_config)
-                except Exception as e:
-                    logger.error(f"Failed to launch terminal: {e}")
-                    click.echo("\nExecute manually:")
-                    click.echo(f"  ssh azureuser@{orchestrator.vm_details.public_ip} {command}")
+                # Create VMInfo from VMDetails for execute_command_on_vm
+                vm_info = VMInfo(
+                    name=orchestrator.vm_details.name,
+                    resource_group=orchestrator.vm_details.resource_group,
+                    location=orchestrator.vm_details.location,
+                    power_state="VM running",
+                    public_ip=orchestrator.vm_details.public_ip,
+                    vm_size=orchestrator.vm_details.size
+                )
 
-            sys.exit(exit_code)
+                # Execute command on the newly provisioned VM
+                cmd_exit_code = execute_command_on_vm(vm_info, command, orchestrator.ssh_keys)
+                sys.exit(cmd_exit_code)
+            else:
+                click.echo(f"\nProvisioning failed with exit code {exit_code}", err=True)
+                sys.exit(exit_code)
 
-        # Pool provisioning (placeholder for now)
+        # Pool provisioning
         if pool and pool > 1:
-            click.echo(f"\nPool provisioning ({pool} VMs) is not yet fully implemented.")
-            click.echo("Creating first VM...")
-            # Fall through to standard provisioning
+            click.echo(f"\nProvisioning pool of {pool} VMs in parallel...")
+
+            # Generate SSH keys
+            ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+            # Create VM configs for pool
+            configs = []
+            for i in range(pool):
+                vm_name_pool = f"{vm_name}-{i+1:02d}"
+                config = orchestrator.provisioner.create_vm_config(
+                    name=vm_name_pool,
+                    resource_group=final_rg or f"azlin-rg-{int(time.time())}",
+                    location=final_region,
+                    size=final_vm_size,
+                    ssh_public_key=ssh_key_pair.public_key_content
+                )
+                configs.append(config)
+
+            # Provision VMs in parallel
+            try:
+                vms_details = orchestrator.provisioner.provision_vm_pool(
+                    configs,
+                    progress_callback=lambda msg: click.echo(f"  {msg}"),
+                    max_workers=min(10, pool)
+                )
+
+                click.echo(f"\n✓ Successfully provisioned {len(vms_details)}/{pool} VMs")
+                click.echo("\nProvisioned VMs:")
+                click.echo("=" * 80)
+                for vm in vms_details:
+                    click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
+                click.echo("=" * 80)
+
+                sys.exit(0)
+
+            except Exception as e:
+                click.echo(f"\nPool provisioning failed: {e}", err=True)
+                sys.exit(1)
 
         exit_code = orchestrator.run()
         sys.exit(exit_code)

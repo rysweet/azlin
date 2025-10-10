@@ -34,6 +34,9 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.11.0",
     "pytest-xdist>=3.3.0",
+    "pre-commit>=3.5.0",
+    "pyright>=1.1.350",
+    "ruff>=0.1.0",
 ]
 
 [project.scripts]
@@ -66,3 +69,19 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
 ]
+
+[tool.pyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
+include = ["src"]
+exclude = ["**/__pycache__", "**/.pytest_cache", "**/node_modules"]
+reportMissingTypeStubs = false
+reportOptionalMemberAccess = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]  # Line too long (handled by formatter)
