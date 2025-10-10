@@ -41,6 +41,8 @@ from azlin.remote_exec import RemoteExecutor, WCommandExecutor, PSCommandExecuto
 from azlin.terminal_launcher import TerminalLauncher, TerminalConfig
 from azlin.vm_lifecycle import VMLifecycleManager, VMLifecycleError, DeletionSummary
 from azlin.vm_connector import VMConnector, VMConnectorError
+from azlin.cost_tracker import CostTracker, CostTrackerError
+from azlin.vm_lifecycle_control import VMLifecycleController, VMLifecycleControlError
 
 logger = logging.getLogger(__name__)
 
@@ -689,12 +691,23 @@ def main(
     and executes commands remotely.
 
     \b
-    COMMANDS:
+    VM LIFECYCLE COMMANDS:
         list          List VMs in resource group
+        status        Show detailed status of VMs
+        start         Start a stopped VM
+        stop          Stop/deallocate a VM to save costs
         connect       Connect to existing VM via SSH
+
+    \b
+    MONITORING COMMANDS:
         w             Run 'w' command on all VMs
         ps            Run 'ps aux' on all VMs
+        cost          Show cost estimates for VMs
+
+    \b
+    DELETION COMMANDS:
         kill          Delete a VM and all resources
+        destroy       Delete VM with dry-run and RG options
         killall       Delete all VMs in resource group
 
     \b
@@ -702,20 +715,26 @@ def main(
         # Interactive menu (if VMs exist) or provision new VM
         $ azlin
 
-        # List VMs in resource group
+        # List VMs and show status
         $ azlin list
+        $ azlin status
 
-        # Run 'w' on all VMs
+        # Start/stop VMs
+        $ azlin start my-vm
+        $ azlin stop my-vm
+
+        # View costs
+        $ azlin cost --by-vm
+        $ azlin cost --from 2025-01-01 --to 2025-01-31
+
+        # Run 'w' and 'ps' on all VMs
         $ azlin w
-
-        # Run 'ps aux' on all VMs
         $ azlin ps
 
-        # Delete a specific VM
+        # Delete VMs
         $ azlin kill azlin-vm-12345
-
-        # Delete all VMs in resource group
-        $ azlin killall
+        $ azlin destroy my-vm --dry-run
+        $ azlin destroy my-vm --delete-rg --force
 
         # Provision VM with custom name
         $ azlin --name my-dev-vm
@@ -1074,6 +1093,158 @@ def kill(
         sys.exit(1)
 
 
+@main.command(name='destroy')
+@click.argument('vm_name', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+@click.option('--dry-run', is_flag=True, help='Show what would be deleted without actually deleting')
+@click.option('--delete-rg', is_flag=True, help='Delete the entire resource group (use with caution)')
+def destroy(
+    vm_name: str,
+    resource_group: Optional[str],
+    config: Optional[str],
+    force: bool,
+    dry_run: bool,
+    delete_rg: bool
+):
+    """Destroy a VM and optionally the entire resource group.
+
+    This is an alias for the 'kill' command with additional options.
+    Deletes the VM, NICs, disks, and public IPs.
+
+    \b
+    Examples:
+        azlin destroy azlin-vm-12345
+        azlin destroy my-vm --dry-run
+        azlin destroy my-vm --delete-rg --force
+        azlin destroy my-vm --rg my-resource-group
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        # Handle --delete-rg option
+        if delete_rg:
+            if dry_run:
+                click.echo(f"\n[DRY RUN] Would delete entire resource group: {rg}")
+                click.echo(f"This would delete ALL resources in the group, not just '{vm_name}'")
+                return
+
+            # Show warning and confirmation
+            if not force:
+                click.echo(f"\nWARNING: You are about to delete the ENTIRE resource group: {rg}")
+                click.echo(f"This will delete ALL resources in the group, not just the VM '{vm_name}'!")
+                click.echo("\nThis action cannot be undone.\n")
+
+                confirm = input("Type the resource group name to confirm deletion: ").strip()
+                if confirm != rg:
+                    click.echo("Cancelled. Resource group name did not match.")
+                    return
+
+            click.echo(f"\nDeleting resource group '{rg}'...")
+
+            # Use Azure CLI to delete resource group
+            import subprocess
+            cmd = ['az', 'group', 'delete', '--name', rg, '--yes']
+
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                    check=True
+                )
+                click.echo(f"\nSuccess! Resource group '{rg}' and all resources deleted.")
+                return
+            except subprocess.CalledProcessError as e:
+                click.echo(f"\nError deleting resource group: {e.stderr}", err=True)
+                sys.exit(1)
+            except subprocess.TimeoutExpired:
+                click.echo("\nError: Resource group deletion timed out.", err=True)
+                sys.exit(1)
+
+        # Handle dry-run for single VM
+        if dry_run:
+            vm = VMManager.get_vm(vm_name, rg)
+            if not vm:
+                click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
+                sys.exit(1)
+
+            click.echo(f"\n[DRY RUN] Would delete VM: {vm_name}")
+            click.echo(f"  Resource Group: {rg}")
+            click.echo(f"  Status:         {vm.get_status_display()}")
+            click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
+            click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
+            click.echo("\nResources that would be deleted:")
+            click.echo(f"  - VM: {vm_name}")
+            click.echo(f"  - Associated NICs")
+            click.echo(f"  - Associated disks")
+            click.echo(f"  - Associated public IPs")
+            return
+
+        # Normal deletion (same as kill command)
+        vm = VMManager.get_vm(vm_name, rg)
+
+        if not vm:
+            click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
+            sys.exit(1)
+
+        # Show confirmation prompt unless --force
+        if not force:
+            click.echo(f"\nVM Details:")
+            click.echo(f"  Name:           {vm.name}")
+            click.echo(f"  Resource Group: {vm.resource_group}")
+            click.echo(f"  Status:         {vm.get_status_display()}")
+            click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
+            click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
+            click.echo(f"\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
+            click.echo("This action cannot be undone.\n")
+
+            confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
+            if confirm not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Delete VM
+        click.echo(f"\nDeleting VM '{vm_name}'...")
+
+        result = VMLifecycleManager.delete_vm(
+            vm_name=vm_name,
+            resource_group=rg,
+            force=True,
+            no_wait=False
+        )
+
+        if result.success:
+            click.echo(f"\nSuccess! {result.message}")
+            if result.resources_deleted:
+                click.echo("\nDeleted resources:")
+                for resource in result.resources_deleted:
+                    click.echo(f"  - {resource}")
+        else:
+            click.echo(f"\nError: {result.message}", err=True)
+            sys.exit(1)
+
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except VMLifecycleError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
 @main.command()
 @click.option('--resource-group', '--rg', help='Resource group', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
@@ -1260,6 +1431,91 @@ def ps(
 
 
 @main.command()
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--by-vm', is_flag=True, help='Show per-VM breakdown')
+@click.option('--from', 'from_date', help='Start date (YYYY-MM-DD)', type=str)
+@click.option('--to', 'to_date', help='End date (YYYY-MM-DD)', type=str)
+@click.option('--estimate', is_flag=True, help='Show monthly cost estimate')
+def cost(
+    resource_group: Optional[str],
+    config: Optional[str],
+    by_vm: bool,
+    from_date: Optional[str],
+    to_date: Optional[str],
+    estimate: bool
+):
+    """Show cost estimates for VMs.
+
+    Displays cost estimates based on VM size and uptime.
+    Costs are approximate based on Azure pay-as-you-go pricing.
+
+    \b
+    Examples:
+        azlin cost
+        azlin cost --by-vm
+        azlin cost --from 2025-01-01 --to 2025-01-31
+        azlin cost --estimate
+        azlin cost --rg my-resource-group --by-vm
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        # Parse dates if provided
+        start_date = None
+        end_date = None
+
+        if from_date:
+            try:
+                start_date = datetime.strptime(from_date, "%Y-%m-%d")
+            except ValueError:
+                click.echo(f"Error: Invalid from date format. Use YYYY-MM-DD", err=True)
+                sys.exit(1)
+
+        if to_date:
+            try:
+                end_date = datetime.strptime(to_date, "%Y-%m-%d")
+            except ValueError:
+                click.echo(f"Error: Invalid to date format. Use YYYY-MM-DD", err=True)
+                sys.exit(1)
+
+        # Get cost estimates
+        click.echo(f"Calculating costs for resource group: {rg}\n")
+
+        summary = CostTracker.estimate_costs(
+            resource_group=rg,
+            from_date=start_date,
+            to_date=end_date,
+            include_stopped=True
+        )
+
+        # Display formatted table
+        output = CostTracker.format_cost_table(summary, by_vm=by_vm)
+        click.echo(output)
+
+        # Show estimate if requested
+        if estimate and summary.running_vms > 0:
+            monthly = summary.get_monthly_estimate()
+            click.echo(f"Monthly estimate for running VMs: ${monthly:.2f}")
+            click.echo("")
+
+    except CostTrackerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
 @click.argument('vm_identifier', type=str)
 @click.option('--resource-group', '--rg', help='Resource group (required for VM name)', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
@@ -1359,6 +1615,184 @@ def connect(
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         logger.exception("Unexpected error in connect command")
+        sys.exit(1)
+
+
+@main.command()
+@click.argument('vm_name', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--deallocate/--no-deallocate', default=True, help='Deallocate to save costs (default: yes)')
+def stop(
+    vm_name: str,
+    resource_group: Optional[str],
+    config: Optional[str],
+    deallocate: bool
+):
+    """Stop or deallocate a VM.
+
+    Stopping a VM with --deallocate (default) fully releases compute resources
+    and stops billing for the VM (storage charges still apply).
+
+    \b
+    Examples:
+        azlin stop my-vm
+        azlin stop my-vm --rg my-resource-group
+        azlin stop my-vm --no-deallocate
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        click.echo(f"{'Deallocating' if deallocate else 'Stopping'} VM '{vm_name}'...")
+
+        result = VMLifecycleController.stop_vm(
+            vm_name=vm_name,
+            resource_group=rg,
+            deallocate=deallocate,
+            no_wait=False
+        )
+
+        if result.success:
+            click.echo(f"Success! {result.message}")
+            if result.cost_impact:
+                click.echo(f"Cost impact: {result.cost_impact}")
+        else:
+            click.echo(f"Error: {result.message}", err=True)
+            sys.exit(1)
+
+    except VMLifecycleControlError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.argument('vm_name', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def start(
+    vm_name: str,
+    resource_group: Optional[str],
+    config: Optional[str]
+):
+    """Start a stopped or deallocated VM.
+
+    \b
+    Examples:
+        azlin start my-vm
+        azlin start my-vm --rg my-resource-group
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        click.echo(f"Starting VM '{vm_name}'...")
+
+        result = VMLifecycleController.start_vm(
+            vm_name=vm_name,
+            resource_group=rg,
+            no_wait=False
+        )
+
+        if result.success:
+            click.echo(f"Success! {result.message}")
+            if result.cost_impact:
+                click.echo(f"Cost impact: {result.cost_impact}")
+        else:
+            click.echo(f"Error: {result.message}", err=True)
+            sys.exit(1)
+
+    except VMLifecycleControlError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--vm', help='Show status for specific VM only', type=str)
+def status(
+    resource_group: Optional[str],
+    config: Optional[str],
+    vm: Optional[str]
+):
+    """Show status of VMs in resource group.
+
+    Displays detailed status information including power state and IP addresses.
+
+    \b
+    Examples:
+        azlin status
+        azlin status --rg my-resource-group
+        azlin status --vm my-vm
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        # List VMs
+        vms = VMManager.list_vms(rg, include_stopped=True)
+
+        if vm:
+            # Filter to specific VM
+            vms = [v for v in vms if v.name == vm]
+            if not vms:
+                click.echo(f"Error: VM '{vm}' not found in resource group '{rg}'.", err=True)
+                sys.exit(1)
+        else:
+            # Filter to azlin VMs
+            vms = VMManager.filter_by_prefix(vms, "azlin")
+
+        vms = VMManager.sort_by_created_time(vms)
+
+        if not vms:
+            click.echo("No VMs found.")
+            return
+
+        # Display status table
+        click.echo(f"\nVM Status in resource group: {rg}")
+        click.echo("=" * 100)
+        click.echo(f"{'NAME':<35} {'POWER STATE':<18} {'IP':<16} {'REGION':<15} {'SIZE':<15}")
+        click.echo("=" * 100)
+
+        for v in vms:
+            power_state = v.power_state if v.power_state else "Unknown"
+            ip = v.public_ip or "N/A"
+            size = v.vm_size or "N/A"
+            location = v.location or "N/A"
+            click.echo(f"{v.name:<35} {power_state:<18} {ip:<16} {location:<15} {size:<15}")
+
+        click.echo("=" * 100)
+        click.echo(f"\nTotal: {len(vms)} VMs")
+
+        # Summary stats
+        running = sum(1 for v in vms if v.is_running())
+        stopped = len(vms) - running
+        click.echo(f"Running: {running}, Stopped/Deallocated: {stopped}\n")
+
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
 
 
