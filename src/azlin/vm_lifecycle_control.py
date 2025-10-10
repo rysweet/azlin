@@ -512,7 +512,7 @@ class VMLifecycleController:
 
     @classmethod
     def _get_vm_details(cls, vm_name: str, resource_group: str) -> Optional[dict]:
-        """Get VM details from Azure.
+        """Get VM details from Azure including instance view.
 
         Args:
             vm_name: VM name
@@ -522,8 +522,9 @@ class VMLifecycleController:
             VM details dictionary or None if not found
         """
         try:
+            # Use get-instance-view to include power state
             cmd = [
-                'az', 'vm', 'show',
+                'az', 'vm', 'get-instance-view',
                 '--name', vm_name,
                 '--resource-group', resource_group,
                 '--output', 'json'
@@ -587,16 +588,16 @@ class VMLifecycleController:
 
     @classmethod
     def _get_power_state(cls, vm_info: dict) -> str:
-        """Extract power state from VM info.
+        """Extract power state from VM instance view.
 
         Args:
-            vm_info: VM details dictionary
+            vm_info: VM instance view dictionary from get-instance-view
 
         Returns:
             Power state string (e.g., "VM running", "VM deallocated")
         """
-        instance_view = vm_info.get('instanceView', {})
-        statuses = instance_view.get('statuses', [])
+        # get-instance-view returns statuses at the root level
+        statuses = vm_info.get('statuses', [])
 
         for status in statuses:
             code = status.get('code', '')
