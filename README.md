@@ -73,6 +73,32 @@ Before using azlin, ensure these tools are installed:
 
 ## Quick Start
 
+### Option 1: Zero-Install with uvx (Recommended for Trying)
+
+Run azlin instantly without installation using [uvx](https://docs.astral.sh/uv/concepts/tools/):
+
+```bash
+# Run directly from GitHub (no installation needed)
+uvx --from git+https://github.com/rysweet/azlin azlin list
+
+# Provision a VM
+uvx --from git+https://github.com/rysweet/azlin azlin
+
+# Clone a repo on the VM
+uvx --from git+https://github.com/rysweet/azlin azlin --repo https://github.com/microsoft/vscode
+
+# Any azlin command works
+uvx --from git+https://github.com/rysweet/azlin azlin status
+```
+
+**Tip**: For shorter commands, set an alias:
+```bash
+alias azlin-git='uvx --from git+https://github.com/rysweet/azlin azlin'
+azlin-git list
+```
+
+### Option 2: Install with pip
+
 ```bash
 # Install azlin
 pip install azlin
