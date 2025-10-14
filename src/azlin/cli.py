@@ -27,13 +27,14 @@ from datetime import datetime
 
 from azlin import __version__
 from azlin.azure_auth import AzureAuthenticator, AuthenticationError
-from azlin.vm_provisioning import VMProvisioner, VMConfig, VMDetails, ProvisioningError
+from azlin.vm_provisioning import VMProvisioner, VMConfig, VMDetails, ProvisioningError, PoolProvisioningResult
 from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
 from azlin.modules.ssh_keys import SSHKeyManager, SSHKeyError
 from azlin.modules.ssh_connector import SSHConnector, SSHConfig, SSHConnectionError
 from azlin.modules.github_setup import GitHubSetupHandler, GitHubSetupError
 from azlin.modules.progress import ProgressDisplay, ProgressStage
 from azlin.modules.notifications import NotificationHandler
+from azlin.modules.home_sync import HomeSyncManager, HomeSyncError, SecurityValidationError, RsyncError
 
 # New modules for v2.0
 from azlin.config_manager import ConfigManager, AzlinConfig, ConfigError
@@ -41,6 +42,16 @@ from azlin.vm_manager import VMManager, VMInfo, VMManagerError
 from azlin.remote_exec import RemoteExecutor, WCommandExecutor, PSCommandExecutor, RemoteExecError
 from azlin.terminal_launcher import TerminalLauncher, TerminalConfig
 from azlin.vm_lifecycle import VMLifecycleManager, VMLifecycleError, DeletionSummary
+from azlin.vm_connector import VMConnector, VMConnectorError
+from azlin.cost_tracker import CostTracker, CostTrackerError
+from azlin.vm_lifecycle_control import VMLifecycleController, VMLifecycleControlError
+from azlin.modules.file_transfer import (
+    PathParser,
+    SessionManager,
+    FileTransfer,
+    TransferEndpoint,
+    FileTransferError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +169,11 @@ class CLIOrchestrator:
                 success=True,
                 message="All development tools installed"
             )
+
+            # STEP 5.5: Sync home directory (NEW)
+            self.progress.start_operation("Syncing home directory")
+            self._sync_home_directory(vm_details, ssh_key_pair.private_path)
+            self.progress.complete(success=True, message="Home directory synced")
 
             # STEP 6: GitHub setup (if repo provided)
             if self.repo:
@@ -394,6 +410,73 @@ class CLIOrchestrator:
             ProgressStage.WARNING
         )
 
+    def _sync_home_directory(self, vm_details: VMDetails, key_path: Path) -> None:
+        """Sync home directory to VM.
+
+        Args:
+            vm_details: VM details
+            key_path: SSH private key path
+
+        Note:
+            Sync failures are logged as warnings but don't block VM provisioning.
+        """
+        try:
+            # Create SSH config
+            ssh_config = SSHConfig(
+                host=vm_details.public_ip,
+                user="azureuser",
+                key_path=key_path
+            )
+
+            # Progress callback
+            def progress_callback(msg: str):
+                self.progress.update(msg, ProgressStage.IN_PROGRESS)
+
+            # Attempt sync
+            result = HomeSyncManager.sync_to_vm(
+                ssh_config,
+                dry_run=False,
+                progress_callback=progress_callback
+            )
+
+            if result.success:
+                if result.files_synced > 0:
+                    self.progress.update(
+                        f"Synced {result.files_synced} files "
+                        f"({result.bytes_transferred / 1024:.1f} KB) "
+                        f"in {result.duration_seconds:.1f}s"
+                    )
+                else:
+                    self.progress.update("No files to sync")
+            else:
+                # Log errors but don't fail
+                for error in result.errors:
+                    logger.warning(f"Sync error: {error}")
+
+        except SecurityValidationError as e:
+            # Don't fail VM provisioning, just warn
+            self.progress.update(
+                f"Home sync skipped: {e}",
+                ProgressStage.WARNING
+            )
+            logger.warning(f"Security validation failed: {e}")
+
+        except (RsyncError, HomeSyncError) as e:
+            # Don't fail VM provisioning, just warn
+            self.progress.update(
+                f"Home sync failed: {e}",
+                ProgressStage.WARNING
+            )
+            logger.warning(f"Home sync failed: {e}")
+
+        except Exception as e:
+            # Catch all other errors
+            self.progress.update(
+                "Home sync failed (unexpected error)",
+                ProgressStage.WARNING
+            )
+            logger.exception("Unexpected error during home sync")
+
     def _setup_github(self, vm_details: VMDetails, key_path: Path) -> None:
         """Setup GitHub on VM and clone repository.
 
@@ -538,6 +621,24 @@ class CLIOrchestrator:
             click.echo("="*60 + "\n")
 
 
+def _auto_sync_home_directory(ssh_config: SSHConfig) -> None:
+    """Auto-sync home directory before SSH connection (silent).
+
+    Args:
+        ssh_config: SSH configuration for target VM
+
+    Note:
+        Sync failures are silently ignored to not disrupt connection flow.
+    """
+    try:
+        result = HomeSyncManager.sync_to_vm(ssh_config, dry_run=False)
+        if result.success and result.files_synced > 0:
+            logger.info(f"Auto-synced {result.files_synced} files")
+    except Exception as e:
+        # Silent failure - log but don't interrupt connection
+        logger.debug(f"Auto-sync failed: {e}")
+
+
 def show_interactive_menu(
     vms: List[VMInfo],
     ssh_key_path: Path
@@ -572,6 +673,10 @@ def show_interactive_menu(
                 user="azureuser",
                 key_path=ssh_key_path
             )
+
+            # Sync home directory before connection (silent)
+            _auto_sync_home_directory(ssh_config)
+
             exit_code = SSHConnector.connect(
                 ssh_config,
                 tmux_session="azlin",
@@ -622,6 +727,10 @@ def show_interactive_menu(
                 user="azureuser",
                 key_path=ssh_key_path
             )
+
+            # Sync home directory before connection (silent)
+            _auto_sync_home_directory(ssh_config)
+
             exit_code = SSHConnector.connect(
                 ssh_config,
                 tmux_session="azlin",
@@ -818,11 +927,23 @@ def main(
     and executes commands remotely.
 
     \b
-    COMMANDS:
+    VM LIFECYCLE COMMANDS:
         list          List VMs in resource group
+        status        Show detailed status of VMs
+        start         Start a stopped VM
+        stop          Stop/deallocate a VM to save costs
+        connect       Connect to existing VM via SSH
+
+    \b
+    MONITORING COMMANDS:
         w             Run 'w' command on all VMs
         ps            Run 'ps aux' on all VMs
+        cost          Show cost estimates for VMs
+
+    \b
+    DELETION COMMANDS:
         kill          Delete a VM and all resources
+        destroy       Delete VM with dry-run and RG options
         killall       Delete all VMs in resource group
 
     \b
@@ -830,20 +951,26 @@ def main(
         # Interactive menu (if VMs exist) or provision new VM
         $ azlin
 
-        # List VMs in resource group
+        # List VMs and show status
         $ azlin list
+        $ azlin status
 
-        # Run 'w' on all VMs
+        # Start/stop VMs
+        $ azlin start my-vm
+        $ azlin stop my-vm
+
+        # View costs
+        $ azlin cost --by-vm
+        $ azlin cost --from 2025-01-01 --to 2025-01-31
+
+        # Run 'w' and 'ps' on all VMs
         $ azlin w
-
-        # Run 'ps aux' on all VMs
         $ azlin ps
 
-        # Delete a specific VM
+        # Delete VMs
         $ azlin kill azlin-vm-12345
-
-        # Delete all VMs in resource group
-        $ azlin killall
+        $ azlin destroy my-vm --dry-run
+        $ azlin destroy my-vm --delete-rg --force
 
         # Provision VM with custom name
         $ azlin --name my-dev-vm
@@ -1061,25 +1188,47 @@ def main(
                 )
                 configs.append(config)
 
-            # Provision VMs in parallel
+            # Provision VMs in parallel (returns PoolProvisioningResult)
             try:
-                vms_details = orchestrator.provisioner.provision_vm_pool(
+                result = orchestrator.provisioner.provision_vm_pool(
                     configs,
                     progress_callback=lambda msg: click.echo(f"  {msg}"),
                     max_workers=min(10, pool)
                 )
 
-                click.echo(f"\n✓ Successfully provisioned {len(vms_details)}/{pool} VMs")
-                click.echo("\nProvisioned VMs:")
-                click.echo("=" * 80)
-                for vm in vms_details:
-                    click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
-                click.echo("=" * 80)
+                # Display results
+                click.echo(f"\n{result.get_summary()}")
 
-                sys.exit(0)
+                if result.successful:
+                    click.echo("\nSuccessfully Provisioned VMs:")
+                    click.echo("=" * 80)
+                    for vm in result.successful:
+                        click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
+                    click.echo("=" * 80)
 
+                if result.failed:
+                    click.echo("\nFailed VMs:")
+                    click.echo("=" * 80)
+                    for failure in result.failed:
+                        click.echo(f"  {failure.config.name:<30} {failure.error_type:<20} {failure.error[:40]}")
+                    click.echo("=" * 80)
+
+                if result.rg_failures:
+                    click.echo("\nResource Group Failures:")
+                    for rg_fail in result.rg_failures:
+                        click.echo(f"  {rg_fail.rg_name}: {rg_fail.error}")
+
+                # Exit with success if any VMs succeeded
+                if result.any_succeeded:
+                    sys.exit(0)
+                else:
+                    sys.exit(1)
+
+            except ProvisioningError as e:
+                click.echo(f"\nPool provisioning failed completely: {e}", err=True)
+                sys.exit(1)
             except Exception as e:
-                click.echo(f"\nPool provisioning failed: {e}", err=True)
+                click.echo(f"\nUnexpected error: {e}", err=True)
                 sys.exit(1)
 
         exit_code = orchestrator.run()
@@ -1240,6 +1389,158 @@ def kill(
             sys.exit(1)
 
         # Validate VM exists
+        vm = VMManager.get_vm(vm_name, rg)
+
+        if not vm:
+            click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
+            sys.exit(1)
+
+        # Show confirmation prompt unless --force
+        if not force:
+            click.echo(f"\nVM Details:")
+            click.echo(f"  Name:           {vm.name}")
+            click.echo(f"  Resource Group: {vm.resource_group}")
+            click.echo(f"  Status:         {vm.get_status_display()}")
+            click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
+            click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
+            click.echo(f"\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
+            click.echo("This action cannot be undone.\n")
+
+            confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
+            if confirm not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Delete VM
+        click.echo(f"\nDeleting VM '{vm_name}'...")
+
+        result = VMLifecycleManager.delete_vm(
+            vm_name=vm_name,
+            resource_group=rg,
+            force=True,
+            no_wait=False
+        )
+
+        if result.success:
+            click.echo(f"\nSuccess! {result.message}")
+            if result.resources_deleted:
+                click.echo("\nDeleted resources:")
+                for resource in result.resources_deleted:
+                    click.echo(f"  - {resource}")
+        else:
+            click.echo(f"\nError: {result.message}", err=True)
+            sys.exit(1)
+
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except VMLifecycleError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command(name='destroy')
+@click.argument('vm_name', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+@click.option('--dry-run', is_flag=True, help='Show what would be deleted without actually deleting')
+@click.option('--delete-rg', is_flag=True, help='Delete the entire resource group (use with caution)')
+def destroy(
+    vm_name: str,
+    resource_group: Optional[str],
+    config: Optional[str],
+    force: bool,
+    dry_run: bool,
+    delete_rg: bool
+):
+    """Destroy a VM and optionally the entire resource group.
+
+    This is an alias for the 'kill' command with additional options.
+    Deletes the VM, NICs, disks, and public IPs.
+
+    \b
+    Examples:
+        azlin destroy azlin-vm-12345
+        azlin destroy my-vm --dry-run
+        azlin destroy my-vm --delete-rg --force
+        azlin destroy my-vm --rg my-resource-group
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        # Handle --delete-rg option
+        if delete_rg:
+            if dry_run:
+                click.echo(f"\n[DRY RUN] Would delete entire resource group: {rg}")
+                click.echo(f"This would delete ALL resources in the group, not just '{vm_name}'")
+                return
+
+            # Show warning and confirmation
+            if not force:
+                click.echo(f"\nWARNING: You are about to delete the ENTIRE resource group: {rg}")
+                click.echo(f"This will delete ALL resources in the group, not just the VM '{vm_name}'!")
+                click.echo("\nThis action cannot be undone.\n")
+
+                confirm = input("Type the resource group name to confirm deletion: ").strip()
+                if confirm != rg:
+                    click.echo("Cancelled. Resource group name did not match.")
+                    return
+
+            click.echo(f"\nDeleting resource group '{rg}'...")
+
+            # Use Azure CLI to delete resource group
+            import subprocess
+            cmd = ['az', 'group', 'delete', '--name', rg, '--yes']
+
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                    check=True
+                )
+                click.echo(f"\nSuccess! Resource group '{rg}' and all resources deleted.")
+                return
+            except subprocess.CalledProcessError as e:
+                click.echo(f"\nError deleting resource group: {e.stderr}", err=True)
+                sys.exit(1)
+            except subprocess.TimeoutExpired:
+                click.echo("\nError: Resource group deletion timed out.", err=True)
+                sys.exit(1)
+
+        # Handle dry-run for single VM
+        if dry_run:
+            vm = VMManager.get_vm(vm_name, rg)
+            if not vm:
+                click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
+                sys.exit(1)
+
+            click.echo(f"\n[DRY RUN] Would delete VM: {vm_name}")
+            click.echo(f"  Resource Group: {rg}")
+            click.echo(f"  Status:         {vm.get_status_display()}")
+            click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
+            click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
+            click.echo("\nResources that would be deleted:")
+            click.echo(f"  - VM: {vm_name}")
+            click.echo(f"  - Associated NICs")
+            click.echo(f"  - Associated disks")
+            click.echo(f"  - Associated public IPs")
+            return
+
+        # Normal deletion (same as kill command)
         vm = VMManager.get_vm(vm_name, rg)
 
         if not vm:
@@ -1478,6 +1779,656 @@ def ps(
         sys.exit(1)
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--by-vm', is_flag=True, help='Show per-VM breakdown')
+@click.option('--from', 'from_date', help='Start date (YYYY-MM-DD)', type=str)
+@click.option('--to', 'to_date', help='End date (YYYY-MM-DD)', type=str)
+@click.option('--estimate', is_flag=True, help='Show monthly cost estimate')
+def cost(
+    resource_group: Optional[str],
+    config: Optional[str],
+    by_vm: bool,
+    from_date: Optional[str],
+    to_date: Optional[str],
+    estimate: bool
+):
+    """Show cost estimates for VMs.
+
+    Displays cost estimates based on VM size and uptime.
+    Costs are approximate based on Azure pay-as-you-go pricing.
+
+    \b
+    Examples:
+        azlin cost
+        azlin cost --by-vm
+        azlin cost --from 2025-01-01 --to 2025-01-31
+        azlin cost --estimate
+        azlin cost --rg my-resource-group --by-vm
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        # Parse dates if provided
+        start_date = None
+        end_date = None
+
+        if from_date:
+            try:
+                start_date = datetime.strptime(from_date, "%Y-%m-%d")
+            except ValueError:
+                click.echo(f"Error: Invalid from date format. Use YYYY-MM-DD", err=True)
+                sys.exit(1)
+
+        if to_date:
+            try:
+                end_date = datetime.strptime(to_date, "%Y-%m-%d")
+            except ValueError:
+                click.echo(f"Error: Invalid to date format. Use YYYY-MM-DD", err=True)
+                sys.exit(1)
+
+        # Get cost estimates
+        click.echo(f"Calculating costs for resource group: {rg}\n")
+
+        summary = CostTracker.estimate_costs(
+            resource_group=rg,
+            from_date=start_date,
+            to_date=end_date,
+            include_stopped=True
+        )
+
+        # Display formatted table
+        output = CostTracker.format_cost_table(summary, by_vm=by_vm)
+        click.echo(output)
+
+        # Show estimate if requested
+        if estimate and summary.running_vms > 0:
+            monthly = summary.get_monthly_estimate()
+            click.echo(f"Monthly estimate for running VMs: ${monthly:.2f}")
+            click.echo("")
+
+    except CostTrackerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.argument('vm_identifier', type=str)
+@click.option('--resource-group', '--rg', help='Resource group (required for VM name)', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--no-tmux', is_flag=True, help='Skip tmux session')
+@click.option('--tmux-session', help='Tmux session name (default: vm_identifier)', type=str)
+@click.option('--user', default='azureuser', help='SSH username (default: azureuser)', type=str)
+@click.option('--key', help='SSH private key path', type=click.Path(exists=True))
+@click.argument('remote_command', nargs=-1, type=str)
+def connect(
+    vm_identifier: str,
+    resource_group: Optional[str],
+    config: Optional[str],
+    no_tmux: bool,
+    tmux_session: Optional[str],
+    user: str,
+    key: Optional[str],
+    remote_command: tuple
+):
+    """Connect to existing VM via SSH.
+
+    VM_IDENTIFIER can be either:
+    - VM name (requires --resource-group or default config)
+    - IP address (direct connection)
+
+    Use -- to separate remote command from options.
+
+    \b
+    Examples:
+        # Connect to VM by name
+        azlin connect my-vm
+
+        # Connect to VM by name with explicit resource group
+        azlin connect my-vm --rg my-resource-group
+
+        # Connect by IP address
+        azlin connect 20.1.2.3
+
+        # Connect without tmux
+        azlin connect my-vm --no-tmux
+
+        # Connect with custom tmux session name
+        azlin connect my-vm --tmux-session dev
+
+        # Connect and run command
+        azlin connect my-vm -- ls -la
+
+        # Connect with custom SSH user
+        azlin connect my-vm --user myuser
+
+        # Connect with custom SSH key
+        azlin connect my-vm --key ~/.ssh/custom_key
+    """
+    try:
+        # Parse remote command
+        command = ' '.join(remote_command) if remote_command else None
+
+        # Convert key path to Path object
+        key_path = Path(key).expanduser() if key else None
+
+        # Get resource group from config if not specified
+        if not VMConnector._is_valid_ip(vm_identifier):
+            rg = ConfigManager.get_resource_group(resource_group, config)
+            if not rg:
+                click.echo(
+                    "Error: Resource group required for VM name.\n"
+                    "Use --resource-group or set default in ~/.azlin/config.toml",
+                    err=True
+                )
+                sys.exit(1)
+        else:
+            rg = resource_group
+
+        # Connect to VM
+        click.echo(f"Connecting to {vm_identifier}...")
+
+        success = VMConnector.connect(
+            vm_identifier=vm_identifier,
+            resource_group=rg,
+            use_tmux=not no_tmux,
+            tmux_session=tmux_session,
+            remote_command=command,
+            ssh_user=user,
+            ssh_key_path=key_path
+        )
+
+        sys.exit(0 if success else 1)
+
+    except VMConnectorError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.exception("Unexpected error in connect command")
+        sys.exit(1)
+
+
+@main.command()
+@click.argument('vm_name', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--deallocate/--no-deallocate', default=True, help='Deallocate to save costs (default: yes)')
+def stop(
+    vm_name: str,
+    resource_group: Optional[str],
+    config: Optional[str],
+    deallocate: bool
+):
+    """Stop or deallocate a VM.
+
+    Stopping a VM with --deallocate (default) fully releases compute resources
+    and stops billing for the VM (storage charges still apply).
+
+    \b
+    Examples:
+        azlin stop my-vm
+        azlin stop my-vm --rg my-resource-group
+        azlin stop my-vm --no-deallocate
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        click.echo(f"{'Deallocating' if deallocate else 'Stopping'} VM '{vm_name}'...")
+
+        result = VMLifecycleController.stop_vm(
+            vm_name=vm_name,
+            resource_group=rg,
+            deallocate=deallocate,
+            no_wait=False
+        )
+
+        if result.success:
+            click.echo(f"Success! {result.message}")
+            if result.cost_impact:
+                click.echo(f"Cost impact: {result.cost_impact}")
+        else:
+            click.echo(f"Error: {result.message}", err=True)
+            sys.exit(1)
+
+    except VMLifecycleControlError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.argument('vm_name', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def start(
+    vm_name: str,
+    resource_group: Optional[str],
+    config: Optional[str]
+):
+    """Start a stopped or deallocated VM.
+
+    \b
+    Examples:
+        azlin start my-vm
+        azlin start my-vm --rg my-resource-group
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        click.echo(f"Starting VM '{vm_name}'...")
+
+        result = VMLifecycleController.start_vm(
+            vm_name=vm_name,
+            resource_group=rg,
+            no_wait=False
+        )
+
+        if result.success:
+            click.echo(f"Success! {result.message}")
+            if result.cost_impact:
+                click.echo(f"Cost impact: {result.cost_impact}")
+        else:
+            click.echo(f"Error: {result.message}", err=True)
+            sys.exit(1)
+
+    except VMLifecycleControlError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.option('--vm-name', help='VM name to sync to', type=str)
+@click.option('--dry-run', help='Show what would be synced', is_flag=True)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def sync(
+    vm_name: Optional[str],
+    dry_run: bool,
+    resource_group: Optional[str],
+    config: Optional[str]
+):
+    """Sync ~/.azlin/home/ to VM home directory.
+
+    Syncs local configuration files to remote VM for consistent
+    development environment.
+
+    \b
+    Examples:
+        azlin sync                    # Interactive VM selection
+        azlin sync --vm-name myvm     # Sync to specific VM
+        azlin sync --dry-run          # Show what would be synced
+    """
+    try:
+        # Get SSH key
+        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        # Get VM
+        if vm_name:
+            # Sync to specific VM
+            if not rg:
+                click.echo("Error: Resource group required for VM name.", err=True)
+                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+                sys.exit(1)
+
+            vm = VMManager.get_vm(vm_name, rg)
+            if not vm:
+                click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
+                sys.exit(1)
+
+            if not vm.is_running():
+                click.echo(f"Error: VM '{vm_name}' is not running.", err=True)
+                sys.exit(1)
+
+            if not vm.public_ip:
+                click.echo(f"Error: VM '{vm_name}' has no public IP.", err=True)
+                sys.exit(1)
+
+            selected_vm = vm
+        else:
+            # Interactive selection
+            if not rg:
+                click.echo("Error: No resource group specified.", err=True)
+                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+                sys.exit(1)
+
+            vms = VMManager.list_vms(rg, include_stopped=False)
+            vms = VMManager.filter_by_prefix(vms, "azlin")
+            vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+
+            if not vms:
+                click.echo("No running VMs found.")
+                sys.exit(1)
+
+            if len(vms) == 1:
+                selected_vm = vms[0]
+                click.echo(f"Auto-selecting VM: {selected_vm.name}")
+            else:
+                # Show menu
+                click.echo("\nSelect VM to sync to:")
+                for idx, vm in enumerate(vms, 1):
+                    click.echo(f"  {idx}. {vm.name} - {vm.public_ip}")
+
+                choice = input("\nSelect VM (number): ").strip()
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(vms):
+                        selected_vm = vms[idx]
+                    else:
+                        click.echo("Invalid selection", err=True)
+                        sys.exit(1)
+                except ValueError:
+                    click.echo("Invalid input", err=True)
+                    sys.exit(1)
+
+        # Create SSH config
+        ssh_config = SSHConfig(
+            host=selected_vm.public_ip,
+            user="azureuser",
+            key_path=ssh_key_pair.private_path
+        )
+
+        # Sync
+        click.echo(f"\nSyncing to {selected_vm.name} ({selected_vm.public_ip})...")
+
+        def progress_callback(msg: str):
+            click.echo(f"  {msg}")
+
+        result = HomeSyncManager.sync_to_vm(
+            ssh_config,
+            dry_run=dry_run,
+            progress_callback=progress_callback
+        )
+
+        if result.success:
+            click.echo(f"\nSuccess! Synced {result.files_synced} files "
+                      f"({result.bytes_transferred / 1024:.1f} KB) "
+                      f"in {result.duration_seconds:.1f}s")
+        else:
+            click.echo("\nSync completed with errors:", err=True)
+            for error in result.errors:
+                click.echo(f"  - {error}", err=True)
+            sys.exit(1)
+
+    except SecurityValidationError as e:
+        click.echo(f"\nSecurity validation failed:", err=True)
+        click.echo(str(e), err=True)
+        click.echo("\nRemove sensitive files from ~/.azlin/home/ and try again.", err=True)
+        sys.exit(1)
+
+    except (RsyncError, HomeSyncError) as e:
+        click.echo(f"\nSync failed: {e}", err=True)
+        sys.exit(1)
+
+    except (VMManagerError, ConfigError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.exception("Unexpected error in sync command")
+        sys.exit(1)
+
+
+@main.command()
+@click.argument('source')
+@click.argument('destination')
+@click.option('--dry-run', is_flag=True, help='Show what would be transferred')
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def cp(
+    source: str,
+    destination: str,
+    dry_run: bool,
+    resource_group: Optional[str],
+    config: Optional[str]
+):
+    """Copy files between local machine and VMs.
+
+    Supports bidirectional file transfer with security-hardened path validation.
+
+    Arguments support session:path notation:
+    - Local path: myfile.txt
+    - Remote path: vm1:~/myfile.txt
+
+    \b
+    Examples:
+        azlin cp myfile.txt vm1:~/          # Local to remote
+        azlin cp vm1:~/data.txt ./          # Remote to local
+        azlin cp vm1:~/src vm2:~/dest       # Remote to remote (not supported)
+        azlin cp --dry-run test.txt vm1:~/  # Show transfer plan
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        # Get SSH key
+        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+        # Parse source
+        source_session_name, source_path_str = SessionManager.parse_session_path(source)
+
+        if source_session_name is None:
+            # Local source
+            source_path = PathParser.parse_and_validate(source_path_str, allow_absolute=False)
+            source_endpoint = TransferEndpoint(path=source_path, session=None)
+        else:
+            # Remote source
+            if not rg:
+                click.echo("Error: Resource group required for remote sessions.", err=True)
+                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+                sys.exit(1)
+
+            vm_session = SessionManager.get_vm_session(
+                source_session_name,
+                VMManager,
+                ConfigManager
+            )
+
+            # Parse remote path (allow relative to home)
+            source_path = PathParser.parse_and_validate(
+                source_path_str,
+                allow_absolute=True,
+                base_dir=Path("/home") / vm_session.user
+            )
+
+            source_endpoint = TransferEndpoint(path=source_path, session=vm_session)
+
+        # Parse destination
+        dest_session_name, dest_path_str = SessionManager.parse_session_path(destination)
+
+        if dest_session_name is None:
+            # Local destination
+            dest_path = PathParser.parse_and_validate(dest_path_str, allow_absolute=False)
+            dest_endpoint = TransferEndpoint(path=dest_path, session=None)
+        else:
+            # Remote destination
+            if not rg:
+                click.echo("Error: Resource group required for remote sessions.", err=True)
+                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+                sys.exit(1)
+
+            vm_session = SessionManager.get_vm_session(
+                dest_session_name,
+                VMManager,
+                ConfigManager
+            )
+
+            # Parse remote path (allow relative to home)
+            dest_path = PathParser.parse_and_validate(
+                dest_path_str,
+                allow_absolute=True,
+                base_dir=Path("/home") / vm_session.user
+            )
+
+            dest_endpoint = TransferEndpoint(path=dest_path, session=vm_session)
+
+        # Display transfer plan
+        click.echo("\nTransfer Plan:")
+        if source_endpoint.session is None:
+            click.echo(f"  Source: {source_endpoint.path} (local)")
+        else:
+            click.echo(f"  Source: {source_endpoint.session.name}:{source_endpoint.path}")
+
+        if dest_endpoint.session is None:
+            click.echo(f"  Dest:   {dest_endpoint.path} (local)")
+        else:
+            click.echo(f"  Dest:   {dest_endpoint.session.name}:{dest_endpoint.path}")
+
+        click.echo()
+
+        if dry_run:
+            click.echo("Dry run - no files transferred")
+            return
+
+        # Execute transfer
+        result = FileTransfer.transfer(source_endpoint, dest_endpoint)
+
+        if result.success:
+            click.echo(
+                f"Success! Transferred {result.files_transferred} files "
+                f"({result.bytes_transferred / 1024:.1f} KB) "
+                f"in {result.duration_seconds:.1f}s"
+            )
+        else:
+            click.echo("Transfer failed:", err=True)
+            for error in result.errors:
+                click.echo(f"  {error}", err=True)
+            sys.exit(1)
+
+    except FileTransferError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.exception("Unexpected error in cp command")
+        sys.exit(1)
+
+
+@main.command()
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--vm', help='Show status for specific VM only', type=str)
+def status(
+    resource_group: Optional[str],
+    config: Optional[str],
+    vm: Optional[str]
+):
+    """Show status of VMs in resource group.
+
+    Displays detailed status information including power state and IP addresses.
+
+    \b
+    Examples:
+        azlin status
+        azlin status --rg my-resource-group
+        azlin status --vm my-vm
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        # List VMs
+        vms = VMManager.list_vms(rg, include_stopped=True)
+
+        if vm:
+            # Filter to specific VM
+            vms = [v for v in vms if v.name == vm]
+            if not vms:
+                click.echo(f"Error: VM '{vm}' not found in resource group '{rg}'.", err=True)
+                sys.exit(1)
+        else:
+            # Filter to azlin VMs
+            vms = VMManager.filter_by_prefix(vms, "azlin")
+
+        vms = VMManager.sort_by_created_time(vms)
+
+        if not vms:
+            click.echo("No VMs found.")
+            return
+
+        # Display status table
+        click.echo(f"\nVM Status in resource group: {rg}")
+        click.echo("=" * 100)
+        click.echo(f"{'NAME':<35} {'POWER STATE':<18} {'IP':<16} {'REGION':<15} {'SIZE':<15}")
+        click.echo("=" * 100)
+
+        for v in vms:
+            power_state = v.power_state if v.power_state else "Unknown"
+            ip = v.public_ip or "N/A"
+            size = v.vm_size or "N/A"
+            location = v.location or "N/A"
+            click.echo(f"{v.name:<35} {power_state:<18} {ip:<16} {location:<15} {size:<15}")
+
+        click.echo("=" * 100)
+        click.echo(f"\nTotal: {len(vms)} VMs")
+
+        # Summary stats
+        running = sum(1 for v in vms if v.is_running())
+        stopped = len(vms) - running
+        click.echo(f"Running: {running}, Stopped/Deallocated: {stopped}\n")
+
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
 
 

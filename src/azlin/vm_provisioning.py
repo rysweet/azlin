@@ -13,8 +13,9 @@ Security:
 import json
 import logging
 import subprocess
+import threading
 from dataclasses import dataclass
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, Dict, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,154 @@ class VMDetails:
     private_ip: Optional[str] = None
     state: str = "Unknown"
     id: Optional[str] = None
+
+
+@dataclass
+class ProvisioningFailure:
+    """Details of a failed VM provisioning."""
+    config: VMConfig
+    error: str
+    error_type: str  # 'sku_unavailable', 'timeout', 'auth', 'unknown'
+
+
+@dataclass
+class ResourceGroupFailure:
+    """Details of a failed RG creation."""
+    rg_name: str
+    location: str
+    error: str
+
+
+@dataclass
+class PoolProvisioningResult:
+    """Result of pool provisioning operation.
+
+    Supports partial success scenarios where some VMs provision
+    successfully while others fail.
+
+    Attributes:
+        total_requested: Number of VMs requested
+        successful: List of successfully provisioned VMs
+        failed: List of failures with error details
+        rg_failures: Resource group creation failures
+    """
+    total_requested: int
+    successful: List[VMDetails]
+    failed: List[ProvisioningFailure]
+    rg_failures: List[ResourceGroupFailure]
+
+    @property
+    def success_count(self) -> int:
+        """Number of successfully provisioned VMs."""
+        return len(self.successful)
+
+    @property
+    def failure_count(self) -> int:
+        """Number of failed VM provisions."""
+        return len(self.failed)
+
+    @property
+    def all_succeeded(self) -> bool:
+        """True if all VMs provisioned successfully."""
+        return self.failure_count == 0 and len(self.rg_failures) == 0
+
+    @property
+    def any_succeeded(self) -> bool:
+        """True if at least one VM provisioned successfully."""
+        return self.success_count > 0
+
+    @property
+    def partial_success(self) -> bool:
+        """True if some but not all VMs succeeded."""
+        return self.any_succeeded and not self.all_succeeded
+
+    def get_summary(self) -> str:
+        """Get human-readable summary."""
+        rg_msg = f", {len(self.rg_failures)} RG failures" if self.rg_failures else ""
+        return (
+            f"Pool: {self.success_count}/{self.total_requested} succeeded, "
+            f"{self.failure_count} failed{rg_msg}"
+        )
+
+
+class ThreadSafeProgressReporter:
+    """Thread-safe progress message coordinator."""
+
+    def __init__(self, callback: Optional[Callable[[str], None]] = None):
+        """Initialize progress reporter.
+
+        Args:
+            callback: Optional callback function for progress updates
+        """
+        self._callback = callback
+        self._lock = threading.Lock()
+
+    def report(self, message: str):
+        """Report progress message (thread-safe).
+
+        Args:
+            message: Progress message to report
+        """
+        with self._lock:
+            if self._callback:
+                self._callback(message)
+            logger.info(message)
+
+
+class ResourceGroupManager:
+    """Thread-safe resource group creation coordinator.
+
+    Ensures only one thread creates each resource group,
+    while allowing parallel creation of different RGs.
+    """
+
+    def __init__(self):
+        """Initialize RG manager."""
+        self._rg_locks: Dict[str, threading.Lock] = {}
+        self._manager_lock = threading.Lock()
+        self._created_rgs: Set[str] = set()
+
+    def ensure_resource_group(
+        self,
+        rg_name: str,
+        location: str,
+        provisioner: 'VMProvisioner'
+    ) -> bool:
+        """Ensure resource group exists (thread-safe).
+
+        Uses per-RG locking to prevent race conditions.
+        Multiple threads for same RG serialize on the RG lock.
+        Different RGs can be created in parallel.
+
+        Args:
+            rg_name: Resource group name
+            location: Azure region
+            provisioner: VMProvisioner instance to use
+
+        Returns:
+            True if RG exists or was created successfully
+
+        Raises:
+            ProvisioningError: If RG creation fails
+        """
+        # Get or create lock for this specific RG
+        with self._manager_lock:
+            if rg_name not in self._rg_locks:
+                self._rg_locks[rg_name] = threading.Lock()
+            rg_lock = self._rg_locks[rg_name]
+
+        # Acquire RG-specific lock (only one thread per RG)
+        with rg_lock:
+            # Check if already created in this session
+            if rg_name in self._created_rgs:
+                logger.debug(f"RG {rg_name} already created in this session")
+                return True
+
+            # Create RG (only one thread per RG gets here)
+            logger.info(f"Creating resource group: {rg_name}")
+            result = provisioner.create_resource_group(rg_name, location)
+            self._created_rgs.add(rg_name)
+            return result
 
 
 class VMProvisioner:
@@ -410,6 +559,30 @@ runcmd:
 final_message: "azlin VM provisioning complete. All dev tools installed."
 """
 
+    def _create_retry_config(self, original: VMConfig, new_region: str) -> VMConfig:
+        """Create new config for retry with different region.
+
+        Does NOT mutate the original config - creates a new instance.
+        This is critical for thread safety in pool provisioning.
+
+        Args:
+            original: Original VM configuration
+            new_region: Region to try
+
+        Returns:
+            New VMConfig instance with updated region
+        """
+        return VMConfig(
+            name=original.name,
+            resource_group=original.resource_group,
+            location=new_region,
+            size=original.size,
+            image=original.image,
+            ssh_public_key=original.ssh_public_key,
+            admin_username=original.admin_username,
+            disable_password_auth=original.disable_password_auth
+        )
+
     def provision_vm(
         self,
         config: VMConfig,
@@ -420,8 +593,11 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
         Uses smart retry logic: tries the requested region first, then falls back
         to alternative regions if SKU is unavailable.
 
+        THREAD-SAFE: Does NOT mutate the input config. Each retry creates
+        a new config instance, making it safe for concurrent use.
+
         Args:
-            config: VM configuration
+            config: VM configuration (will not be modified)
             progress_callback: Optional callback for progress updates
 
         Returns:
@@ -446,15 +622,17 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
         # Try each region until one succeeds
         for attempt, region in enumerate(regions_to_try):
             try:
+                # Create retry config (immutable approach)
                 if attempt > 0:
                     report_progress(
                         f"Retrying in {region} (attempt {attempt + 1}/{len(regions_to_try)})..."
                     )
-                    # Update config for retry
-                    config.location = region
+                    retry_config = self._create_retry_config(config, region)
+                else:
+                    retry_config = config
 
-                # Attempt provisioning
-                return self._try_provision_vm(config, progress_callback)
+                # Attempt provisioning with retry config
+                return self._try_provision_vm(retry_config, progress_callback)
 
             except subprocess.TimeoutExpired:
                 raise ProvisioningError("VM provisioning timed out after 10 minutes")
@@ -488,45 +666,68 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
         configs: List[VMConfig],
         progress_callback: Optional[Callable[[str], None]] = None,
         max_workers: int = 10
-    ) -> List[VMDetails]:
-        """Provision multiple VMs in parallel.
+    ) -> PoolProvisioningResult:
+        """Provision multiple VMs in parallel (thread-safe).
+
+        THREAD-SAFE: Uses thread-safe RG creation and progress reporting.
+        Does not mutate input configs.
+
+        Supports partial success - returns detailed results even if some VMs fail.
 
         Args:
-            configs: List of VM configurations
+            configs: List of VM configurations (will not be modified)
             progress_callback: Optional callback for progress updates
             max_workers: Maximum parallel workers
 
         Returns:
-            List of VMDetails for successfully provisioned VMs
+            PoolProvisioningResult with success/failure details
 
         Raises:
-            ProvisioningError: If all provisioning attempts fail
+            ProvisioningError: Only if ALL provisioning attempts fail
         """
-        def report_progress(msg: str):
-            if progress_callback:
-                progress_callback(msg)
-            logger.info(msg)
-
         if not configs:
-            return []
+            return PoolProvisioningResult(
+                total_requested=0,
+                successful=[],
+                failed=[],
+                rg_failures=[]
+            )
 
-        # Create resource groups first (they may be shared)
+        # Thread-safe progress reporter
+        progress = ThreadSafeProgressReporter(progress_callback)
+
+        # Thread-safe RG manager
+        rg_manager = ResourceGroupManager()
+
+        # Create resource groups first (thread-safe, deduplicated)
         unique_rgs = {(config.resource_group, config.location) for config in configs}
+        rg_failures = []
+
+        progress.report(f"Creating {len(unique_rgs)} unique resource group(s)...")
         for rg, location in unique_rgs:
             try:
-                self.create_resource_group(rg, location)
+                rg_manager.ensure_resource_group(rg, location, self)
+                progress.report(f"Resource group ready: {rg}")
             except ProvisioningError as e:
-                logger.warning(f"Resource group creation failed: {e}")
+                error = ResourceGroupFailure(
+                    rg_name=rg,
+                    location=location,
+                    error=str(e)
+                )
+                rg_failures.append(error)
+                logger.error(f"Resource group creation failed: {rg} - {e}")
 
-        report_progress(f"Provisioning {len(configs)} VMs in parallel with {max_workers} workers...")
+        progress.report(
+            f"Provisioning {len(configs)} VMs in parallel with {max_workers} workers..."
+        )
 
-        results = []
-        errors = []
+        successful = []
+        failed = []
 
         num_workers = min(max_workers, len(configs))
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # Submit all provisioning tasks
+            # Submit all provisioning tasks (pass None for callback - we use thread-safe reporter)
             future_to_config = {
                 executor.submit(self.provision_vm, config, None): config
                 for config in configs
@@ -537,22 +738,65 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                 config = future_to_config[future]
                 try:
                     vm_details = future.result()
-                    results.append(vm_details)
-                    report_progress(f"✓ {config.name} provisioned: {vm_details.public_ip}")
-                except Exception as e:
-                    error_msg = f"✗ {config.name} failed: {str(e)}"
-                    errors.append(error_msg)
-                    report_progress(error_msg)
+                    successful.append(vm_details)
+                    progress.report(f"✓ {config.name} provisioned: {vm_details.public_ip}")
 
-        # If all failed, raise error
-        if not results and errors:
+                except subprocess.TimeoutExpired:
+                    failure = ProvisioningFailure(
+                        config=config,
+                        error="Provisioning timed out after 10 minutes",
+                        error_type='timeout'
+                    )
+                    failed.append(failure)
+                    progress.report(f"✗ {config.name} failed: timeout")
+
+                except ProvisioningError as e:
+                    error_msg = str(e)
+                    error_type = 'sku_unavailable' if 'not available' in error_msg.lower() else 'unknown'
+                    failure = ProvisioningFailure(
+                        config=config,
+                        error=error_msg,
+                        error_type=error_type
+                    )
+                    failed.append(failure)
+                    progress.report(f"✗ {config.name} failed: {error_msg}")
+
+                except Exception as e:
+                    failure = ProvisioningFailure(
+                        config=config,
+                        error=str(e),
+                        error_type='unknown'
+                    )
+                    failed.append(failure)
+                    progress.report(f"✗ {config.name} failed: {str(e)}")
+
+        # Build result
+        result = PoolProvisioningResult(
+            total_requested=len(configs),
+            successful=successful,
+            failed=failed,
+            rg_failures=rg_failures
+        )
+
+        progress.report(result.get_summary())
+
+        # Only raise if ALL failed
+        if not result.any_succeeded:
+            error_details = [f.error for f in failed[:3]]  # First 3 errors
             raise ProvisioningError(
-                f"All VM provisioning failed. Errors: {'; '.join(errors)}"
+                f"All {len(configs)} VM provisioning attempts failed. "
+                f"Sample errors: {'; '.join(error_details)}"
             )
 
-        report_progress(f"Pool provisioning complete: {len(results)}/{len(configs)} successful")
-
-        return results
+        return result
 
 
-__all__ = ['VMProvisioner', 'VMConfig', 'VMDetails', 'ProvisioningError']
+__all__ = [
+    'VMProvisioner',
+    'VMConfig',
+    'VMDetails',
+    'ProvisioningError',
+    'PoolProvisioningResult',
+    'ProvisioningFailure',
+    'ResourceGroupFailure'
+]

@@ -516,13 +516,8 @@ tramp
 # ============================================
 # RUNTIME AND TEMPORARY FILES
 # ============================================
-# Claude Code traces (keep structure, ignore content)
-.claude-trace/*.json
-.claude-trace/*.jsonl
-.claude-trace/*.html
-.claude-trace/**/*.json
-.claude-trace/**/*.jsonl
-.claude-trace/**/*.html
+# Claude Code traces (keep structure, ignore all files)
+.claude-trace/*
 
 # Claude Code runtime metrics and logs
 .claude/runtime/metrics/*.jsonl
