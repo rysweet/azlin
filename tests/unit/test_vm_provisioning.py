@@ -394,3 +394,119 @@ class TestVMStateManagement:
 
             ip_address = provisioner.get_ip_address()
             assert ip_address == '20.123.45.67'
+
+
+# ============================================================================
+# AI CLI TOOLS INSTALLATION TESTS (TDD - RED PHASE)
+# ============================================================================
+
+class TestAICLIToolsInstallation:
+    """Test AI CLI tools installation in cloud-init.
+    
+    Issue #9: Install AI CLI tools by default.
+    These tests follow TDD principles - they will FAIL until implementation is complete.
+    """
+
+    def test_cloud_init_includes_github_copilot_cli(self):
+        """Test that cloud-init includes GitHub Copilot CLI installation.
+        
+        RED PHASE: This test will fail - GitHub Copilot CLI not yet installed.
+        """
+        from azlin.vm_provisioning import VMProvisioner
+        
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+        
+        # Should install GitHub Copilot CLI as azureuser
+        assert 'npm install -g @github/copilot' in cloud_init
+        assert 'su - azureuser' in cloud_init or 'runuser -l azureuser' in cloud_init
+        
+    def test_cloud_init_includes_openai_codex_cli(self):
+        """Test that cloud-init includes OpenAI Codex CLI installation.
+        
+        RED PHASE: This test will fail - OpenAI Codex CLI not yet installed.
+        """
+        from azlin.vm_provisioning import VMProvisioner
+        
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+        
+        # Should install OpenAI Codex CLI as azureuser
+        assert 'npm install -g @openai/codex' in cloud_init
+        
+    def test_cloud_init_includes_claude_code_cli(self):
+        """Test that cloud-init includes Claude Code CLI installation.
+        
+        RED PHASE: This test will fail - Claude Code CLI not yet installed.
+        """
+        from azlin.vm_provisioning import VMProvisioner
+        
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+        
+        # Should install Claude Code CLI as azureuser
+        assert 'npm install -g @anthropic-ai/claude-code' in cloud_init
+        
+    def test_ai_cli_tools_installed_after_npm_configuration(self):
+        """Test that AI CLI tools are installed after npm user-local config.
+        
+        RED PHASE: This test will fail - installation order not correct.
+        """
+        from azlin.vm_provisioning import VMProvisioner
+        
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+        
+        # Find positions in cloud-init script
+        npm_config_pos = cloud_init.find('NPM_PACKAGES=')
+        github_copilot_pos = cloud_init.find('npm install -g @github/copilot')
+        openai_codex_pos = cloud_init.find('npm install -g @openai/codex')
+        claude_code_pos = cloud_init.find('npm install -g @anthropic-ai/claude-code')
+        
+        # AI CLI tools should be installed after npm configuration
+        assert npm_config_pos != -1, "npm configuration not found"
+        assert github_copilot_pos > npm_config_pos, "GitHub Copilot should be installed after npm config"
+        assert openai_codex_pos > npm_config_pos, "OpenAI Codex should be installed after npm config"
+        assert claude_code_pos > npm_config_pos, "Claude Code should be installed after npm config"
+        
+    def test_ai_cli_tools_installed_as_azureuser(self):
+        """Test that AI CLI tools are installed as azureuser, not root.
+        
+        RED PHASE: This test will fail - tools not installed as azureuser.
+        """
+        from azlin.vm_provisioning import VMProvisioner
+        
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+        
+        # Should run npm install as azureuser to use user-local npm config
+        # Look for the AI CLI installation section
+        lines = cloud_init.split('\n')
+        
+        found_ai_install_section = False
+        for i, line in enumerate(lines):
+            if 'AI CLI tools' in line or '@github/copilot' in line:
+                found_ai_install_section = True
+                # Check that we're in a su/runuser context for azureuser
+                # Look backwards to find the su command
+                context = '\n'.join(lines[max(0, i-5):i+10])
+                assert 'su - azureuser' in context or 'runuser -l azureuser' in context, \
+                    f"AI CLI tools should be installed as azureuser, not root. Context:\n{context}"
+                break
+                
+        assert found_ai_install_section, "AI CLI tools installation section not found"
+        
+    def test_ai_cli_tools_use_user_local_npm(self):
+        """Test that AI CLI tools use user-local npm configuration.
+        
+        RED PHASE: This test will fail - global install might use sudo or system npm.
+        """
+        from azlin.vm_provisioning import VMProvisioner
+        
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+        
+        # Should NOT use sudo for npm install (user-local config handles this)
+        assert 'sudo npm install -g @github/copilot' not in cloud_init
+        assert 'sudo npm install -g @openai/codex' not in cloud_init
+        assert 'sudo npm install -g @anthropic-ai/claude-code' not in cloud_init
