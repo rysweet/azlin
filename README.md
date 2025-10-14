@@ -16,7 +16,7 @@ azlin automates the tedious process of setting up Azure Ubuntu VMs for developme
 
 1. Authenticates with Azure
 2. Provisions an Ubuntu 24.04 VM
-3. Installs 9 essential development tools
+3. Installs 12 essential development tools
 4. Sets up SSH with key-based authentication
 5. Starts a persistent tmux session
 6. Optionally clones a GitHub repository
@@ -36,6 +36,19 @@ Every azlin VM comes pre-configured with:
 7. **Rust** - Systems programming language
 8. **Golang** - Go programming language
 9. **.NET 10 RC** - .NET development framework
+10. **GitHub Copilot CLI** - AI-powered coding assistant
+11. **OpenAI Codex CLI** - AI code generation
+12. **Claude Code CLI** - AI coding assistant
+
+### AI CLI Tools
+
+Three AI-powered coding assistants are pre-installed and ready to use:
+
+- **GitHub Copilot CLI** (`@github/copilot`) - AI pair programmer from GitHub
+- **OpenAI Codex CLI** (`@openai/codex`) - Advanced AI code generation
+- **Claude Code CLI** (`@anthropic-ai/claude-code`) - Anthropic's AI coding assistant
+
+These tools are installed using npm's user-local configuration, so they're immediately available in your PATH without requiring sudo permissions.
 
 ### npm User-Local Configuration
 

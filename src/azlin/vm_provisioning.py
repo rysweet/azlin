@@ -221,6 +221,9 @@ class VMProvisioner:
     8. Golang
     9. .NET 10 RC
     10. astral-uv (uv package manager)
+    11. GitHub Copilot CLI (AI coding assistant)
+    12. OpenAI Codex CLI (AI code generation)
+    13. Claude Code CLI (AI coding assistant)
     """
 
     # Valid VM sizes whitelist (2025 current-gen SKUs)
@@ -535,6 +538,11 @@ runcmd:
     MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
     EOF
   - chown azureuser:azureuser /home/azureuser/.npmrc /home/azureuser/.npm-packages
+
+  # AI CLI tools (installed as azureuser to use user-local npm config)
+  - su - azureuser -c "npm install -g @github/copilot"
+  - su - azureuser -c "npm install -g @openai/codex"
+  - su - azureuser -c "npm install -g @anthropic-ai/claude-code"
 
   # Rust
   - su - azureuser -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
