@@ -7,6 +7,7 @@ Each module is a self-contained component with clear contracts:
 - VM Provisioner: Create Azure VMs with dev tools
 - SSH Connector: Connect via SSH and start tmux
 - GitHub Setup Handler: Clone repo on VM
+- npm Configurator: Configure npm for user-local installations
 - Progress Display: Show real-time progress
 - Notification Handler: Send optional notifications
 """
@@ -16,6 +17,7 @@ __all__ = [
     "ssh_keys",
     "ssh_connector",
     "github_setup",
+    "npm_config",
     "progress",
     "notifications",
 ]

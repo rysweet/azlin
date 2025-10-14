@@ -31,11 +31,19 @@ Every azlin VM comes pre-configured with:
 2. **Azure CLI (az)** - Azure management
 3. **GitHub CLI (gh)** - GitHub integration
 4. **Git** - Version control
-5. **Node.js** - JavaScript runtime
+5. **Node.js** - JavaScript runtime with user-local npm configuration
 6. **Python 3** - Python runtime + pip
 7. **Rust** - Systems programming language
 8. **Golang** - Go programming language
 9. **.NET 10 RC** - .NET development framework
+
+### npm User-Local Configuration
+
+Node.js is configured for user-local global package installations, which means:
+- Install global npm packages **without sudo**: `npm install -g package-name`
+- Packages are installed to `~/.npm-packages`
+- Automatic PATH and MANPATH configuration
+- Clean separation from system Node.js packages
 
 ## Prerequisites
 

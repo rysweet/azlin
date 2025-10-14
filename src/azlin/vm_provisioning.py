@@ -523,6 +523,19 @@ runcmd:
   - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   - apt install -y nodejs
 
+  # npm user-local configuration (avoid sudo for global installs)
+  - mkdir -p /home/azureuser/.npm-packages
+  - echo 'prefix=${HOME}/.npm-packages' > /home/azureuser/.npmrc
+  - |
+    cat >> /home/azureuser/.bashrc << 'EOF'
+
+    # npm user-local configuration
+    NPM_PACKAGES="${HOME}/.npm-packages"
+    PATH="$NPM_PACKAGES/bin:$PATH"
+    MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
+    EOF
+  - chown azureuser:azureuser /home/azureuser/.npmrc /home/azureuser/.npm-packages
+
   # Rust
   - su - azureuser -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
   - echo 'source $HOME/.cargo/env' >> /home/azureuser/.bashrc
