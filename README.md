@@ -97,10 +97,31 @@ alias azlin-git='uvx --from git+https://github.com/rysweet/azlin azlin'
 azlin-git list
 ```
 
-### Option 2: Install with pip
+### Option 2: Install with uv (Recommended)
 
 ```bash
+# Install azlin using uv (fastest)
+uv tool install azlin
+
+# Or install from GitHub
+uv tool install git+https://github.com/rysweet/azlin
+
+# Now use azlin commands
+azlin list
+azlin --help
+```
+
+### Option 3: Install with pip
+
+```bash
+# Create and activate virtual environment
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
 # Install azlin
+uv pip install azlin
+
+# Or use regular pip
 pip install azlin
 
 # Create a development VM
