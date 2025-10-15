@@ -22,7 +22,6 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import click
 
@@ -32,7 +31,6 @@ from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
-from azlin.log_viewer import LogType, LogViewer, LogViewerError
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -53,6 +51,7 @@ from azlin.modules.progress import ProgressDisplay, ProgressStage
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.remote_exec import PSCommandExecutor, RemoteExecError, RemoteExecutor, WCommandExecutor
+from azlin.resource_cleanup import ResourceCleanup, ResourceCleanupError
 from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
 from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
@@ -90,12 +89,12 @@ class CLIOrchestrator:
 
     def __init__(
         self,
-        repo: Optional[str] = None,
+        repo: str | None = None,
         vm_size: str = "Standard_D2s_v3",
         region: str = "eastus",
-        resource_group: Optional[str] = None,
+        resource_group: str | None = None,
         auto_connect: bool = True,
-        config_file: Optional[str] = None,
+        config_file: str | None = None
     ):
         """Initialize CLI orchestrator.
 
@@ -120,8 +119,8 @@ class CLIOrchestrator:
         self.progress = ProgressDisplay()
 
         # Track resources for cleanup
-        self.vm_details: Optional[VMDetails] = None
-        self.ssh_keys: Optional[Path] = None
+        self.vm_details: VMDetails | None = None
+        self.ssh_keys: Path | None = None
 
     def run(self) -> int:
         """Execute main workflow.
@@ -477,7 +476,7 @@ class CLIOrchestrator:
         click.echo("\n" + "=" * 60)
         click.echo(f"Connecting to {vm_details.name} via SSH...")
         click.echo("Starting tmux session 'azlin'")
-        click.echo("=" * 60 + "\n")
+        click.echo("="*60 + "\n")
 
         # Connect with auto-tmux
         exit_code = SSHConnector.connect(ssh_config, tmux_session="azlin", auto_tmux=True)
@@ -575,7 +574,10 @@ def _auto_sync_home_directory(ssh_config: SSHConfig) -> None:
         logger.debug(f"Auto-sync failed: {e}")
 
 
-def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> Optional[int]:
+def show_interactive_menu(
+    vms: list[VMInfo],
+    ssh_key_path: Path
+) -> int | None:
     """Show interactive VM selection menu.
 
     Args:
@@ -637,11 +639,7 @@ def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> Optional[int
 
             if not vm.is_running():
                 click.echo(f"\nVM '{vm.name}' is not running.")
-                click.echo(
-                    "Start it with: az vm start --name {} --resource-group {}".format(
-                        vm.name, vm.resource_group
-                    )
-                )
+                click.echo(f"Start it with: az vm start --name {vm.name} --resource-group {vm.resource_group}")
                 return 1
 
             if not vm.public_ip:
@@ -664,7 +662,10 @@ def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> Optional[int
         return 1
 
 
-def generate_vm_name(custom_name: Optional[str] = None, command: Optional[str] = None) -> str:
+def generate_vm_name(
+    custom_name: str | None = None,
+    command: str | None = None
+) -> str:
     """Generate VM name.
 
     Args:
@@ -732,7 +733,10 @@ def execute_command_on_vm(vm: VMInfo, command: str, ssh_key_path: Path) -> int:
         return 1
 
 
-def select_vm_for_command(vms: list[VMInfo], command: str) -> Optional[VMInfo]:
+def select_vm_for_command(
+    vms: list[VMInfo],
+    command: str
+) -> VMInfo | None:
     """Show interactive menu to select VM for command execution.
 
     Args:
@@ -836,6 +840,7 @@ def main(ctx):
         kill          Delete a VM and all resources
         destroy       Delete VM with dry-run and RG options
         killall       Delete all VMs in resource group
+        cleanup       Find and remove orphaned resources
 
     \b
     EXAMPLES:
@@ -888,7 +893,10 @@ def main(ctx):
     For help on any command: azlin <command> --help
     """
     # Set up logging
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(message)s'
+    )
 
     # If no subcommand provided, show help
     if ctx.invoked_subcommand is None:
@@ -909,12 +917,12 @@ def main(ctx):
 @click.option('--template', help='Template name to use for VM configuration', type=str)
 def new_command(
     ctx,
-    repo: Optional[str],
-    vm_size: Optional[str],
-    region: Optional[str],
-    resource_group: Optional[str],
-    name: Optional[str],
-    pool: Optional[int],
+    repo: str | None,
+    vm_size: str | None,
+    region: str | None,
+    resource_group: str | None,
+    name: str | None,
+    pool: int | None,
     no_auto_connect: bool,
     config: Optional[str],
     template: Optional[str]
@@ -1152,11 +1160,11 @@ def create_command(ctx, **kwargs):
     return ctx.invoke(new_command, **kwargs)
 
 
-@main.command(name="list")
-@click.option("--resource-group", "--rg", help="Resource group to list VMs from", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--all", "show_all", help="Show all VMs (including stopped)", is_flag=True)
-def list_command(resource_group: Optional[str], config: Optional[str], show_all: bool):
+@main.command(name='list')
+@click.option('--resource-group', '--rg', help='Resource group to list VMs from', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--all', 'show_all', help='Show all VMs (including stopped)', is_flag=True)
+def list_command(resource_group: str | None, config: str | None, show_all: bool):
     """List VMs in resource group.
 
     Shows VM name, status, IP address, region, and size.
@@ -1212,9 +1220,9 @@ def list_command(resource_group: Optional[str], config: Optional[str], show_all:
 
 
 @main.command()
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-def w(resource_group: Optional[str], config: Optional[str]):
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def w(resource_group: str | None, config: str | None):
     """Run 'w' command on all VMs.
 
     Shows who is logged in and what they are doing on each VM.
@@ -1273,11 +1281,16 @@ def w(resource_group: Optional[str], config: Optional[str]):
 
 
 @main.command()
-@click.argument("vm_name", type=str)
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--force", is_flag=True, help="Skip confirmation prompt")
-def kill(vm_name: str, resource_group: Optional[str], config: Optional[str], force: bool):
+@click.argument('vm_name', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def kill(
+    vm_name: str,
+    resource_group: str | None,
+    config: str | None,
+    force: bool
+):
     """Delete a VM and all associated resources.
 
     Deletes the VM, NICs, disks, and public IPs.
@@ -1363,8 +1376,8 @@ def kill(vm_name: str, resource_group: Optional[str], config: Optional[str], for
 )
 def destroy(
     vm_name: str,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     force: bool,
     dry_run: bool,
     delete_rg: bool,
@@ -1503,11 +1516,16 @@ def destroy(
 
 
 @main.command()
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--force", is_flag=True, help="Skip confirmation prompt")
-@click.option("--prefix", default="azlin", help="Only delete VMs with this prefix")
-def killall(resource_group: Optional[str], config: Optional[str], force: bool, prefix: str):
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+@click.option('--prefix', default='azlin', help='Only delete VMs with this prefix')
+def killall(
+    resource_group: str | None,
+    config: str | None,
+    force: bool,
+    prefix: str
+):
     """Delete all VMs in resource group.
 
     Deletes all VMs matching the prefix and their associated resources.
@@ -1601,10 +1619,14 @@ def killall(resource_group: Optional[str], config: Optional[str], force: bool, p
 
 
 @main.command()
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--grouped", is_flag=True, help="Group output by VM instead of prefixing")
-def ps(resource_group: Optional[str], config: Optional[str], grouped: bool):
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--grouped', is_flag=True, help='Group output by VM instead of prefixing')
+def ps(
+    resource_group: str | None,
+    config: str | None,
+    grouped: bool
+):
     """Run 'ps aux' command on all VMs.
 
     Shows running processes on each VM. Output is prefixed with [vm-name].
@@ -1679,12 +1701,12 @@ def ps(resource_group: Optional[str], config: Optional[str], grouped: bool):
 @click.option("--to", "to_date", help="End date (YYYY-MM-DD)", type=str)
 @click.option("--estimate", is_flag=True, help="Show monthly cost estimate")
 def cost(
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     by_vm: bool,
-    from_date: Optional[str],
-    to_date: Optional[str],
-    estimate: bool,
+    from_date: str | None,
+    to_date: str | None,
+    estimate: bool
 ):
     """Show cost estimates for VMs.
 
@@ -1768,12 +1790,12 @@ def cost(
 @click.argument("remote_command", nargs=-1, type=str)
 def connect(
     vm_identifier: str,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     no_tmux: bool,
-    tmux_session: Optional[str],
+    tmux_session: str | None,
     user: str,
-    key: Optional[str],
+    key: str | None,
     no_reconnect: bool,
     max_retries: int,
     remote_command: tuple,
@@ -1874,13 +1896,16 @@ def connect(
 
 
 @main.command()
-@click.argument("vm_name", type=str)
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option(
-    "--deallocate/--no-deallocate", default=True, help="Deallocate to save costs (default: yes)"
-)
-def stop(vm_name: str, resource_group: Optional[str], config: Optional[str], deallocate: bool):
+@click.argument('vm_name', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--deallocate/--no-deallocate', default=True, help='Deallocate to save costs (default: yes)')
+def stop(
+    vm_name: str,
+    resource_group: str | None,
+    config: str | None,
+    deallocate: bool
+):
     """Stop or deallocate a VM.
 
     Stopping a VM with --deallocate (default) fully releases compute resources
@@ -1923,10 +1948,14 @@ def stop(vm_name: str, resource_group: Optional[str], config: Optional[str], dea
 
 
 @main.command()
-@click.argument("vm_name", type=str)
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-def start(vm_name: str, resource_group: Optional[str], config: Optional[str]):
+@click.argument('vm_name', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def start(
+    vm_name: str,
+    resource_group: str | None,
+    config: str | None
+):
     """Start a stopped or deallocated VM.
 
     \b
@@ -1968,7 +1997,10 @@ def start(vm_name: str, resource_group: Optional[str], config: Optional[str]):
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 def sync(
-    vm_name: Optional[str], dry_run: bool, resource_group: Optional[str], config: Optional[str]
+    vm_name: str | None,
+    dry_run: bool,
+    resource_group: str | None,
+    config: str | None
 ):
     """Sync ~/.azlin/home/ to VM home directory.
 
@@ -2107,8 +2139,8 @@ def cp(
     source: str,
     destination: str,
     dry_run: bool,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None
 ):
     """Copy files between local machine and VMs.
 
@@ -2130,7 +2162,7 @@ def cp(
         rg = ConfigManager.get_resource_group(resource_group, config)
 
         # Get SSH key
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+        SSHKeyManager.ensure_key_exists()
 
         # Parse source
         source_session_name, source_path_str = SessionManager.parse_session_path(source)
@@ -2232,10 +2264,14 @@ def cp(
 
 
 @main.command()
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--vm", help="Show status for specific VM only", type=str)
-def status(resource_group: Optional[str], config: Optional[str], vm: Optional[str]):
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--vm', help='Show status for specific VM only', type=str)
+def status(
+    resource_group: str | None,
+    config: str | None,
+    vm: str | None
+):
     """Show status of VMs in resource group.
 
     Displays detailed status information including power state and IP addresses.
