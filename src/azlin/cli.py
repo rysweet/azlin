@@ -1875,6 +1875,8 @@ def cost(
 @click.option('--tmux-session', help='Tmux session name (default: vm_identifier)', type=str)
 @click.option('--user', default='azureuser', help='SSH username (default: azureuser)', type=str)
 @click.option('--key', help='SSH private key path', type=click.Path(exists=True))
+@click.option('--no-reconnect', is_flag=True, help='Disable auto-reconnect on disconnect')
+@click.option('--max-retries', default=3, help='Maximum reconnection attempts (default: 3)', type=int)
 @click.argument('remote_command', nargs=-1, type=str)
 def connect(
     vm_identifier: str,
@@ -1884,6 +1886,8 @@ def connect(
     tmux_session: Optional[str],
     user: str,
     key: Optional[str],
+    no_reconnect: bool,
+    max_retries: int,
     remote_command: tuple
 ):
     """Connect to existing VM via SSH.
@@ -1893,6 +1897,9 @@ def connect(
     - IP address (direct connection)
 
     Use -- to separate remote command from options.
+    
+    By default, auto-reconnect is ENABLED. If your SSH session disconnects,
+    you will be prompted to reconnect. Use --no-reconnect to disable this.
 
     \b
     Examples:
@@ -1919,6 +1926,12 @@ def connect(
 
         # Connect with custom SSH key
         azlin connect my-vm --key ~/.ssh/custom_key
+        
+        # Disable auto-reconnect
+        azlin connect my-vm --no-reconnect
+        
+        # Set maximum reconnection attempts
+        azlin connect my-vm --max-retries 5
     """
     try:
         # Parse remote command
@@ -1950,7 +1963,9 @@ def connect(
             tmux_session=tmux_session,
             remote_command=command,
             ssh_user=user,
-            ssh_key_path=key_path
+            ssh_key_path=key_path,
+            enable_reconnect=not no_reconnect,
+            max_reconnect_retries=max_retries
         )
 
         sys.exit(0 if success else 1)
