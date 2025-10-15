@@ -32,6 +32,10 @@ from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
+
+
+from azlin.env_manager import EnvManager, EnvManagerError
+from azlin.tag_manager import TagManager, TagManagerError
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -52,7 +56,7 @@ from azlin.modules.progress import ProgressDisplay, ProgressStage
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.remote_exec import PSCommandExecutor, RemoteExecError, RemoteExecutor, WCommandExecutor
-from azlin.resource_cleanup import ResourceCleanup, ResourceCleanupError
+from azlin.snapshot_manager import SnapshotManager, SnapshotManagerError
 from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
 from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
@@ -62,6 +66,7 @@ from azlin.vm_provisioning import (
     VMDetails,
     VMProvisioner,
 )
+from azlin.template_manager import TemplateManager, VMTemplateConfig, TemplateError
 
 logger = logging.getLogger(__name__)
 
@@ -827,6 +832,23 @@ def main(ctx):
         start         Start a stopped VM
         stop          Stop/deallocate a VM to save costs
         connect       Connect to existing VM via SSH
+        tag           Manage VM tags (add, remove, list)
+
+    \b
+    ENVIRONMENT MANAGEMENT:
+        env set       Set environment variable on VM
+        env list      List environment variables on VM
+        env delete    Delete environment variable from VM
+        env export    Export variables to .env file
+        env import    Import variables from .env file
+        env clear     Clear all environment variables
+
+    \b
+    SNAPSHOT COMMANDS:
+        snapshot create <vm>              Create snapshot of VM disk
+        snapshot list <vm>                List snapshots for VM
+        snapshot restore <vm> <snapshot>  Restore VM from snapshot
+        snapshot delete <snapshot>        Delete a snapshot
 
     \b
     MONITORING COMMANDS:
@@ -859,11 +881,27 @@ def main(ctx):
 
         # List VMs and show status
         $ azlin list
+        $ azlin list --tag env=dev
         $ azlin status
+
+        # Environment variables
+        $ azlin env set my-vm DATABASE_URL="postgres://localhost/db"
+        $ azlin env list my-vm
+        $ azlin env export my-vm prod.env
+
+        # Manage tags
+        $ azlin tag my-vm --add env=dev
+        $ azlin tag my-vm --list
+        $ azlin tag my-vm --remove env
 
         # Start/stop VMs
         $ azlin start my-vm
         $ azlin stop my-vm
+
+        # Manage snapshots
+        $ azlin snapshot create my-vm
+        $ azlin snapshot list my-vm
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
 
         # View costs
         $ azlin cost --by-vm
@@ -913,14 +951,15 @@ def main(ctx):
 
 @main.command(name="new")
 @click.pass_context
-@click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
-@click.option("--region", help="Azure region", type=str)
-@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
-@click.option("--name", help="Custom VM name", type=str)
-@click.option("--pool", help="Number of VMs to create in parallel", type=int)
-@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
-@click.option("--config", help="Config file path", type=click.Path())
+@click.option('--repo', help='GitHub repository URL to clone', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
+@click.option('--name', help='Custom VM name', type=str)
+@click.option('--pool', help='Number of VMs to create in parallel', type=int)
+@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--template', help='Template name to use for VM configuration', type=str)
 def new_command(
     ctx,
     repo: str | None,
@@ -930,7 +969,8 @@ def new_command(
     name: str | None,
     pool: int | None,
     no_auto_connect: bool,
-    config: str | None
+    config: Optional[str],
+    template: Optional[str]
 ):
     """Provision a new Azure VM with development tools.
 
@@ -950,7 +990,10 @@ def new_command(
 
         # Provision 5 VMs in parallel
         $ azlin new --pool 5
-
+        
+        # Provision from template
+        $ azlin new --template dev-vm
+        
         # Provision and execute command
         $ azlin new -- python train.py
     """
@@ -962,165 +1005,184 @@ def new_command(
         # If no explicit --, check if we have extra args from Click
         command = " ".join(ctx.args)
 
-        # Load config for defaults
-        try:
-            azlin_config = ConfigManager.load_config(config)
-        except ConfigError:
-            azlin_config = AzlinConfig()
+    # Load config for defaults
+    try:
+        azlin_config = ConfigManager.load_config(config)
+    except ConfigError:
+        azlin_config = AzlinConfig()
 
-        # Get settings with CLI override
+    # Load template if specified
+    template_config = None
+    if template:
+        try:
+            template_config = TemplateManager.get_template(template)
+            click.echo(f"Using template: {template}")
+        except TemplateError as e:
+            click.echo(f"Error loading template: {e}", err=True)
+            sys.exit(1)
+
+    # Get settings with CLI override (template < config < CLI)
+    if template_config:
+        # Template provides defaults
+        final_rg = resource_group or azlin_config.default_resource_group
+        final_region = region or template_config.region
+        final_vm_size = vm_size or template_config.vm_size
+    else:
+        # Use config defaults
         final_rg = resource_group or azlin_config.default_resource_group
         final_region = region or azlin_config.default_region
         final_vm_size = vm_size or azlin_config.default_vm_size
 
-        # Generate VM name
-        vm_name = generate_vm_name(name, command)
+    # Generate VM name
+    vm_name = generate_vm_name(name, command)
 
-        # Warn if pool > 10
-        if pool and pool > 10:
-            estimated_cost = pool * 0.10  # Rough estimate
-            click.echo(f"\nWARNING: Creating {pool} VMs")
-            click.echo(f"Estimated cost: ~${estimated_cost:.2f}/hour")
-            click.echo("Continue? [y/N]: ", nl=False)
-            response = input().lower()
-            if response not in ["y", "yes"]:
-                click.echo("Cancelled.")
-                sys.exit(0)
+    # Warn if pool > 10
+    if pool and pool > 10:
+        estimated_cost = pool * 0.10  # Rough estimate
+        click.echo(f"\nWARNING: Creating {pool} VMs")
+        click.echo(f"Estimated cost: ~${estimated_cost:.2f}/hour")
+        click.echo("Continue? [y/N]: ", nl=False)
+        response = input().lower()
+        if response not in ['y', 'yes']:
+            click.echo("Cancelled.")
+            sys.exit(0)
 
-        # Validate repo URL if provided
-        if repo:
-            if not repo.startswith("https://github.com/"):
-                click.echo(
-                    "Error: Invalid GitHub URL. Must start with https://github.com/", err=True
-                )
-                sys.exit(1)
+    # Validate repo URL if provided
+    if repo:
+        if not repo.startswith('https://github.com/'):
+            click.echo(
+                "Error: Invalid GitHub URL. Must start with https://github.com/",
+                err=True
+            )
+            sys.exit(1)
 
-        # Create orchestrator and run
-        orchestrator = CLIOrchestrator(
-            repo=repo,
-            vm_size=final_vm_size,
-            region=final_region,
-            resource_group=final_rg,
-            auto_connect=not no_auto_connect,
-            config_file=config,
-        )
+    # Create orchestrator and run
+    orchestrator = CLIOrchestrator(
+        repo=repo,
+        vm_size=final_vm_size,
+        region=final_region,
+        resource_group=final_rg,
+        auto_connect=not no_auto_connect,
+        config_file=config
+    )
 
-        # Update config with used resource group
-        if final_rg:
-            try:
-                ConfigManager.update_config(
-                    config, default_resource_group=final_rg, last_vm_name=vm_name
-                )
-            except ConfigError as e:
-                logger.debug(f"Failed to update config: {e}")
+    # Update config with used resource group
+    if final_rg:
+        try:
+            ConfigManager.update_config(
+                config,
+                default_resource_group=final_rg,
+                last_vm_name=vm_name
+            )
+        except ConfigError as e:
+            logger.debug(f"Failed to update config: {e}")
 
-        # Execute command if specified
-        if command and not pool:
-            click.echo(f"\nCommand to execute: {command}")
-            click.echo("Provisioning VM first...\n")
+    # Execute command if specified
+    if command and not pool:
+        click.echo(f"\nCommand to execute: {command}")
+        click.echo("Provisioning VM first...\n")
 
-            # Disable auto-connect for command execution mode
-            orchestrator.auto_connect = False
-            exit_code = orchestrator.run()
-
-            if exit_code == 0 and orchestrator.vm_details:
-                # Create VMInfo from VMDetails for execute_command_on_vm
-                vm_info = VMInfo(
-                    name=orchestrator.vm_details.name,
-                    resource_group=orchestrator.vm_details.resource_group,
-                    location=orchestrator.vm_details.location,
-                    power_state="VM running",
-                    public_ip=orchestrator.vm_details.public_ip,
-                    vm_size=orchestrator.vm_details.size,
-                )
-
-                # Execute command on the newly provisioned VM
-                cmd_exit_code = execute_command_on_vm(vm_info, command, orchestrator.ssh_keys)
-                sys.exit(cmd_exit_code)
-            else:
-                click.echo(f"\nProvisioning failed with exit code {exit_code}", err=True)
-                sys.exit(exit_code)
-
-        # Pool provisioning
-        if pool and pool > 1:
-            click.echo(f"\nProvisioning pool of {pool} VMs in parallel...")
-
-            # Generate SSH keys
-            ssh_key_pair = SSHKeyManager.ensure_key_exists()
-
-            # Create VM configs for pool
-            configs = []
-            for i in range(pool):
-                vm_name_pool = f"{vm_name}-{i+1:02d}"
-                config = orchestrator.provisioner.create_vm_config(
-                    name=vm_name_pool,
-                    resource_group=final_rg or f"azlin-rg-{int(time.time())}",
-                    location=final_region,
-                    size=final_vm_size,
-                    ssh_public_key=ssh_key_pair.public_key_content,
-                )
-                configs.append(config)
-
-            # Provision VMs in parallel (returns PoolProvisioningResult)
-            try:
-                result = orchestrator.provisioner.provision_vm_pool(
-                    configs,
-                    progress_callback=lambda msg: click.echo(f"  {msg}"),
-                    max_workers=min(10, pool),
-                )
-
-                # Display results
-                click.echo(f"\n{result.get_summary()}")
-
-                if result.successful:
-                    click.echo("\nSuccessfully Provisioned VMs:")
-                    click.echo("=" * 80)
-                    for vm in result.successful:
-                        click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
-                    click.echo("=" * 80)
-
-                if result.failed:
-                    click.echo("\nFailed VMs:")
-                    click.echo("=" * 80)
-                    for failure in result.failed:
-                        click.echo(
-                            f"  {failure.config.name:<30} {failure.error_type:<20} {failure.error[:40]}"
-                        )
-                    click.echo("=" * 80)
-
-                if result.rg_failures:
-                    click.echo("\nResource Group Failures:")
-                    for rg_fail in result.rg_failures:
-                        click.echo(f"  {rg_fail.rg_name}: {rg_fail.error}")
-
-                # Exit with success if any VMs succeeded
-                if result.any_succeeded:
-                    sys.exit(0)
-                else:
-                    sys.exit(1)
-
-            except ProvisioningError as e:
-                click.echo(f"\nPool provisioning failed completely: {e}", err=True)
-                sys.exit(1)
-            except Exception as e:
-                click.echo(f"\nUnexpected error: {e}", err=True)
-                sys.exit(1)
-
+        # Disable auto-connect for command execution mode
+        orchestrator.auto_connect = False
         exit_code = orchestrator.run()
-        sys.exit(exit_code)
+
+        if exit_code == 0 and orchestrator.vm_details:
+            # Create VMInfo from VMDetails for execute_command_on_vm
+            vm_info = VMInfo(
+                name=orchestrator.vm_details.name,
+                resource_group=orchestrator.vm_details.resource_group,
+                location=orchestrator.vm_details.location,
+                power_state="VM running",
+                public_ip=orchestrator.vm_details.public_ip,
+                vm_size=orchestrator.vm_details.size
+            )
+
+            # Execute command on the newly provisioned VM
+            cmd_exit_code = execute_command_on_vm(vm_info, command, orchestrator.ssh_keys)
+            sys.exit(cmd_exit_code)
+        else:
+            click.echo(f"\nProvisioning failed with exit code {exit_code}", err=True)
+            sys.exit(exit_code)
+
+    # Pool provisioning
+    if pool and pool > 1:
+        click.echo(f"\nProvisioning pool of {pool} VMs in parallel...")
+
+        # Generate SSH keys
+        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+        # Create VM configs for pool
+        configs = []
+        for i in range(pool):
+            vm_name_pool = f"{vm_name}-{i+1:02d}"
+            config = orchestrator.provisioner.create_vm_config(
+                name=vm_name_pool,
+                resource_group=final_rg or f"azlin-rg-{int(time.time())}",
+                location=final_region,
+                size=final_vm_size,
+                ssh_public_key=ssh_key_pair.public_key_content
+            )
+            configs.append(config)
+
+        # Provision VMs in parallel (returns PoolProvisioningResult)
+        try:
+            result = orchestrator.provisioner.provision_vm_pool(
+                configs,
+                progress_callback=lambda msg: click.echo(f"  {msg}"),
+                max_workers=min(10, pool)
+            )
+
+            # Display results
+            click.echo(f"\n{result.get_summary()}")
+
+            if result.successful:
+                click.echo("\nSuccessfully Provisioned VMs:")
+                click.echo("=" * 80)
+                for vm in result.successful:
+                    click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
+                click.echo("=" * 80)
+
+            if result.failed:
+                click.echo("\nFailed VMs:")
+                click.echo("=" * 80)
+                for failure in result.failed:
+                    click.echo(f"  {failure.config.name:<30} {failure.error_type:<20} {failure.error[:40]}")
+                click.echo("=" * 80)
+
+            if result.rg_failures:
+                click.echo("\nResource Group Failures:")
+                for rg_fail in result.rg_failures:
+                    click.echo(f"  {rg_fail.rg_name}: {rg_fail.error}")
+
+            # Exit with success if any VMs succeeded
+            if result.any_succeeded:
+                sys.exit(0)
+            else:
+                sys.exit(1)
+
+        except ProvisioningError as e:
+            click.echo(f"\nPool provisioning failed completely: {e}", err=True)
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"\nUnexpected error: {e}", err=True)
+            sys.exit(1)
+
+    exit_code = orchestrator.run()
+    sys.exit(exit_code)
 
 
 # Alias: 'vm' for 'new'
 @main.command(name="vm")
 @click.pass_context
-@click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
-@click.option("--region", help="Azure region", type=str)
-@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
-@click.option("--name", help="Custom VM name", type=str)
-@click.option("--pool", help="Number of VMs to create in parallel", type=int)
-@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
-@click.option("--config", help="Config file path", type=click.Path())
+@click.option('--repo', help='GitHub repository URL to clone', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
+@click.option('--name', help='Custom VM name', type=str)
+@click.option('--pool', help='Number of VMs to create in parallel', type=int)
+@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--template', help='Template name to use for VM configuration', type=str)
 def vm_command(ctx, **kwargs):
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
@@ -1129,14 +1191,15 @@ def vm_command(ctx, **kwargs):
 # Alias: 'create' for 'new'
 @main.command(name="create")
 @click.pass_context
-@click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
-@click.option("--region", help="Azure region", type=str)
-@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
-@click.option("--name", help="Custom VM name", type=str)
-@click.option("--pool", help="Number of VMs to create in parallel", type=int)
-@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
-@click.option("--config", help="Config file path", type=click.Path())
+@click.option('--repo', help='GitHub repository URL to clone', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
+@click.option('--name', help='Custom VM name', type=str)
+@click.option('--pool', help='Number of VMs to create in parallel', type=int)
+@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--template', help='Template name to use for VM configuration', type=str)
 def create_command(ctx, **kwargs):
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
@@ -1146,7 +1209,8 @@ def create_command(ctx, **kwargs):
 @click.option('--resource-group', '--rg', help='Resource group to list VMs from', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
 @click.option('--all', 'show_all', help='Show all VMs (including stopped)', is_flag=True)
-def list_command(resource_group: str | None, config: str | None, show_all: bool):
+@click.option('--tag', help='Filter VMs by tag (format: key or key=value)', type=str)
+def list_command(resource_group: Optional[str], config: Optional[str], show_all: bool, tag: Optional[str]):
     """List VMs in resource group.
 
     Shows VM name, status, IP address, region, and size.
@@ -1156,6 +1220,8 @@ def list_command(resource_group: str | None, config: str | None, show_all: bool)
         azlin list
         azlin list --rg my-resource-group
         azlin list --all
+        azlin list --tag env=dev
+        azlin list --tag team
     """
     try:
         # Get resource group from config or CLI
@@ -1173,6 +1239,15 @@ def list_command(resource_group: str | None, config: str | None, show_all: bool)
 
         # Filter to azlin VMs
         vms = VMManager.filter_by_prefix(vms, "azlin")
+        
+        # Filter by tag if specified
+        if tag:
+            try:
+                vms = TagManager.filter_vms_by_tag(vms, tag)
+            except Exception as e:
+                click.echo(f"Error filtering by tag: {e}", err=True)
+                sys.exit(1)
+        
         vms = VMManager.sort_by_created_time(vms)
 
         if not vms:
@@ -2325,6 +2400,64 @@ def keys_group():
     """SSH key management and rotation.
     
     Manage SSH keys across Azure VMs with rotation, backup, and export functionality.
+
+
+@main.group(name='template')
+def template():
+    """Manage VM configuration templates.
+
+    Templates allow you to save and reuse VM configurations.
+    Stored in ~/.azlin/templates/ as YAML files.
+
+    \b
+    SUBCOMMANDS:
+        create   Create a new template
+        list     List all templates
+        delete   Delete a template
+        export   Export template to file
+        import   Import template from file
+
+    \b
+    EXAMPLES:
+        # Create a template interactively
+        azlin template create dev-vm
+
+        # List all templates
+        azlin template list
+
+        # Delete a template
+        azlin template delete dev-vm
+
+        # Export a template
+        azlin template export dev-vm my-template.yaml
+
+        # Import a template
+        azlin template import my-template.yaml
+
+        # Use a template when creating VM
+        azlin new --template dev-vm
+
+
+@main.group(name='snapshot')
+@click.pass_context
+def snapshot(ctx):
+    """Manage VM snapshots.
+
+    Create, list, restore, and delete VM disk snapshots for backup and recovery.
+
+    \b
+    EXAMPLES:
+        # Create a snapshot of a VM
+        $ azlin snapshot create my-vm
+
+        # List snapshots for a VM
+        $ azlin snapshot list my-vm
+
+        # Restore VM from a snapshot
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
+
+        # Delete a snapshot
+        $ azlin snapshot delete my-vm-snapshot-20251015-053000
     """
     pass
 
@@ -2353,10 +2486,38 @@ def keys_rotate(
         azlin keys rotate --rg my-resource-group
         azlin keys rotate --all-vms
         azlin keys rotate --no-backup
+
+
+@template.command(name='create')
+@click.argument('name', type=str)
+@click.option('--description', help='Template description', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--cloud-init', help='Path to cloud-init script file', type=click.Path(exists=True))
+def template_create(
+    name: str,
+    description: Optional[str],
+    vm_size: Optional[str],
+    region: Optional[str],
+    cloud_init: Optional[str]
+):
+    """Create a new VM template.
+
+    Creates a template with the specified configuration.
+    If options are not provided, uses defaults from config.
+
+    \b
+    Examples:
+        azlin template create dev-vm
+        azlin template create dev-vm --vm-size Standard_D2s_v3 --region eastus
+        azlin template create dev-vm --description "My dev VM" --cloud-init custom.yaml
     """
     try:
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
+        # Load config for defaults
+        try:
+            config = ConfigManager.load_config()
+        except ConfigError:
+            config = AzlinConfig()
 
         if not rg:
             click.echo("Error: No resource group specified.", err=True)
@@ -2407,6 +2568,38 @@ def keys_rotate(
             sys.exit(0)
 
     except KeyRotationError as e:
+
+
+        # Use provided values or defaults
+        final_description = description or f"Template: {name}"
+        final_vm_size = vm_size or config.default_vm_size
+        final_region = region or config.default_region
+
+        # Load cloud-init if provided
+        cloud_init_content = None
+        if cloud_init:
+            cloud_init_path = Path(cloud_init).expanduser().resolve()
+            cloud_init_content = cloud_init_path.read_text()
+
+        # Create template
+        template = VMTemplateConfig(
+            name=name,
+            description=final_description,
+            vm_size=final_vm_size,
+            region=final_region,
+            cloud_init=cloud_init_content
+        )
+
+        TemplateManager.create_template(template)
+
+        click.echo(f"Created template: {name}")
+        click.echo(f"  Description: {final_description}")
+        click.echo(f"  VM Size:     {final_vm_size}")
+        click.echo(f"  Region:      {final_region}")
+        if cloud_init_content:
+            click.echo(f"  Cloud-init:  Custom script included")
+
+    except TemplateError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
@@ -2537,7 +2730,756 @@ def keys_backup(destination: str | None):
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         logger.exception("Unexpected error in keys backup")
+
+
         sys.exit(1)
+
+
+@template.command(name='list')
+def template_list():
+    """List all available templates.
+
+    Shows all templates stored in ~/.azlin/templates/.
+
+    \b
+    Examples:
+        azlin template list
+    """
+    try:
+        templates = TemplateManager.list_templates()
+
+        if not templates:
+            click.echo("No templates found.")
+            click.echo("\nCreate a template with: azlin template create <name>")
+            return
+
+        click.echo(f"\nAvailable Templates ({len(templates)}):")
+        click.echo("=" * 90)
+        click.echo(f"{'NAME':<25} {'VM SIZE':<20} {'REGION':<15} {'DESCRIPTION':<30}")
+        click.echo("=" * 90)
+
+        for t in templates:
+            desc = t.description[:27] + "..." if len(t.description) > 30 else t.description
+            click.echo(f"{t.name:<25} {t.vm_size:<20} {t.region:<15} {desc:<30}")
+
+        click.echo("=" * 90)
+        click.echo(f"\nUse with: azlin new --template <name>")
+
+    except TemplateError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@template.command(name='delete')
+@click.argument('name', type=str)
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def template_delete(name: str, force: bool):
+    """Delete a template.
+
+    Removes the template file from ~/.azlin/templates/.
+
+    \b
+    Examples:
+        azlin template delete dev-vm
+        azlin template delete dev-vm --force
+    """
+    try:
+        # Verify template exists
+        template = TemplateManager.get_template(name)
+
+        # Confirm deletion unless --force
+        if not force:
+            click.echo(f"\nTemplate: {template.name}")
+            click.echo(f"  Description: {template.description}")
+            click.echo(f"  VM Size:     {template.vm_size}")
+            click.echo(f"  Region:      {template.region}")
+            click.echo("\nThis action cannot be undone.")
+
+            confirm = input("\nDelete this template? [y/N]: ").lower()
+            if confirm not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Delete template
+        TemplateManager.delete_template(name)
+        click.echo(f"Deleted template: {name}")
+
+    except TemplateError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@template.command(name='export')
+@click.argument('name', type=str)
+@click.argument('output_file', type=click.Path())
+def template_export(name: str, output_file: str):
+    """Export a template to a YAML file.
+
+    Exports the template configuration to a file that can be shared
+    or imported on another machine.
+
+    \b
+    Examples:
+        azlin template export dev-vm my-template.yaml
+        azlin template export dev-vm ~/shared/template.yaml
+    """
+    try:
+        output_path = Path(output_file).expanduser().resolve()
+
+        # Check if file exists
+        if output_path.exists():
+            confirm = input(f"\nFile '{output_path}' exists. Overwrite? [y/N]: ").lower()
+            if confirm not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        TemplateManager.export_template(name, output_path)
+        click.echo(f"Exported template '{name}' to: {output_path}")
+
+    except TemplateError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@template.command(name='import')
+@click.argument('input_file', type=click.Path(exists=True))
+def template_import(input_file: str):
+    """Import a template from a YAML file.
+
+    Imports a template configuration from a file and saves it
+    to ~/.azlin/templates/.
+
+    \b
+    Examples:
+        azlin template import my-template.yaml
+        azlin template import ~/shared/template.yaml
+    """
+    try:
+        input_path = Path(input_file).expanduser().resolve()
+
+        template = TemplateManager.import_template(input_path)
+
+        click.echo(f"Imported template: {template.name}")
+        click.echo(f"  Description: {template.description}")
+        click.echo(f"  VM Size:     {template.vm_size}")
+        click.echo(f"  Region:      {template.region}")
+
+    except TemplateError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name='create')
+@click.argument('vm_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def snapshot_create(vm_name: str, resource_group: str | None, config: str | None):
+    """Create a snapshot of a VM's OS disk.
+
+    Creates a point-in-time snapshot of the VM's OS disk for backup purposes.
+    Snapshots are automatically named with timestamps.
+
+    \b
+    EXAMPLES:
+        # Create snapshot using default resource group
+        $ azlin snapshot create my-vm
+
+        # Create snapshot with specific resource group
+        $ azlin snapshot create my-vm --rg my-resource-group
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # Create snapshot
+        click.echo(f"\nCreating snapshot for VM: {vm_name}")
+        manager = SnapshotManager()
+        snapshot = manager.create_snapshot(vm_name, rg)
+
+        # Show cost estimate
+        monthly_cost = manager.get_snapshot_cost_estimate(snapshot.size_gb, 30)
+        click.echo("\n✓ Snapshot created successfully!")
+        click.echo(f"  Name:     {snapshot.name}")
+        click.echo(f"  Size:     {snapshot.size_gb} GB")
+        click.echo(f"  Location: {snapshot.location}")
+        click.echo(f"  Created:  {snapshot.created_time}")
+        click.echo(f"\nEstimated storage cost: ${monthly_cost:.2f}/month")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name='list')
+@click.argument('vm_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def snapshot_list(vm_name: str, resource_group: str | None, config: str | None):
+    """List all snapshots for a VM.
+
+    Shows all snapshots created for the specified VM, sorted by creation time.
+
+    \b
+    EXAMPLES:
+        # List snapshots for a VM
+        $ azlin snapshot list my-vm
+
+        # List snapshots with specific resource group
+        $ azlin snapshot list my-vm --rg my-resource-group
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # List snapshots
+        manager = SnapshotManager()
+        snapshots = manager.list_snapshots(vm_name, rg)
+
+        if not snapshots:
+            click.echo(f"\nNo snapshots found for VM: {vm_name}")
+            return
+
+        # Display snapshots table
+        click.echo(f"\nSnapshots for VM: {vm_name}")
+        click.echo("=" * 110)
+        click.echo(f"{'NAME':<50} {'SIZE':<10} {'CREATED':<30} {'STATUS':<20}")
+        click.echo("=" * 110)
+
+        total_size = 0
+        for snap in snapshots:
+            created = snap.created_time[:19].replace('T', ' ') if snap.created_time else 'N/A'
+            status = snap.provisioning_state or 'Unknown'
+            click.echo(f"{snap.name:<50} {snap.size_gb:<10} {created:<30} {status:<20}")
+            total_size += snap.size_gb
+
+        click.echo("=" * 110)
+        click.echo(f"\nTotal: {len(snapshots)} snapshots ({total_size} GB)")
+
+        # Show cost estimate
+        monthly_cost = manager.get_snapshot_cost_estimate(total_size, 30)
+        click.echo(f"Estimated total storage cost: ${monthly_cost:.2f}/month\n")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name='restore')
+@click.argument('vm_name')
+@click.argument('snapshot_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def snapshot_restore(vm_name: str, snapshot_name: str, resource_group: str | None, config: str | None, force: bool):
+    """Restore a VM from a snapshot.
+
+    WARNING: This will stop the VM, delete the current OS disk, and replace it
+    with a disk created from the snapshot. All data on the current disk will be lost.
+
+    \b
+    EXAMPLES:
+        # Restore VM from a snapshot (with confirmation)
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
+
+        # Restore without confirmation
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000 --force
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # Confirm restoration
+        if not force:
+            click.echo(f"\nWARNING: This will restore VM '{vm_name}' from snapshot '{snapshot_name}'")
+            click.echo("This operation will:")
+            click.echo("  1. Stop/deallocate the VM")
+            click.echo("  2. Delete the current OS disk")
+            click.echo("  3. Create a new disk from the snapshot")
+            click.echo("  4. Attach the new disk to the VM")
+            click.echo("  5. Start the VM")
+            click.echo("\nAll current data on the VM disk will be lost!")
+            click.echo("\nContinue? [y/N]: ", nl=False)
+            response = input().lower()
+            if response not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Restore snapshot
+        click.echo(f"\nRestoring VM '{vm_name}' from snapshot '{snapshot_name}'...")
+        click.echo("This may take several minutes...\n")
+
+        manager = SnapshotManager()
+        manager.restore_snapshot(vm_name, snapshot_name, rg)
+
+        click.echo(f"\n✓ VM '{vm_name}' successfully restored from snapshot!")
+        click.echo(f"  The VM is now running with the disk from: {snapshot_name}\n")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name='delete')
+@click.argument('snapshot_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def snapshot_delete(snapshot_name: str, resource_group: str | None, config: str | None, force: bool):
+    """Delete a snapshot.
+
+    Permanently deletes a snapshot to free up storage and reduce costs.
+
+    \b
+    EXAMPLES:
+        # Delete a snapshot (with confirmation)
+        $ azlin snapshot delete my-vm-snapshot-20251015-053000
+
+        # Delete without confirmation
+        $ azlin snapshot delete my-vm-snapshot-20251015-053000 --force
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # Confirm deletion
+        if not force:
+            click.echo(f"\nAre you sure you want to delete snapshot '{snapshot_name}'?")
+            click.echo("This action cannot be undone!")
+            click.echo("\nContinue? [y/N]: ", nl=False)
+            response = input().lower()
+            if response not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Delete snapshot
+        manager = SnapshotManager()
+        manager.delete_snapshot(snapshot_name, rg)
+
+        click.echo(f"\n✓ Snapshot '{snapshot_name}' deleted successfully!\n")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.group()
+def env():
+    """Manage environment variables on VMs.
+
+    Commands to set, list, delete, and export environment variables
+    stored in ~/.bashrc on remote VMs.
+
+    \b
+    Examples:
+        azlin env set my-vm DATABASE_URL="postgres://localhost/db"
+        azlin env list my-vm
+        azlin env delete my-vm API_KEY
+        azlin env export my-vm prod.env
+    """
+    pass
+
+
+@env.command(name='set')
+@click.argument('vm_identifier', type=str)
+@click.argument('env_var', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip secret detection warnings')
+def env_set(
+    vm_identifier: str,
+    env_var: str,
+    resource_group: str | None,
+    config: str | None,
+    force: bool
+):
+    """Set environment variable on VM.
+
+    ENV_VAR should be in format KEY=VALUE.
+
+    \b
+    Examples:
+        azlin env set my-vm DATABASE_URL="postgres://localhost/db"
+        azlin env set my-vm API_KEY=secret123 --force
+        azlin env set 20.1.2.3 NODE_ENV=production
+    """
+    try:
+        # Parse KEY=VALUE
+        if '=' not in env_var:
+            click.echo("Error: ENV_VAR must be in format KEY=VALUE", err=True)
+            sys.exit(1)
+
+        key, value = env_var.split('=', 1)
+        key = key.strip()
+        value = value.strip()
+
+        # Remove quotes if present
+        if value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        elif value.startswith("'") and value.endswith("'"):
+            value = value[1:-1]
+
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # Detect secrets and warn
+        if not force:
+            warnings = EnvManager.detect_secrets(value)
+            if warnings:
+                click.echo("WARNING: Potential secret detected!", err=True)
+                for warning in warnings:
+                    click.echo(f"  - {warning}", err=True)
+                click.echo("\nAre you sure you want to set this value? [y/N]: ", nl=False)
+                response = input().lower()
+                if response not in ['y', 'yes']:
+                    click.echo("Cancelled.")
+                    return
+
+        # Set the variable
+        EnvManager.set_env_var(ssh_config, key, value)
+
+        click.echo(f"Set {key} on {vm_identifier}")
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@env.command(name='list')
+@click.argument('vm_identifier', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--show-values', is_flag=True, help='Show full values (default: masked)')
+def env_list(
+    vm_identifier: str,
+    resource_group: str | None,
+    config: str | None,
+    show_values: bool
+):
+    """List environment variables on VM.
+
+    \b
+    Examples:
+        azlin env list my-vm
+        azlin env list my-vm --show-values
+        azlin env list 20.1.2.3
+    """
+    try:
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # List variables
+        env_vars = EnvManager.list_env_vars(ssh_config)
+
+        if not env_vars:
+            click.echo(f"No environment variables set on {vm_identifier}")
+            return
+
+        click.echo(f"\nEnvironment variables on {vm_identifier}:")
+        click.echo("=" * 80)
+
+        for key, value in sorted(env_vars.items()):
+            if show_values:
+                click.echo(f"  {key}={value}")
+            else:
+                # Mask values that might be secrets
+                warnings = EnvManager.detect_secrets(value)
+                if warnings or len(value) > 20:
+                    masked = "***" if warnings else value[:20] + "..."
+                    click.echo(f"  {key}={masked}")
+                else:
+                    click.echo(f"  {key}={value}")
+
+        click.echo("=" * 80)
+        click.echo(f"\nTotal: {len(env_vars)} variables")
+        if not show_values:
+            click.echo("Use --show-values to display full values\n")
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@env.command(name='delete')
+@click.argument('vm_identifier', type=str)
+@click.argument('key', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def env_delete(
+    vm_identifier: str,
+    key: str,
+    resource_group: str | None,
+    config: str | None
+):
+    """Delete environment variable from VM.
+
+    \b
+    Examples:
+        azlin env delete my-vm API_KEY
+        azlin env delete 20.1.2.3 DATABASE_URL
+    """
+    try:
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # Delete the variable
+        result = EnvManager.delete_env_var(ssh_config, key)
+
+        if result:
+            click.echo(f"Deleted {key} from {vm_identifier}")
+        else:
+            click.echo(f"Variable {key} not found on {vm_identifier}", err=True)
+            sys.exit(1)
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@env.command(name='export')
+@click.argument('vm_identifier', type=str)
+@click.argument('output_file', type=str, required=False)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def env_export(
+    vm_identifier: str,
+    output_file: str | None,
+    resource_group: str | None,
+    config: str | None
+):
+    """Export environment variables to .env file format.
+
+    \b
+    Examples:
+        azlin env export my-vm prod.env
+        azlin env export my-vm  # Print to stdout
+    """
+    try:
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # Export variables
+        result = EnvManager.export_env_vars(ssh_config, output_file)
+
+        if output_file:
+            click.echo(f"Exported environment variables to {output_file}")
+        else:
+            click.echo(result)
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@env.command(name='import')
+@click.argument('vm_identifier', type=str)
+@click.argument('env_file', type=click.Path(exists=True))
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def env_import(
+    vm_identifier: str,
+    env_file: str,
+    resource_group: str | None,
+    config: str | None
+):
+    """Import environment variables from .env file.
+
+    \b
+    Examples:
+        azlin env import my-vm .env
+        azlin env import my-vm prod.env
+    """
+    try:
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # Import variables
+        count = EnvManager.import_env_file(ssh_config, env_file)
+
+        click.echo(f"Imported {count} variables to {vm_identifier}")
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@env.command(name='clear')
+@click.argument('vm_identifier', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def env_clear(
+    vm_identifier: str,
+    resource_group: str | None,
+    config: str | None,
+    force: bool
+):
+    """Clear all environment variables from VM.
+
+    \b
+    Examples:
+        azlin env clear my-vm
+        azlin env clear my-vm --force
+    """
+    try:
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # Confirm unless --force
+        if not force:
+            env_vars = EnvManager.list_env_vars(ssh_config)
+            if not env_vars:
+                click.echo(f"No environment variables set on {vm_identifier}")
+                return
+
+            click.echo(f"This will delete {len(env_vars)} environment variable(s) from {vm_identifier}")
+            click.echo("Are you sure? [y/N]: ", nl=False)
+            response = input().lower()
+            if response not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Clear all variables
+        EnvManager.clear_all_env_vars(ssh_config)
+
+        click.echo(f"Cleared all environment variables from {vm_identifier}")
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+def _get_ssh_config_for_vm(
+    vm_identifier: str,
+    resource_group: str | None,
+    config: str | None
+) -> SSHConfig:
+    """Helper to get SSH config for VM identifier.
+
+    Args:
+        vm_identifier: VM name or IP address
+        resource_group: Resource group (required for VM name)
+        config: Config file path
+
+    Returns:
+        SSHConfig object
+
+    Raises:
+        SystemExit on error
+    """
+    # Get SSH key
+    ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+    # Check if VM identifier is IP address
+    if VMConnector._is_valid_ip(vm_identifier):
+        # Direct IP connection
+        return SSHConfig(
+            host=vm_identifier,
+            user="azureuser",
+            key_path=ssh_key_pair.private_path
+        )
+
+    # VM name - need resource group
+    rg = ConfigManager.get_resource_group(resource_group, config)
+    if not rg:
+        click.echo(
+            "Error: Resource group required for VM name.\n"
+            "Use --resource-group or set default in ~/.azlin/config.toml",
+            err=True
+        )
+        sys.exit(1)
+
+    # Get VM
+    vm = VMManager.get_vm(vm_identifier, rg)
+    if not vm:
+        click.echo(f"Error: VM '{vm_identifier}' not found in resource group '{rg}'.", err=True)
+        sys.exit(1)
+
+    if not vm.is_running():
+        click.echo(f"Error: VM '{vm_identifier}' is not running.", err=True)
+        sys.exit(1)
+
+    if not vm.public_ip:
+        click.echo(f"Error: VM '{vm_identifier}' has no public IP.", err=True)
+        sys.exit(1)
+
+    return SSHConfig(
+        host=vm.public_ip,
+        user="azureuser",
+        key_path=ssh_key_pair.private_path
+    )
 
 
 if __name__ == '__main__':
