@@ -5,7 +5,7 @@
 ```bash
 
 # Run directly from GitHub (no installation needed)
-uvx --from git+https://github.com/rysweet/azlin azlin list
+uvx --from git+https://github.com/rysweet/azlin azlin
 
 # Create VM with dev tools
 azlin
