@@ -846,6 +846,7 @@ def main(ctx):
         kill          Delete a VM and all resources
         destroy       Delete VM with dry-run and RG options
         killall       Delete all VMs in resource group
+        cleanup       Find and remove orphaned resources
 
     \b
     EXAMPLES:
