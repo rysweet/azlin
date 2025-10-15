@@ -16,42 +16,50 @@ Commands:
     azlin -- <command>       # Execute command on VM(s)
 """
 
-import sys
-import os
 import logging
-import time
 import subprocess
-import click
-from pathlib import Path
-from typing import Optional, List
+import sys
+import time
 from datetime import datetime
+from pathlib import Path
+
+import click
 
 from azlin import __version__
-from azlin.azure_auth import AzureAuthenticator, AuthenticationError
-from azlin.vm_provisioning import VMProvisioner, VMConfig, VMDetails, ProvisioningError, PoolProvisioningResult
-from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
-from azlin.modules.ssh_keys import SSHKeyManager, SSHKeyError
-from azlin.modules.ssh_connector import SSHConnector, SSHConfig, SSHConnectionError
-from azlin.modules.github_setup import GitHubSetupHandler, GitHubSetupError
-from azlin.modules.progress import ProgressDisplay, ProgressStage
-from azlin.modules.notifications import NotificationHandler
-from azlin.modules.home_sync import HomeSyncManager, HomeSyncError, SecurityValidationError, RsyncError
+from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 
 # New modules for v2.0
-from azlin.config_manager import ConfigManager, AzlinConfig, ConfigError
-from azlin.vm_manager import VMManager, VMInfo, VMManagerError
-from azlin.remote_exec import RemoteExecutor, WCommandExecutor, PSCommandExecutor, RemoteExecError
-from azlin.terminal_launcher import TerminalLauncher, TerminalConfig
-from azlin.vm_lifecycle import VMLifecycleManager, VMLifecycleError, DeletionSummary
-from azlin.vm_connector import VMConnector, VMConnectorError
+from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
-from azlin.vm_lifecycle_control import VMLifecycleController, VMLifecycleControlError
+from azlin.env_manager import EnvManager, EnvManagerError
 from azlin.modules.file_transfer import (
+    FileTransfer,
+    FileTransferError,
     PathParser,
     SessionManager,
-    FileTransfer,
     TransferEndpoint,
-    FileTransferError
+)
+from azlin.modules.github_setup import GitHubSetupError, GitHubSetupHandler
+from azlin.modules.home_sync import (
+    HomeSyncError,
+    HomeSyncManager,
+    RsyncError,
+    SecurityValidationError,
+)
+from azlin.modules.notifications import NotificationHandler
+from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
+from azlin.modules.progress import ProgressDisplay, ProgressStage
+from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
+from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
+from azlin.remote_exec import PSCommandExecutor, RemoteExecError, RemoteExecutor, WCommandExecutor
+from azlin.vm_connector import VMConnector, VMConnectorError
+from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
+from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
+from azlin.vm_manager import VMInfo, VMManager, VMManagerError
+from azlin.vm_provisioning import (
+    ProvisioningError,
+    VMDetails,
+    VMProvisioner,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,12 +87,12 @@ class CLIOrchestrator:
 
     def __init__(
         self,
-        repo: Optional[str] = None,
+        repo: str | None = None,
         vm_size: str = "Standard_D2s_v3",
         region: str = "eastus",
-        resource_group: Optional[str] = None,
+        resource_group: str | None = None,
         auto_connect: bool = True,
-        config_file: Optional[str] = None
+        config_file: str | None = None
     ):
         """Initialize CLI orchestrator.
 
@@ -109,8 +117,8 @@ class CLIOrchestrator:
         self.progress = ProgressDisplay()
 
         # Track resources for cleanup
-        self.vm_details: Optional[VMDetails] = None
-        self.ssh_keys: Optional[Path] = None
+        self.vm_details: VMDetails | None = None
+        self.ssh_keys: Path | None = None
 
     def run(self) -> int:
         """Execute main workflow.
@@ -470,7 +478,7 @@ class CLIOrchestrator:
             )
             logger.warning(f"Home sync failed: {e}")
 
-        except Exception as e:
+        except Exception:
             # Catch all other errors
             self.progress.update(
                 "Home sync failed (unexpected error)",
@@ -535,7 +543,7 @@ class CLIOrchestrator:
 
         click.echo("\n" + "="*60)
         click.echo(f"Connecting to {vm_details.name} via SSH...")
-        click.echo(f"Starting tmux session 'azlin'")
+        click.echo("Starting tmux session 'azlin'")
         click.echo("="*60 + "\n")
 
         # Connect with auto-tmux
@@ -641,9 +649,9 @@ def _auto_sync_home_directory(ssh_config: SSHConfig) -> None:
 
 
 def show_interactive_menu(
-    vms: List[VMInfo],
+    vms: list[VMInfo],
     ssh_key_path: Path
-) -> Optional[int]:
+) -> int | None:
     """Show interactive VM selection menu.
 
     Args:
@@ -698,7 +706,7 @@ def show_interactive_menu(
         ip = vm.public_ip or "No IP"
         click.echo(f"  {idx}. {vm.name} - {status} - {ip}")
 
-    click.echo(f"  n. Create new VM")
+    click.echo("  n. Create new VM")
     click.echo("=" * 60)
 
     choice = input("\nSelect VM (number or 'n' for new): ").strip().lower()
@@ -713,9 +721,7 @@ def show_interactive_menu(
 
             if not vm.is_running():
                 click.echo(f"\nVM '{vm.name}' is not running.")
-                click.echo("Start it with: az vm start --name {} --resource-group {}".format(
-                    vm.name, vm.resource_group
-                ))
+                click.echo(f"Start it with: az vm start --name {vm.name} --resource-group {vm.resource_group}")
                 return 1
 
             if not vm.public_ip:
@@ -747,8 +753,8 @@ def show_interactive_menu(
 
 
 def generate_vm_name(
-    custom_name: Optional[str] = None,
-    command: Optional[str] = None
+    custom_name: str | None = None,
+    command: str | None = None
 ) -> str:
     """Generate VM name.
 
@@ -824,9 +830,9 @@ def execute_command_on_vm(
 
 
 def select_vm_for_command(
-    vms: List[VMInfo],
+    vms: list[VMInfo],
     command: str
-) -> Optional[VMInfo]:
+) -> VMInfo | None:
     """Show interactive menu to select VM for command execution.
 
     Args:
@@ -846,7 +852,7 @@ def select_vm_for_command(
         ip = vm.public_ip or "No IP"
         click.echo(f"  {idx}. {vm.name} - {status} - {ip}")
 
-    click.echo(f"  n. Create new VM and execute")
+    click.echo("  n. Create new VM and execute")
     click.echo("=" * 60)
 
     choice = input("\nSelect VM (number or 'n' for new): ").strip().lower()
@@ -919,6 +925,15 @@ def main(ctx):
         connect       Connect to existing VM via SSH
 
     \b
+    ENVIRONMENT MANAGEMENT:
+        env set       Set environment variable on VM
+        env list      List environment variables on VM
+        env delete    Delete environment variable from VM
+        env export    Export variables to .env file
+        env import    Import variables from .env file
+        env clear     Clear all environment variables
+
+    \b
     MONITORING COMMANDS:
         w             Run 'w' command on all VMs
         ps            Run 'ps aux' on all VMs
@@ -941,6 +956,11 @@ def main(ctx):
         # List VMs and show status
         $ azlin list
         $ azlin status
+
+        # Environment variables
+        $ azlin env set my-vm DATABASE_URL="postgres://localhost/db"
+        $ azlin env list my-vm
+        $ azlin env export my-vm prod.env
 
         # Start/stop VMs
         $ azlin start my-vm
@@ -980,7 +1000,7 @@ def main(ctx):
         level=logging.INFO,
         format='%(message)s'
     )
-    
+
     # If no subcommand provided, show help
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -999,34 +1019,34 @@ def main(ctx):
 @click.option('--config', help='Config file path', type=click.Path())
 def new_command(
     ctx,
-    repo: Optional[str],
-    vm_size: Optional[str],
-    region: Optional[str],
-    resource_group: Optional[str],
-    name: Optional[str],
-    pool: Optional[int],
+    repo: str | None,
+    vm_size: str | None,
+    region: str | None,
+    resource_group: str | None,
+    name: str | None,
+    pool: int | None,
     no_auto_connect: bool,
-    config: Optional[str]
+    config: str | None
 ):
     """Provision a new Azure VM with development tools.
-    
+
     Creates a new Ubuntu VM in Azure with all development tools pre-installed.
     Optionally connects via SSH and clones a GitHub repository.
-    
+
     \b
     EXAMPLES:
         # Provision basic VM
         $ azlin new
-        
+
         # Provision with custom name
         $ azlin new --name my-dev-vm
-        
+
         # Provision and clone repository
         $ azlin new --repo https://github.com/owner/repo
-        
+
         # Provision 5 VMs in parallel
         $ azlin new --pool 5
-        
+
         # Provision and execute command
         $ azlin new -- python train.py
     """
@@ -1223,7 +1243,7 @@ def create_command(ctx, **kwargs):
 @click.option('--resource-group', '--rg', help='Resource group to list VMs from', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
 @click.option('--all', 'show_all', help='Show all VMs (including stopped)', is_flag=True)
-def list_command(resource_group: Optional[str], config: Optional[str], show_all: bool):
+def list_command(resource_group: str | None, config: str | None, show_all: bool):
     """List VMs in resource group.
 
     Shows VM name, status, IP address, region, and size.
@@ -1281,7 +1301,7 @@ def list_command(resource_group: Optional[str], config: Optional[str], show_all:
 @main.command()
 @click.option('--resource-group', '--rg', help='Resource group', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
-def w(resource_group: Optional[str], config: Optional[str]):
+def w(resource_group: str | None, config: str | None):
     """Run 'w' command on all VMs.
 
     Shows who is logged in and what they are doing on each VM.
@@ -1350,8 +1370,8 @@ def w(resource_group: Optional[str], config: Optional[str]):
 @click.option('--force', is_flag=True, help='Skip confirmation prompt')
 def kill(
     vm_name: str,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     force: bool
 ):
     """Delete a VM and all associated resources.
@@ -1381,13 +1401,13 @@ def kill(
 
         # Show confirmation prompt unless --force
         if not force:
-            click.echo(f"\nVM Details:")
+            click.echo("\nVM Details:")
             click.echo(f"  Name:           {vm.name}")
             click.echo(f"  Resource Group: {vm.resource_group}")
             click.echo(f"  Status:         {vm.get_status_display()}")
             click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
             click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
-            click.echo(f"\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
+            click.echo("\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
             click.echo("This action cannot be undone.\n")
 
             confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
@@ -1438,8 +1458,8 @@ def kill(
 @click.option('--delete-rg', is_flag=True, help='Delete the entire resource group (use with caution)')
 def destroy(
     vm_name: str,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     force: bool,
     dry_run: bool,
     delete_rg: bool
@@ -1519,9 +1539,9 @@ def destroy(
             click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
             click.echo("\nResources that would be deleted:")
             click.echo(f"  - VM: {vm_name}")
-            click.echo(f"  - Associated NICs")
-            click.echo(f"  - Associated disks")
-            click.echo(f"  - Associated public IPs")
+            click.echo("  - Associated NICs")
+            click.echo("  - Associated disks")
+            click.echo("  - Associated public IPs")
             return
 
         # Normal deletion (same as kill command)
@@ -1533,13 +1553,13 @@ def destroy(
 
         # Show confirmation prompt unless --force
         if not force:
-            click.echo(f"\nVM Details:")
+            click.echo("\nVM Details:")
             click.echo(f"  Name:           {vm.name}")
             click.echo(f"  Resource Group: {vm.resource_group}")
             click.echo(f"  Status:         {vm.get_status_display()}")
             click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
             click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
-            click.echo(f"\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
+            click.echo("\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
             click.echo("This action cannot be undone.\n")
 
             confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
@@ -1587,8 +1607,8 @@ def destroy(
 @click.option('--force', is_flag=True, help='Skip confirmation prompt')
 @click.option('--prefix', default='azlin', help='Only delete VMs with this prefix')
 def killall(
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     force: bool,
     prefix: str
 ):
@@ -1649,7 +1669,7 @@ def killall(
 
         # Display results
         click.echo("\n" + "=" * 80)
-        click.echo(f"Deletion Summary")
+        click.echo("Deletion Summary")
         click.echo("=" * 80)
         click.echo(f"Total VMs:     {summary.total}")
         click.echo(f"Succeeded:     {summary.succeeded}")
@@ -1692,8 +1712,8 @@ def killall(
 @click.option('--config', help='Config file path', type=click.Path())
 @click.option('--grouped', is_flag=True, help='Group output by VM instead of prefixing')
 def ps(
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     grouped: bool
 ):
     """Run 'ps aux' command on all VMs.
@@ -1774,11 +1794,11 @@ def ps(
 @click.option('--to', 'to_date', help='End date (YYYY-MM-DD)', type=str)
 @click.option('--estimate', is_flag=True, help='Show monthly cost estimate')
 def cost(
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     by_vm: bool,
-    from_date: Optional[str],
-    to_date: Optional[str],
+    from_date: str | None,
+    to_date: str | None,
     estimate: bool
 ):
     """Show cost estimates for VMs.
@@ -1810,14 +1830,14 @@ def cost(
             try:
                 start_date = datetime.strptime(from_date, "%Y-%m-%d")
             except ValueError:
-                click.echo(f"Error: Invalid from date format. Use YYYY-MM-DD", err=True)
+                click.echo("Error: Invalid from date format. Use YYYY-MM-DD", err=True)
                 sys.exit(1)
 
         if to_date:
             try:
                 end_date = datetime.strptime(to_date, "%Y-%m-%d")
             except ValueError:
-                click.echo(f"Error: Invalid to date format. Use YYYY-MM-DD", err=True)
+                click.echo("Error: Invalid to date format. Use YYYY-MM-DD", err=True)
                 sys.exit(1)
 
         # Get cost estimates
@@ -1864,12 +1884,12 @@ def cost(
 @click.argument('remote_command', nargs=-1, type=str)
 def connect(
     vm_identifier: str,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     no_tmux: bool,
-    tmux_session: Optional[str],
+    tmux_session: str | None,
     user: str,
-    key: Optional[str],
+    key: str | None,
     no_reconnect: bool,
     max_retries: int,
     remote_command: tuple
@@ -1881,7 +1901,7 @@ def connect(
     - IP address (direct connection)
 
     Use -- to separate remote command from options.
-    
+
     By default, auto-reconnect is ENABLED. If your SSH session disconnects,
     you will be prompted to reconnect. Use --no-reconnect to disable this.
 
@@ -1910,10 +1930,10 @@ def connect(
 
         # Connect with custom SSH key
         azlin connect my-vm --key ~/.ssh/custom_key
-        
+
         # Disable auto-reconnect
         azlin connect my-vm --no-reconnect
-        
+
         # Set maximum reconnection attempts
         azlin connect my-vm --max-retries 5
     """
@@ -1976,8 +1996,8 @@ def connect(
 @click.option('--deallocate/--no-deallocate', default=True, help='Deallocate to save costs (default: yes)')
 def stop(
     vm_name: str,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     deallocate: bool
 ):
     """Stop or deallocate a VM.
@@ -2030,8 +2050,8 @@ def stop(
 @click.option('--config', help='Config file path', type=click.Path())
 def start(
     vm_name: str,
-    resource_group: Optional[str],
-    config: Optional[str]
+    resource_group: str | None,
+    config: str | None
 ):
     """Start a stopped or deallocated VM.
 
@@ -2078,10 +2098,10 @@ def start(
 @click.option('--resource-group', '--rg', help='Resource group', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
 def sync(
-    vm_name: Optional[str],
+    vm_name: str | None,
     dry_run: bool,
-    resource_group: Optional[str],
-    config: Optional[str]
+    resource_group: str | None,
+    config: str | None
 ):
     """Sync ~/.azlin/home/ to VM home directory.
 
@@ -2189,7 +2209,7 @@ def sync(
             sys.exit(1)
 
     except SecurityValidationError as e:
-        click.echo(f"\nSecurity validation failed:", err=True)
+        click.echo("\nSecurity validation failed:", err=True)
         click.echo(str(e), err=True)
         click.echo("\nRemove sensitive files from ~/.azlin/home/ and try again.", err=True)
         sys.exit(1)
@@ -2222,8 +2242,8 @@ def cp(
     source: str,
     destination: str,
     dry_run: bool,
-    resource_group: Optional[str],
-    config: Optional[str]
+    resource_group: str | None,
+    config: str | None
 ):
     """Copy files between local machine and VMs.
 
@@ -2245,7 +2265,7 @@ def cp(
         rg = ConfigManager.get_resource_group(resource_group, config)
 
         # Get SSH key
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+        SSHKeyManager.ensure_key_exists()
 
         # Parse source
         source_session_name, source_path_str = SessionManager.parse_session_path(source)
@@ -2361,9 +2381,9 @@ def cp(
 @click.option('--config', help='Config file path', type=click.Path())
 @click.option('--vm', help='Show status for specific VM only', type=str)
 def status(
-    resource_group: Optional[str],
-    config: Optional[str],
-    vm: Optional[str]
+    resource_group: str | None,
+    config: str | None,
+    vm: str | None
 ):
     """Show status of VMs in resource group.
 
@@ -2429,6 +2449,371 @@ def status(
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
+
+
+@main.group()
+def env():
+    """Manage environment variables on VMs.
+
+    Commands to set, list, delete, and export environment variables
+    stored in ~/.bashrc on remote VMs.
+
+    \b
+    Examples:
+        azlin env set my-vm DATABASE_URL="postgres://localhost/db"
+        azlin env list my-vm
+        azlin env delete my-vm API_KEY
+        azlin env export my-vm prod.env
+    """
+    pass
+
+
+@env.command(name='set')
+@click.argument('vm_identifier', type=str)
+@click.argument('env_var', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip secret detection warnings')
+def env_set(
+    vm_identifier: str,
+    env_var: str,
+    resource_group: str | None,
+    config: str | None,
+    force: bool
+):
+    """Set environment variable on VM.
+
+    ENV_VAR should be in format KEY=VALUE.
+
+    \b
+    Examples:
+        azlin env set my-vm DATABASE_URL="postgres://localhost/db"
+        azlin env set my-vm API_KEY=secret123 --force
+        azlin env set 20.1.2.3 NODE_ENV=production
+    """
+    try:
+        # Parse KEY=VALUE
+        if '=' not in env_var:
+            click.echo("Error: ENV_VAR must be in format KEY=VALUE", err=True)
+            sys.exit(1)
+
+        key, value = env_var.split('=', 1)
+        key = key.strip()
+        value = value.strip()
+
+        # Remove quotes if present
+        if value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        elif value.startswith("'") and value.endswith("'"):
+            value = value[1:-1]
+
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # Detect secrets and warn
+        if not force:
+            warnings = EnvManager.detect_secrets(value)
+            if warnings:
+                click.echo("WARNING: Potential secret detected!", err=True)
+                for warning in warnings:
+                    click.echo(f"  - {warning}", err=True)
+                click.echo("\nAre you sure you want to set this value? [y/N]: ", nl=False)
+                response = input().lower()
+                if response not in ['y', 'yes']:
+                    click.echo("Cancelled.")
+                    return
+
+        # Set the variable
+        EnvManager.set_env_var(ssh_config, key, value)
+
+        click.echo(f"Set {key} on {vm_identifier}")
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@env.command(name='list')
+@click.argument('vm_identifier', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--show-values', is_flag=True, help='Show full values (default: masked)')
+def env_list(
+    vm_identifier: str,
+    resource_group: str | None,
+    config: str | None,
+    show_values: bool
+):
+    """List environment variables on VM.
+
+    \b
+    Examples:
+        azlin env list my-vm
+        azlin env list my-vm --show-values
+        azlin env list 20.1.2.3
+    """
+    try:
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # List variables
+        env_vars = EnvManager.list_env_vars(ssh_config)
+
+        if not env_vars:
+            click.echo(f"No environment variables set on {vm_identifier}")
+            return
+
+        click.echo(f"\nEnvironment variables on {vm_identifier}:")
+        click.echo("=" * 80)
+
+        for key, value in sorted(env_vars.items()):
+            if show_values:
+                click.echo(f"  {key}={value}")
+            else:
+                # Mask values that might be secrets
+                warnings = EnvManager.detect_secrets(value)
+                if warnings or len(value) > 20:
+                    masked = "***" if warnings else value[:20] + "..."
+                    click.echo(f"  {key}={masked}")
+                else:
+                    click.echo(f"  {key}={value}")
+
+        click.echo("=" * 80)
+        click.echo(f"\nTotal: {len(env_vars)} variables")
+        if not show_values:
+            click.echo("Use --show-values to display full values\n")
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@env.command(name='delete')
+@click.argument('vm_identifier', type=str)
+@click.argument('key', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def env_delete(
+    vm_identifier: str,
+    key: str,
+    resource_group: str | None,
+    config: str | None
+):
+    """Delete environment variable from VM.
+
+    \b
+    Examples:
+        azlin env delete my-vm API_KEY
+        azlin env delete 20.1.2.3 DATABASE_URL
+    """
+    try:
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # Delete the variable
+        result = EnvManager.delete_env_var(ssh_config, key)
+
+        if result:
+            click.echo(f"Deleted {key} from {vm_identifier}")
+        else:
+            click.echo(f"Variable {key} not found on {vm_identifier}", err=True)
+            sys.exit(1)
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@env.command(name='export')
+@click.argument('vm_identifier', type=str)
+@click.argument('output_file', type=str, required=False)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def env_export(
+    vm_identifier: str,
+    output_file: str | None,
+    resource_group: str | None,
+    config: str | None
+):
+    """Export environment variables to .env file format.
+
+    \b
+    Examples:
+        azlin env export my-vm prod.env
+        azlin env export my-vm  # Print to stdout
+    """
+    try:
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # Export variables
+        result = EnvManager.export_env_vars(ssh_config, output_file)
+
+        if output_file:
+            click.echo(f"Exported environment variables to {output_file}")
+        else:
+            click.echo(result)
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@env.command(name='import')
+@click.argument('vm_identifier', type=str)
+@click.argument('env_file', type=click.Path(exists=True))
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def env_import(
+    vm_identifier: str,
+    env_file: str,
+    resource_group: str | None,
+    config: str | None
+):
+    """Import environment variables from .env file.
+
+    \b
+    Examples:
+        azlin env import my-vm .env
+        azlin env import my-vm prod.env
+    """
+    try:
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # Import variables
+        count = EnvManager.import_env_file(ssh_config, env_file)
+
+        click.echo(f"Imported {count} variables to {vm_identifier}")
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@env.command(name='clear')
+@click.argument('vm_identifier', type=str)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def env_clear(
+    vm_identifier: str,
+    resource_group: str | None,
+    config: str | None,
+    force: bool
+):
+    """Clear all environment variables from VM.
+
+    \b
+    Examples:
+        azlin env clear my-vm
+        azlin env clear my-vm --force
+    """
+    try:
+        # Get SSH config
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        # Confirm unless --force
+        if not force:
+            env_vars = EnvManager.list_env_vars(ssh_config)
+            if not env_vars:
+                click.echo(f"No environment variables set on {vm_identifier}")
+                return
+
+            click.echo(f"This will delete {len(env_vars)} environment variable(s) from {vm_identifier}")
+            click.echo("Are you sure? [y/N]: ", nl=False)
+            response = input().lower()
+            if response not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Clear all variables
+        EnvManager.clear_all_env_vars(ssh_config)
+
+        click.echo(f"Cleared all environment variables from {vm_identifier}")
+
+    except EnvManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+def _get_ssh_config_for_vm(
+    vm_identifier: str,
+    resource_group: str | None,
+    config: str | None
+) -> SSHConfig:
+    """Helper to get SSH config for VM identifier.
+
+    Args:
+        vm_identifier: VM name or IP address
+        resource_group: Resource group (required for VM name)
+        config: Config file path
+
+    Returns:
+        SSHConfig object
+
+    Raises:
+        SystemExit on error
+    """
+    # Get SSH key
+    ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+    # Check if VM identifier is IP address
+    if VMConnector._is_valid_ip(vm_identifier):
+        # Direct IP connection
+        return SSHConfig(
+            host=vm_identifier,
+            user="azureuser",
+            key_path=ssh_key_pair.private_path
+        )
+
+    # VM name - need resource group
+    rg = ConfigManager.get_resource_group(resource_group, config)
+    if not rg:
+        click.echo(
+            "Error: Resource group required for VM name.\n"
+            "Use --resource-group or set default in ~/.azlin/config.toml",
+            err=True
+        )
+        sys.exit(1)
+
+    # Get VM
+    vm = VMManager.get_vm(vm_identifier, rg)
+    if not vm:
+        click.echo(f"Error: VM '{vm_identifier}' not found in resource group '{rg}'.", err=True)
+        sys.exit(1)
+
+    if not vm.is_running():
+        click.echo(f"Error: VM '{vm_identifier}' is not running.", err=True)
+        sys.exit(1)
+
+    if not vm.public_ip:
+        click.echo(f"Error: VM '{vm_identifier}' has no public IP.", err=True)
+        sys.exit(1)
+
+    return SSHConfig(
+        host=vm.public_ip,
+        user="azureuser",
+        key_path=ssh_key_pair.private_path
+    )
 
 
 if __name__ == '__main__':
