@@ -16,42 +16,50 @@ Commands:
     azlin -- <command>       # Execute command on VM(s)
 """
 
-import sys
-import os
 import logging
-import time
 import subprocess
-import click
-from pathlib import Path
-from typing import Optional, List
+import sys
+import time
 from datetime import datetime
+from pathlib import Path
+
+import click
 
 from azlin import __version__
-from azlin.azure_auth import AzureAuthenticator, AuthenticationError
-from azlin.vm_provisioning import VMProvisioner, VMConfig, VMDetails, ProvisioningError, PoolProvisioningResult
-from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
-from azlin.modules.ssh_keys import SSHKeyManager, SSHKeyError
-from azlin.modules.ssh_connector import SSHConnector, SSHConfig, SSHConnectionError
-from azlin.modules.github_setup import GitHubSetupHandler, GitHubSetupError
-from azlin.modules.progress import ProgressDisplay, ProgressStage
-from azlin.modules.notifications import NotificationHandler
-from azlin.modules.home_sync import HomeSyncManager, HomeSyncError, SecurityValidationError, RsyncError
+from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 
 # New modules for v2.0
-from azlin.config_manager import ConfigManager, AzlinConfig, ConfigError
-from azlin.vm_manager import VMManager, VMInfo, VMManagerError
-from azlin.remote_exec import RemoteExecutor, WCommandExecutor, PSCommandExecutor, RemoteExecError
-from azlin.terminal_launcher import TerminalLauncher, TerminalConfig
-from azlin.vm_lifecycle import VMLifecycleManager, VMLifecycleError, DeletionSummary
-from azlin.vm_connector import VMConnector, VMConnectorError
+from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
-from azlin.vm_lifecycle_control import VMLifecycleController, VMLifecycleControlError
 from azlin.modules.file_transfer import (
+    FileTransfer,
+    FileTransferError,
     PathParser,
     SessionManager,
-    FileTransfer,
     TransferEndpoint,
-    FileTransferError
+)
+from azlin.modules.github_setup import GitHubSetupError, GitHubSetupHandler
+from azlin.modules.home_sync import (
+    HomeSyncError,
+    HomeSyncManager,
+    RsyncError,
+    SecurityValidationError,
+)
+from azlin.modules.notifications import NotificationHandler
+from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
+from azlin.modules.progress import ProgressDisplay, ProgressStage
+from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
+from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
+from azlin.remote_exec import PSCommandExecutor, RemoteExecError, RemoteExecutor, WCommandExecutor
+from azlin.snapshot_manager import SnapshotManager, SnapshotManagerError
+from azlin.vm_connector import VMConnector, VMConnectorError
+from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
+from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
+from azlin.vm_manager import VMInfo, VMManager, VMManagerError
+from azlin.vm_provisioning import (
+    ProvisioningError,
+    VMDetails,
+    VMProvisioner,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,12 +87,12 @@ class CLIOrchestrator:
 
     def __init__(
         self,
-        repo: Optional[str] = None,
+        repo: str | None = None,
         vm_size: str = "Standard_D2s_v3",
         region: str = "eastus",
-        resource_group: Optional[str] = None,
+        resource_group: str | None = None,
         auto_connect: bool = True,
-        config_file: Optional[str] = None
+        config_file: str | None = None
     ):
         """Initialize CLI orchestrator.
 
@@ -109,8 +117,8 @@ class CLIOrchestrator:
         self.progress = ProgressDisplay()
 
         # Track resources for cleanup
-        self.vm_details: Optional[VMDetails] = None
-        self.ssh_keys: Optional[Path] = None
+        self.vm_details: VMDetails | None = None
+        self.ssh_keys: Path | None = None
 
     def run(self) -> int:
         """Execute main workflow.
@@ -470,7 +478,7 @@ class CLIOrchestrator:
             )
             logger.warning(f"Home sync failed: {e}")
 
-        except Exception as e:
+        except Exception:
             # Catch all other errors
             self.progress.update(
                 "Home sync failed (unexpected error)",
@@ -535,7 +543,7 @@ class CLIOrchestrator:
 
         click.echo("\n" + "="*60)
         click.echo(f"Connecting to {vm_details.name} via SSH...")
-        click.echo(f"Starting tmux session 'azlin'")
+        click.echo("Starting tmux session 'azlin'")
         click.echo("="*60 + "\n")
 
         # Connect with auto-tmux
@@ -641,9 +649,9 @@ def _auto_sync_home_directory(ssh_config: SSHConfig) -> None:
 
 
 def show_interactive_menu(
-    vms: List[VMInfo],
+    vms: list[VMInfo],
     ssh_key_path: Path
-) -> Optional[int]:
+) -> int | None:
     """Show interactive VM selection menu.
 
     Args:
@@ -698,7 +706,7 @@ def show_interactive_menu(
         ip = vm.public_ip or "No IP"
         click.echo(f"  {idx}. {vm.name} - {status} - {ip}")
 
-    click.echo(f"  n. Create new VM")
+    click.echo("  n. Create new VM")
     click.echo("=" * 60)
 
     choice = input("\nSelect VM (number or 'n' for new): ").strip().lower()
@@ -713,9 +721,7 @@ def show_interactive_menu(
 
             if not vm.is_running():
                 click.echo(f"\nVM '{vm.name}' is not running.")
-                click.echo("Start it with: az vm start --name {} --resource-group {}".format(
-                    vm.name, vm.resource_group
-                ))
+                click.echo(f"Start it with: az vm start --name {vm.name} --resource-group {vm.resource_group}")
                 return 1
 
             if not vm.public_ip:
@@ -747,8 +753,8 @@ def show_interactive_menu(
 
 
 def generate_vm_name(
-    custom_name: Optional[str] = None,
-    command: Optional[str] = None
+    custom_name: str | None = None,
+    command: str | None = None
 ) -> str:
     """Generate VM name.
 
@@ -824,9 +830,9 @@ def execute_command_on_vm(
 
 
 def select_vm_for_command(
-    vms: List[VMInfo],
+    vms: list[VMInfo],
     command: str
-) -> Optional[VMInfo]:
+) -> VMInfo | None:
     """Show interactive menu to select VM for command execution.
 
     Args:
@@ -846,7 +852,7 @@ def select_vm_for_command(
         ip = vm.public_ip or "No IP"
         click.echo(f"  {idx}. {vm.name} - {status} - {ip}")
 
-    click.echo(f"  n. Create new VM and execute")
+    click.echo("  n. Create new VM and execute")
     click.echo("=" * 60)
 
     choice = input("\nSelect VM (number or 'n' for new): ").strip().lower()
@@ -919,6 +925,13 @@ def main(ctx):
         connect       Connect to existing VM via SSH
 
     \b
+    SNAPSHOT COMMANDS:
+        snapshot create <vm>              Create snapshot of VM disk
+        snapshot list <vm>                List snapshots for VM
+        snapshot restore <vm> <snapshot>  Restore VM from snapshot
+        snapshot delete <snapshot>        Delete a snapshot
+
+    \b
     MONITORING COMMANDS:
         w             Run 'w' command on all VMs
         ps            Run 'ps aux' on all VMs
@@ -945,6 +958,11 @@ def main(ctx):
         # Start/stop VMs
         $ azlin start my-vm
         $ azlin stop my-vm
+
+        # Manage snapshots
+        $ azlin snapshot create my-vm
+        $ azlin snapshot list my-vm
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
 
         # View costs
         $ azlin cost --by-vm
@@ -980,7 +998,7 @@ def main(ctx):
         level=logging.INFO,
         format='%(message)s'
     )
-    
+
     # If no subcommand provided, show help
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -999,34 +1017,34 @@ def main(ctx):
 @click.option('--config', help='Config file path', type=click.Path())
 def new_command(
     ctx,
-    repo: Optional[str],
-    vm_size: Optional[str],
-    region: Optional[str],
-    resource_group: Optional[str],
-    name: Optional[str],
-    pool: Optional[int],
+    repo: str | None,
+    vm_size: str | None,
+    region: str | None,
+    resource_group: str | None,
+    name: str | None,
+    pool: int | None,
     no_auto_connect: bool,
-    config: Optional[str]
+    config: str | None
 ):
     """Provision a new Azure VM with development tools.
-    
+
     Creates a new Ubuntu VM in Azure with all development tools pre-installed.
     Optionally connects via SSH and clones a GitHub repository.
-    
+
     \b
     EXAMPLES:
         # Provision basic VM
         $ azlin new
-        
+
         # Provision with custom name
         $ azlin new --name my-dev-vm
-        
+
         # Provision and clone repository
         $ azlin new --repo https://github.com/owner/repo
-        
+
         # Provision 5 VMs in parallel
         $ azlin new --pool 5
-        
+
         # Provision and execute command
         $ azlin new -- python train.py
     """
@@ -1223,7 +1241,7 @@ def create_command(ctx, **kwargs):
 @click.option('--resource-group', '--rg', help='Resource group to list VMs from', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
 @click.option('--all', 'show_all', help='Show all VMs (including stopped)', is_flag=True)
-def list_command(resource_group: Optional[str], config: Optional[str], show_all: bool):
+def list_command(resource_group: str | None, config: str | None, show_all: bool):
     """List VMs in resource group.
 
     Shows VM name, status, IP address, region, and size.
@@ -1281,7 +1299,7 @@ def list_command(resource_group: Optional[str], config: Optional[str], show_all:
 @main.command()
 @click.option('--resource-group', '--rg', help='Resource group', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
-def w(resource_group: Optional[str], config: Optional[str]):
+def w(resource_group: str | None, config: str | None):
     """Run 'w' command on all VMs.
 
     Shows who is logged in and what they are doing on each VM.
@@ -1350,8 +1368,8 @@ def w(resource_group: Optional[str], config: Optional[str]):
 @click.option('--force', is_flag=True, help='Skip confirmation prompt')
 def kill(
     vm_name: str,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     force: bool
 ):
     """Delete a VM and all associated resources.
@@ -1381,13 +1399,13 @@ def kill(
 
         # Show confirmation prompt unless --force
         if not force:
-            click.echo(f"\nVM Details:")
+            click.echo("\nVM Details:")
             click.echo(f"  Name:           {vm.name}")
             click.echo(f"  Resource Group: {vm.resource_group}")
             click.echo(f"  Status:         {vm.get_status_display()}")
             click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
             click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
-            click.echo(f"\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
+            click.echo("\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
             click.echo("This action cannot be undone.\n")
 
             confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
@@ -1438,8 +1456,8 @@ def kill(
 @click.option('--delete-rg', is_flag=True, help='Delete the entire resource group (use with caution)')
 def destroy(
     vm_name: str,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     force: bool,
     dry_run: bool,
     delete_rg: bool
@@ -1519,9 +1537,9 @@ def destroy(
             click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
             click.echo("\nResources that would be deleted:")
             click.echo(f"  - VM: {vm_name}")
-            click.echo(f"  - Associated NICs")
-            click.echo(f"  - Associated disks")
-            click.echo(f"  - Associated public IPs")
+            click.echo("  - Associated NICs")
+            click.echo("  - Associated disks")
+            click.echo("  - Associated public IPs")
             return
 
         # Normal deletion (same as kill command)
@@ -1533,13 +1551,13 @@ def destroy(
 
         # Show confirmation prompt unless --force
         if not force:
-            click.echo(f"\nVM Details:")
+            click.echo("\nVM Details:")
             click.echo(f"  Name:           {vm.name}")
             click.echo(f"  Resource Group: {vm.resource_group}")
             click.echo(f"  Status:         {vm.get_status_display()}")
             click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
             click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
-            click.echo(f"\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
+            click.echo("\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
             click.echo("This action cannot be undone.\n")
 
             confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
@@ -1587,8 +1605,8 @@ def destroy(
 @click.option('--force', is_flag=True, help='Skip confirmation prompt')
 @click.option('--prefix', default='azlin', help='Only delete VMs with this prefix')
 def killall(
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     force: bool,
     prefix: str
 ):
@@ -1649,7 +1667,7 @@ def killall(
 
         # Display results
         click.echo("\n" + "=" * 80)
-        click.echo(f"Deletion Summary")
+        click.echo("Deletion Summary")
         click.echo("=" * 80)
         click.echo(f"Total VMs:     {summary.total}")
         click.echo(f"Succeeded:     {summary.succeeded}")
@@ -1692,8 +1710,8 @@ def killall(
 @click.option('--config', help='Config file path', type=click.Path())
 @click.option('--grouped', is_flag=True, help='Group output by VM instead of prefixing')
 def ps(
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     grouped: bool
 ):
     """Run 'ps aux' command on all VMs.
@@ -1774,11 +1792,11 @@ def ps(
 @click.option('--to', 'to_date', help='End date (YYYY-MM-DD)', type=str)
 @click.option('--estimate', is_flag=True, help='Show monthly cost estimate')
 def cost(
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     by_vm: bool,
-    from_date: Optional[str],
-    to_date: Optional[str],
+    from_date: str | None,
+    to_date: str | None,
     estimate: bool
 ):
     """Show cost estimates for VMs.
@@ -1810,14 +1828,14 @@ def cost(
             try:
                 start_date = datetime.strptime(from_date, "%Y-%m-%d")
             except ValueError:
-                click.echo(f"Error: Invalid from date format. Use YYYY-MM-DD", err=True)
+                click.echo("Error: Invalid from date format. Use YYYY-MM-DD", err=True)
                 sys.exit(1)
 
         if to_date:
             try:
                 end_date = datetime.strptime(to_date, "%Y-%m-%d")
             except ValueError:
-                click.echo(f"Error: Invalid to date format. Use YYYY-MM-DD", err=True)
+                click.echo("Error: Invalid to date format. Use YYYY-MM-DD", err=True)
                 sys.exit(1)
 
         # Get cost estimates
@@ -1864,12 +1882,12 @@ def cost(
 @click.argument('remote_command', nargs=-1, type=str)
 def connect(
     vm_identifier: str,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     no_tmux: bool,
-    tmux_session: Optional[str],
+    tmux_session: str | None,
     user: str,
-    key: Optional[str],
+    key: str | None,
     no_reconnect: bool,
     max_retries: int,
     remote_command: tuple
@@ -1881,7 +1899,7 @@ def connect(
     - IP address (direct connection)
 
     Use -- to separate remote command from options.
-    
+
     By default, auto-reconnect is ENABLED. If your SSH session disconnects,
     you will be prompted to reconnect. Use --no-reconnect to disable this.
 
@@ -1910,10 +1928,10 @@ def connect(
 
         # Connect with custom SSH key
         azlin connect my-vm --key ~/.ssh/custom_key
-        
+
         # Disable auto-reconnect
         azlin connect my-vm --no-reconnect
-        
+
         # Set maximum reconnection attempts
         azlin connect my-vm --max-retries 5
     """
@@ -1976,8 +1994,8 @@ def connect(
 @click.option('--deallocate/--no-deallocate', default=True, help='Deallocate to save costs (default: yes)')
 def stop(
     vm_name: str,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     deallocate: bool
 ):
     """Stop or deallocate a VM.
@@ -2030,8 +2048,8 @@ def stop(
 @click.option('--config', help='Config file path', type=click.Path())
 def start(
     vm_name: str,
-    resource_group: Optional[str],
-    config: Optional[str]
+    resource_group: str | None,
+    config: str | None
 ):
     """Start a stopped or deallocated VM.
 
@@ -2078,10 +2096,10 @@ def start(
 @click.option('--resource-group', '--rg', help='Resource group', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
 def sync(
-    vm_name: Optional[str],
+    vm_name: str | None,
     dry_run: bool,
-    resource_group: Optional[str],
-    config: Optional[str]
+    resource_group: str | None,
+    config: str | None
 ):
     """Sync ~/.azlin/home/ to VM home directory.
 
@@ -2189,7 +2207,7 @@ def sync(
             sys.exit(1)
 
     except SecurityValidationError as e:
-        click.echo(f"\nSecurity validation failed:", err=True)
+        click.echo("\nSecurity validation failed:", err=True)
         click.echo(str(e), err=True)
         click.echo("\nRemove sensitive files from ~/.azlin/home/ and try again.", err=True)
         sys.exit(1)
@@ -2222,8 +2240,8 @@ def cp(
     source: str,
     destination: str,
     dry_run: bool,
-    resource_group: Optional[str],
-    config: Optional[str]
+    resource_group: str | None,
+    config: str | None
 ):
     """Copy files between local machine and VMs.
 
@@ -2245,7 +2263,7 @@ def cp(
         rg = ConfigManager.get_resource_group(resource_group, config)
 
         # Get SSH key
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+        SSHKeyManager.ensure_key_exists()
 
         # Parse source
         source_session_name, source_path_str = SessionManager.parse_session_path(source)
@@ -2361,9 +2379,9 @@ def cp(
 @click.option('--config', help='Config file path', type=click.Path())
 @click.option('--vm', help='Show status for specific VM only', type=str)
 def status(
-    resource_group: Optional[str],
-    config: Optional[str],
-    vm: Optional[str]
+    resource_group: str | None,
+    config: str | None,
+    vm: str | None
 ):
     """Show status of VMs in resource group.
 
@@ -2424,6 +2442,271 @@ def status(
         click.echo(f"Running: {running}, Stopped/Deallocated: {stopped}\n")
 
     except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.group(name='snapshot')
+@click.pass_context
+def snapshot(ctx):
+    """Manage VM snapshots.
+
+    Create, list, restore, and delete VM disk snapshots for backup and recovery.
+
+    \b
+    EXAMPLES:
+        # Create a snapshot of a VM
+        $ azlin snapshot create my-vm
+
+        # List snapshots for a VM
+        $ azlin snapshot list my-vm
+
+        # Restore VM from a snapshot
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
+
+        # Delete a snapshot
+        $ azlin snapshot delete my-vm-snapshot-20251015-053000
+    """
+    pass
+
+
+@snapshot.command(name='create')
+@click.argument('vm_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def snapshot_create(vm_name: str, resource_group: str | None, config: str | None):
+    """Create a snapshot of a VM's OS disk.
+
+    Creates a point-in-time snapshot of the VM's OS disk for backup purposes.
+    Snapshots are automatically named with timestamps.
+
+    \b
+    EXAMPLES:
+        # Create snapshot using default resource group
+        $ azlin snapshot create my-vm
+
+        # Create snapshot with specific resource group
+        $ azlin snapshot create my-vm --rg my-resource-group
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # Create snapshot
+        click.echo(f"\nCreating snapshot for VM: {vm_name}")
+        manager = SnapshotManager()
+        snapshot = manager.create_snapshot(vm_name, rg)
+
+        # Show cost estimate
+        monthly_cost = manager.get_snapshot_cost_estimate(snapshot.size_gb, 30)
+        click.echo("\n✓ Snapshot created successfully!")
+        click.echo(f"  Name:     {snapshot.name}")
+        click.echo(f"  Size:     {snapshot.size_gb} GB")
+        click.echo(f"  Location: {snapshot.location}")
+        click.echo(f"  Created:  {snapshot.created_time}")
+        click.echo(f"\nEstimated storage cost: ${monthly_cost:.2f}/month")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name='list')
+@click.argument('vm_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def snapshot_list(vm_name: str, resource_group: str | None, config: str | None):
+    """List all snapshots for a VM.
+
+    Shows all snapshots created for the specified VM, sorted by creation time.
+
+    \b
+    EXAMPLES:
+        # List snapshots for a VM
+        $ azlin snapshot list my-vm
+
+        # List snapshots with specific resource group
+        $ azlin snapshot list my-vm --rg my-resource-group
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # List snapshots
+        manager = SnapshotManager()
+        snapshots = manager.list_snapshots(vm_name, rg)
+
+        if not snapshots:
+            click.echo(f"\nNo snapshots found for VM: {vm_name}")
+            return
+
+        # Display snapshots table
+        click.echo(f"\nSnapshots for VM: {vm_name}")
+        click.echo("=" * 110)
+        click.echo(f"{'NAME':<50} {'SIZE':<10} {'CREATED':<30} {'STATUS':<20}")
+        click.echo("=" * 110)
+
+        total_size = 0
+        for snap in snapshots:
+            created = snap.created_time[:19].replace('T', ' ') if snap.created_time else 'N/A'
+            status = snap.provisioning_state or 'Unknown'
+            click.echo(f"{snap.name:<50} {snap.size_gb:<10} {created:<30} {status:<20}")
+            total_size += snap.size_gb
+
+        click.echo("=" * 110)
+        click.echo(f"\nTotal: {len(snapshots)} snapshots ({total_size} GB)")
+
+        # Show cost estimate
+        monthly_cost = manager.get_snapshot_cost_estimate(total_size, 30)
+        click.echo(f"Estimated total storage cost: ${monthly_cost:.2f}/month\n")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name='restore')
+@click.argument('vm_name')
+@click.argument('snapshot_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def snapshot_restore(vm_name: str, snapshot_name: str, resource_group: str | None, config: str | None, force: bool):
+    """Restore a VM from a snapshot.
+
+    WARNING: This will stop the VM, delete the current OS disk, and replace it
+    with a disk created from the snapshot. All data on the current disk will be lost.
+
+    \b
+    EXAMPLES:
+        # Restore VM from a snapshot (with confirmation)
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
+
+        # Restore without confirmation
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000 --force
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # Confirm restoration
+        if not force:
+            click.echo(f"\nWARNING: This will restore VM '{vm_name}' from snapshot '{snapshot_name}'")
+            click.echo("This operation will:")
+            click.echo("  1. Stop/deallocate the VM")
+            click.echo("  2. Delete the current OS disk")
+            click.echo("  3. Create a new disk from the snapshot")
+            click.echo("  4. Attach the new disk to the VM")
+            click.echo("  5. Start the VM")
+            click.echo("\nAll current data on the VM disk will be lost!")
+            click.echo("\nContinue? [y/N]: ", nl=False)
+            response = input().lower()
+            if response not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Restore snapshot
+        click.echo(f"\nRestoring VM '{vm_name}' from snapshot '{snapshot_name}'...")
+        click.echo("This may take several minutes...\n")
+
+        manager = SnapshotManager()
+        manager.restore_snapshot(vm_name, snapshot_name, rg)
+
+        click.echo(f"\n✓ VM '{vm_name}' successfully restored from snapshot!")
+        click.echo(f"  The VM is now running with the disk from: {snapshot_name}\n")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name='delete')
+@click.argument('snapshot_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def snapshot_delete(snapshot_name: str, resource_group: str | None, config: str | None, force: bool):
+    """Delete a snapshot.
+
+    Permanently deletes a snapshot to free up storage and reduce costs.
+
+    \b
+    EXAMPLES:
+        # Delete a snapshot (with confirmation)
+        $ azlin snapshot delete my-vm-snapshot-20251015-053000
+
+        # Delete without confirmation
+        $ azlin snapshot delete my-vm-snapshot-20251015-053000 --force
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # Confirm deletion
+        if not force:
+            click.echo(f"\nAre you sure you want to delete snapshot '{snapshot_name}'?")
+            click.echo("This action cannot be undone!")
+            click.echo("\nContinue? [y/N]: ", nl=False)
+            response = input().lower()
+            if response not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Delete snapshot
+        manager = SnapshotManager()
+        manager.delete_snapshot(snapshot_name, rg)
+
+        click.echo(f"\n✓ Snapshot '{snapshot_name}' deleted successfully!\n")
+
+    except SnapshotManagerError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
