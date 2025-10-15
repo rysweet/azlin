@@ -52,6 +52,7 @@ from azlin.modules.progress import ProgressDisplay, ProgressStage
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.remote_exec import PSCommandExecutor, RemoteExecError, RemoteExecutor, WCommandExecutor
+from azlin.resource_cleanup import ResourceCleanup, ResourceCleanupError
 from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
 from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
@@ -839,6 +840,7 @@ def main(ctx):
         kill          Delete a VM and all resources
         destroy       Delete VM with dry-run and RG options
         killall       Delete all VMs in resource group
+        cleanup       Find and remove orphaned resources
 
     \b
     SSH KEY MANAGEMENT:
@@ -2142,7 +2144,7 @@ def cp(
         rg = ConfigManager.get_resource_group(resource_group, config)
 
         # Get SSH key
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+        SSHKeyManager.ensure_key_exists()
 
         # Parse source
         source_session_name, source_path_str = SessionManager.parse_session_path(source)
@@ -2401,6 +2403,8 @@ def keys_rotate(
                 for vm in result.vms_failed:
                     click.echo(f"  - {vm}")
             sys.exit(1)
+        else:
+            sys.exit(0)
 
     except KeyRotationError as e:
         click.echo(f"Error: {e}", err=True)
