@@ -53,7 +53,7 @@ from azlin.modules.progress import ProgressDisplay, ProgressStage
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.remote_exec import PSCommandExecutor, RemoteExecError, RemoteExecutor, WCommandExecutor
-from azlin.resource_cleanup import ResourceCleanup, ResourceCleanupError
+from azlin.snapshot_manager import SnapshotManager, SnapshotManagerError
 from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
 from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
@@ -840,6 +840,13 @@ def main(ctx):
         env clear     Clear all environment variables
 
     \b
+    SNAPSHOT COMMANDS:
+        snapshot create <vm>              Create snapshot of VM disk
+        snapshot list <vm>                List snapshots for VM
+        snapshot restore <vm> <snapshot>  Restore VM from snapshot
+        snapshot delete <snapshot>        Delete a snapshot
+
+    \b
     MONITORING COMMANDS:
         w             Run 'w' command on all VMs
         ps            Run 'ps aux' on all VMs
@@ -879,6 +886,11 @@ def main(ctx):
         # Start/stop VMs
         $ azlin start my-vm
         $ azlin stop my-vm
+
+        # Manage snapshots
+        $ azlin snapshot create my-vm
+        $ azlin snapshot list my-vm
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
 
         # View costs
         $ azlin cost --by-vm
@@ -2344,6 +2356,268 @@ def status(
         sys.exit(1)
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.group(name='snapshot')
+@click.pass_context
+def snapshot(ctx):
+    """Manage VM snapshots.
+
+    Create, list, restore, and delete VM disk snapshots for backup and recovery.
+
+    \b
+    EXAMPLES:
+        # Create a snapshot of a VM
+        $ azlin snapshot create my-vm
+
+        # List snapshots for a VM
+        $ azlin snapshot list my-vm
+
+        # Restore VM from a snapshot
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
+
+        # Delete a snapshot
+        $ azlin snapshot delete my-vm-snapshot-20251015-053000
+    """
+    pass
+
+
+@snapshot.command(name='create')
+@click.argument('vm_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def snapshot_create(vm_name: str, resource_group: str | None, config: str | None):
+    """Create a snapshot of a VM's OS disk.
+
+    Creates a point-in-time snapshot of the VM's OS disk for backup purposes.
+    Snapshots are automatically named with timestamps.
+
+    \b
+    EXAMPLES:
+        # Create snapshot using default resource group
+        $ azlin snapshot create my-vm
+
+        # Create snapshot with specific resource group
+        $ azlin snapshot create my-vm --rg my-resource-group
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # Create snapshot
+        click.echo(f"\nCreating snapshot for VM: {vm_name}")
+        manager = SnapshotManager()
+        snapshot = manager.create_snapshot(vm_name, rg)
+
+        # Show cost estimate
+        monthly_cost = manager.get_snapshot_cost_estimate(snapshot.size_gb, 30)
+        click.echo("\n✓ Snapshot created successfully!")
+        click.echo(f"  Name:     {snapshot.name}")
+        click.echo(f"  Size:     {snapshot.size_gb} GB")
+        click.echo(f"  Location: {snapshot.location}")
+        click.echo(f"  Created:  {snapshot.created_time}")
+        click.echo(f"\nEstimated storage cost: ${monthly_cost:.2f}/month")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name='list')
+@click.argument('vm_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def snapshot_list(vm_name: str, resource_group: str | None, config: str | None):
+    """List all snapshots for a VM.
+
+    Shows all snapshots created for the specified VM, sorted by creation time.
+
+    \b
+    EXAMPLES:
+        # List snapshots for a VM
+        $ azlin snapshot list my-vm
+
+        # List snapshots with specific resource group
+        $ azlin snapshot list my-vm --rg my-resource-group
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # List snapshots
+        manager = SnapshotManager()
+        snapshots = manager.list_snapshots(vm_name, rg)
+
+        if not snapshots:
+            click.echo(f"\nNo snapshots found for VM: {vm_name}")
+            return
+
+        # Display snapshots table
+        click.echo(f"\nSnapshots for VM: {vm_name}")
+        click.echo("=" * 110)
+        click.echo(f"{'NAME':<50} {'SIZE':<10} {'CREATED':<30} {'STATUS':<20}")
+        click.echo("=" * 110)
+
+        total_size = 0
+        for snap in snapshots:
+            created = snap.created_time[:19].replace('T', ' ') if snap.created_time else 'N/A'
+            status = snap.provisioning_state or 'Unknown'
+            click.echo(f"{snap.name:<50} {snap.size_gb:<10} {created:<30} {status:<20}")
+            total_size += snap.size_gb
+
+        click.echo("=" * 110)
+        click.echo(f"\nTotal: {len(snapshots)} snapshots ({total_size} GB)")
+
+        # Show cost estimate
+        monthly_cost = manager.get_snapshot_cost_estimate(total_size, 30)
+        click.echo(f"Estimated total storage cost: ${monthly_cost:.2f}/month\n")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name='restore')
+@click.argument('vm_name')
+@click.argument('snapshot_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def snapshot_restore(vm_name: str, snapshot_name: str, resource_group: str | None, config: str | None, force: bool):
+    """Restore a VM from a snapshot.
+
+    WARNING: This will stop the VM, delete the current OS disk, and replace it
+    with a disk created from the snapshot. All data on the current disk will be lost.
+
+    \b
+    EXAMPLES:
+        # Restore VM from a snapshot (with confirmation)
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
+
+        # Restore without confirmation
+        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000 --force
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # Confirm restoration
+        if not force:
+            click.echo(f"\nWARNING: This will restore VM '{vm_name}' from snapshot '{snapshot_name}'")
+            click.echo("This operation will:")
+            click.echo("  1. Stop/deallocate the VM")
+            click.echo("  2. Delete the current OS disk")
+            click.echo("  3. Create a new disk from the snapshot")
+            click.echo("  4. Attach the new disk to the VM")
+            click.echo("  5. Start the VM")
+            click.echo("\nAll current data on the VM disk will be lost!")
+            click.echo("\nContinue? [y/N]: ", nl=False)
+            response = input().lower()
+            if response not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Restore snapshot
+        click.echo(f"\nRestoring VM '{vm_name}' from snapshot '{snapshot_name}'...")
+        click.echo("This may take several minutes...\n")
+
+        manager = SnapshotManager()
+        manager.restore_snapshot(vm_name, snapshot_name, rg)
+
+        click.echo(f"\n✓ VM '{vm_name}' successfully restored from snapshot!")
+        click.echo(f"  The VM is now running with the disk from: {snapshot_name}\n")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name='delete')
+@click.argument('snapshot_name')
+@click.option('--resource-group', '--rg', help='Resource group name', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def snapshot_delete(snapshot_name: str, resource_group: str | None, config: str | None, force: bool):
+    """Delete a snapshot.
+
+    Permanently deletes a snapshot to free up storage and reduce costs.
+
+    \b
+    EXAMPLES:
+        # Delete a snapshot (with confirmation)
+        $ azlin snapshot delete my-vm-snapshot-20251015-053000
+
+        # Delete without confirmation
+        $ azlin snapshot delete my-vm-snapshot-20251015-053000 --force
+    """
+    try:
+        # Load config for defaults
+        try:
+            azlin_config = ConfigManager.load_config(config)
+        except ConfigError:
+            azlin_config = AzlinConfig()
+
+        # Get resource group
+        rg = resource_group or azlin_config.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified. Use --rg or set default_resource_group in config.", err=True)
+            sys.exit(1)
+
+        # Confirm deletion
+        if not force:
+            click.echo(f"\nAre you sure you want to delete snapshot '{snapshot_name}'?")
+            click.echo("This action cannot be undone!")
+            click.echo("\nContinue? [y/N]: ", nl=False)
+            response = input().lower()
+            if response not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Delete snapshot
+        manager = SnapshotManager()
+        manager.delete_snapshot(snapshot_name, rg)
+
+        click.echo(f"\n✓ Snapshot '{snapshot_name}' deleted successfully!\n")
+
+    except SnapshotManagerError as e:
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
 
