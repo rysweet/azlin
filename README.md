@@ -5,13 +5,13 @@
 ```bash
 
 # Run directly from GitHub (no installation needed)
-uvx --from git+https://github.com/rysweet/azlin azlin
+uvx --from git+https://github.com/rysweet/azlin azlin new
 
 # Create VM with dev tools
-azlin
+azlin new
 
 # Create VM and clone GitHub repo
-azlin --repo https://github.com/owner/repo
+azlin new --repo https://github.com/owner/repo
 ```
 
 ## What is azlin?
@@ -79,6 +79,20 @@ Before using azlin, ensure these tools are installed:
 
 ## Quick Start
 
+### Getting Help
+
+```bash
+# Show all available commands
+azlin
+
+# Or use the help flag
+azlin --help
+
+# Get help for specific commands
+azlin new --help
+azlin list --help
+```
+
 ### Option 1: Zero-Install with uvx (Recommended for Trying)
 
 Run azlin instantly without installation using [uvx](https://docs.astral.sh/uv/concepts/tools/):
@@ -88,10 +102,10 @@ Run azlin instantly without installation using [uvx](https://docs.astral.sh/uv/c
 uvx --from git+https://github.com/rysweet/azlin azlin list
 
 # Provision a VM
-uvx --from git+https://github.com/rysweet/azlin azlin
+uvx --from git+https://github.com/rysweet/azlin azlin new
 
 # Clone a repo on the VM
-uvx --from git+https://github.com/rysweet/azlin azlin --repo https://github.com/microsoft/vscode
+uvx --from git+https://github.com/rysweet/azlin azlin new --repo https://github.com/microsoft/vscode
 
 # Any azlin command works
 uvx --from git+https://github.com/rysweet/azlin azlin status
@@ -131,10 +145,10 @@ uv pip install azlin
 pip install azlin
 
 # Create a development VM
-azlin
+azlin new
 
 # Create VM and clone a repo
-azlin --repo https://github.com/microsoft/vscode
+azlin new --repo https://github.com/microsoft/vscode
 
 # Sync your dotfiles to existing VMs
 azlin sync
@@ -154,7 +168,7 @@ mkdir -p ~/.azlin/home
 cp ~/.bashrc ~/.vimrc ~/.gitconfig ~/.azlin/home/
 
 # Auto-syncs on VM creation and login
-azlin  # Dotfiles automatically synced after provisioning
+azlin new  # Dotfiles automatically synced after provisioning
 
 # Manual sync to specific VM
 azlin sync --vm-name my-vm
