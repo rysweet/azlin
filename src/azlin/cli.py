@@ -52,6 +52,7 @@ from azlin.modules.progress import ProgressDisplay, ProgressStage
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.remote_exec import PSCommandExecutor, RemoteExecError, RemoteExecutor, WCommandExecutor
+from azlin.resource_cleanup import ResourceCleanup, ResourceCleanupError
 from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
 from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
@@ -848,6 +849,7 @@ def main(ctx):
         kill          Delete a VM and all resources
         destroy       Delete VM with dry-run and RG options
         killall       Delete all VMs in resource group
+        cleanup       Find and remove orphaned resources
 
     \b
     EXAMPLES:
