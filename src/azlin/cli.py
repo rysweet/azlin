@@ -32,6 +32,7 @@ from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
 from azlin.env_manager import EnvManager, EnvManagerError
+from azlin.tag_manager import TagManager, TagManagerError
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -827,6 +828,7 @@ def main(ctx):
         start         Start a stopped VM
         stop          Stop/deallocate a VM to save costs
         connect       Connect to existing VM via SSH
+        tag           Manage VM tags (add, remove, list)
 
     \b
     ENVIRONMENT MANAGEMENT:
@@ -861,12 +863,18 @@ def main(ctx):
 
         # List VMs and show status
         $ azlin list
+        $ azlin list --tag env=dev
         $ azlin status
 
         # Environment variables
         $ azlin env set my-vm DATABASE_URL="postgres://localhost/db"
         $ azlin env list my-vm
         $ azlin env export my-vm prod.env
+
+        # Manage tags
+        $ azlin tag my-vm --add env=dev
+        $ azlin tag my-vm --list
+        $ azlin tag my-vm --remove env
 
         # Start/stop VMs
         $ azlin start my-vm
@@ -1153,7 +1161,8 @@ def create_command(ctx, **kwargs):
 @click.option('--resource-group', '--rg', help='Resource group to list VMs from', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
 @click.option('--all', 'show_all', help='Show all VMs (including stopped)', is_flag=True)
-def list_command(resource_group: str | None, config: str | None, show_all: bool):
+@click.option('--tag', help='Filter VMs by tag (format: key or key=value)', type=str)
+def list_command(resource_group: Optional[str], config: Optional[str], show_all: bool, tag: Optional[str]):
     """List VMs in resource group.
 
     Shows VM name, status, IP address, region, and size.
@@ -1163,6 +1172,8 @@ def list_command(resource_group: str | None, config: str | None, show_all: bool)
         azlin list
         azlin list --rg my-resource-group
         azlin list --all
+        azlin list --tag env=dev
+        azlin list --tag team
     """
     try:
         # Get resource group from config or CLI
@@ -1180,6 +1191,15 @@ def list_command(resource_group: str | None, config: str | None, show_all: bool)
 
         # Filter to azlin VMs
         vms = VMManager.filter_by_prefix(vms, "azlin")
+        
+        # Filter by tag if specified
+        if tag:
+            try:
+                vms = TagManager.filter_vms_by_tag(vms, tag)
+            except Exception as e:
+                click.echo(f"Error filtering by tag: {e}", err=True)
+                sys.exit(1)
+        
         vms = VMManager.sort_by_created_time(vms)
 
         if not vms:
@@ -2407,6 +2427,7 @@ def env_set(
     except EnvManagerError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
