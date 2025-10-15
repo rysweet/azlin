@@ -3,6 +3,10 @@
 **One command to create a fully-equipped development VM on Azure**
 
 ```bash
+
+# Run directly from GitHub (no installation needed)
+uvx --from git+https://github.com/rysweet/azlin azlin list
+
 # Create VM with dev tools
 azlin
 
