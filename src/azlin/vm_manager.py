@@ -86,11 +86,10 @@ class VMManager:
             VMManagerError: If listing fails
         """
         try:
-            # List VMs with details
+            # List VMs without show-details first (faster and more reliable)
             cmd = [
                 'az', 'vm', 'list',
                 '--resource-group', resource_group,
-                '--show-details',
                 '--output', 'json'
             ]
 
@@ -103,16 +102,27 @@ class VMManager:
             )
 
             vms_data = json.loads(result.stdout)
+            
+            # Fetch all public IPs in a single batch call
+            public_ips = cls._get_all_public_ips(resource_group)
+            
             vms = []
 
+            # Parse VM data and match with public IPs
             for vm_data in vms_data:
-                vm_info = cls._parse_vm_data(vm_data)
-
-                # Filter by power state if requested
-                if not include_stopped and vm_info.is_stopped():
-                    continue
-
-                vms.append(vm_info)
+                try:
+                    vm_name = vm_data.get('name')
+                    # Match public IP by convention: {vm_name}PublicIP
+                    vm_data['publicIps'] = public_ips.get(f"{vm_name}PublicIP")
+                    
+                    vm_info = cls._parse_vm_data(vm_data)
+                    
+                    # Since we don't have power state, we can't filter by stopped status reliably
+                    # Just include all VMs
+                    vms.append(vm_info)
+                except Exception as e:
+                    # Log error but continue with other VMs
+                    logger.warning(f"Failed to parse VM {vm_data.get('name', 'unknown')}: {e}")
 
             logger.debug(f"Found {len(vms)} VMs in resource group: {resource_group}")
             return vms
@@ -127,6 +137,39 @@ class VMManager:
             raise VMManagerError("Failed to parse VM list response")
         except subprocess.TimeoutExpired:
             raise VMManagerError("VM list operation timed out")
+    
+    @classmethod
+    def _get_all_public_ips(cls, resource_group: str) -> Dict[str, str]:
+        """Get all public IPs in the resource group in a single batch call.
+        
+        Args:
+            resource_group: Resource group name
+            
+        Returns:
+            Dictionary mapping public IP resource name to IP address
+        """
+        try:
+            cmd = [
+                'az', 'network', 'public-ip', 'list',
+                '--resource-group', resource_group,
+                '--query', '[].{name:name, ip:ipAddress}',
+                '--output', 'json'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True
+            )
+            
+            ips_data = json.loads(result.stdout)
+            return {item['name']: item['ip'] for item in ips_data if item.get('ip')}
+            
+        except Exception as e:
+            logger.debug(f"Failed to fetch public IPs: {e}")
+            return {}
 
     @classmethod
     def get_vm(
@@ -302,6 +345,107 @@ class VMManager:
         return sorted(vms, key=get_time, reverse=reverse)
 
     @classmethod
+    def _enrich_vm_data(cls, vm_data: Dict[str, Any], resource_group: str) -> Dict[str, Any]:
+        """Enrich VM data with instance view information.
+        
+        Args:
+            vm_data: Basic VM data
+            resource_group: Resource group name
+            
+        Returns:
+            Enriched VM data with power state and IP information
+        """
+        vm_name = vm_data['name']
+        
+        # Try to get instance view with a short timeout
+        try:
+            cmd = [
+                'az', 'vm', 'get-instance-view',
+                '--name', vm_name,
+                '--resource-group', resource_group,
+                '--output', 'json'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=5,  # Short timeout to avoid hanging
+                check=True
+            )
+            
+            instance_view = json.loads(result.stdout)
+            
+            # Add instance view to VM data
+            vm_data['instanceView'] = instance_view
+            
+            # Extract power state from instance view
+            statuses = instance_view.get('statuses', [])
+            for status in statuses:
+                if status.get('code', '').startswith('PowerState/'):
+                    vm_data['powerState'] = status['displayStatus']
+                    break
+                    
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError) as e:
+            logger.debug(f"Could not get instance view for {vm_name}: {e}")
+            # Set default power state
+            vm_data['powerState'] = 'Unknown'
+        
+        # Try to get public IP with a short timeout
+        try:
+            # Get network interface
+            network_interfaces = vm_data.get('networkProfile', {}).get('networkInterfaces', [])
+            if network_interfaces:
+                nic_id = network_interfaces[0]['id']
+                nic_name = nic_id.split('/')[-1]
+                
+                cmd = [
+                    'az', 'network', 'nic', 'show',
+                    '--name', nic_name,
+                    '--resource-group', resource_group,
+                    '--query', 'ipConfigurations[0].publicIPAddress.id',
+                    '--output', 'tsv'
+                ]
+                
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=True
+                )
+                
+                public_ip_id = result.stdout.strip()
+                if public_ip_id and public_ip_id != 'None':
+                    public_ip_name = public_ip_id.split('/')[-1]
+                    
+                    # Get public IP address
+                    cmd = [
+                        'az', 'network', 'public-ip', 'show',
+                        '--name', public_ip_name,
+                        '--resource-group', resource_group,
+                        '--query', 'ipAddress',
+                        '--output', 'tsv'
+                    ]
+                    
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        check=True
+                    )
+                    
+                    public_ip = result.stdout.strip()
+                    if public_ip and public_ip != 'None':
+                        vm_data['publicIps'] = public_ip
+                        
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError) as e:
+            logger.debug(f"Could not get public IP for {vm_name}: {e}")
+        
+        return vm_data
+
+    @classmethod
     def _parse_vm_data(cls, data: Dict[str, Any]) -> VMInfo:
         """Parse VM data from Azure response.
 
@@ -315,7 +459,7 @@ class VMManager:
         power_state = "Unknown"
         if 'powerState' in data:
             power_state = data['powerState']
-        elif 'instanceView' in data:
+        elif 'instanceView' in data and data['instanceView'] is not None:
             statuses = data['instanceView'].get('statuses', [])
             for status in statuses:
                 if status.get('code', '').startswith('PowerState/'):
