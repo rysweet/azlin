@@ -1842,7 +1842,7 @@ def cost(
 
 
 @main.command()
-@click.argument("vm_identifier", type=str)
+@click.argument("vm_identifier", type=str, required=False)
 @click.option("--resource-group", "--rg", help="Resource group (required for VM name)", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--no-tmux", is_flag=True, help="Skip tmux session")
@@ -1855,7 +1855,7 @@ def cost(
 )
 @click.argument("remote_command", nargs=-1, type=str)
 def connect(
-    vm_identifier: str,
+    vm_identifier: str | None,
     resource_group: str | None,
     config: str | None,
     no_tmux: bool,
@@ -1868,6 +1868,9 @@ def connect(
 ):
     """Connect to existing VM via SSH.
 
+    If VM_IDENTIFIER is not provided, displays an interactive list of available
+    VMs to choose from, or option to create a new VM.
+
     VM_IDENTIFIER can be either:
     - VM name (requires --resource-group or default config)
     - IP address (direct connection)
@@ -1879,6 +1882,9 @@ def connect(
 
     \b
     Examples:
+        # Interactive selection
+        azlin connect
+
         # Connect to VM by name
         azlin connect my-vm
 
@@ -1910,6 +1916,83 @@ def connect(
         azlin connect my-vm --max-retries 5
     """
     try:
+        # If no VM identifier provided, show interactive selection
+        if not vm_identifier:
+            rg = ConfigManager.get_resource_group(resource_group, config)
+            if not rg:
+                click.echo(
+                    "Error: Resource group required.\n"
+                    "Use --resource-group or set default in ~/.azlin/config.toml",
+                    err=True,
+                )
+                sys.exit(1)
+            
+            # Get list of running VMs
+            try:
+                vms = VMManager.list_vms(resource_group=rg, show_all=False)
+            except VMManagerError as e:
+                click.echo(f"Error listing VMs: {e}", err=True)
+                sys.exit(1)
+            
+            if not vms:
+                click.echo("No running VMs found in resource group.")
+                response = click.prompt(
+                    "\nWould you like to create a new VM?",
+                    type=click.Choice(['y', 'n'], case_sensitive=False),
+                    default='y'
+                )
+                if response.lower() == 'y':
+                    # Import here to avoid circular dependency
+                    from click import Context
+                    ctx = Context(new_command)
+                    ctx.invoke(new_command, 
+                               resource_group=rg, 
+                               config=config,
+                               no_tmux=no_tmux,
+                               tmux_session=tmux_session)
+                    return
+                else:
+                    click.echo("Cancelled.")
+                    sys.exit(0)
+            
+            # Display VM list
+            click.echo("\nAvailable VMs:")
+            click.echo("─" * 60)
+            for i, vm in enumerate(vms, 1):
+                status_emoji = "🟢" if vm.is_running() else "🔴"
+                click.echo(f"{i:2}. {status_emoji} {vm.name:<30} {vm.location:<15} {vm.vm_size or 'unknown'}")
+            click.echo("─" * 60)
+            click.echo(f" 0. Create new VM")
+            click.echo()
+            
+            # Prompt for selection
+            while True:
+                try:
+                    selection = click.prompt(
+                        "Select a VM to connect to (0 to create new)",
+                        type=int,
+                        default=1 if vms else 0
+                    )
+                    
+                    if selection == 0:
+                        # Create new VM
+                        from click import Context
+                        ctx = Context(new_command)
+                        ctx.invoke(new_command, 
+                                   resource_group=rg, 
+                                   config=config,
+                                   no_tmux=no_tmux,
+                                   tmux_session=tmux_session)
+                        return
+                    elif 1 <= selection <= len(vms):
+                        vm_identifier = vms[selection - 1].name
+                        break
+                    else:
+                        click.echo(f"Invalid selection. Please choose 0-{len(vms)}", err=True)
+                except (ValueError, click.Abort):
+                    click.echo("\nCancelled.")
+                    sys.exit(0)
+
         # Parse remote command
         command = " ".join(remote_command) if remote_command else None
 
