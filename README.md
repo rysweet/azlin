@@ -179,5 +179,3 @@ azlin cp vm1:~/results.tar.gz ./
 # Preview transfer
 azlin cp --dry-run large-dataset.zip vm1:~/
 ```
-
-ant full details?** See [ARCHITECTURE.md](docs/ARCHITECTURE.md)
