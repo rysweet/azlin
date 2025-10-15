@@ -12,9 +12,20 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 
 ### For Developers
 
+- **[AI_AGENT_GUIDE.md](AI_AGENT_GUIDE.md)** - **START HERE for AI agents** - Comprehensive guide to azlin development
 - **[ARCHITECTURE_SUMMARY.md](ARCHITECTURE_SUMMARY.md)** - High-level system overview
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete architecture specification
 - **[TEST_STRATEGY.md](TEST_STRATEGY.md)** - Testing approach and strategy
+
+### For AI Agents
+
+- **[AI_AGENT_GUIDE.md](AI_AGENT_GUIDE.md)** - Complete development guide including:
+  - Project philosophy (brick architecture, security, TDD)
+  - Module structure and patterns
+  - Testing strategies and workflows
+  - Common development tasks
+  - Security architecture
+  - Troubleshooting guide
 
 ### Historical Documentation
 
@@ -51,15 +62,12 @@ cat docs/QUICK_REFERENCE.md
 ```
 docs/
 ├── README.md                    # This file - documentation index
+├── AI_AGENT_GUIDE.md            # **START HERE for AI agents**
 ├── QUICK_REFERENCE.md           # Command reference for daily use
 ├── UV_USAGE.md                  # uv package manager workflows
 ├── ARCHITECTURE_SUMMARY.md      # System overview for developers
 ├── ARCHITECTURE.md              # Complete architecture spec
-├── TEST_STRATEGY.md             # Testing strategy
-└── archive/                     # Historical implementation docs
-    ├── IMPLEMENTATION_COMPLETE.md
-    ├── V2_FEATURES.md
-    └── FEATURES_10_11_12.md
+└── TEST_STRATEGY.md             # Testing strategy
 ```
 
 ## Contributing
