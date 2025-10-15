@@ -67,6 +67,7 @@ logger = logging.getLogger(__name__)
 
 class AzlinError(Exception):
     """Base exception for azlin errors."""
+
     exit_code = 1
 
 
@@ -136,16 +137,14 @@ class CLIOrchestrator:
             self.progress.start_operation("Azure Authentication")
             subscription_id = self._authenticate_azure()
             self.progress.complete(
-                success=True,
-                message=f"Authenticated with subscription: {subscription_id[:8]}..."
+                success=True, message=f"Authenticated with subscription: {subscription_id[:8]}..."
             )
 
             # STEP 3: Generate or retrieve SSH keys
             self.progress.start_operation("SSH Key Setup")
             ssh_key_pair = self._setup_ssh_keys()
             self.progress.complete(
-                success=True,
-                message=f"SSH keys ready: {ssh_key_pair.private_path.name}"
+                success=True, message=f"SSH keys ready: {ssh_key_pair.private_path.name}"
             )
 
             # STEP 4: Provision VM
@@ -153,31 +152,17 @@ class CLIOrchestrator:
             vm_name = f"azlin-vm-{timestamp}"
             rg_name = self.resource_group or f"azlin-rg-{timestamp}"
 
-            self.progress.start_operation(
-                f"Provisioning VM: {vm_name}",
-                estimated_seconds=300
-            )
-            vm_details = self._provision_vm(
-                vm_name,
-                rg_name,
-                ssh_key_pair.public_key_content
-            )
+            self.progress.start_operation(f"Provisioning VM: {vm_name}", estimated_seconds=300)
+            vm_details = self._provision_vm(vm_name, rg_name, ssh_key_pair.public_key_content)
             self.vm_details = vm_details
-            self.progress.complete(
-                success=True,
-                message=f"VM ready at {vm_details.public_ip}"
-            )
+            self.progress.complete(success=True, message=f"VM ready at {vm_details.public_ip}")
 
             # STEP 5: Wait for VM to be fully ready (cloud-init to complete)
             self.progress.start_operation(
-                "Waiting for cloud-init to complete",
-                estimated_seconds=180
+                "Waiting for cloud-init to complete", estimated_seconds=180
             )
             self._wait_for_cloud_init(vm_details, ssh_key_pair.private_path)
-            self.progress.complete(
-                success=True,
-                message="All development tools installed"
-            )
+            self.progress.complete(success=True, message="All development tools installed")
 
             # STEP 5.5: Sync home directory (NEW)
             self.progress.start_operation("Syncing home directory")
@@ -186,15 +171,9 @@ class CLIOrchestrator:
 
             # STEP 6: GitHub setup (if repo provided)
             if self.repo:
-                self.progress.start_operation(
-                    "GitHub Setup",
-                    estimated_seconds=60
-                )
+                self.progress.start_operation("GitHub Setup", estimated_seconds=60)
                 self._setup_github(vm_details, ssh_key_pair.private_path)
-                self.progress.complete(
-                    success=True,
-                    message=f"Repository cloned: {self.repo}"
-                )
+                self.progress.complete(success=True, message=f"Repository cloned: {self.repo}")
 
             # STEP 7: Send completion notification
             self._send_notification(vm_details, success=True)
@@ -204,10 +183,7 @@ class CLIOrchestrator:
 
             # STEP 9: Auto-connect via SSH with tmux
             if self.auto_connect:
-                self.progress.update(
-                    "Connecting via SSH...",
-                    ProgressStage.STARTED
-                )
+                self.progress.update("Connecting via SSH...", ProgressStage.STARTED)
                 exit_code = self._connect_ssh(vm_details, ssh_key_pair.private_path)
                 return exit_code
 
@@ -257,8 +233,7 @@ class CLIOrchestrator:
 
         if not result.all_available:
             message = PrerequisiteChecker.format_missing_message(
-                result.missing,
-                result.platform_name
+                result.missing, result.platform_name
             )
             click.echo(message, err=True)
             raise PrerequisiteError(f"Missing required tools: {', '.join(result.missing)}")
@@ -306,19 +281,11 @@ class CLIOrchestrator:
         ssh_key_pair = SSHKeyManager.ensure_key_exists()
         self.ssh_keys = ssh_key_pair.private_path
 
-        self.progress.update(
-            f"Using key: {ssh_key_pair.private_path}",
-            ProgressStage.IN_PROGRESS
-        )
+        self.progress.update(f"Using key: {ssh_key_pair.private_path}", ProgressStage.IN_PROGRESS)
 
         return ssh_key_pair
 
-    def _provision_vm(
-        self,
-        vm_name: str,
-        rg_name: str,
-        public_key: str
-    ) -> VMDetails:
+    def _provision_vm(self, vm_name: str, rg_name: str, public_key: str) -> VMDetails:
         """Provision Azure VM with dev tools.
 
         Args:
@@ -341,7 +308,7 @@ class CLIOrchestrator:
             resource_group=rg_name,
             location=self.region,
             size=self.vm_size,
-            ssh_public_key=public_key
+            ssh_public_key=public_key,
         )
 
         # Progress callback
@@ -369,10 +336,7 @@ class CLIOrchestrator:
 
         # Wait for SSH port to be accessible
         ssh_ready = SSHConnector.wait_for_ssh_ready(
-            vm_details.public_ip,
-            key_path,
-            timeout=300,
-            interval=5
+            vm_details.public_ip, key_path, timeout=300, interval=5
         )
 
         if not ssh_ready:
@@ -381,20 +345,14 @@ class CLIOrchestrator:
         self.progress.update("SSH available, checking cloud-init status...")
 
         # Check cloud-init status
-        ssh_config = SSHConfig(
-            host=vm_details.public_ip,
-            user="azureuser",
-            key_path=key_path
-        )
+        ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
 
         # Wait for cloud-init to complete (check every 10s for up to 3 minutes)
         max_attempts = 18
         for attempt in range(max_attempts):
             try:
                 output = SSHConnector.execute_remote_command(
-                    ssh_config,
-                    "cloud-init status",
-                    timeout=30
+                    ssh_config, "cloud-init status", timeout=30
                 )
 
                 if "status: done" in output:
@@ -415,8 +373,7 @@ class CLIOrchestrator:
 
         # If we get here, cloud-init didn't complete but we'll proceed anyway
         self.progress.update(
-            "cloud-init status check timed out, proceeding anyway",
-            ProgressStage.WARNING
+            "cloud-init status check timed out, proceeding anyway", ProgressStage.WARNING
         )
 
     def _sync_home_directory(self, vm_details: VMDetails, key_path: Path) -> None:
@@ -431,11 +388,7 @@ class CLIOrchestrator:
         """
         try:
             # Create SSH config
-            ssh_config = SSHConfig(
-                host=vm_details.public_ip,
-                user="azureuser",
-                key_path=key_path
-            )
+            ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
 
             # Progress callback
             def progress_callback(msg: str):
@@ -443,9 +396,7 @@ class CLIOrchestrator:
 
             # Attempt sync
             result = HomeSyncManager.sync_to_vm(
-                ssh_config,
-                dry_run=False,
-                progress_callback=progress_callback
+                ssh_config, dry_run=False, progress_callback=progress_callback
             )
 
             if result.success:
@@ -464,26 +415,17 @@ class CLIOrchestrator:
 
         except SecurityValidationError as e:
             # Don't fail VM provisioning, just warn
-            self.progress.update(
-                f"Home sync skipped: {e}",
-                ProgressStage.WARNING
-            )
+            self.progress.update(f"Home sync skipped: {e}", ProgressStage.WARNING)
             logger.warning(f"Security validation failed: {e}")
 
         except (RsyncError, HomeSyncError) as e:
             # Don't fail VM provisioning, just warn
-            self.progress.update(
-                f"Home sync failed: {e}",
-                ProgressStage.WARNING
-            )
+            self.progress.update(f"Home sync failed: {e}", ProgressStage.WARNING)
             logger.warning(f"Home sync failed: {e}")
 
         except Exception:
             # Catch all other errors
-            self.progress.update(
-                "Home sync failed (unexpected error)",
-                ProgressStage.WARNING
-            )
+            self.progress.update("Home sync failed (unexpected error)", ProgressStage.WARNING)
             logger.exception("Unexpected error during home sync")
 
     def _setup_github(self, vm_details: VMDetails, key_path: Path) -> None:
@@ -507,18 +449,11 @@ class CLIOrchestrator:
             raise GitHubSetupError(f"Invalid repository URL: {message}")
 
         # Create SSH config
-        ssh_config = SSHConfig(
-            host=vm_details.public_ip,
-            user="azureuser",
-            key_path=key_path
-        )
+        ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
 
         # Setup GitHub and clone repo
         self.progress.update("Authenticating with GitHub (may require browser)...")
-        repo_details = GitHubSetupHandler.setup_github_on_vm(
-            ssh_config,
-            self.repo
-        )
+        repo_details = GitHubSetupHandler.setup_github_on_vm(ssh_config, self.repo)
 
         self.progress.update(f"Repository cloned to: {repo_details.clone_path}")
 
@@ -535,23 +470,15 @@ class CLIOrchestrator:
         Raises:
             SSHConnectionError: If connection fails
         """
-        ssh_config = SSHConfig(
-            host=vm_details.public_ip,
-            user="azureuser",
-            key_path=key_path
-        )
+        ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
 
-        click.echo("\n" + "="*60)
+        click.echo("\n" + "=" * 60)
         click.echo(f"Connecting to {vm_details.name} via SSH...")
         click.echo("Starting tmux session 'azlin'")
         click.echo("="*60 + "\n")
 
         # Connect with auto-tmux
-        exit_code = SSHConnector.connect(
-            ssh_config,
-            tmux_session="azlin",
-            auto_tmux=True
-        )
+        exit_code = SSHConnector.connect(ssh_config, tmux_session="azlin", auto_tmux=True)
 
         return exit_code
 
@@ -563,9 +490,7 @@ class CLIOrchestrator:
             success: Whether provisioning succeeded
         """
         result = NotificationHandler.send_completion_notification(
-            vm_details.name,
-            vm_details.public_ip,
-            success=success
+            vm_details.name, vm_details.public_ip, success=success
         )
 
         if result.sent:
@@ -592,9 +517,9 @@ class CLIOrchestrator:
         Args:
             vm_details: VM details
         """
-        click.echo("\n" + "="*60)
+        click.echo("\n" + "=" * 60)
         click.echo("VM Provisioning Complete!")
-        click.echo("="*60)
+        click.echo("=" * 60)
         click.echo(f"  Name:           {vm_details.name}")
         click.echo(f"  IP Address:     {vm_details.public_ip}")
         click.echo(f"  Resource Group: {vm_details.resource_group}")
@@ -611,7 +536,7 @@ class CLIOrchestrator:
         click.echo("\nSSH Connection:")
         click.echo(f"  ssh azureuser@{vm_details.public_ip}")
         click.echo(f"  (using key: {self.ssh_keys})")
-        click.echo("="*60 + "\n")
+        click.echo("=" * 60 + "\n")
 
     def _cleanup_on_failure(self) -> None:
         """Cleanup resources on failure (optional).
@@ -620,14 +545,14 @@ class CLIOrchestrator:
         as the user may want to investigate or keep it.
         """
         if self.vm_details:
-            click.echo("\n" + "="*60)
+            click.echo("\n" + "=" * 60)
             click.echo("Provisioning Failed")
-            click.echo("="*60)
+            click.echo("=" * 60)
             click.echo(f"VM may still exist: {self.vm_details.name}")
             click.echo(f"Resource Group: {self.vm_details.resource_group}")
             click.echo("\nTo delete VM and cleanup resources:")
             click.echo(f"  az group delete --name {self.vm_details.resource_group} --yes")
-            click.echo("="*60 + "\n")
+            click.echo("=" * 60 + "\n")
 
 
 def _auto_sync_home_directory(ssh_config: SSHConfig) -> None:
@@ -664,7 +589,7 @@ def show_interactive_menu(
     if not vms:
         click.echo("No VMs found. Create a new one? [Y/n]: ", nl=False)
         response = input().lower()
-        if response in ['', 'y', 'yes']:
+        if response in ["", "y", "yes"]:
             return None  # Continue to provisioning
         return 0
 
@@ -677,20 +602,12 @@ def show_interactive_menu(
         click.echo("\nConnecting...")
 
         if vm.is_running() and vm.public_ip:
-            ssh_config = SSHConfig(
-                host=vm.public_ip,
-                user="azureuser",
-                key_path=ssh_key_path
-            )
+            ssh_config = SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_path)
 
             # Sync home directory before connection (silent)
             _auto_sync_home_directory(ssh_config)
 
-            exit_code = SSHConnector.connect(
-                ssh_config,
-                tmux_session="azlin",
-                auto_tmux=True
-            )
+            exit_code = SSHConnector.connect(ssh_config, tmux_session="azlin", auto_tmux=True)
             return exit_code
         else:
             click.echo("VM is not running or has no public IP")
@@ -711,7 +628,7 @@ def show_interactive_menu(
 
     choice = input("\nSelect VM (number or 'n' for new): ").strip().lower()
 
-    if choice == 'n':
+    if choice == "n":
         return None  # Continue to provisioning
 
     try:
@@ -729,20 +646,12 @@ def show_interactive_menu(
                 return 1
 
             click.echo(f"\nConnecting to {vm.name}...")
-            ssh_config = SSHConfig(
-                host=vm.public_ip,
-                user="azureuser",
-                key_path=ssh_key_path
-            )
+            ssh_config = SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_path)
 
             # Sync home directory before connection (silent)
             _auto_sync_home_directory(ssh_config)
 
-            exit_code = SSHConnector.connect(
-                ssh_config,
-                tmux_session="azlin",
-                auto_tmux=True
-            )
+            exit_code = SSHConnector.connect(ssh_config, tmux_session="azlin", auto_tmux=True)
             return exit_code
         else:
             click.echo("Invalid selection")
@@ -777,11 +686,7 @@ def generate_vm_name(
     return f"azlin-{timestamp}"
 
 
-def execute_command_on_vm(
-    vm: VMInfo,
-    command: str,
-    ssh_key_path: Path
-) -> int:
+def execute_command_on_vm(vm: VMInfo, command: str, ssh_key_path: Path) -> int:
     """Execute a command on a VM and display output.
 
     Args:
@@ -793,7 +698,9 @@ def execute_command_on_vm(
         Exit code from command execution
     """
     if not vm.is_running():
-        click.echo(f"Error: VM '{vm.name}' is not running (status: {vm.get_status_display()})", err=True)
+        click.echo(
+            f"Error: VM '{vm.name}' is not running (status: {vm.get_status_display()})", err=True
+        )
         return 1
 
     if not vm.public_ip:
@@ -803,11 +710,7 @@ def execute_command_on_vm(
     click.echo(f"\nExecuting on {vm.name} ({vm.public_ip}): {command}")
     click.echo("=" * 60)
 
-    ssh_config = SSHConfig(
-        host=vm.public_ip,
-        user="azureuser",
-        key_path=ssh_key_path
-    )
+    ssh_config = SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_path)
 
     try:
         # Build SSH command with the remote command
@@ -857,7 +760,7 @@ def select_vm_for_command(
 
     choice = input("\nSelect VM (number or 'n' for new): ").strip().lower()
 
-    if choice == 'n':
+    if choice == "n":
         return None  # Signal to create new VM
 
     try:
@@ -878,23 +781,23 @@ class AzlinGroup(click.Group):
     def main(self, *args, **kwargs):
         """Override main to handle -- delimiter before any Click processing."""
         # Check if -- is in sys.argv BEFORE Click processes anything
-        if '--' in sys.argv:
-            delimiter_idx = sys.argv.index('--')
+        if "--" in sys.argv:
+            delimiter_idx = sys.argv.index("--")
             # Store the command for later
-            passthrough_args = sys.argv[delimiter_idx + 1:]
+            passthrough_args = sys.argv[delimiter_idx + 1 :]
             if passthrough_args:
                 # Remove everything from -- onwards so Click doesn't see it
                 sys.argv = sys.argv[:delimiter_idx]
                 # We'll pass this through the context
-                if not hasattr(self, '_passthrough_command'):
-                    self._passthrough_command = ' '.join(passthrough_args)
+                if not hasattr(self, "_passthrough_command"):
+                    self._passthrough_command = " ".join(passthrough_args)
 
         return super().main(*args, **kwargs)
 
     def invoke(self, ctx):
         """Pass the passthrough command to the context."""
-        if hasattr(self, '_passthrough_command'):
-            ctx.obj = {'passthrough_command': self._passthrough_command}
+        if hasattr(self, "_passthrough_command"):
+            ctx.obj = {"passthrough_command": self._passthrough_command}
         return super().invoke(ctx)
 
 
@@ -904,8 +807,8 @@ class AzlinGroup(click.Group):
     context_settings={
         "ignore_unknown_options": True,
         "allow_extra_args": True,
-        "allow_interspersed_args": False
-    }
+        "allow_interspersed_args": False,
+    },
 )
 @click.pass_context
 @click.version_option(version=__version__)
@@ -936,6 +839,7 @@ def main(ctx):
         w             Run 'w' command on all VMs
         ps            Run 'ps aux' on all VMs
         cost          Show cost estimates for VMs
+        logs          View VM logs without SSH connection
 
     \b
     DELETION COMMANDS:
@@ -967,6 +871,11 @@ def main(ctx):
         # View costs
         $ azlin cost --by-vm
         $ azlin cost --from 2025-01-01 --to 2025-01-31
+
+        # View VM logs
+        $ azlin logs my-vm
+        $ azlin logs my-vm --boot
+        $ azlin logs my-vm --follow
 
         # Run 'w' and 'ps' on all VMs
         $ azlin w
@@ -1005,16 +914,16 @@ def main(ctx):
         ctx.exit(0)  # Use ctx.exit() instead of sys.exit() for Click compatibility
 
 
-@main.command(name='new')
+@main.command(name="new")
 @click.pass_context
-@click.option('--repo', help='GitHub repository URL to clone', type=str)
-@click.option('--vm-size', help='Azure VM size', type=str)
-@click.option('--region', help='Azure region', type=str)
-@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
-@click.option('--name', help='Custom VM name', type=str)
-@click.option('--pool', help='Number of VMs to create in parallel', type=int)
-@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
-@click.option('--config', help='Config file path', type=click.Path())
+@click.option("--repo", help="GitHub repository URL to clone", type=str)
+@click.option("--vm-size", help="Azure VM size", type=str)
+@click.option("--region", help="Azure region", type=str)
+@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
+@click.option("--name", help="Custom VM name", type=str)
+@click.option("--pool", help="Number of VMs to create in parallel", type=int)
+@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
+@click.option("--config", help="Config file path", type=click.Path())
 def new_command(
     ctx,
     repo: str | None,
@@ -1050,13 +959,13 @@ def new_command(
     """
     # Check for passthrough command from custom AzlinGroup
     command = None
-    if ctx.obj and 'passthrough_command' in ctx.obj:
-        command = ctx.obj['passthrough_command']
+    if ctx.obj and "passthrough_command" in ctx.obj:
+        command = ctx.obj["passthrough_command"]
     elif ctx.args:
         # If no explicit --, check if we have extra args from Click
-        command = ' '.join(ctx.args)
+        command = " ".join(ctx.args)
 
-    # Load config for defaults
+        # Load config for defaults
         try:
             azlin_config = ConfigManager.load_config(config)
         except ConfigError:
@@ -1077,16 +986,15 @@ def new_command(
             click.echo(f"Estimated cost: ~${estimated_cost:.2f}/hour")
             click.echo("Continue? [y/N]: ", nl=False)
             response = input().lower()
-            if response not in ['y', 'yes']:
+            if response not in ["y", "yes"]:
                 click.echo("Cancelled.")
                 sys.exit(0)
 
         # Validate repo URL if provided
         if repo:
-            if not repo.startswith('https://github.com/'):
+            if not repo.startswith("https://github.com/"):
                 click.echo(
-                    "Error: Invalid GitHub URL. Must start with https://github.com/",
-                    err=True
+                    "Error: Invalid GitHub URL. Must start with https://github.com/", err=True
                 )
                 sys.exit(1)
 
@@ -1097,16 +1005,14 @@ def new_command(
             region=final_region,
             resource_group=final_rg,
             auto_connect=not no_auto_connect,
-            config_file=config
+            config_file=config,
         )
 
         # Update config with used resource group
         if final_rg:
             try:
                 ConfigManager.update_config(
-                    config,
-                    default_resource_group=final_rg,
-                    last_vm_name=vm_name
+                    config, default_resource_group=final_rg, last_vm_name=vm_name
                 )
             except ConfigError as e:
                 logger.debug(f"Failed to update config: {e}")
@@ -1128,7 +1034,7 @@ def new_command(
                     location=orchestrator.vm_details.location,
                     power_state="VM running",
                     public_ip=orchestrator.vm_details.public_ip,
-                    vm_size=orchestrator.vm_details.size
+                    vm_size=orchestrator.vm_details.size,
                 )
 
                 # Execute command on the newly provisioned VM
@@ -1154,7 +1060,7 @@ def new_command(
                     resource_group=final_rg or f"azlin-rg-{int(time.time())}",
                     location=final_region,
                     size=final_vm_size,
-                    ssh_public_key=ssh_key_pair.public_key_content
+                    ssh_public_key=ssh_key_pair.public_key_content,
                 )
                 configs.append(config)
 
@@ -1163,7 +1069,7 @@ def new_command(
                 result = orchestrator.provisioner.provision_vm_pool(
                     configs,
                     progress_callback=lambda msg: click.echo(f"  {msg}"),
-                    max_workers=min(10, pool)
+                    max_workers=min(10, pool),
                 )
 
                 # Display results
@@ -1180,7 +1086,9 @@ def new_command(
                     click.echo("\nFailed VMs:")
                     click.echo("=" * 80)
                     for failure in result.failed:
-                        click.echo(f"  {failure.config.name:<30} {failure.error_type:<20} {failure.error[:40]}")
+                        click.echo(
+                            f"  {failure.config.name:<30} {failure.error_type:<20} {failure.error[:40]}"
+                        )
                     click.echo("=" * 80)
 
                 if result.rg_failures:
@@ -1206,32 +1114,32 @@ def new_command(
 
 
 # Alias: 'vm' for 'new'
-@main.command(name='vm')
+@main.command(name="vm")
 @click.pass_context
-@click.option('--repo', help='GitHub repository URL to clone', type=str)
-@click.option('--vm-size', help='Azure VM size', type=str)
-@click.option('--region', help='Azure region', type=str)
-@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
-@click.option('--name', help='Custom VM name', type=str)
-@click.option('--pool', help='Number of VMs to create in parallel', type=int)
-@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
-@click.option('--config', help='Config file path', type=click.Path())
+@click.option("--repo", help="GitHub repository URL to clone", type=str)
+@click.option("--vm-size", help="Azure VM size", type=str)
+@click.option("--region", help="Azure region", type=str)
+@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
+@click.option("--name", help="Custom VM name", type=str)
+@click.option("--pool", help="Number of VMs to create in parallel", type=int)
+@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
+@click.option("--config", help="Config file path", type=click.Path())
 def vm_command(ctx, **kwargs):
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
 
 
 # Alias: 'create' for 'new'
-@main.command(name='create')
+@main.command(name="create")
 @click.pass_context
-@click.option('--repo', help='GitHub repository URL to clone', type=str)
-@click.option('--vm-size', help='Azure VM size', type=str)
-@click.option('--region', help='Azure region', type=str)
-@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
-@click.option('--name', help='Custom VM name', type=str)
-@click.option('--pool', help='Number of VMs to create in parallel', type=int)
-@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
-@click.option('--config', help='Config file path', type=click.Path())
+@click.option("--repo", help="GitHub repository URL to clone", type=str)
+@click.option("--vm-size", help="Azure VM size", type=str)
+@click.option("--region", help="Azure region", type=str)
+@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
+@click.option("--name", help="Custom VM name", type=str)
+@click.option("--pool", help="Number of VMs to create in parallel", type=int)
+@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
+@click.option("--config", help="Config file path", type=click.Path())
 def create_command(ctx, **kwargs):
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
@@ -1338,11 +1246,7 @@ def w(resource_group: str | None, config: str | None):
 
         # Build SSH configs
         ssh_configs = [
-            SSHConfig(
-                host=vm.public_ip,
-                user="azureuser",
-                key_path=ssh_key_pair.private_path
-            )
+            SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
             for vm in running_vms
         ]
 
@@ -1409,7 +1313,7 @@ def kill(
             click.echo("This action cannot be undone.\n")
 
             confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
-            if confirm not in ['y', 'yes']:
+            if confirm not in ["y", "yes"]:
                 click.echo("Cancelled.")
                 return
 
@@ -1417,10 +1321,7 @@ def kill(
         click.echo(f"\nDeleting VM '{vm_name}'...")
 
         result = VMLifecycleManager.delete_vm(
-            vm_name=vm_name,
-            resource_group=rg,
-            force=True,
-            no_wait=False
+            vm_name=vm_name, resource_group=rg, force=True, no_wait=False
         )
 
         if result.success:
@@ -1447,20 +1348,24 @@ def kill(
         sys.exit(1)
 
 
-@main.command(name='destroy')
-@click.argument('vm_name', type=str)
-@click.option('--resource-group', '--rg', help='Resource group', type=str)
-@click.option('--config', help='Config file path', type=click.Path())
-@click.option('--force', is_flag=True, help='Skip confirmation prompt')
-@click.option('--dry-run', is_flag=True, help='Show what would be deleted without actually deleting')
-@click.option('--delete-rg', is_flag=True, help='Delete the entire resource group (use with caution)')
+@main.command(name="destroy")
+@click.argument("vm_name", type=str)
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--force", is_flag=True, help="Skip confirmation prompt")
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be deleted without actually deleting"
+)
+@click.option(
+    "--delete-rg", is_flag=True, help="Delete the entire resource group (use with caution)"
+)
 def destroy(
     vm_name: str,
     resource_group: str | None,
     config: str | None,
     force: bool,
     dry_run: bool,
-    delete_rg: bool
+    delete_rg: bool,
 ):
     """Destroy a VM and optionally the entire resource group.
 
@@ -1492,7 +1397,9 @@ def destroy(
             # Show warning and confirmation
             if not force:
                 click.echo(f"\nWARNING: You are about to delete the ENTIRE resource group: {rg}")
-                click.echo(f"This will delete ALL resources in the group, not just the VM '{vm_name}'!")
+                click.echo(
+                    f"This will delete ALL resources in the group, not just the VM '{vm_name}'!"
+                )
                 click.echo("\nThis action cannot be undone.\n")
 
                 confirm = input("Type the resource group name to confirm deletion: ").strip()
@@ -1504,15 +1411,12 @@ def destroy(
 
             # Use Azure CLI to delete resource group
             import subprocess
-            cmd = ['az', 'group', 'delete', '--name', rg, '--yes']
+
+            cmd = ["az", "group", "delete", "--name", rg, "--yes"]
 
             try:
                 result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=600,
-                    check=True
+                    cmd, capture_output=True, text=True, timeout=600, check=True
                 )
                 click.echo(f"\nSuccess! Resource group '{rg}' and all resources deleted.")
                 return
@@ -1561,7 +1465,7 @@ def destroy(
             click.echo("This action cannot be undone.\n")
 
             confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
-            if confirm not in ['y', 'yes']:
+            if confirm not in ["y", "yes"]:
                 click.echo("Cancelled.")
                 return
 
@@ -1569,10 +1473,7 @@ def destroy(
         click.echo(f"\nDeleting VM '{vm_name}'...")
 
         result = VMLifecycleManager.delete_vm(
-            vm_name=vm_name,
-            resource_group=rg,
-            force=True,
-            no_wait=False
+            vm_name=vm_name, resource_group=rg, force=True, no_wait=False
         )
 
         if result.success:
@@ -1651,7 +1552,7 @@ def killall(
             click.echo("This action cannot be undone.\n")
 
             confirm = input(f"Are you sure you want to delete {len(vms)} VM(s)? [y/N]: ").lower()
-            if confirm not in ['y', 'yes']:
+            if confirm not in ["y", "yes"]:
                 click.echo("Cancelled.")
                 return
 
@@ -1659,10 +1560,7 @@ def killall(
         click.echo(f"\nDeleting {len(vms)} VM(s) in parallel...")
 
         summary = VMLifecycleManager.delete_all_vms(
-            resource_group=rg,
-            force=True,
-            vm_prefix=prefix,
-            max_workers=5
+            resource_group=rg, force=True, vm_prefix=prefix, max_workers=5
         )
 
         # Display results
@@ -1754,11 +1652,7 @@ def ps(
 
         # Build SSH configs
         ssh_configs = [
-            SSHConfig(
-                host=vm.public_ip,
-                user="azureuser",
-                key_path=ssh_key_pair.private_path
-            )
+            SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
             for vm in running_vms
         ]
 
@@ -1785,12 +1679,12 @@ def ps(
 
 
 @main.command()
-@click.option('--resource-group', '--rg', help='Resource group', type=str)
-@click.option('--config', help='Config file path', type=click.Path())
-@click.option('--by-vm', is_flag=True, help='Show per-VM breakdown')
-@click.option('--from', 'from_date', help='Start date (YYYY-MM-DD)', type=str)
-@click.option('--to', 'to_date', help='End date (YYYY-MM-DD)', type=str)
-@click.option('--estimate', is_flag=True, help='Show monthly cost estimate')
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--by-vm", is_flag=True, help="Show per-VM breakdown")
+@click.option("--from", "from_date", help="Start date (YYYY-MM-DD)", type=str)
+@click.option("--to", "to_date", help="End date (YYYY-MM-DD)", type=str)
+@click.option("--estimate", is_flag=True, help="Show monthly cost estimate")
 def cost(
     resource_group: str | None,
     config: str | None,
@@ -1842,10 +1736,7 @@ def cost(
         click.echo(f"Calculating costs for resource group: {rg}\n")
 
         summary = CostTracker.estimate_costs(
-            resource_group=rg,
-            from_date=start_date,
-            to_date=end_date,
-            include_stopped=True
+            resource_group=rg, from_date=start_date, to_date=end_date, include_stopped=True
         )
 
         # Display formatted table
@@ -1870,16 +1761,18 @@ def cost(
 
 
 @main.command()
-@click.argument('vm_identifier', type=str)
-@click.option('--resource-group', '--rg', help='Resource group (required for VM name)', type=str)
-@click.option('--config', help='Config file path', type=click.Path())
-@click.option('--no-tmux', is_flag=True, help='Skip tmux session')
-@click.option('--tmux-session', help='Tmux session name (default: vm_identifier)', type=str)
-@click.option('--user', default='azureuser', help='SSH username (default: azureuser)', type=str)
-@click.option('--key', help='SSH private key path', type=click.Path(exists=True))
-@click.option('--no-reconnect', is_flag=True, help='Disable auto-reconnect on disconnect')
-@click.option('--max-retries', default=3, help='Maximum reconnection attempts (default: 3)', type=int)
-@click.argument('remote_command', nargs=-1, type=str)
+@click.argument("vm_identifier", type=str)
+@click.option("--resource-group", "--rg", help="Resource group (required for VM name)", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--no-tmux", is_flag=True, help="Skip tmux session")
+@click.option("--tmux-session", help="Tmux session name (default: vm_identifier)", type=str)
+@click.option("--user", default="azureuser", help="SSH username (default: azureuser)", type=str)
+@click.option("--key", help="SSH private key path", type=click.Path(exists=True))
+@click.option("--no-reconnect", is_flag=True, help="Disable auto-reconnect on disconnect")
+@click.option(
+    "--max-retries", default=3, help="Maximum reconnection attempts (default: 3)", type=int
+)
+@click.argument("remote_command", nargs=-1, type=str)
 def connect(
     vm_identifier: str,
     resource_group: str | None,
@@ -1890,7 +1783,7 @@ def connect(
     key: str | None,
     no_reconnect: bool,
     max_retries: int,
-    remote_command: tuple
+    remote_command: tuple,
 ):
     """Connect to existing VM via SSH.
 
@@ -1937,7 +1830,7 @@ def connect(
     """
     try:
         # Parse remote command
-        command = ' '.join(remote_command) if remote_command else None
+        command = " ".join(remote_command) if remote_command else None
 
         # Convert key path to Path object
         key_path = Path(key).expanduser() if key else None
@@ -1949,7 +1842,7 @@ def connect(
                 click.echo(
                     "Error: Resource group required for VM name.\n"
                     "Use --resource-group or set default in ~/.azlin/config.toml",
-                    err=True
+                    err=True,
                 )
                 sys.exit(1)
         else:
@@ -1967,7 +1860,7 @@ def connect(
             ssh_user=user,
             ssh_key_path=key_path,
             enable_reconnect=not no_reconnect,
-            max_reconnect_retries=max_retries
+            max_reconnect_retries=max_retries,
         )
 
         sys.exit(0 if success else 1)
@@ -2020,10 +1913,7 @@ def stop(
         click.echo(f"{'Deallocating' if deallocate else 'Stopping'} VM '{vm_name}'...")
 
         result = VMLifecycleController.stop_vm(
-            vm_name=vm_name,
-            resource_group=rg,
-            deallocate=deallocate,
-            no_wait=False
+            vm_name=vm_name, resource_group=rg, deallocate=deallocate, no_wait=False
         )
 
         if result.success:
@@ -2068,11 +1958,7 @@ def start(
 
         click.echo(f"Starting VM '{vm_name}'...")
 
-        result = VMLifecycleController.start_vm(
-            vm_name=vm_name,
-            resource_group=rg,
-            no_wait=False
-        )
+        result = VMLifecycleController.start_vm(vm_name=vm_name, resource_group=rg, no_wait=False)
 
         if result.success:
             click.echo(f"Success! {result.message}")
@@ -2091,10 +1977,10 @@ def start(
 
 
 @main.command()
-@click.option('--vm-name', help='VM name to sync to', type=str)
-@click.option('--dry-run', help='Show what would be synced', is_flag=True)
-@click.option('--resource-group', '--rg', help='Resource group', type=str)
-@click.option('--config', help='Config file path', type=click.Path())
+@click.option("--vm-name", help="VM name to sync to", type=str)
+@click.option("--dry-run", help="Show what would be synced", is_flag=True)
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
 def sync(
     vm_name: str | None,
     dry_run: bool,
@@ -2179,9 +2065,7 @@ def sync(
 
         # Create SSH config
         ssh_config = SSHConfig(
-            host=selected_vm.public_ip,
-            user="azureuser",
-            key_path=ssh_key_pair.private_path
+            host=selected_vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
         )
 
         # Sync
@@ -2191,15 +2075,15 @@ def sync(
             click.echo(f"  {msg}")
 
         result = HomeSyncManager.sync_to_vm(
-            ssh_config,
-            dry_run=dry_run,
-            progress_callback=progress_callback
+            ssh_config, dry_run=dry_run, progress_callback=progress_callback
         )
 
         if result.success:
-            click.echo(f"\nSuccess! Synced {result.files_synced} files "
-                      f"({result.bytes_transferred / 1024:.1f} KB) "
-                      f"in {result.duration_seconds:.1f}s")
+            click.echo(
+                f"\nSuccess! Synced {result.files_synced} files "
+                f"({result.bytes_transferred / 1024:.1f} KB) "
+                f"in {result.duration_seconds:.1f}s"
+            )
         else:
             click.echo("\nSync completed with errors:", err=True)
             for error in result.errors:
@@ -2231,11 +2115,11 @@ def sync(
 
 
 @main.command()
-@click.argument('source')
-@click.argument('destination')
-@click.option('--dry-run', is_flag=True, help='Show what would be transferred')
-@click.option('--resource-group', '--rg', help='Resource group', type=str)
-@click.option('--config', help='Config file path', type=click.Path())
+@click.argument("source")
+@click.argument("destination")
+@click.option("--dry-run", is_flag=True, help="Show what would be transferred")
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
 def cp(
     source: str,
     destination: str,
@@ -2280,16 +2164,12 @@ def cp(
                 sys.exit(1)
 
             vm_session = SessionManager.get_vm_session(
-                source_session_name,
-                VMManager,
-                ConfigManager
+                source_session_name, VMManager, ConfigManager
             )
 
             # Parse remote path (allow relative to home)
             source_path = PathParser.parse_and_validate(
-                source_path_str,
-                allow_absolute=True,
-                base_dir=Path("/home") / vm_session.user
+                source_path_str, allow_absolute=True, base_dir=Path("/home") / vm_session.user
             )
 
             source_endpoint = TransferEndpoint(path=source_path, session=vm_session)
@@ -2308,17 +2188,11 @@ def cp(
                 click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
                 sys.exit(1)
 
-            vm_session = SessionManager.get_vm_session(
-                dest_session_name,
-                VMManager,
-                ConfigManager
-            )
+            vm_session = SessionManager.get_vm_session(dest_session_name, VMManager, ConfigManager)
 
             # Parse remote path (allow relative to home)
             dest_path = PathParser.parse_and_validate(
-                dest_path_str,
-                allow_absolute=True,
-                base_dir=Path("/home") / vm_session.user
+                dest_path_str, allow_absolute=True, base_dir=Path("/home") / vm_session.user
             )
 
             dest_endpoint = TransferEndpoint(path=dest_path, session=vm_session)
@@ -2718,4 +2592,4 @@ if __name__ == '__main__':
     main()
 
 
-__all__ = ['main', 'CLIOrchestrator', 'AzlinError']
+__all__ = ["main", "CLIOrchestrator", "AzlinError"]
