@@ -163,11 +163,11 @@ class TestVMConnector:
                 ssh_key_path=None
             )
 
-    @patch('azlin.vm_connector.TerminalLauncher')
+    @patch('azlin.vm_connector.SSHReconnectHandler')
     @patch('azlin.vm_connector.SSHKeyManager')
     @patch('azlin.vm_connector.VMManager')
-    def test_connect_by_ip(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal):
-        """Test connecting by IP address."""
+    def test_connect_by_ip(self, mock_vm_mgr, mock_ssh_key_mgr, mock_reconnect_handler):
+        """Test connecting by IP address with reconnect."""
         # Mock SSH keys
         ssh_keys = SSHKeyPair(
             private_path=Path("/home/user/.ssh/azlin_key"),
@@ -176,8 +176,10 @@ class TestVMConnector:
         )
         mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
 
-        # Mock terminal launch
-        mock_terminal.launch.return_value = True
+        # Mock reconnect handler
+        mock_handler_instance = MagicMock()
+        mock_handler_instance.connect_with_reconnect.return_value = 0
+        mock_reconnect_handler.return_value = mock_handler_instance
 
         # Connect by IP
         result = VMConnector.connect_by_ip(
@@ -188,20 +190,14 @@ class TestVMConnector:
 
         assert result is True
         mock_ssh_key_mgr.ensure_key_exists.assert_called_once()
-        mock_terminal.launch.assert_called_once()
+        mock_reconnect_handler.assert_called_once_with(max_retries=3)
+        mock_handler_instance.connect_with_reconnect.assert_called_once()
 
-        # Verify terminal config
-        call_args = mock_terminal.launch.call_args
-        config = call_args[0][0]
-        assert config.ssh_host == "20.1.2.3"
-        assert config.ssh_user == "azureuser"
-        assert config.tmux_session == "20.1.2.3"
-
-    @patch('azlin.vm_connector.TerminalLauncher')
+    @patch('azlin.vm_connector.SSHReconnectHandler')
     @patch('azlin.vm_connector.SSHKeyManager')
     @patch('azlin.vm_connector.VMManager')
-    def test_connect_by_name(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal):
-        """Test connecting by VM name."""
+    def test_connect_by_name(self, mock_vm_mgr, mock_ssh_key_mgr, mock_reconnect_handler):
+        """Test connecting by VM name with reconnect."""
         # Mock VM info
         vm_info = VMInfo(
             name="my-vm",
@@ -220,8 +216,10 @@ class TestVMConnector:
         )
         mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
 
-        # Mock terminal launch
-        mock_terminal.launch.return_value = True
+        # Mock reconnect handler
+        mock_handler_instance = MagicMock()
+        mock_handler_instance.connect_with_reconnect.return_value = 0
+        mock_reconnect_handler.return_value = mock_handler_instance
 
         # Connect by name
         result = VMConnector.connect_by_name(
@@ -232,13 +230,13 @@ class TestVMConnector:
 
         assert result is True
         mock_vm_mgr.get_vm.assert_called_once_with("my-vm", "my-rg")
-        mock_terminal.launch.assert_called_once()
-
-        # Verify terminal config
-        call_args = mock_terminal.launch.call_args
-        config = call_args[0][0]
-        assert config.ssh_host == "20.1.2.3"
-        assert config.tmux_session == "my-vm"
+        mock_reconnect_handler.assert_called_once_with(max_retries=3)
+        
+        # Verify reconnect was called with correct params
+        call_args = mock_handler_instance.connect_with_reconnect.call_args
+        assert call_args.kwargs['vm_name'] == "my-vm"
+        assert call_args.kwargs['tmux_session'] == "my-vm"
+        assert call_args.kwargs['auto_tmux'] is True
 
     @patch('azlin.vm_connector.TerminalLauncher')
     @patch('azlin.vm_connector.SSHKeyManager')
@@ -280,10 +278,10 @@ class TestVMConnector:
         config = call_args[0][0]
         assert config.command == "ls -la"
 
-    @patch('azlin.vm_connector.TerminalLauncher')
+    @patch('azlin.vm_connector.SSHReconnectHandler')
     @patch('azlin.vm_connector.SSHKeyManager')
     @patch('azlin.vm_connector.VMManager')
-    def test_connect_no_tmux(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal):
+    def test_connect_no_tmux(self, mock_vm_mgr, mock_ssh_key_mgr, mock_reconnect_handler):
         """Test connecting without tmux."""
         # Mock VM info
         vm_info = VMInfo(
@@ -303,8 +301,10 @@ class TestVMConnector:
         )
         mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
 
-        # Mock terminal launch
-        mock_terminal.launch.return_value = True
+        # Mock reconnect handler
+        mock_handler_instance = MagicMock()
+        mock_handler_instance.connect_with_reconnect.return_value = 0
+        mock_reconnect_handler.return_value = mock_handler_instance
 
         # Connect without tmux
         result = VMConnector.connect(
@@ -314,11 +314,10 @@ class TestVMConnector:
         )
 
         assert result is True
-
-        # Verify terminal config has no tmux session
-        call_args = mock_terminal.launch.call_args
-        config = call_args[0][0]
-        assert config.tmux_session is None
+        
+        # Verify reconnect was called without tmux
+        call_args = mock_handler_instance.connect_with_reconnect.call_args
+        assert call_args.kwargs['auto_tmux'] is False
 
     def test_connect_by_ip_invalid_ip(self):
         """Test error with invalid IP address."""
@@ -349,7 +348,7 @@ class TestVMConnector:
     @patch('azlin.vm_connector.SSHKeyManager')
     @patch('azlin.vm_connector.VMManager')
     def test_connect_terminal_launch_error(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal):
-        """Test error when terminal launch fails."""
+        """Test error when terminal launch fails (with remote command, bypasses reconnect)."""
         # Mock VM info
         vm_info = VMInfo(
             name="my-vm",
@@ -371,8 +370,9 @@ class TestVMConnector:
         # Mock terminal launch error
         mock_terminal.launch.side_effect = TerminalLauncherError("Launch failed")
 
+        # Use remote_command to force terminal launcher path
         with pytest.raises(VMConnectorError, match="Failed to launch terminal"):
-            VMConnector.connect("my-vm", resource_group="my-rg")
+            VMConnector.connect("my-vm", resource_group="my-rg", remote_command="ls -la")
 
 
 class TestConnectionInfo:
@@ -404,3 +404,153 @@ class TestConnectionInfo:
 
         assert conn_info.ssh_user == "azureuser"
         assert conn_info.ssh_key_path is None
+
+    @patch('azlin.vm_connector.SSHReconnectHandler')
+    @patch('azlin.vm_connector.SSHKeyManager')
+    @patch('azlin.vm_connector.VMManager')
+    def test_connect_with_reconnect_enabled(self, mock_vm_mgr, mock_ssh_key_mgr, mock_reconnect_handler):
+        """Test connecting with auto-reconnect enabled (default)."""
+        # Mock VM info
+        vm_info = VMInfo(
+            name="my-vm",
+            resource_group="my-rg",
+            location="westus2",
+            power_state="VM running",
+            public_ip="20.1.2.3"
+        )
+        mock_vm_mgr.get_vm.return_value = vm_info
+
+        # Mock SSH keys
+        ssh_keys = SSHKeyPair(
+            private_path=Path("/home/user/.ssh/azlin_key"),
+            public_path=Path("/home/user/.ssh/azlin_key.pub"),
+            public_key_content="ssh-ed25519 AAAA..."
+        )
+        mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
+
+        # Mock reconnect handler
+        mock_handler_instance = MagicMock()
+        mock_handler_instance.connect_with_reconnect.return_value = 0
+        mock_reconnect_handler.return_value = mock_handler_instance
+
+        # Connect with default (reconnect enabled)
+        result = VMConnector.connect(
+            vm_identifier="my-vm",
+            resource_group="my-rg",
+            enable_reconnect=True
+        )
+
+        assert result is True
+        mock_reconnect_handler.assert_called_once_with(max_retries=3)
+        mock_handler_instance.connect_with_reconnect.assert_called_once()
+
+    @patch('azlin.vm_connector.TerminalLauncher')
+    @patch('azlin.vm_connector.SSHKeyManager')
+    @patch('azlin.vm_connector.VMManager')
+    def test_connect_with_reconnect_disabled(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal):
+        """Test connecting with auto-reconnect disabled."""
+        # Mock VM info
+        vm_info = VMInfo(
+            name="my-vm",
+            resource_group="my-rg",
+            location="westus2",
+            power_state="VM running",
+            public_ip="20.1.2.3"
+        )
+        mock_vm_mgr.get_vm.return_value = vm_info
+
+        # Mock SSH keys
+        ssh_keys = SSHKeyPair(
+            private_path=Path("/home/user/.ssh/azlin_key"),
+            public_path=Path("/home/user/.ssh/azlin_key.pub"),
+            public_key_content="ssh-ed25519 AAAA..."
+        )
+        mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
+
+        # Mock terminal launch
+        mock_terminal.launch.return_value = True
+
+        # Connect with reconnect disabled
+        result = VMConnector.connect(
+            vm_identifier="my-vm",
+            resource_group="my-rg",
+            enable_reconnect=False
+        )
+
+        assert result is True
+        # Should use terminal launcher, not reconnect handler
+        mock_terminal.launch.assert_called_once()
+
+    @patch('azlin.vm_connector.SSHReconnectHandler')
+    @patch('azlin.vm_connector.SSHKeyManager')
+    @patch('azlin.vm_connector.VMManager')
+    def test_connect_with_custom_retry_count(self, mock_vm_mgr, mock_ssh_key_mgr, mock_reconnect_handler):
+        """Test connecting with custom reconnect retry count."""
+        # Mock VM info
+        vm_info = VMInfo(
+            name="my-vm",
+            resource_group="my-rg",
+            location="westus2",
+            power_state="VM running",
+            public_ip="20.1.2.3"
+        )
+        mock_vm_mgr.get_vm.return_value = vm_info
+
+        # Mock SSH keys
+        ssh_keys = SSHKeyPair(
+            private_path=Path("/home/user/.ssh/azlin_key"),
+            public_path=Path("/home/user/.ssh/azlin_key.pub"),
+            public_key_content="ssh-ed25519 AAAA..."
+        )
+        mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
+
+        # Mock reconnect handler
+        mock_handler_instance = MagicMock()
+        mock_handler_instance.connect_with_reconnect.return_value = 0
+        mock_reconnect_handler.return_value = mock_handler_instance
+
+        # Connect with custom retry count
+        result = VMConnector.connect(
+            vm_identifier="my-vm",
+            resource_group="my-rg",
+            max_reconnect_retries=5
+        )
+
+        assert result is True
+        mock_reconnect_handler.assert_called_once_with(max_retries=5)
+
+    @patch('azlin.vm_connector.SSHReconnectHandler')
+    @patch('azlin.vm_connector.SSHKeyManager')
+    @patch('azlin.vm_connector.VMManager')
+    def test_connect_with_reconnect_failure(self, mock_vm_mgr, mock_ssh_key_mgr, mock_reconnect_handler):
+        """Test connecting when reconnect fails."""
+        # Mock VM info
+        vm_info = VMInfo(
+            name="my-vm",
+            resource_group="my-rg",
+            location="westus2",
+            power_state="VM running",
+            public_ip="20.1.2.3"
+        )
+        mock_vm_mgr.get_vm.return_value = vm_info
+
+        # Mock SSH keys
+        ssh_keys = SSHKeyPair(
+            private_path=Path("/home/user/.ssh/azlin_key"),
+            public_path=Path("/home/user/.ssh/azlin_key.pub"),
+            public_key_content="ssh-ed25519 AAAA..."
+        )
+        mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
+
+        # Mock reconnect handler with non-zero exit
+        mock_handler_instance = MagicMock()
+        mock_handler_instance.connect_with_reconnect.return_value = 255
+        mock_reconnect_handler.return_value = mock_handler_instance
+
+        # Connect should return False on non-zero exit
+        result = VMConnector.connect(
+            vm_identifier="my-vm",
+            resource_group="my-rg"
+        )
+
+        assert result is False

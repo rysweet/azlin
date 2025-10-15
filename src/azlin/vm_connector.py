@@ -20,6 +20,8 @@ from azlin.config_manager import ConfigManager, ConfigError
 from azlin.vm_manager import VMManager, VMInfo, VMManagerError
 from azlin.terminal_launcher import TerminalLauncher, TerminalConfig, TerminalLauncherError
 from azlin.modules.ssh_keys import SSHKeyManager, SSHKeyError
+from azlin.modules.ssh_connector import SSHConfig, SSHConnector
+from azlin.modules.ssh_reconnect import SSHReconnectHandler
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +60,9 @@ class VMConnector:
         tmux_session: Optional[str] = None,
         remote_command: Optional[str] = None,
         ssh_user: str = "azureuser",
-        ssh_key_path: Optional[Path] = None
+        ssh_key_path: Optional[Path] = None,
+        enable_reconnect: bool = True,
+        max_reconnect_retries: int = 3
     ) -> bool:
         """Connect to a VM via SSH.
 
@@ -70,6 +74,8 @@ class VMConnector:
             remote_command: Command to run on VM (optional)
             ssh_user: SSH username (default: azureuser)
             ssh_key_path: Path to SSH private key (default: ~/.ssh/azlin_key)
+            enable_reconnect: Enable auto-reconnect on disconnect (default: True)
+            max_reconnect_retries: Maximum reconnection attempts (default: 3)
 
         Returns:
             True if connection successful
@@ -89,6 +95,9 @@ class VMConnector:
 
             >>> # Run command
             >>> VMConnector.connect("my-vm", resource_group="my-rg", remote_command="ls -la")
+            
+            >>> # Disable auto-reconnect
+            >>> VMConnector.connect("my-vm", resource_group="my-rg", enable_reconnect=False)
         """
         # Get connection info
         conn_info = cls._resolve_connection_info(
@@ -105,22 +114,47 @@ class VMConnector:
         except SSHKeyError as e:
             raise VMConnectorError(f"SSH key error: {e}")
 
-        # Build terminal config
-        terminal_config = TerminalConfig(
-            ssh_host=conn_info.ip_address,
-            ssh_user=conn_info.ssh_user,
-            ssh_key_path=conn_info.ssh_key_path,
-            command=remote_command,
-            title=f"azlin - {conn_info.vm_name}",
-            tmux_session=tmux_session or conn_info.vm_name if use_tmux else None
-        )
+        # If reconnect is enabled and no remote command, use direct SSH with reconnect
+        # Otherwise use terminal launcher (which opens new windows)
+        if enable_reconnect and remote_command is None:
+            # Use direct SSH connection with reconnect support
+            ssh_config = SSHConfig(
+                host=conn_info.ip_address,
+                user=conn_info.ssh_user,
+                key_path=conn_info.ssh_key_path,
+                port=22,
+                strict_host_key_checking=False
+            )
+            
+            try:
+                logger.info(f"Connecting to {conn_info.vm_name} ({conn_info.ip_address})...")
+                handler = SSHReconnectHandler(max_retries=max_reconnect_retries)
+                exit_code = handler.connect_with_reconnect(
+                    config=ssh_config,
+                    vm_name=conn_info.vm_name,
+                    tmux_session=tmux_session or conn_info.vm_name if use_tmux else "azlin",
+                    auto_tmux=use_tmux
+                )
+                return exit_code == 0
+            except Exception as e:
+                raise VMConnectorError(f"SSH connection failed: {e}")
+        else:
+            # Build terminal config for new window or remote command
+            terminal_config = TerminalConfig(
+                ssh_host=conn_info.ip_address,
+                ssh_user=conn_info.ssh_user,
+                ssh_key_path=conn_info.ssh_key_path,
+                command=remote_command,
+                title=f"azlin - {conn_info.vm_name}",
+                tmux_session=tmux_session or conn_info.vm_name if use_tmux else None
+            )
 
-        # Launch terminal
-        try:
-            logger.info(f"Connecting to {conn_info.vm_name} ({conn_info.ip_address})...")
-            return TerminalLauncher.launch(terminal_config)
-        except TerminalLauncherError as e:
-            raise VMConnectorError(f"Failed to launch terminal: {e}")
+            # Launch terminal
+            try:
+                logger.info(f"Connecting to {conn_info.vm_name} ({conn_info.ip_address})...")
+                return TerminalLauncher.launch(terminal_config)
+            except TerminalLauncherError as e:
+                raise VMConnectorError(f"Failed to launch terminal: {e}")
 
     @classmethod
     def connect_by_name(
