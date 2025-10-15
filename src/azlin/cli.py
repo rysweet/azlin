@@ -22,6 +22,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import click
 
@@ -2449,6 +2450,8 @@ def batch_stop(
         azlin batch stop --tag 'env=dev'
         azlin batch stop --vm-pattern 'test-*'
         azlin batch stop --all --confirm
+    """
+    pass
 
 
 @main.group(name='keys')
@@ -2456,6 +2459,8 @@ def keys_group():
     """SSH key management and rotation.
     
     Manage SSH keys across Azure VMs with rotation, backup, and export functionality.
+    """
+    pass
 
 
 @main.group(name='template')
@@ -2492,6 +2497,8 @@ def template():
 
         # Use a template when creating VM
         azlin new --template dev-vm
+    """
+    pass
 
 
 @main.group(name='snapshot')
@@ -2542,6 +2549,8 @@ def keys_rotate(
         azlin keys rotate --rg my-resource-group
         azlin keys rotate --all-vms
         azlin keys rotate --no-backup
+    """
+    pass
 
 
 @template.command(name='create')
@@ -2613,6 +2622,7 @@ def template_create(
                 click.echo(f"\nUpdated VMs ({len(result.vms_updated)}):")
                 for vm in result.vms_updated:
                     click.echo(f"  - {vm}")
+            sys.exit(0)
         else:
             click.echo(f"Failed: {result.message}", err=True)
             if result.vms_failed:
@@ -2620,11 +2630,41 @@ def template_create(
                 for vm in result.vms_failed:
                     click.echo(f"  - {vm}")
             sys.exit(1)
-        else:
-            sys.exit(0)
 
     except KeyRotationError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
+
+@template.command(name='create')
+@click.argument('name', type=str)
+@click.option('--description', help='Template description', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--cloud-init', help='Path to cloud-init script file', type=click.Path(exists=True))
+def template_create(
+    name: str,
+    description: Optional[str],
+    vm_size: Optional[str],
+    region: Optional[str],
+    cloud_init: Optional[str]
+):
+    """Create a new VM template.
+
+    Templates are stored as YAML files in ~/.azlin/templates/ and can be
+    used when creating VMs with the --template option.
+
+    \b
+    Examples:
+        azlin template create dev-vm --vm-size Standard_B2s --region westus2
+        azlin template create prod-vm --description "Production configuration"
+    """
+    try:
+        # Load config for defaults
+        try:
+            config = ConfigManager.load_config(None)
+        except ConfigError:
+            config = AzlinConfig()
 
         # Use provided values or defaults
         final_description = description or f"Template: {name}"
