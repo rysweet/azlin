@@ -6,7 +6,32 @@ Quick reference for using azlin to work on the [microsoft/amplifier](https://git
 
 ## 🚀 Quick Start
 
-### Create a VM with Amplifier repo
+### Zero-Install with uvx (Recommended)
+
+No installation needed! Run azlin directly from GitHub using `uvx`:
+
+```bash
+# Set up a convenient alias (one-time setup)
+alias azlin='uvx --from git+https://github.com/rysweet/azlin azlin'
+
+# Now use azlin as normal!
+azlin new --repo https://github.com/microsoft/amplifier
+```
+
+**Or run directly without alias:**
+
+```bash
+# Create VM and clone amplifier repo (no installation!)
+uvx --from git+https://github.com/rysweet/azlin azlin new --repo https://github.com/microsoft/amplifier
+
+# Create with custom name
+uvx --from git+https://github.com/rysweet/azlin azlin new --name amplifier-dev --repo https://github.com/microsoft/amplifier
+
+# Create larger VM for performance
+uvx --from git+https://github.com/rysweet/azlin azlin new --vm-size Standard_D4s_v3 --repo https://github.com/microsoft/amplifier
+```
+
+### If you have azlin installed
 
 ```bash
 # Create VM and clone amplifier repo
@@ -32,7 +57,11 @@ azlin new --vm-size Standard_D4s_v3 --repo https://github.com/microsoft/amplifie
 
 ### Daily Development
 
+**With uvx alias setup:**
 ```bash
+# One-time: Set up alias
+alias azlin='uvx --from git+https://github.com/rysweet/azlin azlin'
+
 # Morning: Start your VM
 azlin start amplifier-dev
 azlin connect amplifier-dev
@@ -46,6 +75,16 @@ npm test
 # Evening: Stop to save costs
 exit  # Exit SSH session
 azlin stop amplifier-dev
+```
+
+**Without alias (full uvx command):**
+```bash
+# Morning: Start your VM
+uvx --from git+https://github.com/rysweet/azlin azlin start amplifier-dev
+uvx --from git+https://github.com/rysweet/azlin azlin connect amplifier-dev
+
+# Work, then stop
+uvx --from git+https://github.com/rysweet/azlin azlin stop amplifier-dev
 ```
 
 **💰 Cost savings**: ~50% vs running 24/7
@@ -239,6 +278,19 @@ azlin cleanup --delete
 ---
 
 ## 💡 Pro Tips
+
+### 0. Use uvx alias for convenience
+
+Add to your `~/.bashrc` or `~/.zshrc`:
+```bash
+alias azlin='uvx --from git+https://github.com/rysweet/azlin azlin'
+```
+
+Then use `azlin` commands normally without installation! Perfect for:
+- Trying azlin without commitment
+- Always running the latest version
+- Keeping your system clean
+- Working on multiple machines
 
 ### 1. Auto-reconnect on disconnect
 
