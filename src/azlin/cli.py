@@ -63,6 +63,7 @@ from azlin.vm_provisioning import (
     VMDetails,
     VMProvisioner,
 )
+from azlin.template_manager import TemplateManager, VMTemplateConfig, TemplateError
 
 logger = logging.getLogger(__name__)
 
@@ -940,14 +941,15 @@ def main(ctx):
 
 @main.command(name="new")
 @click.pass_context
-@click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
-@click.option("--region", help="Azure region", type=str)
-@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
-@click.option("--name", help="Custom VM name", type=str)
-@click.option("--pool", help="Number of VMs to create in parallel", type=int)
-@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
-@click.option("--config", help="Config file path", type=click.Path())
+@click.option('--repo', help='GitHub repository URL to clone', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
+@click.option('--name', help='Custom VM name', type=str)
+@click.option('--pool', help='Number of VMs to create in parallel', type=int)
+@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--template', help='Template name to use for VM configuration', type=str)
 def new_command(
     ctx,
     repo: str | None,
@@ -957,7 +959,8 @@ def new_command(
     name: str | None,
     pool: int | None,
     no_auto_connect: bool,
-    config: str | None
+    config: Optional[str],
+    template: Optional[str]
 ):
     """Provision a new Azure VM with development tools.
 
@@ -977,7 +980,10 @@ def new_command(
 
         # Provision 5 VMs in parallel
         $ azlin new --pool 5
-
+        
+        # Provision from template
+        $ azlin new --template dev-vm
+        
         # Provision and execute command
         $ azlin new -- python train.py
     """
@@ -989,165 +995,184 @@ def new_command(
         # If no explicit --, check if we have extra args from Click
         command = " ".join(ctx.args)
 
-        # Load config for defaults
-        try:
-            azlin_config = ConfigManager.load_config(config)
-        except ConfigError:
-            azlin_config = AzlinConfig()
+    # Load config for defaults
+    try:
+        azlin_config = ConfigManager.load_config(config)
+    except ConfigError:
+        azlin_config = AzlinConfig()
 
-        # Get settings with CLI override
+    # Load template if specified
+    template_config = None
+    if template:
+        try:
+            template_config = TemplateManager.get_template(template)
+            click.echo(f"Using template: {template}")
+        except TemplateError as e:
+            click.echo(f"Error loading template: {e}", err=True)
+            sys.exit(1)
+
+    # Get settings with CLI override (template < config < CLI)
+    if template_config:
+        # Template provides defaults
+        final_rg = resource_group or azlin_config.default_resource_group
+        final_region = region or template_config.region
+        final_vm_size = vm_size or template_config.vm_size
+    else:
+        # Use config defaults
         final_rg = resource_group or azlin_config.default_resource_group
         final_region = region or azlin_config.default_region
         final_vm_size = vm_size or azlin_config.default_vm_size
 
-        # Generate VM name
-        vm_name = generate_vm_name(name, command)
+    # Generate VM name
+    vm_name = generate_vm_name(name, command)
 
-        # Warn if pool > 10
-        if pool and pool > 10:
-            estimated_cost = pool * 0.10  # Rough estimate
-            click.echo(f"\nWARNING: Creating {pool} VMs")
-            click.echo(f"Estimated cost: ~${estimated_cost:.2f}/hour")
-            click.echo("Continue? [y/N]: ", nl=False)
-            response = input().lower()
-            if response not in ["y", "yes"]:
-                click.echo("Cancelled.")
-                sys.exit(0)
+    # Warn if pool > 10
+    if pool and pool > 10:
+        estimated_cost = pool * 0.10  # Rough estimate
+        click.echo(f"\nWARNING: Creating {pool} VMs")
+        click.echo(f"Estimated cost: ~${estimated_cost:.2f}/hour")
+        click.echo("Continue? [y/N]: ", nl=False)
+        response = input().lower()
+        if response not in ['y', 'yes']:
+            click.echo("Cancelled.")
+            sys.exit(0)
 
-        # Validate repo URL if provided
-        if repo:
-            if not repo.startswith("https://github.com/"):
-                click.echo(
-                    "Error: Invalid GitHub URL. Must start with https://github.com/", err=True
-                )
-                sys.exit(1)
+    # Validate repo URL if provided
+    if repo:
+        if not repo.startswith('https://github.com/'):
+            click.echo(
+                "Error: Invalid GitHub URL. Must start with https://github.com/",
+                err=True
+            )
+            sys.exit(1)
 
-        # Create orchestrator and run
-        orchestrator = CLIOrchestrator(
-            repo=repo,
-            vm_size=final_vm_size,
-            region=final_region,
-            resource_group=final_rg,
-            auto_connect=not no_auto_connect,
-            config_file=config,
-        )
+    # Create orchestrator and run
+    orchestrator = CLIOrchestrator(
+        repo=repo,
+        vm_size=final_vm_size,
+        region=final_region,
+        resource_group=final_rg,
+        auto_connect=not no_auto_connect,
+        config_file=config
+    )
 
-        # Update config with used resource group
-        if final_rg:
-            try:
-                ConfigManager.update_config(
-                    config, default_resource_group=final_rg, last_vm_name=vm_name
-                )
-            except ConfigError as e:
-                logger.debug(f"Failed to update config: {e}")
+    # Update config with used resource group
+    if final_rg:
+        try:
+            ConfigManager.update_config(
+                config,
+                default_resource_group=final_rg,
+                last_vm_name=vm_name
+            )
+        except ConfigError as e:
+            logger.debug(f"Failed to update config: {e}")
 
-        # Execute command if specified
-        if command and not pool:
-            click.echo(f"\nCommand to execute: {command}")
-            click.echo("Provisioning VM first...\n")
+    # Execute command if specified
+    if command and not pool:
+        click.echo(f"\nCommand to execute: {command}")
+        click.echo("Provisioning VM first...\n")
 
-            # Disable auto-connect for command execution mode
-            orchestrator.auto_connect = False
-            exit_code = orchestrator.run()
-
-            if exit_code == 0 and orchestrator.vm_details:
-                # Create VMInfo from VMDetails for execute_command_on_vm
-                vm_info = VMInfo(
-                    name=orchestrator.vm_details.name,
-                    resource_group=orchestrator.vm_details.resource_group,
-                    location=orchestrator.vm_details.location,
-                    power_state="VM running",
-                    public_ip=orchestrator.vm_details.public_ip,
-                    vm_size=orchestrator.vm_details.size,
-                )
-
-                # Execute command on the newly provisioned VM
-                cmd_exit_code = execute_command_on_vm(vm_info, command, orchestrator.ssh_keys)
-                sys.exit(cmd_exit_code)
-            else:
-                click.echo(f"\nProvisioning failed with exit code {exit_code}", err=True)
-                sys.exit(exit_code)
-
-        # Pool provisioning
-        if pool and pool > 1:
-            click.echo(f"\nProvisioning pool of {pool} VMs in parallel...")
-
-            # Generate SSH keys
-            ssh_key_pair = SSHKeyManager.ensure_key_exists()
-
-            # Create VM configs for pool
-            configs = []
-            for i in range(pool):
-                vm_name_pool = f"{vm_name}-{i+1:02d}"
-                config = orchestrator.provisioner.create_vm_config(
-                    name=vm_name_pool,
-                    resource_group=final_rg or f"azlin-rg-{int(time.time())}",
-                    location=final_region,
-                    size=final_vm_size,
-                    ssh_public_key=ssh_key_pair.public_key_content,
-                )
-                configs.append(config)
-
-            # Provision VMs in parallel (returns PoolProvisioningResult)
-            try:
-                result = orchestrator.provisioner.provision_vm_pool(
-                    configs,
-                    progress_callback=lambda msg: click.echo(f"  {msg}"),
-                    max_workers=min(10, pool),
-                )
-
-                # Display results
-                click.echo(f"\n{result.get_summary()}")
-
-                if result.successful:
-                    click.echo("\nSuccessfully Provisioned VMs:")
-                    click.echo("=" * 80)
-                    for vm in result.successful:
-                        click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
-                    click.echo("=" * 80)
-
-                if result.failed:
-                    click.echo("\nFailed VMs:")
-                    click.echo("=" * 80)
-                    for failure in result.failed:
-                        click.echo(
-                            f"  {failure.config.name:<30} {failure.error_type:<20} {failure.error[:40]}"
-                        )
-                    click.echo("=" * 80)
-
-                if result.rg_failures:
-                    click.echo("\nResource Group Failures:")
-                    for rg_fail in result.rg_failures:
-                        click.echo(f"  {rg_fail.rg_name}: {rg_fail.error}")
-
-                # Exit with success if any VMs succeeded
-                if result.any_succeeded:
-                    sys.exit(0)
-                else:
-                    sys.exit(1)
-
-            except ProvisioningError as e:
-                click.echo(f"\nPool provisioning failed completely: {e}", err=True)
-                sys.exit(1)
-            except Exception as e:
-                click.echo(f"\nUnexpected error: {e}", err=True)
-                sys.exit(1)
-
+        # Disable auto-connect for command execution mode
+        orchestrator.auto_connect = False
         exit_code = orchestrator.run()
-        sys.exit(exit_code)
+
+        if exit_code == 0 and orchestrator.vm_details:
+            # Create VMInfo from VMDetails for execute_command_on_vm
+            vm_info = VMInfo(
+                name=orchestrator.vm_details.name,
+                resource_group=orchestrator.vm_details.resource_group,
+                location=orchestrator.vm_details.location,
+                power_state="VM running",
+                public_ip=orchestrator.vm_details.public_ip,
+                vm_size=orchestrator.vm_details.size
+            )
+
+            # Execute command on the newly provisioned VM
+            cmd_exit_code = execute_command_on_vm(vm_info, command, orchestrator.ssh_keys)
+            sys.exit(cmd_exit_code)
+        else:
+            click.echo(f"\nProvisioning failed with exit code {exit_code}", err=True)
+            sys.exit(exit_code)
+
+    # Pool provisioning
+    if pool and pool > 1:
+        click.echo(f"\nProvisioning pool of {pool} VMs in parallel...")
+
+        # Generate SSH keys
+        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+        # Create VM configs for pool
+        configs = []
+        for i in range(pool):
+            vm_name_pool = f"{vm_name}-{i+1:02d}"
+            config = orchestrator.provisioner.create_vm_config(
+                name=vm_name_pool,
+                resource_group=final_rg or f"azlin-rg-{int(time.time())}",
+                location=final_region,
+                size=final_vm_size,
+                ssh_public_key=ssh_key_pair.public_key_content
+            )
+            configs.append(config)
+
+        # Provision VMs in parallel (returns PoolProvisioningResult)
+        try:
+            result = orchestrator.provisioner.provision_vm_pool(
+                configs,
+                progress_callback=lambda msg: click.echo(f"  {msg}"),
+                max_workers=min(10, pool)
+            )
+
+            # Display results
+            click.echo(f"\n{result.get_summary()}")
+
+            if result.successful:
+                click.echo("\nSuccessfully Provisioned VMs:")
+                click.echo("=" * 80)
+                for vm in result.successful:
+                    click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
+                click.echo("=" * 80)
+
+            if result.failed:
+                click.echo("\nFailed VMs:")
+                click.echo("=" * 80)
+                for failure in result.failed:
+                    click.echo(f"  {failure.config.name:<30} {failure.error_type:<20} {failure.error[:40]}")
+                click.echo("=" * 80)
+
+            if result.rg_failures:
+                click.echo("\nResource Group Failures:")
+                for rg_fail in result.rg_failures:
+                    click.echo(f"  {rg_fail.rg_name}: {rg_fail.error}")
+
+            # Exit with success if any VMs succeeded
+            if result.any_succeeded:
+                sys.exit(0)
+            else:
+                sys.exit(1)
+
+        except ProvisioningError as e:
+            click.echo(f"\nPool provisioning failed completely: {e}", err=True)
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"\nUnexpected error: {e}", err=True)
+            sys.exit(1)
+
+    exit_code = orchestrator.run()
+    sys.exit(exit_code)
 
 
 # Alias: 'vm' for 'new'
 @main.command(name="vm")
 @click.pass_context
-@click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
-@click.option("--region", help="Azure region", type=str)
-@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
-@click.option("--name", help="Custom VM name", type=str)
-@click.option("--pool", help="Number of VMs to create in parallel", type=int)
-@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
-@click.option("--config", help="Config file path", type=click.Path())
+@click.option('--repo', help='GitHub repository URL to clone', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
+@click.option('--name', help='Custom VM name', type=str)
+@click.option('--pool', help='Number of VMs to create in parallel', type=int)
+@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--template', help='Template name to use for VM configuration', type=str)
 def vm_command(ctx, **kwargs):
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
@@ -1156,14 +1181,15 @@ def vm_command(ctx, **kwargs):
 # Alias: 'create' for 'new'
 @main.command(name="create")
 @click.pass_context
-@click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
-@click.option("--region", help="Azure region", type=str)
-@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
-@click.option("--name", help="Custom VM name", type=str)
-@click.option("--pool", help="Number of VMs to create in parallel", type=int)
-@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
-@click.option("--config", help="Config file path", type=click.Path())
+@click.option('--repo', help='GitHub repository URL to clone', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
+@click.option('--name', help='Custom VM name', type=str)
+@click.option('--pool', help='Number of VMs to create in parallel', type=int)
+@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--template', help='Template name to use for VM configuration', type=str)
 def create_command(ctx, **kwargs):
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
@@ -2359,6 +2385,42 @@ def status(
         sys.exit(1)
 
 
+@main.group(name='template')
+def template():
+    """Manage VM configuration templates.
+
+    Templates allow you to save and reuse VM configurations.
+    Stored in ~/.azlin/templates/ as YAML files.
+
+    \b
+    SUBCOMMANDS:
+        create   Create a new template
+        list     List all templates
+        delete   Delete a template
+        export   Export template to file
+        import   Import template from file
+
+    \b
+    EXAMPLES:
+        # Create a template interactively
+        azlin template create dev-vm
+
+        # List all templates
+        azlin template list
+
+        # Delete a template
+        azlin template delete dev-vm
+
+        # Export a template
+        azlin template export dev-vm my-template.yaml
+
+        # Import a template
+        azlin template import my-template.yaml
+
+        # Use a template when creating VM
+        azlin new --template dev-vm
+
+
 @main.group(name='snapshot')
 @click.pass_context
 def snapshot(ctx):
@@ -2381,6 +2443,217 @@ def snapshot(ctx):
         $ azlin snapshot delete my-vm-snapshot-20251015-053000
     """
     pass
+
+
+@template.command(name='create')
+@click.argument('name', type=str)
+@click.option('--description', help='Template description', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--cloud-init', help='Path to cloud-init script file', type=click.Path(exists=True))
+def template_create(
+    name: str,
+    description: Optional[str],
+    vm_size: Optional[str],
+    region: Optional[str],
+    cloud_init: Optional[str]
+):
+    """Create a new VM template.
+
+    Creates a template with the specified configuration.
+    If options are not provided, uses defaults from config.
+
+    \b
+    Examples:
+        azlin template create dev-vm
+        azlin template create dev-vm --vm-size Standard_D2s_v3 --region eastus
+        azlin template create dev-vm --description "My dev VM" --cloud-init custom.yaml
+    """
+    try:
+        # Load config for defaults
+        try:
+            config = ConfigManager.load_config()
+        except ConfigError:
+            config = AzlinConfig()
+
+        # Use provided values or defaults
+        final_description = description or f"Template: {name}"
+        final_vm_size = vm_size or config.default_vm_size
+        final_region = region or config.default_region
+
+        # Load cloud-init if provided
+        cloud_init_content = None
+        if cloud_init:
+            cloud_init_path = Path(cloud_init).expanduser().resolve()
+            cloud_init_content = cloud_init_path.read_text()
+
+        # Create template
+        template = VMTemplateConfig(
+            name=name,
+            description=final_description,
+            vm_size=final_vm_size,
+            region=final_region,
+            cloud_init=cloud_init_content
+        )
+
+        TemplateManager.create_template(template)
+
+        click.echo(f"Created template: {name}")
+        click.echo(f"  Description: {final_description}")
+        click.echo(f"  VM Size:     {final_vm_size}")
+        click.echo(f"  Region:      {final_region}")
+        if cloud_init_content:
+            click.echo(f"  Cloud-init:  Custom script included")
+
+    except TemplateError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@template.command(name='list')
+def template_list():
+    """List all available templates.
+
+    Shows all templates stored in ~/.azlin/templates/.
+
+    \b
+    Examples:
+        azlin template list
+    """
+    try:
+        templates = TemplateManager.list_templates()
+
+        if not templates:
+            click.echo("No templates found.")
+            click.echo("\nCreate a template with: azlin template create <name>")
+            return
+
+        click.echo(f"\nAvailable Templates ({len(templates)}):")
+        click.echo("=" * 90)
+        click.echo(f"{'NAME':<25} {'VM SIZE':<20} {'REGION':<15} {'DESCRIPTION':<30}")
+        click.echo("=" * 90)
+
+        for t in templates:
+            desc = t.description[:27] + "..." if len(t.description) > 30 else t.description
+            click.echo(f"{t.name:<25} {t.vm_size:<20} {t.region:<15} {desc:<30}")
+
+        click.echo("=" * 90)
+        click.echo(f"\nUse with: azlin new --template <name>")
+
+    except TemplateError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@template.command(name='delete')
+@click.argument('name', type=str)
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def template_delete(name: str, force: bool):
+    """Delete a template.
+
+    Removes the template file from ~/.azlin/templates/.
+
+    \b
+    Examples:
+        azlin template delete dev-vm
+        azlin template delete dev-vm --force
+    """
+    try:
+        # Verify template exists
+        template = TemplateManager.get_template(name)
+
+        # Confirm deletion unless --force
+        if not force:
+            click.echo(f"\nTemplate: {template.name}")
+            click.echo(f"  Description: {template.description}")
+            click.echo(f"  VM Size:     {template.vm_size}")
+            click.echo(f"  Region:      {template.region}")
+            click.echo("\nThis action cannot be undone.")
+
+            confirm = input("\nDelete this template? [y/N]: ").lower()
+            if confirm not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        # Delete template
+        TemplateManager.delete_template(name)
+        click.echo(f"Deleted template: {name}")
+
+    except TemplateError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@template.command(name='export')
+@click.argument('name', type=str)
+@click.argument('output_file', type=click.Path())
+def template_export(name: str, output_file: str):
+    """Export a template to a YAML file.
+
+    Exports the template configuration to a file that can be shared
+    or imported on another machine.
+
+    \b
+    Examples:
+        azlin template export dev-vm my-template.yaml
+        azlin template export dev-vm ~/shared/template.yaml
+    """
+    try:
+        output_path = Path(output_file).expanduser().resolve()
+
+        # Check if file exists
+        if output_path.exists():
+            confirm = input(f"\nFile '{output_path}' exists. Overwrite? [y/N]: ").lower()
+            if confirm not in ['y', 'yes']:
+                click.echo("Cancelled.")
+                return
+
+        TemplateManager.export_template(name, output_path)
+        click.echo(f"Exported template '{name}' to: {output_path}")
+
+    except TemplateError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@template.command(name='import')
+@click.argument('input_file', type=click.Path(exists=True))
+def template_import(input_file: str):
+    """Import a template from a YAML file.
+
+    Imports a template configuration from a file and saves it
+    to ~/.azlin/templates/.
+
+    \b
+    Examples:
+        azlin template import my-template.yaml
+        azlin template import ~/shared/template.yaml
+    """
+    try:
+        input_path = Path(input_file).expanduser().resolve()
+
+        template = TemplateManager.import_template(input_path)
+
+        click.echo(f"Imported template: {template.name}")
+        click.echo(f"  Description: {template.description}")
+        click.echo(f"  VM Size:     {template.vm_size}")
+        click.echo(f"  Region:      {template.region}")
+
+    except TemplateError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
 
 @snapshot.command(name='create')
