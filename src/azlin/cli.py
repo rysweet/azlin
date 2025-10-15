@@ -9,7 +9,8 @@ This module provides the enhanced command-line interface with:
 - Enhanced help
 
 Commands:
-    azlin                    # Interactive menu or provision new VM
+    azlin                    # Show help
+    azlin new                # Provision new VM
     azlin list               # List VMs in resource group
     azlin w                  # Run 'w' command on all VMs
     azlin -- <command>       # Execute command on VM(s)
@@ -901,26 +902,8 @@ class AzlinGroup(click.Group):
     }
 )
 @click.pass_context
-@click.option('--repo', help='GitHub repository URL to clone', type=str)
-@click.option('--vm-size', help='Azure VM size', type=str)
-@click.option('--region', help='Azure region', type=str)
-@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
-@click.option('--name', help='Custom VM name', type=str)
-@click.option('--pool', help='Number of VMs to create in parallel', type=int)
-@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
-@click.option('--config', help='Config file path', type=click.Path())
 @click.version_option(version=__version__)
-def main(
-    ctx,
-    repo: Optional[str],
-    vm_size: Optional[str],
-    region: Optional[str],
-    resource_group: Optional[str],
-    name: Optional[str],
-    pool: Optional[int],
-    no_auto_connect: bool,
-    config: Optional[str]
-):
+def main(ctx):
     """azlin - Azure Ubuntu VM provisioning and management.
 
     Provisions Azure Ubuntu VMs with development tools, manages existing VMs,
@@ -928,6 +911,7 @@ def main(
 
     \b
     VM LIFECYCLE COMMANDS:
+        new           Provision a new VM (aliases: vm, create)
         list          List VMs in resource group
         status        Show detailed status of VMs
         start         Start a stopped VM
@@ -948,8 +932,11 @@ def main(
 
     \b
     EXAMPLES:
-        # Interactive menu (if VMs exist) or provision new VM
+        # Show help
         $ azlin
+
+        # Provision a new VM
+        $ azlin new
 
         # List VMs and show status
         $ azlin list
@@ -973,16 +960,13 @@ def main(
         $ azlin destroy my-vm --delete-rg --force
 
         # Provision VM with custom name
-        $ azlin --name my-dev-vm
+        $ azlin new --name my-dev-vm
 
         # Provision VM and clone repository
-        $ azlin --repo https://github.com/owner/repo
-
-        # Execute command on new VM (opens in new terminal)
-        $ azlin -- python train.py
+        $ azlin new --repo https://github.com/owner/repo
 
         # Provision 5 VMs in parallel
-        $ azlin --pool 5
+        $ azlin new --pool 5
 
     \b
     CONFIGURATION:
@@ -996,97 +980,65 @@ def main(
         level=logging.INFO,
         format='%(message)s'
     )
-
-    # If no subcommand, check for interactive mode or provision
+    
+    # If no subcommand provided, show help
     if ctx.invoked_subcommand is None:
-        # Check for passthrough command from custom AzlinGroup
-        command = None
-        if ctx.obj and 'passthrough_command' in ctx.obj:
-            command = ctx.obj['passthrough_command']
-        elif ctx.args:
-            # If no explicit --, check if we have extra args from Click
-            command = ' '.join(ctx.args)
+        click.echo(ctx.get_help())
+        ctx.exit(0)  # Use ctx.exit() instead of sys.exit() for Click compatibility
 
-        # COMMAND EXECUTION MODE: azlin -- <command>
-        if command:
-            try:
-                # Load config to get resource group
-                azlin_config = ConfigManager.load_config(config)
-                rg = resource_group or azlin_config.default_resource_group
 
-                # Get SSH key
-                ssh_key_pair = SSHKeyManager.ensure_key_exists()
+@main.command(name='new')
+@click.pass_context
+@click.option('--repo', help='GitHub repository URL to clone', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
+@click.option('--name', help='Custom VM name', type=str)
+@click.option('--pool', help='Number of VMs to create in parallel', type=int)
+@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
+@click.option('--config', help='Config file path', type=click.Path())
+def new_command(
+    ctx,
+    repo: Optional[str],
+    vm_size: Optional[str],
+    region: Optional[str],
+    resource_group: Optional[str],
+    name: Optional[str],
+    pool: Optional[int],
+    no_auto_connect: bool,
+    config: Optional[str]
+):
+    """Provision a new Azure VM with development tools.
+    
+    Creates a new Ubuntu VM in Azure with all development tools pre-installed.
+    Optionally connects via SSH and clones a GitHub repository.
+    
+    \b
+    EXAMPLES:
+        # Provision basic VM
+        $ azlin new
+        
+        # Provision with custom name
+        $ azlin new --name my-dev-vm
+        
+        # Provision and clone repository
+        $ azlin new --repo https://github.com/owner/repo
+        
+        # Provision 5 VMs in parallel
+        $ azlin new --pool 5
+        
+        # Provision and execute command
+        $ azlin new -- python train.py
+    """
+    # Check for passthrough command from custom AzlinGroup
+    command = None
+    if ctx.obj and 'passthrough_command' in ctx.obj:
+        command = ctx.obj['passthrough_command']
+    elif ctx.args:
+        # If no explicit --, check if we have extra args from Click
+        command = ' '.join(ctx.args)
 
-                # List running VMs
-                if rg:
-                    vms = VMManager.list_vms(rg, include_stopped=False)
-                    vms = VMManager.filter_by_prefix(vms, "azlin")
-                    vms = VMManager.sort_by_created_time(vms)
-                    # Only include running VMs with IPs
-                    vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
-                else:
-                    vms = []
-
-                # Handle based on number of VMs
-                if len(vms) == 0:
-                    # No VMs - provision new one and execute
-                    click.echo(f"\nNo running VMs found. Provisioning new VM to execute: {command}")
-                    # Fall through to provisioning with command set
-
-                elif len(vms) == 1:
-                    # Auto-select single VM and execute
-                    vm = vms[0]
-                    click.echo(f"\nAuto-selecting VM: {vm.name}")
-                    exit_code = execute_command_on_vm(vm, command, ssh_key_pair.private_path)
-                    sys.exit(exit_code)
-
-                else:
-                    # Multiple VMs - show selection menu
-                    selected_vm = select_vm_for_command(vms, command)
-
-                    if selected_vm:
-                        # Execute on selected VM
-                        exit_code = execute_command_on_vm(selected_vm, command, ssh_key_pair.private_path)
-                        sys.exit(exit_code)
-                    else:
-                        # User chose to create new VM
-                        click.echo("\nProvisioning new VM...")
-                        # Fall through to provisioning with command set
-
-            except ConfigError:
-                # No config - will provision new VM
-                click.echo(f"\nNo configuration found. Provisioning new VM to execute: {command}")
-                # Fall through to provisioning with command set
-
-            except Exception as e:
-                click.echo(f"Error: {e}", err=True)
-                sys.exit(1)
-
-        # If no special args, try interactive mode
-        if not any([repo, pool, name, command]):
-            try:
-                # Load config to get resource group
-                azlin_config = ConfigManager.load_config(config)
-                rg = resource_group or azlin_config.default_resource_group
-
-                if rg:
-                    # List VMs and show menu
-                    ssh_key_pair = SSHKeyManager.ensure_key_exists()
-                    vms = VMManager.list_vms(rg, include_stopped=False)
-                    vms = VMManager.filter_by_prefix(vms, "azlin")
-                    vms = VMManager.sort_by_created_time(vms)
-
-                    if vms:
-                        exit_code = show_interactive_menu(vms, ssh_key_pair.private_path)
-                        if exit_code is not None:
-                            sys.exit(exit_code)
-                        # If None, continue to provisioning
-
-            except Exception as e:
-                logger.debug(f"Interactive mode failed: {e}")
-                # Continue to provisioning
-
-        # Load config for defaults
+    # Load config for defaults
         try:
             azlin_config = ConfigManager.load_config(config)
         except ConfigError:
@@ -1233,6 +1185,38 @@ def main(
 
         exit_code = orchestrator.run()
         sys.exit(exit_code)
+
+
+# Alias: 'vm' for 'new'
+@main.command(name='vm')
+@click.pass_context
+@click.option('--repo', help='GitHub repository URL to clone', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
+@click.option('--name', help='Custom VM name', type=str)
+@click.option('--pool', help='Number of VMs to create in parallel', type=int)
+@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
+@click.option('--config', help='Config file path', type=click.Path())
+def vm_command(ctx, **kwargs):
+    """Alias for 'new' command. Provision a new Azure VM."""
+    return ctx.invoke(new_command, **kwargs)
+
+
+# Alias: 'create' for 'new'
+@main.command(name='create')
+@click.pass_context
+@click.option('--repo', help='GitHub repository URL to clone', type=str)
+@click.option('--vm-size', help='Azure VM size', type=str)
+@click.option('--region', help='Azure region', type=str)
+@click.option('--resource-group', '--rg', help='Azure resource group', type=str)
+@click.option('--name', help='Custom VM name', type=str)
+@click.option('--pool', help='Number of VMs to create in parallel', type=int)
+@click.option('--no-auto-connect', help='Do not auto-connect via SSH', is_flag=True)
+@click.option('--config', help='Config file path', type=click.Path())
+def create_command(ctx, **kwargs):
+    """Alias for 'new' command. Provision a new Azure VM."""
+    return ctx.invoke(new_command, **kwargs)
 
 
 @main.command(name='list')
