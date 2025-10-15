@@ -1929,7 +1929,7 @@ def connect(
             
             # Get list of running VMs
             try:
-                vms = VMManager.list_vms(resource_group=rg, show_all=False)
+                vms = VMManager.list_vms(resource_group=rg, include_stopped=False)
             except VMManagerError as e:
                 click.echo(f"Error listing VMs: {e}", err=True)
                 sys.exit(1)
