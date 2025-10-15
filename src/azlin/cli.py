@@ -46,6 +46,7 @@ from azlin.vm_lifecycle import VMLifecycleManager, VMLifecycleError, DeletionSum
 from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.cost_tracker import CostTracker, CostTrackerError
 from azlin.vm_lifecycle_control import VMLifecycleController, VMLifecycleControlError
+from azlin.tag_manager import TagManager, TagManagerError
 from azlin.modules.file_transfer import (
     PathParser,
     SessionManager,
@@ -917,6 +918,7 @@ def main(ctx):
         start         Start a stopped VM
         stop          Stop/deallocate a VM to save costs
         connect       Connect to existing VM via SSH
+        tag           Manage VM tags (add, remove, list)
 
     \b
     MONITORING COMMANDS:
@@ -940,7 +942,13 @@ def main(ctx):
 
         # List VMs and show status
         $ azlin list
+        $ azlin list --tag env=dev
         $ azlin status
+
+        # Manage tags
+        $ azlin tag my-vm --add env=dev
+        $ azlin tag my-vm --list
+        $ azlin tag my-vm --remove env
 
         # Start/stop VMs
         $ azlin start my-vm
@@ -1223,7 +1231,8 @@ def create_command(ctx, **kwargs):
 @click.option('--resource-group', '--rg', help='Resource group to list VMs from', type=str)
 @click.option('--config', help='Config file path', type=click.Path())
 @click.option('--all', 'show_all', help='Show all VMs (including stopped)', is_flag=True)
-def list_command(resource_group: Optional[str], config: Optional[str], show_all: bool):
+@click.option('--tag', help='Filter VMs by tag (format: key or key=value)', type=str)
+def list_command(resource_group: Optional[str], config: Optional[str], show_all: bool, tag: Optional[str]):
     """List VMs in resource group.
 
     Shows VM name, status, IP address, region, and size.
@@ -1233,6 +1242,8 @@ def list_command(resource_group: Optional[str], config: Optional[str], show_all:
         azlin list
         azlin list --rg my-resource-group
         azlin list --all
+        azlin list --tag env=dev
+        azlin list --tag team
     """
     try:
         # Get resource group from config or CLI
@@ -1250,6 +1261,15 @@ def list_command(resource_group: Optional[str], config: Optional[str], show_all:
 
         # Filter to azlin VMs
         vms = VMManager.filter_by_prefix(vms, "azlin")
+        
+        # Filter by tag if specified
+        if tag:
+            try:
+                vms = TagManager.filter_vms_by_tag(vms, tag)
+            except Exception as e:
+                click.echo(f"Error filtering by tag: {e}", err=True)
+                sys.exit(1)
+        
         vms = VMManager.sort_by_created_time(vms)
 
         if not vms:
@@ -2425,6 +2445,109 @@ def status(
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command(name='tag')
+@click.argument('vm_name', type=str)
+@click.option('--add', multiple=True, help='Add tag(s) in format key=value (can be used multiple times)')
+@click.option('--remove', multiple=True, help='Remove tag(s) by key (can be used multiple times)')
+@click.option('--list', 'list_tags', is_flag=True, help='List all tags on the VM')
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+def tag_command(
+    vm_name: str,
+    add: tuple,
+    remove: tuple,
+    list_tags: bool,
+    resource_group: Optional[str],
+    config: Optional[str]
+):
+    """Manage tags on a VM.
+
+    Add, remove, or list tags on Azure VMs for organization and filtering.
+
+    \b
+    Examples:
+        # Add tags
+        azlin tag my-vm --add env=dev
+        azlin tag my-vm --add env=dev --add team=backend
+        
+        # Remove tags
+        azlin tag my-vm --remove env
+        azlin tag my-vm --remove env --remove team
+        
+        # List tags
+        azlin tag my-vm --list
+    """
+    try:
+        # Get resource group from config or CLI
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified and no default configured.", err=True)
+            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+            sys.exit(1)
+
+        # Ensure at least one operation is specified
+        if not add and not remove and not list_tags:
+            click.echo("Error: Must specify --add, --remove, or --list", err=True)
+            sys.exit(1)
+
+        # Ensure mutually exclusive operations
+        operations_count = sum([bool(add), bool(remove), bool(list_tags)])
+        if operations_count > 1:
+            click.echo("Error: --add, --remove, and --list are mutually exclusive", err=True)
+            sys.exit(1)
+
+        # List tags
+        if list_tags:
+            tags = TagManager.get_tags(vm_name, rg)
+            if not tags:
+                click.echo(f"No tags on VM '{vm_name}'")
+            else:
+                click.echo(f"Tags on VM '{vm_name}':")
+                click.echo("=" * 60)
+                click.echo(f"{'KEY':<30} {'VALUE':<30}")
+                click.echo("=" * 60)
+                for key, value in sorted(tags.items()):
+                    click.echo(f"{key:<30} {value:<30}")
+                click.echo("=" * 60)
+                click.echo(f"Total: {len(tags)} tags")
+            return
+
+        # Add tags
+        if add:
+            tags_dict = {}
+            for tag_str in add:
+                try:
+                    key, value = TagManager.parse_tag_assignment(tag_str)
+                    tags_dict[key] = value
+                except TagManagerError as e:
+                    click.echo(f"Error: {e}", err=True)
+                    sys.exit(1)
+            
+            click.echo(f"Adding tags to VM '{vm_name}': {tags_dict}")
+            TagManager.add_tags(vm_name, rg, tags_dict)
+            click.echo("✓ Tags added successfully")
+            return
+
+        # Remove tags
+        if remove:
+            tag_keys = list(remove)
+            click.echo(f"Removing tags from VM '{vm_name}': {tag_keys}")
+            TagManager.remove_tags(vm_name, rg, tag_keys)
+            click.echo("✓ Tags removed successfully")
+            return
+
+    except TagManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
