@@ -269,7 +269,7 @@ my-project           azlin-vm-001                        Running         20.12.3
 
 #### `azlin session` - Manage session names
 
-Session names are custom labels you can assign to VMs to help identify what you're working on. They appear in the `azlin list` output and make it easier to track multiple projects.
+Session names are custom labels you can assign to VMs to help identify what you're working on. They appear in the `azlin list` output and make it easier to track multiple projects. You can also use session names to connect to VMs.
 
 ```bash
 # Create a new VM with a session name
@@ -283,6 +283,9 @@ azlin session azlin-vm-12345
 
 # Clear session name
 azlin session azlin-vm-12345 --clear
+
+# Connect using session name
+azlin connect my-project
 ```
 
 Session names are stored locally in `~/.azlin/config.toml` and don't affect the actual VM name in Azure.
@@ -393,6 +396,9 @@ Connect to a VM with automatic tmux session management and **auto-reconnect on d
 ```bash
 # Connect to a VM by name
 azlin connect my-vm
+
+# Connect by session name (new!)
+azlin connect my-project
 
 # Connect by IP address
 azlin connect 20.12.34.56
