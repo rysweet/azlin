@@ -375,5 +375,31 @@ class ConfigManager:
             pass
         return False
 
+    @classmethod
+    def get_vm_name_by_session(
+        cls,
+        session_name: str,
+        custom_path: str | None = None
+    ) -> str | None:
+        """Get VM name by session name.
+
+        Args:
+            session_name: Session name to look up
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            VM name or None if not found
+        """
+        try:
+            config = cls.load_config(custom_path)
+            if config.session_names:
+                # Reverse lookup: find VM name for this session name
+                for vm_name, sess_name in config.session_names.items():
+                    if sess_name == session_name:
+                        return vm_name
+        except ConfigError:
+            pass
+        return None
+
 
 __all__ = ['ConfigManager', 'AzlinConfig', 'ConfigError']
