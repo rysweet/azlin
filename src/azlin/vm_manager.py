@@ -13,8 +13,8 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass
+from typing import List, Optional, Dict, Any
 from datetime import datetime
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +31,14 @@ class VMInfo:
     resource_group: str
     location: str
     power_state: str
-    public_ip: str | None = None
-    private_ip: str | None = None
-    vm_size: str | None = None
-    os_type: str | None = None
-    provisioning_state: str | None = None
-    created_time: str | None = None
-    tags: dict[str, str] | None = None
-    session_name: str | None = None  # Session name from config
+    public_ip: Optional[str] = None
+    private_ip: Optional[str] = None
+    vm_size: Optional[str] = None
+    os_type: Optional[str] = None
+    provisioning_state: Optional[str] = None
+    created_time: Optional[str] = None
+    tags: Optional[Dict[str, str]] = None
+    session_name: Optional[str] = None  # Session name from config
 
     def is_running(self) -> bool:
         """Check if VM is running."""
@@ -56,7 +56,7 @@ class VMInfo:
             return "Stopped"
         else:
             return self.power_state.replace("VM ", "")
-
+    
     def get_display_name(self) -> str:
         """Get display name (session name if set, otherwise VM name)."""
         return self.session_name if self.session_name else self.name
@@ -77,7 +77,7 @@ class VMManager:
         cls,
         resource_group: str,
         include_stopped: bool = True
-    ) -> list[VMInfo]:
+    ) -> List[VMInfo]:
         """List all VMs in a resource group.
 
         Args:
@@ -107,10 +107,10 @@ class VMManager:
             )
 
             vms_data = json.loads(result.stdout)
-
+            
             # Fetch all public IPs in a single batch call
             public_ips = cls._get_all_public_ips(resource_group)
-
+            
             vms = []
 
             # Parse VM data and match with public IPs
@@ -119,9 +119,9 @@ class VMManager:
                     vm_name = vm_data.get('name')
                     # Match public IP by convention: {vm_name}PublicIP
                     vm_data['publicIps'] = public_ips.get(f"{vm_name}PublicIP")
-
+                    
                     vm_info = cls._parse_vm_data(vm_data)
-
+                    
                     # Since we don't have power state, we can't filter by stopped status reliably
                     # Just include all VMs
                     vms.append(vm_info)
@@ -142,9 +142,9 @@ class VMManager:
             raise VMManagerError("Failed to parse VM list response")
         except subprocess.TimeoutExpired:
             raise VMManagerError("VM list operation timed out")
-
+    
     @classmethod
-    def _get_all_public_ips(cls, resource_group: str) -> dict[str, str]:
+    def _get_all_public_ips(cls, resource_group: str) -> Dict[str, str]:
         """Get all public IPs in the resource group in a single batch call.
         
         Args:
@@ -160,7 +160,7 @@ class VMManager:
                 '--query', '[].{name:name, ip:ipAddress}',
                 '--output', 'json'
             ]
-
+            
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -168,10 +168,10 @@ class VMManager:
                 timeout=10,
                 check=True
             )
-
+            
             ips_data = json.loads(result.stdout)
             return {item['name']: item['ip'] for item in ips_data if item.get('ip')}
-
+            
         except Exception as e:
             logger.debug(f"Failed to fetch public IPs: {e}")
             return {}
@@ -181,7 +181,7 @@ class VMManager:
         cls,
         vm_name: str,
         resource_group: str
-    ) -> VMInfo | None:
+    ) -> Optional[VMInfo]:
         """Get specific VM details.
 
         Args:
@@ -226,7 +226,7 @@ class VMManager:
             raise VMManagerError("VM details query timed out")
 
     @classmethod
-    def list_resource_groups(cls) -> list[str]:
+    def list_resource_groups(cls) -> List[str]:
         """List all resource groups.
 
         Returns:
@@ -265,7 +265,7 @@ class VMManager:
         cls,
         vm_name: str,
         resource_group: str
-    ) -> str | None:
+    ) -> Optional[str]:
         """Get VM public IP address.
 
         Args:
@@ -309,9 +309,9 @@ class VMManager:
     @classmethod
     def filter_by_prefix(
         cls,
-        vms: list[VMInfo],
+        vms: List[VMInfo],
         prefix: str = "azlin"
-    ) -> list[VMInfo]:
+    ) -> List[VMInfo]:
         """Filter VMs by name prefix.
 
         Args:
@@ -326,9 +326,9 @@ class VMManager:
     @classmethod
     def sort_by_created_time(
         cls,
-        vms: list[VMInfo],
+        vms: List[VMInfo],
         reverse: bool = True
-    ) -> list[VMInfo]:
+    ) -> List[VMInfo]:
         """Sort VMs by creation time.
 
         Args:
@@ -350,7 +350,7 @@ class VMManager:
         return sorted(vms, key=get_time, reverse=reverse)
 
     @classmethod
-    def _enrich_vm_data(cls, vm_data: dict[str, Any], resource_group: str) -> dict[str, Any]:
+    def _enrich_vm_data(cls, vm_data: Dict[str, Any], resource_group: str) -> Dict[str, Any]:
         """Enrich VM data with instance view information.
         
         Args:
@@ -361,7 +361,7 @@ class VMManager:
             Enriched VM data with power state and IP information
         """
         vm_name = vm_data['name']
-
+        
         # Try to get instance view with a short timeout
         try:
             cmd = [
@@ -370,7 +370,7 @@ class VMManager:
                 '--resource-group', resource_group,
                 '--output', 'json'
             ]
-
+            
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -378,24 +378,24 @@ class VMManager:
                 timeout=5,  # Short timeout to avoid hanging
                 check=True
             )
-
+            
             instance_view = json.loads(result.stdout)
-
+            
             # Add instance view to VM data
             vm_data['instanceView'] = instance_view
-
+            
             # Extract power state from instance view
             statuses = instance_view.get('statuses', [])
             for status in statuses:
                 if status.get('code', '').startswith('PowerState/'):
                     vm_data['powerState'] = status['displayStatus']
                     break
-
+                    
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError) as e:
             logger.debug(f"Could not get instance view for {vm_name}: {e}")
             # Set default power state
             vm_data['powerState'] = 'Unknown'
-
+        
         # Try to get public IP with a short timeout
         try:
             # Get network interface
@@ -403,7 +403,7 @@ class VMManager:
             if network_interfaces:
                 nic_id = network_interfaces[0]['id']
                 nic_name = nic_id.split('/')[-1]
-
+                
                 cmd = [
                     'az', 'network', 'nic', 'show',
                     '--name', nic_name,
@@ -411,7 +411,7 @@ class VMManager:
                     '--query', 'ipConfigurations[0].publicIPAddress.id',
                     '--output', 'tsv'
                 ]
-
+                
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
@@ -419,11 +419,11 @@ class VMManager:
                     timeout=5,
                     check=True
                 )
-
+                
                 public_ip_id = result.stdout.strip()
                 if public_ip_id and public_ip_id != 'None':
                     public_ip_name = public_ip_id.split('/')[-1]
-
+                    
                     # Get public IP address
                     cmd = [
                         'az', 'network', 'public-ip', 'show',
@@ -432,7 +432,7 @@ class VMManager:
                         '--query', 'ipAddress',
                         '--output', 'tsv'
                     ]
-
+                    
                     result = subprocess.run(
                         cmd,
                         capture_output=True,
@@ -440,18 +440,18 @@ class VMManager:
                         timeout=5,
                         check=True
                     )
-
+                    
                     public_ip = result.stdout.strip()
                     if public_ip and public_ip != 'None':
                         vm_data['publicIps'] = public_ip
-
+                        
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError) as e:
             logger.debug(f"Could not get public IP for {vm_name}: {e}")
-
+        
         return vm_data
 
     @classmethod
-    def _parse_vm_data(cls, data: dict[str, Any]) -> VMInfo:
+    def _parse_vm_data(cls, data: Dict[str, Any]) -> VMInfo:
         """Parse VM data from Azure response.
 
         Args:
