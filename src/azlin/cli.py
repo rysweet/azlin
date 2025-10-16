@@ -1954,6 +1954,7 @@ def connect(
 
     VM_IDENTIFIER can be either:
     - VM name (requires --resource-group or default config)
+    - Session name (will be resolved to VM name)
     - IP address (direct connection)
 
     Use -- to separate remote command from options.
@@ -1968,6 +1969,9 @@ def connect(
 
         # Connect to VM by name
         azlin connect my-vm
+
+        # Connect to VM by session name
+        azlin connect my-project
 
         # Connect to VM by name with explicit resource group
         azlin connect my-vm --rg my-resource-group
@@ -2080,6 +2084,15 @@ def connect(
         # Convert key path to Path object
         key_path = Path(key).expanduser() if key else None
 
+        # Try to resolve session name to VM name if not an IP address
+        original_identifier = vm_identifier
+        if not VMConnector._is_valid_ip(vm_identifier):
+            # Check if it's a session name
+            resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_identifier, config)
+            if resolved_vm_name:
+                click.echo(f"Resolved session '{vm_identifier}' to VM '{resolved_vm_name}'")
+                vm_identifier = resolved_vm_name
+
         # Get resource group from config if not specified
         if not VMConnector._is_valid_ip(vm_identifier):
             rg = ConfigManager.get_resource_group(resource_group, config)
@@ -2094,7 +2107,8 @@ def connect(
             rg = resource_group
 
         # Connect to VM
-        click.echo(f"Connecting to {vm_identifier}...")
+        display_name = original_identifier if original_identifier != vm_identifier else vm_identifier
+        click.echo(f"Connecting to {display_name}...")
 
         success = VMConnector.connect(
             vm_identifier=vm_identifier,
