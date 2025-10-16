@@ -9,11 +9,11 @@ Security:
 - Input sanitization
 """
 
-import os
 import logging
+import os
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional, Dict, Any
-from dataclasses import dataclass, asdict
+from typing import Any
 
 try:
     import tomli
@@ -22,6 +22,7 @@ except ImportError:
     # Fallback for older Python versions
     try:
         import tomllib as tomli
+
         import tomli_w
     except ImportError:
         raise ImportError("toml library not available. Install with: pip install tomli tomli-w")
@@ -37,21 +38,21 @@ class ConfigError(Exception):
 @dataclass
 class AzlinConfig:
     """Azlin configuration data."""
-    default_resource_group: Optional[str] = None
+    default_resource_group: str | None = None
     default_region: str = "westus2"  # westus2 has better capacity than eastus
     default_vm_size: str = "Standard_B2s"  # Widely available, affordable burstable VM
-    last_vm_name: Optional[str] = None
+    last_vm_name: str | None = None
     notification_command: str = "imessR"
-    session_names: Optional[Dict[str, str]] = None  # vm_name -> session_name mapping
+    session_names: dict[str, str] | None = None  # vm_name -> session_name mapping
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
         data = asdict(self)
         # Filter out None values as TOML doesn't support them
         return {k: v for k, v in data.items() if v is not None}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'AzlinConfig':
+    def from_dict(cls, data: dict[str, Any]) -> 'AzlinConfig':
         """Create from dictionary."""
         return cls(
             default_resource_group=data.get('default_resource_group'),
@@ -73,7 +74,7 @@ class ConfigManager:
     DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.toml"
 
     @classmethod
-    def get_config_path(cls, custom_path: Optional[str] = None) -> Path:
+    def get_config_path(cls, custom_path: str | None = None) -> Path:
         """Get configuration file path.
 
         Args:
@@ -113,7 +114,7 @@ class ConfigManager:
             raise ConfigError(f"Failed to create config directory: {e}")
 
     @classmethod
-    def load_config(cls, custom_path: Optional[str] = None) -> AzlinConfig:
+    def load_config(cls, custom_path: str | None = None) -> AzlinConfig:
         """Load configuration from file.
 
         Args:
@@ -157,7 +158,7 @@ class ConfigManager:
     def save_config(
         cls,
         config: AzlinConfig,
-        custom_path: Optional[str] = None
+        custom_path: str | None = None
     ) -> None:
         """Save configuration to file.
 
@@ -203,7 +204,7 @@ class ConfigManager:
     @classmethod
     def update_config(
         cls,
-        custom_path: Optional[str] = None,
+        custom_path: str | None = None,
         **updates: Any
     ) -> AzlinConfig:
         """Update configuration values.
@@ -236,9 +237,9 @@ class ConfigManager:
     @classmethod
     def get_resource_group(
         cls,
-        cli_value: Optional[str] = None,
-        custom_path: Optional[str] = None
-    ) -> Optional[str]:
+        cli_value: str | None = None,
+        custom_path: str | None = None
+    ) -> str | None:
         """Get resource group with CLI override.
 
         Args:
@@ -257,8 +258,8 @@ class ConfigManager:
     @classmethod
     def get_region(
         cls,
-        cli_value: Optional[str] = None,
-        custom_path: Optional[str] = None
+        cli_value: str | None = None,
+        custom_path: str | None = None
     ) -> str:
         """Get region with CLI override.
 
@@ -278,8 +279,8 @@ class ConfigManager:
     @classmethod
     def get_vm_size(
         cls,
-        cli_value: Optional[str] = None,
-        custom_path: Optional[str] = None
+        cli_value: str | None = None,
+        custom_path: str | None = None
     ) -> str:
         """Get VM size with CLI override.
 
@@ -302,7 +303,7 @@ class ConfigManager:
         cls,
         vm_name: str,
         session_name: str,
-        custom_path: Optional[str] = None
+        custom_path: str | None = None
     ) -> None:
         """Set session name for a VM.
 
@@ -319,10 +320,10 @@ class ConfigManager:
         except ConfigError:
             # If config doesn't exist, create a new one
             config = AzlinConfig()
-        
+
         if config.session_names is None:
             config.session_names = {}
-        
+
         config.session_names[vm_name] = session_name
         cls.save_config(config, custom_path)
 
@@ -330,8 +331,8 @@ class ConfigManager:
     def get_session_name(
         cls,
         vm_name: str,
-        custom_path: Optional[str] = None
-    ) -> Optional[str]:
+        custom_path: str | None = None
+    ) -> str | None:
         """Get session name for a VM.
 
         Args:
@@ -353,7 +354,7 @@ class ConfigManager:
     def delete_session_name(
         cls,
         vm_name: str,
-        custom_path: Optional[str] = None
+        custom_path: str | None = None
     ) -> bool:
         """Delete session name for a VM.
 
