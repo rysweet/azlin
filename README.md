@@ -262,9 +262,30 @@ azlin list --resource-group my-custom-rg
 **Output example**:
 ```
 VMs in resource group 'azlin-rg-1234567890':
-  1. azlin-vm-001 - Running - 20.12.34.56 - eastus - Standard_D2s_v3
-  2. azlin-vm-002 - Stopped - N/A - westus2 - Standard_B2s
+SESSION NAME         VM NAME                             STATUS          IP              REGION     SIZE      
+my-project           azlin-vm-001                        Running         20.12.34.56     eastus     Standard_D2s_v3
+-                    azlin-vm-002                        Stopped         N/A             westus2    Standard_B2s
 ```
+
+#### `azlin session` - Manage session names
+
+Session names are custom labels you can assign to VMs to help identify what you're working on. They appear in the `azlin list` output and make it easier to track multiple projects.
+
+```bash
+# Create a new VM with a session name
+azlin new --name my-project
+
+# Set a session name for an existing VM
+azlin session azlin-vm-12345 my-project
+
+# View current session name
+azlin session azlin-vm-12345
+
+# Clear session name
+azlin session azlin-vm-12345 --clear
+```
+
+Session names are stored locally in `~/.azlin/config.toml` and don't affect the actual VM name in Azure.
 
 #### `azlin status` - Detailed VM status
 

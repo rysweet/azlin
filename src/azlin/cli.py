@@ -837,6 +837,7 @@ def main(ctx):
     VM LIFECYCLE COMMANDS:
         new           Provision a new VM (aliases: vm, create)
         list          List VMs in resource group
+        session       Set or view session name for a VM
         status        Show detailed status of VMs
         start         Start a stopped VM
         stop          Stop/deallocate a VM to save costs
@@ -887,11 +888,18 @@ def main(ctx):
 
         # Provision a new VM
         $ azlin new
+        
+        # Provision with custom session name
+        $ azlin new --name my-project
 
         # List VMs and show status
         $ azlin list
         $ azlin list --tag env=dev
         $ azlin status
+        
+        # Manage session names
+        $ azlin session azlin-vm-12345 my-project
+        $ azlin session azlin-vm-12345 --clear
 
         # Environment variables
         $ azlin env set my-vm DATABASE_URL="postgres://localhost/db"
@@ -1083,6 +1091,9 @@ def new_command(
                 default_resource_group=final_rg,
                 last_vm_name=vm_name
             )
+            # Save session name if provided
+            if name:
+                ConfigManager.set_session_name(vm_name, name, config)
         except ConfigError as e:
             logger.debug(f"Failed to update config: {e}")
 
@@ -1259,23 +1270,103 @@ def list_command(resource_group: Optional[str], config: Optional[str], show_all:
         
         vms = VMManager.sort_by_created_time(vms)
 
+        # Populate session names from config
+        for vm in vms:
+            vm.session_name = ConfigManager.get_session_name(vm.name, config)
+
         if not vms:
             click.echo("No VMs found.")
             return
 
-        # Display table
-        click.echo("=" * 90)
-        click.echo(f"{'NAME':<35} {'STATUS':<15} {'IP':<15} {'REGION':<15} {'SIZE':<10}")
-        click.echo("=" * 90)
+        # Display table with session names
+        click.echo("=" * 110)
+        click.echo(f"{'SESSION NAME':<25} {'VM NAME':<35} {'STATUS':<15} {'IP':<15} {'REGION':<10} {'SIZE':<10}")
+        click.echo("=" * 110)
 
         for vm in vms:
+            session_display = vm.session_name if vm.session_name else "-"
             status = vm.get_status_display()
             ip = vm.public_ip or "N/A"
             size = vm.vm_size or "N/A"
-            click.echo(f"{vm.name:<35} {status:<15} {ip:<15} {vm.location:<15} {size:<10}")
+            click.echo(f"{session_display:<25} {vm.name:<35} {status:<15} {ip:<15} {vm.location:<10} {size:<10}")
 
-        click.echo("=" * 90)
+        click.echo("=" * 110)
         click.echo(f"\nTotal: {len(vms)} VMs")
+
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command(name='session')
+@click.argument('vm_name', type=str)
+@click.argument('session_name', type=str, required=False)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--clear', is_flag=True, help='Clear session name')
+def session_command(
+    vm_name: str,
+    session_name: Optional[str],
+    resource_group: Optional[str],
+    config: Optional[str],
+    clear: bool
+):
+    """Set or view session name for a VM.
+
+    Session names are labels that help you identify what you're working on.
+    They appear in the 'azlin list' output alongside the VM name.
+
+    \b
+    Examples:
+        # Set session name
+        azlin session azlin-vm-12345 my-project
+
+        # View current session name
+        azlin session azlin-vm-12345
+
+        # Clear session name
+        azlin session azlin-vm-12345 --clear
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+        
+        if not rg:
+            click.echo("Error: No resource group specified and no default configured.", err=True)
+            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+            sys.exit(1)
+
+        # Verify VM exists
+        vm = VMManager.get_vm(vm_name, rg)
+        
+        if not vm:
+            click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
+            sys.exit(1)
+
+        # Clear session name
+        if clear:
+            if ConfigManager.delete_session_name(vm_name, config):
+                click.echo(f"Cleared session name for VM '{vm_name}'")
+            else:
+                click.echo(f"No session name set for VM '{vm_name}'")
+            return
+
+        # View current session name
+        if not session_name:
+            current_name = ConfigManager.get_session_name(vm_name, config)
+            if current_name:
+                click.echo(f"Session name for '{vm_name}': {current_name}")
+            else:
+                click.echo(f"No session name set for VM '{vm_name}'")
+                click.echo(f"\nSet one with: azlin session {vm_name} <session_name>")
+            return
+
+        # Set session name
+        ConfigManager.set_session_name(vm_name, session_name, config)
+        click.echo(f"Set session name for '{vm_name}' to '{session_name}'")
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
