@@ -22,21 +22,18 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import click
 
 from azlin import __version__
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
+from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
-from azlin.key_rotator import KeyRotationError, SSHKeyRotator
-
-
 from azlin.env_manager import EnvManager, EnvManagerError
-from azlin.tag_manager import TagManager, TagManagerError
+from azlin.key_rotator import KeyRotationError, SSHKeyRotator
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -58,6 +55,8 @@ from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnec
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.remote_exec import PSCommandExecutor, RemoteExecError, RemoteExecutor, WCommandExecutor
 from azlin.snapshot_manager import SnapshotManager, SnapshotManagerError
+from azlin.tag_manager import TagManager
+from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
 from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
@@ -67,15 +66,6 @@ from azlin.vm_provisioning import (
     VMDetails,
     VMProvisioner,
 )
-from azlin.batch_executor import (
-    BatchExecutor,
-    BatchSelector,
-    BatchResult,
-    BatchExecutorError
-)
-
-
-from azlin.template_manager import TemplateManager, VMTemplateConfig, TemplateError
 
 logger = logging.getLogger(__name__)
 
@@ -837,6 +827,7 @@ def main(ctx):
     VM LIFECYCLE COMMANDS:
         new           Provision a new VM (aliases: vm, create)
         list          List VMs in resource group
+        session       Set or view session name for a VM
         status        Show detailed status of VMs
         start         Start a stopped VM
         stop          Stop/deallocate a VM to save costs
@@ -887,11 +878,18 @@ def main(ctx):
 
         # Provision a new VM
         $ azlin new
+        
+        # Provision with custom session name
+        $ azlin new --name my-project
 
         # List VMs and show status
         $ azlin list
         $ azlin list --tag env=dev
         $ azlin status
+        
+        # Manage session names
+        $ azlin session azlin-vm-12345 my-project
+        $ azlin session azlin-vm-12345 --clear
 
         # Environment variables
         $ azlin env set my-vm DATABASE_URL="postgres://localhost/db"
@@ -978,8 +976,8 @@ def new_command(
     name: str | None,
     pool: int | None,
     no_auto_connect: bool,
-    config: Optional[str],
-    template: Optional[str]
+    config: str | None,
+    template: str | None
 ):
     """Provision a new Azure VM with development tools.
 
@@ -1083,6 +1081,9 @@ def new_command(
                 default_resource_group=final_rg,
                 last_vm_name=vm_name
             )
+            # Save session name if provided
+            if name:
+                ConfigManager.set_session_name(vm_name, name, config)
         except ConfigError as e:
             logger.debug(f"Failed to update config: {e}")
 
@@ -1219,7 +1220,7 @@ def create_command(ctx, **kwargs):
 @click.option('--config', help='Config file path', type=click.Path())
 @click.option('--all', 'show_all', help='Show all VMs (including stopped)', is_flag=True)
 @click.option('--tag', help='Filter VMs by tag (format: key or key=value)', type=str)
-def list_command(resource_group: Optional[str], config: Optional[str], show_all: bool, tag: Optional[str]):
+def list_command(resource_group: str | None, config: str | None, show_all: bool, tag: str | None):
     """List VMs in resource group.
 
     Shows VM name, status, IP address, region, and size.
@@ -1248,7 +1249,7 @@ def list_command(resource_group: Optional[str], config: Optional[str], show_all:
 
         # Filter to azlin VMs
         vms = VMManager.filter_by_prefix(vms, "azlin")
-        
+
         # Filter by tag if specified
         if tag:
             try:
@@ -1256,26 +1257,106 @@ def list_command(resource_group: Optional[str], config: Optional[str], show_all:
             except Exception as e:
                 click.echo(f"Error filtering by tag: {e}", err=True)
                 sys.exit(1)
-        
+
         vms = VMManager.sort_by_created_time(vms)
+
+        # Populate session names from config
+        for vm in vms:
+            vm.session_name = ConfigManager.get_session_name(vm.name, config)
 
         if not vms:
             click.echo("No VMs found.")
             return
 
-        # Display table
-        click.echo("=" * 90)
-        click.echo(f"{'NAME':<35} {'STATUS':<15} {'IP':<15} {'REGION':<15} {'SIZE':<10}")
-        click.echo("=" * 90)
+        # Display table with session names
+        click.echo("=" * 110)
+        click.echo(f"{'SESSION NAME':<25} {'VM NAME':<35} {'STATUS':<15} {'IP':<15} {'REGION':<10} {'SIZE':<10}")
+        click.echo("=" * 110)
 
         for vm in vms:
+            session_display = vm.session_name if vm.session_name else "-"
             status = vm.get_status_display()
             ip = vm.public_ip or "N/A"
             size = vm.vm_size or "N/A"
-            click.echo(f"{vm.name:<35} {status:<15} {ip:<15} {vm.location:<15} {size:<10}")
+            click.echo(f"{session_display:<25} {vm.name:<35} {status:<15} {ip:<15} {vm.location:<10} {size:<10}")
 
-        click.echo("=" * 90)
+        click.echo("=" * 110)
         click.echo(f"\nTotal: {len(vms)} VMs")
+
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command(name='session')
+@click.argument('vm_name', type=str)
+@click.argument('session_name', type=str, required=False)
+@click.option('--resource-group', '--rg', help='Resource group', type=str)
+@click.option('--config', help='Config file path', type=click.Path())
+@click.option('--clear', is_flag=True, help='Clear session name')
+def session_command(
+    vm_name: str,
+    session_name: str | None,
+    resource_group: str | None,
+    config: str | None,
+    clear: bool
+):
+    """Set or view session name for a VM.
+
+    Session names are labels that help you identify what you're working on.
+    They appear in the 'azlin list' output alongside the VM name.
+
+    \b
+    Examples:
+        # Set session name
+        azlin session azlin-vm-12345 my-project
+
+        # View current session name
+        azlin session azlin-vm-12345
+
+        # Clear session name
+        azlin session azlin-vm-12345 --clear
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified and no default configured.", err=True)
+            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+            sys.exit(1)
+
+        # Verify VM exists
+        vm = VMManager.get_vm(vm_name, rg)
+
+        if not vm:
+            click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
+            sys.exit(1)
+
+        # Clear session name
+        if clear:
+            if ConfigManager.delete_session_name(vm_name, config):
+                click.echo(f"Cleared session name for VM '{vm_name}'")
+            else:
+                click.echo(f"No session name set for VM '{vm_name}'")
+            return
+
+        # View current session name
+        if not session_name:
+            current_name = ConfigManager.get_session_name(vm_name, config)
+            if current_name:
+                click.echo(f"Session name for '{vm_name}': {current_name}")
+            else:
+                click.echo(f"No session name set for VM '{vm_name}'")
+                click.echo(f"\nSet one with: azlin session {vm_name} <session_name>")
+            return
+
+        # Set session name
+        ConfigManager.set_session_name(vm_name, session_name, config)
+        click.echo(f"Set session name for '{vm_name}' to '{session_name}'")
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
@@ -1926,14 +2007,14 @@ def connect(
                     err=True,
                 )
                 sys.exit(1)
-            
+
             # Get list of running VMs
             try:
                 vms = VMManager.list_vms(resource_group=rg, include_stopped=False)
             except VMManagerError as e:
                 click.echo(f"Error listing VMs: {e}", err=True)
                 sys.exit(1)
-            
+
             if not vms:
                 click.echo("No running VMs found in resource group.")
                 response = click.prompt(
@@ -1945,8 +2026,8 @@ def connect(
                     # Import here to avoid circular dependency
                     from click import Context
                     ctx = Context(new_command)
-                    ctx.invoke(new_command, 
-                               resource_group=rg, 
+                    ctx.invoke(new_command,
+                               resource_group=rg,
                                config=config,
                                no_tmux=no_tmux,
                                tmux_session=tmux_session)
@@ -1954,7 +2035,7 @@ def connect(
                 else:
                     click.echo("Cancelled.")
                     sys.exit(0)
-            
+
             # Display VM list
             click.echo("\nAvailable VMs:")
             click.echo("─" * 60)
@@ -1962,9 +2043,9 @@ def connect(
                 status_emoji = "🟢" if vm.is_running() else "🔴"
                 click.echo(f"{i:2}. {status_emoji} {vm.name:<30} {vm.location:<15} {vm.vm_size or 'unknown'}")
             click.echo("─" * 60)
-            click.echo(f" 0. Create new VM")
+            click.echo(" 0. Create new VM")
             click.echo()
-            
+
             # Prompt for selection
             while True:
                 try:
@@ -1973,13 +2054,13 @@ def connect(
                         type=int,
                         default=1 if vms else 0
                     )
-                    
+
                     if selection == 0:
                         # Create new VM
                         from click import Context
                         ctx = Context(new_command)
-                        ctx.invoke(new_command, 
-                                   resource_group=rg, 
+                        ctx.invoke(new_command,
+                                   resource_group=rg,
                                    config=config,
                                    no_tmux=no_tmux,
                                    tmux_session=tmux_session)
@@ -2514,11 +2595,11 @@ def batch():
 @click.option('--max-workers', default=10, help='Maximum parallel workers (default: 10)', type=int)
 @click.option('--confirm', is_flag=True, help='Skip confirmation prompt')
 def batch_stop(
-    tag: Optional[str],
-    vm_pattern: Optional[str],
+    tag: str | None,
+    vm_pattern: str | None,
     select_all: bool,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     deallocate: bool,
     max_workers: int,
     confirm: bool
@@ -2644,10 +2725,10 @@ def keys_rotate(
 @click.option('--cloud-init', help='Path to cloud-init script file', type=click.Path(exists=True))
 def template_create(
     name: str,
-    description: Optional[str],
-    vm_size: Optional[str],
-    region: Optional[str],
-    cloud_init: Optional[str]
+    description: str | None,
+    vm_size: str | None,
+    region: str | None,
+    cloud_init: str | None
 ):
     """Create a new VM template.
 
@@ -2727,10 +2808,10 @@ def template_create(
 @click.option('--cloud-init', help='Path to cloud-init script file', type=click.Path(exists=True))
 def template_create(
     name: str,
-    description: Optional[str],
-    vm_size: Optional[str],
-    region: Optional[str],
-    cloud_init: Optional[str]
+    description: str | None,
+    vm_size: str | None,
+    region: str | None,
+    cloud_init: str | None
 ):
     """Create a new VM template.
 
@@ -2776,7 +2857,7 @@ def template_create(
         click.echo(f"  VM Size:     {final_vm_size}")
         click.echo(f"  Region:      {final_region}")
         if cloud_init_content:
-            click.echo(f"  Cloud-init:  Custom script included")
+            click.echo("  Cloud-init:  Custom script included")
 
     except TemplateError as e:
         click.echo(f"Error: {e}", err=True)
@@ -2854,7 +2935,7 @@ def keys_list(
         if not confirm:
             action = "deallocate" if deallocate else "stop"
             click.echo(f"\nThis will {action} {len(selected_vms)} VM(s).")
-            confirm_input = input(f"Continue? [y/N]: ").lower()
+            confirm_input = input("Continue? [y/N]: ").lower()
             if confirm_input not in ['y', 'yes']:
                 click.echo("Cancelled.")
                 return
@@ -2912,11 +2993,11 @@ def keys_list(
 @click.option('--max-workers', default=10, help='Maximum parallel workers (default: 10)', type=int)
 @click.option('--confirm', is_flag=True, help='Skip confirmation prompt')
 def batch_start(
-    tag: Optional[str],
-    vm_pattern: Optional[str],
+    tag: str | None,
+    vm_pattern: str | None,
     select_all: bool,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     max_workers: int,
     confirm: bool
 ):
@@ -2978,7 +3059,7 @@ def batch_start(
         # Confirmation
         if not confirm:
             click.echo(f"\nThis will start {len(stopped_vms)} VM(s).")
-            confirm_input = input(f"Continue? [y/N]: ").lower()
+            confirm_input = input("Continue? [y/N]: ").lower()
             if confirm_input not in ['y', 'yes']:
                 click.echo("Cancelled.")
                 return
@@ -3038,11 +3119,11 @@ def batch_start(
 @click.option('--show-output', is_flag=True, help='Show command output from each VM')
 def command(
     command: str,
-    tag: Optional[str],
-    vm_pattern: Optional[str],
+    tag: str | None,
+    vm_pattern: str | None,
     select_all: bool,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     max_workers: int,
     timeout: int,
     show_output: bool
@@ -3169,11 +3250,11 @@ def command(
 @click.option('--max-workers', default=10, help='Maximum parallel workers (default: 10)', type=int)
 @click.option('--dry-run', is_flag=True, help='Show what would be synced without syncing')
 def batch_sync(
-    tag: Optional[str],
-    vm_pattern: Optional[str],
+    tag: str | None,
+    vm_pattern: str | None,
     select_all: bool,
-    resource_group: Optional[str],
-    config: Optional[str],
+    resource_group: str | None,
+    config: str | None,
     max_workers: int,
     dry_run: bool
 ):
@@ -3404,7 +3485,7 @@ def template_list():
             click.echo(f"{t.name:<25} {t.vm_size:<20} {t.region:<15} {desc:<30}")
 
         click.echo("=" * 90)
-        click.echo(f"\nUse with: azlin new --template <name>")
+        click.echo("\nUse with: azlin new --template <name>")
 
     except TemplateError as e:
         click.echo(f"Error: {e}", err=True)

@@ -38,6 +38,7 @@ class VMInfo:
     provisioning_state: Optional[str] = None
     created_time: Optional[str] = None
     tags: Optional[Dict[str, str]] = None
+    session_name: Optional[str] = None  # Session name from config
 
     def is_running(self) -> bool:
         """Check if VM is running."""
@@ -55,6 +56,10 @@ class VMInfo:
             return "Stopped"
         else:
             return self.power_state.replace("VM ", "")
+    
+    def get_display_name(self) -> str:
+        """Get display name (session name if set, otherwise VM name)."""
+        return self.session_name if self.session_name else self.name
 
 
 class VMManager:
