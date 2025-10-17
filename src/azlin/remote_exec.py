@@ -11,7 +11,6 @@ Security:
 """
 
 import logging
-import shlex
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
