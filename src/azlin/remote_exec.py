@@ -78,9 +78,6 @@ class RemoteExecutor:
         start_time = time.time()
 
         try:
-            # Sanitize command - quote for safe SSH execution
-            safe_command = shlex.quote(command)
-
             # Build SSH command
             ssh_cmd = [
                 "ssh",
@@ -433,10 +430,77 @@ class PSCommandExecutor:
         return any(indicator.lower() in line_lower for indicator in ssh_indicators)
 
 
+class OSUpdateExecutor:
+    """Execute OS update commands on VMs.
+
+    Handles updating Ubuntu packages via apt update and apt upgrade.
+    """
+
+    @classmethod
+    def execute_os_update(cls, ssh_config: SSHConfig, timeout: int = 300) -> RemoteResult:
+        """Execute OS update on a single VM.
+
+        Args:
+            ssh_config: SSH configuration for the VM
+            timeout: Timeout in seconds (default 300 for apt operations)
+
+        Returns:
+            RemoteResult object with update status
+
+        Note:
+            Uses 'sudo apt update && sudo apt upgrade -y' to update packages.
+            The -y flag makes the upgrade non-interactive.
+        """
+        # Command to update and upgrade packages non-interactively
+        command = "sudo apt update && sudo apt upgrade -y"
+
+        logger.info(f"Starting OS update on {ssh_config.host}")
+
+        return RemoteExecutor.execute_command(ssh_config, command, timeout=timeout)
+
+    @classmethod
+    def format_output(cls, result: RemoteResult) -> str:
+        """Format OS update output for display.
+
+        Args:
+            result: RemoteResult from OS update execution
+
+        Returns:
+            Formatted output string
+        """
+        lines = []
+
+        lines.append("=" * 70)
+        lines.append(f"OS Update: {result.vm_name}")
+        lines.append("=" * 70)
+
+        if result.success:
+            lines.append("\nStatus: SUCCESS")
+            lines.append(f"Duration: {result.duration:.1f}s")
+            lines.append("\nOutput:")
+            lines.append(result.stdout)
+
+            # Add summary if we can parse it
+            if "upgraded" in result.stdout.lower():
+                lines.append("\nUpdate completed successfully.")
+        else:
+            lines.append("\nStatus: FAILED")
+            lines.append(f"Exit code: {result.exit_code}")
+            lines.append(f"Duration: {result.duration:.1f}s")
+            lines.append("\nError:")
+            lines.append(result.stderr if result.stderr else result.stdout)
+            lines.append("\nUpdate failed. Please check the error above.")
+
+        lines.append("=" * 70)
+
+        return "\n".join(lines)
+
+
 __all__ = [
     "RemoteExecutor",
     "RemoteResult",
     "RemoteExecError",
     "WCommandExecutor",
     "PSCommandExecutor",
+    "OSUpdateExecutor",
 ]

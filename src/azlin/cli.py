@@ -53,7 +53,13 @@ from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
 from azlin.modules.progress import ProgressDisplay, ProgressStage
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
-from azlin.remote_exec import PSCommandExecutor, RemoteExecError, RemoteExecutor, WCommandExecutor
+from azlin.remote_exec import (
+    OSUpdateExecutor,
+    PSCommandExecutor,
+    RemoteExecError,
+    RemoteExecutor,
+    WCommandExecutor,
+)
 from azlin.snapshot_manager import SnapshotManager, SnapshotManagerError
 from azlin.tag_manager import TagManager
 from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
@@ -1420,6 +1426,63 @@ def w(resource_group: str | None, config: str | None):
         sys.exit(1)
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command(name="os-update")
+@click.argument("vm_identifier", type=str)
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--timeout", help="Timeout in seconds (default 300)", type=int, default=300)
+def os_update(vm_identifier: str, resource_group: str | None, config: str | None, timeout: int):
+    """Update OS packages on a VM.
+
+    Runs 'apt update && apt upgrade -y' on Ubuntu VMs to update all packages.
+
+    VM_IDENTIFIER can be:
+    - Session name (resolved to VM)
+    - VM name (requires --resource-group or default config)
+    - IP address (direct connection)
+
+    \b
+    Examples:
+        azlin os-update my-session
+        azlin os-update azlin-myvm --rg my-resource-group
+        azlin os-update 20.1.2.3
+        azlin os-update my-vm --timeout 600  # 10 minute timeout
+    """
+    try:
+        # Get SSH config for VM
+        ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
+
+        click.echo(f"Updating OS packages on {vm_identifier}...")
+        click.echo("This may take several minutes...\n")
+
+        # Execute OS update
+        result = OSUpdateExecutor.execute_os_update(ssh_config, timeout=timeout)
+
+        # Format and display output
+        output = OSUpdateExecutor.format_output(result)
+        click.echo(output)
+
+        # Exit with appropriate code
+        if not result.success:
+            sys.exit(1)
+
+    except RemoteExecError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except SSHKeyError as e:
+        click.echo(f"SSH key error: {e}", err=True)
+        sys.exit(1)
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
 
 
