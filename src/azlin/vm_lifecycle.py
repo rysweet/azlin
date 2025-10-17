@@ -19,6 +19,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from azlin.connection_tracker import ConnectionTracker
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,6 +137,12 @@ class VMLifecycleManager:
                 except Exception as e:
                     logger.warning(f"Failed to delete {resource_type} {resource_name}: {e}")
                     # Continue with other resources
+
+            # Clean up connection tracking record
+            try:
+                ConnectionTracker.remove_connection(vm_name)
+            except Exception as e:
+                logger.warning(f"Failed to clean up connection record for {vm_name}: {e}")
 
             return DeletionResult(
                 vm_name=vm_name,

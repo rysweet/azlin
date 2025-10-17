@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from azlin.config_manager import ConfigError, ConfigManager
+from azlin.connection_tracker import ConnectionTracker
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.modules.ssh_reconnect import SSHReconnectHandler
@@ -134,6 +135,14 @@ class VMConnector:
                     tmux_session=tmux_session or conn_info.vm_name if use_tmux else "azlin",
                     auto_tmux=use_tmux,
                 )
+
+                # Record successful connection
+                if exit_code == 0:
+                    try:
+                        ConnectionTracker.record_connection(conn_info.vm_name)
+                    except Exception as e:
+                        logger.warning(f"Failed to record connection for {conn_info.vm_name}: {e}")
+
                 return exit_code == 0
             except Exception as e:
                 raise VMConnectorError(f"SSH connection failed: {e}")
@@ -151,7 +160,16 @@ class VMConnector:
             # Launch terminal
             try:
                 logger.info(f"Connecting to {conn_info.vm_name} ({conn_info.ip_address})...")
-                return TerminalLauncher.launch(terminal_config)
+                success = TerminalLauncher.launch(terminal_config)
+
+                # Record successful connection
+                if success:
+                    try:
+                        ConnectionTracker.record_connection(conn_info.vm_name)
+                    except Exception as e:
+                        logger.warning(f"Failed to record connection for {conn_info.vm_name}: {e}")
+
+                return success
             except TerminalLauncherError as e:
                 raise VMConnectorError(f"Failed to launch terminal: {e}")
 
