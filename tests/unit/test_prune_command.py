@@ -23,13 +23,10 @@ Test Coverage:
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
-
-from azlin.config_manager import AzlinConfig
 from azlin.vm_manager import VMInfo
-
 
 # ============================================================================
 # VM FILTERING TESTS - AGE AND IDLE THRESHOLDS
@@ -152,7 +149,9 @@ class TestVMFilteringByIdle:
             "active-vm": {"last_connected": (now - timedelta(days=2)).isoformat() + "Z"},
         }
 
-        filtered = PruneManager.filter_by_idle([idle_vm, active_vm], idle_days=14, connection_data=connection_data)
+        filtered = PruneManager.filter_by_idle(
+            [idle_vm, active_vm], idle_days=14, connection_data=connection_data
+        )
 
         assert len(filtered) == 1
         assert filtered[0].name == "idle-vm"
@@ -176,7 +175,9 @@ class TestVMFilteringByIdle:
         # Empty connection data
         connection_data = {}
 
-        filtered = PruneManager.filter_by_idle([never_connected_vm], idle_days=14, connection_data=connection_data)
+        filtered = PruneManager.filter_by_idle(
+            [never_connected_vm], idle_days=14, connection_data=connection_data
+        )
 
         # Never connected VMs should be included (considered maximally idle)
         assert len(filtered) == 1
@@ -230,7 +231,7 @@ class TestVMFilteringByIdle:
             [old_active_vm, recent_idle_vm, prune_candidate_vm],
             age_days=30,
             idle_days=14,
-            connection_data=connection_data
+            connection_data=connection_data,
         )
 
         assert len(filtered) == 1
@@ -314,7 +315,8 @@ class TestRunningVMExclusion:
 class TestNamedSessionExclusion:
     """Test exclusion of named sessions by default."""
 
-    def test_exclude_named_sessions_by_default(self):
+    @patch("azlin.config_manager.ConfigManager.get_session_name")
+    def test_exclude_named_sessions_by_default(self, mock_get_session_name):
         """Test that VMs with session names are excluded by default.
 
         Validates:
@@ -330,7 +332,7 @@ class TestNamedSessionExclusion:
             location="eastus",
             power_state="VM deallocated",
             created_time=(now - timedelta(days=40)).isoformat() + "Z",
-            session_name="my-important-session",
+            session_name=None,  # Will be populated from ConfigManager
         )
         unnamed_vm = VMInfo(
             name="unnamed-vm",
@@ -340,6 +342,14 @@ class TestNamedSessionExclusion:
             created_time=(now - timedelta(days=40)).isoformat() + "Z",
             session_name=None,
         )
+
+        # Mock ConfigManager to return session name for named VM
+        def mock_session_lookup(vm_name):
+            if vm_name == "named-vm":
+                return "my-important-session"
+            return None
+
+        mock_get_session_name.side_effect = mock_session_lookup
 
         filtered = PruneManager.filter_for_pruning(
             [named_vm, unnamed_vm],
@@ -352,7 +362,8 @@ class TestNamedSessionExclusion:
         assert len(filtered) == 1
         assert filtered[0].name == "unnamed-vm"
 
-    def test_include_named_sessions_with_flag(self):
+    @patch("azlin.config_manager.ConfigManager.get_session_name")
+    def test_include_named_sessions_with_flag(self, mock_get_session_name):
         """Test that --include-named flag includes named sessions.
 
         Validates:
@@ -368,8 +379,11 @@ class TestNamedSessionExclusion:
             location="eastus",
             power_state="VM deallocated",
             created_time=(now - timedelta(days=40)).isoformat() + "Z",
-            session_name="old-session",
+            session_name=None,  # Will be populated from ConfigManager
         )
+
+        # Mock ConfigManager to return session name
+        mock_get_session_name.return_value = "old-session"
 
         filtered = PruneManager.filter_for_pruning(
             [named_vm],
@@ -381,6 +395,198 @@ class TestNamedSessionExclusion:
 
         assert len(filtered) == 1
         assert filtered[0].name == "named-vm"
+
+    @patch("azlin.config_manager.ConfigManager.get_session_name")
+    def test_session_names_populated_from_config_manager(self, mock_get_session_name):
+        """Test that session names are populated from ConfigManager before filtering.
+
+        This is the CRITICAL BUG FIX TEST. Previously, session_name was None because
+        it wasn't populated from config, causing the filter to fail and named VMs
+        to be incorrectly deleted.
+
+        Validates:
+        - ConfigManager.get_session_name is called for each VM
+        - session_name is set on VMInfo objects before filtering
+        - VMs with session names are excluded by default
+        - This reproduces the exact bug scenario that deleted active VMs
+        """
+        from azlin.prune import PruneManager
+
+        now = datetime.utcnow()
+
+        # Create VMs WITHOUT session_name set (simulating real Azure data)
+        # This is how VMManager.list_vms() returns them - session_name is None
+        named_vm = VMInfo(
+            name="amplihack",
+            resource_group="test-rg",
+            location="eastus",
+            power_state="VM deallocated",
+            created_time=(now - timedelta(days=40)).isoformat() + "Z",
+            session_name=None,  # Initially None - will be populated from config
+        )
+
+        unnamed_vm = VMInfo(
+            name="unnamed-vm",
+            resource_group="test-rg",
+            location="eastus",
+            power_state="VM deallocated",
+            created_time=(now - timedelta(days=40)).isoformat() + "Z",
+            session_name=None,
+        )
+
+        # Mock ConfigManager to return session name for named VM only
+        def mock_session_lookup(vm_name):
+            if vm_name == "amplihack":
+                return "production-session"
+            return None
+
+        mock_get_session_name.side_effect = mock_session_lookup
+
+        # Filter for pruning
+        filtered = PruneManager.filter_for_pruning(
+            [named_vm, unnamed_vm],
+            age_days=30,
+            idle_days=14,
+            connection_data={},
+            include_named=False,
+        )
+
+        # Verify ConfigManager was called for both VMs
+        assert mock_get_session_name.call_count == 2
+        mock_get_session_name.assert_any_call("amplihack")
+        mock_get_session_name.assert_any_call("unnamed-vm")
+
+        # Verify session_name was populated on the VM object
+        assert named_vm.session_name == "production-session"
+        assert unnamed_vm.session_name is None
+
+        # Verify only unnamed VM is in pruning candidates (CRITICAL: named VM excluded)
+        assert len(filtered) == 1
+        assert filtered[0].name == "unnamed-vm"
+
+    @patch("azlin.config_manager.ConfigManager.get_session_name")
+    def test_session_name_population_happens_before_filtering(self, mock_get_session_name):
+        """Test that session names are populated BEFORE any filtering occurs.
+
+        Validates:
+        - Session name population is the FIRST step
+        - Happens before age, idle, running, or named filters
+        - All VMs get session names populated regardless of other criteria
+        """
+        from azlin.prune import PruneManager
+
+        now = datetime.utcnow()
+
+        # Create VMs with different states
+        vms = [
+            # Old, stopped, will be named
+            VMInfo(
+                name="vm1",
+                resource_group="test-rg",
+                location="eastus",
+                power_state="VM deallocated",
+                created_time=(now - timedelta(days=40)).isoformat() + "Z",
+                session_name=None,
+            ),
+            # Recent (fails age filter), will be named
+            VMInfo(
+                name="vm2",
+                resource_group="test-rg",
+                location="eastus",
+                power_state="VM deallocated",
+                created_time=(now - timedelta(days=5)).isoformat() + "Z",
+                session_name=None,
+            ),
+            # Running (fails running filter), will be named
+            VMInfo(
+                name="vm3",
+                resource_group="test-rg",
+                location="eastus",
+                power_state="VM running",
+                created_time=(now - timedelta(days=40)).isoformat() + "Z",
+                session_name=None,
+            ),
+        ]
+
+        # Mock all VMs to have session names
+        mock_get_session_name.side_effect = lambda vm_name: f"{vm_name}-session"
+
+        # Filter for pruning
+        filtered = PruneManager.filter_for_pruning(
+            vms,
+            age_days=30,
+            idle_days=14,
+            connection_data={},
+            include_named=False,
+        )
+
+        # All VMs should have ConfigManager.get_session_name called
+        # even if they fail other filters
+        assert mock_get_session_name.call_count == 3
+        mock_get_session_name.assert_any_call("vm1")
+        mock_get_session_name.assert_any_call("vm2")
+        mock_get_session_name.assert_any_call("vm3")
+
+        # No VMs should pass (all have session names and include_named=False)
+        assert len(filtered) == 0
+
+
+# ============================================================================
+# SESSION NAME TABLE DISPLAY TESTS
+# ============================================================================
+
+
+class TestSessionNameTableDisplay:
+    """Test session name display in prune table output."""
+
+    def test_table_includes_session_name_column(self):
+        """Test that prune table includes session name column.
+
+        Validates:
+        - Session Name column appears in table header
+        - Named VMs show their session name
+        - Unnamed VMs show "-"
+        """
+        from azlin.prune import PruneManager
+
+        now = datetime.utcnow()
+
+        vms = [
+            VMInfo(
+                name="named-vm",
+                resource_group="test-rg",
+                location="eastus",
+                power_state="VM deallocated",
+                created_time=(now - timedelta(days=40)).isoformat() + "Z",
+                session_name="production",
+            ),
+            VMInfo(
+                name="unnamed-vm",
+                resource_group="test-rg",
+                location="eastus",
+                power_state="VM deallocated",
+                created_time=(now - timedelta(days=40)).isoformat() + "Z",
+                session_name=None,
+            ),
+        ]
+
+        table = PruneManager.format_prune_table(vms, connection_data={})
+
+        # Verify table includes session name column header
+        assert "Session Name" in table
+
+        # Verify named VM shows session name
+        assert "production" in table
+
+        # Verify unnamed VM shows dash
+        lines = table.split("\n")
+        unnamed_line = [line for line in lines if "unnamed-vm" in line][0]
+        # Check that the session name column shows a dash
+        assert "-" in unnamed_line
+
+        # Verify both VM names are in table
+        assert "named-vm" in table
+        assert "unnamed-vm" in table
 
 
 # ============================================================================
@@ -498,7 +704,9 @@ class TestForceMode:
         )
 
         mock_list_vms.return_value = [test_vm]
-        mock_delete.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+        mock_delete.return_value = DeletionResult(
+            vm_name="test-vm", success=True, message="Deleted"
+        )
 
         result = PruneManager.prune(
             resource_group="test-rg",
@@ -593,9 +801,7 @@ class TestConfigCleanup:
     @patch("azlin.prune.VMManager.list_vms")
     @patch("azlin.prune.VMLifecycleManager.delete_vm")
     @patch("azlin.prune.ConfigManager.delete_session_name")
-    def test_config_cleaned_after_deletion(
-        self, mock_delete_session, mock_delete, mock_list_vms
-    ):
+    def test_config_cleaned_after_deletion(self, mock_delete_session, mock_delete, mock_list_vms):
         """Test that config is updated to remove deleted VM entries.
 
         Validates:
@@ -616,7 +822,9 @@ class TestConfigCleanup:
         )
 
         mock_list_vms.return_value = [test_vm]
-        mock_delete.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+        mock_delete.return_value = DeletionResult(
+            vm_name="test-vm", success=True, message="Deleted"
+        )
 
         PruneManager.prune(
             resource_group="test-rg",
@@ -664,7 +872,9 @@ class TestConfigCleanup:
         )
 
         mock_list_vms.return_value = [vm1, vm2]
-        mock_delete_vm.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+        mock_delete_vm.return_value = DeletionResult(
+            vm_name="test-vm", success=True, message="Deleted"
+        )
 
         PruneManager.prune(
             resource_group="test-rg",
@@ -722,7 +932,7 @@ class TestPartialDeletionFailures:
         # First deletion fails, second succeeds
         mock_delete.side_effect = [
             Exception("Azure error"),
-            DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+            DeletionResult(vm_name="test-vm", success=True, message="Deleted"),
         ]
 
         result = PruneManager.prune(
@@ -994,7 +1204,6 @@ class TestPruneCLIArguments:
         - Custom values are accepted
         """
         from azlin.cli import main
-
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -1019,7 +1228,6 @@ class TestPruneCLIArguments:
         - --include-named flag
         """
         from azlin.cli import main
-
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -1028,8 +1236,7 @@ class TestPruneCLIArguments:
             mock_get_candidates.return_value = ([], {})
 
             result = runner.invoke(
-                main,
-                ["prune", "--dry-run", "--include-running", "--include-named"]
+                main, ["prune", "--dry-run", "--include-running", "--include-named"]
             )
 
             # Should call get_candidates with flags
@@ -1082,7 +1289,9 @@ class TestPruneIntegration:
         )
 
         mock_list_vms.return_value = [old_stopped_vm, recent_vm]
-        mock_delete.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+        mock_delete.return_value = DeletionResult(
+            vm_name="test-vm", success=True, message="Deleted"
+        )
 
         # Execute full workflow
         result = PruneManager.prune(
@@ -1102,8 +1311,9 @@ class TestPruneIntegration:
         assert result["failed"] == 0
         assert len(result["candidates"]) == 1
 
+    @patch("azlin.config_manager.ConfigManager.get_session_name")
     @patch("azlin.prune.VMManager.list_vms")
-    def test_prune_respects_all_filters(self, mock_list_vms):
+    def test_prune_respects_all_filters(self, mock_list_vms, mock_get_session_name):
         """Test that all filters work together correctly.
 
         Validates:
@@ -1143,7 +1353,7 @@ class TestPruneIntegration:
                 location="eastus",
                 power_state="VM deallocated",
                 created_time=(now - timedelta(days=40)).isoformat() + "Z",
-                session_name="important",
+                session_name=None,  # Will be populated from ConfigManager
             ),
             # Should be kept: recent
             VMInfo(
@@ -1156,6 +1366,13 @@ class TestPruneIntegration:
             ),
         ]
 
+        # Mock ConfigManager to return session name only for old-named
+        def mock_session_lookup(vm_name):
+            if vm_name == "old-named":
+                return "important"
+            return None
+
+        mock_get_session_name.side_effect = mock_session_lookup
         mock_list_vms.return_value = vms
 
         result = PruneManager.prune(

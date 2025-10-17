@@ -16,7 +16,7 @@ from typing import Optional
 from azlin.config_manager import ConfigManager
 from azlin.connection_tracker import ConnectionTracker
 from azlin.vm_lifecycle import VMLifecycleManager
-from azlin.vm_manager import VMInfo, VMManager, VMManagerError
+from azlin.vm_manager import VMInfo, VMManager
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +94,11 @@ class PruneManager:
             ...     vms, age_days=30, idle_days=14, connection_data
             ... )
         """
+        # CRITICAL: Populate session names before filtering
+        # Session names are stored in config, not in VM metadata
+        for vm in vms:
+            vm.session_name = ConfigManager.get_session_name(vm.name)
+
         # Apply age filter
         candidates = cls.filter_by_age(vms, age_days)
 
@@ -118,8 +123,8 @@ class PruneManager:
 
         # Build table
         rows = []
-        header = f"{'VM Name':<35} {'Age (days)':<15} {'Idle (days)':<15} {'Status':<15} {'Location':<15} {'Size':<15}"
-        separator = "=" * 110
+        header = f"{'Session Name':<20} {'VM Name':<35} {'Age (days)':<12} {'Idle (days)':<12} {'Status':<15} {'Location':<12} {'Size':<12}"
+        separator = "=" * 130
 
         rows.append(separator)
         rows.append(header)
@@ -135,12 +140,13 @@ class PruneManager:
             idle_str = f"{idle}d" if idle is not None else "Never"
 
             # Format row
+            session_display = vm.session_name if vm.session_name else "-"
             display_name = vm.get_display_name()
             status = vm.get_status_display()
             location = vm.location or "Unknown"
             size = vm.vm_size or "Unknown"
 
-            row = f"{display_name:<35} {age_str:<15} {idle_str:<15} {status:<15} {location:<15} {size:<15}"
+            row = f"{session_display:<20} {display_name:<35} {age_str:<12} {idle_str:<12} {status:<15} {location:<12} {size:<12}"
             rows.append(row)
 
         rows.append(separator)

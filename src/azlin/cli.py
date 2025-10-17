@@ -1819,8 +1819,12 @@ def killall(resource_group: str | None, config: str | None, force: bool, prefix:
 @main.command()
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
-@click.option("--age-days", default=1, type=click.IntRange(min=1), help="Age threshold in days (default: 1)")
-@click.option("--idle-days", default=1, type=click.IntRange(min=1), help="Idle threshold in days (default: 1)")
+@click.option(
+    "--age-days", default=1, type=click.IntRange(min=1), help="Age threshold in days (default: 1)"
+)
+@click.option(
+    "--idle-days", default=1, type=click.IntRange(min=1), help="Idle threshold in days (default: 1)"
+)
 @click.option("--dry-run", is_flag=True, help="Preview without deleting")
 @click.option("--force", is_flag=True, help="Skip confirmation prompt")
 @click.option("--include-running", is_flag=True, help="Include running VMs")
@@ -1890,7 +1894,9 @@ def prune(
             click.echo(f"This will delete {len(candidates)} VM(s) and their associated resources.")
             click.echo("This action cannot be undone.\n")
 
-            if not click.confirm(f"Are you sure you want to delete {len(candidates)} VM(s)?", default=False):
+            if not click.confirm(
+                f"Are you sure you want to delete {len(candidates)} VM(s)?", default=False
+            ):
                 click.echo("Cancelled.")
                 return
 
