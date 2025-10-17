@@ -536,6 +536,9 @@ runcmd:
     NPM_PACKAGES="${HOME}/.npm-packages"
     PATH="$NPM_PACKAGES/bin:$PATH"
     MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
+
+    # azlin alias for convenient VM management
+    alias azlin="uvx --from git+https://github.com/rysweet/azlin azlin"
     EOF
   - chown azureuser:azureuser /home/azureuser/.npmrc /home/azureuser/.npm-packages
 
