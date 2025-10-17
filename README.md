@@ -36,7 +36,7 @@ Every azlin VM comes pre-configured with:
 3. **GitHub CLI (gh)** - GitHub integration
 4. **Git** - Version control
 5. **Node.js** - JavaScript runtime with user-local npm configuration
-6. **Python 3** - Python runtime + pip
+6. **Python 3.12+** - Python runtime + pip (latest stable version from deadsnakes PPA)
 7. **Rust** - Systems programming language
 8. **Golang** - Go programming language
 9. **.NET 10 RC** - .NET development framework
@@ -200,6 +200,7 @@ This section provides detailed examples of all azlin commands with practical use
 ## Command Categories
 
 - [VM Lifecycle](#vm-lifecycle) - Create, manage, and delete VMs
+- [VM Maintenance](#vm-maintenance) - Update tools and packages
 - [Connection](#connection) - Connect to VMs
 - [Monitoring](#monitoring) - Monitor VM status and processes
 - [File Operations](#file-operations) - Transfer and sync files
@@ -419,6 +420,72 @@ azlin killall --force
 ```
 
 ⚠️ **Warning**: This deletes ALL VMs in the resource group!
+
+---
+
+## VM Maintenance
+
+### `azlin update` - Update development tools on a VM
+
+Update all programming tools and AI CLI tools that were installed during VM provisioning.
+
+```bash
+# Update tools on a VM by session name
+azlin update my-project
+
+# Update tools on a VM by name
+azlin update azlin-vm-12345 --resource-group my-rg
+
+# Update with longer timeout (default 300s)
+azlin update my-vm --timeout 600
+```
+
+**What gets updated**:
+- Node.js packages (npm, AI CLI tools)
+- Python packages (pip, uv, astral-uv)
+- Rust toolchain (rustup)
+- Go toolchain
+- Docker
+- GitHub CLI
+- Azure CLI
+
+**Use cases**:
+- Keep development environments up-to-date
+- Apply security patches to dev tools
+- Get latest AI CLI features
+- Synchronize tool versions across VMs
+
+**Performance**: Updates typically complete in 2-5 minutes depending on available updates.
+
+### `azlin os-update` - Update Ubuntu packages
+
+Run system package updates on Ubuntu VMs (apt update && apt upgrade).
+
+```bash
+# Update OS packages by session name
+azlin os-update my-project
+
+# Update by VM name
+azlin os-update azlin-vm-12345 --resource-group my-rg
+
+# Update with longer timeout (default 300s)
+azlin os-update my-vm --timeout 600
+```
+
+**What happens**:
+1. Runs `sudo apt update` to refresh package lists
+2. Runs `sudo apt upgrade -y` to install available updates
+3. Non-interactive mode (auto-accepts prompts)
+
+**Use cases**:
+- Apply Ubuntu security patches
+- Keep system packages current
+- Maintenance before important deployments
+- Regular maintenance schedule
+
+**Best practice**: Run monthly or before major deployments to keep VMs secure and stable.
+
+**Performance**: Update time varies (30 seconds to 10 minutes) depending on number of packages.
 
 ---
 
@@ -810,6 +877,8 @@ azlin ps  # Check for resource-heavy processes
 | `azlin stop` | Stop VM (save $) | `azlin stop my-vm` |
 | `azlin kill` | Delete VM | `azlin kill my-vm` |
 | `azlin destroy` | Advanced delete | `azlin destroy --dry-run` |
+| `azlin update` | Update dev tools | `azlin update my-vm` |
+| `azlin os-update` | Update Ubuntu packages | `azlin os-update my-vm` |
 | `azlin status` | Detailed status | `azlin status` |
 | `azlin w` | Who's logged in | `azlin w` |
 | `azlin ps` | Show processes | `azlin ps` |
