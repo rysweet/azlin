@@ -2988,36 +2988,66 @@ def _copy_home_directories(
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def copy_to_vm(clone_vm: VMDetails) -> tuple[str, bool]:
-        """Copy home directory to a single clone."""
-        try:
-            # Build rsync command
-            source_path = f"azureuser@{source_vm.public_ip}:/home/azureuser/"
-            dest_path = f"azureuser@{clone_vm.public_ip}:/home/azureuser/"
+        """Copy home directory to a single clone.
 
-            cmd = [
-                "rsync",
-                "-avz",
-                "--progress",
-                "-e",
-                f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10",
-                source_path,
-                dest_path,
-            ]
+        Uses localhost as staging area to avoid rsync remote-to-remote limitation.
+        Two-stage copy: source -> localhost -> destination.
+        """
+        import shutil
+        import tempfile
+
+        temp_dir = None
+        try:
+            # Create temporary directory for staging
+            temp_dir = Path(tempfile.mkdtemp(prefix="azlin_clone_"))
 
             click.echo(f"  Copying to {clone_vm.name}...")
 
-            result = subprocess.run(
-                cmd,
+            # Stage 1: Copy from source VM to localhost
+            source_path = f"azureuser@{source_vm.public_ip}:/home/azureuser/"
+            rsync_from_source = [
+                "rsync",
+                "-az",  # Archive mode, compress
+                "-e",
+                f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10",
+                source_path,
+                str(temp_dir) + "/",
+            ]
+
+            result1 = subprocess.run(
+                rsync_from_source,
                 capture_output=True,
                 text=True,
-                timeout=600,  # 10 minute timeout
+                timeout=300,  # 5 minute timeout for download
             )
 
-            if result.returncode == 0:
+            if result1.returncode != 0:
+                click.echo(f"  ✗ {clone_vm.name} download failed: {result1.stderr[:100]}", err=True)
+                return (clone_vm.name, False)
+
+            # Stage 2: Copy from localhost to destination VM
+            dest_path = f"azureuser@{clone_vm.public_ip}:/home/azureuser/"
+            rsync_to_dest = [
+                "rsync",
+                "-az",  # Archive mode, compress
+                "-e",
+                f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10",
+                str(temp_dir) + "/",
+                dest_path,
+            ]
+
+            result2 = subprocess.run(
+                rsync_to_dest,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout for upload
+            )
+
+            if result2.returncode == 0:
                 click.echo(f"  ✓ {clone_vm.name} copy complete")
                 return (clone_vm.name, True)
             else:
-                click.echo(f"  ✗ {clone_vm.name} copy failed: {result.stderr[:100]}", err=True)
+                click.echo(f"  ✗ {clone_vm.name} upload failed: {result2.stderr[:100]}", err=True)
                 return (clone_vm.name, False)
 
         except subprocess.TimeoutExpired:
@@ -3026,6 +3056,13 @@ def _copy_home_directories(
         except Exception as e:
             click.echo(f"  ✗ {clone_vm.name} copy error: {e}", err=True)
             return (clone_vm.name, False)
+        finally:
+            # Clean up temporary directory
+            if temp_dir and temp_dir.exists():
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception:
+                    pass  # Best effort cleanup
 
     # Execute copies in parallel
     results = {}
