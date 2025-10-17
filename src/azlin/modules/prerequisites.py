@@ -14,9 +14,7 @@ Security Requirements:
 import logging
 import platform
 import shutil
-import subprocess
 from dataclasses import dataclass
-from typing import List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +22,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PrerequisiteResult:
     """Result of prerequisite checks."""
+
     all_available: bool
-    missing: List[str]
-    available: List[str]
+    missing: list[str]
+    available: list[str]
     platform_name: str
 
 
 class PrerequisiteError(Exception):
     """Raised when prerequisites are missing."""
+
     pass
 
 
@@ -108,7 +108,7 @@ class PrerequisiteChecker:
             all_available=(len(missing) == 0),
             missing=missing,
             available=available,
-            platform_name=platform_name
+            platform_name=platform_name,
         )
 
         if result.all_available:
@@ -151,14 +151,14 @@ class PrerequisiteChecker:
             bool: True if WSL detected
         """
         try:
-            with open("/proc/version", "r") as f:
+            with open("/proc/version") as f:
                 version = f.read().lower()
                 return "microsoft" in version or "wsl" in version
         except (FileNotFoundError, PermissionError):
             return False
 
     @classmethod
-    def format_missing_message(cls, missing: List[str], platform_name: str) -> str:
+    def format_missing_message(cls, missing: list[str], platform_name: str) -> str:
         """
         Format user-friendly installation instructions for missing tools.
 
@@ -178,10 +178,7 @@ class PrerequisiteChecker:
         if not missing:
             return "All prerequisites are installed."
 
-        lines = [
-            "Missing required tools:",
-            ""
-        ]
+        lines = ["Missing required tools:", ""]
 
         for tool in missing:
             lines.append(f"  - {tool}")
@@ -207,151 +204,116 @@ class PrerequisiteChecker:
         return "\n".join(lines)
 
     @classmethod
-    def _format_macos_instructions(cls, missing: List[str]) -> List[str]:
+    def _format_macos_instructions(cls, missing: list[str]) -> list[str]:
         """Format installation instructions for macOS."""
         instructions = []
 
         if "az" in missing:
-            instructions.extend([
-                "Install Azure CLI:",
-                "  brew install azure-cli",
-                ""
-            ])
+            instructions.extend(["Install Azure CLI:", "  brew install azure-cli", ""])
 
         if "gh" in missing:
-            instructions.extend([
-                "Install GitHub CLI:",
-                "  brew install gh",
-                ""
-            ])
+            instructions.extend(["Install GitHub CLI:", "  brew install gh", ""])
 
         if "git" in missing:
-            instructions.extend([
-                "Install Git:",
-                "  brew install git",
-                ""
-            ])
+            instructions.extend(["Install Git:", "  brew install git", ""])
 
         if "ssh" in missing:
-            instructions.extend([
-                "Install OpenSSH:",
-                "  brew install openssh",
-                ""
-            ])
+            instructions.extend(["Install OpenSSH:", "  brew install openssh", ""])
 
         if "tmux" in missing:
-            instructions.extend([
-                "Install tmux (optional):",
-                "  brew install tmux",
-                ""
-            ])
+            instructions.extend(["Install tmux (optional):", "  brew install tmux", ""])
 
         instructions.append("After installing, run 'azlin' again.")
         return instructions
 
     @classmethod
-    def _format_linux_instructions(cls, missing: List[str]) -> List[str]:
+    def _format_linux_instructions(cls, missing: list[str]) -> list[str]:
         """Format installation instructions for Linux."""
         instructions = []
 
         if "az" in missing:
-            instructions.extend([
-                "Install Azure CLI:",
-                "  curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash",
-                ""
-            ])
+            instructions.extend(
+                [
+                    "Install Azure CLI:",
+                    "  curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash",
+                    "",
+                ]
+            )
 
         if "gh" in missing:
-            instructions.extend([
-                "Install GitHub CLI:",
-                "  See: https://github.com/cli/cli/blob/trunk/docs/install_linux.md",
-                ""
-            ])
+            instructions.extend(
+                [
+                    "Install GitHub CLI:",
+                    "  See: https://github.com/cli/cli/blob/trunk/docs/install_linux.md",
+                    "",
+                ]
+            )
 
         if "git" in missing:
-            instructions.extend([
-                "Install Git:",
-                "  sudo apt-get update && sudo apt-get install git",
-                ""
-            ])
+            instructions.extend(
+                ["Install Git:", "  sudo apt-get update && sudo apt-get install git", ""]
+            )
 
         if "ssh" in missing:
-            instructions.extend([
-                "Install OpenSSH:",
-                "  sudo apt-get install openssh-client",
-                ""
-            ])
+            instructions.extend(["Install OpenSSH:", "  sudo apt-get install openssh-client", ""])
 
         if "tmux" in missing:
-            instructions.extend([
-                "Install tmux (optional):",
-                "  sudo apt-get install tmux",
-                ""
-            ])
+            instructions.extend(["Install tmux (optional):", "  sudo apt-get install tmux", ""])
 
         instructions.append("After installing, run 'azlin' again.")
         return instructions
 
     @classmethod
-    def _format_wsl_instructions(cls, missing: List[str]) -> List[str]:
+    def _format_wsl_instructions(cls, missing: list[str]) -> list[str]:
         """Format installation instructions for WSL."""
         # WSL uses same package manager as Linux
         return cls._format_linux_instructions(missing)
 
     @classmethod
-    def _format_windows_instructions(cls, missing: List[str]) -> List[str]:
+    def _format_windows_instructions(cls, missing: list[str]) -> list[str]:
         """Format installation instructions for Windows."""
         instructions = []
 
         if "az" in missing:
-            instructions.extend([
-                "Install Azure CLI:",
-                "  Download from: https://aka.ms/installazurecliwindows",
-                ""
-            ])
+            instructions.extend(
+                ["Install Azure CLI:", "  Download from: https://aka.ms/installazurecliwindows", ""]
+            )
 
         if "gh" in missing:
-            instructions.extend([
-                "Install GitHub CLI:",
-                "  winget install GitHub.cli",
-                ""
-            ])
+            instructions.extend(["Install GitHub CLI:", "  winget install GitHub.cli", ""])
 
         if "git" in missing:
-            instructions.extend([
-                "Install Git:",
-                "  Download from: https://git-scm.com/download/win",
-                ""
-            ])
+            instructions.extend(
+                ["Install Git:", "  Download from: https://git-scm.com/download/win", ""]
+            )
 
         if "ssh" in missing:
-            instructions.extend([
-                "Install OpenSSH:",
-                "  Already included in Windows 10+. Check: ssh -V",
-                ""
-            ])
+            instructions.extend(
+                ["Install OpenSSH:", "  Already included in Windows 10+. Check: ssh -V", ""]
+            )
 
         if "tmux" in missing:
-            instructions.extend([
-                "Note: tmux is not natively available on Windows.",
-                "  Consider using WSL for full Linux compatibility.",
-                ""
-            ])
+            instructions.extend(
+                [
+                    "Note: tmux is not natively available on Windows.",
+                    "  Consider using WSL for full Linux compatibility.",
+                    "",
+                ]
+            )
 
         instructions.append("After installing, run 'azlin' again.")
         return instructions
 
     @classmethod
-    def _format_generic_instructions(cls, missing: List[str]) -> List[str]:
+    def _format_generic_instructions(cls, missing: list[str]) -> list[str]:
         """Format generic installation instructions for unknown platforms."""
-        instructions = [
-            "Please install the following tools:",
-            ""
-        ]
+        instructions = ["Please install the following tools:", ""]
 
         for tool in missing:
             if tool == "az":
-                instructions.append("  - Azure CLI: https://docs.microsoft.com/cli/azure/install-azure-cli")
+                instructions.append(
+                    "  - Azure CLI: https://docs.microsoft.com/cli/azure/install-azure-cli"
+                )
             elif tool == "gh":
                 instructions.append("  - GitHub CLI: https://cli.github.com/")
             elif tool == "git":

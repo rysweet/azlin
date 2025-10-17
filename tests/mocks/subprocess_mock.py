@@ -5,13 +5,15 @@ This module provides utilities for mocking subprocess calls
 to simulate command execution without actually running commands.
 """
 
-from typing import List, Dict, Any, Optional, Callable
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import Mock
+
 from ..fixtures.ssh_configs import (
-    SSH_KEYGEN_OUTPUT,
+    SSH_CONNECTION_REFUSED_OUTPUT,
     SSH_CONNECTION_SUCCESS_OUTPUT,
     SSH_CONNECTION_TIMEOUT_OUTPUT,
-    SSH_CONNECTION_REFUSED_OUTPUT
+    SSH_KEYGEN_OUTPUT,
 )
 
 
@@ -23,11 +25,11 @@ class SubprocessCallCapture:
     """
 
     def __init__(self):
-        self.calls: List[Dict[str, Any]] = []
-        self._responses: Dict[str, Mock] = {}
-        self._default_response = Mock(returncode=0, stdout='', stderr='')
+        self.calls: list[dict[str, Any]] = []
+        self._responses: dict[str, Mock] = {}
+        self._default_response = Mock(returncode=0, stdout="", stderr="")
 
-    def capture(self, cmd: List[str], **kwargs) -> Mock:
+    def capture(self, cmd: list[str], **kwargs) -> Mock:
         """Capture a subprocess call.
 
         Args:
@@ -37,20 +39,19 @@ class SubprocessCallCapture:
         Returns:
             Mock result object
         """
-        self.calls.append({
-            'cmd': cmd,
-            'kwargs': kwargs
-        })
+        self.calls.append({"cmd": cmd, "kwargs": kwargs})
 
         # Return configured response if available
-        cmd_str = ' '.join(cmd) if isinstance(cmd, list) else cmd
+        cmd_str = " ".join(cmd) if isinstance(cmd, list) else cmd
         for pattern, response in self._responses.items():
             if pattern in cmd_str:
                 return response
 
         return self._default_response
 
-    def configure_response(self, command_pattern: str, returncode: int = 0, stdout: str = '', stderr: str = ''):
+    def configure_response(
+        self, command_pattern: str, returncode: int = 0, stdout: str = "", stderr: str = ""
+    ):
         """Configure response for commands matching pattern.
 
         Args:
@@ -59,11 +60,7 @@ class SubprocessCallCapture:
             stdout: Stdout to return
             stderr: Stderr to return
         """
-        self._responses[command_pattern] = Mock(
-            returncode=returncode,
-            stdout=stdout,
-            stderr=stderr
-        )
+        self._responses[command_pattern] = Mock(returncode=returncode, stdout=stdout, stderr=stderr)
 
     def assert_called_with_command(self, command: str):
         """Assert that a command was called.
@@ -75,7 +72,7 @@ class SubprocessCallCapture:
             AssertionError: If command not found
         """
         for call in self.calls:
-            cmd_str = ' '.join(call['cmd']) if isinstance(call['cmd'], list) else call['cmd']
+            cmd_str = " ".join(call["cmd"]) if isinstance(call["cmd"], list) else call["cmd"]
             if command in cmd_str:
                 return
         raise AssertionError(
@@ -92,7 +89,7 @@ class SubprocessCallCapture:
             AssertionError: If command found
         """
         for call in self.calls:
-            cmd_str = ' '.join(call['cmd']) if isinstance(call['cmd'], list) else call['cmd']
+            cmd_str = " ".join(call["cmd"]) if isinstance(call["cmd"], list) else call["cmd"]
             if command in cmd_str:
                 raise AssertionError(f"Unexpected command '{command}' was called")
 
@@ -109,7 +106,7 @@ class SubprocessCallCapture:
         if actual != expected:
             raise AssertionError(f"Expected {expected} subprocess calls, got {actual}")
 
-    def get_calls_matching(self, pattern: str) -> List[Dict[str, Any]]:
+    def get_calls_matching(self, pattern: str) -> list[dict[str, Any]]:
         """Get all calls matching a pattern.
 
         Args:
@@ -120,7 +117,7 @@ class SubprocessCallCapture:
         """
         matching = []
         for call in self.calls:
-            cmd_str = ' '.join(call['cmd']) if isinstance(call['cmd'], list) else call['cmd']
+            cmd_str = " ".join(call["cmd"]) if isinstance(call["cmd"], list) else call["cmd"]
             if pattern in cmd_str:
                 matching.append(call)
         return matching
@@ -138,7 +135,7 @@ class CommandRouter:
     """
 
     def __init__(self):
-        self._routes: Dict[str, Callable] = {}
+        self._routes: dict[str, Callable] = {}
         self._default_handler = self._default_success
 
     def register(self, command_pattern: str, handler: Callable):
@@ -150,7 +147,7 @@ class CommandRouter:
         """
         self._routes[command_pattern] = handler
 
-    def route(self, cmd: List[str], **kwargs) -> Mock:
+    def route(self, cmd: list[str], **kwargs) -> Mock:
         """Route a command to appropriate handler.
 
         Args:
@@ -160,7 +157,7 @@ class CommandRouter:
         Returns:
             Mock result object
         """
-        cmd_str = ' '.join(cmd) if isinstance(cmd, list) else cmd
+        cmd_str = " ".join(cmd) if isinstance(cmd, list) else cmd
 
         # Check registered routes
         for pattern, handler in self._routes.items():
@@ -175,16 +172,17 @@ class CommandRouter:
         self._default_handler = handler
 
     @staticmethod
-    def _default_success(cmd: List[str], **kwargs) -> Mock:
+    def _default_success(cmd: list[str], **kwargs) -> Mock:
         """Default handler that returns success."""
-        return Mock(returncode=0, stdout='', stderr='')
+        return Mock(returncode=0, stdout="", stderr="")
 
 
 # ============================================================================
 # PRE-CONFIGURED COMMAND HANDLERS
 # ============================================================================
 
-def ssh_keygen_handler(cmd: List[str], **kwargs) -> Mock:
+
+def ssh_keygen_handler(cmd: list[str], **kwargs) -> Mock:
     """Handle ssh-keygen commands.
 
     Args:
@@ -194,24 +192,20 @@ def ssh_keygen_handler(cmd: List[str], **kwargs) -> Mock:
     Returns:
         Mock result simulating ssh-keygen output
     """
-    if 'ssh-keygen' not in ' '.join(cmd):
-        return Mock(returncode=1, stderr='command not found')
+    if "ssh-keygen" not in " ".join(cmd):
+        return Mock(returncode=1, stderr="command not found")
 
     # Extract key path from -f argument
     key_path = None
     for i, arg in enumerate(cmd):
-        if arg == '-f' and i + 1 < len(cmd):
+        if arg == "-f" and i + 1 < len(cmd):
             key_path = cmd[i + 1]
             break
 
-    return Mock(
-        returncode=0,
-        stdout=SSH_KEYGEN_OUTPUT,
-        stderr=''
-    )
+    return Mock(returncode=0, stdout=SSH_KEYGEN_OUTPUT, stderr="")
 
 
-def ssh_connection_handler(cmd: List[str], success: bool = True, timeout: bool = False) -> Mock:
+def ssh_connection_handler(cmd: list[str], success: bool = True, timeout: bool = False) -> Mock:
     """Handle SSH connection commands.
 
     Args:
@@ -222,31 +216,19 @@ def ssh_connection_handler(cmd: List[str], success: bool = True, timeout: bool =
     Returns:
         Mock result simulating SSH connection
     """
-    if 'ssh' not in ' '.join(cmd):
-        return Mock(returncode=1, stderr='command not found')
+    if "ssh" not in " ".join(cmd):
+        return Mock(returncode=1, stderr="command not found")
 
     if timeout:
-        return Mock(
-            returncode=255,
-            stdout='',
-            stderr=SSH_CONNECTION_TIMEOUT_OUTPUT
-        )
+        return Mock(returncode=255, stdout="", stderr=SSH_CONNECTION_TIMEOUT_OUTPUT)
 
     if success:
-        return Mock(
-            returncode=0,
-            stdout=SSH_CONNECTION_SUCCESS_OUTPUT,
-            stderr=''
-        )
+        return Mock(returncode=0, stdout=SSH_CONNECTION_SUCCESS_OUTPUT, stderr="")
 
-    return Mock(
-        returncode=255,
-        stdout='',
-        stderr=SSH_CONNECTION_REFUSED_OUTPUT
-    )
+    return Mock(returncode=255, stdout="", stderr=SSH_CONNECTION_REFUSED_OUTPUT)
 
 
-def gh_cli_handler(cmd: List[str], authenticated: bool = True) -> Mock:
+def gh_cli_handler(cmd: list[str], authenticated: bool = True) -> Mock:
     """Handle gh CLI commands.
 
     Args:
@@ -256,36 +238,28 @@ def gh_cli_handler(cmd: List[str], authenticated: bool = True) -> Mock:
     Returns:
         Mock result simulating gh CLI
     """
-    cmd_str = ' '.join(cmd)
+    cmd_str = " ".join(cmd)
 
-    if 'gh' not in cmd_str:
-        return Mock(returncode=1, stderr='command not found')
+    if "gh" not in cmd_str:
+        return Mock(returncode=1, stderr="command not found")
 
-    if 'auth status' in cmd_str:
+    if "auth status" in cmd_str:
         if authenticated:
-            return Mock(
-                returncode=0,
-                stdout='Logged in to github.com as testuser',
-                stderr=''
-            )
-        return Mock(
-            returncode=1,
-            stdout='',
-            stderr='You are not logged into any GitHub hosts'
-        )
+            return Mock(returncode=0, stdout="Logged in to github.com as testuser", stderr="")
+        return Mock(returncode=1, stdout="", stderr="You are not logged into any GitHub hosts")
 
-    if 'auth login' in cmd_str:
-        return Mock(returncode=0, stdout='Logged in as testuser', stderr='')
+    if "auth login" in cmd_str:
+        return Mock(returncode=0, stdout="Logged in as testuser", stderr="")
 
-    if 'repo clone' in cmd_str:
+    if "repo clone" in cmd_str:
         if authenticated:
-            return Mock(returncode=0, stdout='', stderr='')
-        return Mock(returncode=1, stderr='authentication required')
+            return Mock(returncode=0, stdout="", stderr="")
+        return Mock(returncode=1, stderr="authentication required")
 
-    return Mock(returncode=0, stdout='', stderr='')
+    return Mock(returncode=0, stdout="", stderr="")
 
 
-def apt_install_handler(cmd: List[str], **kwargs) -> Mock:
+def apt_install_handler(cmd: list[str], **kwargs) -> Mock:
     """Handle apt install commands.
 
     Args:
@@ -295,28 +269,28 @@ def apt_install_handler(cmd: List[str], **kwargs) -> Mock:
     Returns:
         Mock result simulating apt install
     """
-    cmd_str = ' '.join(cmd)
+    cmd_str = " ".join(cmd)
 
-    if 'apt' not in cmd_str and 'apt-get' not in cmd_str:
-        return Mock(returncode=1, stderr='command not found')
+    if "apt" not in cmd_str and "apt-get" not in cmd_str:
+        return Mock(returncode=1, stderr="command not found")
 
-    if 'install' in cmd_str:
+    if "install" in cmd_str:
         # Extract package names
         packages = []
         for arg in cmd:
-            if not arg.startswith('-') and arg not in ['apt', 'apt-get', 'install', 'sudo']:
+            if not arg.startswith("-") and arg not in ["apt", "apt-get", "install", "sudo"]:
                 packages.append(arg)
 
         output = f"Installing {len(packages)} packages...\nDone."
-        return Mock(returncode=0, stdout=output, stderr='')
+        return Mock(returncode=0, stdout=output, stderr="")
 
-    if 'update' in cmd_str:
-        return Mock(returncode=0, stdout='Updated package lists', stderr='')
+    if "update" in cmd_str:
+        return Mock(returncode=0, stdout="Updated package lists", stderr="")
 
-    return Mock(returncode=0, stdout='', stderr='')
+    return Mock(returncode=0, stdout="", stderr="")
 
 
-def tmux_handler(cmd: List[str], **kwargs) -> Mock:
+def tmux_handler(cmd: list[str], **kwargs) -> Mock:
     """Handle tmux commands.
 
     Args:
@@ -326,30 +300,29 @@ def tmux_handler(cmd: List[str], **kwargs) -> Mock:
     Returns:
         Mock result simulating tmux
     """
-    cmd_str = ' '.join(cmd)
+    cmd_str = " ".join(cmd)
 
-    if 'tmux' not in cmd_str:
-        return Mock(returncode=1, stderr='command not found')
+    if "tmux" not in cmd_str:
+        return Mock(returncode=1, stderr="command not found")
 
-    if 'new-session' in cmd_str:
-        return Mock(returncode=0, stdout='', stderr='')
+    if "new-session" in cmd_str:
+        return Mock(returncode=0, stdout="", stderr="")
 
-    if 'list-sessions' in cmd_str:
+    if "list-sessions" in cmd_str:
         return Mock(
-            returncode=0,
-            stdout='dev: 1 windows (created Thu Oct  9 10:00:00 2024)',
-            stderr=''
+            returncode=0, stdout="dev: 1 windows (created Thu Oct  9 10:00:00 2024)", stderr=""
         )
 
-    if 'attach' in cmd_str:
-        return Mock(returncode=0, stdout='', stderr='')
+    if "attach" in cmd_str:
+        return Mock(returncode=0, stdout="", stderr="")
 
-    return Mock(returncode=0, stdout='', stderr='')
+    return Mock(returncode=0, stdout="", stderr="")
 
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def create_configured_router() -> CommandRouter:
     """Create a CommandRouter with common commands pre-configured.
@@ -359,10 +332,10 @@ def create_configured_router() -> CommandRouter:
     """
     router = CommandRouter()
 
-    router.register('ssh-keygen', ssh_keygen_handler)
-    router.register('ssh ', lambda cmd, **kw: ssh_connection_handler(cmd, success=True))
-    router.register('gh ', lambda cmd, **kw: gh_cli_handler(cmd, authenticated=True))
-    router.register('apt', apt_install_handler)
-    router.register('tmux', tmux_handler)
+    router.register("ssh-keygen", ssh_keygen_handler)
+    router.register("ssh ", lambda cmd, **kw: ssh_connection_handler(cmd, success=True))
+    router.register("gh ", lambda cmd, **kw: gh_cli_handler(cmd, authenticated=True))
+    router.register("apt", apt_install_handler)
+    router.register("tmux", tmux_handler)
 
     return router

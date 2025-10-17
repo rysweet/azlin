@@ -26,12 +26,14 @@ logger = logging.getLogger(__name__)
 
 class NpmConfigError(Exception):
     """Raised when npm configuration fails."""
+
     pass
 
 
 @dataclass
 class NpmConfigResult:
     """Result from npm configuration operation."""
+
     success: bool
     message: str
     npmrc_configured: bool
@@ -60,7 +62,7 @@ class NpmConfigurator:
         npm_packages_dir: str = "${HOME}/.npm-packages",
         npmrc_path: str = "${HOME}/.npmrc",
         bashrc_path: str = "${HOME}/.bashrc",
-        timeout: int = 30
+        timeout: int = 30,
     ):
         """Initialize npm configurator.
 
@@ -112,16 +114,10 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
         command = f"mkdir -p {self.npm_packages_dir}"
 
         try:
-            result = RemoteExecutor.execute_command(
-                self.ssh_config,
-                command,
-                timeout=self.timeout
-            )
+            result = RemoteExecutor.execute_command(self.ssh_config, command, timeout=self.timeout)
 
             if not result.success:
-                raise NpmConfigError(
-                    f"Failed to create npm packages directory: {result.stderr}"
-                )
+                raise NpmConfigError(f"Failed to create npm packages directory: {result.stderr}")
 
             logger.info(f"Created npm packages directory on {self.vm_name}")
             return True
@@ -148,9 +144,7 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
 
         try:
             check_result = RemoteExecutor.execute_command(
-                self.ssh_config,
-                check_command,
-                timeout=self.timeout
+                self.ssh_config, check_command, timeout=self.timeout
             )
 
             if check_result.success:
@@ -161,15 +155,11 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
             append_command = f"echo '{npmrc_content}' >> {self.npmrc_path}"
 
             result = RemoteExecutor.execute_command(
-                self.ssh_config,
-                append_command,
-                timeout=self.timeout
+                self.ssh_config, append_command, timeout=self.timeout
             )
 
             if not result.success:
-                raise NpmConfigError(
-                    f"Failed to configure .npmrc: {result.stderr}"
-                )
+                raise NpmConfigError(f"Failed to configure .npmrc: {result.stderr}")
 
             logger.info(f"Configured .npmrc on {self.vm_name}")
             return True
@@ -194,9 +184,7 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
 
         try:
             check_result = RemoteExecutor.execute_command(
-                self.ssh_config,
-                check_command,
-                timeout=self.timeout
+                self.ssh_config, check_command, timeout=self.timeout
             )
 
             if check_result.success:
@@ -210,15 +198,11 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
             append_command = f"cat >> {self.bashrc_path} << 'EOF'\n{bashrc_content}\nEOF"
 
             result = RemoteExecutor.execute_command(
-                self.ssh_config,
-                append_command,
-                timeout=self.timeout
+                self.ssh_config, append_command, timeout=self.timeout
             )
 
             if not result.success:
-                raise NpmConfigError(
-                    f"Failed to configure .bashrc: {result.stderr}"
-                )
+                raise NpmConfigError(f"Failed to configure .bashrc: {result.stderr}")
 
             logger.info(f"Configured .bashrc on {self.vm_name}")
             return True
@@ -238,25 +222,17 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
         command = f"source {self.bashrc_path}"
 
         try:
-            result = RemoteExecutor.execute_command(
-                self.ssh_config,
-                command,
-                timeout=self.timeout
-            )
+            result = RemoteExecutor.execute_command(self.ssh_config, command, timeout=self.timeout)
 
             if not result.success:
                 # Some shells might not support source, try with .
                 command = f". {self.bashrc_path}"
                 result = RemoteExecutor.execute_command(
-                    self.ssh_config,
-                    command,
-                    timeout=self.timeout
+                    self.ssh_config, command, timeout=self.timeout
                 )
 
                 if not result.success:
-                    logger.warning(
-                        f"Failed to source .bashrc on {self.vm_name}: {result.stderr}"
-                    )
+                    logger.warning(f"Failed to source .bashrc on {self.vm_name}: {result.stderr}")
                     # This is not critical - changes will apply on next login
                     return True
 
@@ -304,7 +280,7 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
                 npmrc_configured=npmrc_configured,
                 directory_created=directory_created,
                 bashrc_updated=bashrc_updated,
-                bashrc_sourced=bashrc_sourced
+                bashrc_sourced=bashrc_sourced,
             )
 
             logger.info(f"npm configuration complete on {self.vm_name}")
@@ -316,7 +292,7 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
 
 
 __all__ = [
-    'NpmConfigurator',
-    'NpmConfigError',
-    'NpmConfigResult',
+    "NpmConfigurator",
+    "NpmConfigError",
+    "NpmConfigResult",
 ]

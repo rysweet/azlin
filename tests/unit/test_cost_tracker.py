@@ -1,16 +1,11 @@
 """Unit tests for cost_tracker module."""
 
-import pytest
 from datetime import datetime, timedelta
 from decimal import Decimal
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-from azlin.cost_tracker import (
-    CostTracker,
-    CostSummary,
-    VMCostEstimate,
-    CostTrackerError
-)
+import pytest
+from azlin.cost_tracker import CostSummary, CostTracker, CostTrackerError, VMCostEstimate
 from azlin.vm_manager import VMInfo, VMManagerError
 
 
@@ -26,7 +21,7 @@ class TestVMCostEstimate:
             hourly_rate=Decimal("0.096"),
             hours_running=Decimal("10"),
             estimated_cost=Decimal("0.96"),
-            region="eastus"
+            region="eastus",
         )
         assert estimate.is_running() is True
 
@@ -39,7 +34,7 @@ class TestVMCostEstimate:
             hourly_rate=Decimal("0.096"),
             hours_running=Decimal("0"),
             estimated_cost=Decimal("0"),
-            region="eastus"
+            region="eastus",
         )
         assert estimate.is_running() is False
 
@@ -57,7 +52,7 @@ class TestCostSummary:
                 hourly_rate=Decimal("0.096"),
                 hours_running=Decimal("10"),
                 estimated_cost=Decimal("0.96"),
-                region="eastus"
+                region="eastus",
             ),
             VMCostEstimate(
                 vm_name="vm-2",
@@ -66,7 +61,7 @@ class TestCostSummary:
                 hourly_rate=Decimal("0.0416"),
                 hours_running=Decimal("5"),
                 estimated_cost=Decimal("0.208"),
-                region="eastus"
+                region="eastus",
             ),
             VMCostEstimate(
                 vm_name="vm-3",
@@ -75,8 +70,8 @@ class TestCostSummary:
                 hourly_rate=Decimal("0.096"),
                 hours_running=Decimal("0"),
                 estimated_cost=Decimal("0"),
-                region="eastus"
-            )
+                region="eastus",
+            ),
         ]
 
         summary = CostSummary(
@@ -84,7 +79,7 @@ class TestCostSummary:
             total_vms=3,
             running_vms=2,
             stopped_vms=1,
-            estimates=estimates
+            estimates=estimates,
         )
 
         # Monthly estimate should only include running VMs
@@ -102,16 +97,12 @@ class TestCostSummary:
                 hourly_rate=Decimal("0.096"),
                 hours_running=Decimal("0"),
                 estimated_cost=Decimal("0"),
-                region="eastus"
+                region="eastus",
             )
         ]
 
         summary = CostSummary(
-            total_cost=Decimal("0"),
-            total_vms=1,
-            running_vms=0,
-            stopped_vms=1,
-            estimates=estimates
+            total_cost=Decimal("0"), total_vms=1, running_vms=0, stopped_vms=1, estimates=estimates
         )
 
         monthly = summary.get_monthly_estimate()
@@ -148,7 +139,7 @@ class TestCostTracker:
             resource_group="test-rg",
             location="eastus",
             power_state="VM running",
-            created_time="2024-10-01T10:00:00Z"
+            created_time="2024-10-01T10:00:00Z",
         )
 
         from_date = datetime(2024, 10, 1, 10, 0, 0)
@@ -168,7 +159,7 @@ class TestCostTracker:
             resource_group="test-rg",
             location="eastus",
             power_state="VM running",
-            created_time=created_time_str
+            created_time=created_time_str,
         )
 
         hours = CostTracker._calculate_hours_running(vm, None, None)
@@ -178,10 +169,7 @@ class TestCostTracker:
     def test_calculate_hours_running_no_creation_time(self):
         """Test hours calculation when creation time is unavailable."""
         vm = VMInfo(
-            name="test-vm",
-            resource_group="test-rg",
-            location="eastus",
-            power_state="VM running"
+            name="test-vm", resource_group="test-rg", location="eastus", power_state="VM running"
         )
 
         hours = CostTracker._calculate_hours_running(vm, None, None)
@@ -196,7 +184,7 @@ class TestCostTracker:
             location="eastus",
             power_state="VM running",
             vm_size="Standard_D2s_v3",
-            created_time="2024-10-01T10:00:00Z"
+            created_time="2024-10-01T10:00:00Z",
         )
 
         from_date = datetime(2024, 10, 1, 10, 0, 0)
@@ -211,8 +199,8 @@ class TestCostTracker:
         assert estimate.hours_running == Decimal("10")
         assert estimate.estimated_cost == Decimal("0.96")
 
-    @patch('azlin.cost_tracker.VMManager.list_vms')
-    @patch('azlin.cost_tracker.VMManager.filter_by_prefix')
+    @patch("azlin.cost_tracker.VMManager.list_vms")
+    @patch("azlin.cost_tracker.VMManager.filter_by_prefix")
     def test_estimate_costs_success(self, mock_filter, mock_list):
         """Test cost estimation for all VMs in a resource group."""
         # Create test VMs
@@ -226,7 +214,7 @@ class TestCostTracker:
                 location="eastus",
                 power_state="VM running",
                 vm_size="Standard_D2s_v3",
-                created_time=created_time
+                created_time=created_time,
             ),
             VMInfo(
                 name="azlin-vm-2",
@@ -234,8 +222,8 @@ class TestCostTracker:
                 location="eastus",
                 power_state="VM stopped",
                 vm_size="Standard_B2s",
-                created_time=created_time
-            )
+                created_time=created_time,
+            ),
         ]
 
         mock_list.return_value = vms
@@ -253,8 +241,8 @@ class TestCostTracker:
         mock_list.assert_called_once_with("test-rg", include_stopped=True)
         mock_filter.assert_called_once_with(vms, "azlin")
 
-    @patch('azlin.cost_tracker.VMManager.list_vms')
-    @patch('azlin.cost_tracker.VMManager.filter_by_prefix')
+    @patch("azlin.cost_tracker.VMManager.list_vms")
+    @patch("azlin.cost_tracker.VMManager.filter_by_prefix")
     def test_estimate_costs_no_vms(self, mock_filter, mock_list):
         """Test cost estimation when no VMs exist."""
         mock_list.return_value = []
@@ -268,7 +256,7 @@ class TestCostTracker:
         assert len(summary.estimates) == 0
         assert summary.total_cost == Decimal("0")
 
-    @patch('azlin.cost_tracker.VMManager.list_vms')
+    @patch("azlin.cost_tracker.VMManager.list_vms")
     def test_estimate_costs_vm_manager_error(self, mock_list):
         """Test cost estimation when VMManager raises an error."""
         mock_list.side_effect = VMManagerError("Failed to list VMs")
@@ -288,7 +276,7 @@ class TestCostTracker:
                 hourly_rate=Decimal("0.096"),
                 hours_running=Decimal("10"),
                 estimated_cost=Decimal("0.96"),
-                region="eastus"
+                region="eastus",
             )
         ]
 
@@ -297,7 +285,7 @@ class TestCostTracker:
             total_vms=1,
             running_vms=1,
             stopped_vms=0,
-            estimates=estimates
+            estimates=estimates,
         )
 
         output = CostTracker.format_cost_table(summary, by_vm=False)
@@ -320,7 +308,7 @@ class TestCostTracker:
                 hourly_rate=Decimal("0.096"),
                 hours_running=Decimal("10"),
                 estimated_cost=Decimal("0.96"),
-                region="eastus"
+                region="eastus",
             ),
             VMCostEstimate(
                 vm_name="vm-2",
@@ -329,8 +317,8 @@ class TestCostTracker:
                 hourly_rate=Decimal("0.0416"),
                 hours_running=Decimal("5"),
                 estimated_cost=Decimal("0.208"),
-                region="eastus"
-            )
+                region="eastus",
+            ),
         ]
 
         summary = CostSummary(
@@ -338,7 +326,7 @@ class TestCostTracker:
             total_vms=2,
             running_vms=1,
             stopped_vms=1,
-            estimates=estimates
+            estimates=estimates,
         )
 
         output = CostTracker.format_cost_table(summary, by_vm=True)
@@ -365,7 +353,7 @@ class TestCostTracker:
                 hourly_rate=Decimal("0.096"),
                 hours_running=Decimal("10"),
                 estimated_cost=Decimal("0.96"),
-                region="eastus"
+                region="eastus",
             )
         ]
 
@@ -378,7 +366,7 @@ class TestCostTracker:
             running_vms=1,
             stopped_vms=0,
             estimates=estimates,
-            date_range=(from_date, to_date)
+            date_range=(from_date, to_date),
         )
 
         output = CostTracker.format_cost_table(summary, by_vm=False)
@@ -394,23 +382,19 @@ class TestCostTracker:
             location="eastus",
             power_state="VM running",
             vm_size="Standard_D2s_v3",
-            created_time="2024-10-01T00:00:00Z"
+            created_time="2024-10-01T00:00:00Z",
         )
 
-        with patch('azlin.cost_tracker.VMManager.list_vms') as mock_list, \
-             patch('azlin.cost_tracker.VMManager.filter_by_prefix') as mock_filter:
-
+        with patch("azlin.cost_tracker.VMManager.list_vms") as mock_list, patch(
+            "azlin.cost_tracker.VMManager.filter_by_prefix"
+        ) as mock_filter:
             mock_list.return_value = [vm]
             mock_filter.return_value = [vm]
 
             from_date = datetime(2024, 10, 1, 0, 0, 0)
             to_date = datetime(2024, 10, 1, 12, 0, 0)
 
-            summary = CostTracker.estimate_costs(
-                "test-rg",
-                from_date=from_date,
-                to_date=to_date
-            )
+            summary = CostTracker.estimate_costs("test-rg", from_date=from_date, to_date=to_date)
 
             assert summary.date_range == (from_date, to_date)
             # Should calculate 12 hours
@@ -419,12 +403,7 @@ class TestCostTracker:
     def test_vm_pricing_coverage(self):
         """Test that common VM sizes have defined pricing."""
         # Ensure we have pricing for common VM sizes
-        common_sizes = [
-            'Standard_B2s',
-            'Standard_D2s_v3',
-            'Standard_E2s_v3',
-            'Standard_F2s_v2'
-        ]
+        common_sizes = ["Standard_B2s", "Standard_D2s_v3", "Standard_E2s_v3", "Standard_F2s_v2"]
 
         for size in common_sizes:
             rate = CostTracker._get_hourly_rate(size)

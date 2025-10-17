@@ -3,7 +3,6 @@
 from unittest.mock import patch
 
 import pytest
-
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.ssh_reconnect import (
     SSHReconnectHandler,
@@ -19,7 +18,7 @@ class TestDisconnectDetection:
         """Test that common disconnect exit codes are detected."""
         # Common SSH disconnect codes
         assert is_disconnect_exit_code(255) is True  # SSH generic error
-        assert is_disconnect_exit_code(1) is True    # General errors that might be disconnect
+        assert is_disconnect_exit_code(1) is True  # General errors that might be disconnect
 
     def test_is_disconnect_exit_code_for_normal_exit(self):
         """Test that normal exit is not treated as disconnect."""
@@ -33,7 +32,7 @@ class TestDisconnectDetection:
 class TestReconnectPrompt:
     """Test reconnect prompting logic."""
 
-    @patch('click.confirm')
+    @patch("click.confirm")
     def test_should_attempt_reconnect_user_accepts(self, mock_confirm):
         """Test reconnect prompt when user accepts."""
         mock_confirm.return_value = True
@@ -46,7 +45,7 @@ class TestReconnectPrompt:
         call_args = mock_confirm.call_args
         assert "test-vm" in call_args[0][0]
 
-    @patch('click.confirm')
+    @patch("click.confirm")
     def test_should_attempt_reconnect_user_declines(self, mock_confirm):
         """Test reconnect prompt when user declines."""
         mock_confirm.return_value = False
@@ -67,15 +66,10 @@ class TestSSHReconnectHandler:
         key_file.write_text("fake key")
         key_file.chmod(0o600)
 
-        return SSHConfig(
-            host="192.168.1.100",
-            user="testuser",
-            key_path=key_file,
-            port=22
-        )
+        return SSHConfig(host="192.168.1.100", user="testuser", key_path=key_file, port=22)
 
-    @patch('azlin.modules.ssh_reconnect.SSHConnector.connect')
-    @patch('azlin.modules.ssh_reconnect.should_attempt_reconnect')
+    @patch("azlin.modules.ssh_reconnect.SSHConnector.connect")
+    @patch("azlin.modules.ssh_reconnect.should_attempt_reconnect")
     def test_connect_with_reconnect_success_on_first_try(
         self, mock_prompt, mock_connect, ssh_config
     ):
@@ -89,8 +83,8 @@ class TestSSHReconnectHandler:
         mock_connect.assert_called_once()
         mock_prompt.assert_not_called()
 
-    @patch('azlin.modules.ssh_reconnect.SSHConnector.connect')
-    @patch('azlin.modules.ssh_reconnect.should_attempt_reconnect')
+    @patch("azlin.modules.ssh_reconnect.SSHConnector.connect")
+    @patch("azlin.modules.ssh_reconnect.should_attempt_reconnect")
     def test_connect_with_reconnect_disconnect_then_success(
         self, mock_prompt, mock_connect, ssh_config
     ):
@@ -106,11 +100,9 @@ class TestSSHReconnectHandler:
         assert mock_connect.call_count == 2
         mock_prompt.assert_called_once_with("test-vm")
 
-    @patch('azlin.modules.ssh_reconnect.SSHConnector.connect')
-    @patch('azlin.modules.ssh_reconnect.should_attempt_reconnect')
-    def test_connect_with_reconnect_user_declines(
-        self, mock_prompt, mock_connect, ssh_config
-    ):
+    @patch("azlin.modules.ssh_reconnect.SSHConnector.connect")
+    @patch("azlin.modules.ssh_reconnect.should_attempt_reconnect")
+    def test_connect_with_reconnect_user_declines(self, mock_prompt, mock_connect, ssh_config):
         """Test that disconnection without user consent exits."""
         mock_connect.return_value = 255
         mock_prompt.return_value = False
@@ -122,8 +114,8 @@ class TestSSHReconnectHandler:
         mock_connect.assert_called_once()
         mock_prompt.assert_called_once_with("test-vm")
 
-    @patch('azlin.modules.ssh_reconnect.SSHConnector.connect')
-    @patch('azlin.modules.ssh_reconnect.should_attempt_reconnect')
+    @patch("azlin.modules.ssh_reconnect.SSHConnector.connect")
+    @patch("azlin.modules.ssh_reconnect.should_attempt_reconnect")
     def test_connect_with_reconnect_max_retries_exceeded(
         self, mock_prompt, mock_connect, ssh_config
     ):
@@ -141,8 +133,8 @@ class TestSSHReconnectHandler:
         # Should prompt 3 times (not after last failure)
         assert mock_prompt.call_count == 3
 
-    @patch('azlin.modules.ssh_reconnect.SSHConnector.connect')
-    @patch('azlin.modules.ssh_reconnect.should_attempt_reconnect')
+    @patch("azlin.modules.ssh_reconnect.SSHConnector.connect")
+    @patch("azlin.modules.ssh_reconnect.should_attempt_reconnect")
     def test_connect_with_reconnect_ignores_normal_exit(
         self, mock_prompt, mock_connect, ssh_config
     ):
@@ -156,8 +148,8 @@ class TestSSHReconnectHandler:
         mock_connect.assert_called_once()
         mock_prompt.assert_not_called()
 
-    @patch('azlin.modules.ssh_reconnect.SSHConnector.connect')
-    @patch('azlin.modules.ssh_reconnect.should_attempt_reconnect')
+    @patch("azlin.modules.ssh_reconnect.SSHConnector.connect")
+    @patch("azlin.modules.ssh_reconnect.should_attempt_reconnect")
     def test_connect_with_reconnect_ignores_user_interrupt(
         self, mock_prompt, mock_connect, ssh_config
     ):
@@ -171,8 +163,8 @@ class TestSSHReconnectHandler:
         mock_connect.assert_called_once()
         mock_prompt.assert_not_called()
 
-    @patch('azlin.modules.ssh_reconnect.SSHConnector.connect')
-    @patch('azlin.modules.ssh_reconnect.should_attempt_reconnect')
+    @patch("azlin.modules.ssh_reconnect.SSHConnector.connect")
+    @patch("azlin.modules.ssh_reconnect.should_attempt_reconnect")
     def test_connect_with_reconnect_multiple_disconnects_and_reconnects(
         self, mock_prompt, mock_connect, ssh_config
     ):
@@ -198,11 +190,9 @@ class TestSSHReconnectHandler:
         handler = SSHReconnectHandler(max_retries=5)
         assert handler.max_retries == 5
 
-    @patch('azlin.modules.ssh_reconnect.SSHConnector.connect')
-    @patch('azlin.modules.ssh_reconnect.should_attempt_reconnect')
-    def test_connect_with_reconnect_other_exit_code(
-        self, mock_prompt, mock_connect, ssh_config
-    ):
+    @patch("azlin.modules.ssh_reconnect.SSHConnector.connect")
+    @patch("azlin.modules.ssh_reconnect.should_attempt_reconnect")
+    def test_connect_with_reconnect_other_exit_code(self, mock_prompt, mock_connect, ssh_config):
         """Test that other non-zero exit codes don't trigger reconnect."""
         # Exit code that's not 0, 1, 130, or 255 (e.g., 2)
         mock_connect.return_value = 2
@@ -214,25 +204,18 @@ class TestSSHReconnectHandler:
         mock_connect.assert_called_once()
         mock_prompt.assert_not_called()
 
-    @patch('azlin.modules.ssh_reconnect.SSHConnector.connect')
-    @patch('azlin.modules.ssh_reconnect.should_attempt_reconnect')
-    def test_connect_with_reconnect_all_params(
-        self, mock_prompt, mock_connect, ssh_config
-    ):
+    @patch("azlin.modules.ssh_reconnect.SSHConnector.connect")
+    @patch("azlin.modules.ssh_reconnect.should_attempt_reconnect")
+    def test_connect_with_reconnect_all_params(self, mock_prompt, mock_connect, ssh_config):
         """Test that all parameters are passed correctly to SSHConnector."""
         mock_connect.return_value = 0
 
         handler = SSHReconnectHandler(max_retries=3)
         exit_code = handler.connect_with_reconnect(
-            config=ssh_config,
-            vm_name="test-vm",
-            tmux_session="custom-session",
-            auto_tmux=False
+            config=ssh_config, vm_name="test-vm", tmux_session="custom-session", auto_tmux=False
         )
 
         assert exit_code == 0
         mock_connect.assert_called_once_with(
-            config=ssh_config,
-            tmux_session="custom-session",
-            auto_tmux=False
+            config=ssh_config, tmux_session="custom-session", auto_tmux=False
         )

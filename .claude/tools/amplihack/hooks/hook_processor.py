@@ -10,7 +10,7 @@ import traceback
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 
 class HookProcessor(ABC):
@@ -124,7 +124,7 @@ class HookProcessor(ABC):
             # If we can't log, at least try stderr
             print(f"Logging error: {e}", file=sys.stderr)
 
-    def read_input(self) -> Dict[str, Any]:
+    def read_input(self) -> dict[str, Any]:
         """Read and parse JSON input from stdin.
 
         Returns:
@@ -138,7 +138,7 @@ class HookProcessor(ABC):
             return {}
         return json.loads(raw_input)
 
-    def write_output(self, output: Dict[str, Any]):
+    def write_output(self, output: dict[str, Any]):
         """Write JSON output to stdout.
 
         Args:
@@ -146,7 +146,7 @@ class HookProcessor(ABC):
         """
         json.dump(output, sys.stdout)
 
-    def save_metric(self, metric_name: str, value: Any, metadata: Optional[Dict] = None):
+    def save_metric(self, metric_name: str, value: Any, metadata: Optional[dict] = None):
         """Save a metric to the metrics directory.
 
         Args:
@@ -173,7 +173,7 @@ class HookProcessor(ABC):
             self.log(f"Failed to save metric: {e}", "WARNING")
 
     @abstractmethod
-    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Process the hook input and return output.
 
         This method must be implemented by subclasses.

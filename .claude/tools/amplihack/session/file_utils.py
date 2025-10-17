@@ -7,10 +7,11 @@ import os
 import shutil
 import tempfile
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -486,9 +487,9 @@ class BatchFileOperations:
         Args:
             verify_all: Verify all operations in batch
         """
-        self.operations: List[Dict[str, Any]] = []
+        self.operations: list[dict[str, Any]] = []
         self.verify_all = verify_all
-        self.results: List[bool] = []
+        self.results: list[bool] = []
 
     def add_write(self, file_path: Union[str, Path], content: str, **kwargs) -> None:
         """Add write operation to batch."""
@@ -518,7 +519,7 @@ class BatchFileOperations:
             }
         )
 
-    def execute(self) -> List[bool]:
+    def execute(self) -> list[bool]:
         """Execute all operations in batch.
 
         Returns:

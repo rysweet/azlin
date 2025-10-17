@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 class EnvManagerError(Exception):
     """Raised when environment variable management fails."""
+
     pass
 
 
@@ -41,26 +42,21 @@ class EnvManager:
 
     # Patterns for secret detection
     SECRET_PATTERNS = [
-        (r'api[_-]?key', 'api_key'),
-        (r'secret', 'secret'),
-        (r'password', 'password'),
-        (r'token', 'token'),
-        (r'auth', 'auth'),
-        (r'credential', 'credential'),
-        (r'postgres://', 'postgres://'),
-        (r'mysql://', 'mysql://'),
-        (r'mongodb(\+srv)?://', 'mongodb+srv://'),
-        (r'redis://', 'redis://'),
-        (r'Bearer\s+', 'Bearer'),
+        (r"api[_-]?key", "api_key"),
+        (r"secret", "secret"),
+        (r"password", "password"),
+        (r"token", "token"),
+        (r"auth", "auth"),
+        (r"credential", "credential"),
+        (r"postgres://", "postgres://"),
+        (r"mysql://", "mysql://"),
+        (r"mongodb(\+srv)?://", "mongodb+srv://"),
+        (r"redis://", "redis://"),
+        (r"Bearer\s+", "Bearer"),
     ]
 
     @classmethod
-    def set_env_var(
-        cls,
-        ssh_config: SSHConfig,
-        key: str,
-        value: str
-    ) -> bool:
+    def set_env_var(cls, ssh_config: SSHConfig, key: str, value: str) -> bool:
         """Set an environment variable on remote VM.
 
         Args:
@@ -185,11 +181,7 @@ class EnvManager:
             raise EnvManagerError(f"Failed to clear environment variables: {e}")
 
     @classmethod
-    def export_env_vars(
-        cls,
-        ssh_config: SSHConfig,
-        output_file: str | None = None
-    ) -> str:
+    def export_env_vars(cls, ssh_config: SSHConfig, output_file: str | None = None) -> str:
         """Export environment variables in .env file format.
 
         Args:
@@ -224,11 +216,7 @@ class EnvManager:
             raise EnvManagerError(f"Failed to export environment variables: {e}")
 
     @classmethod
-    def import_env_file(
-        cls,
-        ssh_config: SSHConfig,
-        env_file_path: str
-    ) -> int:
+    def import_env_file(cls, ssh_config: SSHConfig, env_file_path: str) -> int:
         """Import environment variables from .env file.
 
         Args:
@@ -255,12 +243,12 @@ class EnvManager:
                 line = line.strip()
 
                 # Skip comments and empty lines
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
 
                 # Parse KEY=VALUE or KEY="VALUE"
-                if '=' in line:
-                    key, value = line.split('=', 1)
+                if "=" in line:
+                    key, value = line.split("=", 1)
                     key = key.strip()
                     value = value.strip()
 
@@ -297,11 +285,11 @@ class EnvManager:
             return False, "Variable name cannot be empty"
 
         # Must start with letter or underscore
-        if not re.match(r'^[a-zA-Z_]', key):
+        if not re.match(r"^[a-zA-Z_]", key):
             return False, "Variable name must start with a letter or underscore"
 
         # Must contain only alphanumeric and underscores
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', key):
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", key):
             return False, "Variable name can only contain letters, numbers, and underscores"
 
         return True, ""
@@ -332,9 +320,7 @@ class EnvManager:
         """Read ~/.bashrc from remote VM."""
         try:
             return SSHConnector.execute_remote_command(
-                ssh_config,
-                "cat ~/.bashrc 2>/dev/null || echo ''",
-                timeout=30
+                ssh_config, "cat ~/.bashrc 2>/dev/null || echo ''", timeout=30
             )
         except Exception as e:
             raise EnvManagerError(f"Failed to read ~/.bashrc: {e}")
@@ -350,15 +336,11 @@ class EnvManager:
             # Write to temp file then move (atomic operation)
             commands = [
                 f"printf '%s' '{escaped_content}' > ~/.bashrc.tmp",
-                "mv ~/.bashrc.tmp ~/.bashrc"
+                "mv ~/.bashrc.tmp ~/.bashrc",
             ]
 
             for cmd in commands:
-                SSHConnector.execute_remote_command(
-                    ssh_config,
-                    cmd,
-                    timeout=30
-                )
+                SSHConnector.execute_remote_command(ssh_config, cmd, timeout=30)
         except Exception as e:
             raise EnvManagerError(f"Failed to write ~/.bashrc: {e}")
 
@@ -386,11 +368,7 @@ class EnvManager:
         return env_vars
 
     @classmethod
-    def _update_bashrc_with_env_vars(
-        cls,
-        bashrc_content: str,
-        env_vars: dict[str, str]
-    ) -> str:
+    def _update_bashrc_with_env_vars(cls, bashrc_content: str, env_vars: dict[str, str]) -> str:
         """Update bashrc content with new environment variables."""
         # Remove existing azlin env section
         new_content = cls._remove_env_section(bashrc_content)
@@ -405,9 +383,9 @@ class EnvManager:
             env_lines.append(cls.ENV_MARKER_END)
 
             # Append to the end of the file
-            if new_content and not new_content.endswith('\n'):
-                new_content += '\n'
-            new_content += '\n'.join(env_lines) + '\n'
+            if new_content and not new_content.endswith("\n"):
+                new_content += "\n"
+            new_content += "\n".join(env_lines) + "\n"
 
         return new_content
 
@@ -428,7 +406,7 @@ class EnvManager:
             elif not in_section:
                 new_lines.append(line)
 
-        return '\n'.join(new_lines)
+        return "\n".join(new_lines)
 
 
-__all__ = ['EnvManager', 'EnvManagerError']
+__all__ = ["EnvManager", "EnvManagerError"]

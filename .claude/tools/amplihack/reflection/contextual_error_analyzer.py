@@ -11,7 +11,7 @@ import importlib.util
 import json
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 SDK_AVAILABLE = importlib.util.find_spec("claude_code_sdk") is not None
 
@@ -33,8 +33,8 @@ class ErrorAnalysis:
     root_cause: str
     category: str  # Dynamically determined by LLM
     severity: str  # critical/warning/info
-    suggestions: List[str]  # Specific, actionable suggestions
-    patterns: List[str]  # Identified error patterns
+    suggestions: list[str]  # Specific, actionable suggestions
+    patterns: list[str]  # Identified error patterns
     confidence: float  # 0.0 to 1.0
 
 
@@ -347,7 +347,7 @@ Return ONLY the JSON response, no additional text."""
             confidence=0.0,
         )
 
-    def get_top_suggestion(self, error_content: str, context: str = "") -> Optional[Dict[str, Any]]:
+    def get_top_suggestion(self, error_content: str, context: str = "") -> Optional[dict[str, Any]]:
         """Get the top error suggestion for integration with reflection system.
 
         Args:
@@ -377,7 +377,7 @@ Return ONLY the JSON response, no additional text."""
             "implementation_steps": self._get_implementation_steps(analysis.category),
         }
 
-    def _get_implementation_steps(self, category: str) -> List[str]:
+    def _get_implementation_steps(self, category: str) -> list[str]:
         """Get implementation steps for specific error categories."""
 
         steps_map = {
@@ -464,8 +464,8 @@ Return ONLY the JSON response, no additional text."""
 
 # Integration point for reflection.py
 def analyze_session_patterns(
-    session_content: str, context: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    session_content: str, context: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     """Integration point for reflection system to analyze session patterns.
 
     Args:

@@ -14,7 +14,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 # Clean import setup
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -50,9 +50,9 @@ class ContextPreserver:
         self,
         agent_id: str,
         conversation_summary: str,
-        key_decisions: List[str],
-        active_tasks: List[str],
-        metadata: Optional[Dict[str, Any]] = None,
+        key_decisions: list[str],
+        active_tasks: list[str],
+        metadata: Optional[dict[str, Any]] = None,
     ) -> Optional[str]:
         """Preserve current conversation context.
 
@@ -104,10 +104,10 @@ class ContextPreserver:
         self,
         workflow_name: str,
         current_step: str,
-        completed_steps: List[str],
-        pending_steps: List[str],
-        step_results: Dict[str, Any],
-        workflow_metadata: Optional[Dict[str, Any]] = None,
+        completed_steps: list[str],
+        pending_steps: list[str],
+        step_results: dict[str, Any],
+        workflow_metadata: Optional[dict[str, Any]] = None,
     ) -> Optional[str]:
         """Preserve workflow execution state.
 
@@ -167,9 +167,9 @@ class ContextPreserver:
         decision_title: str,
         decision_description: str,
         reasoning: str,
-        alternatives_considered: List[str],
+        alternatives_considered: list[str],
         impact_assessment: Optional[str] = None,
-        related_decisions: Optional[List[str]] = None,
+        related_decisions: Optional[list[str]] = None,
     ) -> Optional[str]:
         """Preserve agent decision with full context.
 
@@ -225,7 +225,7 @@ class ContextPreserver:
 
     def restore_conversation_context(
         self, agent_id: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[dict[str, Any]]:
         """Restore the most recent conversation context.
 
         Retrieves the latest conversation context for continued operation.
@@ -259,7 +259,7 @@ class ContextPreserver:
 
         return None
 
-    def restore_workflow_state(self, workflow_name: str) -> Optional[Dict[str, Any]]:
+    def restore_workflow_state(self, workflow_name: str) -> Optional[dict[str, Any]]:
         """Restore workflow execution state.
 
         Retrieves the latest state for a specific workflow.
@@ -295,7 +295,7 @@ class ContextPreserver:
 
     def get_decision_history(
         self, agent_id: Optional[str] = None, limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get agent decision history.
 
         Retrieves recent decisions made by agents for context awareness.
@@ -365,8 +365,8 @@ class ContextPreserver:
 def preserve_current_context(
     agent_id: str,
     summary: str,
-    decisions: List[str],
-    tasks: List[str],
+    decisions: list[str],
+    tasks: list[str],
     session_id: Optional[str] = None,
 ) -> Optional[str]:
     """Convenience function to preserve current context.
@@ -397,7 +397,7 @@ def preserve_current_context(
 
 def restore_latest_context(
     agent_id: Optional[str] = None, session_id: Optional[str] = None
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     """Convenience function to restore latest context.
 
     Args:

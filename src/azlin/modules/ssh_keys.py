@@ -12,7 +12,6 @@ Security Requirements:
 """
 
 import logging
-import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SSHKeyPair:
     """SSH key pair information."""
+
     private_path: Path
     public_path: Path
     public_key_content: str
@@ -31,6 +31,7 @@ class SSHKeyPair:
 
 class SSHKeyError(Exception):
     """Raised when SSH key operations fail."""
+
     pass
 
 
@@ -50,10 +51,7 @@ class SSHKeyManager:
     SSH_DIR = Path.home() / ".ssh"
 
     @classmethod
-    def ensure_key_exists(
-        cls,
-        key_path: Optional[Path] = None
-    ) -> SSHKeyPair:
+    def ensure_key_exists(cls, key_path: Optional[Path] = None) -> SSHKeyPair:
         """
         Create SSH key if missing, return existing if present.
 
@@ -100,7 +98,7 @@ class SSHKeyManager:
             return SSHKeyPair(
                 private_path=key_path,
                 public_path=public_path,
-                public_key_content=public_key_content
+                public_key_content=public_key_content,
             )
 
         # Generate new key
@@ -136,23 +134,21 @@ class SSHKeyManager:
             # Build command
             args = [
                 "ssh-keygen",
-                "-t", "ed25519",  # Ed25519 algorithm
-                "-f", str(key_path),  # Output file
-                "-N", "",  # No passphrase (empty string)
-                "-C", f"azlin-key-{key_path.name}",  # Comment
+                "-t",
+                "ed25519",  # Ed25519 algorithm
+                "-f",
+                str(key_path),  # Output file
+                "-N",
+                "",  # No passphrase (empty string)
+                "-C",
+                f"azlin-key-{key_path.name}",  # Comment
             ]
 
             logger.debug("Generating SSH key with ssh-keygen")
 
-            result = subprocess.run(
-                args,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True
-            )
+            result = subprocess.run(args, capture_output=True, text=True, timeout=30, check=True)
 
-            logger.info(f"SSH key generated successfully")
+            logger.info("SSH key generated successfully")
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
@@ -165,9 +161,7 @@ class SSHKeyManager:
 
         except FileNotFoundError:
             logger.error("ssh-keygen not found in PATH")
-            raise SSHKeyError(
-                "ssh-keygen not found. Please install OpenSSH client."
-            )
+            raise SSHKeyError("ssh-keygen not found. Please install OpenSSH client.")
 
         # Set permissions
         cls._fix_permissions(key_path, public_path)
@@ -179,9 +173,7 @@ class SSHKeyManager:
         logger.info(f"Public key: {public_path}")
 
         return SSHKeyPair(
-            private_path=key_path,
-            public_path=public_path,
-            public_key_content=public_key_content
+            private_path=key_path, public_path=public_path, public_key_content=public_key_content
         )
 
     @classmethod
@@ -233,10 +225,7 @@ class SSHKeyManager:
         public_mode = public_stat.st_mode & 0o777
 
         if public_mode != 0o644:
-            logger.debug(
-                f"Public key permissions: {oct(public_mode)} "
-                f"(expected 0644)"
-            )
+            logger.debug(f"Public key permissions: {oct(public_mode)} " f"(expected 0644)")
 
     @classmethod
     def _fix_permissions(cls, private_path: Path, public_path: Path) -> None:
@@ -253,11 +242,11 @@ class SSHKeyManager:
         """
         if private_path.exists():
             private_path.chmod(0o600)
-            logger.debug(f"Set private key permissions: 0600")
+            logger.debug("Set private key permissions: 0600")
 
         if public_path.exists():
             public_path.chmod(0o644)
-            logger.debug(f"Set public key permissions: 0644")
+            logger.debug("Set public key permissions: 0644")
 
     @classmethod
     def read_public_key(cls, key_path: Optional[Path] = None) -> str:

@@ -1,14 +1,16 @@
 """Security-focused tests for file transfer."""
 
-import pytest
 from pathlib import Path
+
+import pytest
+
 from azlin.modules.file_transfer import (
-    PathParser,
-    SessionManager,
-    PathTraversalError,
     InvalidPathError,
     InvalidSessionNameError,
-    SymlinkSecurityError
+    PathParser,
+    PathTraversalError,
+    SessionManager,
+    SymlinkSecurityError,
 )
 
 
@@ -126,7 +128,7 @@ class TestNullByteInjection:
 class TestShellMetacharacterPrevention:
     """Test shell metacharacter prevention in paths."""
 
-    @pytest.mark.parametrize("char", [';', '|', '&', '$', '`', '>', '<', '\n'])
+    @pytest.mark.parametrize("char", [";", "|", "&", "$", "`", ">", "<", "\n"])
     def test_rejects_shell_metacharacters(self, char):
         """Should reject paths with shell metacharacters"""
         with pytest.raises(InvalidPathError):

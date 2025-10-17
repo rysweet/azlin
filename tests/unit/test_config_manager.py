@@ -1,9 +1,10 @@
 """Unit tests for config_manager module."""
 
-import pytest
 from pathlib import Path
-from unittest.mock import patch, mock_open
-from azlin.config_manager import ConfigManager, AzlinConfig, ConfigError
+from unittest.mock import patch
+
+import pytest
+from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 
 
 class TestAzlinConfig:
@@ -23,7 +24,7 @@ class TestAzlinConfig:
             default_resource_group="my-rg",
             default_region="westus",
             default_vm_size="Standard_D4s_v3",
-            last_vm_name="test-vm"
+            last_vm_name="test-vm",
         )
         data = config.to_dict()
         assert data["default_resource_group"] == "my-rg"
@@ -37,7 +38,7 @@ class TestAzlinConfig:
             "default_resource_group": "my-rg",
             "default_region": "westus",
             "default_vm_size": "Standard_D4s_v3",
-            "last_vm_name": "test-vm"
+            "last_vm_name": "test-vm",
         }
         config = AzlinConfig.from_dict(data)
         assert config.default_resource_group == "my-rg"
@@ -47,9 +48,7 @@ class TestAzlinConfig:
 
     def test_from_dict_partial(self):
         """Test creation from partial dictionary."""
-        data = {
-            "default_resource_group": "my-rg"
-        }
+        data = {"default_resource_group": "my-rg"}
         config = AzlinConfig.from_dict(data)
         assert config.default_resource_group == "my-rg"
         assert config.default_region == "eastus"  # Default
@@ -79,7 +78,7 @@ class TestConfigManager:
 
     def test_load_config_not_exists(self, tmp_path):
         """Test loading config when file doesn't exist."""
-        with patch.object(ConfigManager, 'get_config_path', return_value=tmp_path / "missing.toml"):
+        with patch.object(ConfigManager, "get_config_path", return_value=tmp_path / "missing.toml"):
             config = ConfigManager.load_config()
             assert isinstance(config, AzlinConfig)
             assert config.default_resource_group is None
@@ -104,7 +103,7 @@ class TestConfigManager:
         config_file = tmp_path / "config.toml"
         config_file.write_text('default_region = "westus2"')
 
-        with patch.object(ConfigManager, 'DEFAULT_CONFIG_FILE', config_file):
+        with patch.object(ConfigManager, "DEFAULT_CONFIG_FILE", config_file):
             result = ConfigManager.get_region(None)
             assert result == "westus2"
 
@@ -112,6 +111,6 @@ class TestConfigManager:
         """Test default VM size."""
         config_file = tmp_path / "missing.toml"
 
-        with patch.object(ConfigManager, 'DEFAULT_CONFIG_FILE', config_file):
+        with patch.object(ConfigManager, "DEFAULT_CONFIG_FILE", config_file):
             result = ConfigManager.get_vm_size(None)
             assert result == "Standard_D2s_v3"

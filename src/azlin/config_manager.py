@@ -32,12 +32,14 @@ logger = logging.getLogger(__name__)
 
 class ConfigError(Exception):
     """Raised when configuration operations fail."""
+
     pass
 
 
 @dataclass
 class AzlinConfig:
     """Azlin configuration data."""
+
     default_resource_group: str | None = None
     default_region: str = "westus2"  # westus2 has better capacity than eastus
     default_vm_size: str = "Standard_B2s"  # Widely available, affordable burstable VM
@@ -52,15 +54,15 @@ class AzlinConfig:
         return {k: v for k, v in data.items() if v is not None}
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> 'AzlinConfig':
+    def from_dict(cls, data: dict[str, Any]) -> "AzlinConfig":
         """Create from dictionary."""
         return cls(
-            default_resource_group=data.get('default_resource_group'),
-            default_region=data.get('default_region', 'westus2'),
-            default_vm_size=data.get('default_vm_size', 'Standard_B2s'),
-            last_vm_name=data.get('last_vm_name'),
-            notification_command=data.get('notification_command', 'imessR'),
-            session_names=data.get('session_names', {})
+            default_resource_group=data.get("default_resource_group"),
+            default_region=data.get("default_region", "westus2"),
+            default_vm_size=data.get("default_vm_size", "Standard_B2s"),
+            last_vm_name=data.get("last_vm_name"),
+            notification_command=data.get("notification_command", "imessR"),
+            session_names=data.get("session_names", {}),
         )
 
 
@@ -139,13 +141,12 @@ class ConfigManager:
 
             if mode & 0o077:  # Check if group/other have any permissions
                 logger.warning(
-                    f"Config file has insecure permissions: {oct(mode)}. "
-                    "Fixing to 0600..."
+                    f"Config file has insecure permissions: {oct(mode)}. " "Fixing to 0600..."
                 )
                 os.chmod(config_path, 0o600)
 
             # Load TOML
-            with open(config_path, 'rb') as f:
+            with open(config_path, "rb") as f:
                 data = tomli.load(f)
 
             logger.debug(f"Loaded config from: {config_path}")
@@ -155,11 +156,7 @@ class ConfigManager:
             raise ConfigError(f"Failed to load config: {e}")
 
     @classmethod
-    def save_config(
-        cls,
-        config: AzlinConfig,
-        custom_path: str | None = None
-    ) -> None:
+    def save_config(cls, config: AzlinConfig, custom_path: str | None = None) -> None:
         """Save configuration to file.
 
         Args:
@@ -182,9 +179,9 @@ class ConfigManager:
 
             # Write TOML with secure permissions
             # Use temporary file and atomic rename for safety
-            temp_path = config_path.with_suffix('.tmp')
+            temp_path = config_path.with_suffix(".tmp")
 
-            with open(temp_path, 'wb') as f:
+            with open(temp_path, "wb") as f:
                 tomli_w.dump(config.to_dict(), f)
 
             # Set secure permissions before moving
@@ -197,16 +194,12 @@ class ConfigManager:
 
         except Exception as e:
             # Cleanup temp file on error
-            if 'temp_path' in locals() and temp_path.exists():
+            if "temp_path" in locals() and temp_path.exists():
                 temp_path.unlink()
             raise ConfigError(f"Failed to save config: {e}")
 
     @classmethod
-    def update_config(
-        cls,
-        custom_path: str | None = None,
-        **updates: Any
-    ) -> AzlinConfig:
+    def update_config(cls, custom_path: str | None = None, **updates: Any) -> AzlinConfig:
         """Update configuration values.
 
         Args:
@@ -236,9 +229,7 @@ class ConfigManager:
 
     @classmethod
     def get_resource_group(
-        cls,
-        cli_value: str | None = None,
-        custom_path: str | None = None
+        cls, cli_value: str | None = None, custom_path: str | None = None
     ) -> str | None:
         """Get resource group with CLI override.
 
@@ -256,11 +247,7 @@ class ConfigManager:
         return config.default_resource_group
 
     @classmethod
-    def get_region(
-        cls,
-        cli_value: str | None = None,
-        custom_path: str | None = None
-    ) -> str:
+    def get_region(cls, cli_value: str | None = None, custom_path: str | None = None) -> str:
         """Get region with CLI override.
 
         Args:
@@ -277,11 +264,7 @@ class ConfigManager:
         return config.default_region
 
     @classmethod
-    def get_vm_size(
-        cls,
-        cli_value: str | None = None,
-        custom_path: str | None = None
-    ) -> str:
+    def get_vm_size(cls, cli_value: str | None = None, custom_path: str | None = None) -> str:
         """Get VM size with CLI override.
 
         Args:
@@ -297,13 +280,9 @@ class ConfigManager:
         config = cls.load_config(custom_path)
         return config.default_vm_size
 
-
     @classmethod
     def set_session_name(
-        cls,
-        vm_name: str,
-        session_name: str,
-        custom_path: str | None = None
+        cls, vm_name: str, session_name: str, custom_path: str | None = None
     ) -> None:
         """Set session name for a VM.
 
@@ -328,11 +307,7 @@ class ConfigManager:
         cls.save_config(config, custom_path)
 
     @classmethod
-    def get_session_name(
-        cls,
-        vm_name: str,
-        custom_path: str | None = None
-    ) -> str | None:
+    def get_session_name(cls, vm_name: str, custom_path: str | None = None) -> str | None:
         """Get session name for a VM.
 
         Args:
@@ -351,11 +326,7 @@ class ConfigManager:
         return None
 
     @classmethod
-    def delete_session_name(
-        cls,
-        vm_name: str,
-        custom_path: str | None = None
-    ) -> bool:
+    def delete_session_name(cls, vm_name: str, custom_path: str | None = None) -> bool:
         """Delete session name for a VM.
 
         Args:
@@ -377,9 +348,7 @@ class ConfigManager:
 
     @classmethod
     def get_vm_name_by_session(
-        cls,
-        session_name: str,
-        custom_path: str | None = None
+        cls, session_name: str, custom_path: str | None = None
     ) -> str | None:
         """Get VM name by session name.
 
@@ -402,4 +371,4 @@ class ConfigManager:
         return None
 
 
-__all__ = ['ConfigManager', 'AzlinConfig', 'ConfigError']
+__all__ = ["ConfigManager", "AzlinConfig", "ConfigError"]

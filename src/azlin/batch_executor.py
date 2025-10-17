@@ -31,17 +31,19 @@ logger = logging.getLogger(__name__)
 
 class BatchExecutorError(Exception):
     """Raised when batch operations fail."""
+
     pass
 
 
 @dataclass
 class TagFilter:
     """Tag filter for VM selection."""
+
     key: str
     value: str
 
     @classmethod
-    def parse(cls, tag_str: str) -> 'TagFilter':
+    def parse(cls, tag_str: str) -> "TagFilter":
         """Parse tag string in format 'key=value'.
 
         Args:
@@ -53,11 +55,11 @@ class TagFilter:
         Raises:
             BatchExecutorError: If tag format is invalid
         """
-        if '=' not in tag_str:
+        if "=" not in tag_str:
             raise BatchExecutorError(f"Invalid tag format: '{tag_str}'. Expected 'key=value'")
 
         # Split on first = only
-        parts = tag_str.split('=', 1)
+        parts = tag_str.split("=", 1)
         key = parts[0].strip()
         value = parts[1].strip()
 
@@ -83,6 +85,7 @@ class TagFilter:
 @dataclass
 class BatchOperationResult:
     """Result of a batch operation on a single VM."""
+
     vm_name: str
     success: bool
     message: str
@@ -131,11 +134,7 @@ class BatchResult:
 
     def format_summary(self) -> str:
         """Format summary of results."""
-        return (
-            f"Total: {self.total}, "
-            f"Succeeded: {self.succeeded}, "
-            f"Failed: {self.failed}"
-        )
+        return f"Total: {self.total}, " f"Succeeded: {self.succeeded}, " f"Failed: {self.failed}"
 
 
 class BatchSelector:
@@ -209,7 +208,7 @@ class BatchExecutor:
         vms: list[VMInfo],
         resource_group: str,
         deallocate: bool = True,
-        progress_callback: Callable[[str], None] | None = None
+        progress_callback: Callable[[str], None] | None = None,
     ) -> list[BatchOperationResult]:
         """Execute stop operation on multiple VMs.
 
@@ -228,6 +227,7 @@ class BatchExecutor:
         def stop_vm(vm: VMInfo) -> BatchOperationResult:
             """Stop a single VM."""
             import time
+
             start_time = time.time()
 
             try:
@@ -238,7 +238,7 @@ class BatchExecutor:
                     vm_name=vm.name,
                     resource_group=resource_group,
                     deallocate=deallocate,
-                    no_wait=False
+                    no_wait=False,
                 )
 
                 duration = time.time() - start_time
@@ -251,7 +251,7 @@ class BatchExecutor:
                     vm_name=vm.name,
                     success=result.success,
                     message=result.message,
-                    duration=duration
+                    duration=duration,
                 )
             except Exception as e:
                 duration = time.time() - start_time
@@ -259,10 +259,7 @@ class BatchExecutor:
                     progress_callback(f"✗ {vm.name}: {str(e)}")
 
                 return BatchOperationResult(
-                    vm_name=vm.name,
-                    success=False,
-                    message=str(e),
-                    duration=duration
+                    vm_name=vm.name, success=False, message=str(e), duration=duration
                 )
 
         # Execute in parallel
@@ -279,7 +276,7 @@ class BatchExecutor:
         self,
         vms: list[VMInfo],
         resource_group: str,
-        progress_callback: Callable[[str], None] | None = None
+        progress_callback: Callable[[str], None] | None = None,
     ) -> list[BatchOperationResult]:
         """Execute start operation on multiple VMs.
 
@@ -297,6 +294,7 @@ class BatchExecutor:
         def start_vm(vm: VMInfo) -> BatchOperationResult:
             """Start a single VM."""
             import time
+
             start_time = time.time()
 
             try:
@@ -304,9 +302,7 @@ class BatchExecutor:
                     progress_callback(f"Starting {vm.name}...")
 
                 result = VMLifecycleController.start_vm(
-                    vm_name=vm.name,
-                    resource_group=resource_group,
-                    no_wait=False
+                    vm_name=vm.name, resource_group=resource_group, no_wait=False
                 )
 
                 duration = time.time() - start_time
@@ -319,7 +315,7 @@ class BatchExecutor:
                     vm_name=vm.name,
                     success=result.success,
                     message=result.message,
-                    duration=duration
+                    duration=duration,
                 )
             except Exception as e:
                 duration = time.time() - start_time
@@ -327,10 +323,7 @@ class BatchExecutor:
                     progress_callback(f"✗ {vm.name}: {str(e)}")
 
                 return BatchOperationResult(
-                    vm_name=vm.name,
-                    success=False,
-                    message=str(e),
-                    duration=duration
+                    vm_name=vm.name, success=False, message=str(e), duration=duration
                 )
 
         # Execute in parallel
@@ -349,7 +342,7 @@ class BatchExecutor:
         command: str,
         resource_group: str,
         timeout: int = 300,
-        progress_callback: Callable[[str], None] | None = None
+        progress_callback: Callable[[str], None] | None = None,
     ) -> list[BatchOperationResult]:
         """Execute command on multiple VMs.
 
@@ -372,6 +365,7 @@ class BatchExecutor:
         def execute_on_vm(vm: VMInfo) -> BatchOperationResult:
             """Execute command on a single VM."""
             import time
+
             start_time = time.time()
 
             try:
@@ -382,15 +376,11 @@ class BatchExecutor:
                     raise Exception("VM has no public IP")
 
                 ssh_config = SSHConfig(
-                    host=vm.public_ip,
-                    user="azureuser",
-                    key_path=ssh_key_pair.private_path
+                    host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
                 )
 
                 result = RemoteExecutor.execute_command(
-                    ssh_config=ssh_config,
-                    command=command,
-                    timeout=timeout
+                    ssh_config=ssh_config, command=command, timeout=timeout
                 )
 
                 duration = time.time() - start_time
@@ -404,7 +394,7 @@ class BatchExecutor:
                     success=result.success,
                     message=f"Exit code: {result.exit_code}",
                     output=result.get_output(),
-                    duration=duration
+                    duration=duration,
                 )
             except Exception as e:
                 duration = time.time() - start_time
@@ -412,10 +402,7 @@ class BatchExecutor:
                     progress_callback(f"✗ {vm.name}: {str(e)}")
 
                 return BatchOperationResult(
-                    vm_name=vm.name,
-                    success=False,
-                    message=str(e),
-                    duration=duration
+                    vm_name=vm.name, success=False, message=str(e), duration=duration
                 )
 
         # Execute in parallel
@@ -433,7 +420,7 @@ class BatchExecutor:
         vms: list[VMInfo],
         resource_group: str,
         dry_run: bool = False,
-        progress_callback: Callable[[str], None] | None = None
+        progress_callback: Callable[[str], None] | None = None,
     ) -> list[BatchOperationResult]:
         """Execute home sync on multiple VMs.
 
@@ -455,6 +442,7 @@ class BatchExecutor:
         def sync_to_vm(vm: VMInfo) -> BatchOperationResult:
             """Sync to a single VM."""
             import time
+
             start_time = time.time()
 
             try:
@@ -465,29 +453,22 @@ class BatchExecutor:
                     raise Exception("VM has no public IP")
 
                 ssh_config = SSHConfig(
-                    host=vm.public_ip,
-                    user="azureuser",
-                    key_path=ssh_key_pair.private_path
+                    host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
                 )
 
-                result = HomeSyncManager.sync_to_vm(
-                    ssh_config=ssh_config,
-                    dry_run=dry_run
-                )
+                result = HomeSyncManager.sync_to_vm(ssh_config=ssh_config, dry_run=dry_run)
 
                 duration = time.time() - start_time
 
                 if progress_callback:
                     status = "✓" if result.success else "✗"
-                    progress_callback(
-                        f"{status} {vm.name}: {result.files_synced} files"
-                    )
+                    progress_callback(f"{status} {vm.name}: {result.files_synced} files")
 
                 return BatchOperationResult(
                     vm_name=vm.name,
                     success=result.success,
                     message=f"Synced {result.files_synced} files",
-                    duration=duration
+                    duration=duration,
                 )
             except Exception as e:
                 duration = time.time() - start_time
@@ -495,10 +476,7 @@ class BatchExecutor:
                     progress_callback(f"✗ {vm.name}: {str(e)}")
 
                 return BatchOperationResult(
-                    vm_name=vm.name,
-                    success=False,
-                    message=str(e),
-                    duration=duration
+                    vm_name=vm.name, success=False, message=str(e), duration=duration
                 )
 
         # Execute in parallel
@@ -513,10 +491,10 @@ class BatchExecutor:
 
 
 __all__ = [
-    'BatchExecutor',
-    'BatchSelector',
-    'BatchResult',
-    'BatchOperationResult',
-    'BatchExecutorError',
-    'TagFilter',
+    "BatchExecutor",
+    "BatchSelector",
+    "BatchResult",
+    "BatchOperationResult",
+    "BatchExecutorError",
+    "TagFilter",
 ]

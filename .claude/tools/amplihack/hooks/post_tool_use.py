@@ -7,7 +7,7 @@ Uses unified HookProcessor for common functionality.
 # Import the base processor
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 from hook_processor import HookProcessor
@@ -32,7 +32,7 @@ class PostToolUseHook(HookProcessor):
 
         self.save_metric("tool_usage", tool_name, metadata)
 
-    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Process post tool use event.
 
         Args:

@@ -9,26 +9,28 @@ Security:
 - Proper escaping for AppleScript
 """
 
-import os
-import sys
 import logging
-import subprocess
+import os
 import shlex
-from pathlib import Path
-from typing import Optional, List
+import subprocess
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class TerminalLauncherError(Exception):
     """Raised when terminal launch fails."""
+
     pass
 
 
 @dataclass
 class TerminalConfig:
     """Terminal launch configuration."""
+
     ssh_host: str
     ssh_user: str
     ssh_key_path: Path
@@ -46,11 +48,7 @@ class TerminalLauncher:
     """
 
     @classmethod
-    def launch(
-        cls,
-        config: TerminalConfig,
-        fallback_inline: bool = True
-    ) -> bool:
+    def launch(cls, config: TerminalConfig, fallback_inline: bool = True) -> bool:
         """Launch new terminal window with SSH connection.
 
         Args:
@@ -66,9 +64,9 @@ class TerminalLauncher:
         platform = sys.platform
 
         try:
-            if platform == 'darwin':
+            if platform == "darwin":
                 return cls._launch_macos(config)
-            elif platform.startswith('linux'):
+            elif platform.startswith("linux"):
                 return cls._launch_linux(config)
             else:
                 logger.warning(f"Unsupported platform: {platform}")
@@ -97,27 +95,27 @@ class TerminalLauncher:
         ssh_cmd = cls._build_ssh_command(config)
 
         # Escape for AppleScript
-        escaped_cmd = ssh_cmd.replace('\\', '\\\\').replace('"', '\\"')
+        escaped_cmd = ssh_cmd.replace("\\", "\\\\").replace('"', '\\"')
 
         # Build AppleScript
         title = config.title or f"azlin - {config.ssh_host}"
-        applescript = f'''
+        applescript = f"""
         tell application "Terminal"
             activate
             do script "{escaped_cmd}"
             set custom title of front window to "{title}"
         end tell
-        '''
+        """
 
         logger.debug(f"Launching macOS terminal with: {ssh_cmd}")
 
         # Execute AppleScript
         result = subprocess.run(
-            ['osascript', '-e', applescript],
+            ["osascript", "-e", applescript],
             capture_output=True,
             text=True,
             timeout=10,
-            check=False
+            check=False,
         )
 
         if result.returncode == 0:
@@ -143,18 +141,13 @@ class TerminalLauncher:
         title = config.title or f"azlin - {config.ssh_host}"
 
         # Try gnome-terminal first
-        if cls._has_command('gnome-terminal'):
+        if cls._has_command("gnome-terminal"):
             logger.debug("Launching gnome-terminal")
             try:
                 subprocess.Popen(
-                    [
-                        'gnome-terminal',
-                        '--title', title,
-                        '--',
-                        'bash', '-c', ssh_cmd
-                    ],
+                    ["gnome-terminal", "--title", title, "--", "bash", "-c", ssh_cmd],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
                 )
                 logger.info("Terminal launched successfully")
                 return True
@@ -162,17 +155,13 @@ class TerminalLauncher:
                 logger.error(f"gnome-terminal failed: {e}")
 
         # Try xterm as fallback
-        if cls._has_command('xterm'):
+        if cls._has_command("xterm"):
             logger.debug("Launching xterm")
             try:
                 subprocess.Popen(
-                    [
-                        'xterm',
-                        '-title', title,
-                        '-e', ssh_cmd
-                    ],
+                    ["xterm", "-title", title, "-e", ssh_cmd],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
                 )
                 logger.info("Terminal launched successfully")
                 return True
@@ -194,11 +183,14 @@ class TerminalLauncher:
         """
         # Base SSH command
         parts = [
-            'ssh',
-            '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=/dev/null',
-            '-i', str(config.ssh_key_path),
-            f'{config.ssh_user}@{config.ssh_host}'
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-i",
+            str(config.ssh_key_path),
+            f"{config.ssh_user}@{config.ssh_host}",
         ]
 
         # Add remote command if specified
@@ -206,8 +198,8 @@ class TerminalLauncher:
             # If command includes tmux, add it
             if config.tmux_session:
                 remote_cmd = (
-                    f'tmux new-session -A -s {shlex.quote(config.tmux_session)} '
-                    f'{shlex.quote(config.command)}'
+                    f"tmux new-session -A -s {shlex.quote(config.tmux_session)} "
+                    f"{shlex.quote(config.command)}"
                 )
             else:
                 remote_cmd = config.command
@@ -215,10 +207,10 @@ class TerminalLauncher:
             parts.append(shlex.quote(remote_cmd))
         elif config.tmux_session:
             # Just tmux session, no command
-            remote_cmd = f'tmux new-session -A -s {shlex.quote(config.tmux_session)}'
+            remote_cmd = f"tmux new-session -A -s {shlex.quote(config.tmux_session)}"
             parts.append(shlex.quote(remote_cmd))
 
-        return ' '.join(parts)
+        return " ".join(parts)
 
     @classmethod
     def _fallback_inline_ssh(cls, config: TerminalConfig) -> bool:
@@ -250,12 +242,7 @@ class TerminalLauncher:
             True if available
         """
         try:
-            subprocess.run(
-                ['which', command],
-                capture_output=True,
-                timeout=5,
-                check=True
-            )
+            subprocess.run(["which", command], capture_output=True, timeout=5, check=True)
             return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return False
@@ -267,7 +254,7 @@ class TerminalLauncher:
         ssh_user: str,
         ssh_key_path: Path,
         command: str,
-        title: Optional[str] = None
+        title: Optional[str] = None,
     ) -> bool:
         """Launch terminal and execute command on remote host.
 
@@ -286,14 +273,10 @@ class TerminalLauncher:
             ssh_user=ssh_user,
             ssh_key_path=ssh_key_path,
             command=command,
-            title=title or f"azlin - {command}"
+            title=title or f"azlin - {command}",
         )
 
         return cls.launch(config)
 
 
-__all__ = [
-    'TerminalLauncher',
-    'TerminalConfig',
-    'TerminalLauncherError'
-]
+__all__ = ["TerminalLauncher", "TerminalConfig", "TerminalLauncherError"]

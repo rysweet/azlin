@@ -71,7 +71,9 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
 QyNTUxOQAAACBqL8vZ8x7K4L4L4K4L4K4L4K4L4K4L4K4L4K4L4K4LAAAA
 -----END OPENSSH PRIVATE KEY-----"""
 
-SAMPLE_SSH_KEY_ED25519_PUBLIC = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGovy9nzHsrgvgvgrgvgrgvgrgvgrgvgrgvgrgvgrg azureuser@azlin"
+SAMPLE_SSH_KEY_ED25519_PUBLIC = (
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGovy9nzHsrgvgvgrgvgrgvgrgvgrgvgrgvgrgvgrg azureuser@azlin"
+)
 
 
 # ============================================================================
@@ -143,12 +145,13 @@ Someone could be eavesdropping on you right now (man-in-the-middle attack)!
 # HELPER FUNCTIONS
 # ============================================================================
 
+
 def create_ssh_config_entry(
-    host: str = 'azlin-dev',
-    hostname: str = '20.123.45.67',
-    user: str = 'azureuser',
-    identity_file: str = '~/.ssh/azlin_rsa',
-    strict_host_checking: bool = False
+    host: str = "azlin-dev",
+    hostname: str = "20.123.45.67",
+    user: str = "azureuser",
+    identity_file: str = "~/.ssh/azlin_rsa",
+    strict_host_checking: bool = False,
 ) -> str:
     """Create an SSH config entry with specified parameters.
 
@@ -162,7 +165,7 @@ def create_ssh_config_entry(
     Returns:
         SSH config entry as string
     """
-    strict = 'yes' if strict_host_checking else 'no'
+    strict = "yes" if strict_host_checking else "no"
     return f"""
 Host {host}
     HostName {hostname}
@@ -175,7 +178,7 @@ Host {host}
 """
 
 
-def create_ssh_key_pair(key_type: str = 'rsa') -> tuple[str, str]:
+def create_ssh_key_pair(key_type: str = "rsa") -> tuple[str, str]:
     """Create a sample SSH key pair.
 
     Args:
@@ -184,6 +187,6 @@ def create_ssh_key_pair(key_type: str = 'rsa') -> tuple[str, str]:
     Returns:
         Tuple of (private_key, public_key) as strings
     """
-    if key_type == 'ed25519':
+    if key_type == "ed25519":
         return (SAMPLE_SSH_KEY_ED25519_PRIVATE, SAMPLE_SSH_KEY_ED25519_PUBLIC)
     return (SAMPLE_SSH_KEY_PRIVATE, SAMPLE_SSH_KEY_PUBLIC)

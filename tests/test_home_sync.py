@@ -11,19 +11,15 @@ SECURITY FOCUS:
 - Test malformed inputs
 """
 
-import ipaddress
-import pytest
 import subprocess
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 from azlin.modules.home_sync import (
     HomeSyncManager,
-    SyncResult,
-    ValidationResult,
-    SecurityWarning,
-    HomeSyncError,
-    SecurityValidationError,
     RsyncError,
+    SecurityValidationError,
 )
 from azlin.modules.ssh_connector import SSHConfig
 
@@ -78,8 +74,9 @@ class TestPatternMatching:
         for key_name in blocked_keys:
             key_path = ssh_dir / key_name
             key_path.write_text("private key content")
-            assert HomeSyncManager._is_path_blocked(key_path, sync_dir), \
-                f"{key_name} should be blocked"
+            assert HomeSyncManager._is_path_blocked(
+                key_path, sync_dir
+            ), f"{key_name} should be blocked"
 
     def test_ssh_pub_keys_allowed(self, tmp_path):
         """Test that public SSH keys are explicitly allowed."""
@@ -98,8 +95,9 @@ class TestPatternMatching:
         for filename in allowed_files:
             file_path = ssh_dir / filename
             file_path.write_text("content")
-            assert HomeSyncManager._is_path_allowed(file_path, sync_dir), \
-                f"{filename} should be allowed"
+            assert HomeSyncManager._is_path_allowed(
+                file_path, sync_dir
+            ), f"{filename} should be allowed"
 
     def test_aws_credentials_blocked(self, tmp_path):
         """Test that AWS credential files are blocked."""
@@ -116,8 +114,9 @@ class TestPatternMatching:
         for filename in blocked_files:
             file_path = aws_dir / filename
             file_path.write_text("aws_access_key_id = ...")
-            assert HomeSyncManager._is_path_blocked(file_path, sync_dir), \
-                f"{filename} should be blocked"
+            assert HomeSyncManager._is_path_blocked(
+                file_path, sync_dir
+            ), f"{filename} should be blocked"
 
     def test_credential_filename_variants_blocked(self, tmp_path):
         """Test that files with 'credentials' in name are blocked."""
@@ -134,8 +133,9 @@ class TestPatternMatching:
         for filename in blocked_files:
             file_path = sync_dir / filename
             file_path.write_text("content")
-            assert HomeSyncManager._is_path_blocked(file_path, sync_dir), \
-                f"{filename} should be blocked"
+            assert HomeSyncManager._is_path_blocked(
+                file_path, sync_dir
+            ), f"{filename} should be blocked"
 
     def test_env_files_blocked(self, tmp_path):
         """Test that .env files are blocked."""
@@ -152,8 +152,9 @@ class TestPatternMatching:
         for filename in blocked_files:
             file_path = sync_dir / filename
             file_path.write_text("SECRET_KEY=...")
-            assert HomeSyncManager._is_path_blocked(file_path, sync_dir), \
-                f"{filename} should be blocked"
+            assert HomeSyncManager._is_path_blocked(
+                file_path, sync_dir
+            ), f"{filename} should be blocked"
 
     def test_safe_dotfiles_not_blocked(self, tmp_path):
         """Test that safe configuration files are not blocked."""
@@ -170,8 +171,9 @@ class TestPatternMatching:
         for filename in safe_files:
             file_path = sync_dir / filename
             file_path.write_text("safe config")
-            assert not HomeSyncManager._is_path_blocked(file_path, sync_dir), \
-                f"{filename} should not be blocked"
+            assert not HomeSyncManager._is_path_blocked(
+                file_path, sync_dir
+            ), f"{filename} should not be blocked"
 
 
 class TestSymlinkValidation:
@@ -232,13 +234,14 @@ class TestSymlinkValidation:
         target = Path.home() / ".ssh"
 
         # Mock the symlink
-        with patch.object(Path, 'is_symlink', return_value=True):
-            with patch.object(Path, 'resolve', return_value=target):
+        with patch.object(Path, "is_symlink", return_value=True):
+            with patch.object(Path, "resolve", return_value=target):
                 warnings = HomeSyncManager.scan_for_secrets(sync_dir)
 
                 # Should have warning about dangerous symlink
-                assert any(w.severity == "error" and "symlink" in w.reason.lower()
-                          for w in warnings)
+                assert any(
+                    w.severity == "error" and "symlink" in w.reason.lower() for w in warnings
+                )
 
 
 class TestContentScanning:
@@ -250,11 +253,13 @@ class TestContentScanning:
         sync_dir.mkdir()
 
         config_file = sync_dir / "config.yaml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 aws:
   access_key: AKIAIOSFODNN7EXAMPLE
   secret_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-        """)
+        """
+        )
 
         warnings = HomeSyncManager._scan_file_content(config_file)
         assert any("AWS" in w.reason for w in warnings)
@@ -265,11 +270,13 @@ aws:
         sync_dir.mkdir()
 
         key_file = sync_dir / "mykey.txt"
-        key_file.write_text("""
+        key_file.write_text(
+            """
 -----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA...
 -----END RSA PRIVATE KEY-----
-        """)
+        """
+        )
 
         warnings = HomeSyncManager._scan_file_content(key_file)
         assert any("Private Key" in w.reason for w in warnings)
@@ -283,9 +290,11 @@ MIIEpAIBAAKCAQEA...
         # Construct fake token to avoid GitGuardian false positive
         # This tests our scanner's ability to detect the ghp_ pattern
         fake_token = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz"
-        script_file.write_text(f"""
+        script_file.write_text(
+            f"""
 export GITHUB_TOKEN={fake_token}
-        """)
+        """
+        )
 
         warnings = HomeSyncManager._scan_file_content(script_file)
         assert any("GitHub Token" in w.reason for w in warnings)
@@ -296,7 +305,7 @@ export GITHUB_TOKEN={fake_token}
         sync_dir.mkdir()
 
         binary_file = sync_dir / "image.png"
-        binary_file.write_bytes(b'\x89PNG\r\n\x1a\n\x00\x00\x00')
+        binary_file.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00")
 
         # Should not raise exception
         warnings = HomeSyncManager._scan_file_content(binary_file)
@@ -328,9 +337,7 @@ class TestCommandConstruction:
         exclude_file.write_text("")
 
         ssh_config = SSHConfig(
-            host="20.1.2.3",
-            user="azureuser",
-            key_path=Path("/home/user/.ssh/key")
+            host="20.1.2.3", user="azureuser", key_path=Path("/home/user/.ssh/key")
         )
 
         cmd = HomeSyncManager._build_rsync_command(
@@ -340,9 +347,9 @@ class TestCommandConstruction:
         # Should be a list
         assert isinstance(cmd, list)
         # First element should be rsync
-        assert cmd[0] == 'rsync'
+        assert cmd[0] == "rsync"
         # Should include --safe-links
-        assert '--safe-links' in cmd
+        assert "--safe-links" in cmd
 
     def test_ip_address_validation(self, tmp_path):
         """Test that IP addresses are validated."""
@@ -386,16 +393,10 @@ class TestCommandConstruction:
         ]
 
         for host in malicious_hosts:
-            ssh_config = SSHConfig(
-                host=host,
-                user="user",
-                key_path=Path("/key")
-            )
+            ssh_config = SSHConfig(host=host, user="user", key_path=Path("/key"))
 
             with pytest.raises(ValueError, match="Invalid host"):
-                HomeSyncManager._build_rsync_command(
-                    sync_dir, ssh_config, exclude_file, False
-                )
+                HomeSyncManager._build_rsync_command(sync_dir, ssh_config, exclude_file, False)
 
     def test_paths_must_be_absolute(self, tmp_path):
         """Test that all paths must be absolute."""
@@ -405,7 +406,7 @@ class TestCommandConstruction:
                 Path("relative/path"),
                 SSHConfig("1.2.3.4", "user", Path("/key")),
                 Path("/exclude"),
-                False
+                False,
             )
 
 
@@ -472,7 +473,7 @@ class TestSecurityValidation:
 class TestRsyncExecution:
     """Test rsync command execution."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_sync_success(self, mock_run, tmp_path):
         """Test successful sync operation."""
         sync_dir = tmp_path / "sync"
@@ -482,21 +483,19 @@ class TestRsyncExecution:
         # Mock successful rsync
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = "Number of regular files transferred: 1\nTotal transferred file size: 100"
+        mock_result.stdout = (
+            "Number of regular files transferred: 1\nTotal transferred file size: 100"
+        )
         mock_run.return_value = mock_result
 
-        ssh_config = SSHConfig(
-            host="20.1.2.3",
-            user="azureuser",
-            key_path=Path("/key")
-        )
+        ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 
         result = HomeSyncManager.sync_to_vm(ssh_config, dry_run=False)
 
         assert result.success
         assert mock_run.called
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_sync_with_security_validation_failure(self, mock_run, tmp_path):
         """Test that sync fails when security validation fails."""
         sync_dir = tmp_path / "sync"
@@ -507,11 +506,7 @@ class TestRsyncExecution:
         # Create blocked file
         (ssh_dir / "id_rsa").write_text("private key")
 
-        ssh_config = SSHConfig(
-            host="20.1.2.3",
-            user="azureuser",
-            key_path=Path("/key")
-        )
+        ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 
         with pytest.raises(SecurityValidationError):
             HomeSyncManager.sync_to_vm(ssh_config, dry_run=False)
@@ -519,7 +514,7 @@ class TestRsyncExecution:
         # rsync should not be called
         assert not mock_run.called
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_sync_timeout_raises_error(self, mock_run, tmp_path):
         """Test that sync timeout raises appropriate error."""
         sync_dir = tmp_path / "sync"
@@ -528,11 +523,7 @@ class TestRsyncExecution:
 
         mock_run.side_effect = subprocess.TimeoutExpired("rsync", 300)
 
-        ssh_config = SSHConfig(
-            host="20.1.2.3",
-            user="azureuser",
-            key_path=Path("/key")
-        )
+        ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 
         with pytest.raises(RsyncError, match="timed out"):
             HomeSyncManager.sync_to_vm(ssh_config, dry_run=False)
@@ -560,8 +551,9 @@ class TestSecurityBypassAttempts:
 
             # Should be blocked
             if "pub" not in filename:
-                assert HomeSyncManager._is_path_blocked(file_path, sync_dir), \
-                    f"{filename} should be blocked"
+                assert HomeSyncManager._is_path_blocked(
+                    file_path, sync_dir
+                ), f"{filename} should be blocked"
 
     def test_nested_credential_files_blocked(self, tmp_path):
         """Test that credentials in nested directories are blocked."""
@@ -584,11 +576,7 @@ class TestEdgeCases:
         sync_dir = tmp_path / "sync"
         sync_dir.mkdir()
 
-        ssh_config = SSHConfig(
-            host="20.1.2.3",
-            user="azureuser",
-            key_path=Path("/key")
-        )
+        ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 
         result = HomeSyncManager.sync_to_vm(ssh_config, dry_run=False)
 
@@ -599,11 +587,7 @@ class TestEdgeCases:
         """Test handling of nonexistent sync directory."""
         sync_dir = tmp_path / "does_not_exist"
 
-        ssh_config = SSHConfig(
-            host="20.1.2.3",
-            user="azureuser",
-            key_path=Path("/key")
-        )
+        ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 
         result = HomeSyncManager.sync_to_vm(ssh_config, dry_run=False)
 

@@ -6,7 +6,7 @@ Provides a single interface for all session management capabilities.
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from .claude_session import ClaudeSession, SessionConfig
 from .file_utils import safe_read_json, safe_write_json
@@ -53,7 +53,7 @@ class SessionToolkit:
         self,
         name: str,
         config: Optional[SessionConfig] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> str:
         """Create a new session.
 
@@ -76,7 +76,7 @@ class SessionToolkit:
         """Resume session from disk."""
         return self.session_manager.resume_session(session_id)
 
-    def list_sessions(self, active_only: bool = False) -> List[Dict[str, Any]]:
+    def list_sessions(self, active_only: bool = False) -> list[dict[str, Any]]:
         """List available sessions."""
         return self.session_manager.list_sessions(active_only)
 
@@ -178,13 +178,13 @@ class SessionToolkit:
             return False
         return self.session_manager.save_session(self._current_session_id)
 
-    def get_session_stats(self) -> Dict[str, Any]:
+    def get_session_stats(self) -> dict[str, Any]:
         """Get statistics for current session."""
         if not self._current_session:
             return {}
         return self._current_session.get_statistics()
 
-    def get_toolkit_stats(self) -> Dict[str, Any]:
+    def get_toolkit_stats(self) -> dict[str, Any]:
         """Get overall toolkit statistics."""
         sessions = self.list_sessions()
         active_sessions = [s for s in sessions if s.get("status") == "active"]
@@ -199,7 +199,7 @@ class SessionToolkit:
 
     def cleanup_old_data(
         self, session_age_days: int = 30, log_age_days: int = 7, temp_age_hours: int = 24
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Clean up old toolkit data.
 
         Args:

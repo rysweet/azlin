@@ -1,10 +1,10 @@
 """Unit tests for remote_exec module."""
 
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-from azlin.remote_exec import RemoteExecutor, RemoteResult, WCommandExecutor, RemoteExecError
+from unittest.mock import MagicMock, patch
+
 from azlin.modules.ssh_connector import SSHConfig
+from azlin.remote_exec import RemoteExecutor, RemoteResult, WCommandExecutor
 
 
 class TestRemoteResult:
@@ -13,11 +13,7 @@ class TestRemoteResult:
     def test_get_output_both(self):
         """Test getting combined output."""
         result = RemoteResult(
-            vm_name="test-vm",
-            success=True,
-            stdout="stdout text",
-            stderr="stderr text",
-            exit_code=0
+            vm_name="test-vm", success=True, stdout="stdout text", stderr="stderr text", exit_code=0
         )
         output = result.get_output()
         assert "stdout text" in output
@@ -26,11 +22,7 @@ class TestRemoteResult:
     def test_get_output_stdout_only(self):
         """Test getting stdout only."""
         result = RemoteResult(
-            vm_name="test-vm",
-            success=True,
-            stdout="stdout text",
-            stderr="",
-            exit_code=0
+            vm_name="test-vm", success=True, stdout="stdout text", stderr="", exit_code=0
         )
         output = result.get_output()
         assert output == "stdout text"
@@ -38,11 +30,7 @@ class TestRemoteResult:
     def test_get_output_stderr_only(self):
         """Test getting stderr only."""
         result = RemoteResult(
-            vm_name="test-vm",
-            success=False,
-            stdout="",
-            stderr="error message",
-            exit_code=1
+            vm_name="test-vm", success=False, stdout="", stderr="error message", exit_code=1
         )
         output = result.get_output()
         assert output == "error message"
@@ -51,20 +39,12 @@ class TestRemoteResult:
 class TestRemoteExecutor:
     """Tests for RemoteExecutor class."""
 
-    @patch('azlin.remote_exec.subprocess.run')
+    @patch("azlin.remote_exec.subprocess.run")
     def test_execute_command_success(self, mock_run):
         """Test successful command execution."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="command output",
-            stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout="command output", stderr="")
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         result = RemoteExecutor.execute_command(ssh_config, "ls -la", timeout=30)
 
@@ -72,20 +52,12 @@ class TestRemoteExecutor:
         assert result.stdout == "command output"
         assert result.exit_code == 0
 
-    @patch('azlin.remote_exec.subprocess.run')
+    @patch("azlin.remote_exec.subprocess.run")
     def test_execute_command_failure(self, mock_run):
         """Test failed command execution."""
-        mock_run.return_value = MagicMock(
-            returncode=1,
-            stdout="",
-            stderr="command not found"
-        )
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="command not found")
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         result = RemoteExecutor.execute_command(ssh_config, "badcommand", timeout=30)
 
@@ -121,7 +93,9 @@ class TestRemoteExecutor:
 
     def test_extract_command_slug_max_length(self):
         """Test slug truncation."""
-        slug = RemoteExecutor.extract_command_slug("very-long-command-name-that-exceeds-limit", max_length=10)
+        slug = RemoteExecutor.extract_command_slug(
+            "very-long-command-name-that-exceeds-limit", max_length=10
+        )
         assert len(slug) <= 10
 
     def test_format_parallel_output(self):
@@ -153,7 +127,7 @@ class TestRemoteExecutor:
 class TestWCommandExecutor:
     """Tests for WCommandExecutor class."""
 
-    @patch('azlin.remote_exec.RemoteExecutor.execute_parallel')
+    @patch("azlin.remote_exec.RemoteExecutor.execute_parallel")
     def test_execute_w_on_vms(self, mock_execute):
         """Test executing 'w' command on VMs."""
         mock_execute.return_value = [

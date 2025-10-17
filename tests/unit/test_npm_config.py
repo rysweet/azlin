@@ -16,7 +16,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from azlin.modules.npm_config import NpmConfigError, NpmConfigResult, NpmConfigurator
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.remote_exec import RemoteResult
@@ -33,7 +32,7 @@ class TestNpmConfigResult:
             npmrc_configured=True,
             directory_created=True,
             bashrc_updated=True,
-            bashrc_sourced=True
+            bashrc_sourced=True,
         )
 
         assert result.success is True
@@ -50,7 +49,7 @@ class TestNpmConfigResult:
             npmrc_configured=True,
             directory_created=True,
             bashrc_updated=False,
-            bashrc_sourced=False
+            bashrc_sourced=False,
         )
 
         assert result.success is False
@@ -63,11 +62,7 @@ class TestNpmConfiguratorBasics:
 
     def test_creates_npm_configurator_with_ssh_config(self):
         """Test creating npm configurator with SSH configuration."""
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
 
@@ -78,11 +73,7 @@ class TestNpmConfiguratorBasics:
 
     def test_generates_correct_npmrc_content(self):
         """Test that .npmrc content is correctly generated."""
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         npmrc_content = configurator.get_npmrc_content()
@@ -91,11 +82,7 @@ class TestNpmConfiguratorBasics:
 
     def test_generates_correct_bashrc_content(self):
         """Test that .bashrc additions are correctly generated."""
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         bashrc_content = configurator.get_bashrc_content()
@@ -116,22 +103,14 @@ class TestNpmConfiguratorBasics:
 class TestNpmDirectoryCreation:
     """Tests for npm packages directory creation."""
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_creates_npm_packages_directory(self, mock_execute):
         """Test creating .npm-packages directory on VM."""
         mock_execute.return_value = RemoteResult(
-            vm_name="test-vm",
-            success=True,
-            stdout="",
-            stderr="",
-            exit_code=0
+            vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.create_npm_directory()
@@ -145,22 +124,14 @@ class TestNpmDirectoryCreation:
         assert "mkdir" in command
         assert ".npm-packages" in command
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_directory_creation_is_idempotent(self, mock_execute):
         """Test that directory creation is idempotent (uses mkdir -p)."""
         mock_execute.return_value = RemoteResult(
-            vm_name="test-vm",
-            success=True,
-            stdout="",
-            stderr="",
-            exit_code=0
+            vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         configurator.create_npm_directory()
@@ -170,22 +141,14 @@ class TestNpmDirectoryCreation:
         command = call_args[0][1]
         assert "mkdir -p" in command
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_handles_directory_creation_failure(self, mock_execute):
         """Test handling of directory creation failure."""
         mock_execute.return_value = RemoteResult(
-            vm_name="test-vm",
-            success=False,
-            stdout="",
-            stderr="Permission denied",
-            exit_code=1
+            vm_name="test-vm", success=False, stdout="", stderr="Permission denied", exit_code=1
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
 
@@ -198,22 +161,14 @@ class TestNpmDirectoryCreation:
 class TestNpmrcConfiguration:
     """Tests for .npmrc configuration."""
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_configures_npmrc_file(self, mock_execute):
         """Test configuring .npmrc with npm prefix."""
         mock_execute.return_value = RemoteResult(
-            vm_name="test-vm",
-            success=True,
-            stdout="",
-            stderr="",
-            exit_code=0
+            vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npmrc()
@@ -221,41 +176,25 @@ class TestNpmrcConfiguration:
         assert result is True
         mock_execute.assert_called_once()
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_npmrc_configuration_is_idempotent(self, mock_execute):
         """Test that .npmrc configuration is idempotent."""
         # First call: file doesn't have the config
         mock_execute.side_effect = [
             # grep check - not found
-            RemoteResult(
-                vm_name="test-vm",
-                success=False,
-                stdout="",
-                stderr="",
-                exit_code=1
-            ),
+            RemoteResult(vm_name="test-vm", success=False, stdout="", stderr="", exit_code=1),
             # append config
-            RemoteResult(
-                vm_name="test-vm",
-                success=True,
-                stdout="",
-                stderr="",
-                exit_code=0
-            )
+            RemoteResult(vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0),
         ]
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npmrc()
 
         assert result is True
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_skips_npmrc_if_already_configured(self, mock_execute):
         """Test that .npmrc configuration is skipped if already present."""
         # grep check - found
@@ -264,14 +203,10 @@ class TestNpmrcConfiguration:
             success=True,
             stdout="prefix=${HOME}/.npm-packages",
             stderr="",
-            exit_code=0
+            exit_code=0,
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npmrc()
@@ -284,22 +219,14 @@ class TestNpmrcConfiguration:
 class TestBashrcConfiguration:
     """Tests for .bashrc configuration."""
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_configures_bashrc_with_npm_variables(self, mock_execute):
         """Test configuring .bashrc with NPM_PACKAGES, PATH, and MANPATH."""
         mock_execute.return_value = RemoteResult(
-            vm_name="test-vm",
-            success=True,
-            stdout="",
-            stderr="",
-            exit_code=0
+            vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_bashrc()
@@ -307,56 +234,32 @@ class TestBashrcConfiguration:
         assert result is True
         mock_execute.assert_called_once()
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_bashrc_configuration_is_idempotent(self, mock_execute):
         """Test that .bashrc configuration is idempotent."""
         # First call: grep check - not found
         mock_execute.side_effect = [
-            RemoteResult(
-                vm_name="test-vm",
-                success=False,
-                stdout="",
-                stderr="",
-                exit_code=1
-            ),
+            RemoteResult(vm_name="test-vm", success=False, stdout="", stderr="", exit_code=1),
             # append config
-            RemoteResult(
-                vm_name="test-vm",
-                success=True,
-                stdout="",
-                stderr="",
-                exit_code=0
-            )
+            RemoteResult(vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0),
         ]
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_bashrc()
 
         assert result is True
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_skips_bashrc_if_already_configured(self, mock_execute):
         """Test that .bashrc configuration is skipped if already present."""
         # grep check - found
         mock_execute.return_value = RemoteResult(
-            vm_name="test-vm",
-            success=True,
-            stdout="NPM_PACKAGES=",
-            stderr="",
-            exit_code=0
+            vm_name="test-vm", success=True, stdout="NPM_PACKAGES=", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_bashrc()
@@ -369,22 +272,14 @@ class TestBashrcConfiguration:
 class TestBashrcSourceing:
     """Tests for sourcing .bashrc to apply changes."""
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_sources_bashrc_to_apply_changes(self, mock_execute):
         """Test sourcing .bashrc after configuration."""
         mock_execute.return_value = RemoteResult(
-            vm_name="test-vm",
-            success=True,
-            stdout="",
-            stderr="",
-            exit_code=0
+            vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.source_bashrc()
@@ -402,23 +297,15 @@ class TestBashrcSourceing:
 class TestNpmConfigurationEndToEnd:
     """Tests for end-to-end npm configuration."""
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_configure_npm_runs_all_steps(self, mock_execute):
         """Test that configure_npm runs all configuration steps."""
         # Mock all successful responses
         mock_execute.return_value = RemoteResult(
-            vm_name="test-vm",
-            success=True,
-            stdout="",
-            stderr="",
-            exit_code=0
+            vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npm()
@@ -432,7 +319,7 @@ class TestNpmConfigurationEndToEnd:
         # Should have called execute_command multiple times
         assert mock_execute.call_count >= 4
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_configure_npm_handles_partial_failure(self, mock_execute):
         """Test that configure_npm handles partial failures gracefully."""
         # Mock mixed responses - bashrc update fails
@@ -446,14 +333,12 @@ class TestNpmConfigurationEndToEnd:
             # configure bashrc - check
             RemoteResult(vm_name="test-vm", success=False, stdout="", stderr="", exit_code=1),
             # configure bashrc - append (FAILS)
-            RemoteResult(vm_name="test-vm", success=False, stdout="", stderr="Write error", exit_code=1),
+            RemoteResult(
+                vm_name="test-vm", success=False, stdout="", stderr="Write error", exit_code=1
+            ),
         ]
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
 
@@ -462,7 +347,7 @@ class TestNpmConfigurationEndToEnd:
 
         assert "Write error" in str(exc_info.value)
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_configure_npm_is_idempotent(self, mock_execute):
         """Test that configure_npm can be run multiple times safely."""
         # Mock all checks return "already configured"
@@ -472,16 +357,14 @@ class TestNpmConfigurationEndToEnd:
             # check npmrc - found
             RemoteResult(vm_name="test-vm", success=True, stdout="prefix=", stderr="", exit_code=0),
             # check bashrc - found
-            RemoteResult(vm_name="test-vm", success=True, stdout="NPM_PACKAGES=", stderr="", exit_code=0),
+            RemoteResult(
+                vm_name="test-vm", success=True, stdout="NPM_PACKAGES=", stderr="", exit_code=0
+            ),
             # source bashrc
             RemoteResult(vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0),
         ]
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npm()
@@ -494,7 +377,7 @@ class TestNpmConfigurationEndToEnd:
 class TestNpmConfigIntegrationWithProvisioning:
     """Tests for integration with VM provisioning flow."""
 
-    @patch('azlin.modules.npm_config.NpmConfigurator.configure_npm')
+    @patch("azlin.modules.npm_config.NpmConfigurator.configure_npm")
     def test_can_be_called_after_vm_provisioning(self, mock_configure):
         """Test that npm configuration can be called after VM provisioning."""
         mock_configure.return_value = NpmConfigResult(
@@ -503,14 +386,10 @@ class TestNpmConfigIntegrationWithProvisioning:
             npmrc_configured=True,
             directory_created=True,
             bashrc_updated=True,
-            bashrc_sourced=True
+            bashrc_sourced=True,
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npm()
@@ -520,11 +399,7 @@ class TestNpmConfigIntegrationWithProvisioning:
 
     def test_npm_configurator_has_vm_name_attribute(self):
         """Test that npm configurator tracks VM name for logging."""
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
 
@@ -540,22 +415,14 @@ class TestNpmConfigErrorHandling:
         error = NpmConfigError("Configuration failed")
         assert str(error) == "Configuration failed"
 
-    @patch('azlin.modules.npm_config.RemoteExecutor.execute_command')
+    @patch("azlin.modules.npm_config.RemoteExecutor.execute_command")
     def test_raises_error_on_directory_creation_failure(self, mock_execute):
         """Test that error is raised on directory creation failure."""
         mock_execute.return_value = RemoteResult(
-            vm_name="test-vm",
-            success=False,
-            stdout="",
-            stderr="Disk full",
-            exit_code=1
+            vm_name="test-vm", success=False, stdout="", stderr="Disk full", exit_code=1
         )
 
-        ssh_config = SSHConfig(
-            host="1.2.3.4",
-            user="azureuser",
-            key_path=Path("/tmp/key")
-        )
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         configurator = NpmConfigurator(ssh_config)
 

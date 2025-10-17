@@ -7,7 +7,7 @@ Preserves original user requests and conversation context to prevent loss during
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 # Use clean import through dedicated paths module
 from paths import get_project_root
@@ -32,7 +32,7 @@ class ContextPreserver:
         self.session_dir = self.project_root / ".claude" / "runtime" / "logs" / self.session_id
         self.session_dir.mkdir(parents=True, exist_ok=True)
 
-    def extract_original_request(self, prompt: str) -> Dict[str, Any]:
+    def extract_original_request(self, prompt: str) -> dict[str, Any]:
         """Extract and structure original user requirements from initial prompt.
 
         Args:
@@ -74,7 +74,7 @@ class ContextPreserver:
 
         return original_request
 
-    def _parse_requirements(self, prompt: str) -> List[str]:
+    def _parse_requirements(self, prompt: str) -> list[str]:
         """Parse explicit requirements from prompt."""
         requirements = []
 
@@ -101,7 +101,7 @@ class ContextPreserver:
 
         return requirements[:10]
 
-    def _parse_constraints(self, prompt: str) -> List[str]:
+    def _parse_constraints(self, prompt: str) -> list[str]:
         """Parse constraints from prompt."""
         constraints = []
 
@@ -123,7 +123,7 @@ class ContextPreserver:
 
         return constraints[:5]
 
-    def _parse_success_criteria(self, prompt: str) -> List[str]:
+    def _parse_success_criteria(self, prompt: str) -> list[str]:
         """Parse success criteria from prompt."""
         criteria = []
 
@@ -162,7 +162,7 @@ class ContextPreserver:
 
         return "General development task"
 
-    def _save_original_request(self, original_request: Dict[str, Any]):
+    def _save_original_request(self, original_request: dict[str, Any]):
         """Save original request to session logs."""
         request_file = self.session_dir / "ORIGINAL_REQUEST.md"
 
@@ -212,7 +212,7 @@ All agents should receive this context to ensure user requirements are preserved
         with open(json_file, "w") as f:
             json.dump(original_request, f, indent=2)
 
-    def get_original_request(self, session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def get_original_request(self, session_id: Optional[str] = None) -> Optional[dict[str, Any]]:
         """Retrieve original request for a session.
 
         Args:
@@ -240,7 +240,7 @@ All agents should receive this context to ensure user requirements are preserved
         except Exception:
             return None
 
-    def format_agent_context(self, original_request: Optional[Dict[str, Any]] = None) -> str:
+    def format_agent_context(self, original_request: Optional[dict[str, Any]] = None) -> str:
         """Format original request as context for agent injection.
 
         Args:
@@ -290,7 +290,7 @@ All agents should receive this context to ensure user requirements are preserved
 
         return "\n".join(context_parts)
 
-    def export_conversation_transcript(self, conversation_data: List[Dict[str, Any]]) -> str:
+    def export_conversation_transcript(self, conversation_data: list[dict[str, Any]]) -> str:
         """Export complete conversation transcript (Amplifier-style).
 
         Args:

@@ -34,12 +34,14 @@ logger = logging.getLogger(__name__)
 
 class KeyRotationError(Exception):
     """Raised when key rotation operations fail."""
+
     pass
 
 
 @dataclass
 class KeyBackup:
     """Information about backed up SSH keys."""
+
     backup_dir: Path
     timestamp: datetime
     old_private_key: Path
@@ -49,6 +51,7 @@ class KeyBackup:
 @dataclass
 class KeyRotationResult:
     """Result of SSH key rotation operation."""
+
     success: bool
     message: str
     vms_updated: list[str]
@@ -65,6 +68,7 @@ class KeyRotationResult:
 @dataclass
 class VMKeyInfo:
     """Information about a VM's SSH key."""
+
     vm_name: str
     resource_group: str
     public_key: str | None = None
@@ -91,7 +95,7 @@ class SSHKeyRotator:
         resource_group: str,
         create_backup: bool = True,
         enable_rollback: bool = True,
-        vm_prefix: str = "azlin"
+        vm_prefix: str = "azlin",
     ) -> KeyRotationResult:
         """
         Rotate SSH keys for all VMs in resource group.
@@ -127,10 +131,7 @@ class SSHKeyRotator:
             except Exception as e:
                 logger.error(f"Failed to backup keys: {e}")
                 return KeyRotationResult(
-                    success=False,
-                    message=f"Backup failed: {e}",
-                    vms_updated=[],
-                    vms_failed=[]
+                    success=False, message=f"Backup failed: {e}", vms_updated=[], vms_failed=[]
                 )
 
         # Step 2: Generate new SSH key
@@ -147,7 +148,7 @@ class SSHKeyRotator:
                 message=f"Key generation failed: {e}",
                 vms_updated=[],
                 vms_failed=[],
-                backup_path=backup.backup_dir if backup else None
+                backup_path=backup.backup_dir if backup else None,
             )
 
         # Step 3: Update all VMs
@@ -155,7 +156,7 @@ class SSHKeyRotator:
             update_result = cls.update_all_vms(
                 resource_group=resource_group,
                 new_public_key=new_key_pair.public_key_content,
-                vm_prefix=vm_prefix
+                vm_prefix=vm_prefix,
             )
 
             # Step 4: Handle rollback if needed
@@ -170,7 +171,7 @@ class SSHKeyRotator:
                 vms_updated=update_result.vms_updated,
                 vms_failed=update_result.vms_failed,
                 new_key_path=new_key_path,
-                backup_path=backup.backup_dir if backup else None
+                backup_path=backup.backup_dir if backup else None,
             )
 
         except Exception as e:
@@ -181,15 +182,12 @@ class SSHKeyRotator:
                 vms_updated=[],
                 vms_failed=[],
                 new_key_path=new_key_path,
-                backup_path=backup.backup_dir if backup else None
+                backup_path=backup.backup_dir if backup else None,
             )
 
     @classmethod
     def update_all_vms(
-        cls,
-        resource_group: str,
-        new_public_key: str,
-        vm_prefix: str = "azlin"
+        cls, resource_group: str, new_public_key: str, vm_prefix: str = "azlin"
     ) -> KeyRotationResult:
         """
         Update all VMs in resource group with new SSH key.
@@ -212,10 +210,7 @@ class SSHKeyRotator:
         except Exception as e:
             logger.error(f"Failed to list VMs: {e}")
             return KeyRotationResult(
-                success=False,
-                message=f"Failed to list VMs: {e}",
-                vms_updated=[],
-                vms_failed=[]
+                success=False, message=f"Failed to list VMs: {e}", vms_updated=[], vms_failed=[]
             )
 
         if not vms:
@@ -224,7 +219,7 @@ class SSHKeyRotator:
                 success=True,
                 message=f"No VMs found with prefix '{vm_prefix}'",
                 vms_updated=[],
-                vms_failed=[]
+                vms_failed=[],
             )
 
         logger.info(f"Updating {len(vms)} VMs in parallel...")
@@ -239,7 +234,7 @@ class SSHKeyRotator:
                 success=False,
                 message=f"Azure authentication failed: {e}",
                 vms_updated=[],
-                vms_failed=[]
+                vms_failed=[],
             )
 
         # Update VMs in parallel
@@ -249,12 +244,7 @@ class SSHKeyRotator:
         with ThreadPoolExecutor(max_workers=cls.MAX_WORKERS) as executor:
             # Submit all update tasks
             future_to_vm = {
-                executor.submit(
-                    cls.update_vm_key,
-                    vm.name,
-                    resource_group,
-                    new_public_key
-                ): vm
+                executor.submit(cls.update_vm_key, vm.name, resource_group, new_public_key): vm
                 for vm in vms
             }
 
@@ -283,16 +273,11 @@ class SSHKeyRotator:
             success=(len(vms_failed) == 0),
             message=message,
             vms_updated=vms_updated,
-            vms_failed=vms_failed
+            vms_failed=vms_failed,
         )
 
     @classmethod
-    def update_vm_key(
-        cls,
-        vm_name: str,
-        resource_group: str,
-        new_public_key: str
-    ) -> bool:
+    def update_vm_key(cls, vm_name: str, resource_group: str, new_public_key: str) -> bool:
         """
         Update a single VM's SSH key using Azure CLI.
 
@@ -311,20 +296,21 @@ class SSHKeyRotator:
             # Use Azure CLI to update VM SSH key
             # This updates the VM's OS profile with the new key
             cmd = [
-                "az", "vm", "user", "update",
-                "--resource-group", resource_group,
-                "--name", vm_name,
-                "--username", "azureuser",
-                "--ssh-key-value", new_public_key
+                "az",
+                "vm",
+                "user",
+                "update",
+                "--resource-group",
+                resource_group,
+                "--name",
+                vm_name,
+                "--username",
+                "azureuser",
+                "--ssh-key-value",
+                new_public_key,
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=True)
 
             logger.debug(f"Successfully updated SSH key for VM: {vm_name}")
             return True
@@ -340,10 +326,7 @@ class SSHKeyRotator:
             return False
 
     @classmethod
-    def backup_keys(
-        cls,
-        key_path: Path | None = None
-    ) -> KeyBackup:
+    def backup_keys(cls, key_path: Path | None = None) -> KeyBackup:
         """
         Backup current SSH keys to timestamped directory.
 
@@ -391,7 +374,7 @@ class SSHKeyRotator:
                 backup_dir=backup_dir,
                 timestamp=timestamp,
                 old_private_key=backup_private,
-                old_public_key=backup_public
+                old_public_key=backup_public,
             )
 
         except Exception as e:
@@ -401,11 +384,7 @@ class SSHKeyRotator:
             raise KeyRotationError(f"Failed to backup keys: {e}")
 
     @classmethod
-    def list_vm_keys(
-        cls,
-        resource_group: str,
-        vm_prefix: str = "azlin"
-    ) -> list[VMKeyInfo]:
+    def list_vm_keys(cls, resource_group: str, vm_prefix: str = "azlin") -> list[VMKeyInfo]:
         """
         List VMs and their SSH public keys using Azure CLI.
 
@@ -432,45 +411,53 @@ class SSHKeyRotator:
                 try:
                     # Get VM details including SSH keys
                     cmd = [
-                        "az", "vm", "show",
-                        "--resource-group", resource_group,
-                        "--name", vm.name,
-                        "--query", "osProfile.linuxConfiguration.ssh.publicKeys[0].keyData",
-                        "--output", "tsv"
+                        "az",
+                        "vm",
+                        "show",
+                        "--resource-group",
+                        resource_group,
+                        "--name",
+                        vm.name,
+                        "--query",
+                        "osProfile.linuxConfiguration.ssh.publicKeys[0].keyData",
+                        "--output",
+                        "tsv",
                     ]
 
                     result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                        check=True
+                        cmd, capture_output=True, text=True, timeout=30, check=True
                     )
 
                     public_key = result.stdout.strip() if result.stdout else None
 
-                    vm_keys.append(VMKeyInfo(
-                        vm_name=vm.name,
-                        resource_group=resource_group,
-                        public_key=public_key,
-                        key_fingerprint=None  # Could compute SHA256 hash
-                    ))
+                    vm_keys.append(
+                        VMKeyInfo(
+                            vm_name=vm.name,
+                            resource_group=resource_group,
+                            public_key=public_key,
+                            key_fingerprint=None,  # Could compute SHA256 hash
+                        )
+                    )
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Failed to get key for VM {vm.name}: {e.stderr}")
-                    vm_keys.append(VMKeyInfo(
-                        vm_name=vm.name,
-                        resource_group=resource_group,
-                        public_key=None,
-                        key_fingerprint=None
-                    ))
+                    vm_keys.append(
+                        VMKeyInfo(
+                            vm_name=vm.name,
+                            resource_group=resource_group,
+                            public_key=None,
+                            key_fingerprint=None,
+                        )
+                    )
                 except Exception as e:
                     logger.error(f"Failed to get key for VM {vm.name}: {e}")
-                    vm_keys.append(VMKeyInfo(
-                        vm_name=vm.name,
-                        resource_group=resource_group,
-                        public_key=None,
-                        key_fingerprint=None
-                    ))
+                    vm_keys.append(
+                        VMKeyInfo(
+                            vm_name=vm.name,
+                            resource_group=resource_group,
+                            public_key=None,
+                            key_fingerprint=None,
+                        )
+                    )
 
             return vm_keys
 
@@ -479,11 +466,7 @@ class SSHKeyRotator:
             return []
 
     @classmethod
-    def export_public_key(
-        cls,
-        output_file: Path,
-        key_path: Path | None = None
-    ) -> bool:
+    def export_public_key(cls, output_file: Path, key_path: Path | None = None) -> bool:
         """
         Export public key to file.
 
@@ -516,10 +499,4 @@ class SSHKeyRotator:
             return False
 
 
-__all__ = [
-    'SSHKeyRotator',
-    'KeyRotationResult',
-    'KeyBackup',
-    'VMKeyInfo',
-    'KeyRotationError'
-]
+__all__ = ["SSHKeyRotator", "KeyRotationResult", "KeyBackup", "VMKeyInfo", "KeyRotationError"]
