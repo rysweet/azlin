@@ -2093,6 +2093,13 @@ def connect(
         else:
             rg = resource_group
 
+        # If no explicit tmux session name, try to use azlin session name
+        if not tmux_session and not no_tmux:
+            session_name = ConfigManager.get_session_name(vm_identifier, config)
+            if session_name:
+                tmux_session = session_name
+                click.echo(f"Using session name '{session_name}' for tmux")
+
         # Connect to VM
         click.echo(f"Connecting to {vm_identifier}...")
 

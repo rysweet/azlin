@@ -539,6 +539,21 @@ runcmd:
     EOF
   - chown azureuser:azureuser /home/azureuser/.npmrc /home/azureuser/.npm-packages
 
+  # Tmux configuration for session name display
+  - |
+    cat > /home/azureuser/.tmux.conf << 'EOF'
+    # Display session name in status bar
+    set -g status-left-length 40
+    set -g status-left "#[fg=green]Session: #S #[fg=yellow]| "
+    set -g status-right "#[fg=cyan]%Y-%m-%d %H:%M"
+    
+    # Additional useful settings
+    set -g status-interval 60
+    set -g status-bg black
+    set -g status-fg white
+    EOF
+  - chown azureuser:azureuser /home/azureuser/.tmux.conf
+
   # AI CLI tools (installed as azureuser to use user-local npm config)
   - su - azureuser -c "npm install -g @github/copilot"
   - su - azureuser -c "npm install -g @openai/codex"
