@@ -1,8 +1,7 @@
 """
-Unit tests for azlin prune command (TDD - RED phase).
+Unit tests for azlin prune command.
 
-Tests the VM pruning functionality following TDD approach.
-All tests should FAIL initially as no implementation exists yet.
+Tests the VM pruning functionality for identifying and deleting inactive VMs.
 
 Test Coverage:
 - VM filtering by age threshold
@@ -21,8 +20,6 @@ Test Coverage:
 - No VMs eligible message
 - Confirmation prompt behavior
 - Table display formatting
-
-RED PHASE: All tests will fail - no implementation yet.
 """
 
 from datetime import datetime, timedelta
