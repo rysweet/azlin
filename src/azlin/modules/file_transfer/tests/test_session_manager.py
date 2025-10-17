@@ -1,13 +1,14 @@
 """Unit tests for session_manager module."""
 
-import pytest
 from unittest.mock import Mock
+
+import pytest
+
 from azlin.modules.file_transfer import (
-    SessionManager,
-    VMSession,
     InvalidSessionNameError,
+    MultipleSessionsError,
+    SessionManager,
     SessionNotFoundError,
-    MultipleSessionsError
 )
 
 
@@ -138,17 +139,17 @@ class TestGetVMSession:
         mock_vm.power_state = "running"
         mock_vm.public_ip = "1.2.3.4"
 
-        # Mock managers
+        # Mock VM manager
         vm_manager = Mock()
         vm_manager.list_vms.return_value = [mock_vm]
-        config_manager = Mock()
-        config_manager.get_default_resource_group.return_value = "test-rg"
 
-        session = SessionManager.get_vm_session("test-vm", vm_manager, config_manager)
+        session = SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)
 
         assert session.name == "test-vm"
         assert session.public_ip == "1.2.3.4"
         assert session.user == "azureuser"
+        assert session.resource_group == "test-rg"
+        vm_manager.list_vms.assert_called_once_with("test-rg")
 
     def test_finds_prefix_match(self):
         """Should find VM with prefix match"""
@@ -158,13 +159,11 @@ class TestGetVMSession:
         mock_vm.power_state = "running"
         mock_vm.public_ip = "1.2.3.4"
 
-        # Mock managers
+        # Mock VM manager
         vm_manager = Mock()
         vm_manager.list_vms.return_value = [mock_vm]
-        config_manager = Mock()
-        config_manager.get_default_resource_group.return_value = "test-rg"
 
-        session = SessionManager.get_vm_session("test", vm_manager, config_manager)
+        session = SessionManager.get_vm_session("test", "test-rg", vm_manager)
 
         assert session.name == "test-vm-001"
 
@@ -179,25 +178,21 @@ class TestGetVMSession:
         mock_vm2.name = "test-vm-002"
         mock_vm2.power_state = "running"
 
-        # Mock managers
+        # Mock VM manager
         vm_manager = Mock()
         vm_manager.list_vms.return_value = [mock_vm1, mock_vm2]
-        config_manager = Mock()
-        config_manager.get_default_resource_group.return_value = "test-rg"
 
         with pytest.raises(MultipleSessionsError):
-            SessionManager.get_vm_session("test", vm_manager, config_manager)
+            SessionManager.get_vm_session("test", "test-rg", vm_manager)
 
     def test_rejects_no_match(self):
         """Should reject when no VMs match"""
-        # Mock managers
+        # Mock VM manager
         vm_manager = Mock()
         vm_manager.list_vms.return_value = []
-        config_manager = Mock()
-        config_manager.get_default_resource_group.return_value = "test-rg"
 
         with pytest.raises(SessionNotFoundError):
-            SessionManager.get_vm_session("nonexistent", vm_manager, config_manager)
+            SessionManager.get_vm_session("nonexistent", "test-rg", vm_manager)
 
     def test_rejects_stopped_vm(self):
         """Should reject VMs that are not running"""
@@ -206,14 +201,12 @@ class TestGetVMSession:
         mock_vm.name = "test-vm"
         mock_vm.power_state = "stopped"
 
-        # Mock managers
+        # Mock VM manager
         vm_manager = Mock()
         vm_manager.list_vms.return_value = [mock_vm]
-        config_manager = Mock()
-        config_manager.get_default_resource_group.return_value = "test-rg"
 
         with pytest.raises(SessionNotFoundError, match="not running"):
-            SessionManager.get_vm_session("test-vm", vm_manager, config_manager)
+            SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)
 
     def test_rejects_vm_without_ip(self):
         """Should reject VMs without public IP"""
@@ -223,11 +216,9 @@ class TestGetVMSession:
         mock_vm.power_state = "running"
         mock_vm.public_ip = None
 
-        # Mock managers
+        # Mock VM manager
         vm_manager = Mock()
         vm_manager.list_vms.return_value = [mock_vm]
-        config_manager = Mock()
-        config_manager.get_default_resource_group.return_value = "test-rg"
 
         with pytest.raises(SessionNotFoundError, match="no public IP"):
-            SessionManager.get_vm_session("test-vm", vm_manager, config_manager)
+            SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)
