@@ -23,13 +23,10 @@ Test Coverage:
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
-
-from azlin.config_manager import AzlinConfig
 from azlin.vm_manager import VMInfo
-
 
 # ============================================================================
 # VM FILTERING TESTS - AGE AND IDLE THRESHOLDS
@@ -152,7 +149,9 @@ class TestVMFilteringByIdle:
             "active-vm": {"last_connected": (now - timedelta(days=2)).isoformat() + "Z"},
         }
 
-        filtered = PruneManager.filter_by_idle([idle_vm, active_vm], idle_days=14, connection_data=connection_data)
+        filtered = PruneManager.filter_by_idle(
+            [idle_vm, active_vm], idle_days=14, connection_data=connection_data
+        )
 
         assert len(filtered) == 1
         assert filtered[0].name == "idle-vm"
@@ -176,7 +175,9 @@ class TestVMFilteringByIdle:
         # Empty connection data
         connection_data = {}
 
-        filtered = PruneManager.filter_by_idle([never_connected_vm], idle_days=14, connection_data=connection_data)
+        filtered = PruneManager.filter_by_idle(
+            [never_connected_vm], idle_days=14, connection_data=connection_data
+        )
 
         # Never connected VMs should be included (considered maximally idle)
         assert len(filtered) == 1
@@ -230,7 +231,7 @@ class TestVMFilteringByIdle:
             [old_active_vm, recent_idle_vm, prune_candidate_vm],
             age_days=30,
             idle_days=14,
-            connection_data=connection_data
+            connection_data=connection_data,
         )
 
         assert len(filtered) == 1
@@ -703,7 +704,9 @@ class TestForceMode:
         )
 
         mock_list_vms.return_value = [test_vm]
-        mock_delete.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+        mock_delete.return_value = DeletionResult(
+            vm_name="test-vm", success=True, message="Deleted"
+        )
 
         result = PruneManager.prune(
             resource_group="test-rg",
@@ -798,9 +801,7 @@ class TestConfigCleanup:
     @patch("azlin.prune.VMManager.list_vms")
     @patch("azlin.prune.VMLifecycleManager.delete_vm")
     @patch("azlin.prune.ConfigManager.delete_session_name")
-    def test_config_cleaned_after_deletion(
-        self, mock_delete_session, mock_delete, mock_list_vms
-    ):
+    def test_config_cleaned_after_deletion(self, mock_delete_session, mock_delete, mock_list_vms):
         """Test that config is updated to remove deleted VM entries.
 
         Validates:
@@ -821,7 +822,9 @@ class TestConfigCleanup:
         )
 
         mock_list_vms.return_value = [test_vm]
-        mock_delete.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+        mock_delete.return_value = DeletionResult(
+            vm_name="test-vm", success=True, message="Deleted"
+        )
 
         PruneManager.prune(
             resource_group="test-rg",
@@ -869,7 +872,9 @@ class TestConfigCleanup:
         )
 
         mock_list_vms.return_value = [vm1, vm2]
-        mock_delete_vm.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+        mock_delete_vm.return_value = DeletionResult(
+            vm_name="test-vm", success=True, message="Deleted"
+        )
 
         PruneManager.prune(
             resource_group="test-rg",
@@ -927,7 +932,7 @@ class TestPartialDeletionFailures:
         # First deletion fails, second succeeds
         mock_delete.side_effect = [
             Exception("Azure error"),
-            DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+            DeletionResult(vm_name="test-vm", success=True, message="Deleted"),
         ]
 
         result = PruneManager.prune(
@@ -1199,7 +1204,6 @@ class TestPruneCLIArguments:
         - Custom values are accepted
         """
         from azlin.cli import main
-
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -1224,7 +1228,6 @@ class TestPruneCLIArguments:
         - --include-named flag
         """
         from azlin.cli import main
-
         from click.testing import CliRunner
 
         runner = CliRunner()
@@ -1233,8 +1236,7 @@ class TestPruneCLIArguments:
             mock_get_candidates.return_value = ([], {})
 
             result = runner.invoke(
-                main,
-                ["prune", "--dry-run", "--include-running", "--include-named"]
+                main, ["prune", "--dry-run", "--include-running", "--include-named"]
             )
 
             # Should call get_candidates with flags
@@ -1287,7 +1289,9 @@ class TestPruneIntegration:
         )
 
         mock_list_vms.return_value = [old_stopped_vm, recent_vm]
-        mock_delete.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+        mock_delete.return_value = DeletionResult(
+            vm_name="test-vm", success=True, message="Deleted"
+        )
 
         # Execute full workflow
         result = PruneManager.prune(

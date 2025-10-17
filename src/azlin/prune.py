@@ -16,7 +16,7 @@ from typing import Optional
 from azlin.config_manager import ConfigManager
 from azlin.connection_tracker import ConnectionTracker
 from azlin.vm_lifecycle import VMLifecycleManager
-from azlin.vm_manager import VMInfo, VMManager, VMManagerError
+from azlin.vm_manager import VMInfo, VMManager
 
 logger = logging.getLogger(__name__)
 
