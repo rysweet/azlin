@@ -1121,7 +1121,7 @@ def new_command(
         # Create VM configs for pool
         configs = []
         for i in range(pool):
-            vm_name_pool = f"{vm_name}-{i+1:02d}"
+            vm_name_pool = f"{vm_name}-{i + 1:02d}"
             config = orchestrator.provisioner.create_vm_config(
                 name=vm_name_pool,
                 resource_group=final_rg or f"azlin-rg-{int(time.time())}",
@@ -2733,8 +2733,7 @@ def clone(
             sys.exit(1)
 
         # Load configuration
-        config_mgr = ConfigManager(config)
-        cfg = config_mgr.load()
+        cfg = ConfigManager.load_config(config)
 
         # Get resource group
         rg = resource_group or cfg.default_resource_group
@@ -2744,7 +2743,7 @@ def clone(
 
         # Resolve source VM (by name or session)
         click.echo(f"Resolving source VM: {source_vm}")
-        source_vm_info = _resolve_source_vm(source_vm, rg, config_mgr)
+        source_vm_info = _resolve_source_vm(source_vm, rg, config)
 
         if not source_vm_info:
             click.echo(f"Error: Source VM '{source_vm}' not found", err=True)
@@ -2837,7 +2836,7 @@ def clone(
             _set_clone_session_names(
                 clone_vms=result.successful,
                 session_prefix=session_prefix,
-                config_manager=config_mgr,
+                config_path=config,
             )
 
         # Display final results
@@ -2848,7 +2847,9 @@ def clone(
         click.echo("=" * 70)
         click.echo("\nCloned VMs:")
         for vm in result.successful:
-            session_name = config_mgr.get_session_name(vm.name) if session_prefix else None
+            session_name = (
+                ConfigManager.get_session_name(vm.name, config) if session_prefix else None
+            )
             copy_status = "✓" if copy_results.get(vm.name, False) else "✗"
             display_name = f"{session_name} ({vm.name})" if session_name else vm.name
             click.echo(f"  {copy_status} {display_name}")
@@ -2864,7 +2865,7 @@ def clone(
         if result.successful:
             first_clone = result.successful[0]
             first_session = (
-                config_mgr.get_session_name(first_clone.name) if session_prefix else None
+                ConfigManager.get_session_name(first_clone.name, config) if session_prefix else None
             )
             connect_target = first_session or first_clone.name
             click.echo("\nTo connect to first clone:")
@@ -2889,14 +2890,14 @@ def clone(
 
 
 def _resolve_source_vm(
-    source_vm: str, resource_group: str, config_mgr: ConfigManager
+    source_vm: str, resource_group: str, config_path: str | None = None
 ) -> VMInfo | None:
     """Resolve source VM by session name or VM name.
 
     Args:
         source_vm: Source VM identifier (session name or VM name)
         resource_group: Resource group name
-        config_mgr: Configuration manager
+        config_path: Optional config file path
 
     Returns:
         VMInfo object or None if not found
@@ -2907,7 +2908,7 @@ def _resolve_source_vm(
         return vm_info
 
     # Try as session name
-    vm_name = config_mgr.get_vm_by_session(source_vm)
+    vm_name = ConfigManager.get_vm_name_by_session(source_vm, config_path)
     if vm_name:
         vm_info = VMManager.get_vm(vm_name, resource_group)
         if vm_info:
@@ -3042,24 +3043,24 @@ def _copy_home_directories(
 def _set_clone_session_names(
     clone_vms: list[VMDetails],
     session_prefix: str,
-    config_manager: ConfigManager,
+    config_path: str | None = None,
 ) -> None:
     """Set session names for cloned VMs.
 
     Args:
         clone_vms: List of cloned VM details
         session_prefix: Session name prefix
-        config_manager: Configuration manager
+        config_path: Optional config file path
     """
     if len(clone_vms) == 1:
         # Single clone: use prefix without number
-        config_manager.set_session_name(clone_vms[0].name, session_prefix)
+        ConfigManager.set_session_name(clone_vms[0].name, session_prefix, config_path)
         click.echo(f"  Set session name: {session_prefix} -> {clone_vms[0].name}")
     else:
         # Multiple clones: use numbered suffixes
         for i, vm in enumerate(clone_vms, 1):
             session_name = f"{session_prefix}-{i}"
-            config_manager.set_session_name(vm.name, session_name)
+            ConfigManager.set_session_name(vm.name, session_name, config_path)
             click.echo(f"  Set session name: {session_name} -> {vm.name}")
 
 
