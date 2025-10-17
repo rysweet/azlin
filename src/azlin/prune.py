@@ -15,6 +15,7 @@ from typing import Optional
 
 from azlin.config_manager import ConfigManager
 from azlin.connection_tracker import ConnectionTracker
+from azlin.vm_lifecycle import VMLifecycleManager
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
 
 logger = logging.getLogger(__name__)
@@ -146,6 +147,110 @@ class PruneManager:
         return "\n".join(rows)
 
     @classmethod
+    def get_candidates(
+        cls,
+        resource_group: str,
+        age_days: int = 30,
+        idle_days: int = 14,
+        include_running: bool = False,
+        include_named: bool = False,
+    ) -> tuple[list[VMInfo], dict[str, dict]]:
+        """Get VMs that are candidates for pruning.
+
+        Args:
+            resource_group: Resource group name
+            age_days: Age threshold in days (default: 30)
+            idle_days: Idle threshold in days (default: 14)
+            include_running: Include running VMs (default: False)
+            include_named: Include named sessions (default: False)
+
+        Returns:
+            Tuple of (candidates, connection_data)
+
+        Raises:
+            VMManagerError: If VM operations fail
+
+        Example:
+            >>> candidates, connection_data = PruneManager.get_candidates(
+            ...     resource_group="my-rg",
+            ...     age_days=30,
+            ...     idle_days=14
+            ... )
+        """
+        # List all VMs in resource group
+        vms = VMManager.list_vms(resource_group, include_stopped=True)
+
+        # Load connection data
+        connection_data = ConnectionTracker.load_connections()
+
+        # Filter VMs for pruning
+        candidates = cls.filter_for_pruning(
+            vms,
+            age_days=age_days,
+            idle_days=idle_days,
+            connection_data=connection_data,
+            include_running=include_running,
+            include_named=include_named,
+        )
+
+        return candidates, connection_data
+
+    @classmethod
+    def execute_prune(
+        cls,
+        candidates: list[VMInfo],
+        resource_group: str,
+    ) -> dict:
+        """Execute deletion of candidate VMs.
+
+        Args:
+            candidates: List of VMs to delete
+            resource_group: Resource group name
+
+        Returns:
+            Dictionary with deletion results
+
+        Raises:
+            VMManagerError: If VM operations fail
+
+        Example:
+            >>> result = PruneManager.execute_prune(
+            ...     candidates=candidates,
+            ...     resource_group="my-rg"
+            ... )
+        """
+        deleted_count = 0
+        failed_count = 0
+        errors = []
+
+        for vm in candidates:
+            try:
+                logger.info(f"Deleting VM: {vm.name}")
+                result = VMLifecycleManager.delete_vm(vm.name, resource_group, force=True)
+
+                if result.success:
+                    deleted_count += 1
+                    # Clean up connection record
+                    ConnectionTracker.remove_connection(vm.name)
+                    # Clean up session name
+                    ConfigManager.delete_session_name(vm.name)
+                else:
+                    failed_count += 1
+                    errors.append(f"{vm.name}: {result.message}")
+
+            except Exception as e:
+                logger.error(f"Failed to delete {vm.name}: {e}")
+                failed_count += 1
+                errors.append(f"{vm.name}: {str(e)}")
+
+        return {
+            "deleted": deleted_count,
+            "failed": failed_count,
+            "errors": errors,
+            "message": f"Deleted {deleted_count} VM(s), {failed_count} failed.",
+        }
+
+    @classmethod
     def prune(
         cls,
         resource_group: str,
@@ -181,20 +286,11 @@ class PruneManager:
             ...     dry_run=True
             ... )
         """
-        from azlin.vm_lifecycle import VMLifecycleManager
-
-        # List all VMs in resource group
-        vms = VMManager.list_vms(resource_group, include_stopped=True)
-
-        # Load connection data
-        connection_data = ConnectionTracker.load_connections()
-
-        # Filter VMs for pruning
-        candidates = cls.filter_for_pruning(
-            vms,
+        # Get candidates (single API call)
+        candidates, connection_data = cls.get_candidates(
+            resource_group=resource_group,
             age_days=age_days,
             idle_days=idle_days,
-            connection_data=connection_data,
             include_running=include_running,
             include_named=include_named,
         )
@@ -219,9 +315,8 @@ class PruneManager:
                 "message": f"Dry run: {len(candidates)} VM(s) would be deleted.",
             }
 
-        # If not force mode, require confirmation
+        # If not force mode, require confirmation (handled by CLI)
         if not force:
-            # This will be handled by CLI - just return candidates
             return {
                 "candidates": candidates,
                 "deleted": 0,
@@ -230,38 +325,10 @@ class PruneManager:
                 "message": "Confirmation required.",
             }
 
-        # Delete VMs
-        deleted_count = 0
-        failed_count = 0
-        errors = []
-
-        for vm in candidates:
-            try:
-                logger.info(f"Deleting VM: {vm.name}")
-                result = VMLifecycleManager.delete_vm(vm.name, resource_group, force=True)
-
-                if result.success:
-                    deleted_count += 1
-                    # Clean up connection record
-                    ConnectionTracker.remove_connection(vm.name)
-                    # Clean up session name
-                    ConfigManager.delete_session_name(vm.name)
-                else:
-                    failed_count += 1
-                    errors.append(f"{vm.name}: {result.message}")
-
-            except Exception as e:
-                logger.error(f"Failed to delete {vm.name}: {e}")
-                failed_count += 1
-                errors.append(f"{vm.name}: {str(e)}")
-
-        return {
-            "candidates": candidates,
-            "deleted": deleted_count,
-            "failed": failed_count,
-            "errors": errors,
-            "message": f"Deleted {deleted_count} VM(s), {failed_count} failed.",
-        }
+        # Execute deletion
+        result = cls.execute_prune(candidates, resource_group)
+        result["candidates"] = candidates
+        return result
 
 
 __all__ = ["PruneManager"]

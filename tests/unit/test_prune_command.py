@@ -436,12 +436,12 @@ class TestDryRunMode:
 
     @patch("azlin.prune.VMManager.list_vms")
     def test_dry_run_shows_table_output(self, mock_list_vms):
-        """Test that --dry-run displays detailed information table.
+        """Test that --dry-run returns candidates without deleting.
 
         Validates:
-        - Table includes VM name, age, idle time, status
-        - Clear indication this is a dry run
-        - No confirmation prompt in dry run mode
+        - Returns candidates in result
+        - Clear message indicates dry run
+        - No deletion occurs
         """
         from azlin.prune import PruneManager
 
@@ -456,18 +456,18 @@ class TestDryRunMode:
 
         mock_list_vms.return_value = [test_vm]
 
-        with patch("builtins.print") as mock_print:
-            PruneManager.prune(
-                resource_group="test-rg",
-                age_days=30,
-                idle_days=14,
-                dry_run=True,
-            )
+        result = PruneManager.prune(
+            resource_group="test-rg",
+            age_days=30,
+            idle_days=14,
+            dry_run=True,
+        )
 
-            # Verify table output was printed
-            print_calls = [str(call) for call in mock_print.call_args_list]
-            assert any("test-vm" in str(call) for call in print_calls)
-            assert any("dry run" in str(call).lower() for call in print_calls)
+        # Verify result contains candidates
+        assert len(result["candidates"]) == 1
+        assert result["candidates"][0].name == "test-vm"
+        assert result["deleted"] == 0
+        assert "dry run" in result["message"].lower()
 
 
 # ============================================================================
@@ -479,9 +479,8 @@ class TestForceMode:
     """Test --force mode and confirmation prompts."""
 
     @patch("azlin.prune.VMManager.list_vms")
-    @patch("azlin.prune.VMManager.delete_vm")
-    @patch("builtins.input")
-    def test_force_mode_skips_confirmation(self, mock_input, mock_delete, mock_list_vms):
+    @patch("azlin.prune.VMLifecycleManager.delete_vm")
+    def test_force_mode_skips_confirmation(self, mock_delete, mock_list_vms):
         """Test that --force mode deletes without confirmation.
 
         Validates:
@@ -490,6 +489,7 @@ class TestForceMode:
         - Useful for scripts and automation
         """
         from azlin.prune import PruneManager
+        from azlin.vm_lifecycle import DeletionResult
 
         now = datetime.utcnow()
         test_vm = VMInfo(
@@ -501,9 +501,9 @@ class TestForceMode:
         )
 
         mock_list_vms.return_value = [test_vm]
-        mock_delete.return_value = True
+        mock_delete.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
 
-        PruneManager.prune(
+        result = PruneManager.prune(
             resource_group="test-rg",
             age_days=30,
             idle_days=14,
@@ -511,22 +511,18 @@ class TestForceMode:
             force=True,
         )
 
-        # Confirmation should NOT be requested
-        mock_input.assert_not_called()
-
         # VM should be deleted
-        mock_delete.assert_called_once_with("test-vm", "test-rg")
+        mock_delete.assert_called_once_with("test-vm", "test-rg", force=True)
+        assert result["deleted"] == 1
 
     @patch("azlin.prune.VMManager.list_vms")
-    @patch("azlin.prune.VMManager.delete_vm")
-    @patch("builtins.input")
-    def test_confirmation_required_without_force(self, mock_input, mock_delete, mock_list_vms):
+    def test_confirmation_required_without_force(self, mock_list_vms):
         """Test that confirmation is required without --force.
 
         Validates:
-        - User is prompted to confirm deletion
-        - Deletion only proceeds if confirmed
-        - Safety mechanism for accidental deletion
+        - Returns candidates when force=False
+        - Deletion is not executed in prune() method
+        - CLI layer handles confirmation
         """
         from azlin.prune import PruneManager
 
@@ -540,10 +536,8 @@ class TestForceMode:
         )
 
         mock_list_vms.return_value = [test_vm]
-        mock_input.return_value = "yes"
-        mock_delete.return_value = True
 
-        PruneManager.prune(
+        result = PruneManager.prune(
             resource_group="test-rg",
             age_days=30,
             idle_days=14,
@@ -551,21 +545,18 @@ class TestForceMode:
             force=False,
         )
 
-        # Confirmation should be requested
-        mock_input.assert_called_once()
-
-        # VM should be deleted after confirmation
-        mock_delete.assert_called_once()
+        # Should return candidates without deleting
+        assert len(result["candidates"]) == 1
+        assert result["deleted"] == 0
+        assert result["message"] == "Confirmation required."
 
     @patch("azlin.prune.VMManager.list_vms")
-    @patch("azlin.prune.VMManager.delete_vm")
-    @patch("builtins.input")
-    def test_confirmation_rejected_prevents_deletion(self, mock_input, mock_delete, mock_list_vms):
-        """Test that rejecting confirmation prevents deletion.
+    def test_confirmation_rejected_prevents_deletion(self, mock_list_vms):
+        """Test that without force flag, deletion doesn't happen in prune().
 
         Validates:
-        - User can reject deletion with 'no' or other input
-        - No VMs are deleted if confirmation is rejected
+        - Without force=True, no deletion occurs
+        - Returns candidates for CLI to handle
         - Safe default behavior
         """
         from azlin.prune import PruneManager
@@ -580,7 +571,6 @@ class TestForceMode:
         )
 
         mock_list_vms.return_value = [test_vm]
-        mock_input.return_value = "no"
 
         result = PruneManager.prune(
             resource_group="test-rg",
@@ -590,11 +580,8 @@ class TestForceMode:
             force=False,
         )
 
-        # Confirmation should be requested
-        mock_input.assert_called_once()
-
-        # VM should NOT be deleted
-        mock_delete.assert_not_called()
+        # Should return candidates without deletion
+        assert len(result["candidates"]) == 1
         assert result["deleted"] == 0
 
 
@@ -607,20 +594,19 @@ class TestConfigCleanup:
     """Test config file cleanup after VM deletion."""
 
     @patch("azlin.prune.VMManager.list_vms")
-    @patch("azlin.prune.VMManager.delete_vm")
-    @patch("azlin.prune.ConfigManager.load_config")
-    @patch("azlin.prune.ConfigManager.save_config")
+    @patch("azlin.prune.VMLifecycleManager.delete_vm")
+    @patch("azlin.prune.ConfigManager.delete_session_name")
     def test_config_cleaned_after_deletion(
-        self, mock_save_config, mock_load_config, mock_delete, mock_list_vms
+        self, mock_delete_session, mock_delete, mock_list_vms
     ):
         """Test that config is updated to remove deleted VM entries.
 
         Validates:
         - Session names for deleted VMs are removed
         - Connection tracking for deleted VMs is removed
-        - Config file is saved after cleanup
         """
         from azlin.prune import PruneManager
+        from azlin.vm_lifecycle import DeletionResult
 
         now = datetime.utcnow()
         test_vm = VMInfo(
@@ -633,11 +619,7 @@ class TestConfigCleanup:
         )
 
         mock_list_vms.return_value = [test_vm]
-        mock_delete.return_value = True
-
-        # Mock config with session name
-        config = AzlinConfig(session_names={"test-vm": "test-session"})
-        mock_load_config.return_value = config
+        mock_delete.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
 
         PruneManager.prune(
             resource_group="test-rg",
@@ -647,15 +629,11 @@ class TestConfigCleanup:
             force=True,
         )
 
-        # Config should be saved after deletion
-        mock_save_config.assert_called_once()
-
-        # Session name should be removed from config
-        saved_config = mock_save_config.call_args[0][0]
-        assert "test-vm" not in saved_config.session_names
+        # Session name should be removed after deletion
+        mock_delete_session.assert_called_once_with("test-vm")
 
     @patch("azlin.prune.VMManager.list_vms")
-    @patch("azlin.prune.VMManager.delete_vm")
+    @patch("azlin.prune.VMLifecycleManager.delete_vm")
     @patch("azlin.prune.ConfigManager.delete_session_name")
     def test_multiple_vms_cleaned_from_config(
         self, mock_delete_session, mock_delete_vm, mock_list_vms
@@ -668,6 +646,7 @@ class TestConfigCleanup:
         - Partial failures don't corrupt config
         """
         from azlin.prune import PruneManager
+        from azlin.vm_lifecycle import DeletionResult
 
         now = datetime.utcnow()
         vm1 = VMInfo(
@@ -688,7 +667,7 @@ class TestConfigCleanup:
         )
 
         mock_list_vms.return_value = [vm1, vm2]
-        mock_delete_vm.return_value = True
+        mock_delete_vm.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
 
         PruneManager.prune(
             resource_group="test-rg",
@@ -713,7 +692,7 @@ class TestPartialDeletionFailures:
     """Test handling of partial deletion failures."""
 
     @patch("azlin.prune.VMManager.list_vms")
-    @patch("azlin.prune.VMManager.delete_vm")
+    @patch("azlin.prune.VMLifecycleManager.delete_vm")
     def test_partial_deletion_failure_continues(self, mock_delete, mock_list_vms):
         """Test that failure to delete one VM doesn't stop others.
 
@@ -723,6 +702,7 @@ class TestPartialDeletionFailures:
         - Final report shows successes and failures
         """
         from azlin.prune import PruneManager
+        from azlin.vm_lifecycle import DeletionResult
 
         now = datetime.utcnow()
         vm1 = VMInfo(
@@ -743,7 +723,10 @@ class TestPartialDeletionFailures:
         mock_list_vms.return_value = [vm1, vm2]
 
         # First deletion fails, second succeeds
-        mock_delete.side_effect = [Exception("Azure error"), True]
+        mock_delete.side_effect = [
+            Exception("Azure error"),
+            DeletionResult(vm_name="test-vm", success=True, message="Deleted")
+        ]
 
         result = PruneManager.prune(
             resource_group="test-rg",
@@ -762,7 +745,7 @@ class TestPartialDeletionFailures:
         assert len(result["errors"]) == 1
 
     @patch("azlin.prune.VMManager.list_vms")
-    @patch("azlin.prune.VMManager.delete_vm")
+    @patch("azlin.prune.VMLifecycleManager.delete_vm")
     def test_deletion_failure_preserves_config(self, mock_delete, mock_list_vms):
         """Test that failed deletion doesn't clean config.
 
@@ -901,8 +884,7 @@ class TestEdgeCases:
 class TestTableDisplay:
     """Test detailed information table display."""
 
-    @patch("azlin.prune.VMManager.list_vms")
-    def test_table_shows_vm_details(self, mock_list_vms):
+    def test_table_shows_vm_details(self):
         """Test that table displays comprehensive VM information.
 
         Validates:
@@ -922,25 +904,15 @@ class TestTableDisplay:
             created_time=(now - timedelta(days=40)).isoformat() + "Z",
         )
 
-        mock_list_vms.return_value = [test_vm]
+        table = PruneManager.format_prune_table([test_vm], connection_data={})
 
-        with patch("builtins.print") as mock_print:
-            PruneManager.prune(
-                resource_group="test-rg",
-                age_days=30,
-                idle_days=14,
-                dry_run=True,
-            )
+        # Check table output contains key information
+        assert "test-vm-with-long-name" in table
+        assert "40" in table  # Age in days
+        assert "eastus" in table
+        assert "Standard_B2s" in table
 
-            # Check table output contains key information
-            output = " ".join(str(call) for call in mock_print.call_args_list)
-            assert "test-vm-with-long-name" in output
-            assert "40" in output  # Age in days
-            assert "eastus" in output
-            assert "Standard_B2s" in output
-
-    @patch("azlin.prune.VMManager.list_vms")
-    def test_table_formats_age_and_idle(self, mock_list_vms):
+    def test_table_formats_age_and_idle(self):
         """Test that age and idle time are formatted human-readable.
 
         Validates:
@@ -958,8 +930,6 @@ class TestTableDisplay:
             power_state="VM deallocated",
             created_time=(now - timedelta(days=100)).isoformat() + "Z",
         )
-
-        mock_list_vms.return_value = [vm]
 
         table = PruneManager.format_prune_table(
             [vm],
@@ -1001,26 +971,21 @@ class TestPruneCLIArguments:
         - Default value is reasonable (e.g., 30)
         - Custom values are accepted
         """
-        from azlin.cli import cli
+        from azlin.cli import main
 
         # Test with Click CLI runner
         from click.testing import CliRunner
 
         runner = CliRunner()
 
-        with patch("azlin.prune.PruneManager.prune") as mock_prune:
-            mock_prune.return_value = {
-                "candidates": [],
-                "deleted": 0,
-                "failed": 0,
-                "message": "No VMs to prune",
-            }
+        with patch("azlin.prune.PruneManager.get_candidates") as mock_get_candidates:
+            mock_get_candidates.return_value = ([], {})
 
-            result = runner.invoke(cli, ["prune", "--age-days", "45", "--force"])
+            result = runner.invoke(main, ["prune", "--age-days", "45", "--force"])
 
-            # Should call prune with custom age_days
-            assert mock_prune.called
-            call_kwargs = mock_prune.call_args[1]
+            # Should call get_candidates with custom age_days
+            assert mock_get_candidates.called
+            call_kwargs = mock_get_candidates.call_args[1]
             assert call_kwargs["age_days"] == 45
 
     def test_prune_command_accepts_idle_days(self):
@@ -1031,25 +996,20 @@ class TestPruneCLIArguments:
         - Default value is reasonable (e.g., 14)
         - Custom values are accepted
         """
-        from azlin.cli import cli
+        from azlin.cli import main
 
         from click.testing import CliRunner
 
         runner = CliRunner()
 
-        with patch("azlin.prune.PruneManager.prune") as mock_prune:
-            mock_prune.return_value = {
-                "candidates": [],
-                "deleted": 0,
-                "failed": 0,
-                "message": "No VMs to prune",
-            }
+        with patch("azlin.prune.PruneManager.get_candidates") as mock_get_candidates:
+            mock_get_candidates.return_value = ([], {})
 
-            result = runner.invoke(cli, ["prune", "--idle-days", "21", "--force"])
+            result = runner.invoke(main, ["prune", "--idle-days", "21", "--force"])
 
-            # Should call prune with custom idle_days
-            assert mock_prune.called
-            call_kwargs = mock_prune.call_args[1]
+            # Should call get_candidates with custom idle_days
+            assert mock_get_candidates.called
+            call_kwargs = mock_get_candidates.call_args[1]
             assert call_kwargs["idle_days"] == 21
 
     def test_prune_command_accepts_flags(self):
@@ -1061,29 +1021,23 @@ class TestPruneCLIArguments:
         - --include-running flag
         - --include-named flag
         """
-        from azlin.cli import cli
+        from azlin.cli import main
 
         from click.testing import CliRunner
 
         runner = CliRunner()
 
-        with patch("azlin.prune.PruneManager.prune") as mock_prune:
-            mock_prune.return_value = {
-                "candidates": [],
-                "deleted": 0,
-                "failed": 0,
-                "message": "No VMs to prune",
-            }
+        with patch("azlin.prune.PruneManager.get_candidates") as mock_get_candidates:
+            mock_get_candidates.return_value = ([], {})
 
             result = runner.invoke(
-                cli,
+                main,
                 ["prune", "--dry-run", "--include-running", "--include-named"]
             )
 
-            # Should call prune with flags
-            assert mock_prune.called
-            call_kwargs = mock_prune.call_args[1]
-            assert call_kwargs["dry_run"] is True
+            # Should call get_candidates with flags
+            assert mock_get_candidates.called
+            call_kwargs = mock_get_candidates.call_args[1]
             assert call_kwargs["include_running"] is True
             assert call_kwargs["include_named"] is True
 
@@ -1097,20 +1051,19 @@ class TestPruneIntegration:
     """Integration-style tests for complete prune workflow."""
 
     @patch("azlin.prune.VMManager.list_vms")
-    @patch("azlin.prune.VMManager.delete_vm")
-    @patch("azlin.prune.ConfigManager")
-    def test_full_prune_workflow(self, mock_config_manager, mock_delete, mock_list_vms):
+    @patch("azlin.prune.VMLifecycleManager.delete_vm")
+    def test_full_prune_workflow(self, mock_delete, mock_list_vms):
         """Test complete prune workflow from listing to deletion.
 
         Validates:
         - List VMs from resource group
         - Filter by age and idle criteria
-        - Show confirmation prompt
         - Delete eligible VMs
         - Clean up config
         - Return comprehensive result
         """
         from azlin.prune import PruneManager
+        from azlin.vm_lifecycle import DeletionResult
 
         now = datetime.utcnow()
 
@@ -1132,7 +1085,7 @@ class TestPruneIntegration:
         )
 
         mock_list_vms.return_value = [old_stopped_vm, recent_vm]
-        mock_delete.return_value = True
+        mock_delete.return_value = DeletionResult(vm_name="test-vm", success=True, message="Deleted")
 
         # Execute full workflow
         result = PruneManager.prune(
@@ -1145,7 +1098,7 @@ class TestPruneIntegration:
 
         # Verify workflow
         mock_list_vms.assert_called_once_with("test-rg", include_stopped=True)
-        mock_delete.assert_called_once_with("prune-me", "test-rg")
+        mock_delete.assert_called_once_with("prune-me", "test-rg", force=True)
 
         # Verify result
         assert result["deleted"] == 1

@@ -1819,8 +1819,8 @@ def killall(resource_group: str | None, config: str | None, force: bool, prefix:
 @main.command()
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
-@click.option("--age-days", default=30, type=int, help="Age threshold in days (default: 30)")
-@click.option("--idle-days", default=14, type=int, help="Idle threshold in days (default: 14)")
+@click.option("--age-days", default=30, type=click.IntRange(min=1), help="Age threshold in days (default: 30)")
+@click.option("--idle-days", default=14, type=click.IntRange(min=1), help="Idle threshold in days (default: 14)")
 @click.option("--dry-run", is_flag=True, help="Preview without deleting")
 @click.option("--force", is_flag=True, help="Skip confirmation prompt")
 @click.option("--include-running", is_flag=True, help="Include running VMs")
@@ -1860,28 +1860,19 @@ def prune(
             click.echo("Or specify with --resource-group option.")
             sys.exit(1)
 
-        # Run prune to get candidates
-        result = PruneManager.prune(
+        # Get candidates (single API call)
+        candidates, connection_data = PruneManager.get_candidates(
             resource_group=rg,
             age_days=age_days,
             idle_days=idle_days,
-            dry_run=dry_run,
-            force=force,
             include_running=include_running,
             include_named=include_named,
         )
 
-        candidates = result["candidates"]
-
         # If no candidates, exit early
         if not candidates:
-            click.echo(result["message"])
+            click.echo("No VMs eligible for pruning.")
             return
-
-        # Load connection data for table display
-        from azlin.connection_tracker import ConnectionTracker
-
-        connection_data = ConnectionTracker.load_connections()
 
         # Display table
         table = PruneManager.format_prune_table(candidates, connection_data)
@@ -1893,30 +1884,18 @@ def prune(
             click.echo("Run without --dry-run to actually delete these VMs.")
             return
 
-        # If not force mode and not already executed, ask for confirmation
+        # If not force mode, ask for confirmation
         if not force:
             click.echo(f"This will delete {len(candidates)} VM(s) and their associated resources.")
             click.echo("This action cannot be undone.\n")
 
-            confirm = input(
-                f"Are you sure you want to delete {len(candidates)} VM(s)? [y/N]: "
-            ).lower()
-            if confirm not in ["y", "yes"]:
+            if not click.confirm(f"Are you sure you want to delete {len(candidates)} VM(s)?", default=False):
                 click.echo("Cancelled.")
                 return
 
-            click.echo(f"\nDeleting {len(candidates)} VM(s)...")
-
-            # Execute deletion with force=True
-            result = PruneManager.prune(
-                resource_group=rg,
-                age_days=age_days,
-                idle_days=idle_days,
-                dry_run=False,
-                force=True,
-                include_running=include_running,
-                include_named=include_named,
-            )
+        # Execute deletion
+        click.echo(f"\nDeleting {len(candidates)} VM(s)...")
+        result = PruneManager.execute_prune(candidates, rg)
 
         # Display deletion summary
         deleted = result["deleted"]
