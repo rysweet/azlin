@@ -2897,10 +2897,10 @@ def clone(
 
         # Display clone plan
         click.echo("\nClone plan:")
-        for i, config in enumerate(clone_configs, 1):
-            click.echo(f"  Clone {i}: {config.name}")
-            click.echo(f"    Size: {config.size}")
-            click.echo(f"    Region: {config.location}")
+        for i, clone_config in enumerate(clone_configs, 1):
+            click.echo(f"  Clone {i}: {clone_config.name}")
+            click.echo(f"    Size: {clone_config.size}")
+            click.echo(f"    Region: {clone_config.location}")
 
         # Provision VMs in parallel
         click.echo(f"\nProvisioning {num_replicas} VM(s)...")
@@ -2931,6 +2931,7 @@ def clone(
 
         # Copy home directories in parallel
         click.echo("\nCopying home directories from source VM...")
+        # Use id_rsa for compatibility with existing VMs (TODO: auto-detect SSH key)
         ssh_key_path = Path.home() / ".ssh" / "id_rsa"
         copy_results = _copy_home_directories(
             source_vm=source_vm_info,
