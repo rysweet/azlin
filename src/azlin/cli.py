@@ -825,6 +825,7 @@ def main(ctx):
     \b
     VM LIFECYCLE COMMANDS:
         new           Provision a new VM (aliases: vm, create)
+        clone         Clone a VM with its home directory contents
         list          List VMs in resource group
         session       Set or view session name for a VM
         status        Show detailed status of VMs
@@ -2683,6 +2684,383 @@ def cp(
         click.echo(f"Unexpected error: {e}", err=True)
         logger.exception("Unexpected error in cp command")
         sys.exit(1)
+
+
+@main.command()
+@click.argument("source_vm", type=str)
+@click.option("--num-replicas", type=int, default=1, help="Number of clones to create (default: 1)")
+@click.option("--session-prefix", type=str, help="Session name prefix for clones")
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--vm-size", help="VM size for clones (default: same as source)", type=str)
+@click.option("--region", help="Azure region (default: same as source)", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+def clone(
+    source_vm: str,
+    num_replicas: int,
+    session_prefix: str | None,
+    resource_group: str | None,
+    vm_size: str | None,
+    region: str | None,
+    config: str | None,
+):
+    """Clone a VM with its home directory contents.
+
+    Creates new VM(s) and copies the entire home directory from the source VM.
+    Useful for creating development environments, parallel testing, or team onboarding.
+
+    \b
+    Examples:
+        # Clone single VM
+        azlin clone amplihack
+
+        # Clone with custom session name
+        azlin clone amplihack --session-prefix dev-env
+
+        # Clone multiple replicas
+        azlin clone amplihack --num-replicas 3 --session-prefix worker
+        # Creates: worker-1, worker-2, worker-3
+
+        # Clone with specific VM size
+        azlin clone my-vm --vm-size Standard_D4s_v3
+
+    The source VM can be specified by VM name or session name.
+    Home directory security filters are applied (no SSH keys, credentials, etc.).
+    """
+    try:
+        # Validate num-replicas
+        if num_replicas < 1:
+            click.echo("Error: num-replicas must be >= 1", err=True)
+            sys.exit(1)
+
+        # Load configuration
+        config_mgr = ConfigManager(config)
+        cfg = config_mgr.load()
+
+        # Get resource group
+        rg = resource_group or cfg.default_resource_group
+        if not rg:
+            click.echo("Error: No resource group specified and no default configured", err=True)
+            sys.exit(1)
+
+        # Resolve source VM (by name or session)
+        click.echo(f"Resolving source VM: {source_vm}")
+        source_vm_info = _resolve_source_vm(source_vm, rg, config_mgr)
+
+        if not source_vm_info:
+            click.echo(f"Error: Source VM '{source_vm}' not found", err=True)
+            # Show available VMs
+            vms = VMManager.list_vms(rg)
+            if vms:
+                click.echo("\nAvailable VMs:", err=True)
+                for vm in vms:
+                    display_name = vm.session_name or vm.name
+                    click.echo(f"  - {display_name} ({vm.name})", err=True)
+            sys.exit(1)
+
+        click.echo(f"Source VM: {source_vm_info.name} ({source_vm_info.public_ip})")
+        click.echo(f"VM size: {source_vm_info.vm_size}")
+        click.echo(f"Region: {source_vm_info.location}")
+
+        # Check source VM is running
+        if not source_vm_info.is_running():
+            click.echo(f"Warning: Source VM is not running (state: {source_vm_info.power_state})")
+            click.echo("Starting source VM...")
+            controller = VMLifecycleController()
+            controller.start_vm(source_vm_info.name, rg)
+            click.echo("Source VM started successfully")
+            # Refresh VM info
+            source_vm_info = VMManager.get_vm(source_vm_info.name, rg)
+
+        # Generate clone configurations
+        click.echo(f"\nGenerating configurations for {num_replicas} clone(s)...")
+        clone_configs = _generate_clone_configs(
+            source_vm=source_vm_info,
+            num_replicas=num_replicas,
+            vm_size=vm_size,
+            region=region,
+        )
+
+        # Display clone plan
+        click.echo("\nClone plan:")
+        for i, config in enumerate(clone_configs, 1):
+            click.echo(f"  Clone {i}: {config.name}")
+            click.echo(f"    Size: {config.size}")
+            click.echo(f"    Region: {config.location}")
+
+        # Provision VMs in parallel
+        click.echo(f"\nProvisioning {num_replicas} VM(s)...")
+        provisioner = VMProvisioner()
+
+        def progress_callback(msg: str):
+            click.echo(f"  {msg}")
+
+        result = provisioner.provision_vm_pool(
+            configs=clone_configs,
+            progress_callback=progress_callback,
+            max_workers=min(10, num_replicas),
+        )
+
+        # Check provisioning results
+        if not result.any_succeeded:
+            click.echo("\nError: All VM provisioning failed", err=True)
+            for failure in result.failed[:3]:  # Show first 3 failures
+                click.echo(f"  {failure.config.name}: {failure.error}", err=True)
+            sys.exit(1)
+
+        if result.partial_success:
+            click.echo(
+                f"\nWarning: Partial success - {result.success_count}/{result.total_requested} VMs provisioned"
+            )
+
+        click.echo(f"\nSuccessfully provisioned {result.success_count} VM(s)")
+
+        # Copy home directories in parallel
+        click.echo("\nCopying home directories from source VM...")
+        ssh_key_path = Path.home() / ".ssh" / "id_rsa"
+        copy_results = _copy_home_directories(
+            source_vm=source_vm_info,
+            clone_vms=result.successful,
+            ssh_key_path=str(ssh_key_path),
+            max_workers=min(5, len(result.successful)),  # Limit to avoid overwhelming source
+        )
+
+        # Check copy results
+        successful_copies = sum(1 for success in copy_results.values() if success)
+        failed_copies = len(copy_results) - successful_copies
+
+        if failed_copies > 0:
+            click.echo(f"\nWarning: {failed_copies} home directory copy operations failed")
+
+        # Set session names if prefix provided
+        if session_prefix:
+            click.echo(f"\nSetting session names with prefix: {session_prefix}")
+            _set_clone_session_names(
+                clone_vms=result.successful,
+                session_prefix=session_prefix,
+                config_manager=config_mgr,
+            )
+
+        # Display final results
+        click.echo("\n" + "=" * 70)
+        click.echo(
+            f"Clone operation complete: {successful_copies}/{len(result.successful)} successful"
+        )
+        click.echo("=" * 70)
+        click.echo("\nCloned VMs:")
+        for vm in result.successful:
+            session_name = config_mgr.get_session_name(vm.name) if session_prefix else None
+            copy_status = "✓" if copy_results.get(vm.name, False) else "✗"
+            display_name = f"{session_name} ({vm.name})" if session_name else vm.name
+            click.echo(f"  {copy_status} {display_name}")
+            click.echo(f"     IP: {vm.public_ip}")
+            click.echo(f"     Size: {vm.size}, Region: {vm.location}")
+
+        if result.failed:
+            click.echo("\nFailed provisioning:")
+            for failure in result.failed:
+                click.echo(f"  ✗ {failure.config.name}: {failure.error}")
+
+        # Show connection instructions
+        if result.successful:
+            first_clone = result.successful[0]
+            first_session = (
+                config_mgr.get_session_name(first_clone.name) if session_prefix else None
+            )
+            connect_target = first_session or first_clone.name
+            click.echo("\nTo connect to first clone:")
+            click.echo(f"  azlin connect {connect_target}")
+
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ProvisioningError as e:
+        click.echo(f"Provisioning error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo("\nClone operation cancelled by user.")
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.exception("Unexpected error in clone command")
+        sys.exit(1)
+
+
+def _resolve_source_vm(
+    source_vm: str, resource_group: str, config_mgr: ConfigManager
+) -> VMInfo | None:
+    """Resolve source VM by session name or VM name.
+
+    Args:
+        source_vm: Source VM identifier (session name or VM name)
+        resource_group: Resource group name
+        config_mgr: Configuration manager
+
+    Returns:
+        VMInfo object or None if not found
+    """
+    # Try as VM name first
+    vm_info = VMManager.get_vm(source_vm, resource_group)
+    if vm_info:
+        return vm_info
+
+    # Try as session name
+    vm_name = config_mgr.get_vm_by_session(source_vm)
+    if vm_name:
+        vm_info = VMManager.get_vm(vm_name, resource_group)
+        if vm_info:
+            return vm_info
+
+    # Try finding in list (case-insensitive match)
+    all_vms = VMManager.list_vms(resource_group)
+    for vm in all_vms:
+        if vm.name.lower() == source_vm.lower():
+            return vm
+        if vm.session_name and vm.session_name.lower() == source_vm.lower():
+            return vm
+
+    return None
+
+
+def _generate_clone_configs(
+    source_vm: VMInfo,
+    num_replicas: int,
+    vm_size: str | None,
+    region: str | None,
+) -> list:
+    """Generate VMConfig objects for clones.
+
+    Args:
+        source_vm: Source VM information
+        num_replicas: Number of clones to create
+        vm_size: Custom VM size (None = use source size)
+        region: Custom region (None = use source region)
+
+    Returns:
+        List of VMConfig objects
+    """
+    from azlin.vm_provisioning import VMConfig
+
+    # Use custom or source attributes
+    clone_size = vm_size or source_vm.vm_size
+    clone_region = region or source_vm.location
+
+    # Generate unique VM names with timestamp
+    timestamp = int(time.time())
+    configs = []
+
+    for i in range(1, num_replicas + 1):
+        vm_name = f"azlin-vm-{timestamp}-{i}"
+        config = VMConfig(
+            name=vm_name,
+            resource_group=source_vm.resource_group,
+            location=clone_region,
+            size=clone_size,
+            image="Ubuntu2204",
+            ssh_public_key=None,  # Will use default SSH keys
+            admin_username="azureuser",
+            disable_password_auth=True,
+        )
+        configs.append(config)
+
+    return configs
+
+
+def _copy_home_directories(
+    source_vm: VMInfo,
+    clone_vms: list[VMDetails],
+    ssh_key_path: str,
+    max_workers: int = 5,
+) -> dict[str, bool]:
+    """Copy home directories from source to clones in parallel.
+
+    Args:
+        source_vm: Source VM information
+        clone_vms: List of cloned VM details
+        ssh_key_path: Path to SSH private key
+        max_workers: Maximum parallel workers
+
+    Returns:
+        Dictionary mapping VM name to success status
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def copy_to_vm(clone_vm: VMDetails) -> tuple[str, bool]:
+        """Copy home directory to a single clone."""
+        try:
+            # Build rsync command
+            source_path = f"azureuser@{source_vm.public_ip}:/home/azureuser/"
+            dest_path = f"azureuser@{clone_vm.public_ip}:/home/azureuser/"
+
+            cmd = [
+                "rsync",
+                "-avz",
+                "--progress",
+                "-e",
+                f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10",
+                source_path,
+                dest_path,
+            ]
+
+            click.echo(f"  Copying to {clone_vm.name}...")
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=600,  # 10 minute timeout
+            )
+
+            if result.returncode == 0:
+                click.echo(f"  ✓ {clone_vm.name} copy complete")
+                return (clone_vm.name, True)
+            else:
+                click.echo(f"  ✗ {clone_vm.name} copy failed: {result.stderr[:100]}", err=True)
+                return (clone_vm.name, False)
+
+        except subprocess.TimeoutExpired:
+            click.echo(f"  ✗ {clone_vm.name} copy timeout", err=True)
+            return (clone_vm.name, False)
+        except Exception as e:
+            click.echo(f"  ✗ {clone_vm.name} copy error: {e}", err=True)
+            return (clone_vm.name, False)
+
+    # Execute copies in parallel
+    results = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(copy_to_vm, clone): clone for clone in clone_vms}
+
+        for future in as_completed(futures):
+            vm_name, success = future.result()
+            results[vm_name] = success
+
+    return results
+
+
+def _set_clone_session_names(
+    clone_vms: list[VMDetails],
+    session_prefix: str,
+    config_manager: ConfigManager,
+) -> None:
+    """Set session names for cloned VMs.
+
+    Args:
+        clone_vms: List of cloned VM details
+        session_prefix: Session name prefix
+        config_manager: Configuration manager
+    """
+    if len(clone_vms) == 1:
+        # Single clone: use prefix without number
+        config_manager.set_session_name(clone_vms[0].name, session_prefix)
+        click.echo(f"  Set session name: {session_prefix} -> {clone_vms[0].name}")
+    else:
+        # Multiple clones: use numbered suffixes
+        for i, vm in enumerate(clone_vms, 1):
+            session_name = f"{session_prefix}-{i}"
+            config_manager.set_session_name(vm.name, session_name)
+            click.echo(f"  Set session name: {session_name} -> {vm.name}")
 
 
 @main.command()
