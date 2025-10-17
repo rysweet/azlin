@@ -249,6 +249,41 @@ azlin new --name gpu-trainer --vm-size Standard_NC6 --repo https://github.com/op
 - GPU-enabled model training
 - Team onboarding (everyone gets identical setup)
 
+#### `azlin clone` - Clone a VM with home directory
+
+Clone existing VMs with their complete home directory contents.
+
+```bash
+# Clone single VM
+azlin clone amplihack
+
+# Clone with custom session name
+azlin clone amplihack --session-prefix dev-env
+
+# Clone multiple replicas for parallel testing
+azlin clone amplihack --num-replicas 3 --session-prefix worker
+# Creates: worker-1, worker-2, worker-3
+
+# Clone with custom VM size and region
+azlin clone my-vm --vm-size Standard_D4s_v3 --region westus2
+```
+
+**What gets cloned**:
+- Entire home directory (`/home/azureuser/`)
+- All files, configurations, and data
+- Excludes: SSH keys, cloud credentials, .env files (security filters)
+
+**Use cases**:
+- Create development environments from a "golden" VM
+- Parallel testing across identical VMs
+- Team onboarding with pre-configured setups
+- Experiment with different configurations without affecting original
+
+**Performance**:
+- VMs provision in parallel (3-5 minutes regardless of replica count)
+- Home directories copy in parallel (1-10 minutes depending on size)
+- Total time: ~4-15 minutes
+
 #### `azlin list` - List all VMs
 
 ```bash
@@ -768,6 +803,7 @@ azlin ps  # Check for resource-heavy processes
 | Command | Purpose | Example |
 |---------|---------|---------|
 | `azlin new` | Create VM | `azlin new --repo URL` |
+| `azlin clone` | Clone VM + home dir | `azlin clone amplihack --num-replicas 3` |
 | `azlin list` | List VMs | `azlin list` |
 | `azlin connect` | SSH to VM | `azlin connect my-vm` |
 | `azlin start` | Start stopped VM | `azlin start my-vm` |
