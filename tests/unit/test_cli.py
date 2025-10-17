@@ -14,14 +14,14 @@ Test Coverage:
 - Configuration loading from CLI args
 """
 
-import pytest
-from unittest.mock import Mock, patch
-from pathlib import Path
+from unittest.mock import patch
 
+import pytest
 
 # ============================================================================
 # BASIC ARGUMENT PARSING TESTS
 # ============================================================================
+
 
 class TestCLIArgumentParsing:
     """Test CLI argument parsing functionality."""
@@ -33,11 +33,11 @@ class TestCLIArgumentParsing:
         """
         from azlin.cli import parse_args
 
-        args = parse_args(['--repo', 'https://github.com/user/repo'])
+        args = parse_args(["--repo", "https://github.com/user/repo"])
 
-        assert args.repo == 'https://github.com/user/repo'
-        assert hasattr(args, 'vm_size')  # Should have default values
-        assert hasattr(args, 'region')
+        assert args.repo == "https://github.com/user/repo"
+        assert hasattr(args, "vm_size")  # Should have default values
+        assert hasattr(args, "region")
 
     def test_cli_without_repo_argument(self):
         """Test CLI without --repo argument.
@@ -49,24 +49,24 @@ class TestCLIArgumentParsing:
         args = parse_args([])
 
         assert args.repo is None  # No repo specified
-        assert hasattr(args, 'vm_size')
-        assert hasattr(args, 'region')
+        assert hasattr(args, "vm_size")
+        assert hasattr(args, "region")
 
     def test_cli_accepts_vm_size_argument(self):
         """Test that CLI accepts --vm-size argument."""
         from azlin.cli import parse_args
 
-        args = parse_args(['--vm-size', 'Standard_D4s_v3'])
+        args = parse_args(["--vm-size", "Standard_D4s_v3"])
 
-        assert args.vm_size == 'Standard_D4s_v3'
+        assert args.vm_size == "Standard_D4s_v3"
 
     def test_cli_accepts_region_argument(self):
         """Test that CLI accepts --region argument."""
         from azlin.cli import parse_args
 
-        args = parse_args(['--region', 'westus2'])
+        args = parse_args(["--region", "westus2"])
 
-        assert args.region == 'westus2'
+        assert args.region == "westus2"
 
     def test_cli_has_default_vm_size(self):
         """Test that CLI has default VM size."""
@@ -74,7 +74,7 @@ class TestCLIArgumentParsing:
 
         args = parse_args([])
 
-        assert args.vm_size == 'Standard_D2s_v3'  # Default size
+        assert args.vm_size == "Standard_D2s_v3"  # Default size
 
     def test_cli_has_default_region(self):
         """Test that CLI has default region."""
@@ -82,12 +82,13 @@ class TestCLIArgumentParsing:
 
         args = parse_args([])
 
-        assert args.region == 'eastus'  # Default region
+        assert args.region == "eastus"  # Default region
 
 
 # ============================================================================
 # CONFIGURATION OPTIONS TESTS
 # ============================================================================
+
 
 class TestCLIConfigurationOptions:
     """Test CLI configuration options."""
@@ -96,7 +97,7 @@ class TestCLIConfigurationOptions:
         """Test --no-auto-connect flag disables SSH auto-connect."""
         from azlin.cli import parse_args
 
-        args = parse_args(['--no-auto-connect'])
+        args = parse_args(["--no-auto-connect"])
 
         assert args.auto_connect is False
 
@@ -112,22 +113,23 @@ class TestCLIConfigurationOptions:
         """Test --config argument for custom config file."""
         from azlin.cli import parse_args
 
-        args = parse_args(['--config', '/path/to/config.yaml'])
+        args = parse_args(["--config", "/path/to/config.yaml"])
 
-        assert args.config == '/path/to/config.yaml'
+        assert args.config == "/path/to/config.yaml"
 
     def test_cli_accepts_resource_group_argument(self):
         """Test --resource-group argument."""
         from azlin.cli import parse_args
 
-        args = parse_args(['--resource-group', 'custom-rg'])
+        args = parse_args(["--resource-group", "custom-rg"])
 
-        assert args.resource_group == 'custom-rg'
+        assert args.resource_group == "custom-rg"
 
 
 # ============================================================================
 # HELP AND VERSION TESTS
 # ============================================================================
+
 
 class TestCLIHelpAndVersion:
     """Test CLI help text and version display."""
@@ -137,7 +139,7 @@ class TestCLIHelpAndVersion:
         from azlin.cli import parse_args
 
         with pytest.raises(SystemExit) as exc_info:
-            parse_args(['-h'])
+            parse_args(["-h"])
 
         assert exc_info.value.code == 0
 
@@ -146,7 +148,7 @@ class TestCLIHelpAndVersion:
         from azlin.cli import parse_args
 
         with pytest.raises(SystemExit) as exc_info:
-            parse_args(['--help'])
+            parse_args(["--help"])
 
         assert exc_info.value.code == 0
 
@@ -155,7 +157,7 @@ class TestCLIHelpAndVersion:
         from azlin.cli import parse_args
 
         with pytest.raises(SystemExit) as exc_info:
-            parse_args(['--version'])
+            parse_args(["--version"])
 
         assert exc_info.value.code == 0
 
@@ -164,34 +166,36 @@ class TestCLIHelpAndVersion:
 # ERROR HANDLING TESTS
 # ============================================================================
 
+
 class TestCLIErrorHandling:
     """Test CLI error handling and validation."""
 
     def test_cli_rejects_invalid_vm_size(self):
         """Test that invalid VM size is rejected."""
-        from azlin.cli import parse_args, CLIError
+        from azlin.cli import CLIError, parse_args
 
         with pytest.raises((CLIError, SystemExit)):
-            args = parse_args(['--vm-size', 'InvalidSize'])
+            args = parse_args(["--vm-size", "InvalidSize"])
 
     def test_cli_rejects_invalid_region(self):
         """Test that invalid region is rejected."""
-        from azlin.cli import parse_args, CLIError
+        from azlin.cli import CLIError, parse_args
 
         with pytest.raises((CLIError, SystemExit)):
-            args = parse_args(['--region', 'invalid-region'])
+            args = parse_args(["--region", "invalid-region"])
 
     def test_cli_rejects_invalid_repo_url(self):
         """Test that invalid repository URL is rejected."""
-        from azlin.cli import parse_args, CLIError
+        from azlin.cli import CLIError, parse_args
 
         with pytest.raises((CLIError, SystemExit)):
-            args = parse_args(['--repo', 'not-a-valid-url'])
+            args = parse_args(["--repo", "not-a-valid-url"])
 
 
 # ============================================================================
 # MAIN ENTRY POINT TESTS
 # ============================================================================
+
 
 class TestCLIMainEntryPoint:
     """Test CLI main entry point."""
@@ -202,13 +206,13 @@ class TestCLIMainEntryPoint:
 
         assert callable(main)
 
-    @patch('azlin.cli.AzlinOrchestrator')
+    @patch("azlin.cli.AzlinOrchestrator")
     def test_main_creates_orchestrator(self, mock_orchestrator):
         """Test that main() creates AzlinOrchestrator."""
         from azlin.cli import main
 
         # Mock sys.argv
-        with patch('sys.argv', ['azlin', '--repo', 'https://github.com/user/repo']):
+        with patch("sys.argv", ["azlin", "--repo", "https://github.com/user/repo"]):
             try:
                 main()
             except SystemExit:
@@ -216,28 +220,28 @@ class TestCLIMainEntryPoint:
 
         mock_orchestrator.assert_called_once()
 
-    @patch('azlin.cli.AzlinOrchestrator')
+    @patch("azlin.cli.AzlinOrchestrator")
     def test_main_handles_keyboard_interrupt(self, mock_orchestrator):
         """Test that main() handles KeyboardInterrupt gracefully."""
         from azlin.cli import main
 
         mock_orchestrator.return_value.run.side_effect = KeyboardInterrupt()
 
-        with patch('sys.argv', ['azlin']):
+        with patch("sys.argv", ["azlin"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
 
         # Should exit with code 130 (128 + SIGINT)
         assert exc_info.value.code in (130, 1)
 
-    @patch('azlin.cli.AzlinOrchestrator')
+    @patch("azlin.cli.AzlinOrchestrator")
     def test_main_handles_general_exception(self, mock_orchestrator):
         """Test that main() handles general exceptions."""
         from azlin.cli import main
 
-        mock_orchestrator.return_value.run.side_effect = Exception('Test error')
+        mock_orchestrator.return_value.run.side_effect = Exception("Test error")
 
-        with patch('sys.argv', ['azlin']):
+        with patch("sys.argv", ["azlin"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
 
@@ -248,6 +252,7 @@ class TestCLIMainEntryPoint:
 # CONFIGURATION MERGING TESTS
 # ============================================================================
 
+
 class TestCLIConfigurationMerging:
     """Test merging of CLI args with config file."""
 
@@ -256,39 +261,41 @@ class TestCLIConfigurationMerging:
         from azlin.cli import load_config
 
         # Create a config file
-        config_file = tmp_path / 'config.yaml'
-        config_file.write_text("""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """
 vm:
   size: Standard_D2s_v3
   region: eastus
-""")
+"""
+        )
 
         # Load config with CLI overrides
         config = load_config(
-            config_file=str(config_file),
-            vm_size='Standard_D4s_v3',
-            region='westus2'
+            config_file=str(config_file), vm_size="Standard_D4s_v3", region="westus2"
         )
 
-        assert config['vm']['size'] == 'Standard_D4s_v3'  # CLI override
-        assert config['vm']['region'] == 'westus2'  # CLI override
+        assert config["vm"]["size"] == "Standard_D4s_v3"  # CLI override
+        assert config["vm"]["region"] == "westus2"  # CLI override
 
     def test_config_file_provides_defaults(self, tmp_path):
         """Test that config file provides defaults when CLI args not specified."""
         from azlin.cli import load_config
 
-        config_file = tmp_path / 'config.yaml'
-        config_file.write_text("""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """
 vm:
   size: Standard_D4s_v3
   region: westus2
 tools:
   - git
   - python3
-""")
+"""
+        )
 
         config = load_config(config_file=str(config_file))
 
-        assert config['vm']['size'] == 'Standard_D4s_v3'
-        assert config['vm']['region'] == 'westus2'
-        assert 'git' in config['tools']
+        assert config["vm"]["size"] == "Standard_D4s_v3"
+        assert config["vm"]["region"] == "westus2"
+        assert "git" in config["tools"]

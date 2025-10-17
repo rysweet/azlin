@@ -15,17 +15,14 @@ Test Coverage (TDD - RED phase):
 - Error handling
 """
 
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, mock_open
-from datetime import datetime
-import tempfile
-import shutil
+from unittest.mock import patch
 
+import pytest
 
 # ============================================================================
 # TEMPLATE CREATION TESTS
 # ============================================================================
+
 
 class TestTemplateCreation:
     """Test template creation functionality."""
@@ -43,11 +40,11 @@ class TestTemplateCreation:
             vm_size="Standard_D2s_v3",
             region="eastus",
             cloud_init="#cloud-config\npackages:\n  - docker",
-            custom_metadata={"created_by": "test@example.com"}
+            custom_metadata={"created_by": "test@example.com"},
         )
 
         # Override templates directory
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             TemplateManager.create_template(template)
 
             # Verify file was created
@@ -62,10 +59,10 @@ class TestTemplateCreation:
             name="minimal-vm",
             description="Minimal template",
             vm_size="Standard_B2s",
-            region="westus2"
+            region="westus2",
         )
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             TemplateManager.create_template(template)
 
             template_file = tmp_path / "minimal-vm.yaml"
@@ -73,32 +70,29 @@ class TestTemplateCreation:
 
     def test_create_template_invalid_name_fails(self, tmp_path):
         """Test that invalid template names are rejected."""
-        from azlin.template_manager import TemplateManager, VMTemplateConfig, TemplateError
+        from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 
         # Test path traversal attempt
         template = VMTemplateConfig(
             name="../../../etc/passwd",
             description="Malicious template",
             vm_size="Standard_B2s",
-            region="eastus"
+            region="eastus",
         )
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             with pytest.raises(TemplateError, match="Invalid template name"):
                 TemplateManager.create_template(template)
 
     def test_create_template_duplicate_name_fails(self, tmp_path):
         """Test that creating a template with duplicate name fails."""
-        from azlin.template_manager import TemplateManager, VMTemplateConfig, TemplateError
+        from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 
         template = VMTemplateConfig(
-            name="duplicate",
-            description="First template",
-            vm_size="Standard_B2s",
-            region="eastus"
+            name="duplicate", description="First template", vm_size="Standard_B2s", region="eastus"
         )
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             TemplateManager.create_template(template)
 
             # Try to create again with same name
@@ -113,13 +107,10 @@ class TestTemplateCreation:
         assert not templates_dir.exists()
 
         template = VMTemplateConfig(
-            name="test",
-            description="Test",
-            vm_size="Standard_B2s",
-            region="eastus"
+            name="test", description="Test", vm_size="Standard_B2s", region="eastus"
         )
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', templates_dir):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", templates_dir):
             TemplateManager.create_template(template)
 
             assert templates_dir.exists()
@@ -130,6 +121,7 @@ class TestTemplateCreation:
 # TEMPLATE LISTING TESTS
 # ============================================================================
 
+
 class TestTemplateListing:
     """Test template listing functionality."""
 
@@ -137,7 +129,7 @@ class TestTemplateListing:
         """Test listing templates when directory is empty."""
         from azlin.template_manager import TemplateManager
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             templates = TemplateManager.list_templates()
 
             assert isinstance(templates, list)
@@ -149,19 +141,16 @@ class TestTemplateListing:
 
         # Create multiple templates
         template1 = VMTemplateConfig(
-            name="template1",
-            description="First template",
-            vm_size="Standard_B2s",
-            region="eastus"
+            name="template1", description="First template", vm_size="Standard_B2s", region="eastus"
         )
         template2 = VMTemplateConfig(
             name="template2",
             description="Second template",
             vm_size="Standard_D2s_v3",
-            region="westus2"
+            region="westus2",
         )
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             TemplateManager.create_template(template1)
             TemplateManager.create_template(template2)
 
@@ -178,15 +167,12 @@ class TestTemplateListing:
         # Create templates in reverse alphabetical order
         for name in ["zebra", "alpha", "middle"]:
             template = VMTemplateConfig(
-                name=name,
-                description=f"{name} template",
-                vm_size="Standard_B2s",
-                region="eastus"
+                name=name, description=f"{name} template", vm_size="Standard_B2s", region="eastus"
             )
-            with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+            with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
                 TemplateManager.create_template(template)
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             templates = TemplateManager.list_templates()
 
             names = [t.name for t in templates]
@@ -196,6 +182,7 @@ class TestTemplateListing:
 # ============================================================================
 # TEMPLATE RETRIEVAL TESTS
 # ============================================================================
+
 
 class TestTemplateRetrieval:
     """Test template retrieval functionality."""
@@ -209,10 +196,10 @@ class TestTemplateRetrieval:
             description="Test template",
             vm_size="Standard_D2s_v3",
             region="eastus",
-            cloud_init="#cloud-config"
+            cloud_init="#cloud-config",
         )
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             TemplateManager.create_template(original)
 
             retrieved = TemplateManager.get_template("test-vm")
@@ -225,9 +212,9 @@ class TestTemplateRetrieval:
 
     def test_get_nonexistent_template_fails(self, tmp_path):
         """Test that retrieving non-existent template raises error."""
-        from azlin.template_manager import TemplateManager, TemplateError
+        from azlin.template_manager import TemplateError, TemplateManager
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             with pytest.raises(TemplateError, match="not found"):
                 TemplateManager.get_template("nonexistent")
 
@@ -235,6 +222,7 @@ class TestTemplateRetrieval:
 # ============================================================================
 # TEMPLATE DELETION TESTS
 # ============================================================================
+
 
 class TestTemplateDeletion:
     """Test template deletion functionality."""
@@ -244,13 +232,10 @@ class TestTemplateDeletion:
         from azlin.template_manager import TemplateManager, VMTemplateConfig
 
         template = VMTemplateConfig(
-            name="to-delete",
-            description="Will be deleted",
-            vm_size="Standard_B2s",
-            region="eastus"
+            name="to-delete", description="Will be deleted", vm_size="Standard_B2s", region="eastus"
         )
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             TemplateManager.create_template(template)
 
             template_file = tmp_path / "to-delete.yaml"
@@ -262,9 +247,9 @@ class TestTemplateDeletion:
 
     def test_delete_nonexistent_template_fails(self, tmp_path):
         """Test that deleting non-existent template raises error."""
-        from azlin.template_manager import TemplateManager, TemplateError
+        from azlin.template_manager import TemplateError, TemplateManager
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             with pytest.raises(TemplateError, match="not found"):
                 TemplateManager.delete_template("nonexistent")
 
@@ -272,6 +257,7 @@ class TestTemplateDeletion:
 # ============================================================================
 # TEMPLATE EXPORT/IMPORT TESTS
 # ============================================================================
+
 
 class TestTemplateExportImport:
     """Test template export and import functionality."""
@@ -284,13 +270,13 @@ class TestTemplateExportImport:
             name="export-test",
             description="Template for export",
             vm_size="Standard_D2s_v3",
-            region="eastus"
+            region="eastus",
         )
 
         templates_dir = tmp_path / "templates"
         output_file = tmp_path / "exported.yaml"
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', templates_dir):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", templates_dir):
             TemplateManager.create_template(template)
             TemplateManager.export_template("export-test", output_file)
 
@@ -298,7 +284,7 @@ class TestTemplateExportImport:
 
     def test_import_template_from_file(self, tmp_path):
         """Test importing a template from a YAML file."""
-        from azlin.template_manager import TemplateManager, VMTemplateConfig
+        from azlin.template_manager import TemplateManager
 
         # Create a template file manually
         yaml_content = """name: imported-vm
@@ -315,7 +301,7 @@ cloud_init: |
 
         templates_dir = tmp_path / "templates"
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', templates_dir):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", templates_dir):
             imported = TemplateManager.import_template(input_file)
 
             assert imported.name == "imported-vm"
@@ -328,18 +314,18 @@ cloud_init: |
 
     def test_import_invalid_yaml_fails(self, tmp_path):
         """Test that importing invalid YAML raises error."""
-        from azlin.template_manager import TemplateManager, TemplateError
+        from azlin.template_manager import TemplateError, TemplateManager
 
         input_file = tmp_path / "invalid.yaml"
         input_file.write_text("{ invalid yaml content [")
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path / "templates"):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path / "templates"):
             with pytest.raises(TemplateError, match="Invalid YAML"):
                 TemplateManager.import_template(input_file)
 
     def test_import_missing_required_fields_fails(self, tmp_path):
         """Test that importing template with missing fields fails."""
-        from azlin.template_manager import TemplateManager, TemplateError
+        from azlin.template_manager import TemplateError, TemplateManager
 
         yaml_content = """name: incomplete
 # Missing description, vm_size, region
@@ -347,7 +333,7 @@ cloud_init: |
         input_file = tmp_path / "incomplete.yaml"
         input_file.write_text(yaml_content)
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path / "templates"):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path / "templates"):
             with pytest.raises(TemplateError, match="Missing required field"):
                 TemplateManager.import_template(input_file)
 
@@ -355,6 +341,7 @@ cloud_init: |
 # ============================================================================
 # YAML SERIALIZATION TESTS
 # ============================================================================
+
 
 class TestYAMLSerialization:
     """Test YAML serialization and deserialization."""
@@ -369,7 +356,7 @@ class TestYAMLSerialization:
             vm_size="Standard_B2s",
             region="eastus",
             cloud_init="#cloud-config",
-            custom_metadata={"key": "value"}
+            custom_metadata={"key": "value"},
         )
 
         yaml_dict = template.to_dict()
@@ -391,7 +378,7 @@ class TestYAMLSerialization:
             "vm_size": "Standard_D2s_v3",
             "region": "westus2",
             "cloud_init": "#cloud-config\npackages:\n  - git",
-            "custom_metadata": {"author": "test"}
+            "custom_metadata": {"author": "test"},
         }
 
         template = VMTemplateConfig.from_dict(yaml_dict)
@@ -407,6 +394,7 @@ class TestYAMLSerialization:
 # ============================================================================
 # VALIDATION TESTS
 # ============================================================================
+
 
 class TestTemplateValidation:
     """Test template validation logic."""
@@ -428,34 +416,25 @@ class TestTemplateValidation:
 
     def test_validate_template_fields(self):
         """Test validation of required template fields."""
-        from azlin.template_manager import VMTemplateConfig, TemplateError
+        from azlin.template_manager import TemplateError, VMTemplateConfig
 
         # Valid template
         valid = VMTemplateConfig(
-            name="valid",
-            description="Valid template",
-            vm_size="Standard_B2s",
-            region="eastus"
+            name="valid", description="Valid template", vm_size="Standard_B2s", region="eastus"
         )
         valid.validate()  # Should not raise
 
         # Invalid - empty name
         with pytest.raises(TemplateError):
             invalid = VMTemplateConfig(
-                name="",
-                description="Invalid",
-                vm_size="Standard_B2s",
-                region="eastus"
+                name="", description="Invalid", vm_size="Standard_B2s", region="eastus"
             )
             invalid.validate()
 
         # Invalid - empty description
         with pytest.raises(TemplateError):
             invalid = VMTemplateConfig(
-                name="test",
-                description="",
-                vm_size="Standard_B2s",
-                region="eastus"
+                name="test", description="", vm_size="Standard_B2s", region="eastus"
             )
             invalid.validate()
 
@@ -464,38 +443,33 @@ class TestTemplateValidation:
 # EDGE CASES
 # ============================================================================
 
+
 class TestTemplateEdgeCases:
     """Test edge cases and error handling."""
 
     def test_template_with_long_name(self, tmp_path):
         """Test template with very long name."""
-        from azlin.template_manager import TemplateManager, VMTemplateConfig, TemplateError
+        from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 
         long_name = "a" * 256  # Very long name
 
         template = VMTemplateConfig(
-            name=long_name,
-            description="Long name test",
-            vm_size="Standard_B2s",
-            region="eastus"
+            name=long_name, description="Long name test", vm_size="Standard_B2s", region="eastus"
         )
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             with pytest.raises(TemplateError, match="(too long|Invalid template name)"):
                 TemplateManager.create_template(template)
 
     def test_template_with_special_characters(self, tmp_path):
         """Test template with special characters in name."""
-        from azlin.template_manager import TemplateManager, VMTemplateConfig, TemplateError
+        from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 
         template = VMTemplateConfig(
-            name="test!@#$%",
-            description="Special chars",
-            vm_size="Standard_B2s",
-            region="eastus"
+            name="test!@#$%", description="Special chars", vm_size="Standard_B2s", region="eastus"
         )
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             with pytest.raises(TemplateError, match="Invalid template name"):
                 TemplateManager.create_template(template)
 
@@ -505,13 +479,10 @@ class TestTemplateEdgeCases:
 
         # Create a valid template
         template = VMTemplateConfig(
-            name="valid",
-            description="Valid template",
-            vm_size="Standard_B2s",
-            region="eastus"
+            name="valid", description="Valid template", vm_size="Standard_B2s", region="eastus"
         )
 
-        with patch.object(TemplateManager, 'TEMPLATES_DIR', tmp_path):
+        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
             TemplateManager.create_template(template)
 
             # Corrupt the YAML file

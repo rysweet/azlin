@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class TagManagerError(Exception):
     """Raised when tag management operations fail."""
+
     pass
 
 
@@ -35,15 +36,10 @@ class TagManager:
     """
 
     # Tag key validation: alphanumeric, underscore, hyphen, period
-    TAG_KEY_PATTERN = re.compile(r'^[a-zA-Z0-9_.-]+$')
+    TAG_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
     @classmethod
-    def add_tags(
-        cls,
-        vm_name: str,
-        resource_group: str,
-        tags: dict[str, str]
-    ) -> None:
+    def add_tags(cls, vm_name: str, resource_group: str, tags: dict[str, str]) -> None:
         """Add tags to a VM.
 
         Args:
@@ -64,25 +60,24 @@ class TagManager:
 
             # Build command with --set for each tag
             cmd = [
-                'az', 'vm', 'update',
-                '--name', vm_name,
-                '--resource-group', resource_group,
-                '--output', 'json'
+                "az",
+                "vm",
+                "update",
+                "--name",
+                vm_name,
+                "--resource-group",
+                resource_group,
+                "--output",
+                "json",
             ]
 
             # Add each tag as a separate --set argument
             for key, value in tags.items():
-                cmd.extend(['--set', f'tags.{key}={value}'])
+                cmd.extend(["--set", f"tags.{key}={value}"])
 
             logger.debug(f"Adding tags to VM {vm_name}: {tags}")
 
-            subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True
-            )
+            subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
 
             logger.info(f"Successfully added tags to VM {vm_name}")
 
@@ -95,12 +90,7 @@ class TagManager:
             raise TagManagerError(f"Failed to add tags: {str(e)}")
 
     @classmethod
-    def remove_tags(
-        cls,
-        vm_name: str,
-        resource_group: str,
-        tag_keys: list[str]
-    ) -> None:
+    def remove_tags(cls, vm_name: str, resource_group: str, tag_keys: list[str]) -> None:
         """Remove tags from a VM.
 
         Args:
@@ -114,25 +104,24 @@ class TagManager:
         try:
             # Build command with --remove for each tag key
             cmd = [
-                'az', 'vm', 'update',
-                '--name', vm_name,
-                '--resource-group', resource_group,
-                '--output', 'json'
+                "az",
+                "vm",
+                "update",
+                "--name",
+                vm_name,
+                "--resource-group",
+                resource_group,
+                "--output",
+                "json",
             ]
 
             # Add each tag key as a separate --remove argument
             for key in tag_keys:
-                cmd.extend(['--remove', f'tags.{key}'])
+                cmd.extend(["--remove", f"tags.{key}"])
 
             logger.debug(f"Removing tags from VM {vm_name}: {tag_keys}")
 
-            subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True
-            )
+            subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
 
             logger.info(f"Successfully removed tags from VM {vm_name}")
 
@@ -145,11 +134,7 @@ class TagManager:
             raise TagManagerError(f"Failed to remove tags: {str(e)}")
 
     @classmethod
-    def get_tags(
-        cls,
-        vm_name: str,
-        resource_group: str
-    ) -> dict[str, str]:
+    def get_tags(cls, vm_name: str, resource_group: str) -> dict[str, str]:
         """Get tags from a VM.
 
         Args:
@@ -164,22 +149,21 @@ class TagManager:
         """
         try:
             cmd = [
-                'az', 'vm', 'show',
-                '--name', vm_name,
-                '--resource-group', resource_group,
-                '--output', 'json'
+                "az",
+                "vm",
+                "show",
+                "--name",
+                vm_name,
+                "--resource-group",
+                resource_group,
+                "--output",
+                "json",
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
 
             vm_data = json.loads(result.stdout)
-            tags = vm_data.get('tags', {})
+            tags = vm_data.get("tags", {})
 
             # Handle null tags
             if tags is None:
@@ -198,11 +182,7 @@ class TagManager:
             raise TagManagerError(f"Failed to get tags: {str(e)}")
 
     @classmethod
-    def filter_vms_by_tag(
-        cls,
-        vms: list[VMInfo],
-        tag_filter: str
-    ) -> list[VMInfo]:
+    def filter_vms_by_tag(cls, vms: list[VMInfo], tag_filter: str) -> list[VMInfo]:
         """Filter VMs by tag.
 
         Args:
@@ -244,9 +224,9 @@ class TagManager:
         Returns:
             Tuple of (key, value) where value is None for key-only filters
         """
-        if '=' in tag_filter:
+        if "=" in tag_filter:
             # Split only on first '=' to handle values with '='
-            parts = tag_filter.split('=', 1)
+            parts = tag_filter.split("=", 1)
             return parts[0], parts[1]
         else:
             return tag_filter, None
@@ -264,11 +244,11 @@ class TagManager:
         Raises:
             TagManagerError: If format is invalid
         """
-        if '=' not in tag_str:
+        if "=" not in tag_str:
             raise TagManagerError(f"Invalid tag format: {tag_str}. Expected format: key=value")
 
         # Split only on first '=' to handle values with '='
-        parts = tag_str.split('=', 1)
+        parts = tag_str.split("=", 1)
         key = parts[0]
         value = parts[1]
 

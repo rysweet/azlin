@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-
 from azlin.log_viewer import LogResult, LogType, LogViewer, LogViewerError
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.vm_manager import VMInfo

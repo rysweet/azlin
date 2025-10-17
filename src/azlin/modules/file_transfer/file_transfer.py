@@ -1,19 +1,21 @@
 """Secure file transfer operations."""
 
-from pathlib import Path
-from typing import Optional, List
-import subprocess
 import ipaddress
+import subprocess
 from dataclasses import dataclass
-from .exceptions import TransferError, InvalidTransferError
+from pathlib import Path
+from typing import Optional
+
+from .exceptions import InvalidTransferError, TransferError
 from .session_manager import VMSession
 
 
 @dataclass
 class TransferEndpoint:
     """Represents a transfer source or destination."""
-    path: Path                      # Validated local path
-    session: Optional[VMSession]    # None for local, VMSession for remote
+
+    path: Path  # Validated local path
+    session: Optional[VMSession]  # None for local, VMSession for remote
 
     def to_rsync_arg(self) -> str:
         """Convert to rsync argument."""
@@ -28,11 +30,12 @@ class TransferEndpoint:
 @dataclass
 class TransferResult:
     """Result of file transfer operation."""
+
     success: bool
     files_transferred: int
     bytes_transferred: int
     duration_seconds: float
-    errors: List[str]
+    errors: list[str]
 
 
 class FileTransfer:
@@ -43,7 +46,7 @@ class FileTransfer:
         cls,
         source: TransferEndpoint,
         dest: TransferEndpoint,
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
     ) -> TransferResult:
         """
         Transfer files from source to destination.
@@ -67,15 +70,14 @@ class FileTransfer:
         """
         # Validate transfer direction
         if source.session is None and dest.session is None:
-            raise InvalidTransferError(
-                "Both source and destination are local. Use 'cp' instead."
-            )
+            raise InvalidTransferError("Both source and destination are local. Use 'cp' instead.")
 
         # Build rsync command
         cmd = cls._build_rsync_command(source, dest)
 
         # Execute rsync with validated arguments
         import time
+
         start_time = time.time()
 
         try:
@@ -84,7 +86,7 @@ class FileTransfer:
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
-                check=True
+                check=True,
             )
 
             duration = time.time() - start_time
@@ -94,10 +96,10 @@ class FileTransfer:
 
             return TransferResult(
                 success=True,
-                files_transferred=stats['files'],
-                bytes_transferred=stats['bytes'],
+                files_transferred=stats["files"],
+                bytes_transferred=stats["bytes"],
                 duration_seconds=duration,
-                errors=[]
+                errors=[],
             )
 
         except subprocess.CalledProcessError as e:
@@ -107,18 +109,14 @@ class FileTransfer:
                 files_transferred=0,
                 bytes_transferred=0,
                 duration_seconds=duration,
-                errors=[f"rsync failed: {e.stderr}"]
+                errors=[f"rsync failed: {e.stderr}"],
             )
 
         except subprocess.TimeoutExpired:
             raise TransferError("Transfer timed out after 5 minutes")
 
     @classmethod
-    def _build_rsync_command(
-        cls,
-        source: TransferEndpoint,
-        dest: TransferEndpoint
-    ) -> List[str]:
+    def _build_rsync_command(cls, source: TransferEndpoint, dest: TransferEndpoint) -> list[str]:
         """
         Build rsync command with validated arguments.
 
@@ -130,7 +128,7 @@ class FileTransfer:
             - IP addresses validated
             - SSH command in single argument
         """
-        cmd = ['rsync', '-avz', '--progress']
+        cmd = ["rsync", "-avz", "--progress"]
 
         # Determine which endpoint is remote
         remote_session = source.session or dest.session
@@ -149,7 +147,7 @@ class FileTransfer:
             )
 
             # Add SSH command to rsync
-            cmd.extend(['-e', ssh_cmd])
+            cmd.extend(["-e", ssh_cmd])
 
         # Add source and destination
         cmd.append(source.to_rsync_arg())
@@ -180,18 +178,15 @@ class FileTransfer:
         files = 0
         bytes_transferred = 0
 
-        for line in output.split('\n'):
+        for line in output.split("\n"):
             # Count file transfers (lines with file paths)
-            if line and not line.startswith(('sending', 'sent', 'total')):
+            if line and not line.startswith(("sending", "sent", "total")):
                 files += 1
 
             # Parse bytes transferred
-            match = re.search(r'sent ([\d,]+) bytes', line)
+            match = re.search(r"sent ([\d,]+) bytes", line)
             if match:
-                bytes_str = match.group(1).replace(',', '')
+                bytes_str = match.group(1).replace(",", "")
                 bytes_transferred = int(bytes_str)
 
-        return {
-            'files': files,
-            'bytes': bytes_transferred
-        }
+        return {"files": files, "bytes": bytes_transferred}

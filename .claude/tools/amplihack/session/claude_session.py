@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -32,7 +32,7 @@ class SessionState:
     command_count: int = 0
     error_count: int = 0
     last_error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class TimeoutError(Exception):
@@ -72,8 +72,8 @@ class ClaudeSession:
         self.logger = self._setup_logger()
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._shutdown_event = threading.Event()
-        self._command_history: List[Dict[str, Any]] = []
-        self._checkpoints: List[SessionState] = []
+        self._command_history: list[dict[str, Any]] = []
+        self._checkpoints: list[SessionState] = []
 
     def _generate_session_id(self) -> str:
         """Generate unique session ID."""
@@ -232,7 +232,7 @@ class ClaudeSession:
 
         return result
 
-    def _simulate_command_execution(self, command: str, **kwargs) -> Dict[str, Any]:
+    def _simulate_command_execution(self, command: str, **kwargs) -> dict[str, Any]:
         """Simulate command execution (replace with actual Claude integration)."""
         import random
         import time
@@ -273,7 +273,7 @@ class ClaudeSession:
         self.state = checkpoint
         self.logger.info(f"Restored checkpoint {index}")
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get session statistics."""
         current_time = time.time()
         return {
@@ -288,7 +288,7 @@ class ClaudeSession:
             "time_since_activity": current_time - self.state.last_activity,
         }
 
-    def get_command_history(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_command_history(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get recent command history.
 
         Args:

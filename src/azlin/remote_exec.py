@@ -11,12 +11,11 @@ Security:
 """
 
 import logging
-import subprocess
 import shlex
-from pathlib import Path
-from typing import List, Optional, Tuple
-from dataclasses import dataclass
+import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from typing import Optional
 
 from azlin.modules.ssh_connector import SSHConfig
 
@@ -25,12 +24,14 @@ logger = logging.getLogger(__name__)
 
 class RemoteExecError(Exception):
     """Raised when remote command execution fails."""
+
     pass
 
 
 @dataclass
 class RemoteResult:
     """Result from remote command execution."""
+
     vm_name: str
     success: bool
     stdout: str
@@ -57,10 +58,7 @@ class RemoteExecutor:
 
     @classmethod
     def execute_command(
-        cls,
-        ssh_config: SSHConfig,
-        command: str,
-        timeout: int = 30
+        cls, ssh_config: SSHConfig, command: str, timeout: int = 30
     ) -> RemoteResult:
         """Execute command on single VM.
 
@@ -76,6 +74,7 @@ class RemoteExecutor:
             RemoteExecError: If execution fails
         """
         import time
+
         start_time = time.time()
 
         try:
@@ -84,14 +83,19 @@ class RemoteExecutor:
 
             # Build SSH command
             ssh_cmd = [
-                'ssh',
-                '-o', 'StrictHostKeyChecking=no',
-                '-o', 'UserKnownHostsFile=/dev/null',
-                '-o', 'LogLevel=ERROR',
-                '-o', f'ConnectTimeout={min(timeout, 10)}',
-                '-i', str(ssh_config.key_path),
-                f'{ssh_config.user}@{ssh_config.host}',
-                command  # Pass command directly, not through shell
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-o",
+                "LogLevel=ERROR",
+                "-o",
+                f"ConnectTimeout={min(timeout, 10)}",
+                "-i",
+                str(ssh_config.key_path),
+                f"{ssh_config.user}@{ssh_config.host}",
+                command,  # Pass command directly, not through shell
             ]
 
             logger.debug(f"Executing on {ssh_config.host}: {command}")
@@ -101,7 +105,7 @@ class RemoteExecutor:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                check=False  # Don't raise on non-zero exit
+                check=False,  # Don't raise on non-zero exit
             )
 
             duration = time.time() - start_time
@@ -112,25 +116,19 @@ class RemoteExecutor:
                 stdout=result.stdout,
                 stderr=result.stderr,
                 exit_code=result.returncode,
-                duration=duration
+                duration=duration,
             )
 
         except subprocess.TimeoutExpired:
             duration = time.time() - start_time
-            raise RemoteExecError(
-                f"Command timed out after {timeout}s on {ssh_config.host}"
-            )
+            raise RemoteExecError(f"Command timed out after {timeout}s on {ssh_config.host}")
         except Exception as e:
             raise RemoteExecError(f"Failed to execute command: {e}")
 
     @classmethod
     def execute_parallel(
-        cls,
-        ssh_configs: List[SSHConfig],
-        command: str,
-        timeout: int = 30,
-        max_workers: int = 10
-    ) -> List[RemoteResult]:
+        cls, ssh_configs: list[SSHConfig], command: str, timeout: int = 30, max_workers: int = 10
+    ) -> list[RemoteResult]:
         """Execute command on multiple VMs in parallel.
 
         Args:
@@ -151,20 +149,12 @@ class RemoteExecutor:
         results = []
         num_workers = min(max_workers, len(ssh_configs))
 
-        logger.debug(
-            f"Executing command on {len(ssh_configs)} VMs "
-            f"with {num_workers} workers"
-        )
+        logger.debug(f"Executing command on {len(ssh_configs)} VMs " f"with {num_workers} workers")
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             # Submit all tasks
             future_to_config = {
-                executor.submit(
-                    cls.execute_command,
-                    config,
-                    command,
-                    timeout
-                ): config
+                executor.submit(cls.execute_command, config, command, timeout): config
                 for config in ssh_configs
             }
 
@@ -176,22 +166,20 @@ class RemoteExecutor:
                     results.append(result)
                 except Exception as e:
                     logger.error(f"Failed on {config.host}: {e}")
-                    results.append(RemoteResult(
-                        vm_name=config.host,
-                        success=False,
-                        stdout="",
-                        stderr=str(e),
-                        exit_code=-1
-                    ))
+                    results.append(
+                        RemoteResult(
+                            vm_name=config.host,
+                            success=False,
+                            stdout="",
+                            stderr=str(e),
+                            exit_code=-1,
+                        )
+                    )
 
         return results
 
     @classmethod
-    def format_parallel_output(
-        cls,
-        results: List[RemoteResult],
-        show_vm_name: bool = True
-    ) -> str:
+    def format_parallel_output(cls, results: list[RemoteResult], show_vm_name: bool = True) -> str:
         """Format output from parallel execution.
 
         Args:
@@ -217,11 +205,7 @@ class RemoteExecutor:
         return "\n".join(lines)
 
     @classmethod
-    def parse_command_from_args(
-        cls,
-        args: List[str],
-        delimiter: str = "--"
-    ) -> Optional[str]:
+    def parse_command_from_args(cls, args: list[str], delimiter: str = "--") -> Optional[str]:
         """Parse command from argument list after delimiter.
 
         Args:
@@ -237,7 +221,7 @@ class RemoteExecutor:
         """
         try:
             delimiter_index = args.index(delimiter)
-            command_args = args[delimiter_index + 1:]
+            command_args = args[delimiter_index + 1 :]
 
             if not command_args:
                 return None
@@ -249,11 +233,7 @@ class RemoteExecutor:
             return None
 
     @classmethod
-    def extract_command_slug(
-        cls,
-        command: str,
-        max_length: int = 20
-    ) -> str:
+    def extract_command_slug(cls, command: str, max_length: int = 20) -> str:
         """Extract slug from command for naming.
 
         Args:
@@ -296,10 +276,8 @@ class WCommandExecutor:
 
     @classmethod
     def execute_w_on_vms(
-        cls,
-        ssh_configs: List[SSHConfig],
-        timeout: int = 30
-    ) -> List[RemoteResult]:
+        cls, ssh_configs: list[SSHConfig], timeout: int = 30
+    ) -> list[RemoteResult]:
         """Execute 'w' command on multiple VMs.
 
         Args:
@@ -309,14 +287,10 @@ class WCommandExecutor:
         Returns:
             List of RemoteResult objects
         """
-        return RemoteExecutor.execute_parallel(
-            ssh_configs,
-            'w',
-            timeout=timeout
-        )
+        return RemoteExecutor.execute_parallel(ssh_configs, "w", timeout=timeout)
 
     @classmethod
-    def format_w_output(cls, results: List[RemoteResult]) -> str:
+    def format_w_output(cls, results: list[RemoteResult]) -> str:
         """Format 'w' command output with VM names.
 
         Args:
@@ -351,11 +325,8 @@ class PSCommandExecutor:
 
     @classmethod
     def execute_ps_on_vms(
-        cls,
-        ssh_configs: List[SSHConfig],
-        timeout: int = 30,
-        use_forest: bool = True
-    ) -> List[RemoteResult]:
+        cls, ssh_configs: list[SSHConfig], timeout: int = 30, use_forest: bool = True
+    ) -> list[RemoteResult]:
         """Execute 'ps' command on multiple VMs.
 
         Args:
@@ -368,20 +339,12 @@ class PSCommandExecutor:
         """
         # Try ps aux --forest first, fall back to ps aux if not supported
         # The forest view shows process hierarchy which is useful
-        command = 'ps aux --forest 2>/dev/null || ps aux'
+        command = "ps aux --forest 2>/dev/null || ps aux"
 
-        return RemoteExecutor.execute_parallel(
-            ssh_configs,
-            command,
-            timeout=timeout
-        )
+        return RemoteExecutor.execute_parallel(ssh_configs, command, timeout=timeout)
 
     @classmethod
-    def format_ps_output(
-        cls,
-        results: List[RemoteResult],
-        filter_ssh: bool = True
-    ) -> str:
+    def format_ps_output(cls, results: list[RemoteResult], filter_ssh: bool = True) -> str:
         """Format 'ps' command output with VM name prefix.
 
         Args:
@@ -412,11 +375,7 @@ class PSCommandExecutor:
         return "\n".join(lines)
 
     @classmethod
-    def format_ps_output_grouped(
-        cls,
-        results: List[RemoteResult],
-        filter_ssh: bool = True
-    ) -> str:
+    def format_ps_output_grouped(cls, results: list[RemoteResult], filter_ssh: bool = True) -> str:
         """Format 'ps' command output grouped by VM.
 
         Args:
@@ -459,15 +418,15 @@ class PSCommandExecutor:
             True if line represents an SSH process
         """
         # Skip header line
-        if line.startswith('USER') or line.startswith('PID'):
+        if line.startswith("USER") or line.startswith("PID"):
             return False
 
         # Check for SSH-related processes
         ssh_indicators = [
-            'sshd:',           # SSH daemon connections
-            'ssh ',            # SSH client processes
-            '/usr/sbin/sshd',  # SSH daemon path
-            'ps aux',          # The ps command itself
+            "sshd:",  # SSH daemon connections
+            "ssh ",  # SSH client processes
+            "/usr/sbin/sshd",  # SSH daemon path
+            "ps aux",  # The ps command itself
         ]
 
         line_lower = line.lower()
@@ -475,9 +434,9 @@ class PSCommandExecutor:
 
 
 __all__ = [
-    'RemoteExecutor',
-    'RemoteResult',
-    'RemoteExecError',
-    'WCommandExecutor',
-    'PSCommandExecutor'
+    "RemoteExecutor",
+    "RemoteResult",
+    "RemoteExecError",
+    "WCommandExecutor",
+    "PSCommandExecutor",
 ]

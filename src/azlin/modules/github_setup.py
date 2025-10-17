@@ -13,7 +13,6 @@ Security Requirements:
 import logging
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -25,6 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GitHubConfig:
     """GitHub setup configuration."""
+
     repo_url: str
     clone_path: Optional[str] = None  # Remote path, default: ~/repo-name
 
@@ -32,6 +32,7 @@ class GitHubConfig:
 @dataclass
 class RepoDetails:
     """Repository clone details."""
+
     clone_path: str
     repo_name: str
     repo_owner: str
@@ -39,6 +40,7 @@ class RepoDetails:
 
 class GitHubSetupError(Exception):
     """Raised when GitHub setup fails."""
+
     pass
 
 
@@ -54,10 +56,7 @@ class GitHubSetupHandler:
 
     @classmethod
     def setup_github_on_vm(
-        cls,
-        ssh_config: SSHConfig,
-        repo_url: str,
-        clone_path: Optional[str] = None
+        cls, ssh_config: SSHConfig, repo_url: str, clone_path: Optional[str] = None
     ) -> RepoDetails:
         """
         Run GitHub authentication and clone repository on VM.
@@ -110,18 +109,14 @@ class GitHubSetupHandler:
             output = SSHConnector.execute_remote_command(
                 ssh_config,
                 script,
-                timeout=300  # 5 minutes for gh auth (may require user interaction)
+                timeout=300,  # 5 minutes for gh auth (may require user interaction)
             )
 
             logger.debug(f"GitHub setup output: {output}")
 
             logger.info(f"Repository cloned to {clone_path}")
 
-            return RepoDetails(
-                clone_path=clone_path,
-                repo_name=repo_name,
-                repo_owner=owner
-            )
+            return RepoDetails(clone_path=clone_path, repo_name=repo_name, repo_owner=owner)
 
         except Exception as e:
             raise GitHubSetupError(f"GitHub setup failed: {e}")
@@ -167,7 +162,7 @@ class GitHubSetupHandler:
             "",
             "# Clone repository",
             f"if [ ! -d {safe_path} ]; then",
-            f"  echo 'Cloning repository...'",
+            "  echo 'Cloning repository...'",
             f"  git clone {safe_url} {safe_path}",
             "else",
             f"  echo 'Repository already cloned at {safe_path}'",
@@ -215,7 +210,7 @@ class GitHubSetupHandler:
             return False, "URL too long"
 
         # Check for dangerous characters
-        dangerous_chars = ['&', '|', ';', '`', '$', '\n', '\r']
+        dangerous_chars = ["&", "|", ";", "`", "$", "\n", "\r"]
         for char in dangerous_chars:
             if char in repo_url:
                 return False, f"URL contains invalid character: {char}"
@@ -227,37 +222,37 @@ class GitHubSetupHandler:
             return False, "Invalid URL format"
 
         # Must be HTTPS
-        if parsed.scheme != 'https':
+        if parsed.scheme != "https":
             return False, f"Only HTTPS URLs are supported (got: {parsed.scheme}://)"
 
         # Must be GitHub
         hostname = parsed.netloc.lower()
-        if hostname not in ['github.com', 'www.github.com']:
+        if hostname not in ["github.com", "www.github.com"]:
             return False, f"Only GitHub.com URLs are supported (got: {hostname})"
 
         # Parse path: /owner/repo or /owner/repo.git
-        path = parsed.path.strip('/')
+        path = parsed.path.strip("/")
         if not path:
             return False, "Invalid URL: missing repository path"
 
-        parts = path.split('/')
+        parts = path.split("/")
         if len(parts) < 2:
             return False, "Invalid URL: expected format https://github.com/owner/repo"
 
         owner, repo = parts[0], parts[1]
 
         # Remove .git suffix if present
-        repo = repo.removesuffix('.git')
+        repo = repo.removesuffix(".git")
 
         # Validate owner name (GitHub allows alphanumeric, hyphen)
-        if not re.match(r'^[a-zA-Z0-9_-]+$', owner):
+        if not re.match(r"^[a-zA-Z0-9_-]+$", owner):
             return False, f"Invalid owner name: {owner}"
 
         if len(owner) > 39:  # GitHub username max length
             return False, f"Owner name too long: {owner}"
 
         # Validate repo name
-        if not re.match(r'^[a-zA-Z0-9._-]+$', repo):
+        if not re.match(r"^[a-zA-Z0-9._-]+$", repo):
             return False, f"Invalid repository name: {repo}"
 
         if len(repo) > 100:  # GitHub repo name max length
@@ -287,23 +282,21 @@ class GitHubSetupHandler:
             microsoft vscode
         """
         parsed = urlparse(repo_url)
-        path = parsed.path.strip('/')
+        path = parsed.path.strip("/")
 
-        parts = path.split('/')
+        parts = path.split("/")
         if len(parts) < 2:
             raise ValueError(f"Cannot parse repository URL: {repo_url}")
 
         owner = parts[0]
-        repo = parts[1].removesuffix('.git')
+        repo = parts[1].removesuffix(".git")
 
         return owner, repo
 
 
 # Convenience functions for CLI use
 def setup_github(
-    ssh_config: SSHConfig,
-    repo_url: str,
-    clone_path: Optional[str] = None
+    ssh_config: SSHConfig, repo_url: str, clone_path: Optional[str] = None
 ) -> RepoDetails:
     """
     Setup GitHub on VM (convenience function).

@@ -7,7 +7,7 @@ import threading
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from .claude_session import ClaudeSession, SessionConfig
 from .file_utils import safe_read_file, safe_read_json, safe_write_json
@@ -41,8 +41,8 @@ class SessionManager:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
 
         # Session registry
-        self._active_sessions: Dict[str, ClaudeSession] = {}
-        self._session_metadata: Dict[str, Dict[str, Any]] = {}
+        self._active_sessions: dict[str, ClaudeSession] = {}
+        self._session_metadata: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
 
         # Setup logging
@@ -62,7 +62,7 @@ class SessionManager:
         self,
         name: str,
         config: Optional[SessionConfig] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> str:
         """Create a new session.
 
@@ -185,7 +185,7 @@ class SessionManager:
 
     def list_sessions(
         self, active_only: bool = False, include_metadata: bool = True
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List available sessions.
 
         Args:
@@ -292,7 +292,7 @@ class SessionManager:
         self.logger.info(f"Cleaned up {cleaned_count} old sessions")
         return cleaned_count
 
-    def _serialize_session(self, session: ClaudeSession) -> Dict[str, Any]:
+    def _serialize_session(self, session: ClaudeSession) -> dict[str, Any]:
         """Serialize session to JSON-compatible format."""
         return {
             "session_id": session.state.session_id,
@@ -304,7 +304,7 @@ class SessionManager:
             "metadata": self._session_metadata.get(session.state.session_id, {}),
         }
 
-    def _deserialize_session(self, data: Dict[str, Any]) -> Optional[ClaudeSession]:
+    def _deserialize_session(self, data: dict[str, Any]) -> Optional[ClaudeSession]:
         """Deserialize session from saved data."""
         try:
             # Reconstruct config
@@ -381,7 +381,7 @@ class SessionManager:
             pass
         return ""
 
-    def _get_data_hash(self, data: Dict[str, Any]) -> str:
+    def _get_data_hash(self, data: dict[str, Any]) -> str:
         """Get MD5 hash of data."""
         try:
             content = json.dumps(data, sort_keys=True)

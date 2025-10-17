@@ -6,33 +6,32 @@ Tests for detecting and removing orphaned Azure resources:
 - Orphaned public IPs
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, call
-from dataclasses import dataclass
-from typing import List, Optional
 
 # Module to be implemented
 from azlin.resource_cleanup import (
-    OrphanedResource,
     CleanupSummary,
+    OrphanedResource,
     ResourceCleanup,
-    ResourceCleanupError
+    ResourceCleanupError,
 )
 
 
 class TestOrphanedResourceDetection:
     """Test detection of orphaned resources."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_detect_orphaned_disks(self, mock_run):
         """Test detection of unattached disks."""
         # Mock Azure CLI response for disks
         mock_run.return_value = Mock(
             returncode=0,
             stdout='[{"name": "disk1", "diskState": "Unattached", "diskSizeGb": 30, "sku": {"name": "Premium_LRS"}}, '
-                   '{"name": "disk2", "diskState": "Attached", "managedBy": "/subscriptions/.../vm1"}, '
-                   '{"name": "disk3", "managedBy": null, "diskSizeGb": 100, "sku": {"name": "Standard_LRS"}}]',
-            stderr=''
+            '{"name": "disk2", "diskState": "Attached", "managedBy": "/subscriptions/.../vm1"}, '
+            '{"name": "disk3", "managedBy": null, "diskSizeGb": 100, "sku": {"name": "Standard_LRS"}}]',
+            stderr="",
         )
 
         orphaned = ResourceCleanup.detect_orphaned_disks("test-rg")
@@ -43,16 +42,16 @@ class TestOrphanedResourceDetection:
         assert orphaned[0].resource_type == "disk"
         assert orphaned[1].name == "disk3"
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_detect_orphaned_nics(self, mock_run):
         """Test detection of orphaned NICs."""
         # Mock Azure CLI response for NICs
         mock_run.return_value = Mock(
             returncode=0,
             stdout='[{"name": "nic1", "virtualMachine": null}, '
-                   '{"name": "nic2", "virtualMachine": {"id": "/subscriptions/.../vm1"}}, '
-                   '{"name": "nic3", "virtualMachine": null}]',
-            stderr=''
+            '{"name": "nic2", "virtualMachine": {"id": "/subscriptions/.../vm1"}}, '
+            '{"name": "nic3", "virtualMachine": null}]',
+            stderr="",
         )
 
         orphaned = ResourceCleanup.detect_orphaned_nics("test-rg")
@@ -63,16 +62,16 @@ class TestOrphanedResourceDetection:
         assert orphaned[0].resource_type == "nic"
         assert orphaned[1].name == "nic3"
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_detect_orphaned_public_ips(self, mock_run):
         """Test detection of orphaned public IPs."""
         # Mock Azure CLI response for public IPs
         mock_run.return_value = Mock(
             returncode=0,
             stdout='[{"name": "ip1", "ipConfiguration": null, "ipAddress": "20.1.2.3"}, '
-                   '{"name": "ip2", "ipConfiguration": {"id": "/subscriptions/.../nic1"}}, '
-                   '{"name": "ip3", "ipConfiguration": null, "ipAddress": "20.1.2.4"}]',
-            stderr=''
+            '{"name": "ip2", "ipConfiguration": {"id": "/subscriptions/.../nic1"}}, '
+            '{"name": "ip3", "ipConfiguration": null, "ipAddress": "20.1.2.4"}]',
+            stderr="",
         )
 
         orphaned = ResourceCleanup.detect_orphaned_public_ips("test-rg")
@@ -83,24 +82,22 @@ class TestOrphanedResourceDetection:
         assert orphaned[0].resource_type == "public-ip"
         assert orphaned[1].name == "ip3"
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_find_all_orphaned_resources(self, mock_run):
         """Test finding all orphaned resources in a resource group."""
         # Mock responses for disks, NICs, and public IPs
         disk_response = Mock(
             returncode=0,
             stdout='[{"name": "disk1", "diskState": "Unattached", "diskSizeGb": 30, "sku": {"name": "Premium_LRS"}}]',
-            stderr=''
+            stderr="",
         )
         nic_response = Mock(
-            returncode=0,
-            stdout='[{"name": "nic1", "virtualMachine": null}]',
-            stderr=''
+            returncode=0, stdout='[{"name": "nic1", "virtualMachine": null}]', stderr=""
         )
         ip_response = Mock(
             returncode=0,
             stdout='[{"name": "ip1", "ipConfiguration": null, "ipAddress": "20.1.2.3"}]',
-            stderr=''
+            stderr="",
         )
 
         mock_run.side_effect = [disk_response, nic_response, ip_response]
@@ -117,24 +114,21 @@ class TestOrphanedResourceDetection:
 class TestDryRunMode:
     """Test dry-run functionality."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_dry_run_shows_resources_without_deleting(self, mock_run):
         """Test dry-run mode shows what would be deleted without actually deleting."""
         # Mock finding orphaned resources
         disk_response = Mock(
             returncode=0,
             stdout='[{"name": "disk1", "diskState": "Unattached", "diskSizeGb": 30, "sku": {"name": "Premium_LRS"}}]',
-            stderr=''
+            stderr="",
         )
-        nic_response = Mock(returncode=0, stdout='[]', stderr='')
-        ip_response = Mock(returncode=0, stdout='[]', stderr='')
+        nic_response = Mock(returncode=0, stdout="[]", stderr="")
+        ip_response = Mock(returncode=0, stdout="[]", stderr="")
 
         mock_run.side_effect = [disk_response, nic_response, ip_response]
 
-        summary = ResourceCleanup.cleanup_resources(
-            resource_group="test-rg",
-            dry_run=True
-        )
+        summary = ResourceCleanup.cleanup_resources(resource_group="test-rg", dry_run=True)
 
         # Should show found resources
         assert summary.total_orphaned == 1
@@ -142,33 +136,31 @@ class TestDryRunMode:
         assert summary.dry_run is True
 
         # Should not call any delete commands
-        delete_calls = [c for c in mock_run.call_args_list if 'delete' in str(c)]
+        delete_calls = [c for c in mock_run.call_args_list if "delete" in str(c)]
         assert len(delete_calls) == 0
 
 
 class TestResourceDeletion:
     """Test actual resource deletion."""
 
-    @patch('subprocess.run')
-    @patch('builtins.input', return_value='delete')
+    @patch("subprocess.run")
+    @patch("builtins.input", return_value="delete")
     def test_delete_orphaned_resources_with_confirmation(self, mock_input, mock_run):
         """Test deleting orphaned resources with user confirmation."""
         # Mock finding and deleting resources
         disk_response = Mock(
             returncode=0,
             stdout='[{"name": "disk1", "diskState": "Unattached", "diskSizeGb": 30, "sku": {"name": "Premium_LRS"}}]',
-            stderr=''
+            stderr="",
         )
-        nic_response = Mock(returncode=0, stdout='[]', stderr='')
-        ip_response = Mock(returncode=0, stdout='[]', stderr='')
-        delete_response = Mock(returncode=0, stdout='', stderr='')
+        nic_response = Mock(returncode=0, stdout="[]", stderr="")
+        ip_response = Mock(returncode=0, stdout="[]", stderr="")
+        delete_response = Mock(returncode=0, stdout="", stderr="")
 
         mock_run.side_effect = [disk_response, nic_response, ip_response, delete_response]
 
         summary = ResourceCleanup.cleanup_resources(
-            resource_group="test-rg",
-            dry_run=False,
-            force=False
+            resource_group="test-rg", dry_run=False, force=False
         )
 
         # Should delete 1 resource
@@ -178,51 +170,47 @@ class TestResourceDeletion:
         # Should have prompted for confirmation
         mock_input.assert_called_once()
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_delete_with_force_skips_confirmation(self, mock_run):
         """Test force flag skips confirmation prompt."""
         # Mock responses
         disk_response = Mock(
             returncode=0,
             stdout='[{"name": "disk1", "diskState": "Unattached", "diskSizeGb": 30, "sku": {"name": "Premium_LRS"}}]',
-            stderr=''
+            stderr="",
         )
-        nic_response = Mock(returncode=0, stdout='[]', stderr='')
-        ip_response = Mock(returncode=0, stdout='[]', stderr='')
-        delete_response = Mock(returncode=0, stdout='', stderr='')
+        nic_response = Mock(returncode=0, stdout="[]", stderr="")
+        ip_response = Mock(returncode=0, stdout="[]", stderr="")
+        delete_response = Mock(returncode=0, stdout="", stderr="")
 
         mock_run.side_effect = [disk_response, nic_response, ip_response, delete_response]
 
-        with patch('builtins.input') as mock_input:
+        with patch("builtins.input") as mock_input:
             summary = ResourceCleanup.cleanup_resources(
-                resource_group="test-rg",
-                dry_run=False,
-                force=True
+                resource_group="test-rg", dry_run=False, force=True
             )
 
             # Should not prompt for confirmation
             mock_input.assert_not_called()
             assert summary.deleted_count == 1
 
-    @patch('subprocess.run')
-    @patch('builtins.input', return_value='cancel')
+    @patch("subprocess.run")
+    @patch("builtins.input", return_value="cancel")
     def test_delete_cancelled_by_user(self, mock_input, mock_run):
         """Test deletion cancelled by user."""
         # Mock finding resources
         disk_response = Mock(
             returncode=0,
             stdout='[{"name": "disk1", "diskState": "Unattached", "diskSizeGb": 30, "sku": {"name": "Premium_LRS"}}]',
-            stderr=''
+            stderr="",
         )
-        nic_response = Mock(returncode=0, stdout='[]', stderr='')
-        ip_response = Mock(returncode=0, stdout='[]', stderr='')
+        nic_response = Mock(returncode=0, stdout="[]", stderr="")
+        ip_response = Mock(returncode=0, stdout="[]", stderr="")
 
         mock_run.side_effect = [disk_response, nic_response, ip_response]
 
         summary = ResourceCleanup.cleanup_resources(
-            resource_group="test-rg",
-            dry_run=False,
-            force=False
+            resource_group="test-rg", dry_run=False, force=False
         )
 
         # Should not delete anything
@@ -233,42 +221,41 @@ class TestResourceDeletion:
 class TestErrorHandling:
     """Test error handling."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_azure_cli_error_raises_exception(self, mock_run):
         """Test Azure CLI error raises ResourceCleanupError."""
         mock_run.return_value = Mock(
-            returncode=1,
-            stdout='',
-            stderr='ERROR: Resource group not found'
+            returncode=1, stdout="", stderr="ERROR: Resource group not found"
         )
 
         with pytest.raises(ResourceCleanupError, match="Resource group not found"):
             ResourceCleanup.detect_orphaned_disks("nonexistent-rg")
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_partial_deletion_failure(self, mock_run):
         """Test handling of partial deletion failures."""
         # Mock finding resources
         disk1_response = Mock(
             returncode=0,
             stdout='[{"name": "disk1", "diskState": "Unattached", "diskSizeGb": 30, "sku": {"name": "Premium_LRS"}}, '
-                   '{"name": "disk2", "diskState": "Unattached", "diskSizeGb": 50, "sku": {"name": "Premium_LRS"}}]',
-            stderr=''
+            '{"name": "disk2", "diskState": "Unattached", "diskSizeGb": 50, "sku": {"name": "Premium_LRS"}}]',
+            stderr="",
         )
-        nic_response = Mock(returncode=0, stdout='[]', stderr='')
-        ip_response = Mock(returncode=0, stdout='[]', stderr='')
-        delete_success = Mock(returncode=0, stdout='', stderr='')
-        delete_failure = Mock(returncode=1, stdout='', stderr='ERROR: Cannot delete disk')
+        nic_response = Mock(returncode=0, stdout="[]", stderr="")
+        ip_response = Mock(returncode=0, stdout="[]", stderr="")
+        delete_success = Mock(returncode=0, stdout="", stderr="")
+        delete_failure = Mock(returncode=1, stdout="", stderr="ERROR: Cannot delete disk")
 
         mock_run.side_effect = [
-            disk1_response, nic_response, ip_response,
-            delete_success, delete_failure
+            disk1_response,
+            nic_response,
+            ip_response,
+            delete_success,
+            delete_failure,
         ]
 
         summary = ResourceCleanup.cleanup_resources(
-            resource_group="test-rg",
-            dry_run=False,
-            force=True
+            resource_group="test-rg", dry_run=False, force=True
         )
 
         # Should show partial success
@@ -280,21 +267,21 @@ class TestErrorHandling:
 class TestCostEstimation:
     """Test cost estimation for orphaned resources."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_estimate_savings_from_cleanup(self, mock_run):
         """Test cost estimation for orphaned resources."""
         # Mock finding resources with size/tier information
         disk_response = Mock(
             returncode=0,
             stdout='[{"name": "disk1", "diskState": "Unattached", "diskSizeGb": 128, "sku": {"name": "Premium_LRS"}}, '
-                   '{"name": "disk2", "diskState": "Unattached", "diskSizeGb": 512, "sku": {"name": "Standard_LRS"}}]',
-            stderr=''
+            '{"name": "disk2", "diskState": "Unattached", "diskSizeGb": 512, "sku": {"name": "Standard_LRS"}}]',
+            stderr="",
         )
-        nic_response = Mock(returncode=0, stdout='[]', stderr='')
+        nic_response = Mock(returncode=0, stdout="[]", stderr="")
         ip_response = Mock(
             returncode=0,
             stdout='[{"name": "ip1", "ipConfiguration": null, "ipAddress": "20.1.2.3"}]',
-            stderr=''
+            stderr="",
         )
 
         mock_run.side_effect = [disk_response, nic_response, ip_response]
@@ -310,12 +297,12 @@ class TestCostEstimation:
 class TestResourceGroupFiltering:
     """Test resource group filtering."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_resource_group_required(self, mock_run):
         """Test that resource group is required."""
-        disk_response = Mock(returncode=0, stdout='[]', stderr='')
-        nic_response = Mock(returncode=0, stdout='[]', stderr='')
-        ip_response = Mock(returncode=0, stdout='[]', stderr='')
+        disk_response = Mock(returncode=0, stdout="[]", stderr="")
+        nic_response = Mock(returncode=0, stdout="[]", stderr="")
+        ip_response = Mock(returncode=0, stdout="[]", stderr="")
 
         mock_run.side_effect = [disk_response, nic_response, ip_response]
 
@@ -335,13 +322,9 @@ class TestFormattedOutput:
                 resource_type="disk",
                 resource_group="test-rg",
                 size_gb=30,
-                tier="Premium_LRS"
+                tier="Premium_LRS",
             ),
-            OrphanedResource(
-                name="nic1",
-                resource_type="nic",
-                resource_group="test-rg"
-            ),
+            OrphanedResource(name="nic1", resource_type="nic", resource_group="test-rg"),
         ]
 
         summary = CleanupSummary(
@@ -350,7 +333,7 @@ class TestFormattedOutput:
             orphaned_nics=1,
             orphaned_public_ips=0,
             resources=resources,
-            estimated_monthly_savings=10.50
+            estimated_monthly_savings=10.50,
         )
 
         output = ResourceCleanup.format_summary(summary, dry_run=True)

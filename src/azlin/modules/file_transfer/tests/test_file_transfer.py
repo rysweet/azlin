@@ -1,14 +1,16 @@
 """Unit tests for file_transfer module."""
 
-import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
+
+import pytest
+
 from azlin.modules.file_transfer import (
     FileTransfer,
+    InvalidTransferError,
     TransferEndpoint,
-    VMSession,
     TransferError,
-    InvalidTransferError
+    VMSession,
 )
 
 
@@ -27,7 +29,7 @@ class TestTransferEndpoint:
             public_ip="1.2.3.4",
             user="azureuser",
             key_path="/home/user/.ssh/key",
-            resource_group="test-rg"
+            resource_group="test-rg",
         )
         endpoint = TransferEndpoint(path=Path("/home/azureuser/test.txt"), session=session)
         assert endpoint.to_rsync_arg() == "azureuser@1.2.3.4:/home/azureuser/test.txt"
@@ -79,7 +81,7 @@ class TestRsyncCommandConstruction:
             public_ip="1.2.3.4",
             user="azureuser",
             key_path="/home/user/.ssh/key",
-            resource_group="test-rg"
+            resource_group="test-rg",
         )
         dest = TransferEndpoint(path=Path("/home/azureuser/test.txt"), session=session)
 
@@ -104,7 +106,7 @@ class TestRsyncCommandConstruction:
             public_ip="1.2.3.4",
             user="azureuser",
             key_path="/home/user/.ssh/key",
-            resource_group="test-rg"
+            resource_group="test-rg",
         )
         source = TransferEndpoint(path=Path("/home/azureuser/test.txt"), session=session)
         dest = TransferEndpoint(path=Path("/home/user/test.txt"), session=None)
@@ -123,7 +125,7 @@ class TestRsyncCommandConstruction:
             public_ip="1.2.3.4",
             user="azureuser",
             key_path="/home/user/.ssh/key",
-            resource_group="test-rg"
+            resource_group="test-rg",
         )
         dest = TransferEndpoint(path=Path("/home/azureuser/test.txt"), session=session)
 
@@ -147,14 +149,14 @@ sent 1,234 bytes  received 56 bytes  1,290.00 bytes/sec
 total size is 1,000  speedup is 0.78
 """
         stats = FileTransfer._parse_rsync_output(output)
-        assert stats['bytes'] == 1234
-        assert stats['files'] > 0
+        assert stats["bytes"] == 1234
+        assert stats["files"] > 0
 
     def test_handles_empty_output(self):
         """Should handle empty output gracefully"""
         stats = FileTransfer._parse_rsync_output("")
-        assert stats['bytes'] == 0
-        assert stats['files'] == 0
+        assert stats["bytes"] == 0
+        assert stats["files"] == 0
 
     def test_handles_output_without_bytes(self):
         """Should handle output without byte count"""
@@ -162,13 +164,13 @@ total size is 1,000  speedup is 0.78
 test.txt
 """
         stats = FileTransfer._parse_rsync_output(output)
-        assert stats['files'] > 0
+        assert stats["files"] > 0
 
 
 class TestTransferExecution:
     """Test transfer execution."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_successful_transfer(self, mock_run):
         """Should execute transfer successfully"""
         # Mock subprocess.run
@@ -184,7 +186,7 @@ class TestTransferExecution:
             public_ip="1.2.3.4",
             user="azureuser",
             key_path="/home/user/.ssh/key",
-            resource_group="test-rg"
+            resource_group="test-rg",
         )
         dest = TransferEndpoint(path=Path("/home/azureuser/test.txt"), session=session)
 
@@ -196,17 +198,16 @@ class TestTransferExecution:
         mock_run.assert_called_once()
         call_args = mock_run.call_args
         # Verify shell=True is NOT used (check it's not in kwargs or is False)
-        assert call_args.kwargs.get('shell', False) is False
+        assert call_args.kwargs.get("shell", False) is False
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_failed_transfer(self, mock_run):
         """Should handle failed transfers"""
         # Mock subprocess.run to raise CalledProcessError
         from subprocess import CalledProcessError
+
         mock_run.side_effect = CalledProcessError(
-            returncode=1,
-            cmd=['rsync'],
-            stderr="Connection failed"
+            returncode=1, cmd=["rsync"], stderr="Connection failed"
         )
 
         source = TransferEndpoint(path=Path("/home/user/test.txt"), session=None)
@@ -216,7 +217,7 @@ class TestTransferExecution:
             public_ip="1.2.3.4",
             user="azureuser",
             key_path="/home/user/.ssh/key",
-            resource_group="test-rg"
+            resource_group="test-rg",
         )
         dest = TransferEndpoint(path=Path("/home/azureuser/test.txt"), session=session)
 
@@ -226,11 +227,12 @@ class TestTransferExecution:
         assert len(result.errors) > 0
         assert "rsync failed" in result.errors[0]
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_timeout_handling(self, mock_run):
         """Should handle transfer timeouts"""
         from subprocess import TimeoutExpired
-        mock_run.side_effect = TimeoutExpired(cmd=['rsync'], timeout=300)
+
+        mock_run.side_effect = TimeoutExpired(cmd=["rsync"], timeout=300)
 
         source = TransferEndpoint(path=Path("/home/user/test.txt"), session=None)
 
@@ -239,7 +241,7 @@ class TestTransferExecution:
             public_ip="1.2.3.4",
             user="azureuser",
             key_path="/home/user/.ssh/key",
-            resource_group="test-rg"
+            resource_group="test-rg",
         )
         dest = TransferEndpoint(path=Path("/home/azureuser/test.txt"), session=session)
 

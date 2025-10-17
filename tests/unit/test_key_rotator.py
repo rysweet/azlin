@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from azlin.key_rotator import (
     KeyBackup,
     KeyRotationError,
@@ -27,7 +26,7 @@ class TestKeyRotationResult:
             vms_updated=["vm1", "vm2"],
             vms_failed=[],
             new_key_path=Path("/path/to/key"),
-            backup_path=Path("/path/to/backup")
+            backup_path=Path("/path/to/backup"),
         )
         assert result.all_succeeded is True
 
@@ -39,7 +38,7 @@ class TestKeyRotationResult:
             vms_updated=["vm1"],
             vms_failed=["vm2"],
             new_key_path=Path("/path/to/key"),
-            backup_path=Path("/path/to/backup")
+            backup_path=Path("/path/to/backup"),
         )
         assert result.all_succeeded is False
         assert len(result.vms_failed) == 1
@@ -54,7 +53,7 @@ class TestKeyBackup:
             backup_dir=Path("/backup"),
             timestamp=datetime.now(),
             old_private_key=Path("/old/private"),
-            old_public_key=Path("/old/public")
+            old_public_key=Path("/old/public"),
         )
         assert backup.backup_dir.exists is not None
         assert backup.old_private_key.name == "private"
@@ -63,10 +62,12 @@ class TestKeyBackup:
 class TestSSHKeyRotator:
     """Tests for SSHKeyRotator class."""
 
-    @patch('azlin.key_rotator.SSHKeyManager')
-    @patch('azlin.key_rotator.shutil')
-    @patch('azlin.key_rotator.Path')
-    def test_backup_keys_creates_timestamped_directory(self, mock_path_class, mock_shutil, mock_key_manager):
+    @patch("azlin.key_rotator.SSHKeyManager")
+    @patch("azlin.key_rotator.shutil")
+    @patch("azlin.key_rotator.Path")
+    def test_backup_keys_creates_timestamped_directory(
+        self, mock_path_class, mock_shutil, mock_key_manager
+    ):
         """Test that backup creates timestamped directory."""
         # Setup
         mock_key_pair = MagicMock()
@@ -80,7 +81,7 @@ class TestSSHKeyRotator:
         mock_backup_dir.__truediv__ = lambda self, x: MagicMock(spec=Path)
 
         # Execute
-        with patch('azlin.key_rotator.SSHKeyRotator.BACKUP_BASE_DIR', mock_backup_dir):
+        with patch("azlin.key_rotator.SSHKeyRotator.BACKUP_BASE_DIR", mock_backup_dir):
             backup = SSHKeyRotator.backup_keys()
 
         # Assert
@@ -88,12 +89,14 @@ class TestSSHKeyRotator:
         assert isinstance(backup, KeyBackup)
         mock_key_manager.ensure_key_exists.assert_called_once()
 
-    @patch('azlin.key_rotator.shutil')
-    @patch('azlin.key_rotator.Path')
-    @patch('azlin.key_rotator.SSHKeyManager')
-    @patch('azlin.key_rotator.VMManager')
-    @patch('azlin.key_rotator.AzureAuthenticator')
-    def test_rotate_keys_creates_new_key(self, mock_auth, mock_vm_manager, mock_key_manager, mock_path_class, mock_shutil):
+    @patch("azlin.key_rotator.shutil")
+    @patch("azlin.key_rotator.Path")
+    @patch("azlin.key_rotator.SSHKeyManager")
+    @patch("azlin.key_rotator.VMManager")
+    @patch("azlin.key_rotator.AzureAuthenticator")
+    def test_rotate_keys_creates_new_key(
+        self, mock_auth, mock_vm_manager, mock_key_manager, mock_path_class, mock_shutil
+    ):
         """Test that rotate_keys generates a new SSH key."""
         # Setup
         mock_old_key = MagicMock()
@@ -119,7 +122,7 @@ class TestSSHKeyRotator:
         mock_backup_dir.__truediv__ = lambda self, x: MagicMock(spec=Path)
 
         # Execute
-        with patch('azlin.key_rotator.SSHKeyRotator.BACKUP_BASE_DIR', mock_backup_dir):
+        with patch("azlin.key_rotator.SSHKeyRotator.BACKUP_BASE_DIR", mock_backup_dir):
             result = SSHKeyRotator.rotate_keys(resource_group="test-rg")
 
         # Assert
@@ -127,9 +130,9 @@ class TestSSHKeyRotator:
         assert result.new_key_path is not None
         assert mock_key_manager.ensure_key_exists.call_count >= 1
 
-    @patch('azlin.key_rotator.SSHKeyManager')
-    @patch('azlin.key_rotator.VMManager')
-    @patch('azlin.key_rotator.subprocess')
+    @patch("azlin.key_rotator.SSHKeyManager")
+    @patch("azlin.key_rotator.VMManager")
+    @patch("azlin.key_rotator.subprocess")
     def test_update_single_vm_success(self, mock_subprocess, mock_vm_manager, mock_key_manager):
         """Test updating a single VM with new SSH key."""
         # Setup
@@ -139,28 +142,34 @@ class TestSSHKeyRotator:
 
         # Execute
         success = SSHKeyRotator.update_vm_key(
-            vm_name="test-vm",
-            resource_group="test-rg",
-            new_public_key="ssh-ed25519 AAAA..."
+            vm_name="test-vm", resource_group="test-rg", new_public_key="ssh-ed25519 AAAA..."
         )
 
         # Assert
         assert success is True
         mock_subprocess.run.assert_called_once()
 
-    @patch('azlin.key_rotator.SSHKeyManager')
-    @patch('azlin.key_rotator.VMManager')
-    @patch('azlin.key_rotator.subprocess')
-    @patch('azlin.key_rotator.AzureAuthenticator')
-    def test_update_all_vms_parallel(self, mock_auth, mock_subprocess, mock_vm_manager, mock_key_manager):
+    @patch("azlin.key_rotator.SSHKeyManager")
+    @patch("azlin.key_rotator.VMManager")
+    @patch("azlin.key_rotator.subprocess")
+    @patch("azlin.key_rotator.AzureAuthenticator")
+    def test_update_all_vms_parallel(
+        self, mock_auth, mock_subprocess, mock_vm_manager, mock_key_manager
+    ):
         """Test updating multiple VMs in parallel."""
         # Setup
         from azlin.vm_manager import VMInfo
 
         mock_vms = [
-            VMInfo(name="vm1", resource_group="test-rg", location="eastus", power_state="VM running"),
-            VMInfo(name="vm2", resource_group="test-rg", location="eastus", power_state="VM running"),
-            VMInfo(name="vm3", resource_group="test-rg", location="eastus", power_state="VM running"),
+            VMInfo(
+                name="vm1", resource_group="test-rg", location="eastus", power_state="VM running"
+            ),
+            VMInfo(
+                name="vm2", resource_group="test-rg", location="eastus", power_state="VM running"
+            ),
+            VMInfo(
+                name="vm3", resource_group="test-rg", location="eastus", power_state="VM running"
+            ),
         ]
         mock_vm_manager.list_vms.return_value = mock_vms
         mock_vm_manager.filter_by_prefix.return_value = mock_vms
@@ -179,26 +188,35 @@ class TestSSHKeyRotator:
 
         # Execute
         result = SSHKeyRotator.update_all_vms(
-            resource_group="test-rg",
-            new_public_key="ssh-ed25519 AAAA..."
+            resource_group="test-rg", new_public_key="ssh-ed25519 AAAA..."
         )
 
         # Assert
         assert len(result.vms_updated) == 3
         assert len(result.vms_failed) == 0
 
-    @patch('azlin.key_rotator.shutil')
-    @patch('azlin.key_rotator.Path')
-    @patch('azlin.key_rotator.SSHKeyManager')
-    @patch('azlin.key_rotator.VMManager')
-    @patch('azlin.key_rotator.subprocess')
-    @patch('azlin.key_rotator.AzureAuthenticator')
-    def test_rollback_on_failure(self, mock_auth, mock_subprocess, mock_vm_manager, mock_key_manager, mock_path_class, mock_shutil):
+    @patch("azlin.key_rotator.shutil")
+    @patch("azlin.key_rotator.Path")
+    @patch("azlin.key_rotator.SSHKeyManager")
+    @patch("azlin.key_rotator.VMManager")
+    @patch("azlin.key_rotator.subprocess")
+    @patch("azlin.key_rotator.AzureAuthenticator")
+    def test_rollback_on_failure(
+        self,
+        mock_auth,
+        mock_subprocess,
+        mock_vm_manager,
+        mock_key_manager,
+        mock_path_class,
+        mock_shutil,
+    ):
         """Test rollback when VM update fails."""
         # Setup
         from azlin.vm_manager import VMInfo
 
-        mock_vm = VMInfo(name="test-vm", resource_group="test-rg", location="eastus", power_state="VM running")
+        mock_vm = VMInfo(
+            name="test-vm", resource_group="test-rg", location="eastus", power_state="VM running"
+        )
         mock_vm_manager.list_vms.return_value = [mock_vm]
         mock_vm_manager.filter_by_prefix.return_value = [mock_vm]
 
@@ -219,7 +237,9 @@ class TestSSHKeyRotator:
         mock_auth.return_value = mock_auth_instance
 
         # Simulate failure on update
-        mock_subprocess.run.side_effect = subprocess.CalledProcessError(1, "az", stderr="Azure API Error")
+        mock_subprocess.run.side_effect = subprocess.CalledProcessError(
+            1, "az", stderr="Azure API Error"
+        )
 
         # Mock backup directory
         mock_backup_dir = MagicMock(spec=Path)
@@ -227,11 +247,8 @@ class TestSSHKeyRotator:
         mock_backup_dir.__truediv__ = lambda self, x: MagicMock(spec=Path)
 
         # Execute
-        with patch('azlin.key_rotator.SSHKeyRotator.BACKUP_BASE_DIR', mock_backup_dir):
-            result = SSHKeyRotator.rotate_keys(
-                resource_group="test-rg",
-                enable_rollback=True
-            )
+        with patch("azlin.key_rotator.SSHKeyRotator.BACKUP_BASE_DIR", mock_backup_dir):
+            result = SSHKeyRotator.rotate_keys(resource_group="test-rg", enable_rollback=True)
 
         # Assert
         assert result.success is False
@@ -239,16 +256,20 @@ class TestSSHKeyRotator:
         # Verify rollback was attempted
         assert "test-vm" in result.vms_failed
 
-    @patch('azlin.key_rotator.subprocess')
-    @patch('azlin.key_rotator.VMManager')
+    @patch("azlin.key_rotator.subprocess")
+    @patch("azlin.key_rotator.VMManager")
     def test_list_vm_keys(self, mock_vm_manager, mock_subprocess):
         """Test listing VMs and their SSH keys."""
         # Setup
         from azlin.vm_manager import VMInfo
 
         mock_vms = [
-            VMInfo(name="vm1", resource_group="test-rg", location="eastus", power_state="VM running"),
-            VMInfo(name="vm2", resource_group="test-rg", location="eastus", power_state="VM running"),
+            VMInfo(
+                name="vm1", resource_group="test-rg", location="eastus", power_state="VM running"
+            ),
+            VMInfo(
+                name="vm2", resource_group="test-rg", location="eastus", power_state="VM running"
+            ),
         ]
         mock_vm_manager.list_vms.return_value = mock_vms
         mock_vm_manager.filter_by_prefix.return_value = mock_vms
@@ -264,8 +285,8 @@ class TestSSHKeyRotator:
         assert len(key_info_list) == 2
         assert all(isinstance(info, VMKeyInfo) for info in key_info_list)
 
-    @patch('azlin.key_rotator.SSHKeyManager')
-    @patch('azlin.key_rotator.Path')
+    @patch("azlin.key_rotator.SSHKeyManager")
+    @patch("azlin.key_rotator.Path")
     def test_export_public_keys(self, mock_path, mock_key_manager):
         """Test exporting public keys to file."""
         # Setup
@@ -283,9 +304,9 @@ class TestSSHKeyRotator:
         assert success is True
         mock_key_manager.ensure_key_exists.assert_called_once()
 
-    @patch('azlin.key_rotator.shutil')
-    @patch('azlin.key_rotator.Path')
-    @patch('azlin.key_rotator.SSHKeyManager')
+    @patch("azlin.key_rotator.shutil")
+    @patch("azlin.key_rotator.Path")
+    @patch("azlin.key_rotator.SSHKeyManager")
     def test_backup_keys_with_timestamp(self, mock_key_manager, mock_path_class, mock_shutil):
         """Test backup creates directory with timestamp."""
         # Setup
@@ -300,7 +321,7 @@ class TestSSHKeyRotator:
         mock_backup_dir.__truediv__ = lambda self, x: MagicMock(spec=Path)
 
         # Execute
-        with patch('azlin.key_rotator.SSHKeyRotator.BACKUP_BASE_DIR', mock_backup_dir):
+        with patch("azlin.key_rotator.SSHKeyRotator.BACKUP_BASE_DIR", mock_backup_dir):
             backup = SSHKeyRotator.backup_keys()
 
         # Assert
@@ -308,8 +329,8 @@ class TestSSHKeyRotator:
         assert backup.timestamp is not None
         assert isinstance(backup.timestamp, datetime)
 
-    @patch('azlin.key_rotator.SSHKeyManager')
-    @patch('azlin.key_rotator.VMManager')
+    @patch("azlin.key_rotator.SSHKeyManager")
+    @patch("azlin.key_rotator.VMManager")
     def test_rotate_keys_with_backup_disabled(self, mock_vm_manager, mock_key_manager):
         """Test rotation without backup when disabled."""
         # Setup
@@ -319,10 +340,7 @@ class TestSSHKeyRotator:
         mock_vm_manager.list_vms.return_value = []
 
         # Execute
-        result = SSHKeyRotator.rotate_keys(
-            resource_group="test-rg",
-            create_backup=False
-        )
+        result = SSHKeyRotator.rotate_keys(resource_group="test-rg", create_backup=False)
 
         # Assert
         assert result.success is True
@@ -333,25 +351,24 @@ class TestSSHKeyRotator:
         with pytest.raises(KeyRotationError):
             SSHKeyRotator.rotate_keys(resource_group="")
 
-    @patch('azlin.key_rotator.subprocess.run')
+    @patch("azlin.key_rotator.subprocess.run")
     def test_update_vm_key_handles_azure_error(self, mock_run):
         """Test error handling when Azure API fails."""
         # Setup - mock the exception properly
         import subprocess as real_subprocess
+
         mock_run.side_effect = real_subprocess.CalledProcessError(1, "az", stderr="VM not found")
 
         # Execute & Assert
         success = SSHKeyRotator.update_vm_key(
-            vm_name="nonexistent-vm",
-            resource_group="test-rg",
-            new_public_key="ssh-ed25519 AAAA..."
+            vm_name="nonexistent-vm", resource_group="test-rg", new_public_key="ssh-ed25519 AAAA..."
         )
 
         assert success is False
 
-    @patch('azlin.key_rotator.shutil')
-    @patch('azlin.key_rotator.Path')
-    @patch('azlin.key_rotator.SSHKeyManager')
+    @patch("azlin.key_rotator.shutil")
+    @patch("azlin.key_rotator.Path")
+    @patch("azlin.key_rotator.SSHKeyManager")
     def test_backup_preserves_permissions(self, mock_key_manager, mock_path_class, mock_shutil):
         """Test that backup directory has secure permissions (0700)."""
         # Setup
@@ -367,7 +384,7 @@ class TestSSHKeyRotator:
         mock_backup_dir_instance.__truediv__ = lambda self, x: MagicMock(spec=Path)
 
         # Execute
-        with patch('azlin.key_rotator.SSHKeyRotator.BACKUP_BASE_DIR', mock_backup_dir_instance):
+        with patch("azlin.key_rotator.SSHKeyRotator.BACKUP_BASE_DIR", mock_backup_dir_instance):
             backup = SSHKeyRotator.backup_keys()
 
             # Assert - verify mkdir was called

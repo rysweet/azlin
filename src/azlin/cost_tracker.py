@@ -10,27 +10,27 @@ Pricing is approximate and based on Azure pay-as-you-go rates.
 For exact costs, use Azure Cost Management.
 """
 
-import json
 import logging
-import subprocess
 from dataclasses import dataclass
-from typing import List, Optional, Dict
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
+from typing import Optional
 
-from azlin.vm_manager import VMManager, VMInfo, VMManagerError
+from azlin.vm_manager import VMInfo, VMManager, VMManagerError
 
 logger = logging.getLogger(__name__)
 
 
 class CostTrackerError(Exception):
     """Raised when cost tracking operations fail."""
+
     pass
 
 
 @dataclass
 class VMCostEstimate:
     """Cost estimate for a single VM."""
+
     vm_name: str
     vm_size: str
     power_state: str
@@ -48,17 +48,18 @@ class VMCostEstimate:
 @dataclass
 class CostSummary:
     """Summary of costs across multiple VMs."""
+
     total_cost: Decimal
     total_vms: int
     running_vms: int
     stopped_vms: int
-    estimates: List[VMCostEstimate]
+    estimates: list[VMCostEstimate]
     date_range: Optional[tuple] = None
 
     def get_monthly_estimate(self) -> Decimal:
         """Get monthly cost estimate for currently running VMs."""
-        monthly_cost = Decimal('0')
-        hours_per_month = Decimal('730')  # Average hours per month
+        monthly_cost = Decimal("0")
+        hours_per_month = Decimal("730")  # Average hours per month
 
         for estimate in self.estimates:
             if estimate.is_running():
@@ -80,30 +81,27 @@ class CostTracker:
     # VM hourly pricing (approximate, in USD)
     # Based on Azure Pay-As-You-Go pricing for Linux VMs in East US
     VM_PRICING = {
-        'Standard_B1s': Decimal('0.0104'),
-        'Standard_B1ms': Decimal('0.0207'),
-        'Standard_B2s': Decimal('0.0416'),
-        'Standard_B2ms': Decimal('0.0832'),
-        'Standard_B4ms': Decimal('0.166'),
-        'Standard_D2s_v3': Decimal('0.096'),
-        'Standard_D4s_v3': Decimal('0.192'),
-        'Standard_D8s_v3': Decimal('0.384'),
-        'Standard_D16s_v3': Decimal('0.768'),
-        'Standard_D32s_v3': Decimal('1.536'),
-        'Standard_E2s_v3': Decimal('0.126'),
-        'Standard_E4s_v3': Decimal('0.252'),
-        'Standard_E8s_v3': Decimal('0.504'),
-        'Standard_F2s_v2': Decimal('0.085'),
-        'Standard_F4s_v2': Decimal('0.169'),
-        'Standard_F8s_v2': Decimal('0.338'),
+        "Standard_B1s": Decimal("0.0104"),
+        "Standard_B1ms": Decimal("0.0207"),
+        "Standard_B2s": Decimal("0.0416"),
+        "Standard_B2ms": Decimal("0.0832"),
+        "Standard_B4ms": Decimal("0.166"),
+        "Standard_D2s_v3": Decimal("0.096"),
+        "Standard_D4s_v3": Decimal("0.192"),
+        "Standard_D8s_v3": Decimal("0.384"),
+        "Standard_D16s_v3": Decimal("0.768"),
+        "Standard_D32s_v3": Decimal("1.536"),
+        "Standard_E2s_v3": Decimal("0.126"),
+        "Standard_E4s_v3": Decimal("0.252"),
+        "Standard_E8s_v3": Decimal("0.504"),
+        "Standard_F2s_v2": Decimal("0.085"),
+        "Standard_F4s_v2": Decimal("0.169"),
+        "Standard_F8s_v2": Decimal("0.338"),
     }
 
     @classmethod
     def estimate_vm_cost(
-        cls,
-        vm: VMInfo,
-        from_date: Optional[datetime] = None,
-        to_date: Optional[datetime] = None
+        cls, vm: VMInfo, from_date: Optional[datetime] = None, to_date: Optional[datetime] = None
     ) -> VMCostEstimate:
         """Estimate cost for a single VM.
 
@@ -119,27 +117,23 @@ class CostTracker:
             CostTrackerError: If cost estimation fails
         """
         # Get hourly rate for VM size
-        hourly_rate = cls._get_hourly_rate(vm.vm_size or 'Unknown')
+        hourly_rate = cls._get_hourly_rate(vm.vm_size or "Unknown")
 
         # Calculate hours running
-        hours_running = cls._calculate_hours_running(
-            vm,
-            from_date,
-            to_date
-        )
+        hours_running = cls._calculate_hours_running(vm, from_date, to_date)
 
         # Calculate estimated cost
         estimated_cost = hourly_rate * hours_running
 
         return VMCostEstimate(
             vm_name=vm.name,
-            vm_size=vm.vm_size or 'Unknown',
+            vm_size=vm.vm_size or "Unknown",
             power_state=vm.power_state,
             hourly_rate=hourly_rate,
             hours_running=hours_running,
             estimated_cost=estimated_cost,
             region=vm.location,
-            created_time=vm.created_time
+            created_time=vm.created_time,
         )
 
     @classmethod
@@ -148,7 +142,7 @@ class CostTracker:
         resource_group: str,
         from_date: Optional[datetime] = None,
         to_date: Optional[datetime] = None,
-        include_stopped: bool = True
+        include_stopped: bool = True,
     ) -> CostSummary:
         """Estimate costs for all VMs in a resource group.
 
@@ -171,17 +165,17 @@ class CostTracker:
 
             if not vms:
                 return CostSummary(
-                    total_cost=Decimal('0'),
+                    total_cost=Decimal("0"),
                     total_vms=0,
                     running_vms=0,
                     stopped_vms=0,
                     estimates=[],
-                    date_range=(from_date, to_date) if from_date or to_date else None
+                    date_range=(from_date, to_date) if from_date or to_date else None,
                 )
 
             # Calculate cost for each VM
             estimates = []
-            total_cost = Decimal('0')
+            total_cost = Decimal("0")
             running_vms = 0
             stopped_vms = 0
 
@@ -201,7 +195,7 @@ class CostTracker:
                 running_vms=running_vms,
                 stopped_vms=stopped_vms,
                 estimates=estimates,
-                date_range=(from_date, to_date) if from_date or to_date else None
+                date_range=(from_date, to_date) if from_date or to_date else None,
             )
 
         except VMManagerError as e:
@@ -222,37 +216,34 @@ class CostTracker:
             return cls.VM_PRICING[vm_size]
 
         # Estimate based on naming patterns
-        if 'B1' in vm_size:
-            return Decimal('0.02')
-        elif 'B2' in vm_size:
-            return Decimal('0.04')
-        elif 'B4' in vm_size:
-            return Decimal('0.16')
-        elif 'D2' in vm_size:
-            return Decimal('0.10')
-        elif 'D4' in vm_size:
-            return Decimal('0.20')
-        elif 'D8' in vm_size:
-            return Decimal('0.40')
-        elif 'E2' in vm_size:
-            return Decimal('0.13')
-        elif 'E4' in vm_size:
-            return Decimal('0.25')
-        elif 'F2' in vm_size:
-            return Decimal('0.09')
-        elif 'F4' in vm_size:
-            return Decimal('0.17')
+        if "B1" in vm_size:
+            return Decimal("0.02")
+        elif "B2" in vm_size:
+            return Decimal("0.04")
+        elif "B4" in vm_size:
+            return Decimal("0.16")
+        elif "D2" in vm_size:
+            return Decimal("0.10")
+        elif "D4" in vm_size:
+            return Decimal("0.20")
+        elif "D8" in vm_size:
+            return Decimal("0.40")
+        elif "E2" in vm_size:
+            return Decimal("0.13")
+        elif "E4" in vm_size:
+            return Decimal("0.25")
+        elif "F2" in vm_size:
+            return Decimal("0.09")
+        elif "F4" in vm_size:
+            return Decimal("0.17")
         else:
             # Default estimate for unknown sizes
             logger.warning(f"Unknown VM size: {vm_size}, using default rate")
-            return Decimal('0.10')
+            return Decimal("0.10")
 
     @classmethod
     def _calculate_hours_running(
-        cls,
-        vm: VMInfo,
-        from_date: Optional[datetime],
-        to_date: Optional[datetime]
+        cls, vm: VMInfo, from_date: Optional[datetime], to_date: Optional[datetime]
     ) -> Decimal:
         """Calculate hours a VM has been running.
 
@@ -273,22 +264,20 @@ class CostTracker:
         elif vm.created_time:
             try:
                 # Parse ISO format timestamp
-                start_time = datetime.fromisoformat(
-                    vm.created_time.replace('Z', '+00:00')
-                )
+                start_time = datetime.fromisoformat(vm.created_time.replace("Z", "+00:00"))
                 # Convert to naive datetime for calculation
                 start_time = start_time.replace(tzinfo=None)
             except Exception as e:
                 logger.debug(f"Failed to parse created_time: {e}")
                 # Assume 1 hour if we can't determine start time
-                return Decimal('1')
+                return Decimal("1")
         else:
             # If no creation time available, assume 1 hour
             logger.debug(f"No creation time for VM {vm.name}, assuming 1 hour")
-            return Decimal('1')
+            return Decimal("1")
 
         # Make end_time naive if it has timezone info
-        if hasattr(end_time, 'tzinfo') and end_time.tzinfo:
+        if hasattr(end_time, "tzinfo") and end_time.tzinfo:
             end_time = end_time.replace(tzinfo=None)
 
         # Calculate time difference
@@ -299,16 +288,12 @@ class CostTracker:
 
         # Ensure positive value
         if hours < 0:
-            hours = Decimal('0')
+            hours = Decimal("0")
 
         return hours
 
     @classmethod
-    def format_cost_table(
-        cls,
-        summary: CostSummary,
-        by_vm: bool = False
-    ) -> str:
+    def format_cost_table(cls, summary: CostSummary, by_vm: bool = False) -> str:
         """Format cost summary as a table.
 
         Args:
@@ -350,14 +335,14 @@ class CostTracker:
             lines.append("=" * 100)
             lines.append("Per-VM Breakdown")
             lines.append("=" * 100)
-            lines.append(f"{'VM NAME':<35} {'SIZE':<18} {'STATUS':<12} {'RATE/HR':<10} {'HOURS':<10} {'COST':<10}")
+            lines.append(
+                f"{'VM NAME':<35} {'SIZE':<18} {'STATUS':<12} {'RATE/HR':<10} {'HOURS':<10} {'COST':<10}"
+            )
             lines.append("-" * 100)
 
             # Sort by cost (highest first)
             sorted_estimates = sorted(
-                summary.estimates,
-                key=lambda x: x.estimated_cost,
-                reverse=True
+                summary.estimates, key=lambda x: x.estimated_cost, reverse=True
             )
 
             for estimate in sorted_estimates:
@@ -380,4 +365,4 @@ class CostTracker:
         return "\n".join(lines)
 
 
-__all__ = ['CostTracker', 'CostSummary', 'VMCostEstimate', 'CostTrackerError']
+__all__ = ["CostTracker", "CostSummary", "VMCostEstimate", "CostTrackerError"]

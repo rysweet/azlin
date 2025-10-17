@@ -7,17 +7,16 @@ This module tests batch operations on multiple VMs:
 - Error handling
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
-from dataclasses import dataclass
+from unittest.mock import Mock, patch
 
+import pytest
 from azlin.batch_executor import (
-    BatchSelector,
     BatchExecutor,
-    BatchResult,
-    BatchOperationResult,
     BatchExecutorError,
+    BatchOperationResult,
+    BatchResult,
+    BatchSelector,
     TagFilter,
 )
 from azlin.vm_manager import VMInfo
@@ -34,7 +33,7 @@ def sample_vms():
             power_state="VM running",
             public_ip="1.2.3.4",
             vm_size="Standard_D2s_v3",
-            tags={"env": "dev", "team": "backend"}
+            tags={"env": "dev", "team": "backend"},
         ),
         VMInfo(
             name="azlin-dev-02",
@@ -43,7 +42,7 @@ def sample_vms():
             power_state="VM running",
             public_ip="1.2.3.5",
             vm_size="Standard_D2s_v3",
-            tags={"env": "dev", "team": "frontend"}
+            tags={"env": "dev", "team": "frontend"},
         ),
         VMInfo(
             name="azlin-prod-01",
@@ -52,7 +51,7 @@ def sample_vms():
             power_state="VM running",
             public_ip="1.2.3.6",
             vm_size="Standard_D4s_v3",
-            tags={"env": "prod", "team": "backend"}
+            tags={"env": "prod", "team": "backend"},
         ),
         VMInfo(
             name="test-vm-01",
@@ -61,7 +60,7 @@ def sample_vms():
             power_state="VM stopped",
             public_ip=None,
             vm_size="Standard_B2s",
-            tags={"env": "test", "temporary": "true"}
+            tags={"env": "test", "temporary": "true"},
         ),
     ]
 
@@ -109,7 +108,7 @@ class TestTagFilter:
             resource_group="test-rg",
             location="eastus",
             power_state="VM running",
-            tags=None
+            tags=None,
         )
         tag_filter = TagFilter.parse("env=dev")
         assert tag_filter.matches(vm) is False
@@ -183,7 +182,7 @@ class TestBatchSelector:
 class TestBatchExecutor:
     """Test batch operation execution."""
 
-    @patch('azlin.batch_executor.VMLifecycleController')
+    @patch("azlin.batch_executor.VMLifecycleController")
     def test_execute_stop_single_vm(self, mock_controller, sample_vms):
         """Test executing stop on single VM."""
         # Setup mock
@@ -200,7 +199,7 @@ class TestBatchExecutor:
         assert results[0].vm_name == "azlin-dev-01"
         mock_controller.stop_vm.assert_called_once()
 
-    @patch('azlin.batch_executor.VMLifecycleController')
+    @patch("azlin.batch_executor.VMLifecycleController")
     def test_execute_stop_multiple_vms(self, mock_controller, sample_vms):
         """Test executing stop on multiple VMs."""
         # Setup mock
@@ -216,7 +215,7 @@ class TestBatchExecutor:
         assert all(r.success for r in results)
         assert mock_controller.stop_vm.call_count == 3
 
-    @patch('azlin.batch_executor.VMLifecycleController')
+    @patch("azlin.batch_executor.VMLifecycleController")
     def test_execute_stop_with_failure(self, mock_controller, sample_vms):
         """Test handling VM stop failure."""
         # Setup mock - first succeeds, second fails
@@ -234,7 +233,7 @@ class TestBatchExecutor:
         assert results[0].success is True
         assert results[1].success is False
 
-    @patch('azlin.batch_executor.VMLifecycleController')
+    @patch("azlin.batch_executor.VMLifecycleController")
     def test_execute_start_multiple_vms(self, mock_controller, sample_vms):
         """Test executing start on multiple VMs."""
         # Setup mock
@@ -249,16 +248,14 @@ class TestBatchExecutor:
         assert len(results) == 2
         assert all(r.success for r in results)
 
-    @patch('azlin.batch_executor.RemoteExecutor')
-    @patch('azlin.batch_executor.SSHKeyManager')
+    @patch("azlin.batch_executor.RemoteExecutor")
+    @patch("azlin.batch_executor.SSHKeyManager")
     def test_execute_command_multiple_vms(self, mock_ssh_mgr, mock_executor, sample_vms):
         """Test executing command on multiple VMs."""
         # Setup mocks
         mock_ssh_mgr.ensure_key_exists.return_value = Mock(private_path=Path("/fake/key"))
         mock_executor.execute_command.return_value = Mock(
-            success=True,
-            stdout="output",
-            exit_code=0
+            success=True, stdout="output", exit_code=0
         )
 
         # Execute
@@ -269,16 +266,14 @@ class TestBatchExecutor:
         assert len(results) == 2
         assert all(r.success for r in results)
 
-    @patch('azlin.batch_executor.HomeSyncManager')
-    @patch('azlin.batch_executor.SSHKeyManager')
+    @patch("azlin.batch_executor.HomeSyncManager")
+    @patch("azlin.batch_executor.SSHKeyManager")
     def test_execute_sync_multiple_vms(self, mock_ssh_mgr, mock_sync_mgr, sample_vms):
         """Test executing sync on multiple VMs."""
         # Setup mocks
         mock_ssh_mgr.ensure_key_exists.return_value = Mock(private_path=Path("/fake/key"))
         mock_sync_mgr.sync_to_vm.return_value = Mock(
-            success=True,
-            files_synced=10,
-            bytes_transferred=1024
+            success=True, files_synced=10, bytes_transferred=1024
         )
 
         # Execute
@@ -294,24 +289,22 @@ class TestBatchExecutor:
         executor = BatchExecutor(max_workers=2)
         assert executor.max_workers == 2
 
-    @patch('azlin.batch_executor.VMLifecycleController')
+    @patch("azlin.batch_executor.VMLifecycleController")
     def test_execute_with_progress_callback(self, mock_controller, sample_vms):
         """Test progress callback is called during execution."""
         # Setup mock
         mock_controller.stop_vm.return_value = Mock(success=True, message="VM stopped")
-        
+
         # Track progress calls
         progress_calls = []
-        
+
         def progress_callback(msg):
             progress_calls.append(msg)
 
         # Execute
         executor = BatchExecutor(max_workers=2)
         results = executor.execute_stop(
-            sample_vms[:2],
-            "test-rg",
-            progress_callback=progress_callback
+            sample_vms[:2], "test-rg", progress_callback=progress_callback
         )
 
         # Verify progress was reported
@@ -329,7 +322,7 @@ class TestBatchResult:
             BatchOperationResult(vm_name="vm2", success=True, message="OK"),
         ]
         batch_result = BatchResult(results)
-        
+
         assert batch_result.total == 2
         assert batch_result.succeeded == 2
         assert batch_result.failed == 0
@@ -342,7 +335,7 @@ class TestBatchResult:
             BatchOperationResult(vm_name="vm2", success=False, message="Error"),
         ]
         batch_result = BatchResult(results)
-        
+
         assert batch_result.total == 2
         assert batch_result.succeeded == 0
         assert batch_result.failed == 2
@@ -355,7 +348,7 @@ class TestBatchResult:
             BatchOperationResult(vm_name="vm2", success=False, message="Error"),
         ]
         batch_result = BatchResult(results)
-        
+
         assert batch_result.total == 2
         assert batch_result.succeeded == 1
         assert batch_result.failed == 1
@@ -369,7 +362,7 @@ class TestBatchResult:
         ]
         batch_result = BatchResult(results)
         summary = batch_result.format_summary()
-        
+
         assert "Total: 2" in summary
         assert "Succeeded: 1" in summary
         assert "Failed: 1" in summary
@@ -383,7 +376,7 @@ class TestBatchResult:
         ]
         batch_result = BatchResult(results)
         failures = batch_result.get_failures()
-        
+
         assert len(failures) == 2
         assert all(not r.success for r in failures)
 
@@ -396,7 +389,7 @@ class TestBatchResult:
         ]
         batch_result = BatchResult(results)
         successes = batch_result.get_successes()
-        
+
         assert len(successes) == 2
         assert all(r.success for r in successes)
 
@@ -410,7 +403,7 @@ class TestBatchErrorHandling:
         results = executor.execute_stop([], "test-rg")
         assert len(results) == 0
 
-    @patch('azlin.batch_executor.VMLifecycleController')
+    @patch("azlin.batch_executor.VMLifecycleController")
     def test_exception_in_operation(self, mock_controller, sample_vms):
         """Test handling exception during operation."""
         # Setup mock to raise exception
@@ -430,7 +423,7 @@ class TestBatchErrorHandling:
         with pytest.raises(BatchExecutorError, match="Invalid tag format"):
             TagFilter.parse("invalid")
 
-    @patch('azlin.vm_manager.VMManager')
+    @patch("azlin.vm_manager.VMManager")
     def test_resource_group_not_found(self, mock_vm_manager):
         """Test handling resource group not found."""
         mock_vm_manager.list_vms.return_value = []
@@ -444,7 +437,7 @@ class TestBatchErrorHandling:
 class TestBatchIntegration:
     """Integration tests for batch operations."""
 
-    @patch('azlin.batch_executor.VMLifecycleController')
+    @patch("azlin.batch_executor.VMLifecycleController")
     def test_end_to_end_stop_by_tag(self, mock_controller, sample_vms):
         """Test end-to-end: select by tag and stop."""
         # Setup mocks
@@ -461,7 +454,7 @@ class TestBatchIntegration:
         assert len(results) == 2
         assert all(r.success for r in results)
 
-    @patch('azlin.batch_executor.VMLifecycleController')
+    @patch("azlin.batch_executor.VMLifecycleController")
     def test_end_to_end_start_by_pattern(self, mock_controller, sample_vms):
         """Test end-to-end: select by pattern and start."""
         # Setup mocks

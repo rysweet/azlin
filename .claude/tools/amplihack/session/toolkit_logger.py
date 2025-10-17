@@ -9,7 +9,7 @@ import traceback
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from .file_utils import safe_write_file
 
@@ -25,7 +25,7 @@ class LogEntry:
     component: Optional[str] = None
     operation: Optional[str] = None
     duration: Optional[float] = None
-    metadata: Dict[str, Any] = None
+    metadata: dict[str, Any] = None
     error: Optional[str] = None
     traceback: Optional[str] = None
 
@@ -191,7 +191,7 @@ class ToolkitLogger:
         # Operation tracking
         self._current_operation: Optional[str] = None
         self._operation_start_time: Optional[float] = None
-        self._operation_stack: List[tuple] = []
+        self._operation_stack: list[tuple] = []
 
         # Setup handlers
         if enable_console:
@@ -230,7 +230,7 @@ class ToolkitLogger:
         message: str,
         operation: Optional[str] = None,
         duration: Optional[float] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         exc_info: bool = False,
     ) -> None:
         """Internal logging method with context."""
@@ -255,22 +255,22 @@ class ToolkitLogger:
         # Emit the record
         self.logger.handle(record)
 
-    def debug(self, message: str, metadata: Optional[Dict[str, Any]] = None, **kwargs) -> None:
+    def debug(self, message: str, metadata: Optional[dict[str, Any]] = None, **kwargs) -> None:
         """Log debug message."""
         self._log("DEBUG", message, metadata=metadata, **kwargs)
 
-    def info(self, message: str, metadata: Optional[Dict[str, Any]] = None, **kwargs) -> None:
+    def info(self, message: str, metadata: Optional[dict[str, Any]] = None, **kwargs) -> None:
         """Log info message."""
         self._log("INFO", message, metadata=metadata, **kwargs)
 
-    def warning(self, message: str, metadata: Optional[Dict[str, Any]] = None, **kwargs) -> None:
+    def warning(self, message: str, metadata: Optional[dict[str, Any]] = None, **kwargs) -> None:
         """Log warning message."""
         self._log("WARNING", message, metadata=metadata, **kwargs)
 
     def error(
         self,
         message: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         exc_info: bool = True,
         **kwargs,
     ) -> None:
@@ -280,7 +280,7 @@ class ToolkitLogger:
     def critical(
         self,
         message: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         exc_info: bool = True,
         **kwargs,
     ) -> None:
@@ -291,7 +291,7 @@ class ToolkitLogger:
         self,
         message: str,
         duration: Optional[float] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         **kwargs,
     ) -> None:
         """Log success message (custom level)."""
@@ -341,7 +341,7 @@ class ToolkitLogger:
         """
         return OperationContext(self, name)
 
-    def get_session_logs(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    def get_session_logs(self, limit: Optional[int] = None) -> list[dict[str, Any]]:
         """Get logs for current session.
 
         Args:

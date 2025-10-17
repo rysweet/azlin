@@ -5,7 +5,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 
 class ReflectionState(Enum):
@@ -111,7 +111,7 @@ class ReflectionStateMachine:
 
     def transition(
         self, current_state: ReflectionState, user_intent: Optional[str]
-    ) -> Tuple[ReflectionState, str]:
+    ) -> tuple[ReflectionState, str]:
         """Determine next state based on current state and user intent.
 
         Returns:

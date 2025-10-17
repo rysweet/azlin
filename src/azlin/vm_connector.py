@@ -12,28 +12,30 @@ Security:
 
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-from dataclasses import dataclass
 
-from azlin.config_manager import ConfigManager, ConfigError
-from azlin.vm_manager import VMManager, VMInfo, VMManagerError
-from azlin.terminal_launcher import TerminalLauncher, TerminalConfig, TerminalLauncherError
-from azlin.modules.ssh_keys import SSHKeyManager, SSHKeyError
-from azlin.modules.ssh_connector import SSHConfig, SSHConnector
+from azlin.config_manager import ConfigError, ConfigManager
+from azlin.modules.ssh_connector import SSHConfig
+from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.modules.ssh_reconnect import SSHReconnectHandler
+from azlin.terminal_launcher import TerminalConfig, TerminalLauncher, TerminalLauncherError
+from azlin.vm_manager import VMManager, VMManagerError
 
 logger = logging.getLogger(__name__)
 
 
 class VMConnectorError(Exception):
     """Raised when VM connection operations fail."""
+
     pass
 
 
 @dataclass
 class ConnectionInfo:
     """VM connection information."""
+
     vm_name: str
     ip_address: str
     resource_group: str
@@ -62,7 +64,7 @@ class VMConnector:
         ssh_user: str = "azureuser",
         ssh_key_path: Optional[Path] = None,
         enable_reconnect: bool = True,
-        max_reconnect_retries: int = 3
+        max_reconnect_retries: int = 3,
     ) -> bool:
         """Connect to a VM via SSH.
 
@@ -95,16 +97,13 @@ class VMConnector:
 
             >>> # Run command
             >>> VMConnector.connect("my-vm", resource_group="my-rg", remote_command="ls -la")
-            
+
             >>> # Disable auto-reconnect
             >>> VMConnector.connect("my-vm", resource_group="my-rg", enable_reconnect=False)
         """
         # Get connection info
         conn_info = cls._resolve_connection_info(
-            vm_identifier,
-            resource_group,
-            ssh_user,
-            ssh_key_path
+            vm_identifier, resource_group, ssh_user, ssh_key_path
         )
 
         # Ensure SSH key exists
@@ -123,9 +122,9 @@ class VMConnector:
                 user=conn_info.ssh_user,
                 key_path=conn_info.ssh_key_path,
                 port=22,
-                strict_host_key_checking=False
+                strict_host_key_checking=False,
             )
-            
+
             try:
                 logger.info(f"Connecting to {conn_info.vm_name} ({conn_info.ip_address})...")
                 handler = SSHReconnectHandler(max_retries=max_reconnect_retries)
@@ -133,7 +132,7 @@ class VMConnector:
                     config=ssh_config,
                     vm_name=conn_info.vm_name,
                     tmux_session=tmux_session or conn_info.vm_name if use_tmux else "azlin",
-                    auto_tmux=use_tmux
+                    auto_tmux=use_tmux,
                 )
                 return exit_code == 0
             except Exception as e:
@@ -146,7 +145,7 @@ class VMConnector:
                 ssh_key_path=conn_info.ssh_key_path,
                 command=remote_command,
                 title=f"azlin - {conn_info.vm_name}",
-                tmux_session=tmux_session or conn_info.vm_name if use_tmux else None
+                tmux_session=tmux_session or conn_info.vm_name if use_tmux else None,
             )
 
             # Launch terminal
@@ -165,7 +164,7 @@ class VMConnector:
         tmux_session: Optional[str] = None,
         remote_command: Optional[str] = None,
         ssh_user: str = "azureuser",
-        ssh_key_path: Optional[Path] = None
+        ssh_key_path: Optional[Path] = None,
     ) -> bool:
         """Connect to a VM by name.
 
@@ -191,7 +190,7 @@ class VMConnector:
             tmux_session=tmux_session,
             remote_command=remote_command,
             ssh_user=ssh_user,
-            ssh_key_path=ssh_key_path
+            ssh_key_path=ssh_key_path,
         )
 
     @classmethod
@@ -202,7 +201,7 @@ class VMConnector:
         tmux_session: Optional[str] = None,
         remote_command: Optional[str] = None,
         ssh_user: str = "azureuser",
-        ssh_key_path: Optional[Path] = None
+        ssh_key_path: Optional[Path] = None,
     ) -> bool:
         """Connect to a VM by IP address.
 
@@ -231,7 +230,7 @@ class VMConnector:
             tmux_session=tmux_session or ip_address,
             remote_command=remote_command,
             ssh_user=ssh_user,
-            ssh_key_path=ssh_key_path
+            ssh_key_path=ssh_key_path,
         )
 
     @classmethod
@@ -240,7 +239,7 @@ class VMConnector:
         vm_identifier: str,
         resource_group: Optional[str],
         ssh_user: str,
-        ssh_key_path: Optional[Path]
+        ssh_key_path: Optional[Path],
     ) -> ConnectionInfo:
         """Resolve VM connection information.
 
@@ -263,7 +262,7 @@ class VMConnector:
                 ip_address=vm_identifier,
                 resource_group=resource_group or "unknown",
                 ssh_user=ssh_user,
-                ssh_key_path=ssh_key_path
+                ssh_key_path=ssh_key_path,
             )
 
         # Otherwise, treat as VM name - need to resolve IP
@@ -294,8 +293,7 @@ class VMConnector:
             # Check if VM is running
             if not vm_info.is_running():
                 logger.warning(
-                    f"VM is not running (state: {vm_info.power_state}). "
-                    "Connection may fail."
+                    f"VM is not running (state: {vm_info.power_state}). " "Connection may fail."
                 )
 
             # Get IP address
@@ -310,7 +308,7 @@ class VMConnector:
                 ip_address=vm_info.public_ip,
                 resource_group=resource_group,
                 ssh_user=ssh_user,
-                ssh_key_path=ssh_key_path
+                ssh_key_path=ssh_key_path,
             )
 
         except VMManagerError as e:
@@ -333,12 +331,12 @@ class VMConnector:
             False
         """
         # Simple IPv4 pattern
-        ip_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
+        ip_pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
         if not re.match(ip_pattern, identifier):
             return False
 
         # Validate octets
-        octets = identifier.split('.')
+        octets = identifier.split(".")
         for octet in octets:
             try:
                 value = int(octet)
@@ -350,8 +348,4 @@ class VMConnector:
         return True
 
 
-__all__ = [
-    'VMConnector',
-    'VMConnectorError',
-    'ConnectionInfo'
-]
+__all__ = ["VMConnector", "VMConnectorError", "ConnectionInfo"]

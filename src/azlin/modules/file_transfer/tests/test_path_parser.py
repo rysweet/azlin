@@ -1,12 +1,13 @@
 """Unit tests for path_parser module."""
 
-import pytest
 from pathlib import Path
+
+import pytest
+
 from azlin.modules.file_transfer import (
+    InvalidPathError,
     PathParser,
     PathTraversalError,
-    InvalidPathError,
-    SymlinkSecurityError
 )
 
 
@@ -57,10 +58,7 @@ class TestAbsolutePathHandling:
 
     def test_accepts_absolute_path_when_allowed(self):
         """Should accept absolute paths when allowed"""
-        path = PathParser.parse_and_validate(
-            str(Path.home() / "test.txt"),
-            allow_absolute=True
-        )
+        path = PathParser.parse_and_validate(str(Path.home() / "test.txt"), allow_absolute=True)
         assert path.is_absolute()
 
 
@@ -103,26 +101,17 @@ class TestCredentialFileBlocking:
     def test_blocks_ssh_id_rsa(self):
         """Should block SSH private keys"""
         with pytest.raises(InvalidPathError, match="credential file"):
-            PathParser.parse_and_validate(
-                str(Path.home() / ".ssh/id_rsa"),
-                allow_absolute=True
-            )
+            PathParser.parse_and_validate(str(Path.home() / ".ssh/id_rsa"), allow_absolute=True)
 
     def test_blocks_ssh_id_ed25519(self):
         """Should block SSH ED25519 keys"""
         with pytest.raises(InvalidPathError, match="credential file"):
-            PathParser.parse_and_validate(
-                str(Path.home() / ".ssh/id_ed25519"),
-                allow_absolute=True
-            )
+            PathParser.parse_and_validate(str(Path.home() / ".ssh/id_ed25519"), allow_absolute=True)
 
     def test_blocks_ssh_private_key(self):
         """Should block generic SSH private keys"""
         with pytest.raises(InvalidPathError, match="credential file"):
-            PathParser.parse_and_validate(
-                str(Path.home() / ".ssh/github_key"),
-                allow_absolute=True
-            )
+            PathParser.parse_and_validate(str(Path.home() / ".ssh/github_key"), allow_absolute=True)
 
 
 class TestSymlinkValidation:

@@ -28,9 +28,10 @@ import logging
 import re
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Callable
+from typing import Optional
 
 from .ssh_connector import SSHConfig
 
@@ -39,22 +40,26 @@ logger = logging.getLogger(__name__)
 
 class HomeSyncError(Exception):
     """Base exception for home sync errors."""
+
     pass
 
 
 class SecurityValidationError(HomeSyncError):
     """Raised when security validation fails."""
+
     pass
 
 
 class RsyncError(HomeSyncError):
     """Raised when rsync command fails."""
+
     pass
 
 
 @dataclass
 class SecurityWarning:
     """Security warning about a file."""
+
     file_path: str
     reason: str
     severity: str  # "error", "warning", "info"
@@ -63,19 +68,21 @@ class SecurityWarning:
 @dataclass
 class ValidationResult:
     """Result of security validation."""
+
     is_safe: bool
-    blocked_files: List[str] = field(default_factory=list)
-    warnings: List[SecurityWarning] = field(default_factory=list)
+    blocked_files: list[str] = field(default_factory=list)
+    warnings: list[SecurityWarning] = field(default_factory=list)
 
 
 @dataclass
 class SyncResult:
     """Result of home directory sync operation."""
+
     success: bool
     files_synced: int = 0
     bytes_transferred: int = 0
-    warnings: List[str] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
 
 
@@ -100,67 +107,67 @@ class HomeSyncManager:
     # The ** prefix breaks matching and would allow ALL credential files through!
     BLOCKED_GLOBS = [
         # SSH keys (private) - Matches id_rsa, id_ed25519 but NOT id_rsa.pub
-        '.ssh/id_*[!.pub]',
-        '.ssh/*_key',
-        '.ssh/*.pem',
+        ".ssh/id_*[!.pub]",
+        ".ssh/*_key",
+        ".ssh/*.pem",
         # AWS
-        '.aws/credentials',
-        '.aws/config',
+        ".aws/credentials",
+        ".aws/config",
         # GCP
-        '.config/gcloud/**/*.json',
-        '.config/gcloud/credentials*',
-        '.config/gcloud/access_tokens.db',
+        ".config/gcloud/**/*.json",
+        ".config/gcloud/credentials*",
+        ".config/gcloud/access_tokens.db",
         # Azure
-        '.azure/**',
+        ".azure/**",
         # Generic credential files
-        '*.key',
-        '*.pem',
-        '*.p12',
-        '*.pfx',
-        'credentials',
-        'credentials.*',
-        '*credentials*',
-        '.env',
-        '.env.*',
+        "*.key",
+        "*.pem",
+        "*.p12",
+        "*.pfx",
+        "credentials",
+        "credentials.*",
+        "*credentials*",
+        ".env",
+        ".env.*",
         # Caches and databases
-        '*.db',
-        '*.sqlite',
-        '*.sqlite3',
-        '.git/**',
-        '__pycache__/**',
-        '*.pyc',
-        '.mozilla/**',
-        '.chrome/**',
-        '.config/**/*cache*',
-        '.config/**/*Cache*',
+        "*.db",
+        "*.sqlite",
+        "*.sqlite3",
+        ".git/**",
+        "__pycache__/**",
+        "*.pyc",
+        ".mozilla/**",
+        ".chrome/**",
+        ".config/**/*cache*",
+        ".config/**/*Cache*",
     ]
 
     # Whitelist overrides blacklist
     ALLOWED_GLOBS = [
-        '.ssh/config',
-        '.ssh/known_hosts',
-        '.ssh/*.pub',
+        ".ssh/config",
+        ".ssh/known_hosts",
+        ".ssh/*.pub",
     ]
 
     # SECURITY LAYER 2: Dangerous symlink targets
     # SECURITY FIX: Prevent symlink-based credential exfiltration
     DANGEROUS_SYMLINK_TARGETS = [
-        Path.home() / '.ssh',
-        Path.home() / '.aws',
-        Path.home() / '.azure',
-        Path.home() / '.config' / 'gcloud',
+        Path.home() / ".ssh",
+        Path.home() / ".aws",
+        Path.home() / ".azure",
+        Path.home() / ".config" / "gcloud",
     ]
 
     # SECURITY LAYER 3: Content-based secret patterns (regex for content only)
     # SECURITY FIX: Detect embedded secrets in config files
     SECRET_CONTENT_PATTERNS = [
-        (r'AKIA[0-9A-Z]{16}', 'AWS Access Key'),
-        (r'aws_secret_access_key\s*=\s*[A-Za-z0-9/+=]{40}', 'AWS Secret Key'),
-        (r'-----BEGIN (?:RSA |EC )?PRIVATE KEY-----', 'Private Key'),
-        (r'AccountKey=[A-Za-z0-9+/=]{88}', 'Azure Storage Key'),
-        (r'(?:api[_-]?key|token|secret)\s*[:=]\s*["\']?[A-Za-z0-9_\-]{32,}["\']?', 'API Key/Token'),
-        (r'gh[ps]_[A-Za-z0-9]{36,}', 'GitHub Token'),
-        (r'ya29\.[A-Za-z0-9_-]+', 'Google OAuth Token'),
+        (r"AKIA[0-9A-Z]{16}", "AWS Access Key"),
+        (r"aws_secret_access_key\s*=\s*[A-Za-z0-9/+=]{40}", "AWS Secret Key"),
+        (r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----", "Private Key"),
+        (r"AccountKey=[A-Za-z0-9+/=]{88}", "Azure Storage Key"),
+        (r'(?:api[_-]?key|token|secret)\s*[:=]\s*["\']?[A-Za-z0-9_\-]{32,}["\']?', "API Key/Token"),
+        (r"gh[ps]_[A-Za-z0-9]{36,}", "GitHub Token"),
+        (r"ya29\.[A-Za-z0-9_-]+", "Google OAuth Token"),
     ]
 
     DEFAULT_SYNC_DIR = Path.home() / ".azlin" / "home"
@@ -250,7 +257,7 @@ class HomeSyncManager:
         return False
 
     @classmethod
-    def _scan_file_content(cls, file_path: Path) -> List[SecurityWarning]:
+    def _scan_file_content(cls, file_path: Path) -> list[SecurityWarning]:
         """Scan file content for embedded secrets.
 
         SECURITY FIX: Detects credentials in config files.
@@ -271,15 +278,17 @@ class HomeSyncManager:
             return warnings
 
         try:
-            content = file_path.read_text(encoding='utf-8', errors='ignore')
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
 
             for pattern, secret_type in cls.SECRET_CONTENT_PATTERNS:
                 if re.search(pattern, content):
-                    warnings.append(SecurityWarning(
-                        file_path=str(file_path),
-                        reason=f"Potential {secret_type} detected in file content",
-                        severity="error"
-                    ))
+                    warnings.append(
+                        SecurityWarning(
+                            file_path=str(file_path),
+                            reason=f"Potential {secret_type} detected in file content",
+                            severity="error",
+                        )
+                    )
 
         except (UnicodeDecodeError, PermissionError, OSError):
             # Binary or unreadable file - skip content scan
@@ -288,7 +297,7 @@ class HomeSyncManager:
         return warnings
 
     @classmethod
-    def scan_for_secrets(cls, directory: Path) -> List[SecurityWarning]:
+    def scan_for_secrets(cls, directory: Path) -> list[SecurityWarning]:
         """Scan directory for potential secrets and sensitive files.
 
         SECURITY: Multi-layered detection:
@@ -307,7 +316,7 @@ class HomeSyncManager:
         if not directory.exists():
             return warnings
 
-        for file_path in directory.rglob('*'):
+        for file_path in directory.rglob("*"):
             if not file_path.is_file() and not file_path.is_symlink():
                 continue
 
@@ -319,11 +328,13 @@ class HomeSyncManager:
             if cls._is_path_blocked(file_path, directory):
                 try:
                     relative = file_path.relative_to(directory)
-                    warnings.append(SecurityWarning(
-                        file_path=str(relative),
-                        reason="Matches blocked file pattern",
-                        severity="error"
-                    ))
+                    warnings.append(
+                        SecurityWarning(
+                            file_path=str(relative),
+                            reason="Matches blocked file pattern",
+                            severity="error",
+                        )
+                    )
                 except ValueError:
                     pass
                 continue
@@ -334,19 +345,23 @@ class HomeSyncManager:
                     target = file_path.resolve()
                     if cls._is_dangerous_symlink(file_path, target):
                         relative = file_path.relative_to(directory)
-                        warnings.append(SecurityWarning(
-                            file_path=str(relative),
-                            reason=f"Symlink points to sensitive location: {target}",
-                            severity="error"
-                        ))
+                        warnings.append(
+                            SecurityWarning(
+                                file_path=str(relative),
+                                reason=f"Symlink points to sensitive location: {target}",
+                                severity="error",
+                            )
+                        )
                 except (OSError, RuntimeError):
                     try:
                         relative = file_path.relative_to(directory)
-                        warnings.append(SecurityWarning(
-                            file_path=str(relative),
-                            reason="Broken or circular symlink",
-                            severity="warning"
-                        ))
+                        warnings.append(
+                            SecurityWarning(
+                                file_path=str(relative),
+                                reason="Broken or circular symlink",
+                                severity="warning",
+                            )
+                        )
                     except ValueError:
                         pass
 
@@ -385,9 +400,7 @@ class HomeSyncManager:
         blocked_files = [w.file_path for w in errors]
 
         return ValidationResult(
-            is_safe=len(blocked_files) == 0,
-            blocked_files=blocked_files,
-            warnings=warnings
+            is_safe=len(blocked_files) == 0, blocked_files=blocked_files, warnings=warnings
         )
 
     @classmethod
@@ -440,7 +453,7 @@ class HomeSyncManager:
             cls.EXCLUDE_FILE_NAME,  # Don't sync the exclude file itself
         ]
 
-        exclude_file.write_text('\n'.join(exclude_patterns) + '\n')
+        exclude_file.write_text("\n".join(exclude_patterns) + "\n")
         return exclude_file
 
     @classmethod
@@ -464,7 +477,7 @@ class HomeSyncManager:
             pass
 
         # Validate hostname (RFC 1123)
-        hostname_pattern = r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$'
+        hostname_pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
         if re.match(hostname_pattern, host) and len(host) <= 253:
             return True
 
@@ -472,12 +485,8 @@ class HomeSyncManager:
 
     @classmethod
     def _build_rsync_command(
-        cls,
-        sync_dir: Path,
-        ssh_config: SSHConfig,
-        exclude_file: Path,
-        dry_run: bool
-    ) -> List[str]:
+        cls, sync_dir: Path, ssh_config: SSHConfig, exclude_file: Path, dry_run: bool
+    ) -> list[str]:
         """Build rsync command with validated inputs.
 
         SECURITY FIX (LAYER 4):
@@ -520,21 +529,22 @@ class HomeSyncManager:
 
         # Build command as argument list (SECURITY: No shell=True)
         cmd = [
-            'rsync',
-            '-avz',                           # Archive, verbose, compress
-            '--safe-links',                   # SECURITY FIX: Prevent symlink attacks
-            '--progress',                     # Show progress
-            '--delete-excluded',              # Remove excluded files on remote
-            f'--exclude-from={exclude_file}', # Exclusion patterns
-            '-e', ssh_opts,                   # SSH command (as separate arg)
+            "rsync",
+            "-avz",  # Archive, verbose, compress
+            "--safe-links",  # SECURITY FIX: Prevent symlink attacks
+            "--progress",  # Show progress
+            "--delete-excluded",  # Remove excluded files on remote
+            f"--exclude-from={exclude_file}",  # Exclusion patterns
+            "-e",
+            ssh_opts,  # SSH command (as separate arg)
         ]
 
         if dry_run:
-            cmd.append('--dry-run')
+            cmd.append("--dry-run")
 
         # Add source and destination (SECURITY: Always use absolute paths)
-        cmd.append(f'{sync_dir}/')           # Trailing slash is important
-        cmd.append(f'{ssh_config.user}@{ssh_config.host}:~/')
+        cmd.append(f"{sync_dir}/")  # Trailing slash is important
+        cmd.append(f"{ssh_config.user}@{ssh_config.host}:~/")
 
         return cmd
 
@@ -553,19 +563,19 @@ class HomeSyncManager:
 
         # Parse rsync output for stats
         # Example line: "sent 1,234 bytes  received 567 bytes  1,801.00 bytes/sec"
-        for line in output.split('\n'):
-            if 'Number of regular files transferred:' in line:
-                parts = line.split(':')
+        for line in output.split("\n"):
+            if "Number of regular files transferred:" in line:
+                parts = line.split(":")
                 if len(parts) == 2:
                     try:
                         files_synced = int(parts[1].strip())
                     except ValueError:
                         pass
-            elif 'Total transferred file size:' in line:
-                parts = line.split(':')
+            elif "Total transferred file size:" in line:
+                parts = line.split(":")
                 if len(parts) == 2:
                     try:
-                        size_str = parts[1].strip().split()[0].replace(',', '')
+                        size_str = parts[1].strip().split()[0].replace(",", "")
                         bytes_transferred = int(size_str)
                     except (ValueError, IndexError):
                         pass
@@ -577,7 +587,7 @@ class HomeSyncManager:
         cls,
         ssh_config: SSHConfig,
         dry_run: bool = False,
-        progress_callback: Optional[Callable[[str], None]] = None
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> SyncResult:
         """Sync local home directory to remote VM.
 
@@ -601,15 +611,11 @@ class HomeSyncManager:
         # Skip if directory doesn't exist or is empty
         if not sync_dir.exists():
             return SyncResult(
-                success=True,
-                warnings=["Sync directory does not exist: ~/.azlin/home/"]
+                success=True, warnings=["Sync directory does not exist: ~/.azlin/home/"]
             )
 
         if not any(sync_dir.iterdir()):
-            return SyncResult(
-                success=True,
-                warnings=["Sync directory is empty"]
-            )
+            return SyncResult(success=True, warnings=["Sync directory is empty"])
 
         # SECURITY: Validate directory
         if progress_callback:
@@ -621,8 +627,8 @@ class HomeSyncManager:
             # Sanitize paths in error message (show only filenames)
             sanitized_files = [Path(f).name for f in validation.blocked_files]
             raise SecurityValidationError(
-                "Security validation failed. Remove these files:\n" +
-                "\n".join(f"  - {f}" for f in sanitized_files)
+                "Security validation failed. Remove these files:\n"
+                + "\n".join(f"  - {f}" for f in sanitized_files)
             )
 
         # Report warnings
@@ -646,7 +652,7 @@ class HomeSyncManager:
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minutes
-                check=True
+                check=True,
             )
 
             # Parse rsync output for stats
@@ -657,7 +663,7 @@ class HomeSyncManager:
                 success=True,
                 files_synced=files_synced,
                 bytes_transferred=bytes_transferred,
-                duration_seconds=duration
+                duration_seconds=duration,
             )
 
         except subprocess.TimeoutExpired:

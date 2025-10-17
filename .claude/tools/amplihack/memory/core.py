@@ -7,7 +7,7 @@ import json
 import sqlite3
 import threading
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 
 class MemoryBackend:
@@ -261,7 +261,7 @@ class MemoryBackend:
                 print(f"Warning: Memory retrieve failed: {e}")
                 return None
 
-    def list_keys(self, session_id: str, pattern: Optional[str] = None) -> List[str]:
+    def list_keys(self, session_id: str, pattern: Optional[str] = None) -> list[str]:
         """
         List memory keys for session.
 

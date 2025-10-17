@@ -6,7 +6,7 @@ Follows the API designer agent specification for minimal, clear contracts.
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 from .core import MemoryBackend
 
@@ -121,7 +121,7 @@ class AgentMemory:
 
         return self.backend.retrieve(self.session_id, key)
 
-    def list_keys(self, pattern: Optional[str] = None) -> List[str]:
+    def list_keys(self, pattern: Optional[str] = None) -> list[str]:
         """
         List available memory keys.
 
@@ -177,7 +177,7 @@ class AgentMemory:
 
         return self.backend.clear_session(self.session_id)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get memory statistics for monitoring.
 

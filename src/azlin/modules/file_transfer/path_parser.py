@@ -1,9 +1,10 @@
 """Secure path parsing and validation."""
 
+import re
 from pathlib import Path
 from typing import Optional
-import re
-from .exceptions import PathTraversalError, InvalidPathError, SymlinkSecurityError
+
+from .exceptions import InvalidPathError, PathTraversalError, SymlinkSecurityError
 
 
 class PathParser:
@@ -20,19 +21,16 @@ class PathParser:
 
     # Blocked patterns for extra safety
     BLOCKED_PATH_PATTERNS = [
-        r'\.ssh/id_[a-z0-9]+$',
-        r'\.ssh/.*_key$',
-        r'\.aws/credentials$',
-        r'\.azure/',
-        r'\.config/gcloud/',
+        r"\.ssh/id_[a-z0-9]+$",
+        r"\.ssh/.*_key$",
+        r"\.aws/credentials$",
+        r"\.azure/",
+        r"\.config/gcloud/",
     ]
 
     @classmethod
     def parse_and_validate(
-        cls,
-        path_str: str,
-        allow_absolute: bool = False,
-        base_dir: Optional[Path] = None
+        cls, path_str: str, allow_absolute: bool = False, base_dir: Optional[Path] = None
     ) -> Path:
         """
         Parse and validate a path string with comprehensive security checks.
@@ -60,14 +58,12 @@ class PathParser:
             raise InvalidPathError("Path cannot be empty")
 
         # Remove any null bytes (security)
-        if '\x00' in path_str:
+        if "\x00" in path_str:
             raise InvalidPathError("Path contains null bytes")
 
         # Check for shell metacharacters
         if cls._contains_shell_metacharacters(path_str):
-            raise InvalidPathError(
-                f"Path contains shell metacharacters: {path_str}"
-            )
+            raise InvalidPathError(f"Path contains shell metacharacters: {path_str}")
 
         # Convert to Path object
         try:
@@ -94,12 +90,10 @@ class PathParser:
 
         # Check for path traversal by verifying it's within allowed boundaries
         if not cls._is_within_allowed_boundaries(normalized):
-            raise PathTraversalError(
-                f"Path escapes allowed directory: {normalized}"
-            )
+            raise PathTraversalError(f"Path escapes allowed directory: {normalized}")
 
         # Check for explicit .. in parts (defense in depth)
-        if '..' in normalized.parts:
+        if ".." in normalized.parts:
             raise PathTraversalError("Path contains '..' after normalization")
 
         # Validate symlinks
@@ -108,16 +102,14 @@ class PathParser:
 
         # Check for credential files
         if cls._is_credential_file(normalized):
-            raise InvalidPathError(
-                f"Refusing to copy credential file: {normalized.name}"
-            )
+            raise InvalidPathError(f"Refusing to copy credential file: {normalized.name}")
 
         return normalized
 
     @classmethod
     def _contains_shell_metacharacters(cls, path_str: str) -> bool:
         """Check if path contains shell metacharacters."""
-        dangerous_chars = [';', '|', '&', '$', '`', '\n', '\r', '>', '<', '(', ')']
+        dangerous_chars = [";", "|", "&", "$", "`", "\n", "\r", ">", "<", "(", ")"]
         return any(char in path_str for char in dangerous_chars)
 
     @classmethod
@@ -155,9 +147,7 @@ class PathParser:
 
             # Check if target is a credential file
             if cls._is_credential_file(target):
-                raise SymlinkSecurityError(
-                    f"Symlink points to credential file: {path} -> {target}"
-                )
+                raise SymlinkSecurityError(f"Symlink points to credential file: {path} -> {target}")
 
         except (OSError, RuntimeError) as e:
             raise SymlinkSecurityError(f"Cannot validate symlink: {e}")
@@ -166,10 +156,7 @@ class PathParser:
     def _is_credential_file(cls, path: Path) -> bool:
         """Check if path matches credential file patterns."""
         path_str = str(path)
-        return any(
-            re.search(pattern, path_str)
-            for pattern in cls.BLOCKED_PATH_PATTERNS
-        )
+        return any(re.search(pattern, path_str) for pattern in cls.BLOCKED_PATH_PATTERNS)
 
     @classmethod
     def sanitize_for_display(cls, path: Path, base: Optional[Path] = None) -> str:

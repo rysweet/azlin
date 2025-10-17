@@ -21,12 +21,14 @@ logger = logging.getLogger(__name__)
 
 class SnapshotManagerError(Exception):
     """Raised when snapshot operations fail."""
+
     pass
 
 
 @dataclass
 class SnapshotInfo:
     """Snapshot information from Azure."""
+
     name: str
     vm_name: str
     resource_group: str
@@ -51,11 +53,7 @@ class SnapshotManager:
     # Snapshot storage cost: $0.05 per GB-month for Standard HDD snapshots
     SNAPSHOT_COST_PER_GB_MONTH = 0.05
 
-    def create_snapshot(
-        self,
-        vm_name: str,
-        resource_group: str
-    ) -> SnapshotInfo:
+    def create_snapshot(self, vm_name: str, resource_group: str) -> SnapshotInfo:
         """Create a snapshot of a VM's OS disk.
 
         Args:
@@ -73,10 +71,10 @@ class SnapshotManager:
             logger.info(f"Getting details for VM: {vm_name}")
             vm_details = self._get_vm_details(vm_name, resource_group)
 
-            disk_name = vm_details['storageProfile']['osDisk']['name']
-            disk_id = vm_details['storageProfile']['osDisk']['managedDisk']['id']
-            vm_details['storageProfile']['osDisk']['diskSizeGb']
-            location = vm_details['location']
+            disk_name = vm_details["storageProfile"]["osDisk"]["name"]
+            disk_id = vm_details["storageProfile"]["osDisk"]["managedDisk"]["id"]
+            vm_details["storageProfile"]["osDisk"]["diskSizeGb"]
+            location = vm_details["location"]
 
             # Generate snapshot name with timestamp
             snapshot_name = self._generate_snapshot_name(vm_name)
@@ -85,21 +83,25 @@ class SnapshotManager:
 
             # Create snapshot
             cmd = [
-                'az', 'snapshot', 'create',
-                '--resource-group', resource_group,
-                '--name', snapshot_name,
-                '--source', disk_id,
-                '--location', location,
-                '--tags', f'azlin-vm={vm_name}', f'azlin-disk={disk_name}',
-                '--output', 'json'
+                "az",
+                "snapshot",
+                "create",
+                "--resource-group",
+                resource_group,
+                "--name",
+                snapshot_name,
+                "--source",
+                disk_id,
+                "--location",
+                location,
+                "--tags",
+                f"azlin-vm={vm_name}",
+                f"azlin-disk={disk_name}",
+                "--output",
+                "json",
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
             if result.returncode != 0:
                 error_msg = result.stderr.strip()
@@ -109,14 +111,14 @@ class SnapshotManager:
             snapshot_data = json.loads(result.stdout)
 
             return SnapshotInfo(
-                name=snapshot_data['name'],
+                name=snapshot_data["name"],
                 vm_name=vm_name,
                 resource_group=resource_group,
                 disk_name=disk_name,
-                size_gb=snapshot_data['diskSizeGb'],
-                created_time=snapshot_data['timeCreated'],
+                size_gb=snapshot_data["diskSizeGb"],
+                created_time=snapshot_data["timeCreated"],
                 location=location,
-                provisioning_state=snapshot_data['provisioningState']
+                provisioning_state=snapshot_data["provisioningState"],
             )
 
         except json.JSONDecodeError as e:
@@ -129,11 +131,7 @@ class SnapshotManager:
             logger.error(f"Unexpected error creating snapshot: {e}")
             raise SnapshotManagerError(f"Failed to create snapshot: {e}")
 
-    def list_snapshots(
-        self,
-        vm_name: str,
-        resource_group: str
-    ) -> list[SnapshotInfo]:
+    def list_snapshots(self, vm_name: str, resource_group: str) -> list[SnapshotInfo]:
         """List all snapshots for a VM.
 
         Args:
@@ -149,18 +147,9 @@ class SnapshotManager:
         try:
             logger.info(f"Listing snapshots for VM: {vm_name}")
 
-            cmd = [
-                'az', 'snapshot', 'list',
-                '--resource-group', resource_group,
-                '--output', 'json'
-            ]
+            cmd = ["az", "snapshot", "list", "--resource-group", resource_group, "--output", "json"]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
             if result.returncode != 0:
                 error_msg = result.stderr.strip()
@@ -172,18 +161,20 @@ class SnapshotManager:
             # Filter snapshots for this VM
             snapshots = []
             for snapshot_data in snapshots_data:
-                tags = snapshot_data.get('tags', {})
-                if tags.get('azlin-vm') == vm_name:
-                    snapshots.append(SnapshotInfo(
-                        name=snapshot_data['name'],
-                        vm_name=vm_name,
-                        resource_group=resource_group,
-                        disk_name=tags.get('azlin-disk', ''),
-                        size_gb=snapshot_data['diskSizeGb'],
-                        created_time=snapshot_data['timeCreated'],
-                        location=snapshot_data['location'],
-                        provisioning_state=snapshot_data['provisioningState']
-                    ))
+                tags = snapshot_data.get("tags", {})
+                if tags.get("azlin-vm") == vm_name:
+                    snapshots.append(
+                        SnapshotInfo(
+                            name=snapshot_data["name"],
+                            vm_name=vm_name,
+                            resource_group=resource_group,
+                            disk_name=tags.get("azlin-disk", ""),
+                            size_gb=snapshot_data["diskSizeGb"],
+                            created_time=snapshot_data["timeCreated"],
+                            location=snapshot_data["location"],
+                            provisioning_state=snapshot_data["provisioningState"],
+                        )
+                    )
 
             # Sort by creation time (newest first)
             snapshots.sort(key=lambda s: s.created_time, reverse=True)
@@ -197,11 +188,7 @@ class SnapshotManager:
             logger.error(f"Unexpected error listing snapshots: {e}")
             raise SnapshotManagerError(f"Failed to list snapshots: {e}")
 
-    def delete_snapshot(
-        self,
-        snapshot_name: str,
-        resource_group: str
-    ) -> None:
+    def delete_snapshot(self, snapshot_name: str, resource_group: str) -> None:
         """Delete a snapshot.
 
         Args:
@@ -215,18 +202,17 @@ class SnapshotManager:
             logger.info(f"Deleting snapshot: {snapshot_name}")
 
             cmd = [
-                'az', 'snapshot', 'delete',
-                '--resource-group', resource_group,
-                '--name', snapshot_name,
-                '--yes'
+                "az",
+                "snapshot",
+                "delete",
+                "--resource-group",
+                resource_group,
+                "--name",
+                snapshot_name,
+                "--yes",
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
             if result.returncode != 0:
                 error_msg = result.stderr.strip()
@@ -243,12 +229,7 @@ class SnapshotManager:
             logger.error(f"Unexpected error deleting snapshot: {e}")
             raise SnapshotManagerError(f"Failed to delete snapshot: {e}")
 
-    def restore_snapshot(
-        self,
-        vm_name: str,
-        snapshot_name: str,
-        resource_group: str
-    ) -> None:
+    def restore_snapshot(self, vm_name: str, snapshot_name: str, resource_group: str) -> None:
         """Restore a VM from a snapshot.
 
         This operation will:
@@ -270,56 +251,72 @@ class SnapshotManager:
             # Get snapshot details
             logger.info(f"Getting snapshot details: {snapshot_name}")
             snapshot_data = self._get_snapshot_details(snapshot_name, resource_group)
-            snapshot_id = snapshot_data['id']
+            snapshot_id = snapshot_data["id"]
 
             # Get VM details
             logger.info(f"Getting VM details: {vm_name}")
             vm_data = self._get_vm_details(vm_name, resource_group)
-            old_disk_name = vm_data['storageProfile']['osDisk']['name']
+            old_disk_name = vm_data["storageProfile"]["osDisk"]["name"]
 
             # Stop the VM
             logger.info(f"Deallocating VM: {vm_name}")
-            self._run_command([
-                'az', 'vm', 'deallocate',
-                '--resource-group', resource_group,
-                '--name', vm_name
-            ])
+            self._run_command(
+                ["az", "vm", "deallocate", "--resource-group", resource_group, "--name", vm_name]
+            )
 
             # Delete the old disk
             logger.info(f"Deleting old disk: {old_disk_name}")
-            self._run_command([
-                'az', 'disk', 'delete',
-                '--resource-group', resource_group,
-                '--name', old_disk_name,
-                '--yes'
-            ])
+            self._run_command(
+                [
+                    "az",
+                    "disk",
+                    "delete",
+                    "--resource-group",
+                    resource_group,
+                    "--name",
+                    old_disk_name,
+                    "--yes",
+                ]
+            )
 
             # Create new disk from snapshot
             new_disk_name = old_disk_name
             logger.info(f"Creating new disk from snapshot: {new_disk_name}")
-            self._run_command([
-                'az', 'disk', 'create',
-                '--resource-group', resource_group,
-                '--name', new_disk_name,
-                '--source', snapshot_id
-            ])
+            self._run_command(
+                [
+                    "az",
+                    "disk",
+                    "create",
+                    "--resource-group",
+                    resource_group,
+                    "--name",
+                    new_disk_name,
+                    "--source",
+                    snapshot_id,
+                ]
+            )
 
             # Update VM to use new disk
             logger.info(f"Updating VM with new disk: {vm_name}")
-            self._run_command([
-                'az', 'vm', 'update',
-                '--resource-group', resource_group,
-                '--name', vm_name,
-                '--os-disk', new_disk_name
-            ])
+            self._run_command(
+                [
+                    "az",
+                    "vm",
+                    "update",
+                    "--resource-group",
+                    resource_group,
+                    "--name",
+                    vm_name,
+                    "--os-disk",
+                    new_disk_name,
+                ]
+            )
 
             # Start the VM
             logger.info(f"Starting VM: {vm_name}")
-            self._run_command([
-                'az', 'vm', 'start',
-                '--resource-group', resource_group,
-                '--name', vm_name
-            ])
+            self._run_command(
+                ["az", "vm", "start", "--resource-group", resource_group, "--name", vm_name]
+            )
 
             logger.info(f"Successfully restored VM '{vm_name}' from snapshot '{snapshot_name}'")
 
@@ -329,11 +326,7 @@ class SnapshotManager:
             logger.error(f"Unexpected error restoring snapshot: {e}")
             raise SnapshotManagerError(f"Failed to restore snapshot: {e}")
 
-    def get_snapshot_cost_estimate(
-        self,
-        size_gb: int,
-        days: int = 30
-    ) -> float:
+    def get_snapshot_cost_estimate(self, size_gb: int, days: int = 30) -> float:
         """Estimate the cost of storing a snapshot.
 
         Args:
@@ -374,23 +367,25 @@ class SnapshotManager:
             SnapshotManagerError: If VM not found or query fails
         """
         cmd = [
-            'az', 'vm', 'show',
-            '--resource-group', resource_group,
-            '--name', vm_name,
-            '--output', 'json'
+            "az",
+            "vm",
+            "show",
+            "--resource-group",
+            resource_group,
+            "--name",
+            vm_name,
+            "--output",
+            "json",
         ]
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
         if result.returncode != 0:
             error_msg = result.stderr.strip()
             if "ResourceNotFound" in error_msg or "NotFound" in error_msg:
-                raise SnapshotManagerError(f"VM '{vm_name}' not found in resource group '{resource_group}'")
+                raise SnapshotManagerError(
+                    f"VM '{vm_name}' not found in resource group '{resource_group}'"
+                )
             raise SnapshotManagerError(f"Failed to get VM details: {error_msg}")
 
         return json.loads(result.stdout)
@@ -409,23 +404,25 @@ class SnapshotManager:
             SnapshotManagerError: If snapshot not found or query fails
         """
         cmd = [
-            'az', 'snapshot', 'show',
-            '--resource-group', resource_group,
-            '--name', snapshot_name,
-            '--output', 'json'
+            "az",
+            "snapshot",
+            "show",
+            "--resource-group",
+            resource_group,
+            "--name",
+            snapshot_name,
+            "--output",
+            "json",
         ]
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
         if result.returncode != 0:
             error_msg = result.stderr.strip()
             if "ResourceNotFound" in error_msg or "NotFound" in error_msg:
-                raise SnapshotManagerError(f"Snapshot '{snapshot_name}' not found in resource group '{resource_group}'")
+                raise SnapshotManagerError(
+                    f"Snapshot '{snapshot_name}' not found in resource group '{resource_group}'"
+                )
             raise SnapshotManagerError(f"Failed to get snapshot details: {error_msg}")
 
         return json.loads(result.stdout)
@@ -439,12 +436,7 @@ class SnapshotManager:
         Raises:
             SnapshotManagerError: If command fails
         """
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
         if result.returncode != 0:
             error_msg = result.stderr.strip()

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class ProgressStage(Enum):
     """Progress stage indicators."""
+
     STARTED = "started"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -31,6 +32,7 @@ class ProgressStage(Enum):
 @dataclass
 class ProgressUpdate:
     """Progress update information."""
+
     stage: ProgressStage
     message: str
     timestamp: float
@@ -118,7 +120,7 @@ class ProgressDisplay:
             stage=stage,
             message=message,
             timestamp=time.time(),
-            operation=self.current_operation or "unknown"
+            operation=self.current_operation or "unknown",
         )
         self.updates.append(update)
 

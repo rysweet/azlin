@@ -5,8 +5,8 @@ This module provides helper functions and classes for
 common test operations and assertions.
 """
 
-from typing import List, Dict, Any, Optional
 from pathlib import Path
+from typing import Any, Optional
 from unittest.mock import Mock
 
 
@@ -19,10 +19,7 @@ class AzureResponseBuilder:
 
     @staticmethod
     def create_vm_response(
-        name: str,
-        location: str,
-        vm_size: str,
-        state: str = 'Succeeded'
+        name: str, location: str, vm_size: str, state: str = "Succeeded"
     ) -> Mock:
         """Create a mock VM response.
 
@@ -36,28 +33,23 @@ class AzureResponseBuilder:
             Mock object representing Azure VM
         """
         return Mock(
-            id=f'/subscriptions/sub-id/resourceGroups/azlin-rg/providers/Microsoft.Compute/virtualMachines/{name}',
+            id=f"/subscriptions/sub-id/resourceGroups/azlin-rg/providers/Microsoft.Compute/virtualMachines/{name}",
             name=name,
             location=location,
             hardware_profile=Mock(vm_size=vm_size),
             provisioning_state=state,
-            os_profile=Mock(
-                computer_name=name,
-                admin_username='azureuser'
-            ),
+            os_profile=Mock(computer_name=name, admin_username="azureuser"),
             network_profile=Mock(
                 network_interfaces=[
-                    Mock(id=f'/subscriptions/sub-id/resourceGroups/azlin-rg/providers/Microsoft.Network/networkInterfaces/{name}-nic')
+                    Mock(
+                        id=f"/subscriptions/sub-id/resourceGroups/azlin-rg/providers/Microsoft.Network/networkInterfaces/{name}-nic"
+                    )
                 ]
-            )
+            ),
         )
 
     @staticmethod
-    def create_public_ip_response(
-        name: str,
-        ip_address: str,
-        location: str = 'eastus'
-    ) -> Mock:
+    def create_public_ip_response(name: str, ip_address: str, location: str = "eastus") -> Mock:
         """Create a mock public IP response.
 
         Args:
@@ -69,11 +61,11 @@ class AzureResponseBuilder:
             Mock object representing Azure Public IP
         """
         return Mock(
-            id=f'/subscriptions/sub-id/resourceGroups/azlin-rg/providers/Microsoft.Network/publicIPAddresses/{name}',
+            id=f"/subscriptions/sub-id/resourceGroups/azlin-rg/providers/Microsoft.Network/publicIPAddresses/{name}",
             name=name,
             location=location,
             ip_address=ip_address,
-            provisioning_state='Succeeded'
+            provisioning_state="Succeeded",
         )
 
     @staticmethod
@@ -100,9 +92,9 @@ class SubprocessCapture:
     """
 
     def __init__(self):
-        self.calls: List[List[str]] = []
+        self.calls: list[list[str]] = []
 
-    def capture(self, cmd: List[str], **kwargs) -> Mock:
+    def capture(self, cmd: list[str], **kwargs) -> Mock:
         """Capture a subprocess call.
 
         Args:
@@ -113,7 +105,7 @@ class SubprocessCapture:
             Mock result object
         """
         self.calls.append(cmd)
-        return Mock(returncode=0, stdout='', stderr='')
+        return Mock(returncode=0, stdout="", stderr="")
 
     def assert_called_with_command(self, command: str):
         """Assert that a command was called.
@@ -125,15 +117,13 @@ class SubprocessCapture:
             AssertionError: If command not found
         """
         for call in self.calls:
-            if command in ' '.join(call):
+            if command in " ".join(call):
                 return
-        raise AssertionError(
-            f"Expected command '{command}' not found in {self.calls}"
-        )
+        raise AssertionError(f"Expected command '{command}' not found in {self.calls}")
 
-    def get_all_calls_as_strings(self) -> List[str]:
+    def get_all_calls_as_strings(self) -> list[str]:
         """Get all calls as command strings."""
-        return [' '.join(call) for call in self.calls]
+        return [" ".join(call) for call in self.calls]
 
 
 class ConfigBuilder:
@@ -143,58 +133,49 @@ class ConfigBuilder:
     """
 
     def __init__(self):
-        self.config: Dict[str, Any] = {
-            'vm': {},
-            'tools': [],
-            'ssh': {},
-            'github': {},
-            'notifications': {}
+        self.config: dict[str, Any] = {
+            "vm": {},
+            "tools": [],
+            "ssh": {},
+            "github": {},
+            "notifications": {},
         }
 
     def with_vm(
-        self,
-        size: str = 'Standard_D2s_v3',
-        region: str = 'eastus',
-        name: Optional[str] = None
-    ) -> 'ConfigBuilder':
+        self, size: str = "Standard_D2s_v3", region: str = "eastus", name: Optional[str] = None
+    ) -> "ConfigBuilder":
         """Configure VM settings."""
-        self.config['vm']['size'] = size
-        self.config['vm']['region'] = region
+        self.config["vm"]["size"] = size
+        self.config["vm"]["region"] = region
         if name:
-            self.config['vm']['name'] = name
+            self.config["vm"]["name"] = name
         return self
 
-    def with_tools(self, tools: List[str]) -> 'ConfigBuilder':
+    def with_tools(self, tools: list[str]) -> "ConfigBuilder":
         """Configure tools to install."""
-        self.config['tools'] = tools
+        self.config["tools"] = tools
         return self
 
     def with_ssh(
-        self,
-        auto_connect: bool = True,
-        key_path: str = '~/.ssh/azlin_rsa'
-    ) -> 'ConfigBuilder':
+        self, auto_connect: bool = True, key_path: str = "~/.ssh/azlin_rsa"
+    ) -> "ConfigBuilder":
         """Configure SSH settings."""
-        self.config['ssh']['auto_connect'] = auto_connect
-        self.config['ssh']['key_path'] = key_path
+        self.config["ssh"]["auto_connect"] = auto_connect
+        self.config["ssh"]["key_path"] = key_path
         return self
 
-    def with_github(
-        self,
-        auto_clone: bool = True,
-        setup_auth: bool = True
-    ) -> 'ConfigBuilder':
+    def with_github(self, auto_clone: bool = True, setup_auth: bool = True) -> "ConfigBuilder":
         """Configure GitHub settings."""
-        self.config['github']['auto_clone'] = auto_clone
-        self.config['github']['setup_gh_auth'] = setup_auth
+        self.config["github"]["auto_clone"] = auto_clone
+        self.config["github"]["setup_gh_auth"] = setup_auth
         return self
 
-    def with_notifications(self, enabled: bool = True) -> 'ConfigBuilder':
+    def with_notifications(self, enabled: bool = True) -> "ConfigBuilder":
         """Configure notifications."""
-        self.config['notifications']['imessr_enabled'] = enabled
+        self.config["notifications"]["imessr_enabled"] = enabled
         return self
 
-    def build(self) -> Dict[str, Any]:
+    def build(self) -> dict[str, Any]:
         """Build and return the configuration."""
         return self.config
 
@@ -214,7 +195,7 @@ class FileSystemHelper:
         path.write_text(content)
 
     @staticmethod
-    def create_ssh_key_pair(key_path: Path, key_type: str = 'rsa'):
+    def create_ssh_key_pair(key_path: Path, key_type: str = "rsa"):
         """Create fake SSH key pair files.
 
         Args:
@@ -223,13 +204,13 @@ class FileSystemHelper:
         """
         key_path.parent.mkdir(parents=True, exist_ok=True)
 
-        private_key = '-----BEGIN OPENSSH PRIVATE KEY-----\nfake-private-key\n-----END OPENSSH PRIVATE KEY-----'
-        public_key = f'ssh-{key_type} AAAAB3NzaC1...fake-public-key azureuser@azlin'
+        private_key = "-----BEGIN OPENSSH PRIVATE KEY-----\nfake-private-key\n-----END OPENSSH PRIVATE KEY-----"
+        public_key = f"ssh-{key_type} AAAAB3NzaC1...fake-public-key azureuser@azlin"
 
         key_path.write_text(private_key)
         key_path.chmod(0o600)
 
-        public_key_path = key_path.with_suffix('.pub')
+        public_key_path = key_path.with_suffix(".pub")
         public_key_path.write_text(public_key)
 
     @staticmethod
@@ -263,9 +244,7 @@ class FileSystemHelper:
 
         content = path.read_text()
         if text not in content:
-            raise AssertionError(
-                f"Expected text '{text}' not found in {path}\nContent:\n{content}"
-            )
+            raise AssertionError(f"Expected text '{text}' not found in {path}\nContent:\n{content}")
 
 
 class TestDataFactory:
@@ -275,42 +254,32 @@ class TestDataFactory:
     """
 
     @staticmethod
-    def create_standard_tools() -> List[str]:
+    def create_standard_tools() -> list[str]:
         """Create standard list of 9 development tools."""
-        return [
-            'git',
-            'gh',
-            'python3',
-            'node',
-            'docker',
-            'tmux',
-            'vim',
-            'zsh',
-            'fzf'
-        ]
+        return ["git", "gh", "python3", "node", "docker", "tmux", "vim", "zsh", "fzf"]
 
     @staticmethod
-    def create_vm_sizes() -> Dict[str, Dict[str, Any]]:
+    def create_vm_sizes() -> dict[str, dict[str, Any]]:
         """Create map of VM sizes and their specifications."""
         return {
-            'Standard_D2s_v3': {'vcpus': 2, 'memory_gb': 8},
-            'Standard_D4s_v3': {'vcpus': 4, 'memory_gb': 16},
-            'Standard_D8s_v3': {'vcpus': 8, 'memory_gb': 32},
-            'Standard_B2s': {'vcpus': 2, 'memory_gb': 4},
+            "Standard_D2s_v3": {"vcpus": 2, "memory_gb": 8},
+            "Standard_D4s_v3": {"vcpus": 4, "memory_gb": 16},
+            "Standard_D8s_v3": {"vcpus": 8, "memory_gb": 32},
+            "Standard_B2s": {"vcpus": 2, "memory_gb": 4},
         }
 
     @staticmethod
-    def create_azure_regions() -> List[str]:
+    def create_azure_regions() -> list[str]:
         """Create list of valid Azure regions."""
         return [
-            'eastus',
-            'eastus2',
-            'westus',
-            'westus2',
-            'centralus',
-            'northcentralus',
-            'southcentralus',
-            'westcentralus'
+            "eastus",
+            "eastus2",
+            "westus",
+            "westus2",
+            "centralus",
+            "northcentralus",
+            "southcentralus",
+            "westcentralus",
         ]
 
 
@@ -318,10 +287,9 @@ class TestDataFactory:
 # ASSERTION HELPERS
 # ============================================================================
 
+
 def assert_command_executed(
-    subprocess_calls: List[List[str]],
-    command: str,
-    message: Optional[str] = None
+    subprocess_calls: list[list[str]], command: str, message: Optional[str] = None
 ):
     """Assert that a command was executed.
 
@@ -334,19 +302,15 @@ def assert_command_executed(
         AssertionError: If command not found
     """
     for call in subprocess_calls:
-        if command in ' '.join(call):
+        if command in " ".join(call):
             return
 
     msg = message or f"Expected command '{command}' was not executed"
-    calls_str = '\n'.join([' '.join(call) for call in subprocess_calls])
+    calls_str = "\n".join([" ".join(call) for call in subprocess_calls])
     raise AssertionError(f"{msg}\n\nActual calls:\n{calls_str}")
 
 
-def assert_azure_resource_created(
-    resource_client: Mock,
-    resource_type: str,
-    resource_name: str
-):
+def assert_azure_resource_created(resource_client: Mock, resource_type: str, resource_name: str):
     """Assert that an Azure resource was created.
 
     Args:
@@ -357,29 +321,25 @@ def assert_azure_resource_created(
     Raises:
         AssertionError: If resource was not created
     """
-    if resource_type == 'vm':
+    if resource_type == "vm":
         client = resource_client.virtual_machines
-        method = 'begin_create_or_update'
-    elif resource_type == 'public_ip':
+        method = "begin_create_or_update"
+    elif resource_type == "public_ip":
         client = resource_client.public_ip_addresses
-        method = 'begin_create_or_update'
-    elif resource_type == 'network_interface':
+        method = "begin_create_or_update"
+    elif resource_type == "network_interface":
         client = resource_client.network_interfaces
-        method = 'begin_create_or_update'
+        method = "begin_create_or_update"
     else:
         raise ValueError(f"Unknown resource type: {resource_type}")
 
     create_method = getattr(client, method)
     if not create_method.called:
-        raise AssertionError(
-            f"Azure {resource_type} '{resource_name}' was not created"
-        )
+        raise AssertionError(f"Azure {resource_type} '{resource_name}' was not created")
 
 
 def assert_ssh_config_entry_exists(
-    ssh_config_path: Path,
-    host: str,
-    hostname: Optional[str] = None
+    ssh_config_path: Path, host: str, hostname: Optional[str] = None
 ):
     """Assert that SSH config contains an entry for a host.
 

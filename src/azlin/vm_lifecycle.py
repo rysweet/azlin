@@ -15,25 +15,27 @@ Security:
 import json
 import logging
 import subprocess
-from typing import List, Optional, Dict, Any, Tuple
-from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class VMLifecycleError(Exception):
     """Raised when VM lifecycle operations fail."""
+
     pass
 
 
 @dataclass
 class DeletionResult:
     """Result from VM deletion operation."""
+
     vm_name: str
     success: bool
     message: str
-    resources_deleted: List[str] = None
+    resources_deleted: list[str] = None
 
     def __post_init__(self):
         if self.resources_deleted is None:
@@ -43,17 +45,18 @@ class DeletionResult:
 @dataclass
 class DeletionSummary:
     """Summary of batch deletion operations."""
+
     total: int
     succeeded: int
     failed: int
-    results: List[DeletionResult]
+    results: list[DeletionResult]
 
     @property
     def all_succeeded(self) -> bool:
         """Check if all deletions succeeded."""
         return self.failed == 0
 
-    def get_failed_vms(self) -> List[str]:
+    def get_failed_vms(self) -> list[str]:
         """Get list of VMs that failed to delete."""
         return [r.vm_name for r in self.results if not r.success]
 
@@ -69,11 +72,7 @@ class VMLifecycleManager:
 
     @classmethod
     def delete_vm(
-        cls,
-        vm_name: str,
-        resource_group: str,
-        force: bool = False,
-        no_wait: bool = False
+        cls, vm_name: str, resource_group: str, force: bool = False, no_wait: bool = False
     ) -> DeletionResult:
         """Delete VM and all associated resources.
 
@@ -96,18 +95,12 @@ class VMLifecycleManager:
             vm_info = cls._get_vm_details(vm_name, resource_group)
 
             if not vm_info:
-                return DeletionResult(
-                    vm_name=vm_name,
-                    success=False,
-                    message="VM not found"
-                )
+                return DeletionResult(vm_name=vm_name, success=False, message="VM not found")
 
             # Collect resource IDs to delete
             resources_to_delete = cls._collect_vm_resources(vm_info)
 
-            logger.debug(
-                f"Found {len(resources_to_delete)} resources to delete for {vm_name}"
-            )
+            logger.debug(f"Found {len(resources_to_delete)} resources to delete for {vm_name}")
 
             # Delete VM (this also deletes attached disks if configured)
             deleted_resources = []
@@ -118,9 +111,7 @@ class VMLifecycleManager:
                 deleted_resources.append(f"VM: {vm_name}")
             except Exception as e:
                 return DeletionResult(
-                    vm_name=vm_name,
-                    success=False,
-                    message=f"Failed to delete VM: {e}"
+                    vm_name=vm_name, success=False, message=f"Failed to delete VM: {e}"
                 )
 
             # Delete associated resources (NICs, Public IPs)
@@ -149,16 +140,12 @@ class VMLifecycleManager:
                 vm_name=vm_name,
                 success=True,
                 message=f"Deleted {len(deleted_resources)} resources",
-                resources_deleted=deleted_resources
+                resources_deleted=deleted_resources,
             )
 
         except Exception as e:
             logger.error(f"Unexpected error deleting VM {vm_name}: {e}")
-            return DeletionResult(
-                vm_name=vm_name,
-                success=False,
-                message=f"Unexpected error: {e}"
-            )
+            return DeletionResult(vm_name=vm_name, success=False, message=f"Unexpected error: {e}")
 
     @classmethod
     def delete_all_vms(
@@ -166,7 +153,7 @@ class VMLifecycleManager:
         resource_group: str,
         force: bool = False,
         vm_prefix: Optional[str] = None,
-        max_workers: int = 5
+        max_workers: int = 5,
     ) -> DeletionSummary:
         """Delete all VMs in resource group.
 
@@ -187,24 +174,14 @@ class VMLifecycleManager:
             vms = cls._list_vms_in_group(resource_group)
 
             if not vms:
-                return DeletionSummary(
-                    total=0,
-                    succeeded=0,
-                    failed=0,
-                    results=[]
-                )
+                return DeletionSummary(total=0, succeeded=0, failed=0, results=[])
 
             # Filter by prefix if specified
             if vm_prefix:
                 vms = [vm for vm in vms if vm.startswith(vm_prefix)]
 
             if not vms:
-                return DeletionSummary(
-                    total=0,
-                    succeeded=0,
-                    failed=0,
-                    results=[]
-                )
+                return DeletionSummary(total=0, succeeded=0, failed=0, results=[])
 
             logger.info(f"Deleting {len(vms)} VMs in parallel with {max_workers} workers")
 
@@ -220,7 +197,7 @@ class VMLifecycleManager:
                         vm_name,
                         resource_group,
                         force=True,  # Don't prompt in parallel execution
-                        no_wait=False
+                        no_wait=False,
                     ): vm_name
                     for vm_name in vms
                 }
@@ -233,32 +210,25 @@ class VMLifecycleManager:
                         results.append(result)
                     except Exception as e:
                         logger.error(f"Failed to delete {vm_name}: {e}")
-                        results.append(DeletionResult(
-                            vm_name=vm_name,
-                            success=False,
-                            message=f"Exception: {e}"
-                        ))
+                        results.append(
+                            DeletionResult(
+                                vm_name=vm_name, success=False, message=f"Exception: {e}"
+                            )
+                        )
 
             # Calculate summary
             succeeded = sum(1 for r in results if r.success)
             failed = sum(1 for r in results if not r.success)
 
             return DeletionSummary(
-                total=len(results),
-                succeeded=succeeded,
-                failed=failed,
-                results=results
+                total=len(results), succeeded=succeeded, failed=failed, results=results
             )
 
         except Exception as e:
             raise VMLifecycleError(f"Failed to delete VMs: {e}")
 
     @classmethod
-    def _get_vm_details(
-        cls,
-        vm_name: str,
-        resource_group: str
-    ) -> Optional[Dict[str, Any]]:
+    def _get_vm_details(cls, vm_name: str, resource_group: str) -> Optional[dict[str, Any]]:
         """Get VM details including network interfaces.
 
         Args:
@@ -270,19 +240,18 @@ class VMLifecycleManager:
         """
         try:
             cmd = [
-                'az', 'vm', 'show',
-                '--name', vm_name,
-                '--resource-group', resource_group,
-                '--output', 'json'
+                "az",
+                "vm",
+                "show",
+                "--name",
+                vm_name,
+                "--resource-group",
+                resource_group,
+                "--output",
+                "json",
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
 
             return json.loads(result.stdout)
 
@@ -296,7 +265,7 @@ class VMLifecycleManager:
             raise VMLifecycleError("Failed to parse VM details")
 
     @classmethod
-    def _list_vms_in_group(cls, resource_group: str) -> List[str]:
+    def _list_vms_in_group(cls, resource_group: str) -> list[str]:
         """List VM names in resource group.
 
         Args:
@@ -307,19 +276,18 @@ class VMLifecycleManager:
         """
         try:
             cmd = [
-                'az', 'vm', 'list',
-                '--resource-group', resource_group,
-                '--query', '[].name',
-                '--output', 'json'
+                "az",
+                "vm",
+                "list",
+                "--resource-group",
+                resource_group,
+                "--query",
+                "[].name",
+                "--output",
+                "json",
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
 
             return json.loads(result.stdout)
 
@@ -333,10 +301,7 @@ class VMLifecycleManager:
             raise VMLifecycleError("Failed to parse VM list")
 
     @classmethod
-    def _collect_vm_resources(
-        cls,
-        vm_info: Dict[str, Any]
-    ) -> List[Tuple[str, str]]:
+    def _collect_vm_resources(cls, vm_info: dict[str, Any]) -> list[tuple[str, str]]:
         """Collect associated resource names from VM info.
 
         Args:
@@ -348,49 +313,44 @@ class VMLifecycleManager:
         resources = []
 
         # Extract NIC names
-        network_profile = vm_info.get('networkProfile', {})
-        network_interfaces = network_profile.get('networkInterfaces', [])
+        network_profile = vm_info.get("networkProfile", {})
+        network_interfaces = network_profile.get("networkInterfaces", [])
 
         for nic in network_interfaces:
-            nic_id = nic.get('id', '')
+            nic_id = nic.get("id", "")
             # Extract NIC name from ID: /subscriptions/.../resourceGroups/.../providers/Microsoft.Network/networkInterfaces/NAME
             if nic_id:
-                nic_name = nic_id.split('/')[-1]
-                resources.append(('nic', nic_name))
+                nic_name = nic_id.split("/")[-1]
+                resources.append(("nic", nic_name))
 
                 # Get public IP from NIC
                 try:
                     public_ip_name = cls._get_public_ip_from_nic(
-                        nic_name,
-                        vm_info.get('resourceGroup', '')
+                        nic_name, vm_info.get("resourceGroup", "")
                     )
                     if public_ip_name:
-                        resources.append(('public-ip', public_ip_name))
+                        resources.append(("public-ip", public_ip_name))
                 except Exception as e:
                     logger.debug(f"Failed to get public IP for NIC {nic_name}: {e}")
 
         # Extract disk names
-        storage_profile = vm_info.get('storageProfile', {})
+        storage_profile = vm_info.get("storageProfile", {})
 
         # OS Disk
-        os_disk = storage_profile.get('osDisk', {})
-        if os_disk and os_disk.get('name'):
-            resources.append(('disk', os_disk['name']))
+        os_disk = storage_profile.get("osDisk", {})
+        if os_disk and os_disk.get("name"):
+            resources.append(("disk", os_disk["name"]))
 
         # Data disks
-        data_disks = storage_profile.get('dataDisks', [])
+        data_disks = storage_profile.get("dataDisks", [])
         for disk in data_disks:
-            if disk.get('name'):
-                resources.append(('disk', disk['name']))
+            if disk.get("name"):
+                resources.append(("disk", disk["name"]))
 
         return resources
 
     @classmethod
-    def _get_public_ip_from_nic(
-        cls,
-        nic_name: str,
-        resource_group: str
-    ) -> Optional[str]:
+    def _get_public_ip_from_nic(cls, nic_name: str, resource_group: str) -> Optional[str]:
         """Get public IP name associated with NIC.
 
         Args:
@@ -402,25 +362,26 @@ class VMLifecycleManager:
         """
         try:
             cmd = [
-                'az', 'network', 'nic', 'show',
-                '--name', nic_name,
-                '--resource-group', resource_group,
-                '--query', 'ipConfigurations[0].publicIpAddress.id',
-                '--output', 'tsv'
+                "az",
+                "network",
+                "nic",
+                "show",
+                "--name",
+                nic_name,
+                "--resource-group",
+                resource_group,
+                "--query",
+                "ipConfigurations[0].publicIpAddress.id",
+                "--output",
+                "tsv",
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=True)
 
             public_ip_id = result.stdout.strip()
-            if public_ip_id and public_ip_id != 'None':
+            if public_ip_id and public_ip_id != "None":
                 # Extract name from ID
-                return public_ip_id.split('/')[-1]
+                return public_ip_id.split("/")[-1]
 
             return None
 
@@ -428,12 +389,7 @@ class VMLifecycleManager:
             return None
 
     @classmethod
-    def _delete_vm_resource(
-        cls,
-        vm_name: str,
-        resource_group: str,
-        no_wait: bool = False
-    ) -> None:
+    def _delete_vm_resource(cls, vm_name: str, resource_group: str, no_wait: bool = False) -> None:
         """Delete VM resource using Azure CLI.
 
         Args:
@@ -441,22 +397,13 @@ class VMLifecycleManager:
             resource_group: Resource group name
             no_wait: Don't wait for deletion to complete
         """
-        cmd = [
-            'az', 'vm', 'delete',
-            '--name', vm_name,
-            '--resource-group', resource_group,
-            '--yes'
-        ]
+        cmd = ["az", "vm", "delete", "--name", vm_name, "--resource-group", resource_group, "--yes"]
 
         if no_wait:
-            cmd.append('--no-wait')
+            cmd.append("--no-wait")
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300 if not no_wait else 30,
-            check=True
+            cmd, capture_output=True, text=True, timeout=300 if not no_wait else 30, check=True
         )
 
         logger.debug(f"Deleted VM: {vm_name}")
@@ -470,18 +417,17 @@ class VMLifecycleManager:
             resource_group: Resource group name
         """
         cmd = [
-            'az', 'network', 'nic', 'delete',
-            '--name', nic_name,
-            '--resource-group', resource_group
+            "az",
+            "network",
+            "nic",
+            "delete",
+            "--name",
+            nic_name,
+            "--resource-group",
+            resource_group,
         ]
 
-        subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=True
-        )
+        subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True)
 
         logger.debug(f"Deleted NIC: {nic_name}")
 
@@ -494,18 +440,17 @@ class VMLifecycleManager:
             resource_group: Resource group name
         """
         cmd = [
-            'az', 'network', 'public-ip', 'delete',
-            '--name', ip_name,
-            '--resource-group', resource_group
+            "az",
+            "network",
+            "public-ip",
+            "delete",
+            "--name",
+            ip_name,
+            "--resource-group",
+            resource_group,
         ]
 
-        subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=True
-        )
+        subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True)
 
         logger.debug(f"Deleted Public IP: {ip_name}")
 
@@ -518,26 +463,19 @@ class VMLifecycleManager:
             resource_group: Resource group name
         """
         cmd = [
-            'az', 'disk', 'delete',
-            '--name', disk_name,
-            '--resource-group', resource_group,
-            '--yes'
+            "az",
+            "disk",
+            "delete",
+            "--name",
+            disk_name,
+            "--resource-group",
+            resource_group,
+            "--yes",
         ]
 
-        subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=True
-        )
+        subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True)
 
         logger.debug(f"Deleted Disk: {disk_name}")
 
 
-__all__ = [
-    'VMLifecycleManager',
-    'VMLifecycleError',
-    'DeletionResult',
-    'DeletionSummary'
-]
+__all__ = ["VMLifecycleManager", "VMLifecycleError", "DeletionResult", "DeletionSummary"]

@@ -14,21 +14,24 @@ import json
 import logging
 import subprocess
 import threading
-from dataclasses import dataclass
-from typing import Optional, Callable, List, Dict, Set
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class ProvisioningError(Exception):
     """Raised when VM provisioning fails."""
+
     pass
 
 
 @dataclass
 class VMConfig:
     """VM configuration parameters."""
+
     name: str
     resource_group: str
     location: str = "westus2"  # Better capacity than eastus
@@ -42,6 +45,7 @@ class VMConfig:
 @dataclass
 class VMDetails:
     """VM provisioning result details."""
+
     name: str
     resource_group: str
     location: str
@@ -55,6 +59,7 @@ class VMDetails:
 @dataclass
 class ProvisioningFailure:
     """Details of a failed VM provisioning."""
+
     config: VMConfig
     error: str
     error_type: str  # 'sku_unavailable', 'timeout', 'auth', 'unknown'
@@ -63,6 +68,7 @@ class ProvisioningFailure:
 @dataclass
 class ResourceGroupFailure:
     """Details of a failed RG creation."""
+
     rg_name: str
     location: str
     error: str
@@ -81,10 +87,11 @@ class PoolProvisioningResult:
         failed: List of failures with error details
         rg_failures: Resource group creation failures
     """
+
     total_requested: int
-    successful: List[VMDetails]
-    failed: List[ProvisioningFailure]
-    rg_failures: List[ResourceGroupFailure]
+    successful: list[VMDetails]
+    failed: list[ProvisioningFailure]
+    rg_failures: list[ResourceGroupFailure]
 
     @property
     def success_count(self) -> int:
@@ -153,15 +160,12 @@ class ResourceGroupManager:
 
     def __init__(self):
         """Initialize RG manager."""
-        self._rg_locks: Dict[str, threading.Lock] = {}
+        self._rg_locks: dict[str, threading.Lock] = {}
         self._manager_lock = threading.Lock()
-        self._created_rgs: Set[str] = set()
+        self._created_rgs: set[str] = set()
 
     def ensure_resource_group(
-        self,
-        rg_name: str,
-        location: str,
-        provisioner: 'VMProvisioner'
+        self, rg_name: str, location: str, provisioner: "VMProvisioner"
     ) -> bool:
         """Ensure resource group exists (thread-safe).
 
@@ -216,7 +220,7 @@ class VMProvisioner:
     3. GitHub CLI
     4. Git
     5. Node.js & npm
-    6. Python 3.x
+    6. Python 3.12+ (from deadsnakes PPA)
     7. Rust
     8. Golang
     9. .NET 10 RC
@@ -229,39 +233,79 @@ class VMProvisioner:
     # Valid VM sizes whitelist (2025 current-gen SKUs)
     VALID_VM_SIZES = {
         # B-series v1 (legacy but still available)
-        'Standard_B1s', 'Standard_B1ms', 'Standard_B2s', 'Standard_B2ms',
-        'Standard_B4ms', 'Standard_B8ms',
+        "Standard_B1s",
+        "Standard_B1ms",
+        "Standard_B2s",
+        "Standard_B2ms",
+        "Standard_B4ms",
+        "Standard_B8ms",
         # B-series v2 (current gen, Intel)
-        'Standard_B2s_v2', 'Standard_B2ms_v2', 'Standard_B4ms_v2',
+        "Standard_B2s_v2",
+        "Standard_B2ms_v2",
+        "Standard_B4ms_v2",
         # D-series v3 (older gen)
-        'Standard_D2s_v3', 'Standard_D4s_v3', 'Standard_D8s_v3',
+        "Standard_D2s_v3",
+        "Standard_D4s_v3",
+        "Standard_D8s_v3",
         # D-series v4 (previous gen)
-        'Standard_D2s_v4', 'Standard_D4s_v4', 'Standard_D8s_v4',
+        "Standard_D2s_v4",
+        "Standard_D4s_v4",
+        "Standard_D8s_v4",
         # D-series v5 (current gen, recommended)
-        'Standard_D2s_v5', 'Standard_D4s_v5', 'Standard_D8s_v5',
+        "Standard_D2s_v5",
+        "Standard_D4s_v5",
+        "Standard_D8s_v5",
         # E-series
-        'Standard_E2s_v3', 'Standard_E4s_v3',
-        'Standard_E2s_v4', 'Standard_E4s_v4',
-        'Standard_E2s_v5', 'Standard_E4s_v5',
+        "Standard_E2s_v3",
+        "Standard_E4s_v3",
+        "Standard_E2s_v4",
+        "Standard_E4s_v4",
+        "Standard_E2s_v5",
+        "Standard_E4s_v5",
         # F-series
-        'Standard_F2s_v2', 'Standard_F4s_v2',
+        "Standard_F2s_v2",
+        "Standard_F4s_v2",
     }
 
     # Valid Azure regions whitelist
     VALID_REGIONS = {
-        'eastus', 'eastus2', 'westus', 'westus2', 'westus3',
-        'centralus', 'northcentralus', 'southcentralus',
-        'northeurope', 'westeurope', 'uksouth', 'ukwest',
-        'francecentral', 'germanywestcentral', 'switzerlandnorth',
-        'norwayeast', 'swedencentral', 'japaneast', 'japanwest',
-        'eastasia', 'southeastasia', 'australiaeast', 'australiasoutheast',
-        'brazilsouth', 'canadacentral', 'canadaeast', 'southafricanorth',
-        'uaenorth', 'centralindia', 'southindia', 'westindia',
-        'koreacentral', 'koreasouth'
+        "eastus",
+        "eastus2",
+        "westus",
+        "westus2",
+        "westus3",
+        "centralus",
+        "northcentralus",
+        "southcentralus",
+        "northeurope",
+        "westeurope",
+        "uksouth",
+        "ukwest",
+        "francecentral",
+        "germanywestcentral",
+        "switzerlandnorth",
+        "norwayeast",
+        "swedencentral",
+        "japaneast",
+        "japanwest",
+        "eastasia",
+        "southeastasia",
+        "australiaeast",
+        "australiasoutheast",
+        "brazilsouth",
+        "canadacentral",
+        "canadaeast",
+        "southafricanorth",
+        "uaenorth",
+        "centralindia",
+        "southindia",
+        "westindia",
+        "koreacentral",
+        "koreasouth",
     }
 
     # Fallback regions to try if SKU unavailable (in order of preference)
-    FALLBACK_REGIONS = ['westus2', 'centralus', 'eastus2', 'westus', 'westeurope']
+    FALLBACK_REGIONS = ["westus2", "centralus", "eastus2", "westus", "westeurope"]
 
     def __init__(self, subscription_id: Optional[str] = None):
         """Initialize VM provisioner.
@@ -277,7 +321,7 @@ class VMProvisioner:
         resource_group: str,
         location: str = "eastus",
         size: str = "Standard_D2s_v3",
-        ssh_public_key: Optional[str] = None
+        ssh_public_key: Optional[str] = None,
     ) -> VMConfig:
         """Create VM configuration with validation.
 
@@ -313,7 +357,7 @@ class VMProvisioner:
             image="Ubuntu2204",
             ssh_public_key=ssh_public_key,
             admin_username="azureuser",
-            disable_password_auth=True
+            disable_password_auth=True,
         )
 
     def validate_vm_size(self, size: str) -> bool:
@@ -350,19 +394,16 @@ class VMProvisioner:
             True if error is SKU/capacity related
         """
         sku_error_indicators = [
-            'SkuNotAvailable',
-            'NotAvailableForSubscription',
-            'Capacity Restrictions',
-            'requested VM size',
-            'currently not available'
+            "SkuNotAvailable",
+            "NotAvailableForSubscription",
+            "Capacity Restrictions",
+            "requested VM size",
+            "currently not available",
         ]
-        return any(indicator.lower() in error_message.lower()
-                  for indicator in sku_error_indicators)
+        return any(indicator.lower() in error_message.lower() for indicator in sku_error_indicators)
 
     def _try_provision_vm(
-        self,
-        config: VMConfig,
-        progress_callback: Optional[Callable[[str], None]] = None
+        self, config: VMConfig, progress_callback: Optional[Callable[[str], None]] = None
     ) -> VMDetails:
         """Attempt to provision VM (internal method).
 
@@ -376,6 +417,7 @@ class VMProvisioner:
         Raises:
             ProvisioningError: If provisioning fails
         """
+
         def report_progress(msg: str):
             if progress_callback:
                 progress_callback(msg)
@@ -390,25 +432,30 @@ class VMProvisioner:
 
         # Build VM create command
         cmd = [
-            'az', 'vm', 'create',
-            '--name', config.name,
-            '--resource-group', config.resource_group,
-            '--location', config.location,
-            '--size', config.size,
-            '--image', config.image,
-            '--admin-username', config.admin_username,
-            '--authentication-type', 'ssh',
-            '--generate-ssh-keys' if not config.ssh_public_key else '--ssh-key-values',
+            "az",
+            "vm",
+            "create",
+            "--name",
+            config.name,
+            "--resource-group",
+            config.resource_group,
+            "--location",
+            config.location,
+            "--size",
+            config.size,
+            "--image",
+            config.image,
+            "--admin-username",
+            config.admin_username,
+            "--authentication-type",
+            "ssh",
+            "--generate-ssh-keys" if not config.ssh_public_key else "--ssh-key-values",
         ]
 
         if config.ssh_public_key:
             cmd.append(config.ssh_public_key)
 
-        cmd.extend([
-            '--custom-data', cloud_init,
-            '--public-ip-sku', 'Standard',
-            '--output', 'json'
-        ])
+        cmd.extend(["--custom-data", cloud_init, "--public-ip-sku", "Standard", "--output", "json"])
 
         # Provision VM
         report_progress(f"Provisioning VM: {config.name}")
@@ -419,7 +466,7 @@ class VMProvisioner:
             capture_output=True,
             text=True,
             timeout=600,  # 10 minutes
-            check=True
+            check=True,
         )
 
         vm_data = json.loads(result.stdout)
@@ -430,20 +477,16 @@ class VMProvisioner:
             resource_group=config.resource_group,
             location=config.location,
             size=config.size,
-            public_ip=vm_data.get('publicIpAddress'),
-            private_ip=vm_data.get('privateIpAddress'),
-            state='Running',
-            id=vm_data.get('id')
+            public_ip=vm_data.get("publicIpAddress"),
+            private_ip=vm_data.get("privateIpAddress"),
+            state="Running",
+            id=vm_data.get("id"),
         )
 
         report_progress(f"VM provisioned successfully: {vm_details.public_ip}")
         return vm_details
 
-    def create_resource_group(
-        self,
-        resource_group: str,
-        location: str
-    ) -> bool:
+    def create_resource_group(self, resource_group: str, location: str) -> bool:
         """Create Azure resource group if it doesn't exist.
 
         Args:
@@ -459,27 +502,34 @@ class VMProvisioner:
         try:
             # Check if exists first
             result = subprocess.run(
-                ['az', 'group', 'exists', '--name', resource_group],
+                ["az", "group", "exists", "--name", resource_group],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
-            if result.stdout.strip().lower() == 'true':
+            if result.stdout.strip().lower() == "true":
                 logger.info(f"Resource group {resource_group} already exists")
                 return True
 
             # Create resource group
             logger.info(f"Creating resource group: {resource_group}")
             subprocess.run(
-                ['az', 'group', 'create',
-                 '--name', resource_group,
-                 '--location', location,
-                 '--output', 'json'],
+                [
+                    "az",
+                    "group",
+                    "create",
+                    "--name",
+                    resource_group,
+                    "--location",
+                    location,
+                    "--output",
+                    "json",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=30,
-                check=True
+                check=True,
             )
             logger.info(f"Resource group {resource_group} created successfully")
             return True
@@ -504,11 +554,17 @@ packages:
   - curl
   - wget
   - build-essential
-  - python3
-  - python3-pip
-  - python3-venv
+  - software-properties-common
 
 runcmd:
+  # Python 3.12+ from deadsnakes PPA
+  - add-apt-repository -y ppa:deadsnakes/ppa
+  - apt update
+  - apt install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils
+  - update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
+  - update-alternatives --set python3 /usr/bin/python3.12
+  - curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
+
   # Azure CLI
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
 
@@ -549,7 +605,7 @@ runcmd:
     set -g status-left-length 40
     set -g status-left "#[fg=green]Session: #S #[fg=yellow]| "
     set -g status-right "#[fg=cyan]%Y-%m-%d %H:%M"
-    
+
     # Additional useful settings
     set -g status-interval 60
     set -g status-bg black
@@ -606,13 +662,11 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
             image=original.image,
             ssh_public_key=original.ssh_public_key,
             admin_username=original.admin_username,
-            disable_password_auth=original.disable_password_auth
+            disable_password_auth=original.disable_password_auth,
         )
 
     def provision_vm(
-        self,
-        config: VMConfig,
-        progress_callback: Optional[Callable[[str], None]] = None
+        self, config: VMConfig, progress_callback: Optional[Callable[[str], None]] = None
     ) -> VMDetails:
         """Provision Azure VM with development tools.
 
@@ -632,6 +686,7 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
         Raises:
             ProvisioningError: If provisioning fails in all regions
         """
+
         def report_progress(msg: str):
             if progress_callback:
                 progress_callback(msg)
@@ -689,9 +744,9 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
 
     def provision_vm_pool(
         self,
-        configs: List[VMConfig],
+        configs: list[VMConfig],
         progress_callback: Optional[Callable[[str], None]] = None,
-        max_workers: int = 10
+        max_workers: int = 10,
     ) -> PoolProvisioningResult:
         """Provision multiple VMs in parallel (thread-safe).
 
@@ -713,10 +768,7 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
         """
         if not configs:
             return PoolProvisioningResult(
-                total_requested=0,
-                successful=[],
-                failed=[],
-                rg_failures=[]
+                total_requested=0, successful=[], failed=[], rg_failures=[]
             )
 
         # Thread-safe progress reporter
@@ -735,11 +787,7 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                 rg_manager.ensure_resource_group(rg, location, self)
                 progress.report(f"Resource group ready: {rg}")
             except ProvisioningError as e:
-                error = ResourceGroupFailure(
-                    rg_name=rg,
-                    location=location,
-                    error=str(e)
-                )
+                error = ResourceGroupFailure(rg_name=rg, location=location, error=str(e))
                 rg_failures.append(error)
                 logger.error(f"Resource group creation failed: {rg} - {e}")
 
@@ -755,8 +803,7 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             # Submit all provisioning tasks (pass None for callback - we use thread-safe reporter)
             future_to_config = {
-                executor.submit(self.provision_vm, config, None): config
-                for config in configs
+                executor.submit(self.provision_vm, config, None): config for config in configs
             }
 
             # Collect results as they complete
@@ -771,28 +818,24 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                     failure = ProvisioningFailure(
                         config=config,
                         error="Provisioning timed out after 10 minutes",
-                        error_type='timeout'
+                        error_type="timeout",
                     )
                     failed.append(failure)
                     progress.report(f"✗ {config.name} failed: timeout")
 
                 except ProvisioningError as e:
                     error_msg = str(e)
-                    error_type = 'sku_unavailable' if 'not available' in error_msg.lower() else 'unknown'
+                    error_type = (
+                        "sku_unavailable" if "not available" in error_msg.lower() else "unknown"
+                    )
                     failure = ProvisioningFailure(
-                        config=config,
-                        error=error_msg,
-                        error_type=error_type
+                        config=config, error=error_msg, error_type=error_type
                     )
                     failed.append(failure)
                     progress.report(f"✗ {config.name} failed: {error_msg}")
 
                 except Exception as e:
-                    failure = ProvisioningFailure(
-                        config=config,
-                        error=str(e),
-                        error_type='unknown'
-                    )
+                    failure = ProvisioningFailure(config=config, error=str(e), error_type="unknown")
                     failed.append(failure)
                     progress.report(f"✗ {config.name} failed: {str(e)}")
 
@@ -801,7 +844,7 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
             total_requested=len(configs),
             successful=successful,
             failed=failed,
-            rg_failures=rg_failures
+            rg_failures=rg_failures,
         )
 
         progress.report(result.get_summary())
@@ -818,11 +861,11 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
 
 
 __all__ = [
-    'VMProvisioner',
-    'VMConfig',
-    'VMDetails',
-    'ProvisioningError',
-    'PoolProvisioningResult',
-    'ProvisioningFailure',
-    'ResourceGroupFailure'
+    "VMProvisioner",
+    "VMConfig",
+    "VMDetails",
+    "ProvisioningError",
+    "PoolProvisioningResult",
+    "ProvisioningFailure",
+    "ResourceGroupFailure",
 ]

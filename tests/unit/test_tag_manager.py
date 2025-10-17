@@ -1,8 +1,9 @@
 """Unit tests for tag_manager module."""
 
-import pytest
 import json
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, patch
+
+import pytest
 from azlin.tag_manager import TagManager, TagManagerError
 from azlin.vm_manager import VMInfo
 
@@ -10,13 +11,11 @@ from azlin.vm_manager import VMInfo
 class TestTagManager:
     """Tests for TagManager class."""
 
-    @patch('azlin.tag_manager.subprocess.run')
+    @patch("azlin.tag_manager.subprocess.run")
     def test_add_tags_single(self, mock_run):
         """Test adding a single tag to a VM."""
         mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout='{"tags": {"env": "dev"}}',
-            stderr=""
+            returncode=0, stdout='{"tags": {"env": "dev"}}', stderr=""
         )
 
         TagManager.add_tags("test-vm", "test-rg", {"env": "dev"})
@@ -24,22 +23,22 @@ class TestTagManager:
         # Verify the correct command was called
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert 'az' in cmd
-        assert 'vm' in cmd
-        assert 'update' in cmd
-        assert '--name' in cmd
-        assert 'test-vm' in cmd
-        assert '--resource-group' in cmd
-        assert 'test-rg' in cmd
-        assert '--set' in cmd
+        assert "az" in cmd
+        assert "vm" in cmd
+        assert "update" in cmd
+        assert "--name" in cmd
+        assert "test-vm" in cmd
+        assert "--resource-group" in cmd
+        assert "test-rg" in cmd
+        assert "--set" in cmd
 
-    @patch('azlin.tag_manager.subprocess.run')
+    @patch("azlin.tag_manager.subprocess.run")
     def test_add_tags_multiple(self, mock_run):
         """Test adding multiple tags to a VM."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout='{"tags": {"env": "dev", "team": "backend", "project": "api"}}',
-            stderr=""
+            stderr="",
         )
 
         tags = {"env": "dev", "team": "backend", "project": "api"}
@@ -48,11 +47,11 @@ class TestTagManager:
         # Verify command was called
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert 'az' in cmd
-        assert 'vm' in cmd
-        assert 'update' in cmd
+        assert "az" in cmd
+        assert "vm" in cmd
+        assert "update" in cmd
 
-    @patch('azlin.tag_manager.subprocess.run')
+    @patch("azlin.tag_manager.subprocess.run")
     def test_add_tags_vm_not_found(self, mock_run):
         """Test adding tags to non-existent VM raises error."""
         mock_run.side_effect = Exception("ResourceNotFound")
@@ -62,44 +61,36 @@ class TestTagManager:
 
         assert "Failed to add tags" in str(exc_info.value)
 
-    @patch('azlin.tag_manager.subprocess.run')
+    @patch("azlin.tag_manager.subprocess.run")
     def test_remove_tags_single(self, mock_run):
         """Test removing a single tag from a VM."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout='{"tags": {}}',
-            stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout='{"tags": {}}', stderr="")
 
         TagManager.remove_tags("test-vm", "test-rg", ["env"])
 
         # Verify the correct command was called
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert 'az' in cmd
-        assert 'vm' in cmd
-        assert 'update' in cmd
-        assert '--name' in cmd
-        assert 'test-vm' in cmd
-        assert '--resource-group' in cmd
-        assert 'test-rg' in cmd
-        assert '--remove' in cmd
+        assert "az" in cmd
+        assert "vm" in cmd
+        assert "update" in cmd
+        assert "--name" in cmd
+        assert "test-vm" in cmd
+        assert "--resource-group" in cmd
+        assert "test-rg" in cmd
+        assert "--remove" in cmd
 
-    @patch('azlin.tag_manager.subprocess.run')
+    @patch("azlin.tag_manager.subprocess.run")
     def test_remove_tags_multiple(self, mock_run):
         """Test removing multiple tags from a VM."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout='{"tags": {}}',
-            stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout='{"tags": {}}', stderr="")
 
         TagManager.remove_tags("test-vm", "test-rg", ["env", "team", "project"])
 
         # Verify command was called
         mock_run.assert_called_once()
 
-    @patch('azlin.tag_manager.subprocess.run')
+    @patch("azlin.tag_manager.subprocess.run")
     def test_remove_tags_vm_not_found(self, mock_run):
         """Test removing tags from non-existent VM raises error."""
         mock_run.side_effect = Exception("ResourceNotFound")
@@ -109,63 +100,38 @@ class TestTagManager:
 
         assert "Failed to remove tags" in str(exc_info.value)
 
-    @patch('azlin.tag_manager.subprocess.run')
+    @patch("azlin.tag_manager.subprocess.run")
     def test_get_tags_success(self, mock_run):
         """Test getting tags from a VM."""
-        vm_data = {
-            "name": "test-vm",
-            "tags": {
-                "env": "dev",
-                "team": "backend",
-                "project": "api"
-            }
-        }
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=json.dumps(vm_data),
-            stderr=""
-        )
+        vm_data = {"name": "test-vm", "tags": {"env": "dev", "team": "backend", "project": "api"}}
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(vm_data), stderr="")
 
         tags = TagManager.get_tags("test-vm", "test-rg")
 
         assert tags == {"env": "dev", "team": "backend", "project": "api"}
         mock_run.assert_called_once()
 
-    @patch('azlin.tag_manager.subprocess.run')
+    @patch("azlin.tag_manager.subprocess.run")
     def test_get_tags_no_tags(self, mock_run):
         """Test getting tags from VM with no tags."""
-        vm_data = {
-            "name": "test-vm",
-            "tags": {}
-        }
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=json.dumps(vm_data),
-            stderr=""
-        )
+        vm_data = {"name": "test-vm", "tags": {}}
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(vm_data), stderr="")
 
         tags = TagManager.get_tags("test-vm", "test-rg")
 
         assert tags == {}
 
-    @patch('azlin.tag_manager.subprocess.run')
+    @patch("azlin.tag_manager.subprocess.run")
     def test_get_tags_null_tags(self, mock_run):
         """Test getting tags from VM with null tags field."""
-        vm_data = {
-            "name": "test-vm",
-            "tags": None
-        }
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=json.dumps(vm_data),
-            stderr=""
-        )
+        vm_data = {"name": "test-vm", "tags": None}
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(vm_data), stderr="")
 
         tags = TagManager.get_tags("test-vm", "test-rg")
 
         assert tags == {}
 
-    @patch('azlin.tag_manager.subprocess.run')
+    @patch("azlin.tag_manager.subprocess.run")
     def test_get_tags_vm_not_found(self, mock_run):
         """Test getting tags from non-existent VM raises error."""
         mock_run.side_effect = Exception("ResourceNotFound")
@@ -183,21 +149,21 @@ class TestTagManager:
                 resource_group="test-rg",
                 location="eastus",
                 power_state="VM running",
-                tags={"env": "dev", "team": "backend"}
+                tags={"env": "dev", "team": "backend"},
             ),
             VMInfo(
                 name="vm2",
                 resource_group="test-rg",
                 location="eastus",
                 power_state="VM running",
-                tags={"env": "prod", "team": "frontend"}
+                tags={"env": "prod", "team": "frontend"},
             ),
             VMInfo(
                 name="vm3",
                 resource_group="test-rg",
                 location="eastus",
                 power_state="VM running",
-                tags={"env": "dev", "team": "frontend"}
+                tags={"env": "dev", "team": "frontend"},
             ),
         ]
 
@@ -215,21 +181,21 @@ class TestTagManager:
                 resource_group="test-rg",
                 location="eastus",
                 power_state="VM running",
-                tags={"env": "dev", "team": "backend"}
+                tags={"env": "dev", "team": "backend"},
             ),
             VMInfo(
                 name="vm2",
                 resource_group="test-rg",
                 location="eastus",
                 power_state="VM running",
-                tags={"project": "api"}
+                tags={"project": "api"},
             ),
             VMInfo(
                 name="vm3",
                 resource_group="test-rg",
                 location="eastus",
                 power_state="VM running",
-                tags={"env": "prod"}
+                tags={"env": "prod"},
             ),
         ]
 
@@ -247,14 +213,14 @@ class TestTagManager:
                 resource_group="test-rg",
                 location="eastus",
                 power_state="VM running",
-                tags={"env": "dev"}
+                tags={"env": "dev"},
             ),
             VMInfo(
                 name="vm2",
                 resource_group="test-rg",
                 location="eastus",
                 power_state="VM running",
-                tags={"env": "prod"}
+                tags={"env": "prod"},
             ),
         ]
 
@@ -270,14 +236,14 @@ class TestTagManager:
                 resource_group="test-rg",
                 location="eastus",
                 power_state="VM running",
-                tags=None
+                tags=None,
             ),
             VMInfo(
                 name="vm2",
                 resource_group="test-rg",
                 location="eastus",
                 power_state="VM running",
-                tags={}
+                tags={},
             ),
         ]
 

@@ -18,12 +18,14 @@ logger = logging.getLogger(__name__)
 
 class ResourceCleanupError(Exception):
     """Raised when resource cleanup operations fail."""
+
     pass
 
 
 @dataclass
 class OrphanedResource:
     """Represents an orphaned Azure resource."""
+
     name: str
     resource_type: str  # "disk", "nic", or "public-ip"
     resource_group: str
@@ -61,6 +63,7 @@ class OrphanedResource:
 @dataclass
 class CleanupSummary:
     """Summary of cleanup operation results."""
+
     total_orphaned: int = 0
     orphaned_disks: int = 0
     orphaned_nics: int = 0
@@ -95,19 +98,9 @@ class ResourceCleanup:
             ResourceCleanupError: If Azure CLI command fails
         """
         try:
-            cmd = [
-                'az', 'disk', 'list',
-                '--resource-group', resource_group,
-                '--output', 'json'
-            ]
+            cmd = ["az", "disk", "list", "--resource-group", resource_group, "--output", "json"]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
 
             if result.returncode != 0:
                 raise ResourceCleanupError(f"Failed to list disks: {result.stderr.strip()}")
@@ -117,18 +110,20 @@ class ResourceCleanup:
 
             for disk in disks:
                 # Check if disk is unattached
-                disk_state = disk.get('diskState', '')
-                managed_by = disk.get('managedBy')
+                disk_state = disk.get("diskState", "")
+                managed_by = disk.get("managedBy")
 
-                if disk_state == 'Unattached' or managed_by is None:
-                    orphaned.append(OrphanedResource(
-                        name=disk['name'],
-                        resource_type='disk',
-                        resource_group=resource_group,
-                        size_gb=disk.get('diskSizeGb'),
-                        tier=disk.get('sku', {}).get('name'),
-                        location=disk.get('location')
-                    ))
+                if disk_state == "Unattached" or managed_by is None:
+                    orphaned.append(
+                        OrphanedResource(
+                            name=disk["name"],
+                            resource_type="disk",
+                            resource_group=resource_group,
+                            size_gb=disk.get("diskSizeGb"),
+                            tier=disk.get("sku", {}).get("name"),
+                            location=disk.get("location"),
+                        )
+                    )
 
             return orphaned
 
@@ -154,18 +149,17 @@ class ResourceCleanup:
         """
         try:
             cmd = [
-                'az', 'network', 'nic', 'list',
-                '--resource-group', resource_group,
-                '--output', 'json'
+                "az",
+                "network",
+                "nic",
+                "list",
+                "--resource-group",
+                resource_group,
+                "--output",
+                "json",
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
 
             if result.returncode != 0:
                 raise ResourceCleanupError(f"Failed to list NICs: {result.stderr.strip()}")
@@ -175,15 +169,17 @@ class ResourceCleanup:
 
             for nic in nics:
                 # Check if NIC is not attached to a VM
-                virtual_machine = nic.get('virtualMachine')
+                virtual_machine = nic.get("virtualMachine")
 
                 if virtual_machine is None:
-                    orphaned.append(OrphanedResource(
-                        name=nic['name'],
-                        resource_type='nic',
-                        resource_group=resource_group,
-                        location=nic.get('location')
-                    ))
+                    orphaned.append(
+                        OrphanedResource(
+                            name=nic["name"],
+                            resource_type="nic",
+                            resource_group=resource_group,
+                            location=nic.get("location"),
+                        )
+                    )
 
             return orphaned
 
@@ -209,18 +205,17 @@ class ResourceCleanup:
         """
         try:
             cmd = [
-                'az', 'network', 'public-ip', 'list',
-                '--resource-group', resource_group,
-                '--output', 'json'
+                "az",
+                "network",
+                "public-ip",
+                "list",
+                "--resource-group",
+                resource_group,
+                "--output",
+                "json",
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
 
             if result.returncode != 0:
                 raise ResourceCleanupError(f"Failed to list public IPs: {result.stderr.strip()}")
@@ -230,16 +225,18 @@ class ResourceCleanup:
 
             for ip in public_ips:
                 # Check if IP is not attached to a NIC
-                ip_configuration = ip.get('ipConfiguration')
+                ip_configuration = ip.get("ipConfiguration")
 
                 if ip_configuration is None:
-                    orphaned.append(OrphanedResource(
-                        name=ip['name'],
-                        resource_type='public-ip',
-                        resource_group=resource_group,
-                        ip_address=ip.get('ipAddress'),
-                        location=ip.get('location')
-                    ))
+                    orphaned.append(
+                        OrphanedResource(
+                            name=ip["name"],
+                            resource_type="public-ip",
+                            resource_group=resource_group,
+                            ip_address=ip.get("ipAddress"),
+                            location=ip.get("location"),
+                        )
+                    )
 
             return orphaned
 
@@ -274,7 +271,7 @@ class ResourceCleanup:
             orphaned_disks=len(orphaned_disks),
             orphaned_nics=len(orphaned_nics),
             orphaned_public_ips=len(orphaned_public_ips),
-            resources=all_resources
+            resources=all_resources,
         )
 
         # Calculate cost savings
@@ -295,40 +292,50 @@ class ResourceCleanup:
         try:
             if resource.resource_type == "disk":
                 cmd = [
-                    'az', 'disk', 'delete',
-                    '--name', resource.name,
-                    '--resource-group', resource.resource_group,
-                    '--yes'
+                    "az",
+                    "disk",
+                    "delete",
+                    "--name",
+                    resource.name,
+                    "--resource-group",
+                    resource.resource_group,
+                    "--yes",
                 ]
             elif resource.resource_type == "nic":
                 cmd = [
-                    'az', 'network', 'nic', 'delete',
-                    '--name', resource.name,
-                    '--resource-group', resource.resource_group
+                    "az",
+                    "network",
+                    "nic",
+                    "delete",
+                    "--name",
+                    resource.name,
+                    "--resource-group",
+                    resource.resource_group,
                 ]
             elif resource.resource_type == "public-ip":
                 cmd = [
-                    'az', 'network', 'public-ip', 'delete',
-                    '--name', resource.name,
-                    '--resource-group', resource.resource_group
+                    "az",
+                    "network",
+                    "public-ip",
+                    "delete",
+                    "--name",
+                    resource.name,
+                    "--resource-group",
+                    resource.resource_group,
                 ]
             else:
                 logger.error(f"Unknown resource type: {resource.resource_type}")
                 return False
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
 
             if result.returncode == 0:
                 logger.info(f"Successfully deleted {resource.resource_type}: {resource.name}")
                 return True
             else:
-                logger.error(f"Failed to delete {resource.resource_type} {resource.name}: {result.stderr}")
+                logger.error(
+                    f"Failed to delete {resource.resource_type} {resource.name}: {result.stderr}"
+                )
                 return False
 
         except subprocess.TimeoutExpired:
@@ -340,10 +347,7 @@ class ResourceCleanup:
 
     @classmethod
     def cleanup_resources(
-        cls,
-        resource_group: str,
-        dry_run: bool = True,
-        force: bool = False
+        cls, resource_group: str, dry_run: bool = True, force: bool = False
     ) -> CleanupSummary:
         """Clean up orphaned resources in a resource group.
 
@@ -370,7 +374,7 @@ class ResourceCleanup:
         # Prompt for confirmation unless force flag is set
         if not force:
             confirmation = input("Type 'delete' to confirm deletion: ").strip()
-            if confirmation != 'delete':
+            if confirmation != "delete":
                 summary.cancelled = True
                 return summary
 
@@ -409,7 +413,9 @@ class ResourceCleanup:
         if disks:
             lines.append(f"\nDISKS ({len(disks)}):")
             for disk in disks:
-                size_info = f"{disk.size_gb} GB, {disk.tier}" if disk.size_gb and disk.tier else "Unknown"
+                size_info = (
+                    f"{disk.size_gb} GB, {disk.tier}" if disk.size_gb and disk.tier else "Unknown"
+                )
                 lines.append(f"  - {disk.name} ({size_info})")
 
         if nics:
@@ -451,9 +457,4 @@ class ResourceCleanup:
         return "\n".join(lines)
 
 
-__all__ = [
-    'OrphanedResource',
-    'CleanupSummary',
-    'ResourceCleanup',
-    'ResourceCleanupError'
-]
+__all__ = ["OrphanedResource", "CleanupSummary", "ResourceCleanup", "ResourceCleanupError"]

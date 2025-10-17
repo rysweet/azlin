@@ -17,7 +17,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SSHConfig:
     """SSH connection configuration."""
+
     host: str
     user: str
     key_path: Path
@@ -34,6 +35,7 @@ class SSHConfig:
 
 class SSHConnectionError(Exception):
     """Raised when SSH connection fails."""
+
     pass
 
 
@@ -52,12 +54,7 @@ class SSHConnector:
     DEFAULT_PORT = 22
 
     @classmethod
-    def connect(
-        cls,
-        config: SSHConfig,
-        tmux_session: str = "azlin",
-        auto_tmux: bool = True
-    ) -> int:
+    def connect(cls, config: SSHConfig, tmux_session: str = "azlin", auto_tmux: bool = True) -> int:
         """
         Connect via SSH and optionally start tmux session.
 
@@ -91,9 +88,7 @@ class SSHConnector:
         # Wait for SSH to be ready
         logger.info(f"Waiting for SSH on {config.host}:{config.port}...")
         if not cls.wait_for_ssh_ready(config.host, config.key_path, port=config.port):
-            raise SSHConnectionError(
-                f"SSH connection to {config.host} timed out"
-            )
+            raise SSHConnectionError(f"SSH connection to {config.host} timed out")
 
         # Build SSH command
         if auto_tmux:
@@ -148,12 +143,7 @@ class SSHConnector:
 
     @classmethod
     def wait_for_ssh_ready(
-        cls,
-        host: str,
-        key_path: Path,
-        port: int = 22,
-        timeout: int = 300,
-        interval: int = 5
+        cls, host: str, key_path: Path, port: int = 22, timeout: int = 300, interval: int = 5
     ) -> bool:
         """
         Wait for SSH port to be accessible.
@@ -195,8 +185,7 @@ class SSHConnector:
                 if cls._test_ssh_connection(host, key_path, port):
                     elapsed = time.time() - start_time
                     logger.info(
-                        f"SSH ready on {host}:{port} "
-                        f"(after {elapsed:.1f}s, {attempt} attempts)"
+                        f"SSH ready on {host}:{port} " f"(after {elapsed:.1f}s, {attempt} attempts)"
                     )
                     return True
 
@@ -231,17 +220,11 @@ class SSHConnector:
             result = sock.connect_ex((host, port))
             sock.close()
             return result == 0
-        except (socket.error, socket.timeout):
+        except (OSError, socket.timeout):
             return False
 
     @classmethod
-    def _test_ssh_connection(
-        cls,
-        host: str,
-        key_path: Path,
-        port: int,
-        timeout: int = 10
-    ) -> bool:
+    def _test_ssh_connection(cls, host: str, key_path: Path, port: int, timeout: int = 10) -> bool:
         """
         Test SSH connection with actual authentication.
 
@@ -263,21 +246,28 @@ class SSHConnector:
             # Build minimal SSH command to test connection
             args = [
                 "ssh",
-                "-i", str(key_path.expanduser()),
-                "-p", str(port),
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "BatchMode=yes",  # No password prompts
-                "-o", f"ConnectTimeout={timeout}",
-                "-o", "LogLevel=ERROR",
+                "-i",
+                str(key_path.expanduser()),
+                "-p",
+                str(port),
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-o",
+                "BatchMode=yes",  # No password prompts
+                "-o",
+                f"ConnectTimeout={timeout}",
+                "-o",
+                "LogLevel=ERROR",
                 f"{cls.DEFAULT_USER}@{host}",
-                "exit 0"  # Simple command
+                "exit 0",  # Simple command
             ]
 
             result = subprocess.run(
                 args,
                 capture_output=True,
-                timeout=timeout + 5  # subprocess timeout > SSH timeout
+                timeout=timeout + 5,  # subprocess timeout > SSH timeout
             )
 
             return result.returncode == 0
@@ -287,10 +277,8 @@ class SSHConnector:
 
     @classmethod
     def build_ssh_command(
-        cls,
-        config: SSHConfig,
-        remote_command: Optional[str] = None
-    ) -> List[str]:
+        cls, config: SSHConfig, remote_command: Optional[str] = None
+    ) -> list[str]:
         """
         Build SSH command with proper flags.
 
@@ -318,18 +306,19 @@ class SSHConnector:
         """
         args = [
             "ssh",
-            "-i", str(config.key_path.expanduser()),
-            "-p", str(config.port),
-            "-o", "BatchMode=yes",  # No password prompts
-            "-o", "LogLevel=INFO",
+            "-i",
+            str(config.key_path.expanduser()),
+            "-p",
+            str(config.port),
+            "-o",
+            "BatchMode=yes",  # No password prompts
+            "-o",
+            "LogLevel=INFO",
         ]
 
         # Host key checking
         if not config.strict_host_key_checking:
-            args.extend([
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null"
-            ])
+            args.extend(["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"])
 
         # Forward agent (for git operations on remote)
         args.extend(["-A"])  # ForwardAgent=yes
@@ -389,12 +378,7 @@ class SSHConnector:
             raise ValueError(f"Invalid SSH port: {config.port}")
 
     @classmethod
-    def execute_remote_command(
-        cls,
-        config: SSHConfig,
-        command: str,
-        timeout: int = 60
-    ) -> str:
+    def execute_remote_command(cls, config: SSHConfig, command: str, timeout: int = 60) -> str:
         """
         Execute a command on remote host and return output.
 
@@ -426,11 +410,7 @@ class SSHConnector:
 
         try:
             result = subprocess.run(
-                args,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=True
+                args, capture_output=True, text=True, timeout=timeout, check=True
             )
 
             return result.stdout
@@ -448,10 +428,7 @@ class SSHConnector:
 
 # Convenience functions for CLI use
 def connect_ssh(
-    host: str,
-    user: str = "azureuser",
-    key_path: Optional[Path] = None,
-    tmux_session: str = "azlin"
+    host: str, user: str = "azureuser", key_path: Optional[Path] = None, tmux_session: str = "azlin"
 ) -> int:
     """
     Connect to VM via SSH (convenience function).
@@ -471,12 +448,9 @@ def connect_ssh(
     """
     if key_path is None:
         from .ssh_keys import SSHKeyManager
+
         key_path = SSHKeyManager.DEFAULT_KEY_PATH
 
-    config = SSHConfig(
-        host=host,
-        user=user,
-        key_path=key_path
-    )
+    config = SSHConfig(host=host, user=user, key_path=key_path)
 
     return SSHConnector.connect(config, tmux_session)

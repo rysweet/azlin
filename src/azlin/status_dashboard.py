@@ -7,7 +7,6 @@ including resource usage, costs, and configuration details.
 import json
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Optional
 
 from rich.console import Console
@@ -80,9 +79,7 @@ class StatusDashboard:
         )
         return json.loads(result.stdout) if result.stdout.strip() else {}
 
-    def _get_vm_list(
-        self, resource_group: Optional[str] = None
-    ) -> list[dict[str, Any]]:
+    def _get_vm_list(self, resource_group: Optional[str] = None) -> list[dict[str, Any]]:
         """Get list of VMs.
 
         Args:
@@ -97,9 +94,7 @@ class StatusDashboard:
 
         return self._run_az_command(command)
 
-    def _get_vm_instance_view(
-        self, vm_name: str, resource_group: str
-    ) -> dict[str, Any]:
+    def _get_vm_instance_view(self, vm_name: str, resource_group: str) -> dict[str, Any]:
         """Get detailed instance view for a VM.
 
         Args:
@@ -148,9 +143,11 @@ class StatusDashboard:
 
             if result and len(result) > 0:
                 virtual_machine = result[0]
-                network_interfaces = virtual_machine.get("virtualMachine", {}).get(
-                    "network", {}
-                ).get("publicIpAddresses", [])
+                network_interfaces = (
+                    virtual_machine.get("virtualMachine", {})
+                    .get("network", {})
+                    .get("publicIpAddresses", [])
+                )
 
                 if network_interfaces:
                     return network_interfaces[0].get("ipAddress")
@@ -229,17 +226,13 @@ class StatusDashboard:
             rg = vm.get("resourceGroup", "Unknown")
             location = vm.get("location", "Unknown")
             size = vm.get("hardwareProfile", {}).get("vmSize", "Unknown")
-            os_type = vm.get("storageProfile", {}).get("osDisk", {}).get(
-                "osType", "Unknown"
-            )
+            os_type = vm.get("storageProfile", {}).get("osDisk", {}).get("osType", "Unknown")
 
             # Get instance view for detailed status
             try:
                 instance_view = self._get_vm_instance_view(name, rg)
                 power_state = self._extract_power_state(instance_view)
-                provisioning_state = (
-                    instance_view.get("provisioningState", "Unknown")
-                )
+                provisioning_state = instance_view.get("provisioningState", "Unknown")
                 uptime = self._calculate_uptime(instance_view)
             except (subprocess.CalledProcessError, json.JSONDecodeError):
                 power_state = "Unknown"
@@ -286,9 +279,7 @@ class StatusDashboard:
         vm_statuses = self.get_vm_status(vm_name, resource_group)
 
         if not vm_statuses:
-            self.console.print(
-                "[yellow]No VMs found matching the criteria.[/yellow]"
-            )
+            self.console.print("[yellow]No VMs found matching the criteria.[/yellow]")
             return
 
         # Create table

@@ -43,7 +43,7 @@ def is_disconnect_exit_code(exit_code: int) -> bool:
     """
     # Exit codes that indicate potential disconnect
     disconnect_codes = {
-        1,    # Generic error that might be disconnect
+        1,  # Generic error that might be disconnect
         255,  # SSH protocol error / connection lost
     }
 
@@ -95,11 +95,7 @@ class SSHReconnectHandler:
         self.max_retries = max_retries
 
     def connect_with_reconnect(
-        self,
-        config: SSHConfig,
-        vm_name: str,
-        tmux_session: str = "azlin",
-        auto_tmux: bool = True
+        self, config: SSHConfig, vm_name: str, tmux_session: str = "azlin", auto_tmux: bool = True
     ) -> int:
         """
         Connect to VM with automatic reconnection on disconnect.
@@ -123,14 +119,11 @@ class SSHReconnectHandler:
         while attempt <= self.max_retries:
             # Connect to SSH
             logger.info(
-                f"Connecting to {vm_name} "
-                f"(attempt {attempt + 1}/{self.max_retries + 1})..."
+                f"Connecting to {vm_name} " f"(attempt {attempt + 1}/{self.max_retries + 1})..."
             )
 
             exit_code = SSHConnector.connect(
-                config=config,
-                tmux_session=tmux_session,
-                auto_tmux=auto_tmux
+                config=config, tmux_session=tmux_session, auto_tmux=auto_tmux
             )
 
             # Check if this was a disconnect
@@ -150,8 +143,7 @@ class SSHReconnectHandler:
             # Check if we've exhausted retries
             if attempt >= self.max_retries:
                 logger.error(
-                    f"Maximum reconnection attempts ({self.max_retries}) reached. "
-                    "Giving up."
+                    f"Maximum reconnection attempts ({self.max_retries}) reached. " "Giving up."
                 )
                 return exit_code
 
@@ -168,8 +160,4 @@ class SSHReconnectHandler:
         return exit_code
 
 
-__all__ = [
-    'SSHReconnectHandler',
-    'is_disconnect_exit_code',
-    'should_attempt_reconnect'
-]
+__all__ = ["SSHReconnectHandler", "is_disconnect_exit_code", "should_attempt_reconnect"]

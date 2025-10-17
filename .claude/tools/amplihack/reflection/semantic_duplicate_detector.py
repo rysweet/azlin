@@ -17,7 +17,7 @@ import json
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from functools import lru_cache
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 @dataclass
@@ -25,11 +25,11 @@ class DuplicateDetectionResult:
     """Result of duplicate detection analysis."""
 
     is_duplicate: bool
-    similar_issues: List[Dict]
+    similar_issues: list[dict]
     confidence: float  # 0-1 similarity score
     reason: str
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary format."""
         return {
             "is_duplicate": self.is_duplicate,
@@ -60,7 +60,7 @@ class SemanticDuplicateDetector:
 
     async def detect_with_llm(
         self, new_content: str, existing_content: str, timeout_seconds: int = 120
-    ) -> Optional[Dict]:
+    ) -> Optional[dict]:
         """Use Claude SDK to semantically compare content."""
         if not self._sdk_available:
             return None
@@ -134,7 +134,7 @@ Don't consider duplicates if they:
 
         return None
 
-    def fallback_detect(self, new_content: str, existing_content: str) -> Dict:
+    def fallback_detect(self, new_content: str, existing_content: str) -> dict:
         """Fallback detection using difflib."""
         # Simple text similarity
         similarity = SequenceMatcher(None, new_content, existing_content).ratio()
@@ -154,7 +154,7 @@ Don't consider duplicates if they:
         }
 
     async def detect_semantic_duplicate(
-        self, title: str, body: str, existing_issues: List[Dict]
+        self, title: str, body: str, existing_issues: list[dict]
     ) -> DuplicateDetectionResult:
         """Main detection method."""
         if not existing_issues:
@@ -259,7 +259,7 @@ def store_new_issue(
     # Could be extended to store in a file or database
 
 
-def get_performance_stats() -> Dict:
+def get_performance_stats() -> dict:
     """Get performance statistics for the detector."""
     return {
         "sdk_available": _detector._sdk_available,

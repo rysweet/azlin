@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from azlin.env_manager import EnvManager, EnvManagerError
 from azlin.modules.ssh_connector import SSHConfig
 
@@ -15,11 +14,7 @@ class TestEnvManager:
     @pytest.fixture
     def ssh_config(self):
         """Create mock SSH config."""
-        return SSHConfig(
-            host="20.1.2.3",
-            user="azureuser",
-            key_path=Path("/home/user/.ssh/id_rsa")
-        )
+        return SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/home/user/.ssh/id_rsa"))
 
     @pytest.fixture
     def sample_bashrc_content(self):
@@ -52,7 +47,7 @@ export API_KEY="secret123"
 
     def test_set_env_var_success(self, ssh_config, sample_bashrc_content):
         """Test setting a new environment variable."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             # Mock reading current bashrc
             mock_exec.side_effect = [
                 sample_bashrc_content,  # cat ~/.bashrc
@@ -67,7 +62,7 @@ export API_KEY="secret123"
 
     def test_set_env_var_updates_existing(self, ssh_config, sample_bashrc_with_env):
         """Test updating an existing environment variable."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             # Mock reading current bashrc with existing var
             mock_exec.side_effect = [
                 sample_bashrc_with_env,  # cat ~/.bashrc
@@ -83,7 +78,7 @@ export API_KEY="secret123"
 
     def test_list_env_vars_empty(self, ssh_config, sample_bashrc_content):
         """Test listing when no environment variables are set."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.return_value = sample_bashrc_content
 
             env_vars = EnvManager.list_env_vars(ssh_config)
@@ -92,7 +87,7 @@ export API_KEY="secret123"
 
     def test_list_env_vars_multiple(self, ssh_config, sample_bashrc_with_env):
         """Test listing multiple environment variables."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.return_value = sample_bashrc_with_env
 
             env_vars = EnvManager.list_env_vars(ssh_config)
@@ -103,7 +98,7 @@ export API_KEY="secret123"
 
     def test_delete_env_var_success(self, ssh_config, sample_bashrc_with_env):
         """Test deleting an existing environment variable."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.side_effect = [
                 sample_bashrc_with_env,  # cat ~/.bashrc
                 "",  # echo to temp file
@@ -116,7 +111,7 @@ export API_KEY="secret123"
 
     def test_delete_env_var_not_found(self, ssh_config, sample_bashrc_with_env):
         """Test deleting a non-existent environment variable."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.return_value = sample_bashrc_with_env
 
             result = EnvManager.delete_env_var(ssh_config, "NONEXISTENT_VAR")
@@ -125,7 +120,7 @@ export API_KEY="secret123"
 
     def test_export_env_vars_format(self, ssh_config, sample_bashrc_with_env):
         """Test exporting environment variables to .env format."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.return_value = sample_bashrc_with_env
 
             output = EnvManager.export_env_vars(ssh_config)
@@ -137,7 +132,7 @@ export API_KEY="secret123"
         """Test exporting environment variables to a file."""
         output_file = tmp_path / "test.env"
 
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.return_value = sample_bashrc_with_env
 
             result = EnvManager.export_env_vars(ssh_config, str(output_file))
@@ -191,8 +186,9 @@ export API_KEY="secret123"
             warnings = EnvManager.detect_secrets(value)
             assert len(warnings) > 0, f"Expected warnings for {value}"
             for pattern in expected_patterns:
-                assert any(pattern.lower() in w.lower() for w in warnings), \
-                    f"Expected pattern '{pattern}' in warnings for {value}"
+                assert any(
+                    pattern.lower() in w.lower() for w in warnings
+                ), f"Expected pattern '{pattern}' in warnings for {value}"
 
     def test_detect_secrets_no_warning(self):
         """Test no warnings for non-secret values."""
@@ -211,14 +207,16 @@ export API_KEY="secret123"
     def test_import_env_file(self, ssh_config, tmp_path):
         """Test importing environment variables from .env file."""
         env_file = tmp_path / ".env"
-        env_file.write_text("""# Comment line
+        env_file.write_text(
+            """# Comment line
 DATABASE_URL="postgres://localhost/db"
 API_KEY="secret123"
 # Another comment
 EXPORT_VAR="value"
-""")
+"""
+        )
 
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.side_effect = [
                 "# bashrc content",  # cat ~/.bashrc for each set
                 "",  # echo
@@ -232,11 +230,13 @@ EXPORT_VAR="value"
     def test_import_env_file_invalid_format(self, ssh_config, tmp_path):
         """Test importing with invalid .env format."""
         env_file = tmp_path / ".env"
-        env_file.write_text("""INVALID LINE WITHOUT EQUALS
+        env_file.write_text(
+            """INVALID LINE WITHOUT EQUALS
 DATABASE_URL="value"
-""")
+"""
+        )
 
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.side_effect = [
                 "# bashrc",
                 "",
@@ -249,7 +249,7 @@ DATABASE_URL="value"
 
     def test_bashrc_section_isolation(self, ssh_config, sample_bashrc_content):
         """Test that setting env vars doesn't affect other bashrc content."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.side_effect = [
                 sample_bashrc_content,
                 "",
@@ -266,6 +266,7 @@ DATABASE_URL="value"
             # Extract the content from printf command (between the single quotes)
             # Format is: printf '%s' 'content' > file
             import re
+
             match = re.search(r"printf '%s' '(.+?)' >", printf_command, re.DOTALL)
             if match:
                 written_content = match.group(1).replace("'\\''", "'")
@@ -282,7 +283,7 @@ DATABASE_URL="value"
 
     def test_set_env_var_with_special_chars(self, ssh_config, sample_bashrc_content):
         """Test setting env var with special characters that need escaping."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.side_effect = [
                 sample_bashrc_content,
                 "",
@@ -290,13 +291,15 @@ DATABASE_URL="value"
             ]
 
             # Value with quotes and special chars
-            result = EnvManager.set_env_var(ssh_config, "COMPLEX_VAR", 'value with "quotes" and $pecial')
+            result = EnvManager.set_env_var(
+                ssh_config, "COMPLEX_VAR", 'value with "quotes" and $pecial'
+            )
 
             assert result is True
 
     def test_ssh_connection_error(self, ssh_config):
         """Test handling of SSH connection errors."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.side_effect = Exception("SSH connection failed")
 
             with pytest.raises(EnvManagerError) as exc_info:
@@ -306,7 +309,7 @@ DATABASE_URL="value"
 
     def test_clear_all_env_vars(self, ssh_config, sample_bashrc_with_env):
         """Test clearing all environment variables."""
-        with patch('azlin.env_manager.SSHConnector.execute_remote_command') as mock_exec:
+        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
             mock_exec.side_effect = [
                 sample_bashrc_with_env,
                 "",

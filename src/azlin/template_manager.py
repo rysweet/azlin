@@ -35,12 +35,14 @@ logger = logging.getLogger(__name__)
 
 class TemplateError(Exception):
     """Raised when template operations fail."""
+
     pass
 
 
 @dataclass
 class VMTemplateConfig:
     """VM template configuration."""
+
     name: str
     description: str
     vm_size: str
@@ -57,7 +59,7 @@ class VMTemplateConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> 'VMTemplateConfig':
+    def from_dict(cls, data: dict[str, Any]) -> "VMTemplateConfig":
         """Create template from dictionary.
 
         Args:
@@ -69,19 +71,19 @@ class VMTemplateConfig:
         Raises:
             TemplateError: If required fields are missing
         """
-        required_fields = ['name', 'description', 'vm_size', 'region']
+        required_fields = ["name", "description", "vm_size", "region"]
         missing_fields = [f for f in required_fields if f not in data]
 
         if missing_fields:
             raise TemplateError(f"Missing required field: {', '.join(missing_fields)}")
 
         return cls(
-            name=data['name'],
-            description=data['description'],
-            vm_size=data['vm_size'],
-            region=data['region'],
-            cloud_init=data.get('cloud_init'),
-            custom_metadata=data.get('custom_metadata', {})
+            name=data["name"],
+            description=data["description"],
+            vm_size=data["vm_size"],
+            region=data["region"],
+            cloud_init=data.get("cloud_init"),
+            custom_metadata=data.get("custom_metadata", {}),
         )
 
     def validate(self) -> None:
@@ -111,7 +113,7 @@ class TemplateManager:
 
     TEMPLATES_DIR = Path.home() / ".azlin" / "templates"
     MAX_NAME_LENGTH = 128
-    NAME_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+    NAME_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
 
     @classmethod
     def ensure_templates_dir(cls) -> Path:
@@ -151,7 +153,7 @@ class TemplateManager:
             return False
 
         # Check for path traversal attempts
-        if '/' in name or '\\' in name or '..' in name:
+        if "/" in name or "\\" in name or ".." in name:
             return False
 
         # Check pattern
@@ -199,7 +201,7 @@ class TemplateManager:
 
         # Write template to file
         try:
-            with open(template_path, 'w') as f:
+            with open(template_path, "w") as f:
                 yaml.dump(template.to_dict(), f, default_flow_style=False, sort_keys=False)
 
             # Set file permissions to 0644
@@ -311,7 +313,7 @@ class TemplateManager:
         try:
             output_path = Path(output_path).expanduser().resolve()
 
-            with open(output_path, 'w') as f:
+            with open(output_path, "w") as f:
                 yaml.dump(template.to_dict(), f, default_flow_style=False, sort_keys=False)
 
             # Set file permissions to 0644
@@ -364,4 +366,4 @@ class TemplateManager:
             raise TemplateError(f"Failed to import template: {e}")
 
 
-__all__ = ['TemplateManager', 'VMTemplateConfig', 'TemplateError']
+__all__ = ["TemplateManager", "VMTemplateConfig", "TemplateError"]

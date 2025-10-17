@@ -15,7 +15,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 # Clean import structure
 sys.path.insert(0, str(Path(__file__).parent))
@@ -141,7 +141,7 @@ class StopHook(HookProcessor):
             )
             return ""
 
-    def extract_learnings(self, messages: List[Dict]) -> List[Dict]:
+    def extract_learnings(self, messages: list[dict]) -> list[dict]:
         """Extract learnings using the reflection module.
 
         Args:
@@ -178,7 +178,7 @@ class StopHook(HookProcessor):
             self.log(f"Error in reflection analysis: {e}", "ERROR")
             return []
 
-    def extract_learnings_simple(self, messages: List[Dict]) -> List[Dict]:
+    def extract_learnings_simple(self, messages: list[dict]) -> list[dict]:
         """Simple fallback learning extraction.
 
         Args:
@@ -212,8 +212,8 @@ class StopHook(HookProcessor):
         return PRIORITY_EMOJI.get(priority.lower(), "⚪")
 
     def extract_recommendations_from_patterns(
-        self, patterns: List[Dict], limit: int = 5
-    ) -> List[Dict]:
+        self, patterns: list[dict], limit: int = 5
+    ) -> list[dict]:
         """Extract top N recommendations from reflection patterns.
 
         Args:
@@ -237,7 +237,7 @@ class StopHook(HookProcessor):
         # Return top N
         return sorted_patterns[:limit]
 
-    def format_recommendations_message(self, recommendations: List[Dict]) -> str:
+    def format_recommendations_message(self, recommendations: list[dict]) -> str:
         """Format recommendations as readable message.
 
         Args:
@@ -264,7 +264,7 @@ class StopHook(HookProcessor):
 
         return "\n".join(lines)
 
-    def save_session_analysis(self, messages: List[Dict]):
+    def save_session_analysis(self, messages: list[dict]):
         """Save session analysis for later review.
 
         Args:
@@ -312,7 +312,7 @@ class StopHook(HookProcessor):
         if learnings:
             self.save_metric("potential_learnings", len(learnings))
 
-    def read_transcript(self, transcript_path: str) -> List[Dict]:
+    def read_transcript(self, transcript_path: str) -> list[dict]:
         """Read and parse transcript file.
 
         Args:
@@ -484,7 +484,7 @@ class StopHook(HookProcessor):
 
         return None
 
-    def get_session_messages(self, input_data: Dict[str, Any]) -> List[Dict]:
+    def get_session_messages(self, input_data: dict[str, Any]) -> list[dict]:
         """Get session messages using multiple strategies.
 
         Args:
@@ -572,7 +572,7 @@ class StopHook(HookProcessor):
         self.log("No session messages found using any strategy", "WARNING")
         return []
 
-    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Process stop event - REFLECTION DISABLED.
 
         EMERGENCY DISABLE: Reflection system created 409 duplicate GitHub issues on 2025-10-01
@@ -626,9 +626,9 @@ class StopHook(HookProcessor):
         self,
         lock: ReflectionLock,
         state_machine: ReflectionStateMachine,
-        input_data: Dict,
+        input_data: dict,
         session_id: str,
-    ) -> Dict:
+    ) -> dict:
         """Run lightweight analysis on recent responses."""
         if not lock.acquire(session_id, "analysis"):
             return {}
@@ -660,7 +660,7 @@ class StopHook(HookProcessor):
         finally:
             lock.release()
 
-    def _get_recent_tool_logs(self, max_age_seconds: float = 60.0) -> List[str]:
+    def _get_recent_tool_logs(self, max_age_seconds: float = 60.0) -> list[str]:
         """Get recent tool use log entries."""
         tool_log_file = self.log_dir / "post_tool_use.log"
         if not tool_log_file.exists():
@@ -688,7 +688,7 @@ class StopHook(HookProcessor):
         except OSError:
             return []
 
-    def _format_analysis_output(self, result: Dict) -> str:
+    def _format_analysis_output(self, result: dict) -> str:
         """Format analysis results for user display."""
         patterns = result.get("patterns", [])
 
@@ -717,9 +717,9 @@ class StopHook(HookProcessor):
         self,
         state_machine: ReflectionStateMachine,
         state_data: ReflectionStateData,
-        input_data: Dict,
+        input_data: dict,
         lock: ReflectionLock,
-    ) -> Dict:
+    ) -> dict:
         """Handle user response in interactive workflow."""
         # Get user's last message
         messages = input_data.get("messages", [])
@@ -765,7 +765,7 @@ class StopHook(HookProcessor):
         state_machine: ReflectionStateMachine,
         state_data: ReflectionStateData,
         lock: ReflectionLock,
-    ) -> Dict:
+    ) -> dict:
         """Create GitHub issue from analysis."""
         if not lock.acquire(state_data.session_id, "issue_creation"):
             return {"message": "⚠️ Another reflection operation in progress"}
@@ -829,7 +829,7 @@ class StopHook(HookProcessor):
         state_machine: ReflectionStateMachine,
         state_data: ReflectionStateData,
         lock: ReflectionLock,
-    ) -> Dict:
+    ) -> dict:
         """Start work on issue."""
         if not lock.acquire(state_data.session_id, "starting_work"):
             return {"message": "⚠️ Another reflection operation in progress"}
