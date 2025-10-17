@@ -1819,8 +1819,8 @@ def killall(resource_group: str | None, config: str | None, force: bool, prefix:
 @main.command()
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
-@click.option("--age-days", default=30, type=click.IntRange(min=1), help="Age threshold in days (default: 30)")
-@click.option("--idle-days", default=14, type=click.IntRange(min=1), help="Idle threshold in days (default: 14)")
+@click.option("--age-days", default=1, type=click.IntRange(min=1), help="Age threshold in days (default: 1)")
+@click.option("--idle-days", default=1, type=click.IntRange(min=1), help="Idle threshold in days (default: 1)")
 @click.option("--dry-run", is_flag=True, help="Preview without deleting")
 @click.option("--force", is_flag=True, help="Skip confirmation prompt")
 @click.option("--include-running", is_flag=True, help="Include running VMs")
@@ -1838,15 +1838,16 @@ def prune(
     """Prune inactive VMs based on age and idle time.
 
     Identifies and optionally deletes VMs that are:
-    - Older than --age-days (default: 30)
-    - Idle for longer than --idle-days (default: 14)
+    - Older than --age-days (default: 1)
+    - Idle for longer than --idle-days (default: 1)
     - Stopped/deallocated (unless --include-running)
     - Without named sessions (unless --include-named)
 
     \b
     Examples:
         azlin prune --dry-run                    # Preview what would be deleted
-        azlin prune --age-days 60 --idle-days 30 # Custom thresholds
+        azlin prune                              # Delete VMs idle for 1+ days (default)
+        azlin prune --age-days 7 --idle-days 3   # Custom thresholds
         azlin prune --force                      # Skip confirmation
         azlin prune --include-running            # Include running VMs
     """
