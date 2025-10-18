@@ -26,6 +26,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -93,13 +94,13 @@ class StorageManager:
     VALID_NAME_PATTERN = re.compile(r"^[a-z0-9]+$")
 
     # Cost constants (USD per GB per month)
-    COST_PER_GB = {
+    COST_PER_GB: ClassVar[dict[str, float]] = {
         "Premium": 0.1536,
         "Standard": 0.04,
     }
 
     # Valid tiers
-    VALID_TIERS = ["Premium", "Standard"]
+    VALID_TIERS: ClassVar[list[str]] = ["Premium", "Standard"]
 
     @classmethod
     def create_storage(
@@ -427,7 +428,7 @@ class StorageManager:
 
         except subprocess.CalledProcessError as e:
             if "ResourceNotFound" in (e.stderr or ""):
-                raise StorageNotFoundError(f"Storage account {name} not found")
+                raise StorageNotFoundError(f"Storage account {name} not found") from e
             error_msg = e.stderr if e.stderr else str(e)
             raise StorageError(f"Failed to get storage account: {error_msg}") from e
         except (json.JSONDecodeError, KeyError) as e:

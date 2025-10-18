@@ -189,7 +189,7 @@ def list_storage(resource_group: str | None):
             click.echo(f"  Endpoint: {account.nfs_endpoint}")
             click.echo(f"  Size: {account.size_gb}GB")
             click.echo(f"  Tier: {account.tier}")
-            click.echo(f"  Location: {account.location}")
+            click.echo(f"  Region: {account.region}")
 
         click.echo(f"\nTotal: {len(accounts)} storage account(s)")
 
@@ -230,15 +230,15 @@ def show_status(name: str, resource_group: str | None):
         # Get status
         status = StorageManager.get_storage_status(name, rg)
 
-        click.echo(f"\nStorage Account: {status.name}")
+        click.echo(f"\nStorage Account: {status.info.name}")
         click.echo("=" * 80)
-        click.echo(f"  Endpoint: {status.nfs_endpoint}")
-        click.echo(f"  Location: {status.location}")
-        click.echo(f"  Tier: {status.tier}")
+        click.echo(f"  Endpoint: {status.info.nfs_endpoint}")
+        click.echo(f"  Region: {status.info.region}")
+        click.echo(f"  Tier: {status.info.tier}")
         click.echo("\nCapacity:")
-        click.echo(f"  Total: {status.size_gb}GB")
-        click.echo(f"  Used: {status.used_gb}GB ({status.used_gb / status.size_gb * 100:.1f}%)")
-        click.echo(f"  Available: {status.size_gb - status.used_gb}GB")
+        click.echo(f"  Total: {status.info.size_gb}GB")
+        click.echo(f"  Used: {status.used_gb:.2f}GB ({status.utilization_percent:.1f}%)")
+        click.echo(f"  Available: {status.info.size_gb - status.used_gb:.2f}GB")
         click.echo("\nCost:")
         click.echo(f"  Monthly: ${status.cost_per_month:.2f}")
         click.echo("\nConnected VMs:")
@@ -400,8 +400,8 @@ def mount_storage(storage_name: str, vm: str, resource_group: str | None):
         try:
             config.vm_storage = storage_name
             ConfigManager.save_config(config)
-        except Exception:
-            pass  # Non-critical
+        except Exception as e:
+            logger.warning(f"Failed to save VM storage mapping: {e}")
 
     except Exception as e:
         click.echo(f"Error mounting storage: {e}", err=True)
@@ -480,8 +480,8 @@ def unmount_storage(vm: str, resource_group: str | None):
         try:
             config.vm_storage = None
             ConfigManager.save_config(config)
-        except Exception:
-            pass  # Non-critical
+        except Exception as e:
+            logger.warning(f"Failed to clear VM storage mapping: {e}")
 
     except Exception as e:
         click.echo(f"Error unmounting storage: {e}", err=True)
