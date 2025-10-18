@@ -98,6 +98,42 @@ class ConfigManager:
     DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.toml"
 
     @classmethod
+    def _validate_config_path(cls, path: Path) -> None:
+        """Validate that config path is within allowed directories.
+
+        Args:
+            path: Resolved path to validate
+
+        Raises:
+            ConfigError: If path is outside allowed directories
+
+        Security:
+            Prevents path traversal attacks by ensuring paths are contained
+            within either ~/.azlin/ or the current working directory.
+        """
+        # Get allowed base directories
+        allowed_dirs = [
+            cls.DEFAULT_CONFIG_DIR.resolve(),  # ~/.azlin/
+            Path.cwd().resolve(),  # Current working directory
+        ]
+
+        # Check if path is within any allowed directory
+        for allowed_dir in allowed_dirs:
+            try:
+                # Check if path is relative to allowed_dir
+                # This will raise ValueError if path is not relative to allowed_dir
+                path.relative_to(allowed_dir)
+                return  # Path is valid
+            except ValueError:
+                continue  # Try next allowed directory
+
+        # Path is not within any allowed directory
+        raise ConfigError(
+            f"Config path outside allowed directories: {path}. "
+            f"Allowed: {cls.DEFAULT_CONFIG_DIR} or current directory"
+        )
+
+    @classmethod
     def get_config_path(cls, custom_path: str | None = None) -> Path:
         """Get configuration file path.
 
@@ -106,11 +142,25 @@ class ConfigManager:
 
         Returns:
             Path to config file
+
+        Raises:
+            ConfigError: If path is invalid or outside allowed directories
         """
         if custom_path:
+            # Handle empty string as default path
+            if not custom_path.strip():
+                return cls.DEFAULT_CONFIG_FILE
+
+            # Resolve path to handle symlinks and relative paths
             path = Path(custom_path).expanduser().resolve()
+
+            # Validate path is within allowed directories
+            cls._validate_config_path(path)
+
+            # Check file exists after validation
             if not path.exists():
                 raise ConfigError(f"Config file not found: {path}")
+
             return path
 
         return cls.DEFAULT_CONFIG_FILE
@@ -201,13 +251,18 @@ class ConfigManager:
             custom_path: Custom config file path (optional)
 
         Raises:
-            ConfigError: If saving fails
+            ConfigError: If saving fails or path is outside allowed directories
         """
         temp_path: Path | None = None
         try:
             # Determine config path
             if custom_path:
+                # Resolve path to handle symlinks and relative paths
                 config_path = Path(custom_path).expanduser().resolve()
+
+                # Validate path is within allowed directories
+                cls._validate_config_path(config_path)
+
                 # Ensure parent directory exists
                 config_path.parent.mkdir(parents=True, exist_ok=True)
             else:
@@ -230,6 +285,9 @@ class ConfigManager:
 
             logger.debug(f"Saved config to: {config_path}")
 
+        except ConfigError:
+            # Re-raise ConfigError (including validation errors)
+            raise
         except Exception as e:
             # Cleanup temp file on error
             if temp_path and temp_path.exists():
