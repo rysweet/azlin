@@ -551,22 +551,20 @@ class VMProvisioner:
         Returns:
             Cloud-init YAML content
         """
-        # Build SSH key setup command if provided
-        ssh_key_setup = ""
+        # Build SSH authorized keys section if provided (runs early in boot process)
+        ssh_keys_section = ""
         if ssh_public_key:
-            # Escape the key for safe inclusion in YAML
-            escaped_key = ssh_public_key.replace("'", "'\\''")
-            ssh_key_setup = f"""  # WORKAROUND: Explicitly set SSH key (waagent sometimes fails to write authorized_keys)
-  - mkdir -p /home/azureuser/.ssh
-  - chmod 700 /home/azureuser/.ssh
-  - echo '{escaped_key}' > /home/azureuser/.ssh/authorized_keys
-  - chmod 600 /home/azureuser/.ssh/authorized_keys
-  - chown -R azureuser:azureuser /home/azureuser/.ssh
+            # Cloud-init ssh_authorized_keys runs before waagent
+            ssh_keys_section = f"""
+# WORKAROUND: waagent sometimes fails to write SSH keys
+# This ensures the key is added early in the boot process
+ssh_authorized_keys:
+  - {ssh_public_key}
 
 """
 
         return f"""#cloud-config
-package_update: true
+{ssh_keys_section}package_update: true
 package_upgrade: true
 
 packages:
@@ -579,7 +577,7 @@ packages:
   - software-properties-common
 
 runcmd:
-{ssh_key_setup}  # Python 3.12+ from deadsnakes PPA
+  # Python 3.12+ from deadsnakes PPA
   - add-apt-repository -y ppa:deadsnakes/ppa
   - apt update
   - apt install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils
