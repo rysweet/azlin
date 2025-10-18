@@ -975,7 +975,6 @@ def help_command(ctx, command_name):
         azlin help list         # Show help for list command
     """
     if command_name is None:
-        # Show general help (equivalent to --help)
         click.echo(ctx.parent.get_help())
     else:
         # Show help for specific command
