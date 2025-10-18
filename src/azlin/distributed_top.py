@@ -347,7 +347,8 @@ class DistributedTopExecutor:
                                         "command": command[:40],  # Truncate long commands
                                     }
                                 )
-                        except (ValueError, IndexError):
+                        except (ValueError, IndexError) as e:
+                            logger.debug(f"Failed to parse process line: {e}")
                             continue
 
             # Calculate total CPU (sum of top 3 processes as approximation)

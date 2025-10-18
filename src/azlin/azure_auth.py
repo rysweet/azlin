@@ -144,7 +144,8 @@ class AzureAuthenticator:
                 timeout=2,
             )
             return result.returncode == 0
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Azure VM metadata check failed: {e}")
             return False
 
     def check_az_cli_available(self) -> bool:
@@ -156,9 +157,11 @@ class AzureAuthenticator:
         try:
             result = subprocess.run(["az", "--version"], capture_output=True, text=True, timeout=5)
             return result.returncode == 0
-        except FileNotFoundError:
+        except FileNotFoundError as e:
+            logger.debug(f"Azure CLI not found: {e}")
             return False
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Azure CLI check failed: {e}")
             return False
 
     def validate_credentials(self) -> bool:
@@ -173,7 +176,8 @@ class AzureAuthenticator:
                 # Check token is not expired (simple check)
                 return len(creds.token) > 0
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Credential validation failed: {e}")
             return False
 
     def validate_subscription_id(self, subscription_id: str | None) -> bool:

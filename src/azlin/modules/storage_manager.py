@@ -139,8 +139,8 @@ class StorageManager:
             existing = cls.get_storage(name, resource_group)
             logger.info(f"Storage account {name} already exists, returning existing")
             return existing
-        except StorageNotFoundError:
-            pass  # Doesn't exist, continue with creation
+        except StorageNotFoundError as e:
+            logger.debug(f"Storage not found during deletion: {e}")  # Doesn't exist, continue with creation
 
         # Create storage account
         logger.info(f"Creating storage account {name} in {resource_group}")
@@ -381,7 +381,8 @@ class StorageManager:
                 return int(result.stdout.strip())
             return 100  # Default
 
-        except (ValueError, subprocess.TimeoutExpired):
+        except (ValueError, subprocess.TimeoutExpired) as e:
+            logger.warning(f"Failed to get storage quota for {storage_name}: {e}")
             return 100  # Default
 
     @classmethod

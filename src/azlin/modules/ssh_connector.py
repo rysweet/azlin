@@ -217,7 +217,8 @@ class SSHConnector:
             result = sock.connect_ex((host, port))
             sock.close()
             return result == 0
-        except (TimeoutError, OSError):
+        except (TimeoutError, OSError) as e:
+            logger.debug(f"Port connectivity test failed for {host}:{port}: {e}")
             return False
 
     @classmethod
@@ -269,7 +270,8 @@ class SSHConnector:
 
             return result.returncode == 0
 
-        except (subprocess.TimeoutExpired, Exception):
+        except (subprocess.TimeoutExpired, Exception) as e:
+            logger.debug(f"SSH connection test failed for {host}: {e}")
             return False
 
     @classmethod

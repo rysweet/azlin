@@ -28,7 +28,8 @@ class PruneManager:
         """Parse ISO format timestamp, returning None on error."""
         try:
             return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to parse timestamp '{timestamp_str}': {e}")
             return None
 
     @staticmethod

@@ -241,7 +241,8 @@ class TerminalLauncher:
         try:
             subprocess.run(["which", command], capture_output=True, timeout=5, check=True)
             return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.debug(f"Command '{command}' not available: {e}")
             return False
 
     @classmethod

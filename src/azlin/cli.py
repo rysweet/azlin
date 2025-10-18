@@ -2719,8 +2719,9 @@ def update(vm_identifier: str, resource_group: str | None, config: str | None, t
             if session_vm:
                 vm_identifier = session_vm
                 click.echo(f"Resolved session '{original_identifier}' to VM '{vm_identifier}'")
-        except Exception:
-            pass  # Not a session name, try as VM name or IP
+        except Exception as e:
+            logger.debug(f"Session name resolution failed for '{vm_identifier}': {e}")
+            # Not a session name, try as VM name or IP
 
         # Get SSH config for VM
         ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
@@ -3524,8 +3525,8 @@ def _copy_home_directories(
             if temp_dir and temp_dir.exists():
                 try:
                     shutil.rmtree(temp_dir)
-                except Exception:
-                    pass  # Best effort cleanup
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary directory {temp_dir}: {e}")
 
     # Execute copies in parallel
     results = {}

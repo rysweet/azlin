@@ -326,8 +326,8 @@ class ConfigManager:
             config = cls.load_config(custom_path)
             if config.session_names:
                 return config.session_names.get(vm_name)
-        except ConfigError:
-            pass
+        except ConfigError as e:
+            logger.debug(f"Failed to load config for session name lookup: {e}")
         return None
 
     @classmethod
@@ -356,8 +356,8 @@ class ConfigManager:
                 del config.session_names[vm_name]
                 cls.save_config(config, custom_path)
                 return True
-        except ConfigError:
-            pass
+        except ConfigError as e:
+            logger.debug(f"Failed to delete session name for {vm_name}: {e}")
         return False
 
     @classmethod
@@ -380,8 +380,8 @@ class ConfigManager:
                 for vm_name, sess_name in config.session_names.items():
                     if sess_name == session_name:
                         return vm_name
-        except ConfigError:
-            pass
+        except ConfigError as e:
+            logger.debug(f"Failed to look up VM by session name '{session_name}': {e}")
         return None
 
 

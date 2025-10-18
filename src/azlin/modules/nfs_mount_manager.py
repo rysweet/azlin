@@ -332,7 +332,8 @@ class NFSMountManager:
             cmd = f"mount | grep {mount_point} | grep nfs"
             result = cls._ssh_command(vm_ip, ssh_key, cmd)
             return bool(result.strip())
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to check if NFS is mounted at {mount_point}: {e}")
             return False
 
     @classmethod

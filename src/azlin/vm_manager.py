@@ -303,8 +303,8 @@ class VMManager:
                 try:
                     # Parse ISO format timestamp
                     return datetime.fromisoformat(vm.created_time.replace("Z", "+00:00"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to parse VM creation time '{vm.created_time}': {e}")
             return datetime.min
 
         return sorted(vms, key=get_time, reverse=reverse)

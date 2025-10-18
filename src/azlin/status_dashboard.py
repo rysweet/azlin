@@ -153,7 +153,8 @@ class StatusDashboard:
                     return network_interfaces[0].get("ipAddress")
 
             return None
-        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
+        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Failed to get public IP for VM {vm_name}: {e}")
             return None
 
     def _extract_power_state(self, instance_view: dict[str, Any]) -> str:

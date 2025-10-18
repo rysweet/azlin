@@ -54,8 +54,9 @@ class NotificationHandler:
 
             config = ConfigManager.load_config()
             return config.notification_command
-        except Exception:
+        except Exception as e:
             # Fallback to default if config not available
+            logger.debug(f"Failed to load notification config: {e}")
             return "imessR"
 
     @classmethod

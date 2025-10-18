@@ -132,9 +132,9 @@ class VMLifecycleManager:
                         try:
                             cls._delete_disk(resource_name, resource_group)
                             deleted_resources.append(f"Disk: {resource_name}")
-                        except Exception:
+                        except Exception as e:
                             # Disk might be auto-deleted, ignore
-                            pass
+                            logger.warning(f"Failed to delete disk {resource_name} (may be auto-deleted): {e}")
                 except Exception as e:
                     logger.warning(f"Failed to delete {resource_type} {resource_name}: {e}")
                     # Continue with other resources
@@ -401,7 +401,8 @@ class VMLifecycleManager:
 
             return None
 
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to get public IP for VM {vm_name}: {e}")
             return None
 
     @classmethod

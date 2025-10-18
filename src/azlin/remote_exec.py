@@ -224,7 +224,8 @@ class RemoteExecutor:
             # Join args into command string
             return " ".join(command_args)
 
-        except (ValueError, IndexError):
+        except (ValueError, IndexError) as e:
+            logger.debug(f"Failed to parse command from context {ctx.args}: {e}")
             return None
 
     @classmethod

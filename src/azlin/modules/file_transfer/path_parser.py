@@ -1,9 +1,12 @@
 """Secure path parsing and validation."""
 
+import logging
 import re
 from pathlib import Path
 
 from .exceptions import InvalidPathError, PathTraversalError, SymlinkSecurityError
+
+logger = logging.getLogger(__name__)
 
 
 class PathParser:
@@ -118,7 +121,8 @@ class PathParser:
         try:
             path.relative_to(cls.HOME_DIR)
             return True
-        except ValueError:
+        except ValueError as e:
+            logger.debug(f"Path {path} is not within allowed boundaries: {e}")
             return False
 
     @classmethod

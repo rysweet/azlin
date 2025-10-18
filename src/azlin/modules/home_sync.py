@@ -214,7 +214,8 @@ class HomeSyncManager:
             # Convert to string for matching (Path.match can be finicky with relative paths)
             rel_str = str(relative_path)
             return any(Path(rel_str).match(pattern) for pattern in cls.ALLOWED_GLOBS)
-        except (ValueError, RuntimeError, OSError):
+        except (ValueError, RuntimeError, OSError) as e:
+            logger.debug(f"Failed to check if path is allowed for {file_path}: {e}")
             return False
 
     @classmethod
@@ -239,7 +240,8 @@ class HomeSyncManager:
             # Convert to string for matching
             rel_str = str(relative_path)
             return any(Path(rel_str).match(pattern) for pattern in cls.BLOCKED_GLOBS)
-        except (ValueError, RuntimeError, OSError):
+        except (ValueError, RuntimeError, OSError) as e:
+            logger.debug(f"Failed to check if path is blocked for {file_path}: {e}")
             return False
 
     @classmethod
@@ -260,8 +262,9 @@ class HomeSyncManager:
             for dangerous_dir in cls.DANGEROUS_SYMLINK_TARGETS:
                 if target_path == dangerous_dir or dangerous_dir in target_path.parents:
                     return True
-        except (OSError, ValueError):
+        except (OSError, ValueError) as e:
             # If we can't resolve, treat as dangerous
+            logger.debug(f"Failed to check symlink target for {link_path}: {e}")
             return True
 
         return False
@@ -300,9 +303,9 @@ class HomeSyncManager:
                         )
                     )
 
-        except (UnicodeDecodeError, PermissionError, OSError):
+        except (UnicodeDecodeError, PermissionError, OSError) as e:
             # Binary or unreadable file - skip content scan
-            pass
+            logger.debug(f"Failed to scan content of {file_path}: {e}")
 
         return warnings
 
@@ -345,8 +348,8 @@ class HomeSyncManager:
                             severity="error",
                         )
                     )
-                except ValueError:
-                    pass
+                except ValueError as e:
+                    logger.debug(f"Failed to get relative path for {file_path}: {e}")
                 continue
 
             # Check symlinks
@@ -372,8 +375,8 @@ class HomeSyncManager:
                                 severity="warning",
                             )
                         )
-                    except ValueError:
-                        pass
+                    except ValueError as e:
+                        logger.debug(f"Failed to get relative path for broken symlink {file_path}: {e}")
 
             # Scan file content (only for regular files)
             if file_path.is_file() and not file_path.is_symlink():
@@ -382,8 +385,8 @@ class HomeSyncManager:
                     try:
                         relative = file_path.relative_to(directory)
                         warning.file_path = str(relative)
-                    except ValueError:
-                        pass
+                    except ValueError as e:
+                        logger.debug(f"Failed to get relative path for content warning {file_path}: {e}")
                 warnings.extend(content_warnings)
 
         return warnings
@@ -496,8 +499,8 @@ class HomeSyncManager:
             # This will properly reject invalid IPs like 999.999.999.999
             ipaddress.ip_address(host)
             return True
-        except (ValueError, ipaddress.AddressValueError):
-            pass
+        except (ValueError, ipaddress.AddressValueError) as e:
+            logger.debug(f"Host '{host}' is not a valid IP address: {e}")
 
         # Validate hostname (RFC 1123)
         hostname_pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
@@ -596,8 +599,8 @@ class HomeSyncManager:
                     try:
                         size_str = parts[1].strip().split()[0].replace(",", "")
                         bytes_transferred = int(size_str)
-                    except (ValueError, IndexError):
-                        pass
+                    except (ValueError, IndexError) as e:
+                        logger.debug(f"Failed to parse transferred file size: {e}")
 
         return files_synced, bytes_transferred
 

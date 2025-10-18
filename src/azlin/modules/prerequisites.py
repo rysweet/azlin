@@ -152,7 +152,8 @@ class PrerequisiteChecker:
             with open("/proc/version") as f:
                 version = f.read().lower()
                 return "microsoft" in version or "wsl" in version
-        except (FileNotFoundError, PermissionError):
+        except (FileNotFoundError, PermissionError) as e:
+            logger.debug(f"Failed to check for WSL: {e}")
             return False
 
     @classmethod

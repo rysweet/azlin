@@ -358,7 +358,8 @@ class VMConnector:
                 value = int(octet)
                 if value < 0 or value > 255:
                     return False
-            except ValueError:
+            except ValueError as e:
+                logger.debug(f"Invalid IP octet '{octet}' in '{identifier}': {e}")
                 return False
 
         return True
