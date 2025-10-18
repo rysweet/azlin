@@ -12,10 +12,12 @@ Usage:
 """
 
 import logging
+import re
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from pathlib import Path
 
 from rich.console import Console
 from rich.live import Live
@@ -75,9 +77,70 @@ class DistributedTopExecutor:
         """
         self.ssh_configs = ssh_configs
         self.interval = interval
-        self.max_workers = max_workers
-        self.timeout = timeout
+        # Clamp max_workers to safe bounds (1-50)
+        self.max_workers = max(1, min(50, max_workers))
+        # Clamp timeout to safe bounds (1-30 seconds)
+        self.timeout = max(1, min(30, timeout))
         self.console = Console()
+
+    @staticmethod
+    def _validate_ssh_config(ssh_config: SSHConfig) -> None:
+        """Validate SSH configuration for security issues.
+
+        Args:
+            ssh_config: SSH configuration to validate
+
+        Raises:
+            DistributedTopError: If configuration is invalid or insecure
+        """
+        # Validate hostname format (no flags starting with -)
+        if not ssh_config.host or ssh_config.host.startswith("-"):
+            raise DistributedTopError("Invalid hostname: must not start with '-'")
+
+        # Validate username format (alphanumeric, underscore, hyphen only)
+        if not ssh_config.user or not re.match(r"^[a-zA-Z0-9_-]+$", ssh_config.user):
+            raise DistributedTopError(
+                "Invalid username: must contain only alphanumeric, underscore, or hyphen characters"
+            )
+
+        # Validate key path exists and is a file
+        key_path = Path(ssh_config.key_path)
+        if not key_path.exists():
+            raise DistributedTopError("SSH key file does not exist")
+        if not key_path.is_file():
+            raise DistributedTopError("SSH key path is not a file")
+
+    @staticmethod
+    def _sanitize_error_message(message: str) -> str:
+        """Sanitize error messages to prevent information disclosure.
+
+        - Removes file paths from error messages
+        - Masks internal IP addresses (10.x, 172.x, 192.168.x)
+        - Limits error message length to 100 chars
+
+        Args:
+            message: Original error message
+
+        Returns:
+            Sanitized error message
+        """
+        if not message:
+            return "Unknown error"
+
+        # Remove common file paths (Unix and Windows style)
+        sanitized = re.sub(r"/[a-zA-Z0-9/_.-]+", "[path]", message)
+        sanitized = re.sub(r"[A-Z]:\\[a-zA-Z0-9\\._-]+", "[path]", sanitized)
+
+        # Mask internal IP addresses
+        sanitized = re.sub(r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "10.x.x.x", sanitized)
+        sanitized = re.sub(r"\b172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}\b", "172.x.x.x", sanitized)
+        sanitized = re.sub(r"\b192\.168\.\d{1,3}\.\d{1,3}\b", "192.168.x.x", sanitized)
+
+        # Limit length to 100 chars
+        if len(sanitized) > 100:
+            sanitized = sanitized[:97] + "..."
+
+        return sanitized
 
     @classmethod
     def collect_vm_metrics(cls, ssh_config: SSHConfig, timeout: int = 5) -> VMMetrics:
@@ -96,6 +159,23 @@ class DistributedTopExecutor:
             VMMetrics object with collected data
         """
         start_time = time.time()
+
+        # Validate SSH configuration before execution
+        try:
+            cls._validate_ssh_config(ssh_config)
+        except DistributedTopError as e:
+            return VMMetrics(
+                vm_name=ssh_config.host,
+                success=False,
+                load_avg=None,
+                cpu_percent=None,
+                memory_used_mb=None,
+                memory_total_mb=None,
+                memory_percent=None,
+                top_processes=None,
+                error_message=str(e),
+                timestamp=time.time() - start_time,
+            )
 
         # Compound command to collect all metrics in one SSH call
         command = "uptime && free -m && top -bn1 -o %CPU | head -n 15"
@@ -131,6 +211,8 @@ class DistributedTopExecutor:
             timestamp = time.time() - start_time
 
             if result.returncode != 0:
+                # Sanitize error message from stderr
+                error_msg = result.stderr or "SSH connection failed"
                 return VMMetrics(
                     vm_name=ssh_config.host,
                     success=False,
@@ -140,7 +222,7 @@ class DistributedTopExecutor:
                     memory_total_mb=None,
                     memory_percent=None,
                     top_processes=None,
-                    error_message=result.stderr or "SSH connection failed",
+                    error_message=cls._sanitize_error_message(error_msg),
                     timestamp=timestamp,
                 )
 
@@ -171,10 +253,11 @@ class DistributedTopExecutor:
                 memory_total_mb=None,
                 memory_percent=None,
                 top_processes=None,
-                error_message=f"Timeout after {timeout}s",
+                error_message="Connection timeout",
                 timestamp=timeout,
             )
         except Exception as e:
+            # Log detailed error for debugging, but sanitize for users
             logger.error(f"Failed to collect metrics from {ssh_config.host}: {e}")
             return VMMetrics(
                 vm_name=ssh_config.host,
@@ -185,7 +268,7 @@ class DistributedTopExecutor:
                 memory_total_mb=None,
                 memory_percent=None,
                 top_processes=None,
-                error_message=str(e),
+                error_message=cls._sanitize_error_message(str(e)),
                 timestamp=time.time() - start_time,
             )
 
@@ -302,6 +385,7 @@ class DistributedTopExecutor:
                     metric = future.result()
                     metrics.append(metric)
                 except Exception as e:
+                    # Log detailed error for debugging, but sanitize for users
                     logger.error(f"Failed on {config.host}: {e}")
                     metrics.append(
                         VMMetrics(
@@ -313,7 +397,7 @@ class DistributedTopExecutor:
                             memory_total_mb=None,
                             memory_percent=None,
                             top_processes=None,
-                            error_message=str(e),
+                            error_message=self._sanitize_error_message(str(e)),
                         )
                     )
 

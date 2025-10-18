@@ -321,3 +321,158 @@ class TestVMMetrics:
         assert not metrics.success
         assert metrics.error_message == "Connection timeout"
         assert metrics.load_avg is None
+
+
+class TestSecurityValidation:
+    """Security-focused test cases for SSH config validation and error sanitization."""
+
+    def test_malicious_hostname_rejection(self, tmp_path):
+        """Test that hostnames starting with '-' are rejected."""
+        key = tmp_path / "key"
+        key.touch()
+
+        malicious_config = SSHConfig(
+            host="-oProxyCommand=evil",
+            user="azureuser",
+            key_path=str(key)
+        )
+
+        metrics = DistributedTopExecutor.collect_vm_metrics(malicious_config, timeout=5)
+
+        assert not metrics.success
+        assert "Invalid hostname" in metrics.error_message
+        assert "must not start with '-'" in metrics.error_message
+
+    def test_invalid_username_rejection(self, tmp_path):
+        """Test that usernames with invalid characters are rejected."""
+        key = tmp_path / "key"
+        key.touch()
+
+        # Test username with special characters
+        invalid_config = SSHConfig(
+            host="10.0.0.1",
+            user="user;whoami",
+            key_path=str(key)
+        )
+
+        metrics = DistributedTopExecutor.collect_vm_metrics(invalid_config, timeout=5)
+
+        assert not metrics.success
+        assert "Invalid username" in metrics.error_message
+
+    def test_invalid_username_with_spaces(self, tmp_path):
+        """Test that usernames with spaces are rejected."""
+        key = tmp_path / "key"
+        key.touch()
+
+        invalid_config = SSHConfig(
+            host="10.0.0.1",
+            user="user name",
+            key_path=str(key)
+        )
+
+        metrics = DistributedTopExecutor.collect_vm_metrics(invalid_config, timeout=5)
+
+        assert not metrics.success
+        assert "Invalid username" in metrics.error_message
+
+    def test_missing_key_path_handling(self):
+        """Test that missing SSH key paths are rejected."""
+        missing_key_config = SSHConfig(
+            host="10.0.0.1",
+            user="azureuser",
+            key_path="/nonexistent/path/to/key"
+        )
+
+        metrics = DistributedTopExecutor.collect_vm_metrics(missing_key_config, timeout=5)
+
+        assert not metrics.success
+        assert "SSH key file does not exist" in metrics.error_message
+
+    def test_key_path_is_directory(self, tmp_path):
+        """Test that SSH key path must be a file, not a directory."""
+        key_dir = tmp_path / "keydir"
+        key_dir.mkdir()
+
+        invalid_config = SSHConfig(
+            host="10.0.0.1",
+            user="azureuser",
+            key_path=str(key_dir)
+        )
+
+        metrics = DistributedTopExecutor.collect_vm_metrics(invalid_config, timeout=5)
+
+        assert not metrics.success
+        assert "SSH key path is not a file" in metrics.error_message
+
+    def test_error_message_sanitization_file_paths(self):
+        """Test that file paths are removed from error messages."""
+        error_with_path = "Failed to read /home/user/.ssh/id_rsa: Permission denied"
+        sanitized = DistributedTopExecutor._sanitize_error_message(error_with_path)
+
+        assert "[path]" in sanitized
+        assert "/home/user/.ssh/id_rsa" not in sanitized
+
+    def test_error_message_sanitization_internal_ips(self):
+        """Test that internal IP addresses are masked."""
+        # Test 10.x.x.x range
+        error_with_ip = "Connection to 10.0.0.1 failed"
+        sanitized = DistributedTopExecutor._sanitize_error_message(error_with_ip)
+        assert "10.x.x.x" in sanitized
+        assert "10.0.0.1" not in sanitized
+
+        # Test 192.168.x.x range
+        error_with_ip = "Connection to 192.168.1.100 failed"
+        sanitized = DistributedTopExecutor._sanitize_error_message(error_with_ip)
+        assert "192.168.x.x" in sanitized
+        assert "192.168.1.100" not in sanitized
+
+        # Test 172.16-31.x.x range
+        error_with_ip = "Connection to 172.16.0.1 failed"
+        sanitized = DistributedTopExecutor._sanitize_error_message(error_with_ip)
+        assert "172.x.x.x" in sanitized
+        assert "172.16.0.1" not in sanitized
+
+    def test_error_message_length_limit(self):
+        """Test that error messages are limited to 100 characters."""
+        long_error = "A" * 150
+        sanitized = DistributedTopExecutor._sanitize_error_message(long_error)
+
+        assert len(sanitized) == 100
+        assert sanitized.endswith("...")
+
+    def test_empty_error_message_handling(self):
+        """Test that empty error messages are handled gracefully."""
+        sanitized = DistributedTopExecutor._sanitize_error_message("")
+        assert sanitized == "Unknown error"
+
+        sanitized = DistributedTopExecutor._sanitize_error_message(None)
+        assert sanitized == "Unknown error"
+
+    def test_timeout_bounds_validation(self, ssh_configs):
+        """Test that timeout is clamped to safe bounds (1-30 seconds)."""
+        # Test timeout too low
+        executor = DistributedTopExecutor(ssh_configs, timeout=0)
+        assert executor.timeout == 1
+
+        # Test timeout too high
+        executor = DistributedTopExecutor(ssh_configs, timeout=100)
+        assert executor.timeout == 30
+
+        # Test valid timeout
+        executor = DistributedTopExecutor(ssh_configs, timeout=10)
+        assert executor.timeout == 10
+
+    def test_max_workers_bounds_validation(self, ssh_configs):
+        """Test that max_workers is clamped to safe bounds (1-50)."""
+        # Test max_workers too low
+        executor = DistributedTopExecutor(ssh_configs, max_workers=0)
+        assert executor.max_workers == 1
+
+        # Test max_workers too high
+        executor = DistributedTopExecutor(ssh_configs, max_workers=100)
+        assert executor.max_workers == 50
+
+        # Test valid max_workers
+        executor = DistributedTopExecutor(ssh_configs, max_workers=20)
+        assert executor.max_workers == 20

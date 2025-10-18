@@ -1582,16 +1582,20 @@ def top(
         executor.run_dashboard()
 
     except VMManagerError as e:
+        # VMManagerError is already user-friendly
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except DistributedTopError as e:
+        # DistributedTopError is already user-friendly
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except KeyboardInterrupt:
         click.echo("\nDashboard stopped by user.")
         sys.exit(0)
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        # Log detailed error for debugging, show generic error to user
+        logger.debug(f"Unexpected error in distributed top: {e}", exc_info=True)
+        click.echo("Error: An unexpected error occurred. Run with --verbose for details.", err=True)
         sys.exit(1)
 
 
