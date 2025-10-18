@@ -13,6 +13,7 @@ Test Coverage:
 - Resource dependency management
 """
 
+import contextlib
 from unittest.mock import Mock, patch
 
 import pytest
@@ -300,10 +301,8 @@ class TestResourceCleanup:
 
             provisioner = VMProvisioner(name="test-vm", size="Standard_D2s_v3", region="eastus")
 
-            try:
+            with contextlib.suppress(Exception):
                 provisioner.provision_with_networking(cleanup_on_failure=True)
-            except Exception:
-                pass  # Expected to fail
 
             # Verify cleanup was attempted for created resources
             # (Even if VM creation failed, network resources might have been created)

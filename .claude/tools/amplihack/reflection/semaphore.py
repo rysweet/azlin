@@ -1,5 +1,6 @@
 """Loop prevention semaphore for reflection system."""
 
+import contextlib
 import json
 import os
 import time
@@ -68,10 +69,8 @@ class ReflectionLock:
     def release(self):
         """Release lock by removing file."""
         if self.lock_file.exists():
-            try:
+            with contextlib.suppress(OSError):
                 self.lock_file.unlink()
-            except OSError:
-                pass  # Already removed or permission error
 
     def is_locked(self) -> bool:
         """Check if lock file exists."""

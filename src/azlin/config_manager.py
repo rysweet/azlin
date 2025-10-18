@@ -17,16 +17,18 @@ from pathlib import Path
 from typing import Any
 
 try:
-    import tomli
+    import tomli  # type: ignore[import]
     import tomli_w
 except ImportError:
     # Fallback for older Python versions
     try:
-        import tomllib as tomli
+        import tomllib as tomli  # type: ignore[import]
 
         import tomli_w
-    except ImportError:
-        raise ImportError("toml library not available. Install with: pip install tomli tomli-w")
+    except ImportError as e:
+        raise ImportError(
+            "toml library not available. Install with: pip install tomli tomli-w"
+        ) from e
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,21 @@ class AzlinConfig:
     session_names: dict[str, str] | None = None  # vm_name -> session_name mapping
     vm_storage: dict[str, str] | None = None  # vm_name -> storage_name mapping (for NFS)
     default_nfs_storage: str | None = None  # Default NFS storage for new VMs
+
+    @property
+    def resource_group(self) -> str | None:
+        """Convenience property for default_resource_group."""
+        return self.default_resource_group
+
+    @property
+    def region(self) -> str:
+        """Convenience property for default_region."""
+        return self.default_region
+
+    @property
+    def vm_size(self) -> str:
+        """Convenience property for default_vm_size."""
+        return self.default_vm_size
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
@@ -118,7 +135,22 @@ class ConfigManager:
             return cls.DEFAULT_CONFIG_DIR
 
         except Exception as e:
-            raise ConfigError(f"Failed to create config directory: {e}")
+            raise ConfigError(f"Failed to create config directory: {e}") from e
+
+    @classmethod
+    def get_config(cls, custom_path: str | None = None) -> AzlinConfig:
+        """Get configuration (alias for load_config).
+
+        Args:
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            AzlinConfig object
+
+        Raises:
+            ConfigError: If loading fails
+        """
+        return cls.load_config(custom_path)
 
     @classmethod
     def load_config(cls, custom_path: str | None = None) -> AzlinConfig:
@@ -152,13 +184,13 @@ class ConfigManager:
 
             # Load TOML
             with open(config_path, "rb") as f:
-                data = tomli.load(f)
+                data = tomli.load(f)  # type: ignore[attr-defined]
 
             logger.debug(f"Loaded config from: {config_path}")
-            return AzlinConfig.from_dict(data)
+            return AzlinConfig.from_dict(data)  # type: ignore[arg-type]
 
         except Exception as e:
-            raise ConfigError(f"Failed to load config: {e}")
+            raise ConfigError(f"Failed to load config: {e}") from e
 
     @classmethod
     def save_config(cls, config: AzlinConfig, custom_path: str | None = None) -> None:
@@ -171,6 +203,7 @@ class ConfigManager:
         Raises:
             ConfigError: If saving fails
         """
+        temp_path: Path | None = None
         try:
             # Determine config path
             if custom_path:
@@ -199,9 +232,9 @@ class ConfigManager:
 
         except Exception as e:
             # Cleanup temp file on error
-            if "temp_path" in locals() and temp_path.exists():
+            if temp_path and temp_path.exists():
                 temp_path.unlink()
-            raise ConfigError(f"Failed to save config: {e}")
+            raise ConfigError(f"Failed to save config: {e}") from e
 
     @classmethod
     def update_config(cls, custom_path: str | None = None, **updates: Any) -> AzlinConfig:

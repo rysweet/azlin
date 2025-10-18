@@ -17,6 +17,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +231,7 @@ class VMProvisioner:
     """
 
     # Valid VM sizes whitelist (2025 current-gen SKUs)
-    VALID_VM_SIZES = {
+    VALID_VM_SIZES: ClassVar[set[str]] = {
         # B-series v1 (legacy but still available)
         "Standard_B1s",
         "Standard_B1ms",
@@ -267,7 +268,7 @@ class VMProvisioner:
     }
 
     # Valid Azure regions whitelist
-    VALID_REGIONS = {
+    VALID_REGIONS: ClassVar[set[str]] = {
         "eastus",
         "eastus2",
         "westus",
@@ -304,7 +305,13 @@ class VMProvisioner:
     }
 
     # Fallback regions to try if SKU unavailable (in order of preference)
-    FALLBACK_REGIONS = ["westus2", "centralus", "eastus2", "westus", "westeurope"]
+    FALLBACK_REGIONS: ClassVar[list[str]] = [
+        "westus2",
+        "centralus",
+        "eastus2",
+        "westus",
+        "westeurope",
+    ]
 
     def __init__(self, subscription_id: str | None = None):
         """Initialize VM provisioner.
@@ -425,8 +432,8 @@ class VMProvisioner:
         report_progress(f"Creating resource group: {config.resource_group}")
         self.create_resource_group(config.resource_group, config.location)
 
-        # Generate cloud-init
-        cloud_init = self._generate_cloud_init()
+        # Generate cloud-init with SSH key
+        cloud_init = self._generate_cloud_init(config.ssh_public_key)
 
         # Build VM create command
         cmd = [
@@ -533,16 +540,31 @@ class VMProvisioner:
             return True
 
         except subprocess.CalledProcessError as e:
-            raise ProvisioningError(f"Failed to create resource group: {e.stderr}")
+            raise ProvisioningError(f"Failed to create resource group: {e.stderr}") from e
 
-    def _generate_cloud_init(self) -> str:
+    def _generate_cloud_init(self, ssh_public_key: str | None = None) -> str:
         """Generate cloud-init script for tool installation.
+
+        Args:
+            ssh_public_key: SSH public key to add to authorized_keys (workaround for waagent bug)
 
         Returns:
             Cloud-init YAML content
         """
-        return """#cloud-config
-package_update: true
+        # Build SSH authorized keys section if provided (runs early in boot process)
+        ssh_keys_section = ""
+        if ssh_public_key:
+            # Cloud-init ssh_authorized_keys runs before waagent
+            ssh_keys_section = f"""
+# WORKAROUND: waagent sometimes fails to write SSH keys
+# This ensures the key is added early in the boot process
+ssh_authorized_keys:
+  - {ssh_public_key}
+
+"""
+
+        return f"""#cloud-config
+{ssh_keys_section}package_update: true
 package_upgrade: true
 
 packages:
@@ -582,12 +604,12 @@ runcmd:
 
   # npm user-local configuration (avoid sudo for global installs)
   - mkdir -p /home/azureuser/.npm-packages
-  - echo 'prefix=${HOME}/.npm-packages' > /home/azureuser/.npmrc
+  - echo 'prefix=${{HOME}}/.npm-packages' > /home/azureuser/.npmrc
   - |
     cat >> /home/azureuser/.bashrc << 'EOF'
 
     # npm user-local configuration
-    NPM_PACKAGES="${HOME}/.npm-packages"
+    NPM_PACKAGES="${{HOME}}/.npm-packages"
     PATH="$NPM_PACKAGES/bin:$PATH"
     MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
 
@@ -691,10 +713,10 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
             logger.info(msg)
 
         # Build list of regions to try (preferred region first, then fallbacks)
-        regions_to_try = [config.location]
-        for region in self.FALLBACK_REGIONS:
-            if region != config.location:
-                regions_to_try.append(region)
+        regions_to_try: list[str] = [config.location]
+        regions_to_try.extend(
+            region for region in self.FALLBACK_REGIONS if region != config.location
+        )
 
         last_error = None
 
@@ -713,8 +735,8 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                 # Attempt provisioning with retry config
                 return self._try_provision_vm(retry_config, progress_callback)
 
-            except subprocess.TimeoutExpired:
-                raise ProvisioningError("VM provisioning timed out after 10 minutes")
+            except subprocess.TimeoutExpired as e:
+                raise ProvisioningError("VM provisioning timed out after 10 minutes") from e
 
             except subprocess.CalledProcessError as e:
                 error_msg = e.stderr if e.stderr else str(e)
@@ -727,10 +749,10 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                     )
                     continue  # Try next region
                 # Non-SKU error - don't retry
-                raise ProvisioningError(f"VM provisioning failed: {error_msg}")
+                raise ProvisioningError(f"VM provisioning failed: {error_msg}") from e
 
-            except json.JSONDecodeError:
-                raise ProvisioningError("Failed to parse VM creation response")
+            except json.JSONDecodeError as e:
+                raise ProvisioningError("Failed to parse VM creation response") from e
 
         # All regions failed
         raise ProvisioningError(
@@ -776,7 +798,7 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
 
         # Create resource groups first (thread-safe, deduplicated)
         unique_rgs = {(config.resource_group, config.location) for config in configs}
-        rg_failures = []
+        rg_failures: list[ResourceGroupFailure] = []
 
         progress.report(f"Creating {len(unique_rgs)} unique resource group(s)...")
         for rg, location in unique_rgs:
@@ -792,8 +814,8 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
             f"Provisioning {len(configs)} VMs in parallel with {max_workers} workers..."
         )
 
-        successful = []
-        failed = []
+        successful: list[VMDetails] = []
+        failed: list[ProvisioningFailure] = []
 
         num_workers = min(max_workers, len(configs))
 

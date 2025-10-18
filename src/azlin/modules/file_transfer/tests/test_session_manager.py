@@ -143,7 +143,7 @@ class TestGetVMSession:
         vm_manager = Mock()
         vm_manager.list_vms.return_value = [mock_vm]
 
-        session = SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)
+        session = SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)  # type: ignore[arg-type]
 
         assert session.name == "test-vm"
         assert session.public_ip == "1.2.3.4"
@@ -163,7 +163,7 @@ class TestGetVMSession:
         vm_manager = Mock()
         vm_manager.list_vms.return_value = [mock_vm]
 
-        session = SessionManager.get_vm_session("test", "test-rg", vm_manager)
+        session = SessionManager.get_vm_session("test", "test-rg", vm_manager)  # type: ignore[arg-type]
 
         assert session.name == "test-vm-001"
 
@@ -183,7 +183,7 @@ class TestGetVMSession:
         vm_manager.list_vms.return_value = [mock_vm1, mock_vm2]
 
         with pytest.raises(MultipleSessionsError):
-            SessionManager.get_vm_session("test", "test-rg", vm_manager)
+            SessionManager.get_vm_session("test", "test-rg", vm_manager)  # type: ignore[arg-type]
 
     def test_rejects_no_match(self):
         """Should reject when no VMs match"""
@@ -192,7 +192,7 @@ class TestGetVMSession:
         vm_manager.list_vms.return_value = []
 
         with pytest.raises(SessionNotFoundError):
-            SessionManager.get_vm_session("nonexistent", "test-rg", vm_manager)
+            SessionManager.get_vm_session("nonexistent", "test-rg", vm_manager)  # type: ignore[arg-type]
 
     def test_rejects_stopped_vm(self):
         """Should reject VMs that are not running"""
@@ -206,7 +206,7 @@ class TestGetVMSession:
         vm_manager.list_vms.return_value = [mock_vm]
 
         with pytest.raises(SessionNotFoundError, match="not running"):
-            SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)
+            SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)  # type: ignore[arg-type]
 
     def test_rejects_vm_without_ip(self):
         """Should reject VMs without public IP"""
@@ -221,4 +221,4 @@ class TestGetVMSession:
         vm_manager.list_vms.return_value = [mock_vm]
 
         with pytest.raises(SessionNotFoundError, match="no public IP"):
-            SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)
+            SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)  # type: ignore[arg-type]

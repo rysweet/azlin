@@ -28,7 +28,8 @@ def example_basic_session():
         logger.info("Starting basic session example")
 
         # Execute some commands
-        result1 = session.execute_command("list_files", directory="/tmp")
+        import tempfile
+        result1 = session.execute_command("list_files", directory=tempfile.gettempdir())
         logger.info(f"Command result: {result1['status']}")
 
         result2 = session.execute_command("analyze_data", format="json")

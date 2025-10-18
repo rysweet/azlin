@@ -19,6 +19,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from fnmatch import fnmatch
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ class VMLifecycleController:
     """
 
     # Estimated hourly costs by VM size (rough estimates in USD/hour)
-    VM_COSTS = {
+    VM_COSTS: ClassVar[dict[str, float]] = {
         "Standard_D2s_v3": 0.096,
         "Standard_D4s_v3": 0.192,
         "Standard_D8s_v3": 0.384,
@@ -310,7 +311,7 @@ class VMLifecycleController:
             logger.info(f"{operation.capitalize()} {len(vm_names)} VMs in parallel")
 
             # Stop VMs in parallel
-            results = []
+            results: list[LifecycleResult] = []
             num_workers = min(max_workers, len(vm_names))
 
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
@@ -360,7 +361,7 @@ class VMLifecycleController:
             )
 
         except Exception as e:
-            raise VMLifecycleControlError(f"Failed to stop VMs: {e}")
+            raise VMLifecycleControlError(f"Failed to stop VMs: {e}") from e
 
     @classmethod
     def start_vms(
@@ -405,7 +406,7 @@ class VMLifecycleController:
             logger.info(f"Starting {len(vm_names)} VMs in parallel")
 
             # Start VMs in parallel
-            results = []
+            results: list[LifecycleResult] = []
             num_workers = min(max_workers, len(vm_names))
 
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
@@ -446,10 +447,10 @@ class VMLifecycleController:
             )
 
         except Exception as e:
-            raise VMLifecycleControlError(f"Failed to start VMs: {e}")
+            raise VMLifecycleControlError(f"Failed to start VMs: {e}") from e
 
     @classmethod
-    def _get_vm_details(cls, vm_name: str, resource_group: str) -> dict | None:
+    def _get_vm_details(cls, vm_name: str, resource_group: str) -> dict[str, Any] | None:
         """Get VM details from Azure including instance view.
 
         Args:
@@ -480,11 +481,11 @@ class VMLifecycleController:
         except subprocess.CalledProcessError as e:
             if "ResourceNotFound" in e.stderr:
                 return None
-            raise VMLifecycleControlError(f"Failed to get VM details: {e.stderr}")
-        except subprocess.TimeoutExpired:
-            raise VMLifecycleControlError("VM details query timed out")
-        except json.JSONDecodeError:
-            raise VMLifecycleControlError("Failed to parse VM details")
+            raise VMLifecycleControlError(f"Failed to get VM details: {e.stderr}") from e
+        except subprocess.TimeoutExpired as e:
+            raise VMLifecycleControlError("VM details query timed out") from e
+        except json.JSONDecodeError as e:
+            raise VMLifecycleControlError("Failed to parse VM details") from e
 
     @classmethod
     def _list_vms_in_group(cls, resource_group: str) -> list[str]:
@@ -516,14 +517,14 @@ class VMLifecycleController:
         except subprocess.CalledProcessError as e:
             if "ResourceGroupNotFound" in e.stderr:
                 return []
-            raise VMLifecycleControlError(f"Failed to list VMs: {e.stderr}")
-        except subprocess.TimeoutExpired:
-            raise VMLifecycleControlError("VM list operation timed out")
-        except json.JSONDecodeError:
-            raise VMLifecycleControlError("Failed to parse VM list")
+            raise VMLifecycleControlError(f"Failed to list VMs: {e.stderr}") from e
+        except subprocess.TimeoutExpired as e:
+            raise VMLifecycleControlError("VM list operation timed out") from e
+        except json.JSONDecodeError as e:
+            raise VMLifecycleControlError("Failed to parse VM list") from e
 
     @classmethod
-    def _get_power_state(cls, vm_info: dict) -> str:
+    def _get_power_state(cls, vm_info: dict[str, Any]) -> str:
         """Extract power state from VM instance view.
 
         Args:

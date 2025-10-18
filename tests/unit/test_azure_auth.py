@@ -113,7 +113,7 @@ class TestAzureCredentialValidation:
         from azlin.azure_auth import AzureAuthenticator
 
         mock_cred = Mock()
-        mock_cred.get_token.return_value = Mock(token="valid-token", expires_on=9999999999)
+        mock_cred.get_token.return_value = Mock(token="valid-token", expires_on=9999999999)  # noqa: S106 - fake token for testing
         mock_credential.return_value = mock_cred
 
         auth = AzureAuthenticator()
@@ -285,7 +285,7 @@ class TestAzureAuthErrorHandling:
             mock_cred = Mock()
             # Simulate expired token
             mock_cred.get_token.return_value = Mock(
-                token="expired-token",
+                token="expired-token",  # noqa: S106 - fake token for testing
                 expires_on=0,  # Already expired
             )
             mock_credential.return_value = mock_cred

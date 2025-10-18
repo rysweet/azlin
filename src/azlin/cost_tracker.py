@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import ClassVar
 
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
 
@@ -53,7 +54,7 @@ class CostSummary:
     running_vms: int
     stopped_vms: int
     estimates: list[VMCostEstimate]
-    date_range: tuple | None = None
+    date_range: tuple[datetime | None, datetime | None] | None = None
 
     def get_monthly_estimate(self) -> Decimal:
         """Get monthly cost estimate for currently running VMs."""
@@ -79,7 +80,7 @@ class CostTracker:
 
     # VM hourly pricing (approximate, in USD)
     # Based on Azure Pay-As-You-Go pricing for Linux VMs in East US
-    VM_PRICING = {
+    VM_PRICING: ClassVar[dict[str, Decimal]] = {
         "Standard_B1s": Decimal("0.0104"),
         "Standard_B1ms": Decimal("0.0207"),
         "Standard_B2s": Decimal("0.0416"),
@@ -198,7 +199,7 @@ class CostTracker:
             )
 
         except VMManagerError as e:
-            raise CostTrackerError(f"Failed to estimate costs: {e}")
+            raise CostTrackerError(f"Failed to estimate costs: {e}") from e
 
     @classmethod
     def _get_hourly_rate(cls, vm_size: str) -> Decimal:

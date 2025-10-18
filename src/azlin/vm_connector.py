@@ -111,7 +111,7 @@ class VMConnector:
             ssh_keys = SSHKeyManager.ensure_key_exists(conn_info.ssh_key_path)
             conn_info.ssh_key_path = ssh_keys.private_path
         except SSHKeyError as e:
-            raise VMConnectorError(f"SSH key error: {e}")
+            raise VMConnectorError(f"SSH key error: {e}") from e
 
         # If reconnect is enabled and no remote command, use direct SSH with reconnect
         # Otherwise use terminal launcher (which opens new windows)
@@ -144,7 +144,7 @@ class VMConnector:
 
                 return exit_code == 0
             except Exception as e:
-                raise VMConnectorError(f"SSH connection failed: {e}")
+                raise VMConnectorError(f"SSH connection failed: {e}") from e
         else:
             # Build terminal config for new window or remote command
             terminal_config = TerminalConfig(
@@ -170,7 +170,7 @@ class VMConnector:
 
                 return success
             except TerminalLauncherError as e:
-                raise VMConnectorError(f"Failed to launch terminal: {e}")
+                raise VMConnectorError(f"Failed to launch terminal: {e}") from e
 
     @classmethod
     def connect_by_name(
@@ -237,7 +237,7 @@ class VMConnector:
             VMConnectorError: If connection fails
         """
         # Validate IP address
-        if not cls._is_valid_ip(ip_address):
+        if not cls.is_valid_ip(ip_address):
             raise VMConnectorError(f"Invalid IP address: {ip_address}")
 
         return cls.connect(
@@ -273,7 +273,7 @@ class VMConnector:
             VMConnectorError: If VM not found or info cannot be resolved
         """
         # Check if identifier is an IP address
-        if cls._is_valid_ip(vm_identifier):
+        if cls.is_valid_ip(vm_identifier):
             return ConnectionInfo(
                 vm_name=vm_identifier,
                 ip_address=vm_identifier,
@@ -297,7 +297,7 @@ class VMConnector:
                         "Or specify with --resource-group option."
                     )
             except ConfigError as e:
-                raise VMConnectorError(f"Config error: {e}")
+                raise VMConnectorError(f"Config error: {e}") from e
 
         # Query VM details
         try:
@@ -328,10 +328,10 @@ class VMConnector:
             )
 
         except VMManagerError as e:
-            raise VMConnectorError(f"Failed to get VM info: {e}")
+            raise VMConnectorError(f"Failed to get VM info: {e}") from e
 
     @classmethod
-    def _is_valid_ip(cls, identifier: str) -> bool:
+    def is_valid_ip(cls, identifier: str) -> bool:
         """Check if string is a valid IP address.
 
         Args:
@@ -341,11 +341,11 @@ class VMConnector:
             True if valid IPv4 or IPv6 address
 
         Example:
-            >>> VMConnector._is_valid_ip("192.168.1.1")
+            >>> VMConnector.is_valid_ip("192.168.1.1")
             True
-            >>> VMConnector._is_valid_ip("2001:db8::1")
+            >>> VMConnector.is_valid_ip("2001:db8::1")
             True
-            >>> VMConnector._is_valid_ip("my-vm-name")
+            >>> VMConnector.is_valid_ip("my-vm-name")
             False
         """
         try:

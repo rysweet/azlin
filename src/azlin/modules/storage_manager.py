@@ -69,6 +69,11 @@ class StorageInfo:
     nfs_endpoint: str  # e.g., "name.file.core.windows.net:/sharename"
     created: datetime
 
+    @property
+    def location(self) -> str:
+        """Convenience property for region (alias)."""
+        return self.region
+
 
 @dataclass
 class StorageStatus:
@@ -79,6 +84,41 @@ class StorageStatus:
     utilization_percent: float
     connected_vms: list[str]  # VM names
     cost_per_month: float
+
+    @property
+    def name(self) -> str:
+        """Convenience property for info.name."""
+        return self.info.name
+
+    @property
+    def resource_group(self) -> str:
+        """Convenience property for info.resource_group."""
+        return self.info.resource_group
+
+    @property
+    def region(self) -> str:
+        """Convenience property for info.region."""
+        return self.info.region
+
+    @property
+    def location(self) -> str:
+        """Convenience property for info.region (alias)."""
+        return self.info.region
+
+    @property
+    def tier(self) -> str:
+        """Convenience property for info.tier."""
+        return self.info.tier
+
+    @property
+    def size_gb(self) -> int:
+        """Convenience property for info.size_gb."""
+        return self.info.size_gb
+
+    @property
+    def nfs_endpoint(self) -> str:
+        """Convenience property for info.nfs_endpoint."""
+        return self.info.nfs_endpoint
 
 
 class StorageManager:
@@ -319,7 +359,7 @@ class StorageManager:
 
             accounts = json.loads(result.stdout)
 
-            storage_list = []
+            storage_list: list[StorageInfo] = []
             for account in accounts:
                 # Determine tier from SKU
                 sku = account.get("sku", {}).get("name", "")

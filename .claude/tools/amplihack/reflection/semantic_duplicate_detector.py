@@ -227,10 +227,9 @@ def check_duplicate_issue(
         asyncio.set_event_loop(loop)
 
     try:
-        result = loop.run_until_complete(
+        return loop.run_until_complete(
             _detector.detect_semantic_duplicate(title, body, existing_issues)
         )
-        return result
     except Exception as e:
         # Return safe default on any error
         return DuplicateDetectionResult(
