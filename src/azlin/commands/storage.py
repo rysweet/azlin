@@ -297,7 +297,6 @@ def delete_storage(name: str, resource_group: str | None, force: bool):
         # Delete storage
         click.echo(f"Deleting storage account '{name}'...")
         StorageManager.delete_storage(name, rg, force=force)
-        click.echo(f"Deleted storage account {name}")
 
         # Clean up config
         try:
