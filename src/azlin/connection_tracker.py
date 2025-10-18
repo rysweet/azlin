@@ -6,21 +6,24 @@ Used by prune command to identify idle VMs.
 
 import logging
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 try:
-    import tomli
+    import tomli  # type: ignore[import]
 except ImportError:
     try:
-        import tomllib as tomli
-    except ImportError:
-        raise ImportError("toml library not available. Install with: pip install tomli tomli-w")
+        import tomllib as tomli  # type: ignore[import]
+    except ImportError as e:
+        raise ImportError(
+            "toml library not available. Install with: pip install tomli tomli-w"
+        ) from e
 
 try:
     import tomli_w
-except ImportError:
-    raise ImportError("toml library not available. Install with: pip install tomli tomli-w")
+except ImportError as e:
+    raise ImportError("toml library not available. Install with: pip install tomli tomli-w") from e
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +48,10 @@ class ConnectionTracker:
             os.chmod(cls.DEFAULT_CONNECTIONS_DIR, 0o700)
             return cls.DEFAULT_CONNECTIONS_DIR
         except Exception as e:
-            raise ConnectionTrackerError(f"Failed to create connections directory: {e}")
+            raise ConnectionTrackerError(f"Failed to create connections directory: {e}") from e
 
     @classmethod
-    def load_connections(cls) -> dict[str, dict]:
+    def load_connections(cls) -> dict[str, dict[str, Any]]:
         """Load connection data from file, returns empty dict if not found."""
         connections_path = cls.DEFAULT_CONNECTIONS_FILE
 
@@ -64,15 +67,16 @@ class ConnectionTracker:
                 os.chmod(connections_path, 0o600)
 
             with open(connections_path, "rb") as f:
-                return tomli.load(f)
+                return tomli.load(f)  # type: ignore[attr-defined]
 
         except Exception as e:
             logger.warning(f"Failed to load connections file: {e}")
             return {}
 
     @classmethod
-    def save_connections(cls, connections: dict[str, dict]) -> None:
+    def save_connections(cls, connections: dict[str, dict[str, Any]]) -> None:
         """Save connection data to file atomically with secure permissions."""
+        temp_path: Path | None = None
         try:
             cls.ensure_connections_dir()
             connections_path = cls.DEFAULT_CONNECTIONS_FILE
@@ -85,22 +89,22 @@ class ConnectionTracker:
             temp_path.replace(connections_path)
 
         except Exception as e:
-            if "temp_path" in locals() and temp_path.exists():
+            if temp_path and temp_path.exists():
                 temp_path.unlink()
-            raise ConnectionTrackerError(f"Failed to save connections: {e}")
+            raise ConnectionTrackerError(f"Failed to save connections: {e}") from e
 
     @classmethod
     def record_connection(cls, vm_name: str, timestamp: datetime | None = None) -> None:
         """Record connection timestamp for a VM (defaults to now)."""
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(UTC)
 
         try:
             connections = cls.load_connections()
             connections[vm_name] = {"last_connected": timestamp.isoformat() + "Z"}
             cls.save_connections(connections)
         except Exception as e:
-            raise ConnectionTrackerError(f"Failed to record connection: {e}")
+            raise ConnectionTrackerError(f"Failed to record connection: {e}") from e
 
     @classmethod
     def get_last_connection(cls, vm_name: str) -> datetime | None:
@@ -130,7 +134,7 @@ class ConnectionTracker:
                         )
                     except Exception as e:
                         logger.warning(f"Failed to parse timestamp for {vm_name}: {e}")
-            return result
+            return result  # type: ignore[return-value]
         except Exception as e:
             logger.warning(f"Failed to get all connections: {e}")
             return {}

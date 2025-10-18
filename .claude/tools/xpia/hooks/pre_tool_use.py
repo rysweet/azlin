@@ -48,9 +48,10 @@ def log_security_event(event_type: str, data: dict) -> None:
     try:
         with open(log_file, "a") as f:
             f.write(json.dumps(log_entry) + "\n")
-    except Exception:
+    except Exception as e:
         # Don't fail tool execution if logging fails
-        pass
+        import sys
+        print(f"XPIA logging failed: {e}", file=sys.stderr)
 
 
 def validate_bash_command(command: str, context: dict[str, Any]) -> dict[str, Any]:

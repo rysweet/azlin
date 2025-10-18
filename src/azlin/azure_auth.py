@@ -223,7 +223,7 @@ class AzureAuthenticator:
             account_data = json.loads(result.stdout)
             return account_data["id"]
         except Exception as e:
-            raise AuthenticationError(f"Failed to get subscription ID: {e}")
+            raise AuthenticationError(f"Failed to get subscription ID: {e}") from e
 
     def get_tenant_id(self) -> str:
         """Get Azure tenant ID.
@@ -251,7 +251,7 @@ class AzureAuthenticator:
             account_data = json.loads(result.stdout)
             return account_data["tenantId"]
         except Exception as e:
-            raise AuthenticationError(f"Failed to get tenant ID: {e}")
+            raise AuthenticationError(f"Failed to get tenant ID: {e}") from e
 
     def clear_cache(self) -> None:
         """Clear cached credentials."""

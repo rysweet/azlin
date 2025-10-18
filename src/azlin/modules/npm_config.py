@@ -123,7 +123,7 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
             return True
 
         except RemoteExecError as e:
-            raise NpmConfigError(f"Failed to create npm directory: {e}")
+            raise NpmConfigError(f"Failed to create npm directory: {e}") from e
 
     def configure_npmrc(self) -> bool:
         """Configure npm prefix in .npmrc file.
@@ -165,7 +165,7 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
             return True
 
         except RemoteExecError as e:
-            raise NpmConfigError(f"Failed to configure .npmrc: {e}")
+            raise NpmConfigError(f"Failed to configure .npmrc: {e}") from e
 
     def configure_bashrc(self) -> bool:
         """Configure PATH and MANPATH in .bashrc file.
@@ -208,7 +208,7 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
             return True
 
         except RemoteExecError as e:
-            raise NpmConfigError(f"Failed to configure .bashrc: {e}")
+            raise NpmConfigError(f"Failed to configure .bashrc: {e}") from e
 
     def source_bashrc(self) -> bool:
         """Source .bashrc to apply changes.

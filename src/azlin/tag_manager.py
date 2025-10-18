@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import subprocess
+from typing import Any
 
 from azlin.vm_manager import VMInfo
 
@@ -77,17 +78,19 @@ class TagManager:
 
             logger.debug(f"Adding tags to VM {vm_name}: {tags}")
 
-            subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            _result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=True
+            )
 
             logger.info(f"Successfully added tags to VM {vm_name}")
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to add tags to VM {vm_name}: {e.stderr}")
-            raise TagManagerError(f"Failed to add tags: {e.stderr}")
-        except subprocess.TimeoutExpired:
-            raise TagManagerError("Tag operation timed out")
+            raise TagManagerError(f"Failed to add tags: {e.stderr}") from e
+        except subprocess.TimeoutExpired as e:
+            raise TagManagerError("Tag operation timed out") from e
         except Exception as e:
-            raise TagManagerError(f"Failed to add tags: {e!s}")
+            raise TagManagerError(f"Failed to add tags: {e!s}") from e
 
     @classmethod
     def remove_tags(cls, vm_name: str, resource_group: str, tag_keys: list[str]) -> None:
@@ -121,17 +124,19 @@ class TagManager:
 
             logger.debug(f"Removing tags from VM {vm_name}: {tag_keys}")
 
-            subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            _result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=True
+            )
 
             logger.info(f"Successfully removed tags from VM {vm_name}")
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to remove tags from VM {vm_name}: {e.stderr}")
-            raise TagManagerError(f"Failed to remove tags: {e.stderr}")
-        except subprocess.TimeoutExpired:
-            raise TagManagerError("Tag operation timed out")
+            raise TagManagerError(f"Failed to remove tags: {e.stderr}") from e
+        except subprocess.TimeoutExpired as e:
+            raise TagManagerError("Tag operation timed out") from e
         except Exception as e:
-            raise TagManagerError(f"Failed to remove tags: {e!s}")
+            raise TagManagerError(f"Failed to remove tags: {e!s}") from e
 
     @classmethod
     def get_tags(cls, vm_name: str, resource_group: str) -> dict[str, str]:
@@ -160,10 +165,12 @@ class TagManager:
                 "json",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=True
+            )
 
-            vm_data = json.loads(result.stdout)
-            tags = vm_data.get("tags", {})
+            vm_data: dict[str, Any] = json.loads(result.stdout)
+            tags: dict[str, str] | None = vm_data.get("tags", {})
 
             # Handle null tags
             if tags is None:
@@ -173,13 +180,13 @@ class TagManager:
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to get tags from VM {vm_name}: {e.stderr}")
-            raise TagManagerError(f"Failed to get tags: {e.stderr}")
-        except json.JSONDecodeError:
-            raise TagManagerError("Failed to parse VM tags response")
-        except subprocess.TimeoutExpired:
-            raise TagManagerError("Tag operation timed out")
+            raise TagManagerError(f"Failed to get tags: {e.stderr}") from e
+        except json.JSONDecodeError as e:
+            raise TagManagerError("Failed to parse VM tags response") from e
+        except subprocess.TimeoutExpired as e:
+            raise TagManagerError("Tag operation timed out") from e
         except Exception as e:
-            raise TagManagerError(f"Failed to get tags: {e!s}")
+            raise TagManagerError(f"Failed to get tags: {e!s}") from e
 
     @classmethod
     def filter_vms_by_tag(cls, vms: list[VMInfo], tag_filter: str) -> list[VMInfo]:
@@ -194,7 +201,7 @@ class TagManager:
         """
         key, value = cls.parse_tag_filter(tag_filter)
 
-        filtered_vms = []
+        filtered_vms: list[VMInfo] = []
         for vm in vms:
             # Skip VMs with no tags
             if not vm.tags:
@@ -293,5 +300,5 @@ class TagManager:
             True if valid, False otherwise
         """
         # Azure allows most characters in tag values, including empty strings
-        # Just check it's a string
-        return isinstance(value, str)
+        # Type annotation already guarantees it's a string
+        return True

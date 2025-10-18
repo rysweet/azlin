@@ -53,8 +53,10 @@ class TestAbsolutePathHandling:
 
     def test_rejects_absolute_path_by_default(self):
         """Should reject absolute paths when not allowed"""
+        import tempfile
+
         with pytest.raises(InvalidPathError, match="Absolute paths not allowed"):
-            PathParser.parse_and_validate("/tmp/test.txt")
+            PathParser.parse_and_validate(f"{tempfile.gettempdir()}/test.txt")
 
     def test_accepts_absolute_path_when_allowed(self):
         """Should accept absolute paths when allowed"""
@@ -152,6 +154,8 @@ class TestSanitizeForDisplay:
 
     def test_shows_filename_for_non_relative(self):
         """Should show only filename if not relative to base"""
-        path = Path("/tmp/test.txt")
+        import tempfile
+
+        path = Path(tempfile.gettempdir()) / "test.txt"
         display = PathParser.sanitize_for_display(path)
         assert display == "test.txt"

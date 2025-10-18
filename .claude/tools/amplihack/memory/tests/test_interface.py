@@ -166,11 +166,11 @@ class TestAgentMemoryInterface:
             memory = AgentMemory("test-agent", db_path=Path(tmp_dir) / "boundary.db")
 
             # Empty key handling
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="key"):
                 memory.store("", "value")
 
             # None value handling
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="value"):
                 memory.store("key", None)
 
             # Very long key

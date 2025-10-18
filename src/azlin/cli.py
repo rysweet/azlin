@@ -18,12 +18,14 @@ Commands:
     azlin -- <command>       # Execute command on VM(s)
 """
 
+import contextlib
 import logging
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -59,7 +61,7 @@ from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
 from azlin.modules.progress import ProgressDisplay, ProgressStage
 from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
-from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
+from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
 from azlin.prune import PruneManager
 from azlin.remote_exec import (
     OSUpdateExecutor,
@@ -71,11 +73,13 @@ from azlin.remote_exec import (
 from azlin.tag_manager import TagManager
 from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 from azlin.vm_connector import VMConnector, VMConnectorError
-from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
+from azlin.vm_lifecycle import DeletionSummary, VMLifecycleError, VMLifecycleManager
 from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
 from azlin.vm_provisioning import (
+    PoolProvisioningResult,
     ProvisioningError,
+    VMConfig,
     VMDetails,
     VMProvisioner,
 )
@@ -243,9 +247,10 @@ class CLIOrchestrator:
         except GitHubSetupError as e:
             self.progress.update(f"GitHub setup failed: {e}", ProgressStage.WARNING)
             # Continue - GitHub setup is optional
-            self._display_connection_info(self.vm_details)
-            if self.auto_connect and self.vm_details:
-                return self._connect_ssh(self.vm_details, self.ssh_keys)
+            if self.vm_details:
+                self._display_connection_info(self.vm_details)
+                if self.auto_connect and self.ssh_keys:
+                    return self._connect_ssh(self.vm_details, self.ssh_keys)
             return 0
         except KeyboardInterrupt:
             self.progress.update("Cancelled by user", ProgressStage.FAILED)
@@ -302,7 +307,7 @@ class CLIOrchestrator:
 
         return subscription_id
 
-    def _setup_ssh_keys(self) -> object:
+    def _setup_ssh_keys(self) -> SSHKeyPair:
         """Generate or retrieve SSH keys.
 
         Returns:
@@ -367,12 +372,14 @@ class CLIOrchestrator:
         Raises:
             SSHConnectionError: If cloud-init check fails
         """
+        if not vm_details.public_ip:
+            raise SSHConnectionError("VM has no public IP address")
+
         self.progress.update("Waiting for SSH to be available...")
 
         # Wait for SSH port to be accessible
-        ssh_ready = SSHConnector.wait_for_ssh_ready(
-            vm_details.public_ip, key_path, timeout=300, interval=5
-        )
+        public_ip: str = vm_details.public_ip  # Type narrowed by check above
+        ssh_ready = SSHConnector.wait_for_ssh_ready(public_ip, key_path, timeout=300, interval=5)
 
         if not ssh_ready:
             raise SSHConnectionError("SSH did not become available")
@@ -380,7 +387,7 @@ class CLIOrchestrator:
         self.progress.update("SSH available, checking cloud-init status...")
 
         # Check cloud-init status
-        ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
+        ssh_config = SSHConfig(host=public_ip, user="azureuser", key_path=key_path)
 
         # Wait for cloud-init to complete (check every 10s for up to 3 minutes)
         max_attempts = 18
@@ -421,9 +428,15 @@ class CLIOrchestrator:
         Note:
             Sync failures are logged as warnings but don't block VM provisioning.
         """
+        if not vm_details.public_ip:
+            logger.warning("VM has no public IP, skipping home directory sync")
+            return
+
+        public_ip: str = vm_details.public_ip  # Type narrowed by check above
+
         try:
             # Create SSH config
-            ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
+            ssh_config = SSHConfig(host=public_ip, user="azureuser", key_path=key_path)
 
             # PHASE 1 FIX: Pre-sync validation check with visible warnings
             sync_dir = HomeSyncManager.get_sync_directory()
@@ -567,6 +580,11 @@ class CLIOrchestrator:
         Raises:
             Exception: If storage mount fails (this is a critical operation)
         """
+        if not vm_details.public_ip:
+            raise Exception("VM has no public IP address, cannot mount NFS storage")
+
+        public_ip: str = vm_details.public_ip  # Type narrowed by check above
+
         from azlin.modules.nfs_mount_manager import NFSMountManager
         from azlin.modules.storage_manager import StorageManager
 
@@ -592,7 +610,7 @@ class CLIOrchestrator:
             # Mount storage
             self.progress.update("Installing NFS client tools...")
             result = NFSMountManager.mount_storage(
-                vm_ip=vm_details.public_ip,
+                vm_ip=public_ip,
                 ssh_key=key_path,
                 nfs_endpoint=storage.nfs_endpoint,
                 mount_point="/home/azureuser",
@@ -631,6 +649,9 @@ class CLIOrchestrator:
         if not self.repo:
             return
 
+        if not vm_details.public_ip:
+            raise GitHubSetupError("VM has no public IP address")
+
         self.progress.update(f"Setting up GitHub for: {self.repo}")
 
         # Validate repo URL
@@ -660,6 +681,9 @@ class CLIOrchestrator:
         Raises:
             SSHConnectionError: If connection fails
         """
+        if not vm_details.public_ip:
+            raise SSHConnectionError("VM has no public IP address")
+
         ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
 
         click.echo("\n" + "=" * 60)
@@ -677,8 +701,10 @@ class CLIOrchestrator:
             vm_details: VM details
             success: Whether provisioning succeeded
         """
+        # Use public_ip if available, otherwise indicate unknown
+        vm_ip = vm_details.public_ip if vm_details.public_ip else "unknown"
         result = NotificationHandler.send_completion_notification(
-            vm_details.name, vm_details.public_ip, success=success
+            vm_details.name, vm_ip, success=success
         )
 
         if result.sent:
@@ -954,7 +980,7 @@ def select_vm_for_command(vms: list[VMInfo], command: str) -> VMInfo | None:
 class AzlinGroup(click.Group):
     """Custom Click group that handles -- delimiter for command passthrough."""
 
-    def main(self, *args, **kwargs):
+    def main(self, *args: Any, **kwargs: Any) -> Any:
         """Override main to handle -- delimiter before any Click processing."""
         # Check if -- is in sys.argv BEFORE Click processes anything
         if "--" in sys.argv:
@@ -970,11 +996,22 @@ class AzlinGroup(click.Group):
 
         return super().main(*args, **kwargs)
 
-    def invoke(self, ctx):
+    def invoke(self, ctx: click.Context) -> Any:
         """Pass the passthrough command to the context."""
         if hasattr(self, "_passthrough_command"):
             ctx.obj = {"passthrough_command": self._passthrough_command}
         return super().invoke(ctx)
+
+    def resolve_command(
+        self, ctx: click.Context, args: list[str]
+    ) -> tuple[str | None, click.Command | None, list[str]]:
+        """Override to show help when command is not found."""
+        try:
+            return super().resolve_command(ctx, args)
+        except click.UsageError:
+            # Command not found - show help and exit
+            click.echo(ctx.get_help())
+            ctx.exit(1)
 
 
 @click.group(
@@ -989,7 +1026,7 @@ class AzlinGroup(click.Group):
 )
 @click.pass_context
 @click.version_option(version=__version__)
-def main(ctx):
+def main(ctx: click.Context) -> None:
     """azlin - Azure Ubuntu VM provisioning and management.
 
     Provisions Azure Ubuntu VMs with development tools, manages existing VMs,
@@ -1149,7 +1186,7 @@ def main(ctx):
 @main.command(name="help")
 @click.argument("command_name", required=False, type=str)
 @click.pass_context
-def help_command(ctx, command_name):
+def help_command(ctx: click.Context, command_name: str | None) -> None:
     """Show help for commands.
 
     Display general help or help for a specific command.
@@ -1164,15 +1201,188 @@ def help_command(ctx, command_name):
         click.echo(ctx.parent.get_help())
     else:
         # Show help for specific command
-        cmd = ctx.parent.command.commands.get(command_name)
+        cmd = ctx.parent.command.commands.get(command_name)  # type: ignore[union-attr]
 
         if cmd is None:
             click.echo(f"Error: No such command '{command_name}'.", err=True)
             ctx.exit(1)
 
         # Create a context for the command and show its help
-        cmd_ctx = click.Context(cmd, info_name=command_name, parent=ctx.parent)
-        click.echo(cmd.get_help(cmd_ctx))
+        cmd_ctx = click.Context(cmd, info_name=command_name, parent=ctx.parent)  # type: ignore[arg-type]
+        click.echo(cmd.get_help(cmd_ctx))  # type: ignore[union-attr]
+
+
+def _load_config_and_template(
+    config: str | None, template: str | None
+) -> tuple[AzlinConfig, VMTemplateConfig | None]:
+    """Load configuration and template.
+
+    Returns:
+        Tuple of (azlin_config, template_config)
+    """
+    try:
+        azlin_config = ConfigManager.load_config(config)
+    except ConfigError:
+        azlin_config = AzlinConfig()
+
+    template_config = None
+    if template:
+        try:
+            template_config = TemplateManager.get_template(template)
+            click.echo(f"Using template: {template}")
+        except TemplateError as e:
+            click.echo(f"Error loading template: {e}", err=True)
+            sys.exit(1)
+
+    return azlin_config, template_config
+
+
+def _resolve_vm_settings(
+    resource_group: str | None,
+    region: str | None,
+    vm_size: str | None,
+    azlin_config: AzlinConfig,
+    template_config: VMTemplateConfig | None,
+) -> tuple[str | None, str, str]:
+    """Resolve VM settings with precedence: CLI > config > template > defaults.
+
+    Returns:
+        Tuple of (final_rg, final_region, final_vm_size)
+    """
+    if template_config:
+        final_rg = resource_group or azlin_config.default_resource_group
+        final_region = region or template_config.region
+        final_vm_size = vm_size or template_config.vm_size
+    else:
+        final_rg = resource_group or azlin_config.default_resource_group
+        final_region = region or azlin_config.default_region
+        final_vm_size = vm_size or azlin_config.default_vm_size
+
+    return final_rg, final_region, final_vm_size
+
+
+def _validate_inputs(pool: int | None, repo: str | None) -> None:
+    """Validate pool size and repo URL."""
+    if pool and pool > 10:
+        estimated_cost = pool * 0.10
+        click.echo(f"\nWARNING: Creating {pool} VMs")
+        click.echo(f"Estimated cost: ~${estimated_cost:.2f}/hour")
+        click.echo("Continue? [y/N]: ", nl=False)
+        response = input().lower()
+        if response not in ["y", "yes"]:
+            click.echo("Cancelled.")
+            sys.exit(0)
+
+    if repo and not repo.startswith("https://github.com/"):
+        click.echo("Error: Invalid GitHub URL. Must start with https://github.com/", err=True)
+        sys.exit(1)
+
+
+def _update_config_state(
+    config: str | None, final_rg: str | None, vm_name: str, name: str | None
+) -> None:
+    """Update config with resource group and session name."""
+    if final_rg:
+        try:
+            ConfigManager.update_config(
+                config, default_resource_group=final_rg, last_vm_name=vm_name
+            )
+            if name:
+                ConfigManager.set_session_name(vm_name, name, config)
+        except ConfigError as e:
+            logger.debug(f"Failed to update config: {e}")
+
+
+def _execute_command_mode(orchestrator: CLIOrchestrator, command: str) -> None:
+    """Execute VM provisioning and command execution."""
+    click.echo(f"\nCommand to execute: {command}")
+    click.echo("Provisioning VM first...\n")
+
+    orchestrator.auto_connect = False
+    exit_code = orchestrator.run()
+
+    if exit_code == 0 and orchestrator.vm_details:
+        vm_info = VMInfo(
+            name=orchestrator.vm_details.name,
+            resource_group=orchestrator.vm_details.resource_group,
+            location=orchestrator.vm_details.location,
+            power_state="VM running",
+            public_ip=orchestrator.vm_details.public_ip,
+            vm_size=orchestrator.vm_details.size,
+        )
+        if orchestrator.ssh_keys is None:
+            click.echo("Error: SSH keys not initialized", err=True)
+            sys.exit(1)
+        cmd_exit_code = execute_command_on_vm(vm_info, command, orchestrator.ssh_keys)
+        sys.exit(cmd_exit_code)
+    else:
+        click.echo(f"\nProvisioning failed with exit code {exit_code}", err=True)
+        sys.exit(exit_code)
+
+
+def _provision_pool(
+    orchestrator: CLIOrchestrator,
+    pool: int,
+    vm_name: str,
+    final_rg: str | None,
+    final_region: str,
+    final_vm_size: str,
+) -> None:
+    """Provision pool of VMs in parallel."""
+    click.echo(f"\nProvisioning pool of {pool} VMs in parallel...")
+
+    ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+    configs: list[VMConfig] = []
+    for i in range(pool):
+        vm_name_pool = f"{vm_name}-{i + 1:02d}"
+        config = orchestrator.provisioner.create_vm_config(
+            name=vm_name_pool,
+            resource_group=final_rg or f"azlin-rg-{int(time.time())}",
+            location=final_region,
+            size=final_vm_size,
+            ssh_public_key=ssh_key_pair.public_key_content,
+        )
+        configs.append(config)
+
+    try:
+        result = orchestrator.provisioner.provision_vm_pool(
+            configs,
+            progress_callback=lambda msg: click.echo(f"  {msg}"),
+            max_workers=min(10, pool),
+        )
+        _display_pool_results(result)
+        sys.exit(0 if result.any_succeeded else 1)
+    except ProvisioningError as e:
+        click.echo(f"\nPool provisioning failed completely: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"\nUnexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+def _display_pool_results(result: PoolProvisioningResult) -> None:
+    """Display pool provisioning results."""
+    click.echo(f"\n{result.get_summary()}")
+
+    if result.successful:
+        click.echo("\nSuccessfully Provisioned VMs:")
+        click.echo("=" * 80)
+        for vm in result.successful:
+            click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
+        click.echo("=" * 80)
+
+    if result.failed:
+        click.echo("\nFailed VMs:")
+        click.echo("=" * 80)
+        for failure in result.failed:
+            click.echo(f"  {failure.config.name:<30} {failure.error_type:<20} {failure.error[:40]}")
+        click.echo("=" * 80)
+
+    if result.rg_failures:
+        click.echo("\nResource Group Failures:")
+        for rg_fail in result.rg_failures:
+            click.echo(f"  {rg_fail.rg_name}: {rg_fail.error}")
 
 
 @main.command(name="new")
@@ -1188,7 +1398,7 @@ def help_command(ctx, command_name):
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
 def new_command(
-    ctx,
+    ctx: click.Context,
     repo: str | None,
     vm_size: str | None,
     region: str | None,
@@ -1199,7 +1409,7 @@ def new_command(
     config: str | None,
     template: str | None,
     nfs_storage: str | None,
-):
+) -> None:
     """Provision a new Azure VM with development tools.
 
     Creates a new Ubuntu VM in Azure with all development tools pre-installed.
@@ -1228,62 +1438,28 @@ def new_command(
         # Provision and execute command
         $ azlin new -- python train.py
     """
-    # Check for passthrough command from custom AzlinGroup
+    # Check for passthrough command
     command = None
     if ctx.obj and "passthrough_command" in ctx.obj:
         command = ctx.obj["passthrough_command"]
     elif ctx.args:
-        # If no explicit --, check if we have extra args from Click
         command = " ".join(ctx.args)
 
-    # Load config for defaults
-    try:
-        azlin_config = ConfigManager.load_config(config)
-    except ConfigError:
-        azlin_config = AzlinConfig()
+    # Load configuration and template
+    azlin_config, template_config = _load_config_and_template(config, template)
 
-    # Load template if specified
-    template_config = None
-    if template:
-        try:
-            template_config = TemplateManager.get_template(template)
-            click.echo(f"Using template: {template}")
-        except TemplateError as e:
-            click.echo(f"Error loading template: {e}", err=True)
-            sys.exit(1)
-
-    # Get settings with CLI override (template < config < CLI)
-    if template_config:
-        # Template provides defaults
-        final_rg = resource_group or azlin_config.default_resource_group
-        final_region = region or template_config.region
-        final_vm_size = vm_size or template_config.vm_size
-    else:
-        # Use config defaults
-        final_rg = resource_group or azlin_config.default_resource_group
-        final_region = region or azlin_config.default_region
-        final_vm_size = vm_size or azlin_config.default_vm_size
+    # Resolve VM settings
+    final_rg, final_region, final_vm_size = _resolve_vm_settings(
+        resource_group, region, vm_size, azlin_config, template_config
+    )
 
     # Generate VM name
     vm_name = generate_vm_name(name, command)
 
-    # Warn if pool > 10
-    if pool and pool > 10:
-        estimated_cost = pool * 0.10  # Rough estimate
-        click.echo(f"\nWARNING: Creating {pool} VMs")
-        click.echo(f"Estimated cost: ~${estimated_cost:.2f}/hour")
-        click.echo("Continue? [y/N]: ", nl=False)
-        response = input().lower()
-        if response not in ["y", "yes"]:
-            click.echo("Cancelled.")
-            sys.exit(0)
+    # Validate inputs
+    _validate_inputs(pool, repo)
 
-    # Validate repo URL if provided
-    if repo and not repo.startswith("https://github.com/"):
-        click.echo("Error: Invalid GitHub URL. Must start with https://github.com/", err=True)
-        sys.exit(1)
-
-    # Create orchestrator and run
+    # Create orchestrator
     orchestrator = CLIOrchestrator(
         repo=repo,
         vm_size=final_vm_size,
@@ -1294,110 +1470,18 @@ def new_command(
         nfs_storage=nfs_storage,
     )
 
-    # Update config with used resource group
-    if final_rg:
-        try:
-            ConfigManager.update_config(
-                config, default_resource_group=final_rg, last_vm_name=vm_name
-            )
-            # Save session name if provided
-            if name:
-                ConfigManager.set_session_name(vm_name, name, config)
-        except ConfigError as e:
-            logger.debug(f"Failed to update config: {e}")
+    # Update config state
+    _update_config_state(config, final_rg, vm_name, name)
 
-    # Execute command if specified
+    # Handle command execution mode
     if command and not pool:
-        click.echo(f"\nCommand to execute: {command}")
-        click.echo("Provisioning VM first...\n")
+        _execute_command_mode(orchestrator, command)
 
-        # Disable auto-connect for command execution mode
-        orchestrator.auto_connect = False
-        exit_code = orchestrator.run()
-
-        if exit_code == 0 and orchestrator.vm_details:
-            # Create VMInfo from VMDetails for execute_command_on_vm
-            vm_info = VMInfo(
-                name=orchestrator.vm_details.name,
-                resource_group=orchestrator.vm_details.resource_group,
-                location=orchestrator.vm_details.location,
-                power_state="VM running",
-                public_ip=orchestrator.vm_details.public_ip,
-                vm_size=orchestrator.vm_details.size,
-            )
-
-            # Execute command on the newly provisioned VM
-            cmd_exit_code = execute_command_on_vm(vm_info, command, orchestrator.ssh_keys)
-            sys.exit(cmd_exit_code)
-        else:
-            click.echo(f"\nProvisioning failed with exit code {exit_code}", err=True)
-            sys.exit(exit_code)
-
-    # Pool provisioning
+    # Handle pool provisioning
     if pool and pool > 1:
-        click.echo(f"\nProvisioning pool of {pool} VMs in parallel...")
+        _provision_pool(orchestrator, pool, vm_name, final_rg, final_region, final_vm_size)
 
-        # Generate SSH keys
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
-
-        # Create VM configs for pool
-        configs = []
-        for i in range(pool):
-            vm_name_pool = f"{vm_name}-{i + 1:02d}"
-            config = orchestrator.provisioner.create_vm_config(
-                name=vm_name_pool,
-                resource_group=final_rg or f"azlin-rg-{int(time.time())}",
-                location=final_region,
-                size=final_vm_size,
-                ssh_public_key=ssh_key_pair.public_key_content,
-            )
-            configs.append(config)
-
-        # Provision VMs in parallel (returns PoolProvisioningResult)
-        try:
-            result = orchestrator.provisioner.provision_vm_pool(
-                configs,
-                progress_callback=lambda msg: click.echo(f"  {msg}"),
-                max_workers=min(10, pool),
-            )
-
-            # Display results
-            click.echo(f"\n{result.get_summary()}")
-
-            if result.successful:
-                click.echo("\nSuccessfully Provisioned VMs:")
-                click.echo("=" * 80)
-                for vm in result.successful:
-                    click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
-                click.echo("=" * 80)
-
-            if result.failed:
-                click.echo("\nFailed VMs:")
-                click.echo("=" * 80)
-                for failure in result.failed:
-                    click.echo(
-                        f"  {failure.config.name:<30} {failure.error_type:<20} {failure.error[:40]}"
-                    )
-                click.echo("=" * 80)
-
-            if result.rg_failures:
-                click.echo("\nResource Group Failures:")
-                for rg_fail in result.rg_failures:
-                    click.echo(f"  {rg_fail.rg_name}: {rg_fail.error}")
-
-            # Exit with success if any VMs succeeded
-            if result.any_succeeded:
-                sys.exit(0)
-            else:
-                sys.exit(1)
-
-        except ProvisioningError as e:
-            click.echo(f"\nPool provisioning failed completely: {e}", err=True)
-            sys.exit(1)
-        except Exception as e:
-            click.echo(f"\nUnexpected error: {e}", err=True)
-            sys.exit(1)
-
+    # Standard single VM provisioning
     exit_code = orchestrator.run()
     sys.exit(exit_code)
 
@@ -1415,7 +1499,7 @@ def new_command(
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
-def vm_command(ctx, **kwargs):
+def vm_command(ctx: click.Context, **kwargs: Any) -> Any:
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
 
@@ -1433,7 +1517,7 @@ def vm_command(ctx, **kwargs):
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
-def create_command(ctx, **kwargs):
+def create_command(ctx: click.Context, **kwargs: Any) -> Any:
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
 
@@ -1633,11 +1717,15 @@ def w(resource_group: str | None, config: str | None):
 
         click.echo(f"Running 'w' on {len(running_vms)} VMs...\n")
 
-        # Build SSH configs
-        ssh_configs = [
-            SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
-            for vm in running_vms
-        ]
+        # Build SSH configs (all running_vms have public_ip due to filter above)
+        ssh_configs: list[SSHConfig] = []
+        for vm in running_vms:
+            if vm.public_ip:  # Type guard for pyright
+                ssh_configs.append(  # noqa: PERF401 (type guard needed for pyright)
+                    SSHConfig(
+                        host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
+                    )
+                )
 
         # Execute in parallel
         results = WCommandExecutor.execute_w_on_vms(ssh_configs, timeout=30)
@@ -1890,6 +1978,101 @@ def kill(vm_name: str, resource_group: str | None, config: str | None, force: bo
         sys.exit(1)
 
 
+def _handle_delete_resource_group(rg: str, vm_name: str, force: bool, dry_run: bool) -> None:
+    """Handle resource group deletion."""
+    if dry_run:
+        click.echo(f"\n[DRY RUN] Would delete entire resource group: {rg}")
+        click.echo(f"This would delete ALL resources in the group, not just '{vm_name}'")
+        return
+
+    if not force:
+        click.echo(f"\nWARNING: You are about to delete the ENTIRE resource group: {rg}")
+        click.echo(f"This will delete ALL resources in the group, not just the VM '{vm_name}'!")
+        click.echo("\nThis action cannot be undone.\n")
+
+        confirm = input("Type the resource group name to confirm deletion: ").strip()
+        if confirm != rg:
+            click.echo("Cancelled. Resource group name did not match.")
+            return
+
+    click.echo(f"\nDeleting resource group '{rg}'...")
+
+    cmd = ["az", "group", "delete", "--name", rg, "--yes"]
+
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=True)
+        click.echo(f"\nSuccess! Resource group '{rg}' and all resources deleted.")
+    except subprocess.CalledProcessError as e:
+        click.echo(f"\nError deleting resource group: {e.stderr}", err=True)
+        sys.exit(1)
+    except subprocess.TimeoutExpired:
+        click.echo("\nError: Resource group deletion timed out.", err=True)
+        sys.exit(1)
+
+
+def _handle_vm_dry_run(vm_name: str, rg: str) -> None:
+    """Handle dry-run mode for VM deletion."""
+    vm = VMManager.get_vm(vm_name, rg)
+    if not vm:
+        click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
+        sys.exit(1)
+
+    click.echo(f"\n[DRY RUN] Would delete VM: {vm_name}")
+    click.echo(f"  Resource Group: {rg}")
+    click.echo(f"  Status:         {vm.get_status_display()}")
+    click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
+    click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
+    click.echo("\nResources that would be deleted:")
+    click.echo(f"  - VM: {vm_name}")
+    click.echo("  - Associated NICs")
+    click.echo("  - Associated disks")
+    click.echo("  - Associated public IPs")
+
+
+def _confirm_vm_deletion(vm: VMInfo) -> bool:
+    """Show VM details and get confirmation for deletion."""
+    click.echo("\nVM Details:")
+    click.echo(f"  Name:           {vm.name}")
+    click.echo(f"  Resource Group: {vm.resource_group}")
+    click.echo(f"  Status:         {vm.get_status_display()}")
+    click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
+    click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
+    click.echo("\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
+    click.echo("This action cannot be undone.\n")
+
+    confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
+    return confirm in ["y", "yes"]
+
+
+def _execute_vm_deletion(vm_name: str, rg: str, force: bool) -> None:
+    """Execute VM deletion and display results."""
+    vm = VMManager.get_vm(vm_name, rg)
+
+    if not vm:
+        click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
+        sys.exit(1)
+
+    if not force and not _confirm_vm_deletion(vm):
+        click.echo("Cancelled.")
+        return
+
+    click.echo(f"\nDeleting VM '{vm_name}'...")
+
+    result = VMLifecycleManager.delete_vm(
+        vm_name=vm_name, resource_group=rg, force=True, no_wait=False
+    )
+
+    if result.success:
+        click.echo(f"\nSuccess! {result.message}")
+        if result.resources_deleted:
+            click.echo("\nDeleted resources:")
+            for resource in result.resources_deleted:
+                click.echo(f"  - {resource}")
+    else:
+        click.echo(f"\nError: {result.message}", err=True)
+        sys.exit(1)
+
+
 @main.command(name="destroy")
 @click.argument("vm_name", type=str)
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
@@ -1922,111 +2105,21 @@ def destroy(
         azlin destroy my-vm --rg my-resource-group
     """
     try:
-        # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
         if not rg:
             click.echo("Error: No resource group specified.", err=True)
             sys.exit(1)
 
-        # Handle --delete-rg option
         if delete_rg:
-            if dry_run:
-                click.echo(f"\n[DRY RUN] Would delete entire resource group: {rg}")
-                click.echo(f"This would delete ALL resources in the group, not just '{vm_name}'")
-                return
-
-            # Show warning and confirmation
-            if not force:
-                click.echo(f"\nWARNING: You are about to delete the ENTIRE resource group: {rg}")
-                click.echo(
-                    f"This will delete ALL resources in the group, not just the VM '{vm_name}'!"
-                )
-                click.echo("\nThis action cannot be undone.\n")
-
-                confirm = input("Type the resource group name to confirm deletion: ").strip()
-                if confirm != rg:
-                    click.echo("Cancelled. Resource group name did not match.")
-                    return
-
-            click.echo(f"\nDeleting resource group '{rg}'...")
-
-            # Use Azure CLI to delete resource group
-            import subprocess
-
-            cmd = ["az", "group", "delete", "--name", rg, "--yes"]
-
-            try:
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=600, check=True
-                )
-                click.echo(f"\nSuccess! Resource group '{rg}' and all resources deleted.")
-                return
-            except subprocess.CalledProcessError as e:
-                click.echo(f"\nError deleting resource group: {e.stderr}", err=True)
-                sys.exit(1)
-            except subprocess.TimeoutExpired:
-                click.echo("\nError: Resource group deletion timed out.", err=True)
-                sys.exit(1)
-
-        # Handle dry-run for single VM
-        if dry_run:
-            vm = VMManager.get_vm(vm_name, rg)
-            if not vm:
-                click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
-                sys.exit(1)
-
-            click.echo(f"\n[DRY RUN] Would delete VM: {vm_name}")
-            click.echo(f"  Resource Group: {rg}")
-            click.echo(f"  Status:         {vm.get_status_display()}")
-            click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
-            click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
-            click.echo("\nResources that would be deleted:")
-            click.echo(f"  - VM: {vm_name}")
-            click.echo("  - Associated NICs")
-            click.echo("  - Associated disks")
-            click.echo("  - Associated public IPs")
+            _handle_delete_resource_group(rg, vm_name, force, dry_run)
             return
 
-        # Normal deletion (same as kill command)
-        vm = VMManager.get_vm(vm_name, rg)
+        if dry_run:
+            _handle_vm_dry_run(vm_name, rg)
+            return
 
-        if not vm:
-            click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
-            sys.exit(1)
-
-        # Show confirmation prompt unless --force
-        if not force:
-            click.echo("\nVM Details:")
-            click.echo(f"  Name:           {vm.name}")
-            click.echo(f"  Resource Group: {vm.resource_group}")
-            click.echo(f"  Status:         {vm.get_status_display()}")
-            click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
-            click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
-            click.echo("\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
-            click.echo("This action cannot be undone.\n")
-
-            confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
-            if confirm not in ["y", "yes"]:
-                click.echo("Cancelled.")
-                return
-
-        # Delete VM
-        click.echo(f"\nDeleting VM '{vm_name}'...")
-
-        result = VMLifecycleManager.delete_vm(
-            vm_name=vm_name, resource_group=rg, force=True, no_wait=False
-        )
-
-        if result.success:
-            click.echo(f"\nSuccess! {result.message}")
-            if result.resources_deleted:
-                click.echo("\nDeleted resources:")
-                for resource in result.resources_deleted:
-                    click.echo(f"  - {resource}")
-        else:
-            click.echo(f"\nError: {result.message}", err=True)
-            sys.exit(1)
+        _execute_vm_deletion(vm_name, rg, force)
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
@@ -2040,6 +2133,46 @@ def destroy(
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
+
+
+def _confirm_killall(vms: list[Any], rg: str) -> bool:
+    """Display VMs and get confirmation for bulk deletion."""
+    click.echo(f"\nFound {len(vms)} VM(s) in resource group '{rg}':")
+    click.echo("=" * 80)
+    for vm in vms:
+        status = vm.get_status_display()
+        ip = vm.public_ip or "N/A"
+        click.echo(f"  {vm.name:<35} {status:<15} {ip:<15}")
+    click.echo("=" * 80)
+
+    click.echo(f"\nThis will delete all {len(vms)} VM(s) and their associated resources.")
+    click.echo("This action cannot be undone.\n")
+
+    confirm = input(f"Are you sure you want to delete {len(vms)} VM(s)? [y/N]: ").lower()
+    return confirm in ["y", "yes"]
+
+
+def _display_killall_results(summary: DeletionSummary) -> None:
+    """Display killall operation results."""
+    click.echo("\n" + "=" * 80)
+    click.echo("Deletion Summary")
+    click.echo("=" * 80)
+    click.echo(f"Total VMs:     {summary.total}")
+    click.echo(f"Succeeded:     {summary.succeeded}")
+    click.echo(f"Failed:        {summary.failed}")
+    click.echo("=" * 80)
+
+    if summary.succeeded > 0:
+        click.echo("\nSuccessfully deleted:")
+        for result in summary.results:
+            if result.success:
+                click.echo(f"  - {result.vm_name}")
+
+    if summary.failed > 0:
+        click.echo("\nFailed to delete:")
+        for result in summary.results:
+            if not result.success:
+                click.echo(f"  - {result.vm_name}: {result.message}")
 
 
 @main.command()
@@ -2060,14 +2193,12 @@ def killall(resource_group: str | None, config: str | None, force: bool, prefix:
         azlin killall --force
     """
     try:
-        # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
         if not rg:
             click.echo("Error: No resource group specified.", err=True)
             sys.exit(1)
 
-        # List VMs
         vms = VMManager.list_vms(rg, include_stopped=True)
         vms = VMManager.filter_by_prefix(vms, prefix)
 
@@ -2075,54 +2206,18 @@ def killall(resource_group: str | None, config: str | None, force: bool, prefix:
             click.echo(f"No VMs found with prefix '{prefix}' in resource group '{rg}'.")
             return
 
-        # Show confirmation prompt unless --force
-        if not force:
-            click.echo(f"\nFound {len(vms)} VM(s) in resource group '{rg}':")
-            click.echo("=" * 80)
-            for vm in vms:
-                status = vm.get_status_display()
-                ip = vm.public_ip or "N/A"
-                click.echo(f"  {vm.name:<35} {status:<15} {ip:<15}")
-            click.echo("=" * 80)
+        if not force and not _confirm_killall(vms, rg):
+            click.echo("Cancelled.")
+            return
 
-            click.echo(f"\nThis will delete all {len(vms)} VM(s) and their associated resources.")
-            click.echo("This action cannot be undone.\n")
-
-            confirm = input(f"Are you sure you want to delete {len(vms)} VM(s)? [y/N]: ").lower()
-            if confirm not in ["y", "yes"]:
-                click.echo("Cancelled.")
-                return
-
-        # Delete all VMs
         click.echo(f"\nDeleting {len(vms)} VM(s) in parallel...")
 
         summary = VMLifecycleManager.delete_all_vms(
             resource_group=rg, force=True, vm_prefix=prefix, max_workers=5
         )
 
-        # Display results
-        click.echo("\n" + "=" * 80)
-        click.echo("Deletion Summary")
-        click.echo("=" * 80)
-        click.echo(f"Total VMs:     {summary.total}")
-        click.echo(f"Succeeded:     {summary.succeeded}")
-        click.echo(f"Failed:        {summary.failed}")
-        click.echo("=" * 80)
+        _display_killall_results(summary)
 
-        # Show details
-        if summary.succeeded > 0:
-            click.echo("\nSuccessfully deleted:")
-            for result in summary.results:
-                if result.success:
-                    click.echo(f"  - {result.vm_name}")
-
-        if summary.failed > 0:
-            click.echo("\nFailed to delete:")
-            for result in summary.results:
-                if not result.success:
-                    click.echo(f"  - {result.vm_name}: {result.message}")
-
-        # Exit with error code if any failed
         if not summary.all_succeeded:
             sys.exit(1)
 
@@ -2304,11 +2399,15 @@ def ps(resource_group: str | None, config: str | None, grouped: bool):
 
         click.echo(f"Running 'ps aux' on {len(running_vms)} VMs...\n")
 
-        # Build SSH configs
-        ssh_configs = [
-            SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
-            for vm in running_vms
-        ]
+        # Build SSH configs (all running_vms have public_ip due to filter above)
+        ssh_configs: list[SSHConfig] = []
+        for vm in running_vms:
+            if vm.public_ip:  # Type guard for pyright
+                ssh_configs.append(  # noqa: PERF401 (type guard needed for pyright)
+                    SSHConfig(
+                        host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
+                    )
+                )
 
         # Execute in parallel
         results = PSCommandExecutor.execute_ps_on_vms(ssh_configs, timeout=30)
@@ -2414,6 +2513,123 @@ def cost(
         sys.exit(1)
 
 
+def _interactive_vm_selection(
+    rg: str, config: str | None, no_tmux: bool, tmux_session: str | None
+) -> str:
+    """Show interactive VM selection menu and return selected VM name."""
+    try:
+        vms = VMManager.list_vms(resource_group=rg, include_stopped=False)
+    except VMManagerError as e:
+        click.echo(f"Error listing VMs: {e}", err=True)
+        sys.exit(1)
+
+    if not vms:
+        click.echo("No running VMs found in resource group.")
+        response = click.prompt(
+            "\nWould you like to create a new VM?",
+            type=click.Choice(["y", "n"], case_sensitive=False),
+            default="y",
+        )
+        if response.lower() == "y":
+            from click import Context
+
+            ctx = Context(new_command)
+            ctx.invoke(
+                new_command,
+                resource_group=rg,
+                config=config,
+                no_tmux=no_tmux,
+                tmux_session=tmux_session,
+            )
+        click.echo("Cancelled.")
+        sys.exit(0)
+
+    click.echo("\nAvailable VMs:")
+    click.echo("─" * 60)
+    for i, vm in enumerate(vms, 1):
+        status_emoji = "🟢" if vm.is_running() else "🔴"
+        click.echo(
+            f"{i:2}. {status_emoji} {vm.name:<30} {vm.location:<15} {vm.vm_size or 'unknown'}"
+        )
+    click.echo("─" * 60)
+    click.echo(" 0. Create new VM")
+    click.echo()
+
+    while True:
+        try:
+            selection = click.prompt(
+                "Select a VM to connect to (0 to create new)",
+                type=int,
+                default=1 if vms else 0,
+            )
+
+            if selection == 0:
+                from click import Context
+
+                ctx = Context(new_command)
+                ctx.invoke(
+                    new_command,
+                    resource_group=rg,
+                    config=config,
+                    no_tmux=no_tmux,
+                    tmux_session=tmux_session,
+                )
+                sys.exit(0)
+            if 1 <= selection <= len(vms):
+                selected_vm = vms[selection - 1]  # type: ignore[misc]
+                return str(selected_vm.name)  # type: ignore[union-attr]
+            click.echo(f"Invalid selection. Please choose 0-{len(vms)}", err=True)
+        except (ValueError, click.Abort):
+            click.echo("\nCancelled.")
+            sys.exit(0)
+
+
+def _resolve_vm_identifier(vm_identifier: str, config: str | None) -> tuple[str, str]:
+    """Resolve session name to VM name and return both.
+
+    Returns:
+        Tuple of (resolved_identifier, original_identifier)
+    """
+    original_identifier = vm_identifier
+    if not VMConnector.is_valid_ip(vm_identifier):
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_identifier, config)
+        if resolved_vm_name:
+            click.echo(f"Resolved session '{vm_identifier}' to VM '{resolved_vm_name}'")
+            vm_identifier = resolved_vm_name
+    return vm_identifier, original_identifier
+
+
+def _verify_vm_exists(vm_identifier: str, original_identifier: str, rg: str) -> None:
+    """Verify VM exists and clean up stale session mappings."""
+    if original_identifier != vm_identifier:
+        try:
+            vm_info = VMManager.get_vm(vm_identifier, rg)
+            if vm_info is None:
+                click.echo(
+                    f"Error: Session '{original_identifier}' points to VM '{vm_identifier}' "
+                    f"which no longer exists.",
+                    err=True,
+                )
+                ConfigManager.delete_session_name(vm_identifier)
+                click.echo(f"Removed stale session mapping for '{vm_identifier}'")
+                sys.exit(1)
+        except VMManagerError as e:
+            click.echo(f"Error: Failed to verify VM exists: {e}", err=True)
+            sys.exit(1)
+
+
+def _resolve_tmux_session(
+    vm_identifier: str, tmux_session: str | None, no_tmux: bool, config: str | None
+) -> str | None:
+    """Resolve tmux session name from config or provided value."""
+    if not tmux_session and not no_tmux:
+        session_name = ConfigManager.get_session_name(vm_identifier, config)
+        if session_name:
+            click.echo(f"Using session name '{session_name}' for tmux")
+            return session_name
+    return tmux_session
+
+
 @main.command()
 @click.argument("vm_identifier", type=str, required=False)
 @click.option("--resource-group", "--rg", help="Resource group (required for VM name)", type=str)
@@ -2437,7 +2653,7 @@ def connect(
     key: str | None,
     no_reconnect: bool,
     max_retries: int,
-    remote_command: tuple,
+    remote_command: tuple[str, ...],
 ):
     """Connect to existing VM via SSH.
 
@@ -2493,7 +2709,7 @@ def connect(
         azlin connect my-vm --max-retries 5
     """
     try:
-        # If no VM identifier provided, show interactive selection
+        # Interactive VM selection if no identifier provided
         if not vm_identifier:
             rg = ConfigManager.get_resource_group(resource_group, config)
             if not rg:
@@ -2503,96 +2719,17 @@ def connect(
                     err=True,
                 )
                 sys.exit(1)
+            vm_identifier = _interactive_vm_selection(rg, config, no_tmux, tmux_session)
 
-            # Get list of running VMs
-            try:
-                vms = VMManager.list_vms(resource_group=rg, include_stopped=False)
-            except VMManagerError as e:
-                click.echo(f"Error listing VMs: {e}", err=True)
-                sys.exit(1)
-
-            if not vms:
-                click.echo("No running VMs found in resource group.")
-                response = click.prompt(
-                    "\nWould you like to create a new VM?",
-                    type=click.Choice(["y", "n"], case_sensitive=False),
-                    default="y",
-                )
-                if response.lower() == "y":
-                    # Import here to avoid circular dependency
-                    from click import Context
-
-                    ctx = Context(new_command)
-                    ctx.invoke(
-                        new_command,
-                        resource_group=rg,
-                        config=config,
-                        no_tmux=no_tmux,
-                        tmux_session=tmux_session,
-                    )
-                    return
-                click.echo("Cancelled.")
-                sys.exit(0)
-
-            # Display VM list
-            click.echo("\nAvailable VMs:")
-            click.echo("─" * 60)
-            for i, vm in enumerate(vms, 1):
-                status_emoji = "🟢" if vm.is_running() else "🔴"
-                click.echo(
-                    f"{i:2}. {status_emoji} {vm.name:<30} {vm.location:<15} {vm.vm_size or 'unknown'}"
-                )
-            click.echo("─" * 60)
-            click.echo(" 0. Create new VM")
-            click.echo()
-
-            # Prompt for selection
-            while True:
-                try:
-                    selection = click.prompt(
-                        "Select a VM to connect to (0 to create new)",
-                        type=int,
-                        default=1 if vms else 0,
-                    )
-
-                    if selection == 0:
-                        # Create new VM
-                        from click import Context
-
-                        ctx = Context(new_command)
-                        ctx.invoke(
-                            new_command,
-                            resource_group=rg,
-                            config=config,
-                            no_tmux=no_tmux,
-                            tmux_session=tmux_session,
-                        )
-                        return
-                    if 1 <= selection <= len(vms):
-                        vm_identifier = vms[selection - 1].name
-                        break
-                    click.echo(f"Invalid selection. Please choose 0-{len(vms)}", err=True)
-                except (ValueError, click.Abort):
-                    click.echo("\nCancelled.")
-                    sys.exit(0)
-
-        # Parse remote command
+        # Parse remote command and key path
         command = " ".join(remote_command) if remote_command else None
-
-        # Convert key path to Path object
         key_path = Path(key).expanduser() if key else None
 
-        # Try to resolve session name to VM name if not an IP address
-        original_identifier = vm_identifier
-        if not VMConnector._is_valid_ip(vm_identifier):
-            # Check if it's a session name
-            resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_identifier, config)
-            if resolved_vm_name:
-                click.echo(f"Resolved session '{vm_identifier}' to VM '{resolved_vm_name}'")
-                vm_identifier = resolved_vm_name
+        # Resolve session name to VM name
+        vm_identifier, original_identifier = _resolve_vm_identifier(vm_identifier, config)
 
-        # Get resource group from config if not specified
-        if not VMConnector._is_valid_ip(vm_identifier):
+        # Get resource group for VM name (not IP)
+        if not VMConnector.is_valid_ip(vm_identifier):
             rg = ConfigManager.get_resource_group(resource_group, config)
             if not rg:
                 click.echo(
@@ -2601,33 +2738,12 @@ def connect(
                     err=True,
                 )
                 sys.exit(1)
-
-            # Verify VM exists if it was resolved from a session name
-            if original_identifier != vm_identifier:
-                try:
-                    vm_info = VMManager.get_vm(vm_identifier, rg)
-                    if vm_info is None:
-                        click.echo(
-                            f"Error: Session '{original_identifier}' points to VM '{vm_identifier}' "
-                            f"which no longer exists.",
-                            err=True,
-                        )
-                        # Clean up stale mapping
-                        ConfigManager.delete_session_name(vm_identifier)
-                        click.echo(f"Removed stale session mapping for '{vm_identifier}'")
-                        sys.exit(1)
-                except VMManagerError as e:
-                    click.echo(f"Error: Failed to verify VM exists: {e}", err=True)
-                    sys.exit(1)
+            _verify_vm_exists(vm_identifier, original_identifier, rg)
         else:
             rg = resource_group
 
-        # If no explicit tmux session name, try to use azlin session name
-        if not tmux_session and not no_tmux:
-            session_name = ConfigManager.get_session_name(vm_identifier, config)
-            if session_name:
-                tmux_session = session_name
-                click.echo(f"Using session name '{session_name}' for tmux")
+        # Resolve tmux session name
+        tmux_session = _resolve_tmux_session(vm_identifier, tmux_session, no_tmux, config)
 
         # Connect to VM
         display_name = (
@@ -2715,12 +2831,12 @@ def update(vm_identifier: str, resource_group: str | None, config: str | None, t
 
         # Try to resolve as session name
         try:
-            session_vm = SessionManager.get_vm_by_session(vm_identifier)
+            session_vm = ConfigManager.get_vm_name_by_session(vm_identifier, config)
             if session_vm:
                 vm_identifier = session_vm
                 click.echo(f"Resolved session '{original_identifier}' to VM '{vm_identifier}'")
-        except Exception:
-            pass  # Not a session name, try as VM name or IP
+        except Exception as e:
+            logger.debug(f"Not a session name, trying as VM name or IP: {e}")
 
         # Get SSH config for VM
         ssh_config = _get_ssh_config_for_vm(vm_identifier, resource_group, config)
@@ -2887,6 +3003,90 @@ def start(vm_name: str, resource_group: str | None, config: str | None):
         sys.exit(1)
 
 
+def _get_sync_vm_by_name(vm_name: str, rg: str):
+    """Get and validate a specific VM for syncing."""
+    vm = VMManager.get_vm(vm_name, rg)
+    if not vm:
+        click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
+        sys.exit(1)
+
+    if not vm.is_running():
+        click.echo(f"Error: VM '{vm_name}' is not running.", err=True)
+        sys.exit(1)
+
+    if not vm.public_ip:
+        click.echo(f"Error: VM '{vm_name}' has no public IP.", err=True)
+        sys.exit(1)
+
+    return vm
+
+
+def _select_sync_vm_interactive(rg: str):
+    """Interactively select a VM for syncing."""
+    vms = VMManager.list_vms(rg, include_stopped=False)
+    vms = VMManager.filter_by_prefix(vms, "azlin")
+    vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+
+    if not vms:
+        click.echo("No running VMs found.")
+        sys.exit(1)
+
+    if len(vms) == 1:
+        selected_vm = vms[0]
+        click.echo(f"Auto-selecting VM: {selected_vm.name}")
+        return selected_vm
+
+    # Show menu
+    click.echo("\nSelect VM to sync to:")
+    for idx, vm in enumerate(vms, 1):
+        click.echo(f"  {idx}. {vm.name} - {vm.public_ip}")
+
+    choice = input("\nSelect VM (number): ").strip()
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(vms):
+            return vms[idx]
+        click.echo("Invalid selection", err=True)
+        sys.exit(1)
+    except ValueError:
+        click.echo("Invalid input", err=True)
+        sys.exit(1)
+
+
+def _execute_sync(selected_vm: VMInfo, ssh_key_pair: SSHKeyPair, dry_run: bool) -> None:
+    """Execute the sync operation to the selected VM."""
+    if not selected_vm.public_ip:
+        click.echo("Error: VM has no public IP address", err=True)
+        sys.exit(1)
+
+    # Create SSH config
+    ssh_config = SSHConfig(
+        host=selected_vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
+    )
+
+    # Sync
+    click.echo(f"\nSyncing to {selected_vm.name} ({selected_vm.public_ip})...")
+
+    def progress_callback(msg: str):
+        click.echo(f"  {msg}")
+
+    result = HomeSyncManager.sync_to_vm(
+        ssh_config, dry_run=dry_run, progress_callback=progress_callback
+    )
+
+    if result.success:
+        click.echo(
+            f"\nSuccess! Synced {result.files_synced} files "
+            f"({result.bytes_transferred / 1024:.1f} KB) "
+            f"in {result.duration_seconds:.1f}s"
+        )
+    else:
+        click.echo("\nSync completed with errors:", err=True)
+        for error in result.errors:
+            click.echo(f"  - {error}", err=True)
+        sys.exit(1)
+
+
 @main.command()
 @click.option("--vm-name", help="VM name to sync to", type=str)
 @click.option("--dry-run", help="Show what would be synced", is_flag=True)
@@ -2910,91 +3110,19 @@ def sync(vm_name: str | None, dry_run: bool, resource_group: str | None, config:
 
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
+        if not rg:
+            click.echo("Error: Resource group required for VM name.", err=True)
+            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+            sys.exit(1)
 
         # Get VM
         if vm_name:
-            # Sync to specific VM
-            if not rg:
-                click.echo("Error: Resource group required for VM name.", err=True)
-                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
-                sys.exit(1)
-
-            vm = VMManager.get_vm(vm_name, rg)
-            if not vm:
-                click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
-                sys.exit(1)
-
-            if not vm.is_running():
-                click.echo(f"Error: VM '{vm_name}' is not running.", err=True)
-                sys.exit(1)
-
-            if not vm.public_ip:
-                click.echo(f"Error: VM '{vm_name}' has no public IP.", err=True)
-                sys.exit(1)
-
-            selected_vm = vm
+            selected_vm = _get_sync_vm_by_name(vm_name, rg)
         else:
-            # Interactive selection
-            if not rg:
-                click.echo("Error: No resource group specified.", err=True)
-                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
-                sys.exit(1)
+            selected_vm = _select_sync_vm_interactive(rg)
 
-            vms = VMManager.list_vms(rg, include_stopped=False)
-            vms = VMManager.filter_by_prefix(vms, "azlin")
-            vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
-
-            if not vms:
-                click.echo("No running VMs found.")
-                sys.exit(1)
-
-            if len(vms) == 1:
-                selected_vm = vms[0]
-                click.echo(f"Auto-selecting VM: {selected_vm.name}")
-            else:
-                # Show menu
-                click.echo("\nSelect VM to sync to:")
-                for idx, vm in enumerate(vms, 1):
-                    click.echo(f"  {idx}. {vm.name} - {vm.public_ip}")
-
-                choice = input("\nSelect VM (number): ").strip()
-                try:
-                    idx = int(choice) - 1
-                    if 0 <= idx < len(vms):
-                        selected_vm = vms[idx]
-                    else:
-                        click.echo("Invalid selection", err=True)
-                        sys.exit(1)
-                except ValueError:
-                    click.echo("Invalid input", err=True)
-                    sys.exit(1)
-
-        # Create SSH config
-        ssh_config = SSHConfig(
-            host=selected_vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
-        )
-
-        # Sync
-        click.echo(f"\nSyncing to {selected_vm.name} ({selected_vm.public_ip})...")
-
-        def progress_callback(msg: str):
-            click.echo(f"  {msg}")
-
-        result = HomeSyncManager.sync_to_vm(
-            ssh_config, dry_run=dry_run, progress_callback=progress_callback
-        )
-
-        if result.success:
-            click.echo(
-                f"\nSuccess! Synced {result.files_synced} files "
-                f"({result.bytes_transferred / 1024:.1f} KB) "
-                f"in {result.duration_seconds:.1f}s"
-            )
-        else:
-            click.echo("\nSync completed with errors:", err=True)
-            for error in result.errors:
-                click.echo(f"  - {error}", err=True)
-            sys.exit(1)
+        # Execute sync
+        _execute_sync(selected_vm, ssh_key_pair, dry_run)
 
     except SecurityValidationError as e:
         click.echo("\nSecurity validation failed:", err=True)
@@ -3148,6 +3276,116 @@ def cp(
         sys.exit(1)
 
 
+def _validate_and_resolve_source_vm(source_vm: str, rg: str, config: str | None) -> VMInfo:
+    """Validate and resolve source VM, showing error if not found."""
+    click.echo(f"Resolving source VM: {source_vm}")
+    source_vm_info = _resolve_source_vm(source_vm, rg, config)
+
+    if not source_vm_info:
+        click.echo(f"Error: Source VM '{source_vm}' not found", err=True)
+        # Show available VMs
+        vms = VMManager.list_vms(rg)
+        if vms:
+            click.echo("\nAvailable VMs:", err=True)
+            for vm in vms:
+                display_name = vm.session_name or vm.name
+                click.echo(f"  - {display_name} ({vm.name})", err=True)
+        sys.exit(1)
+
+    return source_vm_info
+
+    click.echo(f"Source VM: {source_vm_info.name} ({source_vm_info.public_ip})")
+    click.echo(f"VM size: {source_vm_info.vm_size}")
+    click.echo(f"Region: {source_vm_info.location}")
+    return source_vm_info
+
+
+def _ensure_source_vm_running(source_vm_info: VMInfo, rg: str) -> VMInfo:
+    """Ensure source VM is running, start if needed."""
+    if not source_vm_info.is_running():
+        click.echo(f"Warning: Source VM is not running (state: {source_vm_info.power_state})")
+        click.echo("Starting source VM...")
+        controller = VMLifecycleController()
+        controller.start_vm(source_vm_info.name, rg)
+        click.echo("Source VM started successfully")
+        # Refresh VM info
+        refreshed_vm = VMManager.get_vm(source_vm_info.name, rg)
+        if refreshed_vm is None:
+            click.echo("Error: Failed to refresh VM info after starting", err=True)
+            sys.exit(1)
+        return refreshed_vm
+    return source_vm_info
+
+
+def _provision_clone_vms(
+    clone_configs: list[VMConfig], num_replicas: int
+) -> PoolProvisioningResult:
+    """Provision clone VMs in parallel."""
+    click.echo(f"\nProvisioning {num_replicas} VM(s)...")
+    provisioner = VMProvisioner()
+
+    def progress_callback(msg: str):
+        click.echo(f"  {msg}")
+
+    result = provisioner.provision_vm_pool(
+        configs=clone_configs,
+        progress_callback=progress_callback,
+        max_workers=min(10, num_replicas),
+    )
+
+    # Check provisioning results
+    if not result.any_succeeded:
+        click.echo("\nError: All VM provisioning failed", err=True)
+        for failure in result.failed[:3]:  # Show first 3 failures
+            click.echo(f"  {failure.config.name}: {failure.error}", err=True)
+        sys.exit(1)
+
+    if result.partial_success:
+        click.echo(
+            f"\nWarning: Partial success - {result.success_count}/{result.total_requested} VMs provisioned"
+        )
+
+    click.echo(f"\nSuccessfully provisioned {result.success_count} VM(s)")
+    return result
+
+
+def _display_clone_results(
+    result: PoolProvisioningResult,
+    copy_results: dict[str, bool],
+    session_prefix: str | None,
+    config: str | None,
+) -> None:
+    """Display final clone operation results."""
+    successful_copies = sum(1 for success in copy_results.values() if success)
+
+    click.echo("\n" + "=" * 70)
+    click.echo(f"Clone operation complete: {successful_copies}/{len(result.successful)} successful")
+    click.echo("=" * 70)
+    click.echo("\nCloned VMs:")
+    for vm in result.successful:
+        session_name = ConfigManager.get_session_name(vm.name, config) if session_prefix else None
+        copy_status = "✓" if copy_results.get(vm.name, False) else "✗"
+        display_name = f"{session_name} ({vm.name})" if session_name else vm.name
+        click.echo(f"  {copy_status} {display_name}")
+        click.echo(f"     IP: {vm.public_ip}")
+        click.echo(f"     Size: {vm.size}, Region: {vm.location}")
+
+    if result.failed:
+        click.echo("\nFailed provisioning:")
+        for failure in result.failed:
+            click.echo(f"  ✗ {failure.config.name}: {failure.error}")
+
+    # Show connection instructions
+    if result.successful:
+        first_clone = result.successful[0]
+        first_session = (
+            ConfigManager.get_session_name(first_clone.name, config) if session_prefix else None
+        )
+        connect_target = first_session or first_clone.name
+        click.echo("\nTo connect to first clone:")
+        click.echo(f"  azlin connect {connect_target}")
+
+
 @main.command()
 @click.argument("source_vm", type=str)
 @click.option("--num-replicas", type=int, default=1, help="Number of clones to create (default: 1)")
@@ -3194,45 +3432,20 @@ def clone(
             click.echo("Error: num-replicas must be >= 1", err=True)
             sys.exit(1)
 
-        # Load configuration
+        # Load configuration and get resource group
         cfg = ConfigManager.load_config(config)
-
-        # Get resource group
         rg = resource_group or cfg.default_resource_group
         if not rg:
             click.echo("Error: No resource group specified and no default configured", err=True)
             sys.exit(1)
 
-        # Resolve source VM (by name or session)
-        click.echo(f"Resolving source VM: {source_vm}")
-        source_vm_info = _resolve_source_vm(source_vm, rg, config)
+        # Resolve and validate source VM
+        source_vm_info = _validate_and_resolve_source_vm(source_vm, rg, config)
 
-        if not source_vm_info:
-            click.echo(f"Error: Source VM '{source_vm}' not found", err=True)
-            # Show available VMs
-            vms = VMManager.list_vms(rg)
-            if vms:
-                click.echo("\nAvailable VMs:", err=True)
-                for vm in vms:
-                    display_name = vm.session_name or vm.name
-                    click.echo(f"  - {display_name} ({vm.name})", err=True)
-            sys.exit(1)
+        # Ensure source VM is running
+        source_vm_info = _ensure_source_vm_running(source_vm_info, rg)
 
-        click.echo(f"Source VM: {source_vm_info.name} ({source_vm_info.public_ip})")
-        click.echo(f"VM size: {source_vm_info.vm_size}")
-        click.echo(f"Region: {source_vm_info.location}")
-
-        # Check source VM is running
-        if not source_vm_info.is_running():
-            click.echo(f"Warning: Source VM is not running (state: {source_vm_info.power_state})")
-            click.echo("Starting source VM...")
-            controller = VMLifecycleController()
-            controller.start_vm(source_vm_info.name, rg)
-            click.echo("Source VM started successfully")
-            # Refresh VM info
-            source_vm_info = VMManager.get_vm(source_vm_info.name, rg)
-
-        # Generate clone configurations
+        # Generate and display clone configurations
         click.echo(f"\nGenerating configurations for {num_replicas} clone(s)...")
         clone_configs = _generate_clone_configs(
             source_vm=source_vm_info,
@@ -3241,55 +3454,27 @@ def clone(
             region=region,
         )
 
-        # Display clone plan
         click.echo("\nClone plan:")
         for i, clone_config in enumerate(clone_configs, 1):
             click.echo(f"  Clone {i}: {clone_config.name}")
             click.echo(f"    Size: {clone_config.size}")
             click.echo(f"    Region: {clone_config.location}")
 
-        # Provision VMs in parallel
-        click.echo(f"\nProvisioning {num_replicas} VM(s)...")
-        provisioner = VMProvisioner()
+        # Provision VMs
+        result = _provision_clone_vms(clone_configs, num_replicas)
 
-        def progress_callback(msg: str):
-            click.echo(f"  {msg}")
-
-        result = provisioner.provision_vm_pool(
-            configs=clone_configs,
-            progress_callback=progress_callback,
-            max_workers=min(10, num_replicas),
-        )
-
-        # Check provisioning results
-        if not result.any_succeeded:
-            click.echo("\nError: All VM provisioning failed", err=True)
-            for failure in result.failed[:3]:  # Show first 3 failures
-                click.echo(f"  {failure.config.name}: {failure.error}", err=True)
-            sys.exit(1)
-
-        if result.partial_success:
-            click.echo(
-                f"\nWarning: Partial success - {result.success_count}/{result.total_requested} VMs provisioned"
-            )
-
-        click.echo(f"\nSuccessfully provisioned {result.success_count} VM(s)")
-
-        # Copy home directories in parallel
+        # Copy home directories
         click.echo("\nCopying home directories from source VM...")
-        # Use id_rsa for compatibility with existing VMs (TODO: auto-detect SSH key)
         ssh_key_path = Path.home() / ".ssh" / "id_rsa"
         copy_results = _copy_home_directories(
             source_vm=source_vm_info,
             clone_vms=result.successful,
             ssh_key_path=str(ssh_key_path),
-            max_workers=min(5, len(result.successful)),  # Limit to avoid overwhelming source
+            max_workers=min(5, len(result.successful)),
         )
 
         # Check copy results
-        successful_copies = sum(1 for success in copy_results.values() if success)
-        failed_copies = len(copy_results) - successful_copies
-
+        failed_copies = len(copy_results) - sum(1 for success in copy_results.values() if success)
         if failed_copies > 0:
             click.echo(f"\nWarning: {failed_copies} home directory copy operations failed")
 
@@ -3302,37 +3487,8 @@ def clone(
                 config_path=config,
             )
 
-        # Display final results
-        click.echo("\n" + "=" * 70)
-        click.echo(
-            f"Clone operation complete: {successful_copies}/{len(result.successful)} successful"
-        )
-        click.echo("=" * 70)
-        click.echo("\nCloned VMs:")
-        for vm in result.successful:
-            session_name = (
-                ConfigManager.get_session_name(vm.name, config) if session_prefix else None
-            )
-            copy_status = "✓" if copy_results.get(vm.name, False) else "✗"
-            display_name = f"{session_name} ({vm.name})" if session_name else vm.name
-            click.echo(f"  {copy_status} {display_name}")
-            click.echo(f"     IP: {vm.public_ip}")
-            click.echo(f"     Size: {vm.size}, Region: {vm.location}")
-
-        if result.failed:
-            click.echo("\nFailed provisioning:")
-            for failure in result.failed:
-                click.echo(f"  ✗ {failure.config.name}: {failure.error}")
-
-        # Show connection instructions
-        if result.successful:
-            first_clone = result.successful[0]
-            first_session = (
-                ConfigManager.get_session_name(first_clone.name, config) if session_prefix else None
-            )
-            connect_target = first_session or first_clone.name
-            click.echo("\nTo connect to first clone:")
-            click.echo(f"  azlin connect {connect_target}")
+        # Display results
+        _display_clone_results(result, copy_results, session_prefix, config)
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
@@ -3393,7 +3549,7 @@ def _generate_clone_configs(
     num_replicas: int,
     vm_size: str | None,
     region: str | None,
-) -> list:
+) -> list[VMConfig]:
     """Generate VMConfig objects for clones.
 
     Args:
@@ -3408,12 +3564,12 @@ def _generate_clone_configs(
     from azlin.vm_provisioning import VMConfig
 
     # Use custom or source attributes
-    clone_size = vm_size or source_vm.vm_size
+    clone_size = vm_size or source_vm.vm_size or "Standard_B2s"  # Default if both are None
     clone_region = region or source_vm.location
 
     # Generate unique VM names with timestamp
     timestamp = int(time.time())
-    configs = []
+    configs: list[Any] = []
 
     for i in range(1, num_replicas + 1):
         vm_name = f"azlin-vm-{timestamp}-{i}"
@@ -3522,13 +3678,11 @@ def _copy_home_directories(
         finally:
             # Clean up temporary directory
             if temp_dir and temp_dir.exists():
-                try:
+                with contextlib.suppress(Exception):
                     shutil.rmtree(temp_dir)
-                except Exception:
-                    pass  # Best effort cleanup
 
     # Execute copies in parallel
-    results = {}
+    results: dict[str, bool] = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(copy_to_vm, clone): clone for clone in clone_vms}
 
@@ -3735,7 +3889,7 @@ def template():
 
 @main.group(name="snapshot")
 @click.pass_context
-def snapshot(ctx):
+def snapshot(ctx: click.Context) -> None:
     """Manage VM snapshots and scheduled backups.
 
     Enable scheduled snapshots, sync snapshots manually, or manage snapshot schedules.
@@ -3950,40 +4104,9 @@ def keys_rotate(
         azlin keys rotate --all-vms
         azlin keys rotate --no-backup
     """
-    pass
-
-
-@template.command(name="create")
-@click.argument("name", type=str)
-@click.option("--description", help="Template description", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
-@click.option("--region", help="Azure region", type=str)
-@click.option("--cloud-init", help="Path to cloud-init script file", type=click.Path(exists=True))
-def template_create(
-    name: str,
-    description: str | None,
-    vm_size: str | None,
-    region: str | None,
-    cloud_init: str | None,
-):
-    """Create a new VM template.
-
-    Creates a template with the specified configuration.
-    If options are not provided, uses defaults from config.
-
-    \b
-    Examples:
-        azlin template create dev-vm
-        azlin template create dev-vm --vm-size Standard_D2s_v3 --region eastus
-        azlin template create dev-vm --description "My dev VM" --cloud-init custom.yaml
-    """
     try:
-        # Load config for defaults
-        try:
-            ConfigManager.load_config()
-        except ConfigError:
-            AzlinConfig()
-
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
         if not rg:
             click.echo("Error: No resource group specified.", err=True)
             sys.exit(1)
@@ -4118,95 +4241,92 @@ def keys_list(resource_group: str | None, config: str | None, all_vms: bool, vm_
         azlin keys list --all-vms
     """
     try:
-        # Validate selection options
-        selection_count = sum([bool(tag), bool(vm_pattern), select_all])
-        if selection_count == 0:
-            click.echo("Error: Must specify --tag, --vm-pattern, or --all", err=True)
-            sys.exit(1)
-        if selection_count > 1:
-            click.echo("Error: Can only use one of --tag, --vm-pattern, or --all", err=True)
-            sys.exit(1)
-
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
         if not rg:
             click.echo("Error: No resource group specified.", err=True)
             sys.exit(1)
 
-        # List all VMs
-        click.echo(f"Loading VMs from resource group: {rg}...")
-        all_vms = VMManager.list_vms(rg, include_stopped=False)
+        # Determine VM prefix
+        prefix = "" if all_vms else vm_prefix
 
-        # Select VMs based on criteria
-        if tag:
-            selected_vms = BatchSelector.select_by_tag(all_vms, tag)
-            selection_desc = f"tag '{tag}'"
-        elif vm_pattern:
-            selected_vms = BatchSelector.select_by_pattern(all_vms, vm_pattern)
-            selection_desc = f"pattern '{vm_pattern}'"
-        else:  # select_all
-            selected_vms = all_vms
-            selection_desc = "all VMs"
+        click.echo(f"Listing SSH keys for VMs in resource group: {rg}\n")
 
-        if not selected_vms:
-            click.echo(f"No running VMs found matching {selection_desc}.")
+        # List VM keys
+        vm_keys = SSHKeyRotator.list_vm_keys(resource_group=rg, vm_prefix=prefix)
+
+        if not vm_keys:
+            click.echo("No VMs found.")
             return
 
-        # Show summary
-        click.echo(f"\nFound {len(selected_vms)} VM(s) matching {selection_desc}:")
-        click.echo("=" * 80)
-        for vm in selected_vms:
-            click.echo(f"  {vm.name:<35} {vm.public_ip or 'N/A':<15} {vm.location}")
-        click.echo("=" * 80)
+        # Display table
+        click.echo("=" * 100)
+        click.echo(f"{'VM NAME':<35} {'PUBLIC KEY (first 50 chars)':<65}")
+        click.echo("=" * 100)
 
-        # Confirmation
-        if not confirm:
-            action = "deallocate" if deallocate else "stop"
-            click.echo(f"\nThis will {action} {len(selected_vms)} VM(s).")
-            confirm_input = input("Continue? [y/N]: ").lower()
-            if confirm_input not in ["y", "yes"]:
-                click.echo("Cancelled.")
-                return
+        for vm_key in vm_keys:
+            key_display = vm_key.public_key[:50] + "..." if vm_key.public_key else "N/A"
+            click.echo(f"{vm_key.vm_name:<35} {key_display:<65}")
 
-        # Execute batch stop
-        click.echo(f"\n{'Deallocating' if deallocate else 'Stopping'} {len(selected_vms)} VM(s)...")
-        executor = BatchExecutor(max_workers=max_workers)
+        click.echo("=" * 100)
+        click.echo(f"\nTotal: {len(vm_keys)} VMs")
 
-        def progress_callback(msg: str):
-            click.echo(f"  {msg}")
-
-        results = executor.execute_stop(
-            selected_vms, rg, deallocate=deallocate, progress_callback=progress_callback
-        )
-
-        # Show results
-        batch_result = BatchResult(results)
-        click.echo("\n" + "=" * 80)
-        click.echo("Batch Stop Summary")
-        click.echo("=" * 80)
-        click.echo(batch_result.format_summary())
-        click.echo("=" * 80)
-
-        if batch_result.failed > 0:
-            click.echo("\nFailed VMs:")
-            for failure in batch_result.get_failures():
-                click.echo(f"  - {failure.vm_name}: {failure.message}")
-
-        sys.exit(0 if batch_result.all_succeeded else 1)
-
-    except BatchExecutorError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo("\nCancelled by user.")
-        sys.exit(130)
     except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        logger.exception("Unexpected error in batch stop")
+        click.echo(f"Error: {e}", err=True)
+        logger.exception("Unexpected error in keys list")
         sys.exit(1)
+
+
+def _validate_batch_selection(tag: str | None, vm_pattern: str | None, select_all: bool):
+    """Validate that exactly one batch selection option is provided."""
+    selection_count = sum([bool(tag), bool(vm_pattern), select_all])
+    if selection_count == 0:
+        click.echo("Error: Must specify --tag, --vm-pattern, or --all", err=True)
+        sys.exit(1)
+    if selection_count > 1:
+        click.echo("Error: Can only use one of --tag, --vm-pattern, or --all", err=True)
+        sys.exit(1)
+
+
+def _select_vms_by_criteria(
+    all_vms: list[VMInfo], tag: str | None, vm_pattern: str | None, select_all: bool
+) -> tuple[list[VMInfo], str]:
+    """Select VMs based on criteria and return (selected_vms, selection_description)."""
+    if tag:
+        selected_vms = BatchSelector.select_by_tag(all_vms, tag)
+        selection_desc = f"tag '{tag}'"
+    elif vm_pattern:
+        selected_vms = BatchSelector.select_by_pattern(all_vms, vm_pattern)
+        selection_desc = f"pattern '{vm_pattern}'"
+    else:  # select_all
+        selected_vms = all_vms
+        selection_desc = "all VMs"
+    return selected_vms, selection_desc
+
+
+def _confirm_batch_operation(num_vms: int, operation: str, confirm: bool) -> bool:
+    """Confirm batch operation with user. Returns True if should proceed."""
+    if not confirm:
+        click.echo(f"\nThis will {operation} {num_vms} VM(s).")
+        confirm_input = input("Continue? [y/N]: ").lower()
+        if confirm_input not in ["y", "yes"]:
+            click.echo("Cancelled.")
+            return False
+    return True
+
+
+def _display_batch_summary(batch_result: BatchResult, operation_name: str) -> None:
+    """Display batch operation summary."""
+    click.echo("\n" + "=" * 80)
+    click.echo(f"Batch {operation_name} Summary")
+    click.echo("=" * 80)
+    click.echo(batch_result.format_summary())
+    click.echo("=" * 80)
+
+    if batch_result.failed > 0:
+        click.echo("\nFailed VMs:")
+        for failure in batch_result.get_failures():
+            click.echo(f"  - {failure.vm_name}: {failure.message}")
 
 
 @batch.command(name="start")
@@ -4238,13 +4358,7 @@ def batch_start(
     """
     try:
         # Validate selection options
-        selection_count = sum([bool(tag), bool(vm_pattern), select_all])
-        if selection_count == 0:
-            click.echo("Error: Must specify --tag, --vm-pattern, or --all", err=True)
-            sys.exit(1)
-        if selection_count > 1:
-            click.echo("Error: Can only use one of --tag, --vm-pattern, or --all", err=True)
-            sys.exit(1)
+        _validate_batch_selection(tag, vm_pattern, select_all)
 
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
@@ -4252,24 +4366,13 @@ def batch_start(
             click.echo("Error: No resource group specified.", err=True)
             sys.exit(1)
 
-        # List all VMs including stopped
+        # List and select VMs
         click.echo(f"Loading VMs from resource group: {rg}...")
         all_vms = VMManager.list_vms(rg, include_stopped=True)
-
-        # Select VMs based on criteria
-        if tag:
-            selected_vms = BatchSelector.select_by_tag(all_vms, tag)
-            selection_desc = f"tag '{tag}'"
-        elif vm_pattern:
-            selected_vms = BatchSelector.select_by_pattern(all_vms, vm_pattern)
-            selection_desc = f"pattern '{vm_pattern}'"
-        else:  # select_all
-            selected_vms = all_vms
-            selection_desc = "all VMs"
+        selected_vms, selection_desc = _select_vms_by_criteria(all_vms, tag, vm_pattern, select_all)
 
         # Filter to only stopped VMs
         stopped_vms = [vm for vm in selected_vms if vm.is_stopped()]
-
         if not stopped_vms:
             click.echo(f"No stopped VMs found matching {selection_desc}.")
             return
@@ -4282,12 +4385,8 @@ def batch_start(
         click.echo("=" * 80)
 
         # Confirmation
-        if not confirm:
-            click.echo(f"\nThis will start {len(stopped_vms)} VM(s).")
-            confirm_input = input("Continue? [y/N]: ").lower()
-            if confirm_input not in ["y", "yes"]:
-                click.echo("Cancelled.")
-                return
+        if not _confirm_batch_operation(len(stopped_vms), "start", confirm):
+            return
 
         # Execute batch start
         click.echo(f"\nStarting {len(stopped_vms)} VM(s)...")
@@ -4300,16 +4399,7 @@ def batch_start(
 
         # Show results
         batch_result = BatchResult(results)
-        click.echo("\n" + "=" * 80)
-        click.echo("Batch Start Summary")
-        click.echo("=" * 80)
-        click.echo(batch_result.format_summary())
-        click.echo("=" * 80)
-
-        if batch_result.failed > 0:
-            click.echo("\nFailed VMs:")
-            for failure in batch_result.get_failures():
-                click.echo(f"  - {failure.vm_name}: {failure.message}")
+        _display_batch_summary(batch_result, "Start")
 
         sys.exit(0 if batch_result.all_succeeded else 1)
 
@@ -4361,13 +4451,7 @@ def command(
     """
     try:
         # Validate selection options
-        selection_count = sum([bool(tag), bool(vm_pattern), select_all])
-        if selection_count == 0:
-            click.echo("Error: Must specify --tag, --vm-pattern, or --all", err=True)
-            sys.exit(1)
-        if selection_count > 1:
-            click.echo("Error: Can only use one of --tag, --vm-pattern, or --all", err=True)
-            sys.exit(1)
+        _validate_batch_selection(tag, vm_pattern, select_all)
 
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
@@ -4375,24 +4459,13 @@ def command(
             click.echo("Error: No resource group specified.", err=True)
             sys.exit(1)
 
-        # List all VMs
+        # List and select VMs
         click.echo(f"Loading VMs from resource group: {rg}...")
         all_vms = VMManager.list_vms(rg, include_stopped=False)
-
-        # Select VMs based on criteria
-        if tag:
-            selected_vms = BatchSelector.select_by_tag(all_vms, tag)
-            selection_desc = f"tag '{tag}'"
-        elif vm_pattern:
-            selected_vms = BatchSelector.select_by_pattern(all_vms, vm_pattern)
-            selection_desc = f"pattern '{vm_pattern}'"
-        else:  # select_all
-            selected_vms = all_vms
-            selection_desc = "all VMs"
+        selected_vms, selection_desc = _select_vms_by_criteria(all_vms, tag, vm_pattern, select_all)
 
         # Filter to running VMs with IPs
         running_vms = [vm for vm in selected_vms if vm.is_running() and vm.public_ip]
-
         if not running_vms:
             click.echo(f"No running VMs with public IPs found matching {selection_desc}.")
             return
@@ -4418,11 +4491,7 @@ def command(
 
         # Show results
         batch_result = BatchResult(results)
-        click.echo("\n" + "=" * 80)
-        click.echo("Batch Command Summary")
-        click.echo("=" * 80)
-        click.echo(batch_result.format_summary())
-        click.echo("=" * 80)
+        _display_batch_summary(batch_result, "Command")
 
         # Show output if requested
         if show_output:
@@ -4435,11 +4504,6 @@ def command(
                 else:
                     click.echo("  (no output)")
             click.echo("=" * 80)
-
-        if batch_result.failed > 0:
-            click.echo("\nFailed VMs:")
-            for failure in batch_result.get_failures():
-                click.echo(f"  - {failure.vm_name}: {failure.message}")
 
         sys.exit(0 if batch_result.all_succeeded else 1)
 
@@ -4487,13 +4551,7 @@ def batch_sync(
     """
     try:
         # Validate selection options
-        selection_count = sum([bool(tag), bool(vm_pattern), select_all])
-        if selection_count == 0:
-            click.echo("Error: Must specify --tag, --vm-pattern, or --all", err=True)
-            sys.exit(1)
-        if selection_count > 1:
-            click.echo("Error: Can only use one of --tag, --vm-pattern, or --all", err=True)
-            sys.exit(1)
+        _validate_batch_selection(tag, vm_pattern, select_all)
 
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
@@ -4501,24 +4559,13 @@ def batch_sync(
             click.echo("Error: No resource group specified.", err=True)
             sys.exit(1)
 
-        # List all VMs
+        # List and select VMs
         click.echo(f"Loading VMs from resource group: {rg}...")
         all_vms = VMManager.list_vms(rg, include_stopped=False)
-
-        # Select VMs based on criteria
-        if tag:
-            selected_vms = BatchSelector.select_by_tag(all_vms, tag)
-            selection_desc = f"tag '{tag}'"
-        elif vm_pattern:
-            selected_vms = BatchSelector.select_by_pattern(all_vms, vm_pattern)
-            selection_desc = f"pattern '{vm_pattern}'"
-        else:  # select_all
-            selected_vms = all_vms
-            selection_desc = "all VMs"
+        selected_vms, selection_desc = _select_vms_by_criteria(all_vms, tag, vm_pattern, select_all)
 
         # Filter to running VMs with IPs
         running_vms = [vm for vm in selected_vms if vm.is_running() and vm.public_ip]
-
         if not running_vms:
             click.echo(f"No running VMs with public IPs found matching {selection_desc}.")
             return
@@ -4546,16 +4593,7 @@ def batch_sync(
 
         # Show results
         batch_result = BatchResult(results)
-        click.echo("\n" + "=" * 80)
-        click.echo("Batch Sync Summary")
-        click.echo("=" * 80)
-        click.echo(batch_result.format_summary())
-        click.echo("=" * 80)
-
-        if batch_result.failed > 0:
-            click.echo("\nFailed VMs:")
-            for failure in batch_result.get_failures():
-                click.echo(f"  - {failure.vm_name}: {failure.message}")
+        _display_batch_summary(batch_result, "Sync")
 
         sys.exit(0 if batch_result.all_succeeded else 1)
 
@@ -4571,34 +4609,6 @@ def batch_sync(
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         logger.exception("Unexpected error in batch sync")
-
-        # Determine VM prefix
-        prefix = "" if all_vms else vm_prefix
-
-        click.echo(f"Listing SSH keys for VMs in resource group: {rg}\n")
-
-        # List VM keys
-        vm_keys = SSHKeyRotator.list_vm_keys(resource_group=rg, vm_prefix=prefix)
-
-        if not vm_keys:
-            click.echo("No VMs found.")
-            return
-
-        # Display table
-        click.echo("=" * 100)
-        click.echo(f"{'VM NAME':<35} {'PUBLIC KEY (first 50 chars)':<65}")
-        click.echo("=" * 100)
-
-        for vm_key in vm_keys:
-            key_display = vm_key.public_key[:50] + "..." if vm_key.public_key else "N/A"
-            click.echo(f"{vm_key.vm_name:<35} {key_display:<65}")
-
-        click.echo("=" * 100)
-        click.echo(f"\nTotal: {len(vm_keys)} VMs")
-
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        logger.exception("Unexpected error in keys list")
         sys.exit(1)
 
 
@@ -5371,7 +5381,7 @@ def _get_ssh_config_for_vm(
     ssh_key_pair = SSHKeyManager.ensure_key_exists()
 
     # Check if VM identifier is IP address
-    if VMConnector._is_valid_ip(vm_identifier):
+    if VMConnector.is_valid_ip(vm_identifier):
         # Direct IP connection
         return SSHConfig(host=vm_identifier, user="azureuser", key_path=ssh_key_pair.private_path)
 

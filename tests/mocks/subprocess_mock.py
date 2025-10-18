@@ -275,10 +275,11 @@ def apt_install_handler(cmd: list[str], **kwargs) -> Mock:
 
     if "install" in cmd_str:
         # Extract package names
-        packages = []
-        for arg in cmd:
-            if not arg.startswith("-") and arg not in ["apt", "apt-get", "install", "sudo"]:
-                packages.append(arg)
+        packages = [
+            arg
+            for arg in cmd
+            if not arg.startswith("-") and arg not in ["apt", "apt-get", "install", "sudo"]
+        ]
 
         output = f"Installing {len(packages)} packages...\nDone."
         return Mock(returncode=0, stdout=output, stderr="")

@@ -254,18 +254,17 @@ def example_performance_optimization():
 
     # Batch memory storage for efficiency
     print("Testing batch storage performance...")
-    batch_memories = []
-    for i in range(50):
-        batch_memories.append(
-            {
-                "agent_id": f"agent_{i % 5}",
-                "title": f"Batch Memory {i}",
-                "content": f"Content for memory {i} - performance testing",
-                "memory_type": MemoryType.CONTEXT,
-                "importance": (i % 10) + 1,
-                "tags": [f"batch_{i // 10}", "performance", "test"],
-            }
-        )
+    batch_memories = [
+        {
+            "agent_id": f"agent_{i % 5}",
+            "title": f"Batch Memory {i}",
+            "content": f"Content for memory {i} - performance testing",
+            "memory_type": MemoryType.CONTEXT,
+            "importance": (i % 10) + 1,
+            "tags": [f"batch_{i // 10}", "performance", "test"],
+        }
+        for i in range(50)
+    ]
 
     start_time = time.time()
     memory_ids = memory.store_batch(batch_memories)

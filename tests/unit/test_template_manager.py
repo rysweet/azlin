@@ -80,9 +80,11 @@ class TestTemplateCreation:
             region="eastus",
         )
 
-        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
-            with pytest.raises(TemplateError, match="Invalid template name"):
-                TemplateManager.create_template(template)
+        with (
+            patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path),
+            pytest.raises(TemplateError, match="Invalid template name"),
+        ):
+            TemplateManager.create_template(template)
 
     def test_create_template_duplicate_name_fails(self, tmp_path):
         """Test that creating a template with duplicate name fails."""
@@ -214,9 +216,11 @@ class TestTemplateRetrieval:
         """Test that retrieving non-existent template raises error."""
         from azlin.template_manager import TemplateError, TemplateManager
 
-        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
-            with pytest.raises(TemplateError, match="not found"):
-                TemplateManager.get_template("nonexistent")
+        with (
+            patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path),
+            pytest.raises(TemplateError, match="not found"),
+        ):
+            TemplateManager.get_template("nonexistent")
 
 
 # ============================================================================
@@ -249,9 +253,11 @@ class TestTemplateDeletion:
         """Test that deleting non-existent template raises error."""
         from azlin.template_manager import TemplateError, TemplateManager
 
-        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
-            with pytest.raises(TemplateError, match="not found"):
-                TemplateManager.delete_template("nonexistent")
+        with (
+            patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path),
+            pytest.raises(TemplateError, match="not found"),
+        ):
+            TemplateManager.delete_template("nonexistent")
 
 
 # ============================================================================
@@ -319,9 +325,11 @@ cloud_init: |
         input_file = tmp_path / "invalid.yaml"
         input_file.write_text("{ invalid yaml content [")
 
-        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path / "templates"):
-            with pytest.raises(TemplateError, match="Invalid YAML"):
-                TemplateManager.import_template(input_file)
+        with (
+            patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path / "templates"),
+            pytest.raises(TemplateError, match="Invalid YAML"),
+        ):
+            TemplateManager.import_template(input_file)
 
     def test_import_missing_required_fields_fails(self, tmp_path):
         """Test that importing template with missing fields fails."""
@@ -333,9 +341,11 @@ cloud_init: |
         input_file = tmp_path / "incomplete.yaml"
         input_file.write_text(yaml_content)
 
-        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path / "templates"):
-            with pytest.raises(TemplateError, match="Missing required field"):
-                TemplateManager.import_template(input_file)
+        with (
+            patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path / "templates"),
+            pytest.raises(TemplateError, match="Missing required field"),
+        ):
+            TemplateManager.import_template(input_file)
 
 
 # ============================================================================
@@ -425,17 +435,17 @@ class TestTemplateValidation:
         valid.validate()  # Should not raise
 
         # Invalid - empty name
+        invalid = VMTemplateConfig(
+            name="", description="Invalid", vm_size="Standard_B2s", region="eastus"
+        )
         with pytest.raises(TemplateError):
-            invalid = VMTemplateConfig(
-                name="", description="Invalid", vm_size="Standard_B2s", region="eastus"
-            )
             invalid.validate()
 
         # Invalid - empty description
+        invalid = VMTemplateConfig(
+            name="test", description="", vm_size="Standard_B2s", region="eastus"
+        )
         with pytest.raises(TemplateError):
-            invalid = VMTemplateConfig(
-                name="test", description="", vm_size="Standard_B2s", region="eastus"
-            )
             invalid.validate()
 
 
@@ -457,9 +467,11 @@ class TestTemplateEdgeCases:
             name=long_name, description="Long name test", vm_size="Standard_B2s", region="eastus"
         )
 
-        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
-            with pytest.raises(TemplateError, match="(too long|Invalid template name)"):
-                TemplateManager.create_template(template)
+        with (
+            patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path),
+            pytest.raises(TemplateError, match=r"(too long|Invalid template name)"),
+        ):
+            TemplateManager.create_template(template)
 
     def test_template_with_special_characters(self, tmp_path):
         """Test template with special characters in name."""
@@ -469,9 +481,11 @@ class TestTemplateEdgeCases:
             name="test!@#$%", description="Special chars", vm_size="Standard_B2s", region="eastus"
         )
 
-        with patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path):
-            with pytest.raises(TemplateError, match="Invalid template name"):
-                TemplateManager.create_template(template)
+        with (
+            patch.object(TemplateManager, "TEMPLATES_DIR", tmp_path),
+            pytest.raises(TemplateError, match="Invalid template name"),
+        ):
+            TemplateManager.create_template(template)
 
     def test_corrupted_yaml_file_handling(self, tmp_path):
         """Test handling of corrupted YAML files during listing."""

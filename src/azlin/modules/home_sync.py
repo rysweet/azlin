@@ -32,6 +32,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from .ssh_connector import SSHConfig
 
@@ -70,8 +71,8 @@ class ValidationResult:
     """Result of security validation."""
 
     is_safe: bool
-    blocked_files: list[str] = field(default_factory=list)
-    warnings: list[SecurityWarning] = field(default_factory=list)
+    blocked_files: list[str] = field(default_factory=list)  # type: ignore[misc]
+    warnings: list[SecurityWarning] = field(default_factory=list)  # type: ignore[misc]
 
 
 @dataclass
@@ -81,8 +82,8 @@ class SyncResult:
     success: bool
     files_synced: int = 0
     bytes_transferred: int = 0
-    warnings: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)  # type: ignore[misc]
+    errors: list[str] = field(default_factory=list)  # type: ignore[misc]
     duration_seconds: float = 0.0
 
 
@@ -105,7 +106,7 @@ class HomeSyncManager:
     # SECURITY LAYER 1: Glob patterns for path-based blocking (NOT regex)
     # CRITICAL FIX: Remove ** prefix - Path.match() requires relative paths without **
     # The ** prefix breaks matching and would allow ALL credential files through!
-    BLOCKED_GLOBS = [
+    BLOCKED_GLOBS: ClassVar[list[str]] = [
         # SSH keys (private) - Matches id_rsa, id_ed25519 but NOT id_rsa.pub
         ".ssh/id_*[!.pub]",
         ".ssh/*_key",
@@ -149,7 +150,7 @@ class HomeSyncManager:
     ]
 
     # Whitelist overrides blacklist
-    ALLOWED_GLOBS = [
+    ALLOWED_GLOBS: ClassVar[list[str]] = [
         ".ssh/config",
         ".ssh/known_hosts",
         ".ssh/*.pub",
@@ -161,7 +162,7 @@ class HomeSyncManager:
 
     # SECURITY LAYER 2: Dangerous symlink targets
     # SECURITY FIX: Prevent symlink-based credential exfiltration
-    DANGEROUS_SYMLINK_TARGETS = [
+    DANGEROUS_SYMLINK_TARGETS: ClassVar[list[Path]] = [
         Path.home() / ".ssh",
         Path.home() / ".aws",
         Path.home() / ".azure",
@@ -170,7 +171,7 @@ class HomeSyncManager:
 
     # SECURITY LAYER 3: Content-based secret patterns (regex for content only)
     # SECURITY FIX: Detect embedded secrets in config files
-    SECRET_CONTENT_PATTERNS = [
+    SECRET_CONTENT_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         (r"AKIA[0-9A-Z]{16}", "AWS Access Key"),
         (r"aws_secret_access_key\s*=\s*[A-Za-z0-9/+=]{40}", "AWS Secret Key"),
         (r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----", "Private Key"),
@@ -278,7 +279,7 @@ class HomeSyncManager:
         Returns:
             List of security warnings found
         """
-        warnings = []
+        warnings: list[SecurityWarning] = []
 
         # Skip large files (> 1MB)
         try:
@@ -321,7 +322,7 @@ class HomeSyncManager:
         Returns:
             List of security warnings
         """
-        warnings = []
+        warnings: list[SecurityWarning] = []
 
         if not directory.exists():
             return warnings
@@ -570,7 +571,7 @@ class HomeSyncManager:
         return cmd
 
     @classmethod
-    def _parse_rsync_stats(cls, output: str) -> tuple:
+    def _parse_rsync_stats(cls, output: str) -> tuple[int, int]:
         """Parse rsync output for statistics.
 
         Args:
@@ -688,12 +689,12 @@ class HomeSyncManager:
                 warnings=sync_warnings,  # Include blocked file warnings
             )
 
-        except subprocess.TimeoutExpired:
-            raise RsyncError("Sync timed out after 5 minutes")
+        except subprocess.TimeoutExpired as e:
+            raise RsyncError("Sync timed out after 5 minutes") from e
         except subprocess.CalledProcessError as e:
-            raise RsyncError(f"rsync failed: {e.stderr}")
+            raise RsyncError(f"rsync failed: {e.stderr}") from e
         except Exception as e:
-            raise RsyncError(f"Sync failed: {e!s}")
+            raise RsyncError(f"Sync failed: {e!s}") from e
 
 
 # Public API

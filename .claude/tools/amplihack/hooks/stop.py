@@ -159,16 +159,14 @@ class StopHook(HookProcessor):
             patterns = analyze_session_patterns(messages)
 
             # Convert patterns to learnings format
-            learnings = []
-            for pattern in patterns:
-                learnings.append(
-                    {
-                        "type": pattern["type"],
-                        "suggestion": pattern.get("suggestion", ""),
-                        "priority": pattern.get("priority", "medium"),
-                    }
-                )
-            return learnings
+            return [
+                {
+                    "type": pattern["type"],
+                    "suggestion": pattern.get("suggestion", ""),
+                    "priority": pattern.get("priority", "medium"),
+                }
+                for pattern in patterns
+            ]
 
         except ImportError as e:
             self.log(f"Could not import reflection module: {e}", "WARNING")
@@ -333,9 +331,10 @@ class StopHook(HookProcessor):
 
             # Allow reading from Claude Code directories and temp directories
             # These are trusted locations where Claude Code stores transcripts
+            import tempfile
             allowed_external_paths = [
                 Path.home() / ".claude",  # Claude Code's data directory
-                Path("/tmp"),  # Temporary files
+                Path(tempfile.gettempdir()),  # Temporary files
                 Path("/var/folders"),  # macOS temp directory
                 Path("/private/var/folders"),  # macOS temp directory (resolved)
             ]
@@ -449,6 +448,7 @@ class StopHook(HookProcessor):
             return None
 
         # Possible transcript locations and naming patterns
+        import tempfile
         possible_locations = [
             # Current runtime structure
             self.project_root / ".claude" / "runtime" / "transcripts",
@@ -458,7 +458,7 @@ class StopHook(HookProcessor):
             self.project_root / "transcripts",
             self.project_root / "sessions",
             # Temporary locations
-            Path("/tmp") / "claude" / "transcripts",
+            Path(tempfile.gettempdir()) / "claude" / "transcripts",
         ]
 
         # Possible file patterns

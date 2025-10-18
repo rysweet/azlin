@@ -370,8 +370,8 @@ class VMUpdater:
         self._report_progress(f"Starting VM update on {self.ssh_config.host}...")
 
         start_time = time.time()
-        successful = []
-        failed = []
+        successful: list[UpdateResult] = []
+        failed: list[UpdateResult] = []
 
         # Define update sequence (order matters)
         updates = [

@@ -81,7 +81,7 @@ class TestSnapshotManager:
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ResourceNotFound")
 
         manager = SnapshotManager()
-        with pytest.raises(SnapshotManagerError, match="VM .* not found"):
+        with pytest.raises(SnapshotManagerError, match=r"VM .* not found"):
             manager.create_snapshot("nonexistent-vm", "test-rg")
 
     @patch("azlin.snapshot_manager.subprocess.run")
@@ -148,7 +148,7 @@ class TestSnapshotManager:
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ResourceNotFound")
 
         manager = SnapshotManager()
-        with pytest.raises(SnapshotManagerError, match="Snapshot .* not found"):
+        with pytest.raises(SnapshotManagerError, match=r"Snapshot .* not found"):
             manager.delete_snapshot("nonexistent-snapshot", "test-rg")
 
     @patch("azlin.snapshot_manager.subprocess.run")
@@ -199,7 +199,7 @@ class TestSnapshotManager:
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ResourceNotFound")
 
         manager = SnapshotManager()
-        with pytest.raises(SnapshotManagerError, match="Snapshot .* not found"):
+        with pytest.raises(SnapshotManagerError, match=r"Snapshot .* not found"):
             manager.restore_snapshot("azlin-test", "nonexistent-snapshot", "test-rg")
 
     def test_get_snapshot_cost_estimate(self):
