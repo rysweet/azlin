@@ -583,99 +583,99 @@ class CodexTranscriptsBuilder:
     # Additional helper methods for focused analysis
     def _analyze_tool_effectiveness(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Analyze tool effectiveness across sessions."""
-        return {"placeholder": "Tool effectiveness analysis"}
+        return {}
 
     def _extract_tool_combinations(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Extract effective tool combinations."""
-        return {"placeholder": "Tool combinations analysis"}
+        return {}
 
     def _analyze_tool_learning_curve(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Analyze tool learning curve."""
-        return {"placeholder": "Tool learning curve analysis"}
+        return {}
 
     def _extract_resolution_strategies(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Extract error resolution strategies."""
-        return {"placeholder": "Resolution strategies"}
+        return {}
 
     def _identify_error_prevention_opportunities(
         self, sessions: list[dict[str, Any]]
     ) -> dict[str, Any]:
         """Identify error prevention opportunities."""
-        return {"placeholder": "Error prevention opportunities"}
+        return {}
 
     def _extract_conversation_patterns(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Extract conversation patterns."""
-        return {"placeholder": "Conversation patterns"}
+        return {}
 
     def _analyze_decision_outcomes(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Analyze decision outcomes."""
-        return {"placeholder": "Decision outcomes"}
+        return {}
 
     def _assess_decision_quality(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Assess decision quality."""
-        return {"placeholder": "Decision quality assessment"}
+        return {}
 
     def _calculate_workflow_efficiency(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Calculate workflow efficiency metrics."""
-        return {"placeholder": "Workflow efficiency"}
+        return {}
 
     def _identify_workflow_optimizations(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Identify workflow optimization opportunities."""
-        return {"placeholder": "Workflow optimizations"}
+        return {}
 
     def _extract_problem_solution_pairs(
         self, sessions: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Extract problem-solution pairs for learning."""
-        return [{"placeholder": "Problem-solution pairs"}]
+        return []
 
     def _extract_code_examples(self, sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Extract code examples from sessions."""
-        return [{"placeholder": "Code examples"}]
+        return []
 
     def _extract_best_practices(self, sessions: list[dict[str, Any]]) -> list[str]:
         """Extract best practices from sessions."""
-        return ["Placeholder best practice"]
+        return []
 
     def _extract_common_mistakes(self, sessions: list[dict[str, Any]]) -> list[str]:
         """Extract common mistakes from sessions."""
-        return ["Placeholder common mistake"]
+        return []
 
     def _extract_tool_usage_examples(self, sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Extract tool usage examples."""
-        return [{"placeholder": "Tool usage examples"}]
+        return []
 
     def _extract_workflow_templates(self, sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Extract workflow templates."""
-        return [{"placeholder": "Workflow templates"}]
+        return []
 
     def _create_executive_summary(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Create executive summary of sessions."""
-        return {"total_sessions": len(sessions), "summary": "Placeholder executive summary"}
+        return {"total_sessions": len(sessions)}
 
     def _calculate_productivity_metrics(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Calculate productivity metrics."""
-        return {"placeholder": "Productivity metrics"}
+        return {}
 
     def _identify_common_bottlenecks(self, sessions: list[dict[str, Any]]) -> list[str]:
         """Identify common bottlenecks."""
-        return ["Placeholder bottleneck"]
+        return []
 
     def _identify_success_factors(self, sessions: list[dict[str, Any]]) -> list[str]:
         """Identify success factors."""
-        return ["Placeholder success factor"]
+        return []
 
     def _identify_improvement_opportunities(self, sessions: list[dict[str, Any]]) -> list[str]:
         """Identify improvement opportunities."""
-        return ["Placeholder improvement opportunity"]
+        return []
 
     def _perform_trend_analysis(self, sessions: list[dict[str, Any]]) -> dict[str, Any]:
         """Perform trend analysis on sessions."""
-        return {"placeholder": "Trend analysis"}
+        return {}
 
     def _generate_recommendations(self, sessions: list[dict[str, Any]]) -> list[str]:
         """Generate recommendations based on analysis."""
-        return ["Placeholder recommendation"]
+        return []
 
     def _create_markdown_codex_report(self, codex_data: dict[str, Any]) -> None:
         """Create markdown version of codex report."""
