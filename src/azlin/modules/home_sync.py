@@ -142,6 +142,21 @@ class HomeSyncManager:
         ".chrome/**",
         ".config/**/*cache*",
         ".config/**/*Cache*",
+        # Development toolchains and package managers (PERFORMANCE: Blocks 2GB+ of files)
+        ".rustup/**",  # Rust toolchains - 1.3GB
+        ".cargo/registry/**",  # Cargo registry cache
+        ".cargo/git/**",  # Cargo git cache
+        ".npm/**",  # npm cache - 283MB
+        ".npm-packages/**",  # npm packages - 421MB
+        ".npm-global/**",  # global npm - 95MB
+        ".pnpm-store/**",  # pnpm store
+        ".yarn/**",  # yarn cache
+        "node_modules/**",  # node modules (already covered but explicit)
+        ".venv/**",  # Python virtual environments
+        "venv/**",  # Python virtual environments
+        ".pyenv/**",  # pyenv versions
+        ".rbenv/**",  # rbenv versions
+        ".nvm/**",  # nvm versions
     ]
 
     # Whitelist overrides blacklist
@@ -460,9 +475,23 @@ class HomeSyncManager:
             "*.pyc",
             "node_modules/",
             ".venv/",
+            "venv/",
             ".git/",
             ".mozilla/",
             ".chrome/",
+            "",
+            "# Development toolchains (PERFORMANCE: Blocks 2GB+)",
+            ".rustup/",
+            ".cargo/registry/",
+            ".cargo/git/",
+            ".npm/",
+            ".npm-packages/",
+            ".npm-global/",
+            ".pnpm-store/",
+            ".yarn/",
+            ".pyenv/",
+            ".rbenv/",
+            ".nvm/",
             cls.EXCLUDE_FILE_NAME,  # Don't sync the exclude file itself
         ]
 
