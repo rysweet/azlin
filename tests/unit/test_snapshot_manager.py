@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from azlin.snapshot_manager import SnapshotInfo, SnapshotManager, SnapshotManagerError
+from azlin.modules.snapshot_manager import SnapshotError, SnapshotInfo, SnapshotManager
 
 
 class TestSnapshotInfo:
@@ -31,7 +31,7 @@ class TestSnapshotInfo:
 class TestSnapshotManager:
     """Tests for SnapshotManager class."""
 
-    @patch("azlin.snapshot_manager.subprocess.run")
+    @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_create_snapshot_success(self, mock_run):
         """Test successful snapshot creation."""
         # Mock VM details
@@ -75,16 +75,16 @@ class TestSnapshotManager:
         assert snapshot.size_gb == 30
         assert mock_run.call_count == 2
 
-    @patch("azlin.snapshot_manager.subprocess.run")
+    @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_create_snapshot_vm_not_found(self, mock_run):
         """Test snapshot creation when VM doesn't exist."""
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ResourceNotFound")
 
         manager = SnapshotManager()
-        with pytest.raises(SnapshotManagerError, match=r"VM .* not found"):
+        with pytest.raises(SnapshotError, match=r"VM .* not found"):
             manager.create_snapshot("nonexistent-vm", "test-rg")
 
-    @patch("azlin.snapshot_manager.subprocess.run")
+    @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_list_snapshots_success(self, mock_run):
         """Test successful snapshot listing."""
         mock_output = json.dumps(
@@ -117,7 +117,7 @@ class TestSnapshotManager:
         assert snapshots[0].name == "azlin-test-snapshot-20251015-053000"
         assert snapshots[1].name == "azlin-test-snapshot-20251014-120000"
 
-    @patch("azlin.snapshot_manager.subprocess.run")
+    @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_list_snapshots_empty(self, mock_run):
         """Test listing snapshots when none exist."""
         mock_run.return_value = MagicMock(returncode=0, stdout="[]", stderr="")
@@ -127,7 +127,7 @@ class TestSnapshotManager:
 
         assert len(snapshots) == 0
 
-    @patch("azlin.snapshot_manager.subprocess.run")
+    @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_delete_snapshot_success(self, mock_run):
         """Test successful snapshot deletion."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -142,16 +142,16 @@ class TestSnapshotManager:
         assert "delete" in args
         assert "azlin-test-snapshot-20251015-053000" in args
 
-    @patch("azlin.snapshot_manager.subprocess.run")
+    @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_delete_snapshot_not_found(self, mock_run):
         """Test snapshot deletion when snapshot doesn't exist."""
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ResourceNotFound")
 
         manager = SnapshotManager()
-        with pytest.raises(SnapshotManagerError, match=r"Snapshot .* not found"):
+        with pytest.raises(SnapshotError, match=r"Snapshot .* not found"):
             manager.delete_snapshot("nonexistent-snapshot", "test-rg")
 
-    @patch("azlin.snapshot_manager.subprocess.run")
+    @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_restore_snapshot_success(self, mock_run):
         """Test successful snapshot restoration."""
         # Mock snapshot details
@@ -193,13 +193,13 @@ class TestSnapshotManager:
 
         assert mock_run.call_count == 7
 
-    @patch("azlin.snapshot_manager.subprocess.run")
+    @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_restore_snapshot_not_found(self, mock_run):
         """Test restoration when snapshot doesn't exist."""
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ResourceNotFound")
 
         manager = SnapshotManager()
-        with pytest.raises(SnapshotManagerError, match=r"Snapshot .* not found"):
+        with pytest.raises(SnapshotError, match=r"Snapshot .* not found"):
             manager.restore_snapshot("azlin-test", "nonexistent-snapshot", "test-rg")
 
     def test_get_snapshot_cost_estimate(self):
@@ -222,7 +222,7 @@ class TestSnapshotManager:
         assert name.startswith("azlin-test-snapshot-")
         assert len(name) > len("azlin-test-snapshot-")
 
-    @patch("azlin.snapshot_manager.subprocess.run")
+    @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_create_snapshot_with_cost_warning(self, mock_run):
         """Test that snapshot creation shows cost estimate."""
         # Mock large disk (500 GB)

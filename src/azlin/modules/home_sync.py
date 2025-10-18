@@ -118,14 +118,9 @@ class HomeSyncManager:
         ".config/gcloud/**/*.json",
         ".config/gcloud/credentials*",
         ".config/gcloud/access_tokens.db",
-        # Azure - GRANULAR: Block tokens/secrets, allow config
-        ".azure/accessTokens.json",
-        ".azure/msal_token_cache.json",
-        ".azure/msal_token_cache.*.json",
-        ".azure/service_principal*.json",
-        ".azure/*token*",
-        ".azure/*secret*",
-        ".azure/*credential*",
+        # Azure - USER REQUEST: Allow .azure/ directory for VM authentication
+        # Only block obviously dangerous files, allow tokens/cache for az CLI
+        ".azure/service_principal*.json",  # Keep blocking service principals
         # Generic credential files
         "*.key",
         "*.pem",
@@ -443,14 +438,8 @@ class HomeSyncManager:
             ".ssh/*.pem",
             ".aws/credentials",
             ".aws/config",
-            # Azure - granular blocking
-            ".azure/accessTokens.json",
-            ".azure/msal_token_cache.json",
-            ".azure/msal_token_cache.*.json",
+            # Azure - USER REQUEST: Allow .azure/ for VM auth, only block service principals
             ".azure/service_principal*.json",
-            ".azure/*token*",
-            ".azure/*secret*",
-            ".azure/*credential*",
             ".config/gcloud/",
             "*.key",
             "*.pem",
@@ -645,12 +634,15 @@ class HomeSyncManager:
 
         # PHASE 1 FIX: Don't throw exception, just collect warnings
         # Rsync exclude file will handle blocking
-        sync_warnings = []
+        sync_warnings: list[str] = []
 
         if validation.blocked_files:
             # Add blocked files to warnings list
             sync_warnings.extend(
-                f"Skipped (sensitive): {blocked_file}" for blocked_file in validation.blocked_files
+                [
+                    f"Skipped (sensitive): {blocked_file}"
+                    for blocked_file in validation.blocked_files
+                ]
             )
 
         # Report validation warnings (non-blocking)
@@ -667,24 +659,24 @@ class HomeSyncManager:
         # Execute rsync
         try:
             if progress_callback:
-                progress_callback("Syncing files to VM...")
+                progress_callback("Syncing files to VM (progress will be shown below)...")
 
-            result = subprocess.run(
+            # USER REQUEST: Show verbose progress - let rsync output stream to terminal
+            # Don't capture output so user can see file-by-file transfer progress
+            subprocess.run(
                 cmd,
-                capture_output=True,
                 text=True,
                 timeout=300,  # 5 minutes
                 check=True,
             )
 
-            # Parse rsync output for stats
-            files_synced, bytes_transferred = cls._parse_rsync_stats(result.stdout)
-
+            # Since we're not capturing output, we can't parse exact stats
+            # But user has full visibility into the sync process
             duration = time.time() - start_time
             return SyncResult(
                 success=True,
-                files_synced=files_synced,
-                bytes_transferred=bytes_transferred,
+                files_synced=0,  # Stats unavailable when showing live progress
+                bytes_transferred=0,  # Stats unavailable when showing live progress
                 duration_seconds=duration,
                 warnings=sync_warnings,  # Include blocked file warnings
             )
@@ -692,7 +684,7 @@ class HomeSyncManager:
         except subprocess.TimeoutExpired as e:
             raise RsyncError("Sync timed out after 5 minutes") from e
         except subprocess.CalledProcessError as e:
-            raise RsyncError(f"rsync failed: {e.stderr}") from e
+            raise RsyncError("rsync failed (see output above for details)") from e
         except Exception as e:
             raise RsyncError(f"Sync failed: {e!s}") from e
 
