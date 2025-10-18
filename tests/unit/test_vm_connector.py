@@ -33,6 +33,45 @@ class TestVMConnector:
         assert VMConnector._is_valid_ip("") is False
         assert VMConnector._is_valid_ip("invalid") is False
 
+    def test_is_valid_ip_ipv4_edge_cases(self):
+        """Test IPv4 edge cases."""
+        # Valid edge cases
+        assert VMConnector._is_valid_ip("0.0.0.0") is True  # noqa: S104 - Testing IP validation
+        assert VMConnector._is_valid_ip("127.0.0.1") is True
+        assert VMConnector._is_valid_ip("8.8.8.8") is True
+        # These should be rejected - leading zeros
+        assert VMConnector._is_valid_ip("192.168.001.001") is False
+
+    def test_is_valid_ip_ipv6_valid(self):
+        """Test valid IPv6 addresses."""
+        # Full format
+        assert VMConnector._is_valid_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334") is True
+        # Compressed format
+        assert VMConnector._is_valid_ip("2001:db8::1") is True
+        # Loopback
+        assert VMConnector._is_valid_ip("::1") is True
+        # IPv4-mapped IPv6
+        assert VMConnector._is_valid_ip("::ffff:192.0.2.1") is True
+        # Link-local
+        assert VMConnector._is_valid_ip("fe80::1") is True
+
+    def test_is_valid_ip_invalid_edge_cases(self):
+        """Test invalid IP edge cases that could be security issues."""
+        # Malformed with special characters
+        assert VMConnector._is_valid_ip("192.168.@.1") is False
+        # CIDR notation (should be rejected)
+        assert VMConnector._is_valid_ip("192.168.1.1/24") is False
+        # Whitespace
+        assert VMConnector._is_valid_ip(" ") is False
+        assert VMConnector._is_valid_ip("  192.168.1.1  ") is False
+        # Way out of range
+        assert VMConnector._is_valid_ip("999.999.999.999") is False
+        # Non-numeric octets
+        assert VMConnector._is_valid_ip("abc.def.ghi.jkl") is False
+        # Hostname-like strings
+        assert VMConnector._is_valid_ip("localhost") is False
+        assert VMConnector._is_valid_ip("example.com") is False
+
     @patch("azlin.vm_connector.VMManager")
     @patch("azlin.vm_connector.ConfigManager")
     def test_resolve_connection_info_by_ip(self, mock_config_mgr, mock_vm_mgr):

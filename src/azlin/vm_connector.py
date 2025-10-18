@@ -10,8 +10,8 @@ Security:
 - Sanitized logging
 """
 
+import ipaddress
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -338,30 +338,21 @@ class VMConnector:
             identifier: String to check
 
         Returns:
-            True if valid IPv4 address
+            True if valid IPv4 or IPv6 address
 
         Example:
             >>> VMConnector._is_valid_ip("192.168.1.1")
             True
+            >>> VMConnector._is_valid_ip("2001:db8::1")
+            True
             >>> VMConnector._is_valid_ip("my-vm-name")
             False
         """
-        # Simple IPv4 pattern
-        ip_pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
-        if not re.match(ip_pattern, identifier):
+        try:
+            ipaddress.ip_address(identifier)
+            return True
+        except ValueError:
             return False
-
-        # Validate octets
-        octets = identifier.split(".")
-        for octet in octets:
-            try:
-                value = int(octet)
-                if value < 0 or value > 255:
-                    return False
-            except ValueError:
-                return False
-
-        return True
 
 
 __all__ = ["ConnectionInfo", "VMConnector", "VMConnectorError"]
