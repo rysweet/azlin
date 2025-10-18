@@ -102,13 +102,12 @@ class NFSMountManager:
         copied_files = 0
 
         try:
-            # Step 1: Install nfs-common
+            # Step 1: Wait for package manager, then install nfs-common
+            logger.info(f"Waiting for package manager on {vm_ip}")
+            cls._wait_for_dpkg_available(vm_ip, ssh_key)
+
             logger.info(f"Installing nfs-common on {vm_ip}")
-            cls._ssh_command(
-                vm_ip,
-                ssh_key,
-                "sudo apt-get update -qq && sudo apt-get install -y nfs-common",
-            )
+            cls._install_nfs_common_with_retry(vm_ip, ssh_key)
 
             # Step 2: Backup existing mount point
             logger.info(f"Backing up existing {mount_point}")
@@ -379,6 +378,94 @@ class NFSMountManager:
         except Exception as e:
             logger.debug(f"Failed to get mount info: {e}")
             return None
+
+    @classmethod
+    def _wait_for_dpkg_available(
+        cls, vm_ip: str, ssh_key: Path, timeout: int = 300, interval: int = 10
+    ) -> None:
+        """Wait for dpkg/apt to be available (not locked by cloud-init or other processes).
+
+        This fixes the race condition where apt-get commands fail with exit code 100
+        because cloud-init or apt-daily services still hold the dpkg lock.
+
+        Args:
+            vm_ip: VM IP address
+            ssh_key: Path to SSH private key
+            timeout: Maximum wait time in seconds (default: 300)
+            interval: Check interval in seconds (default: 10)
+
+        Raises:
+            Exception: If dpkg doesn't become available within timeout
+        """
+        import time
+
+        start_time = time.time()
+
+        # Command to wait for apt-daily services and check dpkg lock
+        check_command = (
+            "sudo systemd-run --property='After=apt-daily.service apt-daily-upgrade.service' "
+            "--wait /bin/true && sudo flock --timeout 1 /var/lib/dpkg/lock true"
+        )
+
+        while (time.time() - start_time) < timeout:
+            try:
+                cls._ssh_command(vm_ip, ssh_key, check_command)
+                elapsed = time.time() - start_time
+                logger.info(f"Package manager ready after {elapsed:.1f}s")
+                return
+
+            except subprocess.CalledProcessError:
+                elapsed = time.time() - start_time
+                logger.debug(f"Package manager busy, waiting... ({elapsed:.0f}s/{timeout}s)")
+                time.sleep(interval)
+
+        # Timeout - log warning but proceed
+        logger.warning(f"Package manager wait timed out after {timeout}s, proceeding anyway")
+
+    @classmethod
+    def _install_nfs_common_with_retry(
+        cls, vm_ip: str, ssh_key: Path, max_attempts: int = 3
+    ) -> None:
+        """Install nfs-common with retry on lock errors.
+
+        Handles transient dpkg lock failures with exponential backoff.
+
+        Args:
+            vm_ip: VM IP address
+            ssh_key: Path to SSH private key
+            max_attempts: Maximum retry attempts (default: 3)
+
+        Raises:
+            Exception: If all attempts fail
+        """
+        import time
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                cls._ssh_command(
+                    vm_ip,
+                    ssh_key,
+                    "sudo apt-get update -qq && sudo apt-get install -y nfs-common",
+                )
+                logger.info(f"nfs-common installed successfully (attempt {attempt}/{max_attempts})")
+                return
+
+            except subprocess.CalledProcessError as e:
+                # Check if it's a lock error
+                is_lock_error = e.returncode == 100 or (
+                    e.stderr and "Could not get lock" in e.stderr
+                )
+
+                if attempt < max_attempts and is_lock_error:
+                    wait_time = 30 * attempt  # Exponential backoff: 30s, 60s, 90s
+                    logger.warning(
+                        f"apt-get locked (attempt {attempt}/{max_attempts}), "
+                        f"waiting {wait_time}s before retry..."
+                    )
+                    time.sleep(wait_time)
+                else:
+                    # Not a lock error or last attempt - re-raise
+                    raise
 
     @classmethod
     def _ssh_command(cls, vm_ip: str, ssh_key: Path, command: str) -> str:
