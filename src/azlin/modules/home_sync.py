@@ -117,8 +117,14 @@ class HomeSyncManager:
         ".config/gcloud/**/*.json",
         ".config/gcloud/credentials*",
         ".config/gcloud/access_tokens.db",
-        # Azure
-        ".azure/**",
+        # Azure - GRANULAR: Block tokens/secrets, allow config
+        ".azure/accessTokens.json",
+        ".azure/msal_token_cache.json",
+        ".azure/msal_token_cache.*.json",
+        ".azure/service_principal*.json",
+        ".azure/*token*",
+        ".azure/*secret*",
+        ".azure/*credential*",
         # Generic credential files
         "*.key",
         "*.pem",
@@ -147,6 +153,10 @@ class HomeSyncManager:
         ".ssh/config",
         ".ssh/known_hosts",
         ".ssh/*.pub",
+        # Azure config files (NOT tokens/secrets)
+        ".azure/azureProfile.json",
+        ".azure/config",
+        ".azure/clouds.config",
     ]
 
     # SECURITY LAYER 2: Dangerous symlink targets
@@ -383,12 +393,14 @@ class HomeSyncManager:
         """Validate sync directory for security.
 
         SECURITY: Comprehensive validation with multiple layers.
+        PHASE 1 FIX: Changed to non-fatal - returns blocked files but allows sync.
+        Rsync will handle exclusions via exclude file.
 
         Args:
             sync_dir: Directory to validate
 
         Returns:
-            ValidationResult with safety status
+            ValidationResult with blocked files list (non-fatal)
         """
         if not sync_dir.exists():
             return ValidationResult(is_safe=True, blocked_files=[], warnings=[])
@@ -399,8 +411,12 @@ class HomeSyncManager:
         errors = [w for w in warnings if w.severity == "error"]
         blocked_files = [w.file_path for w in errors]
 
+        # PHASE 1 FIX: Always return is_safe=True - let rsync handle exclusions
+        # Only mark unsafe if CRITICAL secrets found (future phase)
         return ValidationResult(
-            is_safe=len(blocked_files) == 0, blocked_files=blocked_files, warnings=warnings
+            is_safe=True,  # Non-fatal validation
+            blocked_files=blocked_files,
+            warnings=warnings,
         )
 
     @classmethod
@@ -426,7 +442,14 @@ class HomeSyncManager:
             ".ssh/*.pem",
             ".aws/credentials",
             ".aws/config",
-            ".azure/",
+            # Azure - granular blocking
+            ".azure/accessTokens.json",
+            ".azure/msal_token_cache.json",
+            ".azure/msal_token_cache.*.json",
+            ".azure/service_principal*.json",
+            ".azure/*token*",
+            ".azure/*secret*",
+            ".azure/*credential*",
             ".config/gcloud/",
             "*.key",
             "*.pem",
@@ -619,15 +642,17 @@ class HomeSyncManager:
 
         validation = cls.validate_sync_directory(sync_dir)
 
-        if not validation.is_safe:
-            # Sanitize paths in error message (show only filenames)
-            sanitized_files = [Path(f).name for f in validation.blocked_files]
-            raise SecurityValidationError(
-                "Security validation failed. Remove these files:\n"
-                + "\n".join(f"  - {f}" for f in sanitized_files)
+        # PHASE 1 FIX: Don't throw exception, just collect warnings
+        # Rsync exclude file will handle blocking
+        sync_warnings = []
+
+        if validation.blocked_files:
+            # Add blocked files to warnings list
+            sync_warnings.extend(
+                f"Skipped (sensitive): {blocked_file}" for blocked_file in validation.blocked_files
             )
 
-        # Report warnings
+        # Report validation warnings (non-blocking)
         for warning in validation.warnings:
             if warning.severity == "warning" and progress_callback:
                 progress_callback(f"Warning: {warning.reason}")
@@ -660,6 +685,7 @@ class HomeSyncManager:
                 files_synced=files_synced,
                 bytes_transferred=bytes_transferred,
                 duration_seconds=duration,
+                warnings=sync_warnings,  # Include blocked file warnings
             )
 
         except subprocess.TimeoutExpired:

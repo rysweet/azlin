@@ -401,6 +401,31 @@ class CLIOrchestrator:
             # Create SSH config
             ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
 
+            # PHASE 1 FIX: Pre-sync validation check with visible warnings
+            sync_dir = HomeSyncManager.get_sync_directory()
+            if sync_dir.exists():
+                validation = HomeSyncManager.validate_sync_directory(sync_dir)
+                if validation.blocked_files:
+                    # Show highly visible pre-sync warning
+                    import click
+
+                    click.echo(
+                        click.style(
+                            f"\n  Security: Skipping {len(validation.blocked_files)} sensitive file(s):",
+                            fg="yellow",
+                            bold=True,
+                        )
+                    )
+                    for blocked_file in validation.blocked_files[:5]:  # Show first 5
+                        click.echo(click.style(f"    • {blocked_file}", fg="yellow"))
+                    if len(validation.blocked_files) > 5:
+                        click.echo(
+                            click.style(
+                                f"    ... and {len(validation.blocked_files) - 5} more", fg="yellow"
+                            )
+                        )
+                    click.echo()  # Empty line for spacing
+
             # Progress callback
             def progress_callback(msg: str):
                 self.progress.update(msg, ProgressStage.IN_PROGRESS)
@@ -412,13 +437,31 @@ class CLIOrchestrator:
 
             if result.success:
                 if result.files_synced > 0:
-                    self.progress.update(
+                    # PHASE 1 FIX: Show sync stats with warning count
+                    sync_msg = (
                         f"Synced {result.files_synced} files "
                         f"({result.bytes_transferred / 1024:.1f} KB) "
                         f"in {result.duration_seconds:.1f}s"
                     )
+                    if result.warnings:
+                        sync_msg += f" ({len(result.warnings)} skipped)"
+                    self.progress.update(sync_msg)
                 else:
                     self.progress.update("No files to sync")
+
+                # PHASE 1 FIX: Display warnings prominently after sync
+                if result.warnings:
+                    import click
+
+                    for warning in result.warnings[:3]:  # Show first 3 warnings
+                        click.echo(click.style(f"  ⚠  {warning}", fg="yellow"))
+                    if len(result.warnings) > 3:
+                        click.echo(
+                            click.style(
+                                f"  ⚠  ... and {len(result.warnings) - 3} more warnings",
+                                fg="yellow",
+                            )
+                        )
             else:
                 # Log errors but don't fail
                 for error in result.errors:
