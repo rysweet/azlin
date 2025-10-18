@@ -175,9 +175,7 @@ class StorageManager:
                 "json",
             ]
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True, timeout=300
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
 
             storage_data = json.loads(result.stdout)
 
@@ -258,9 +256,7 @@ class StorageManager:
                 "json",
             ]
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True, timeout=60
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
 
             accounts = json.loads(result.stdout)
 
@@ -318,9 +314,7 @@ class StorageManager:
                 "tsv",
             ]
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=False, timeout=30
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
 
             if result.returncode == 0 and result.stdout.strip():
                 return int(result.stdout.strip())
@@ -357,9 +351,7 @@ class StorageManager:
                 "json",
             ]
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True, timeout=30
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
 
             account = json.loads(result.stdout)
 
@@ -444,9 +436,7 @@ class StorageManager:
         return 0.0
 
     @classmethod
-    def delete_storage(
-        cls, name: str, resource_group: str, force: bool = False
-    ) -> None:
+    def delete_storage(cls, name: str, resource_group: str, force: bool = False) -> None:
         """Delete storage account.
 
         Args:
@@ -505,27 +495,20 @@ class StorageManager:
     def _validate_name(cls, name: str) -> None:
         """Validate storage account name."""
         if len(name) < cls.MIN_NAME_LENGTH:
-            raise ValidationError(
-                f"Storage name must be at least {cls.MIN_NAME_LENGTH} characters"
-            )
+            raise ValidationError(f"Storage name must be at least {cls.MIN_NAME_LENGTH} characters")
 
         if len(name) > cls.MAX_NAME_LENGTH:
-            raise ValidationError(
-                f"Storage name must be at most {cls.MAX_NAME_LENGTH} characters"
-            )
+            raise ValidationError(f"Storage name must be at most {cls.MAX_NAME_LENGTH} characters")
 
         if not cls.VALID_NAME_PATTERN.match(name):
-            raise ValidationError(
-                "Storage name must be alphanumeric lowercase (a-z, 0-9)"
-            )
+            raise ValidationError("Storage name must be alphanumeric lowercase (a-z, 0-9)")
 
     @classmethod
     def _validate_tier(cls, tier: str) -> None:
         """Validate storage tier."""
         if tier not in cls.VALID_TIERS:
             raise ValidationError(
-                f"Tier must be one of: {', '.join(cls.VALID_TIERS)} "
-                f"(got: {tier})"
+                f"Tier must be one of: {', '.join(cls.VALID_TIERS)} " f"(got: {tier})"
             )
 
     @classmethod
