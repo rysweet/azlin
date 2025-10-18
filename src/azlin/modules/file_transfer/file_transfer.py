@@ -5,6 +5,7 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .exceptions import InvalidTransferError, TransferError
 from .session_manager import VMSession
@@ -45,7 +46,7 @@ class FileTransfer:
         cls,
         source: TransferEndpoint,
         dest: TransferEndpoint,
-        progress_callback: Callable[..., None] | None = None,
+        progress_callback: Callable[..., Any] | None = None,
     ) -> TransferResult:
         """
         Transfer files from source to destination.
@@ -72,7 +73,7 @@ class FileTransfer:
             raise InvalidTransferError("Both source and destination are local. Use 'cp' instead.")
 
         # Build rsync command
-        cmd = cls._build_rsync_command(source, dest)
+        cmd = cls.build_rsync_command(source, dest)
 
         # Execute rsync with validated arguments
         import time
@@ -91,7 +92,7 @@ class FileTransfer:
             duration = time.time() - start_time
 
             # Parse rsync output for statistics
-            stats = cls._parse_rsync_output(result.stdout)
+            stats = cls.parse_rsync_output(result.stdout)
 
             return TransferResult(
                 success=True,
@@ -111,11 +112,11 @@ class FileTransfer:
                 errors=[f"rsync failed: {e.stderr}"],
             )
 
-        except subprocess.TimeoutExpired:
-            raise TransferError("Transfer timed out after 5 minutes")
+        except subprocess.TimeoutExpired as e:
+            raise TransferError("Transfer timed out after 5 minutes") from e
 
     @classmethod
-    def _build_rsync_command(cls, source: TransferEndpoint, dest: TransferEndpoint) -> list[str]:
+    def build_rsync_command(cls, source: TransferEndpoint, dest: TransferEndpoint) -> list[str]:
         """
         Build rsync command with validated arguments.
 
@@ -134,7 +135,7 @@ class FileTransfer:
 
         if remote_session is not None:
             # Validate IP address format
-            cls._validate_ip_address(remote_session.public_ip)
+            cls.validate_ip_address(remote_session.public_ip)
 
             # Build SSH command as SINGLE argument
             ssh_cmd = (
@@ -155,7 +156,7 @@ class FileTransfer:
         return cmd
 
     @classmethod
-    def _validate_ip_address(cls, ip: str) -> None:
+    def validate_ip_address(cls, ip: str) -> None:
         """
         Validate IP address format.
 
@@ -164,11 +165,11 @@ class FileTransfer:
         """
         try:
             ipaddress.ip_address(ip)
-        except ValueError:
-            raise TransferError(f"Invalid IP address: {ip}")
+        except ValueError as e:
+            raise TransferError(f"Invalid IP address: {ip}") from e
 
     @classmethod
-    def _parse_rsync_output(cls, output: str) -> dict:
+    def parse_rsync_output(cls, output: str) -> dict[str, int]:
         """Parse rsync output for statistics."""
         import re
 

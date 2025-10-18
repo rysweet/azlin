@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 
@@ -148,18 +149,20 @@ class AzureAuthenticator:
             return False
 
     def check_az_cli_available(self) -> bool:
-        """Check if Azure CLI is available.
+        """Check if Azure CLI is available in PATH.
+
+        Uses shutil.which() to properly respect the user's PATH environment,
+        including Homebrew installations at /opt/homebrew/bin.
 
         Returns:
-            True if az CLI is installed and working
+            True if az CLI is found in PATH
         """
-        try:
-            result = subprocess.run(["az", "--version"], capture_output=True, text=True, timeout=5)
-            return result.returncode == 0
-        except FileNotFoundError:
-            return False
-        except Exception:
-            return False
+        az_path = shutil.which("az")
+        if az_path:
+            logger.debug(f"Found Azure CLI at: {az_path}")
+            return True
+        logger.debug("Azure CLI not found in PATH")
+        return False
 
     def validate_credentials(self) -> bool:
         """Validate that credentials can get a token.
@@ -223,7 +226,7 @@ class AzureAuthenticator:
             account_data = json.loads(result.stdout)
             return account_data["id"]
         except Exception as e:
-            raise AuthenticationError(f"Failed to get subscription ID: {e}")
+            raise AuthenticationError(f"Failed to get subscription ID: {e}") from e
 
     def get_tenant_id(self) -> str:
         """Get Azure tenant ID.
@@ -251,7 +254,7 @@ class AzureAuthenticator:
             account_data = json.loads(result.stdout)
             return account_data["tenantId"]
         except Exception as e:
-            raise AuthenticationError(f"Failed to get tenant ID: {e}")
+            raise AuthenticationError(f"Failed to get tenant ID: {e}") from e
 
     def clear_cache(self) -> None:
         """Clear cached credentials."""

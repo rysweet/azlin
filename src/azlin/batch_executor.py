@@ -263,14 +263,9 @@ class BatchExecutor:
                 )
 
         # Execute in parallel
-        results = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(stop_vm, vm): vm for vm in vms}
-
-            for future in as_completed(futures):
-                results.append(future.result())
-
-        return results
+            return [future.result() for future in as_completed(futures)]
 
     def execute_start(
         self,
@@ -327,14 +322,9 @@ class BatchExecutor:
                 )
 
         # Execute in parallel
-        results = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(start_vm, vm): vm for vm in vms}
-
-            for future in as_completed(futures):
-                results.append(future.result())
-
-        return results
+            return [future.result() for future in as_completed(futures)]
 
     def execute_command(
         self,
@@ -406,14 +396,9 @@ class BatchExecutor:
                 )
 
         # Execute in parallel
-        results = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(execute_on_vm, vm): vm for vm in vms}
-
-            for future in as_completed(futures):
-                results.append(future.result())
-
-        return results
+            return [future.result() for future in as_completed(futures)]
 
     def execute_sync(
         self,
@@ -480,14 +465,9 @@ class BatchExecutor:
                 )
 
         # Execute in parallel
-        results = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(sync_to_vm, vm): vm for vm in vms}
-
-            for future in as_completed(futures):
-                results.append(future.result())
-
-        return results
+            return [future.result() for future in as_completed(futures)]
 
 
 __all__ = [

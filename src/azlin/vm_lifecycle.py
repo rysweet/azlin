@@ -38,9 +38,9 @@ class DeletionResult:
     vm_name: str
     success: bool
     message: str
-    resources_deleted: list[str] = None
+    resources_deleted: list[str] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.resources_deleted is None:
             self.resources_deleted = []
 
@@ -106,7 +106,7 @@ class VMLifecycleManager:
             logger.debug(f"Found {len(resources_to_delete)} resources to delete for {vm_name}")
 
             # Delete VM (this also deletes attached disks if configured)
-            deleted_resources = []
+            deleted_resources: list[str] = []
 
             # Delete VM itself
             try:
@@ -132,9 +132,9 @@ class VMLifecycleManager:
                         try:
                             cls._delete_disk(resource_name, resource_group)
                             deleted_resources.append(f"Disk: {resource_name}")
-                        except Exception:
+                        except Exception as e:
                             # Disk might be auto-deleted, ignore
-                            pass
+                            logger.debug(f"Disk {resource_name} likely auto-deleted: {e}")
                 except Exception as e:
                     logger.warning(f"Failed to delete {resource_type} {resource_name}: {e}")
                     # Continue with other resources
@@ -202,7 +202,7 @@ class VMLifecycleManager:
             logger.info(f"Deleting {len(vms)} VMs in parallel with {max_workers} workers")
 
             # Delete VMs in parallel
-            results = []
+            results: list[DeletionResult] = []
             num_workers = min(max_workers, len(vms))
 
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
@@ -241,7 +241,7 @@ class VMLifecycleManager:
             )
 
         except Exception as e:
-            raise VMLifecycleError(f"Failed to delete VMs: {e}")
+            raise VMLifecycleError(f"Failed to delete VMs: {e}") from e
 
     @classmethod
     def _get_vm_details(cls, vm_name: str, resource_group: str) -> dict[str, Any] | None:
@@ -267,18 +267,21 @@ class VMLifecycleManager:
                 "json",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=True
+            )
 
-            return json.loads(result.stdout)
+            vm_details: dict[str, Any] = json.loads(result.stdout)
+            return vm_details
 
         except subprocess.CalledProcessError as e:
             if "ResourceNotFound" in e.stderr:
                 return None
-            raise VMLifecycleError(f"Failed to get VM details: {e.stderr}")
-        except subprocess.TimeoutExpired:
-            raise VMLifecycleError("VM details query timed out")
-        except json.JSONDecodeError:
-            raise VMLifecycleError("Failed to parse VM details")
+            raise VMLifecycleError(f"Failed to get VM details: {e.stderr}") from e
+        except subprocess.TimeoutExpired as e:
+            raise VMLifecycleError("VM details query timed out") from e
+        except json.JSONDecodeError as e:
+            raise VMLifecycleError("Failed to parse VM details") from e
 
     @classmethod
     def _list_vms_in_group(cls, resource_group: str) -> list[str]:
@@ -303,18 +306,21 @@ class VMLifecycleManager:
                 "json",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=True
+            )
 
-            return json.loads(result.stdout)
+            vm_names: list[str] = json.loads(result.stdout)
+            return vm_names
 
         except subprocess.CalledProcessError as e:
             if "ResourceGroupNotFound" in e.stderr:
                 return []
-            raise VMLifecycleError(f"Failed to list VMs: {e.stderr}")
-        except subprocess.TimeoutExpired:
-            raise VMLifecycleError("VM list operation timed out")
-        except json.JSONDecodeError:
-            raise VMLifecycleError("Failed to parse VM list")
+            raise VMLifecycleError(f"Failed to list VMs: {e.stderr}") from e
+        except subprocess.TimeoutExpired as e:
+            raise VMLifecycleError("VM list operation timed out") from e
+        except json.JSONDecodeError as e:
+            raise VMLifecycleError("Failed to parse VM list") from e
 
     @classmethod
     def _collect_vm_resources(cls, vm_info: dict[str, Any]) -> list[tuple[str, str]]:
@@ -326,7 +332,7 @@ class VMLifecycleManager:
         Returns:
             List of (resource_type, resource_name) tuples
         """
-        resources = []
+        resources: list[tuple[str, str]] = []
 
         # Extract NIC names
         network_profile = vm_info.get("networkProfile", {})
@@ -359,9 +365,7 @@ class VMLifecycleManager:
 
         # Data disks
         data_disks = storage_profile.get("dataDisks", [])
-        for disk in data_disks:
-            if disk.get("name"):
-                resources.append(("disk", disk["name"]))
+        resources.extend(("disk", disk["name"]) for disk in data_disks if disk.get("name"))
 
         return resources
 
@@ -392,9 +396,11 @@ class VMLifecycleManager:
                 "tsv",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=True)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=10, check=True
+            )
 
-            public_ip_id = result.stdout.strip()
+            public_ip_id: str = result.stdout.strip()
             if public_ip_id and public_ip_id != "None":
                 # Extract name from ID
                 return public_ip_id.split("/")[-1]
@@ -443,7 +449,9 @@ class VMLifecycleManager:
             resource_group,
         ]
 
-        subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True)
+        _result: subprocess.CompletedProcess[str] = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60, check=True
+        )
 
         logger.debug(f"Deleted NIC: {nic_name}")
 
@@ -466,7 +474,9 @@ class VMLifecycleManager:
             resource_group,
         ]
 
-        subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True)
+        _result: subprocess.CompletedProcess[str] = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60, check=True
+        )
 
         logger.debug(f"Deleted Public IP: {ip_name}")
 
@@ -489,7 +499,9 @@ class VMLifecycleManager:
             "--yes",
         ]
 
-        subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True)
+        _result: subprocess.CompletedProcess[str] = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60, check=True
+        )
 
         logger.debug(f"Deleted Disk: {disk_name}")
 

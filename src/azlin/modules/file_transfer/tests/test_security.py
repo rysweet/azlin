@@ -1,6 +1,7 @@
 """Security-focused tests for file transfer."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -81,7 +82,7 @@ class TestCommandInjectionPrevention:
 class TestSymlinkAttackPrevention:
     """Test symlink attack prevention."""
 
-    def test_rejects_symlink_to_ssh_keys(self, tmp_path):
+    def test_rejects_symlink_to_ssh_keys(self, tmp_path: Any) -> None:
         """Should reject symlink to ~/.ssh/id_rsa"""
         # Create symlink
         link = tmp_path / "innocent_link"
@@ -129,7 +130,7 @@ class TestShellMetacharacterPrevention:
     """Test shell metacharacter prevention in paths."""
 
     @pytest.mark.parametrize("char", [";", "|", "&", "$", "`", ">", "<", "\n"])
-    def test_rejects_shell_metacharacters(self, char):
+    def test_rejects_shell_metacharacters(self, char: str) -> None:
         """Should reject paths with shell metacharacters"""
         with pytest.raises(InvalidPathError):
             PathParser.parse_and_validate(f"file{char}test.txt")

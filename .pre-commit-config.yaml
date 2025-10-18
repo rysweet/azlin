@@ -22,8 +22,15 @@ repos:
       - id: ruff-format
         exclude: ^\.claude/
 
-  # Type checking - commented out for Phase 1, will address in Phase 2
-  # - repo: https://github.com/RobertCraigie/pyright-python
-  #   rev: v1.1.406
-  #   hooks:
-  #     - id: pyright
+  # Type checking - Phase 2: STRICT mode enabled (src/ only, excluding tests)
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.406
+    hooks:
+      - id: pyright
+        files: ^src/
+        exclude: (^\.claude/|^tests/|/tests/)
+        additional_dependencies:
+          - click>=8.1.0
+          - pyyaml>=6.0.0
+          - rich>=13.7.0
+          - tomli-w>=1.0.0
