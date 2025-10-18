@@ -296,10 +296,32 @@ def delete_storage(name: str, resource_group: str | None, force: bool):
 
         # Delete storage
         click.echo(f"Deleting storage account '{name}'...")
-        result = StorageManager.delete_storage(name, rg, force=force)
+        StorageManager.delete_storage(name, rg, force=force)
+        click.echo(f"Deleted storage account {name}")
 
-        if result.get("warning"):
-            click.echo(f"Warning: {result['warning']}")
+        # Clean up config
+        try:
+            config = ConfigManager.load_config()
+            config_dict = config.to_dict()
+            
+            # Remove from storage accounts if present
+            storage_accounts = config_dict.get("storage_accounts", {})
+            if name in storage_accounts:
+                del storage_accounts[name]
+                config_dict["storage_accounts"] = storage_accounts
+            
+            # Remove any VM storage mappings
+            vm_storage = config_dict.get("vm_storage", {})
+            vms_to_update = [vm for vm, storage in vm_storage.items() if storage == name]
+            for vm_name in vms_to_update:
+                del vm_storage[vm_name]
+            if vms_to_update:
+                config_dict["vm_storage"] = vm_storage
+                
+            # Save updated config
+            ConfigManager.save_config(config)
+        except Exception as e:
+            logger.warning(f"Failed to clean up config: {e}")
 
         click.echo(f"✓ Storage account '{name}' deleted successfully")
 
