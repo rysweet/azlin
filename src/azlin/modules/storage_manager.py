@@ -145,11 +145,12 @@ class StorageManager:
         logger.info(f"Creating storage account {name} in {resource_group}")
 
         try:
-            # Determine SKU based on tier
-            sku = "Premium_LRS" if tier == "Premium" else "Standard_LRS"
-            kind = "FileStorage" if tier == "Premium" else "StorageV2"
+            # For NFS, we need StorageV2 with hierarchical namespace
+            # Premium tier uses Premium_ZRS, Standard uses Standard_LRS
+            sku = "Premium_ZRS" if tier == "Premium" else "Standard_LRS"
+            kind = "StorageV2"
 
-            # Create storage account with NFS enabled
+            # Create storage account with hierarchical namespace and NFS
             cmd = [
                 "az",
                 "storage",
@@ -165,26 +166,32 @@ class StorageManager:
                 sku,
                 "--kind",
                 kind,
+                "--enable-hierarchical-namespace",
+                "true",
                 "--enable-nfs-v3",
                 "true",
+                "--https-only",
+                "false",  # NFS requires http
                 "--default-action",
-                "Deny",  # VNet-only access
+                "Deny",  # Required for NFS
                 "--tags",
                 "managed-by=azlin",
                 "--output",
                 "json",
             ]
 
+            logger.info(f"Running command: {' '.join(cmd)}")
+
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
 
             storage_data = json.loads(result.stdout)
 
-            # Create file share
-            share_name = "home"
-            cls._create_file_share(name, share_name, size_gb)
+            # Create blob container with NFS protocol (not file share for HNS accounts!)
+            container_name = "home"
+            cls._create_nfs_container(name, resource_group, container_name)
 
-            # Get NFS endpoint
-            nfs_endpoint = f"{name}.file.core.windows.net:/{name}/{share_name}"
+            # Get NFS endpoint - for NFS with HNS, we use blob storage
+            nfs_endpoint = f"{name}.blob.core.windows.net:/{name}/{container_name}"
 
             return StorageInfo(
                 name=name,
@@ -205,7 +212,37 @@ class StorageManager:
             raise StorageError(f"Failed to parse Azure CLI output: {e}") from e
 
     @classmethod
-    def _create_file_share(cls, storage_account: str, share_name: str, quota_gb: int) -> None:
+    def _create_nfs_container(
+        cls, storage_account: str, resource_group: str, container_name: str
+    ) -> None:
+        """Create NFS-enabled blob container in storage account."""
+        try:
+            cmd = [
+                "az",
+                "storage",
+                "container",
+                "create",
+                "--name",
+                container_name,
+                "--account-name",
+                storage_account,
+                "--auth-mode",
+                "login",
+                "--output",
+                "json",
+            ]
+
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if e.stderr else str(e)
+            logger.warning(f"Failed to create container: {error_msg}")
+            # Don't fail the entire operation, container might already exist
+
+    @classmethod
+    def _create_nfs_file_share(
+        cls, storage_account: str, resource_group: str, share_name: str, quota_gb: int
+    ) -> None:
         """Create NFS file share in storage account."""
         try:
             cmd = [
@@ -215,12 +252,16 @@ class StorageManager:
                 "create",
                 "--storage-account",
                 storage_account,
+                "--resource-group",
+                resource_group,
                 "--name",
                 share_name,
                 "--quota",
                 str(quota_gb),
                 "--enabled-protocols",
                 "NFS",
+                "--root-squash",
+                "NoRootSquash",
                 "--output",
                 "json",
             ]
@@ -231,6 +272,12 @@ class StorageManager:
             error_msg = e.stderr if e.stderr else str(e)
             logger.warning(f"Failed to create file share: {error_msg}")
             # Don't fail the entire operation, share might already exist
+
+    @classmethod
+    def _create_file_share(cls, storage_account: str, share_name: str, quota_gb: int) -> None:
+        """Create NFS file share in storage account (legacy method for backwards compatibility)."""
+        # This method is kept for backwards compatibility but shouldn't be used for new code
+        cls._create_nfs_file_share(storage_account, "", share_name, quota_gb)
 
     @classmethod
     def list_storage(cls, resource_group: str) -> list[StorageInfo]:
