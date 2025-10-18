@@ -92,10 +92,10 @@ class TestCreateStorage:
             MagicMock(returncode=0, stdout="{}"),  # create file share
         ]
 
-        result = StorageManager.create_storage("test123", "test-rg", "westus2")
+        StorageManager.create_storage("test123", "test-rg", "westus2")
 
-        assert mock_run.called
         # Check that az storage account create was called
+        assert mock_run.called
         call_args_str = str(mock_run.call_args_list)
         assert "az" in call_args_str
         assert "storage" in call_args_str
