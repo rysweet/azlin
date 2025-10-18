@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from azlin.config_manager import ConfigManager
 from azlin.connection_tracker import ConnectionTracker
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,13 @@ class VMLifecycleManager:
                 ConnectionTracker.remove_connection(vm_name)
             except Exception as e:
                 logger.warning(f"Failed to clean up connection record for {vm_name}: {e}")
+
+            # Clean up session name mapping
+            try:
+                ConfigManager.delete_session_name(vm_name)
+                logger.debug(f"Removed session name mapping for {vm_name}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up session name for {vm_name}: {e}")
 
             return DeletionResult(
                 vm_name=vm_name,
