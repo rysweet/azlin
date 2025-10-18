@@ -1,5 +1,6 @@
 """Unit tests for vm_connector module."""
 
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +10,19 @@ from azlin.modules.ssh_keys import SSHKeyError, SSHKeyPair
 from azlin.terminal_launcher import TerminalLauncherError
 from azlin.vm_connector import ConnectionInfo, VMConnector, VMConnectorError
 from azlin.vm_manager import VMInfo
+
+
+@pytest.fixture
+def temp_ssh_key():
+    """Create temporary SSH key file for testing."""
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".pem") as f:
+        f.write("fake ssh key content")
+        key_path = Path(f.name)
+
+    yield key_path
+
+    # Cleanup
+    key_path.unlink(missing_ok=True)
 
 
 class TestVMConnector:
@@ -242,7 +256,7 @@ class TestVMConnector:
     @patch("azlin.vm_connector.TerminalLauncher")
     @patch("azlin.vm_connector.SSHKeyManager")
     @patch("azlin.vm_connector.VMManager")
-    def test_connect_with_command(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal):
+    def test_connect_with_command(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal, temp_ssh_key):
         """Test connecting with remote command."""
         # Mock VM info
         vm_info = VMInfo(
@@ -254,10 +268,10 @@ class TestVMConnector:
         )
         mock_vm_mgr.get_vm.return_value = vm_info
 
-        # Mock SSH keys
+        # Mock SSH keys with temp file
         ssh_keys = SSHKeyPair(
-            private_path=Path("/home/user/.ssh/azlin_key"),
-            public_path=Path("/home/user/.ssh/azlin_key.pub"),
+            private_path=temp_ssh_key,
+            public_path=Path(str(temp_ssh_key) + ".pub"),
             public_key_content="ssh-ed25519 AAAA...",
         )
         mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
@@ -342,7 +356,7 @@ class TestVMConnector:
     @patch("azlin.vm_connector.TerminalLauncher")
     @patch("azlin.vm_connector.SSHKeyManager")
     @patch("azlin.vm_connector.VMManager")
-    def test_connect_terminal_launch_error(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal):
+    def test_connect_terminal_launch_error(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal, temp_ssh_key):
         """Test error when terminal launch fails (with remote command, bypasses reconnect)."""
         # Mock VM info
         vm_info = VMInfo(
@@ -354,10 +368,10 @@ class TestVMConnector:
         )
         mock_vm_mgr.get_vm.return_value = vm_info
 
-        # Mock SSH keys
+        # Mock SSH keys with temp file
         ssh_keys = SSHKeyPair(
-            private_path=Path("/home/user/.ssh/azlin_key"),
-            public_path=Path("/home/user/.ssh/azlin_key.pub"),
+            private_path=temp_ssh_key,
+            public_path=Path(str(temp_ssh_key) + ".pub"),
             public_key_content="ssh-ed25519 AAAA...",
         )
         mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
@@ -438,7 +452,7 @@ class TestConnectionInfo:
     @patch("azlin.vm_connector.TerminalLauncher")
     @patch("azlin.vm_connector.SSHKeyManager")
     @patch("azlin.vm_connector.VMManager")
-    def test_connect_with_reconnect_disabled(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal):
+    def test_connect_with_reconnect_disabled(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal, temp_ssh_key):
         """Test connecting with auto-reconnect disabled."""
         # Mock VM info
         vm_info = VMInfo(
@@ -450,10 +464,10 @@ class TestConnectionInfo:
         )
         mock_vm_mgr.get_vm.return_value = vm_info
 
-        # Mock SSH keys
+        # Mock SSH keys with temp file
         ssh_keys = SSHKeyPair(
-            private_path=Path("/home/user/.ssh/azlin_key"),
-            public_path=Path("/home/user/.ssh/azlin_key.pub"),
+            private_path=temp_ssh_key,
+            public_path=Path(str(temp_ssh_key) + ".pub"),
             public_key_content="ssh-ed25519 AAAA...",
         )
         mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
