@@ -813,6 +813,7 @@ class AzlinGroup(click.Group):
         "ignore_unknown_options": True,
         "allow_extra_args": True,
         "allow_interspersed_args": False,
+        "help_option_names": ["--help", "-h"],
     },
 )
 @click.pass_context
@@ -957,6 +958,35 @@ def main(ctx):
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         ctx.exit(0)  # Use ctx.exit() instead of sys.exit() for Click compatibility
+
+
+@main.command(name="help")
+@click.argument("command_name", required=False, type=str)
+@click.pass_context
+def help_command(ctx, command_name):
+    """Show help for commands.
+
+    Display general help or help for a specific command.
+
+    \b
+    Examples:
+        azlin help              # Show general help
+        azlin help connect      # Show help for connect command
+        azlin help list         # Show help for list command
+    """
+    if command_name is None:
+        click.echo(ctx.parent.get_help())
+    else:
+        # Show help for specific command
+        cmd = ctx.parent.command.commands.get(command_name)
+
+        if cmd is None:
+            click.echo(f"Error: No such command '{command_name}'.", err=True)
+            ctx.exit(1)
+
+        # Create a context for the command and show its help
+        cmd_ctx = click.Context(cmd, info_name=command_name, parent=ctx.parent)
+        click.echo(cmd.get_help(cmd_ctx))
 
 
 @main.command(name="new")
