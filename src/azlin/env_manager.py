@@ -14,6 +14,7 @@ Security features:
 import logging
 import re
 from pathlib import Path
+from typing import ClassVar
 
 from azlin.modules.ssh_connector import SSHConfig, SSHConnector
 
@@ -41,7 +42,7 @@ class EnvManager:
     ENV_MARKER_END = "# AZLIN_ENV_END"
 
     # Patterns for secret detection
-    SECRET_PATTERNS = [
+    SECRET_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         (r"api[_-]?key", "api_key"),
         (r"secret", "secret"),
         (r"password", "password"),
@@ -93,7 +94,7 @@ class EnvManager:
             return True
 
         except Exception as e:
-            raise EnvManagerError(f"Failed to set environment variable: {e}")
+            raise EnvManagerError(f"Failed to set environment variable: {e}") from e
 
     @classmethod
     def list_env_vars(cls, ssh_config: SSHConfig) -> dict[str, str]:
@@ -113,7 +114,7 @@ class EnvManager:
             return cls._extract_env_vars(bashrc_content)
 
         except Exception as e:
-            raise EnvManagerError(f"Failed to list environment variables: {e}")
+            raise EnvManagerError(f"Failed to list environment variables: {e}") from e
 
     @classmethod
     def delete_env_var(cls, ssh_config: SSHConfig, key: str) -> bool:
@@ -151,7 +152,7 @@ class EnvManager:
             return True
 
         except Exception as e:
-            raise EnvManagerError(f"Failed to delete environment variable: {e}")
+            raise EnvManagerError(f"Failed to delete environment variable: {e}") from e
 
     @classmethod
     def clear_all_env_vars(cls, ssh_config: SSHConfig) -> bool:
@@ -178,7 +179,7 @@ class EnvManager:
             return True
 
         except Exception as e:
-            raise EnvManagerError(f"Failed to clear environment variables: {e}")
+            raise EnvManagerError(f"Failed to clear environment variables: {e}") from e
 
     @classmethod
     def export_env_vars(cls, ssh_config: SSHConfig, output_file: str | None = None) -> str:
@@ -198,7 +199,7 @@ class EnvManager:
             env_vars = cls.list_env_vars(ssh_config)
 
             # Format as .env file
-            lines = []
+            lines: list[str] = []
             for key, value in sorted(env_vars.items()):
                 # Escape quotes in value
                 escaped_value = value.replace('"', '\\"')
@@ -212,7 +213,7 @@ class EnvManager:
             return content
 
         except Exception as e:
-            raise EnvManagerError(f"Failed to export environment variables: {e}")
+            raise EnvManagerError(f"Failed to export environment variables: {e}") from e
 
     @classmethod
     def import_env_file(cls, ssh_config: SSHConfig, env_file_path: str) -> int:
@@ -268,7 +269,7 @@ class EnvManager:
         except EnvManagerError:
             raise
         except Exception as e:
-            raise EnvManagerError(f"Failed to import .env file: {e}")
+            raise EnvManagerError(f"Failed to import .env file: {e}") from e
 
     @classmethod
     def validate_env_key(cls, key: str) -> tuple[bool, str]:
@@ -303,7 +304,7 @@ class EnvManager:
         Returns:
             List of warning messages for detected patterns
         """
-        warnings = []
+        warnings: list[str] = []
         value_lower = value.lower()
 
         for pattern, name in cls.SECRET_PATTERNS:
@@ -322,7 +323,7 @@ class EnvManager:
                 ssh_config, "cat ~/.bashrc 2>/dev/null || echo ''", timeout=30
             )
         except Exception as e:
-            raise EnvManagerError(f"Failed to read ~/.bashrc: {e}")
+            raise EnvManagerError(f"Failed to read ~/.bashrc: {e}") from e
 
     @classmethod
     def _write_bashrc(cls, ssh_config: SSHConfig, content: str) -> None:
@@ -341,12 +342,12 @@ class EnvManager:
             for cmd in commands:
                 SSHConnector.execute_remote_command(ssh_config, cmd, timeout=30)
         except Exception as e:
-            raise EnvManagerError(f"Failed to write ~/.bashrc: {e}")
+            raise EnvManagerError(f"Failed to write ~/.bashrc: {e}") from e
 
     @classmethod
     def _extract_env_vars(cls, bashrc_content: str) -> dict[str, str]:
         """Extract azlin-managed environment variables from bashrc content."""
-        env_vars = {}
+        env_vars: dict[str, str] = {}
 
         # Find the azlin env section
         in_section = False
@@ -392,7 +393,7 @@ class EnvManager:
     def _remove_env_section(cls, bashrc_content: str) -> str:
         """Remove azlin env section from bashrc content."""
         lines = bashrc_content.splitlines()
-        new_lines = []
+        new_lines: list[str] = []
         in_section = False
 
         for line in lines:

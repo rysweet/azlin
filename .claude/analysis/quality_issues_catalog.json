@@ -1,0 +1,774 @@
+{
+  "metadata": {
+    "generated_at": "2025-10-18",
+    "analysis_version": "1.0",
+    "total_issues": 142,
+    "total_modules_analyzed": 65,
+    "philosophy_compliance_score": "6.5/10"
+  },
+  "executive_summary": {
+    "critical_issues": 15,
+    "high_priority_issues": 34,
+    "medium_priority_issues": 58,
+    "low_priority_issues": 35,
+    "areas_analyzed": [
+      "amplihack tooling modules (28 issues)",
+      "azlin core modules (44 issues)",
+      "documentation (12 issues)",
+      "test coverage (470+ missing tests organized into 58 improvement opportunities)"
+    ]
+  },
+  "pr_ready_improvements": [
+    {
+      "id": "PR-001",
+      "title": "Resolve merge conflicts in hooks/stop.py and hooks/reflection.py",
+      "category": "Critical - Merge Conflicts",
+      "priority": "CRITICAL",
+      "severity": "HIGH",
+      "effort": "1-2 hours",
+      "impact": "Blocks development - code won't compile",
+      "philosophy_violation": "Zero-BS (conflicts are non-functional code)",
+      "files": [
+        ".claude/tools/amplihack/hooks/stop.py (451 lines of conflict)",
+        ".claude/tools/amplihack/hooks/reflection.py (type import conflict)"
+      ],
+      "description": "Two files have unresolved Git merge conflicts that prevent proper execution",
+      "suggested_approach": "Manual conflict resolution preserving intended functionality",
+      "testing_required": "Unit tests for both hook modules",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-002",
+      "title": "Remove 15 stub functions from codex_transcripts_builder.py",
+      "category": "Critical - Zero-BS Violations",
+      "priority": "CRITICAL",
+      "severity": "HIGH",
+      "effort": "2-3 hours",
+      "impact": "Code returns useless placeholder data violating zero-BS principle",
+      "philosophy_violation": "Zero-BS (no stubs, no placeholders)",
+      "files": [
+        ".claude/tools/amplihack/builders/codex_transcripts_builder.py"
+      ],
+      "description": "15 placeholder functions return fake data instead of real implementations",
+      "suggested_approach": "Either implement fully or delete unused functions",
+      "testing_required": "Unit tests for implemented functions, remove tests for deleted ones",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-003",
+      "title": "Consolidate duplicate context_preservation implementations",
+      "category": "Critical - Duplicate Code",
+      "priority": "CRITICAL",
+      "severity": "HIGH",
+      "effort": "3-4 hours",
+      "impact": "492 lines of redundant security code, maintenance burden",
+      "philosophy_violation": "Ruthless Simplicity (unnecessary duplication)",
+      "files": [
+        ".claude/tools/amplihack/context_preservation.py (380 lines)",
+        ".claude/tools/amplihack/context_preservation_secure.py (872 lines)"
+      ],
+      "description": "Two implementations of same functionality with significant overlap",
+      "suggested_approach": "Choose one (likely the secure version), delete the other, update imports",
+      "testing_required": "Integration tests for context preservation",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-004",
+      "title": "Fix unused cost calculation in vm_lifecycle_control.py",
+      "category": "Critical - Logic Bug",
+      "priority": "CRITICAL",
+      "severity": "HIGH",
+      "effort": "30 minutes",
+      "impact": "Computed cost value discarded, feature doesn't work",
+      "philosophy_violation": "Zero-BS (dead code that appears functional)",
+      "files": [
+        "src/azlin/vm_lifecycle_control.py:349"
+      ],
+      "description": "Cost calculation result is computed but never used or displayed",
+      "suggested_approach": "Either use the result or remove the calculation",
+      "testing_required": "Unit test for cost calculation and display",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-005",
+      "title": "Replace silent exception handling with proper logging (148 locations)",
+      "category": "Critical - Error Handling",
+      "priority": "CRITICAL",
+      "severity": "HIGH",
+      "effort": "6-8 hours",
+      "impact": "Makes debugging impossible, hides failures from users",
+      "philosophy_violation": "Error Visibility (fail fast and visibly)",
+      "files": [
+        "Multiple files across src/azlin/ (148 bare except: pass statements)"
+      ],
+      "description": "148 locations silently swallow exceptions making problems invisible",
+      "suggested_approach": "Add logging.warning() or logging.error() to all exception handlers",
+      "testing_required": "Unit tests verifying exceptions are logged",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-006",
+      "title": "Fix IP validation security issue in vm_connector.py",
+      "category": "High - Security",
+      "priority": "HIGH",
+      "severity": "HIGH",
+      "effort": "1-2 hours",
+      "impact": "Accepts invalid IPs, potential security risk",
+      "philosophy_violation": "Security (validate all inputs)",
+      "files": [
+        "src/azlin/vm_connector.py"
+      ],
+      "description": "IP validation doesn't properly validate IP address format",
+      "suggested_approach": "Use ipaddress.ip_address() for validation",
+      "testing_required": "Unit tests for IP validation edge cases",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-007",
+      "title": "Fix path traversal risk in config_manager.py",
+      "category": "High - Security",
+      "priority": "HIGH",
+      "severity": "HIGH",
+      "effort": "2-3 hours",
+      "impact": "Custom config paths not sanitized, path traversal possible",
+      "philosophy_violation": "Security (never compromise on security fundamentals)",
+      "files": [
+        "src/azlin/config_manager.py"
+      ],
+      "description": "Custom configuration paths don't validate against directory traversal",
+      "suggested_approach": "Use Path.resolve() and check containment before file operations",
+      "testing_required": "Security tests for path traversal attempts",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-008",
+      "title": "Decompose cli.py into command groups",
+      "category": "High - Modularity",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "8-12 hours",
+      "impact": "5419-line file violates single responsibility, hard to maintain",
+      "philosophy_violation": "Modularity (one brick, one responsibility)",
+      "files": [
+        "src/azlin/cli.py (5419 lines)"
+      ],
+      "description": "CLI module too large, should be split into command group modules",
+      "suggested_approach": "Create commands/ subdirectory with vm_commands.py, storage_commands.py, etc.",
+      "testing_required": "Maintain existing test coverage, add integration tests",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-009",
+      "title": "Consolidate duplicate VM listing logic",
+      "category": "High - Code Duplication",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "3-4 hours",
+      "impact": "Three implementations of same Azure query, maintenance burden",
+      "philosophy_violation": "Ruthless Simplicity (DRY principle)",
+      "files": [
+        "src/azlin/vm_manager.py",
+        "src/azlin/status_dashboard.py",
+        "src/azlin/vm_lifecycle.py"
+      ],
+      "description": "VM listing logic duplicated in three places",
+      "suggested_approach": "Create shared vm_queries.py module with single implementation",
+      "testing_required": "Unit tests for query module, integration tests for callers",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-010",
+      "title": "Evaluate and simplify xpia_defense.py (1332 lines)",
+      "category": "High - Over-Engineering",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "6-8 hours",
+      "impact": "Complex security system for unproven threat model, 1332 lines could be 100",
+      "philosophy_violation": "Ruthless Simplicity (avoid future-proofing)",
+      "files": [
+        ".claude/tools/amplihack/xpia_defense.py (1332 lines)"
+      ],
+      "description": "Over-engineered cross-prompt injection defense system",
+      "suggested_approach": "Reduce to essential validations or remove if not actively used",
+      "testing_required": "Security tests for reduced implementation",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-011",
+      "title": "Update ARCHITECTURE.md to reflect v2.0 reality",
+      "category": "High - Documentation",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "3-4 hours",
+      "impact": "Architecture docs show 9 modules, actual system has 20+",
+      "philosophy_violation": "Documentation accuracy",
+      "files": [
+        "docs/ARCHITECTURE.md"
+      ],
+      "description": "Architecture documentation severely outdated, doesn't reflect current codebase",
+      "suggested_approach": "Update module counts, add v2.0 features section, update file tree",
+      "testing_required": "Documentation review only",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-012",
+      "title": "Create CHANGELOG.md for version tracking",
+      "category": "High - Documentation",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "2-3 hours",
+      "impact": "Users can't track changes between versions",
+      "philosophy_violation": "User experience",
+      "files": [
+        "CHANGELOG.md (new file)"
+      ],
+      "description": "No version history for users to understand changes",
+      "suggested_approach": "Create CHANGELOG.md following Keep a Changelog format",
+      "testing_required": "Documentation review only",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-013",
+      "title": "Create API_REFERENCE.md consolidating public APIs",
+      "category": "High - Documentation",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "4-6 hours",
+      "impact": "README claims API docs exist but they don't",
+      "philosophy_violation": "Documentation completeness",
+      "files": [
+        "docs/API_REFERENCE.md (new file)"
+      ],
+      "description": "No consolidated API reference for public interfaces",
+      "suggested_approach": "Generate from docstrings or manually document all public APIs",
+      "testing_required": "Documentation review only",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-014",
+      "title": "Add unit tests for connection_tracker.py",
+      "category": "High - Test Coverage",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "4-5 hours",
+      "impact": "Core tracking functionality has zero tests",
+      "philosophy_violation": "Testing pyramid (60% unit tests)",
+      "files": [
+        "src/azlin/connection_tracker.py",
+        "tests/unit/test_connection_tracker.py (new)"
+      ],
+      "description": "Connection tracking is core feature but completely untested",
+      "suggested_approach": "Write 14 unit tests covering all public methods",
+      "testing_required": "New test suite with 60%+ coverage",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-015",
+      "title": "Add unit tests for vm_lifecycle.py",
+      "category": "High - Test Coverage",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "5-6 hours",
+      "impact": "VM deletion and resource cleanup has zero tests",
+      "philosophy_violation": "Testing pyramid (60% unit tests)",
+      "files": [
+        "src/azlin/vm_lifecycle.py",
+        "tests/unit/test_vm_lifecycle.py (new)"
+      ],
+      "description": "Critical VM lifecycle operations completely untested",
+      "suggested_approach": "Write 21 unit tests covering deletion, resource cleanup, error handling",
+      "testing_required": "New test suite with 60%+ coverage",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-016",
+      "title": "Add unit tests for vm_lifecycle_control.py",
+      "category": "High - Test Coverage",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "5-6 hours",
+      "impact": "VM stop/start operations have zero tests",
+      "philosophy_violation": "Testing pyramid (60% unit tests)",
+      "files": [
+        "src/azlin/vm_lifecycle_control.py",
+        "tests/unit/test_vm_lifecycle_control.py (new)"
+      ],
+      "description": "Stop/start operations completely untested",
+      "suggested_approach": "Write 22 unit tests covering start, stop, batch operations",
+      "testing_required": "New test suite with 60%+ coverage",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-017",
+      "title": "Add unit tests for status_dashboard.py",
+      "category": "High - Test Coverage",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "4-5 hours",
+      "impact": "Dashboard functionality has zero tests",
+      "philosophy_violation": "Testing pyramid (60% unit tests)",
+      "files": [
+        "src/azlin/status_dashboard.py",
+        "tests/unit/test_status_dashboard.py (new)"
+      ],
+      "description": "Status dashboard completely untested",
+      "suggested_approach": "Write 19 unit tests covering VM status, metrics, display",
+      "testing_required": "New test suite with 60%+ coverage",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-018",
+      "title": "Add unit tests for terminal_launcher.py",
+      "category": "High - Test Coverage",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "3-4 hours",
+      "impact": "Terminal launching has zero tests",
+      "philosophy_violation": "Testing pyramid (60% unit tests)",
+      "files": [
+        "src/azlin/terminal_launcher.py",
+        "tests/unit/test_terminal_launcher.py (new)"
+      ],
+      "description": "Terminal launcher completely untested",
+      "suggested_approach": "Write 16 unit tests covering platform detection, command building",
+      "testing_required": "New test suite with 60%+ coverage",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-019",
+      "title": "Add unit tests for amplihack/hooks/hook_processor.py",
+      "category": "High - Test Coverage",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "4-5 hours",
+      "impact": "Core hook framework has zero tests",
+      "philosophy_violation": "Testing pyramid (60% unit tests)",
+      "files": [
+        ".claude/tools/amplihack/hooks/hook_processor.py",
+        ".claude/tools/amplihack/hooks/tests/test_hook_processor.py (new)"
+      ],
+      "description": "Hook processing framework completely untested",
+      "suggested_approach": "Write 11 unit tests covering hook execution, path validation, metrics",
+      "testing_required": "New test suite with 60%+ coverage",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-020",
+      "title": "Add unit tests for amplihack/reflection/reflection.py",
+      "category": "High - Test Coverage",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "5-6 hours",
+      "impact": "Reflection system has zero tests",
+      "philosophy_violation": "Testing pyramid (60% unit tests)",
+      "files": [
+        ".claude/tools/amplihack/reflection/reflection.py",
+        ".claude/tools/amplihack/reflection/tests/test_reflection.py (new)"
+      ],
+      "description": "Reflection analysis system completely untested",
+      "suggested_approach": "Write 15 unit tests covering pattern detection, issue creation, sanitization",
+      "testing_required": "New test suite with 60%+ coverage",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-021",
+      "title": "Add integration tests for SSH connection pipeline",
+      "category": "High - Integration Testing",
+      "priority": "HIGH",
+      "severity": "HIGH",
+      "effort": "6-8 hours",
+      "impact": "Critical authentication flow has no integration tests",
+      "philosophy_violation": "Testing pyramid (30% integration tests)",
+      "files": [
+        "tests/integration/test_ssh_pipeline.py (new)"
+      ],
+      "description": "Key generation -> VM provisioning -> SSH connection flow untested end-to-end",
+      "suggested_approach": "Write 4 integration tests covering complete SSH setup workflow",
+      "testing_required": "New integration test suite",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-022",
+      "title": "Add integration tests for VM lifecycle",
+      "category": "High - Integration Testing",
+      "priority": "HIGH",
+      "severity": "HIGH",
+      "effort": "6-8 hours",
+      "impact": "Create->configure->delete flow has no integration tests",
+      "philosophy_violation": "Testing pyramid (30% integration tests)",
+      "files": [
+        "tests/integration/test_vm_lifecycle_integration.py (new)"
+      ],
+      "description": "Complete VM lifecycle flow untested at integration level",
+      "suggested_approach": "Write 4 integration tests covering full VM lifecycle with resources",
+      "testing_required": "New integration test suite",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-023",
+      "title": "Add integration tests for storage operations",
+      "category": "High - Integration Testing",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "5-6 hours",
+      "impact": "Storage create->mount->use->unmount->delete flow minimally tested",
+      "philosophy_violation": "Testing pyramid (30% integration tests)",
+      "files": [
+        "tests/integration/test_storage_integration.py (new)"
+      ],
+      "description": "Storage operations need comprehensive integration testing",
+      "suggested_approach": "Write 4 integration tests covering complete storage lifecycle",
+      "testing_required": "New integration test suite",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-024",
+      "title": "Add E2E tests for full development workflow",
+      "category": "High - E2E Testing",
+      "priority": "HIGH",
+      "severity": "MEDIUM",
+      "effort": "8-10 hours",
+      "impact": "Complete user workflows need E2E validation",
+      "philosophy_violation": "Testing pyramid (10% E2E tests)",
+      "files": [
+        "tests/e2e/test_development_workflows.py (new)"
+      ],
+      "description": "Only 1 E2E test exists, need comprehensive workflow coverage",
+      "suggested_approach": "Write 4 E2E tests covering create->develop->snapshot->restore->destroy",
+      "testing_required": "New E2E test suite",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-025",
+      "title": "Add E2E tests for disaster recovery scenarios",
+      "category": "Medium - E2E Testing",
+      "priority": "MEDIUM",
+      "severity": "MEDIUM",
+      "effort": "6-8 hours",
+      "impact": "Recovery scenarios need validation",
+      "philosophy_violation": "Testing pyramid (10% E2E tests)",
+      "files": [
+        "tests/e2e/test_disaster_recovery.py (new)"
+      ],
+      "description": "No tests for crash recovery, network interruption, etc.",
+      "suggested_approach": "Write 2 E2E tests covering VM crash recovery and network interruption",
+      "testing_required": "New E2E test suite",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-026",
+      "title": "Remove FrameworkPathResolver dead code",
+      "category": "Medium - Dead Code",
+      "priority": "MEDIUM",
+      "severity": "MEDIUM",
+      "effort": "1-2 hours",
+      "impact": "Unused code clutters codebase",
+      "philosophy_violation": "Zero-BS (remove dead code)",
+      "files": [
+        "Multiple amplihack modules"
+      ],
+      "description": "FrameworkPathResolver class exists but is never instantiated",
+      "suggested_approach": "Remove class and all references",
+      "testing_required": "Verify removal doesn't break anything",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-027",
+      "title": "Standardize session ID format across amplihack",
+      "category": "Medium - Consistency",
+      "priority": "MEDIUM",
+      "severity": "LOW",
+      "effort": "2-3 hours",
+      "impact": "Inconsistent session ID handling causes confusion",
+      "philosophy_violation": "Code quality (consistency)",
+      "files": [
+        ".claude/tools/amplihack/session/"
+      ],
+      "description": "Session IDs handled inconsistently across modules",
+      "suggested_approach": "Define standard format and update all modules",
+      "testing_required": "Unit tests for session ID validation",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-028",
+      "title": "Standardize import order across amplihack modules",
+      "category": "Medium - Consistency",
+      "priority": "MEDIUM",
+      "severity": "LOW",
+      "effort": "1-2 hours",
+      "impact": "Inconsistent imports reduce readability",
+      "philosophy_violation": "Code quality (consistency)",
+      "files": [
+        ".claude/tools/amplihack/ (all modules)"
+      ],
+      "description": "Import statements not following consistent order",
+      "suggested_approach": "Use isort to standardize all imports",
+      "testing_required": "Pre-commit hook validation",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-029",
+      "title": "Add unit tests for ssh_connector.py",
+      "category": "Medium - Test Coverage",
+      "priority": "MEDIUM",
+      "severity": "MEDIUM",
+      "effort": "3-4 hours",
+      "impact": "SSH connection logic untested",
+      "philosophy_violation": "Testing pyramid (60% unit tests)",
+      "files": [
+        "src/azlin/modules/ssh_connector.py",
+        "tests/unit/test_ssh_connector.py (new)"
+      ],
+      "description": "SSH connector module completely untested",
+      "suggested_approach": "Write 8 unit tests covering connection, commands, timeouts",
+      "testing_required": "New test suite with 60%+ coverage",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-030",
+      "title": "Add unit tests for ssh_keys.py",
+      "category": "Medium - Test Coverage",
+      "priority": "MEDIUM",
+      "severity": "MEDIUM",
+      "effort": "3-4 hours",
+      "impact": "SSH key management untested",
+      "philosophy_violation": "Testing pyramid (60% unit tests)",
+      "files": [
+        "src/azlin/modules/ssh_keys.py",
+        "tests/unit/test_ssh_keys.py (new)"
+      ],
+      "description": "SSH key generation and management completely untested",
+      "suggested_approach": "Write 9 unit tests covering key generation, permissions, validation",
+      "testing_required": "New test suite with 60%+ coverage",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-031",
+      "title": "Add unit tests for github_setup.py",
+      "category": "Medium - Test Coverage",
+      "priority": "MEDIUM",
+      "severity": "MEDIUM",
+      "effort": "2-3 hours",
+      "impact": "GitHub integration untested",
+      "philosophy_violation": "Testing pyramid (60% unit tests)",
+      "files": [
+        "src/azlin/modules/github_setup.py",
+        "tests/unit/test_github_setup.py (new)"
+      ],
+      "description": "GitHub setup module completely untested",
+      "suggested_approach": "Write 8 unit tests covering URL validation and setup flow",
+      "testing_required": "New test suite with 60%+ coverage",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-032",
+      "title": "Fix outdated tool/module counts in documentation",
+      "category": "Medium - Documentation",
+      "priority": "MEDIUM",
+      "severity": "LOW",
+      "effort": "1 hour",
+      "impact": "Inconsistent counts confuse readers",
+      "philosophy_violation": "Documentation accuracy",
+      "files": [
+        "README.md",
+        "docs/ARCHITECTURE.md",
+        "docs/AI_AGENT_GUIDE.md"
+      ],
+      "description": "Tool counts vary between 9, 12, and 20+ across documents",
+      "suggested_approach": "Standardize on accurate current count throughout all docs",
+      "testing_required": "Documentation review only",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-033",
+      "title": "Create SECURITY.md consolidating security documentation",
+      "category": "Medium - Documentation",
+      "priority": "MEDIUM",
+      "severity": "MEDIUM",
+      "effort": "3-4 hours",
+      "impact": "Security info scattered across multiple docs",
+      "philosophy_violation": "Documentation organization",
+      "files": [
+        "SECURITY.md (new file)"
+      ],
+      "description": "No consolidated security documentation",
+      "suggested_approach": "Create SECURITY.md with threat model, best practices, architecture",
+      "testing_required": "Documentation review only",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-034",
+      "title": "Add __all__ to all modules for explicit public API",
+      "category": "Medium - Modularity",
+      "priority": "MEDIUM",
+      "severity": "LOW",
+      "effort": "3-4 hours",
+      "impact": "Public APIs not explicitly defined",
+      "philosophy_violation": "Brick architecture (clear studs/interfaces)",
+      "files": [
+        "All Python modules in src/azlin/ and .claude/tools/amplihack/"
+      ],
+      "description": "Modules don't define __all__ making public API unclear",
+      "suggested_approach": "Add __all__ to every module listing public classes/functions",
+      "testing_required": "Verify imports still work",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    },
+    {
+      "id": "PR-035",
+      "title": "Add method docstrings to undocumented public methods",
+      "category": "Medium - Documentation",
+      "priority": "MEDIUM",
+      "severity": "MEDIUM",
+      "effort": "6-8 hours",
+      "impact": "Many public methods lack documentation",
+      "philosophy_violation": "Code documentation completeness",
+      "files": [
+        "Multiple modules across src/azlin/"
+      ],
+      "description": "Inconsistent docstring coverage for public methods",
+      "suggested_approach": "Add comprehensive docstrings with Args, Returns, Raises, Examples",
+      "testing_required": "Documentation review only",
+      "workflow_steps": "Full 15-step DEFAULT_WORKFLOW.md"
+    }
+  ],
+  "lower_priority_improvements": [
+    {
+      "id": "PR-036",
+      "title": "Add unit tests for notifications.py",
+      "category": "Low - Test Coverage",
+      "priority": "LOW",
+      "effort": "1-2 hours"
+    },
+    {
+      "id": "PR-037",
+      "title": "Add unit tests for prerequisites.py",
+      "category": "Low - Test Coverage",
+      "priority": "LOW",
+      "effort": "1-2 hours"
+    },
+    {
+      "id": "PR-038",
+      "title": "Add unit tests for progress.py",
+      "category": "Low - Test Coverage",
+      "priority": "LOW",
+      "effort": "1-2 hours"
+    },
+    {
+      "id": "PR-039",
+      "title": "Split test_prune_command.py (1391 lines) into smaller files",
+      "category": "Low - Test Quality",
+      "priority": "LOW",
+      "effort": "2-3 hours"
+    },
+    {
+      "id": "PR-040",
+      "title": "Add parametrized tests for better coverage",
+      "category": "Low - Test Quality",
+      "priority": "LOW",
+      "effort": "3-4 hours"
+    },
+    {
+      "id": "PR-041",
+      "title": "Create examples/ directory with workflow examples",
+      "category": "Low - Documentation",
+      "priority": "LOW",
+      "effort": "4-6 hours"
+    },
+    {
+      "id": "PR-042",
+      "title": "Create TROUBLESHOOTING.md for users",
+      "category": "Low - Documentation",
+      "priority": "LOW",
+      "effort": "3-4 hours"
+    },
+    {
+      "id": "PR-043",
+      "title": "Create CONTRIBUTING.md for contributors",
+      "category": "Low - Documentation",
+      "priority": "LOW",
+      "effort": "2-3 hours"
+    },
+    {
+      "id": "PR-044",
+      "title": "Fix PROJECT.md description (wrong project)",
+      "category": "Low - Documentation",
+      "priority": "LOW",
+      "effort": "30 minutes"
+    }
+  ],
+  "phase_2_execution_plan": {
+    "approach": "Parallel PR workflows with priority-based execution",
+    "batch_1_critical": [
+      "PR-001",
+      "PR-002",
+      "PR-003",
+      "PR-004",
+      "PR-005"
+    ],
+    "batch_2_high_priority_security": [
+      "PR-006",
+      "PR-007"
+    ],
+    "batch_3_high_priority_refactoring": [
+      "PR-008",
+      "PR-009",
+      "PR-010"
+    ],
+    "batch_4_documentation": [
+      "PR-011",
+      "PR-012",
+      "PR-013"
+    ],
+    "batch_5_unit_tests": [
+      "PR-014",
+      "PR-015",
+      "PR-016",
+      "PR-017",
+      "PR-018",
+      "PR-019",
+      "PR-020"
+    ],
+    "batch_6_integration_tests": [
+      "PR-021",
+      "PR-022",
+      "PR-023"
+    ],
+    "batch_7_e2e_tests": [
+      "PR-024",
+      "PR-025"
+    ],
+    "batch_8_medium_priority": [
+      "PR-026",
+      "PR-027",
+      "PR-028",
+      "PR-029",
+      "PR-030",
+      "PR-031",
+      "PR-032",
+      "PR-033",
+      "PR-034",
+      "PR-035"
+    ],
+    "notes": "Execute batches sequentially. Within each batch, run PRs in parallel (3-5 at a time). Each PR follows full 15-step DEFAULT_WORKFLOW.md to mergeable state."
+  },
+  "estimated_effort": {
+    "total_hours": "180-230 hours",
+    "total_prs": 44,
+    "critical_prs": 5,
+    "high_priority_prs": 18,
+    "medium_priority_prs": 12,
+    "low_priority_prs": 9,
+    "sprints_required": "4-5 two-week sprints"
+  },
+  "philosophy_impact": {
+    "current_score": "6.5/10",
+    "target_score": "9.0/10",
+    "improvements": {
+      "ruthless_simplicity": "Remove 1800+ lines of duplicate/dead code",
+      "zero_bs": "Eliminate all stubs, placeholders, dead code, silent exceptions",
+      "modularity": "Decompose large files, define clear public APIs",
+      "testing": "Achieve proper testing pyramid (60/30/10)",
+      "documentation": "Comprehensive, accurate, up-to-date"
+    }
+  }
+}

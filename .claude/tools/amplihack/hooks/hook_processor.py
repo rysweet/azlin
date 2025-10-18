@@ -38,7 +38,7 @@ class HookProcessor(ABC):
             from amplihack import get_project_root
 
             self.project_root = get_project_root()
-        except ImportError:
+        except ImportError as e:
             # Fallback: try to find project root by looking for .claude marker
             current = Path(__file__).resolve().parent
             found_root: Optional[Path] = None
@@ -57,7 +57,7 @@ class HookProcessor(ABC):
                 current = current.parent
 
             if found_root is None:
-                raise ValueError("Could not find project root with .claude marker")
+                raise ValueError("Could not find project root with .claude marker") from e
 
             self.project_root = found_root
 
@@ -98,8 +98,8 @@ class HookProcessor(ABC):
             # Check if path is within project root
             resolved.relative_to(self.project_root)
             return resolved
-        except ValueError:
-            raise ValueError(f"Path escapes project root: {path}")
+        except ValueError as e:
+            raise ValueError(f"Path escapes project root: {path}") from e
 
     def log(self, message: str, level: str = "INFO"):
         """Log a message to the hook's log file.

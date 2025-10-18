@@ -4,6 +4,7 @@ Codex Transcripts Builder - Microsoft Amplifier Style
 Builds structured knowledge extraction and codex from multiple session transcripts.
 """
 
+import contextlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -199,10 +200,7 @@ class CodexTranscriptsBuilder:
         if not self.logs_dir.exists():
             return []
 
-        session_ids = []
-        for session_dir in self.logs_dir.iterdir():
-            if session_dir.is_dir():
-                session_ids.append(session_dir.name)
+        session_ids = [session_dir.name for session_dir in self.logs_dir.iterdir() if session_dir.is_dir()]
 
         return sorted(session_ids, reverse=True)
 
@@ -260,10 +258,8 @@ class CodexTranscriptsBuilder:
         # Load decisions
         decisions_file = session_dir / "DECISIONS.md"
         if decisions_file.exists():
-            try:
+            with contextlib.suppress(OSError):
                 session_data["decisions"] = decisions_file.read_text()
-            except OSError:
-                pass
 
         return session_data if any(session_data.values()) else None
 

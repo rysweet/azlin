@@ -9,13 +9,13 @@ import os
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 
 class SessionReflector:
     """Simple pattern detector for session improvement opportunities"""
 
-    PATTERNS = {
+    PATTERNS: ClassVar[dict] = {
         "repeated_commands": {
             "threshold": 3,
             "action": "Consider creating a tool or script for this repeated action",
@@ -152,8 +152,7 @@ class SessionReflector:
 
         counts = Counter(items)
         threshold = self.PATTERNS["repeated_commands"]["threshold"]
-        repeated = {k: v for k, v in counts.items() if v >= threshold}
-        return repeated
+        return {k: v for k, v in counts.items() if v >= threshold}
 
     def _find_error_patterns(self, messages: List[Dict]) -> Optional[Dict]:
         """Detect error-related patterns"""

@@ -118,7 +118,7 @@ class GitHubSetupHandler:
             return RepoDetails(clone_path=clone_path, repo_name=repo_name, repo_owner=owner)
 
         except Exception as e:
-            raise GitHubSetupError(f"GitHub setup failed: {e}")
+            raise GitHubSetupError(f"GitHub setup failed: {e}") from e
 
     @classmethod
     def generate_setup_script(cls, repo_url: str, clone_path: str) -> str:

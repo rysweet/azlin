@@ -14,6 +14,7 @@ import sys
 import time
 from dataclasses import dataclass
 from enum import Enum
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class ProgressDisplay:
     """
 
     # Stage symbols (ASCII-safe, works in all terminals)
-    SYMBOLS = {
+    SYMBOLS: ClassVar[dict[ProgressStage, str]] = {
         ProgressStage.STARTED: "►",
         ProgressStage.IN_PROGRESS: "...",
         ProgressStage.COMPLETED: "✓",
@@ -59,7 +60,7 @@ class ProgressDisplay:
     }
 
     # Fallback ASCII symbols (if Unicode not supported)
-    ASCII_SYMBOLS = {
+    ASCII_SYMBOLS: ClassVar[dict[ProgressStage, str]] = {
         ProgressStage.STARTED: ">",
         ProgressStage.IN_PROGRESS: "...",
         ProgressStage.COMPLETED: "OK",

@@ -35,9 +35,10 @@ def log(message: str, level: str = "INFO"):
     try:
         with open(log_file, "a") as f:
             f.write(f"[{timestamp}] {level}: {message}\n")
-    except Exception:
+    except Exception as e:
         # Silently fail - don't disrupt the hook
-        pass
+        import sys
+        print(f"Logging failed: {e}", file=sys.stderr)
 
 
 def is_proxy_active() -> bool:

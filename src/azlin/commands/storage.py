@@ -130,8 +130,8 @@ def create_storage(name: str, size: int, tier: str, resource_group: str | None, 
             name=name,
             resource_group=rg,
             region=location,
-            size_gb=size,
             tier=tier,
+            size_gb=size,
         )
 
         click.echo("\n✓ Storage account created successfully")
@@ -302,18 +302,18 @@ def delete_storage(name: str, resource_group: str | None, force: bool):
         try:
             config = ConfigManager.load_config()
             config_dict = config.to_dict()
-            
+
             # Remove from storage accounts if present
             storage_accounts = config_dict.get("storage_accounts", {})
             if name in storage_accounts:
                 del storage_accounts[name]
-            
+
             # Remove any VM storage mappings
             vm_storage = config_dict.get("vm_storage", {})
             vms_to_update = [vm for vm, storage in vm_storage.items() if storage == name]
             for vm_name in vms_to_update:
                 del vm_storage[vm_name]
-                
+
             # Save updated config if changes were made
             if vms_to_update or name in config_dict.get("storage_accounts", {}):
                 # Update the config object attributes
@@ -411,8 +411,8 @@ def mount_storage(storage_name: str, vm: str, resource_group: str | None):
             nfs_endpoint=storage.nfs_endpoint,
         )
 
-        if result.get("backed_up"):
-            click.echo(f"✓ Existing home directory backed up to: {result['backup_path']}")
+        if result.backed_up_files > 0:
+            click.echo(f"✓ Existing home directory backed up ({result.backed_up_files} files)")
 
         click.echo(f"✓ Storage mounted successfully on {vm_obj.name}")
         click.echo("\nThe VM now uses shared storage for its home directory.")
@@ -422,7 +422,9 @@ def mount_storage(storage_name: str, vm: str, resource_group: str | None):
 
         # Update config to track storage
         try:
-            config.vm_storage = storage_name
+            if config.vm_storage is None:
+                config.vm_storage = {}
+            config.vm_storage[vm_obj.name] = storage_name
             ConfigManager.save_config(config)
         except Exception as e:
             logger.warning(f"Failed to save VM storage mapping: {e}")
@@ -494,16 +496,17 @@ def unmount_storage(vm: str, resource_group: str | None):
             ssh_key=ssh_key_path,
         )
 
-        if result.get("restored"):
-            click.echo(f"✓ Local home directory restored from: {result['backup_path']}")
+        if result.backed_up_files > 0:
+            click.echo(f"✓ Local home directory restored ({result.backed_up_files} files)")
 
         click.echo(f"✓ Storage unmounted successfully from {vm_obj.name}")
         click.echo("\nThe VM now uses its local disk for the home directory.")
 
         # Update config
         try:
-            config.vm_storage = None
-            ConfigManager.save_config(config)
+            if config.vm_storage and vm_obj.name in config.vm_storage:
+                del config.vm_storage[vm_obj.name]
+                ConfigManager.save_config(config)
         except Exception as e:
             logger.warning(f"Failed to clear VM storage mapping: {e}")
 

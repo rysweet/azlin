@@ -73,7 +73,7 @@ exclude_lines = [
 ]
 
 [tool.pyright]
-typeCheckingMode = "basic"
+typeCheckingMode = "strict"
 pythonVersion = "3.11"
 include = ["src"]
 exclude = ["**/__pycache__", "**/.pytest_cache", "**/node_modules"]

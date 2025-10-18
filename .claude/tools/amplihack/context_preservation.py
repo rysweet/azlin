@@ -12,10 +12,8 @@ from typing import Any, Dict, List, Optional
 # Use clean import through amplihack package
 from amplihack import get_project_root
 
-try:
-    from amplihack.utils.paths import FrameworkPathResolver
-except ImportError:
-    FrameworkPathResolver = None
+# FrameworkPathResolver was removed - it was never implemented
+FrameworkPathResolver = None
 
 
 class ContextPreserver:
@@ -80,8 +78,10 @@ class ContextPreserver:
 
         # Extract marked sections first
         for pattern in [r"\*\*(Target|Problem)\*\*:\s*(.+?)(?:\n|$)"]:
-            for match in re.finditer(pattern, prompt, re.IGNORECASE):
-                requirements.append(f"{match.group(1).upper()}: {match.group(2).strip()}")
+            requirements.extend(
+                f"{match.group(1).UPPER()}: {match.group(2).strip()}"
+                for match in re.finditer(pattern, prompt, re.IGNORECASE)
+            )
 
         # Extract quantified statements (ALL, EVERY, etc.)
         quantifier_words = ["ALL", "EVERY", "EACH", "COMPLETE", "COMPREHENSIVE"]
@@ -264,20 +264,17 @@ All agents should receive this context to ensure user requirements are preserved
 
         if original_request["requirements"]:
             context_parts.append("**Requirements**:")
-            for req in original_request["requirements"]:
-                context_parts.append(f"• {req}")
+            context_parts.extend(f"• {req}" for req in original_request["requirements"])
             context_parts.append("")
 
         if original_request["constraints"]:
             context_parts.append("**Constraints**:")
-            for constraint in original_request["constraints"]:
-                context_parts.append(f"• {constraint}")
+            context_parts.extend(f"• {constraint}" for constraint in original_request["constraints"])
             context_parts.append("")
 
         if original_request["success_criteria"]:
             context_parts.append("**Success Criteria**:")
-            for criterion in original_request["success_criteria"]:
-                context_parts.append(f"• {criterion}")
+            context_parts.extend(f"• {criterion}" for criterion in original_request["success_criteria"])
             context_parts.append("")
 
         context_parts.extend(

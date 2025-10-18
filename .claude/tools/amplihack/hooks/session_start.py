@@ -19,13 +19,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
     from context_preservation import ContextPreserver
     from amplihack import get_project_root
-
-    from amplihack.utils.paths import FrameworkPathResolver
 except ImportError:
     # Fallback imports for standalone execution
     get_project_root = None
     ContextPreserver = None
-    FrameworkPathResolver = None
+
+# FrameworkPathResolver was removed - it was never implemented
+FrameworkPathResolver = None
 
 
 class SessionStartHook(HookProcessor):

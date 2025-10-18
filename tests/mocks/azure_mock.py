@@ -21,7 +21,7 @@ from ..fixtures.azure_responses import (
 class MockAzureCredential:
     """Mock Azure DefaultAzureCredential."""
 
-    def __init__(self, token: str = "fake-token-12345"):
+    def __init__(self, token: str = "fake-token-12345"):  # noqa: S107 - fake token for testing only
         self.token = token
 
     def get_token(self, *scopes):

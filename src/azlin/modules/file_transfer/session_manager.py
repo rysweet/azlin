@@ -3,8 +3,12 @@
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .exceptions import InvalidSessionNameError, MultipleSessionsError, SessionNotFoundError
+
+if TYPE_CHECKING:
+    from azlin.vm_manager import VMManager
 
 # CRITICAL: This pattern is the ONLY allowed session name format
 SESSION_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -113,7 +117,7 @@ class SessionManager:
         cls,
         session_name: str,
         resource_group: str,
-        vm_manager,  # VMManager class
+        vm_manager: "type[VMManager]",  # VMManager class
     ) -> VMSession:
         """
         Get VM session by name.
