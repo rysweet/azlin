@@ -135,13 +135,18 @@ class StopHook(HookProcessor):
         """
         try:
             # Import reflection analysis directly
-            # NOTE: Only process_reflection_analysis exists in reflection.py
-            from reflection import analyze_session_patterns
+            from reflection import SessionReflector
 
             # Get patterns from reflection analysis
-            patterns = analyze_session_patterns(messages)
+            reflector = SessionReflector()
+            analysis = reflector.analyze_session(messages)
+
+            # If reflection was skipped, fall back to simple extraction
+            if analysis.get("skipped"):
+                return self.extract_learnings_simple(messages)
 
             # Convert patterns to learnings format
+            patterns = analysis.get("patterns", [])
             return [
                 {
                     "type": pattern["type"],
