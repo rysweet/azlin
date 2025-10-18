@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from azlin.nfs_mount_manager import (
+from azlin.modules.nfs_mount_manager import (
     MountInfo,
     MountResult,
     NFSMountManager,

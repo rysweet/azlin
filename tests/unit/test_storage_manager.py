@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from azlin.storage_manager import (
+from azlin.modules.storage_manager import (
     StorageError,
     StorageInUseError,
     StorageInfo,
