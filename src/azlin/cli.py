@@ -74,6 +74,9 @@ from azlin.vm_provisioning import (
     VMProvisioner,
 )
 
+# Storage commands
+from azlin.commands.storage import storage_group
+
 logger = logging.getLogger(__name__)
 
 
@@ -852,6 +855,15 @@ def main(ctx):
         snapshot list <vm>                List snapshots for VM
         snapshot restore <vm> <snapshot>  Restore VM from snapshot
         snapshot delete <snapshot>        Delete a snapshot
+
+    \b
+    STORAGE COMMANDS:
+        storage create    Create NFS storage for shared home directories
+        storage list      List NFS storage accounts
+        storage status    Show storage usage and connected VMs
+        storage mount     Mount storage on VM
+        storage unmount   Unmount storage from VM
+        storage delete    Delete storage account
 
     \b
     MONITORING COMMANDS:
@@ -4584,6 +4596,10 @@ def snapshot_delete(
     except SnapshotManagerError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+
+# Register storage commands
+main.add_command(storage_group)
 
 
 @main.group()
