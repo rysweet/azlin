@@ -11,7 +11,7 @@ from pathlib import Path
 # Clean import setup
 sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
-    from paths import get_project_root
+    from amplihack import get_project_root
 
     project_root = get_project_root()
     sys.path.insert(0, str(project_root / "src"))

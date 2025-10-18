@@ -37,7 +37,7 @@ This workflow should be followed for:
 - Refactoring
 - Any non-trivial code changes
 
-## The 14-Step Workflow
+## The 15-Step Workflow
 
 ### Step 1: Rewrite and Clarify Requirements
 
@@ -95,7 +95,7 @@ This workflow should be followed for:
 - [ ] Eliminate dead code (unless user explicitly wanted it)
 - [ ] Simplify complex logic (without violating user specifications)
 - [ ] Ensure single responsibility principle
-- [ ] Verify no placeholders remain
+- [ ] Verify no placeholders remain - no stubs, no TODOs, no swallowed exceptions, no unimplemented functions - follow the zero-BS principle.
 - [ ] **VALIDATE: All explicit user requirements still preserved**
 
 ### Step 7: Run Tests and Pre-commit Hooks
@@ -108,7 +108,32 @@ This workflow should be followed for:
 - [ ] Resolve type checking errors
 - [ ] Iterate until all checks pass
 
-### Step 8: Commit and Push
+### Step 8: Mandatory Local Testing (NOT in CI)
+
+**CRITICAL: Test all changes locally in realistic scenarios BEFORE committing.**
+
+- [ ] **Test simple use cases** - Basic functionality verification
+- [ ] **Test complex use cases** - Edge cases and longer operations
+- [ ] **Test integration points** - External dependencies and APIs
+- [ ] **Verify no regressions** - Ensure existing functionality still works
+- [ ] **Document test results** - What was tested and results
+- [ ] **RULE: Never commit without local testing**
+
+**Examples of required tests:**
+
+- If proxy changes: Test simple and long requests locally
+- If API changes: Test with real client requests
+- If CLI changes: Run actual commands with various options
+- If database changes: Test with actual data operations
+
+**Why this matters:**
+
+- CI checks can't catch all real-world issues
+- Local testing catches problems before they reach users
+- Faster feedback loop than waiting for CI
+- Prevents embarrassing failures after merge
+
+### Step 9: Commit and Push
 
 - [ ] Stage all changes
 - [ ] Write detailed commit message
@@ -117,7 +142,7 @@ This workflow should be followed for:
 - [ ] Push to remote branch
 - [ ] Verify push succeeded
 
-### Step 9: Open Pull Request
+### Step 10: Open Pull Request
 
 - [ ] Create PR using `gh pr create`
 - [ ] Link to the GitHub issue
@@ -126,7 +151,7 @@ This workflow should be followed for:
 - [ ] Add screenshots if UI changes
 - [ ] Request appropriate reviewers
 
-### Step 10: Review the PR
+### Step 11: Review the PR
 
 - [ ] **Always use** reviewer agent for comprehensive code review
 - [ ] **Use** security agent for security review
@@ -135,18 +160,22 @@ This workflow should be followed for:
 - [ ] Ensure adequate test coverage
 - [ ] Post review comments on PR
 - [ ] Identify potential improvements
+- [ ] Ensure there are no TODOs, stubs, or swallowed exceptions, no unimplemented functions - follow the zero-BS principle.
+- [ ] Post the review as a comment on the PR
 
-### Step 11: Implement Review Feedback
+### Step 12: Implement Review Feedback
 
-- [ ] Review all feedback comments
+- [ ] Review all feedback comments, think very carefully about each one and decide how to address it (or if you should disagree, explain why in a comment)
 - [ ] **Always use** builder agent to implement changes
 - [ ] **Use** relevant specialized agents for specific feedback
 - [ ] Address each review comment
 - [ ] Push updates to PR
-- [ ] Respond to review comments
+- [ ] Respond to review comments by posting replies
+- [ ] Ensure all tests still pass
+- [ ] Ensure PR is still mergeable
 - [ ] Request re-review if needed
 
-### Step 12: Philosophy Compliance Check
+### Step 13: Philosophy Compliance Check
 
 - [ ] **Always use** reviewer agent for final philosophy check
 - [ ] **Use** patterns agent to verify pattern compliance
@@ -156,7 +185,7 @@ This workflow should be followed for:
 - [ ] Verify all tests passing
 - [ ] Check documentation completeness
 
-### Step 13: Ensure PR is Mergeable
+### Step 14: Ensure PR is Mergeable
 
 - [ ] Check CI status (all checks passing)
 - [ ] **Always use** ci-diagnostic-workflow agent if CI fails
@@ -165,7 +194,7 @@ This workflow should be followed for:
 - [ ] Confirm PR is approved
 - [ ] Notify that PR is ready to merge
 
-### Step 14: Final Cleanup and Verification
+### Step 15: Final Cleanup and Verification
 
 - [ ] **CRITICAL: Provide cleanup agent with original user requirements AGAIN**
 - [ ] **Always use** cleanup agent for final quality pass

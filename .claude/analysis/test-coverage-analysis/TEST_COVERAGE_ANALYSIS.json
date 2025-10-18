@@ -1,0 +1,570 @@
+{
+  "test_inventory": {
+    "total_test_files": 40,
+    "test_files_by_location": {
+      "main_tests": 35,
+      "amplihack_tests": 5,
+      "file_transfer_tests": 4
+    },
+    "total_test_functions": 753,
+    "test_functions_by_category": {
+      "unit": 651,
+      "integration": 34,
+      "e2e": 11,
+      "amplihack": 102
+    },
+    "total_test_lines": 14872,
+    "test_frameworks": ["pytest", "pytest-mock", "pytest-cov", "pytest-xdist"],
+    "organization": "Tests organized in /tests with subdirectories for unit/, integration/, e2e/, fixtures/, and mocks/. Amplihack has isolated test directories within each module (memory/tests/, session/tests/). File transfer module has embedded tests. Well-structured with conftest.py for shared fixtures."
+  },
+  "coverage_by_module": {
+    "main_azlin": {
+      "covered": [
+        "azure_auth", "batch_executor", "cli", "config_manager", "cost_tracker",
+        "distributed_top", "env_manager", "key_rotator", "log_viewer", "remote_exec",
+        "resource_cleanup", "tag_manager", "template_manager", "vm_connector",
+        "vm_manager", "vm_provisioning", "vm_updater", "prune (via test_prune_command)",
+        "storage (via test_storage_commands)"
+      ],
+      "uncovered": [
+        "__main__", "connection_tracker", "status_dashboard", "terminal_launcher",
+        "vm_lifecycle", "vm_lifecycle_control"
+      ],
+      "coverage_percentage": 76
+    },
+    "modules": {
+      "covered": [
+        "nfs_mount_manager", "npm_config", "snapshot_manager", "ssh_reconnect",
+        "storage_manager", "file_transfer (all submodules)", "home_sync (partial)"
+      ],
+      "uncovered": [
+        "github_setup", "notifications", "prerequisites", "progress",
+        "ssh_connector", "ssh_keys"
+      ],
+      "coverage_percentage": 54
+    },
+    "commands": {
+      "covered": ["storage (integration tests)"],
+      "uncovered": ["All command modules except storage"],
+      "coverage_percentage": 20
+    },
+    "amplihack_hooks": {
+      "covered": [],
+      "uncovered": [
+        "hook_processor", "post_edit_format", "post_tool_use", "pre_compact",
+        "reflection", "session_start", "stop", "stop_azure_continuation"
+      ],
+      "coverage_percentage": 0
+    },
+    "amplihack_memory": {
+      "covered": ["interface (TDD tests - currently skipped)"],
+      "uncovered": ["core", "context_preservation"],
+      "coverage_percentage": 10,
+      "notes": "Tests exist but are skipped pending implementation (TDD RED phase)"
+    },
+    "amplihack_session": {
+      "covered": [
+        "claude_session", "file_utils", "session_manager", "toolkit_integration"
+      ],
+      "uncovered": ["session_toolkit", "toolkit_logger"],
+      "coverage_percentage": 75
+    },
+    "amplihack_reflection": {
+      "covered": [],
+      "uncovered": [
+        "reflection", "contextual_error_analyzer", "lightweight_analyzer",
+        "security", "semantic_duplicate_detector", "semaphore", "state_machine", "display"
+      ],
+      "coverage_percentage": 0
+    },
+    "amplihack_builders": {
+      "covered": [],
+      "uncovered": [
+        "claude_transcript_builder", "codex_transcripts_builder",
+        "export_on_compact_integration"
+      ],
+      "coverage_percentage": 0
+    },
+    "amplihack_core": {
+      "covered": [],
+      "uncovered": [
+        "analyze_traces", "context_preservation", "context_preservation_secure",
+        "xpia_defense", "paths"
+      ],
+      "coverage_percentage": 0
+    }
+  },
+  "testing_pyramid": {
+    "current": {
+      "unit_percentage": 86.5,
+      "integration_percentage": 4.5,
+      "e2e_percentage": 1.5,
+      "amplihack_percentage": 13.5
+    },
+    "target": {
+      "unit_percentage": 60,
+      "integration_percentage": 30,
+      "e2e_percentage": 10
+    },
+    "gaps": "SEVERE IMBALANCE: Project is heavily skewed toward unit tests (86.5% vs target 60%). Integration tests are critically under-represented (4.5% vs target 30%). E2E tests are minimal (1.5% vs target 10%). This creates risk that modules work in isolation but fail when integrated. Need 6x more integration tests and 7x more E2E tests to meet pyramid targets."
+  },
+  "test_quality_issues": [
+    {
+      "test_file": ".claude/tools/amplihack/memory/tests/test_interface.py",
+      "issue": "TDD RED phase tests - entire test class skipped",
+      "severity": "high",
+      "improvement": "All 12 tests in TestAgentMemoryInterface are marked @pytest.mark.skipif due to unimplemented AgentMemory class. These are well-written TDD tests but need implementation to pass. Priority: Complete AgentMemory implementation."
+    },
+    {
+      "test_file": "tests/e2e/test_complete_workflow.py",
+      "issue": "E2E test marked as RED phase - implementation incomplete",
+      "severity": "high",
+      "improvement": "E2E workflow test exists but is documented as RED phase TDD. Test has proper mocking but may not pass. Verify test status and complete implementation."
+    },
+    {
+      "test_file": "tests/unit/test_azure_auth.py",
+      "issue": "Multiple tests marked as RED phase",
+      "severity": "medium",
+      "improvement": "Contains RED PHASE comments indicating tests written before implementation. Verify which tests now pass and update documentation."
+    },
+    {
+      "test_file": "All amplihack hook modules",
+      "issue": "Zero test coverage for 8 hook modules",
+      "severity": "critical",
+      "improvement": "Hooks are core functionality with complex state management, error handling, and file I/O. Each hook needs: unit tests for process(), error handling tests, path validation tests, and integration tests."
+    },
+    {
+      "test_file": "All amplihack reflection modules",
+      "issue": "Zero test coverage for 9 reflection modules",
+      "severity": "critical",
+      "improvement": "Reflection system has complex state machine, security filtering, and GitHub integration. Needs comprehensive testing: state machine transitions, security sanitization, duplicate detection, and error analysis."
+    },
+    {
+      "test_file": "Integration tests",
+      "issue": "Insufficient module interaction testing",
+      "severity": "high",
+      "improvement": "Only 3 integration test files exist. Need tests for: VM provisioning + SSH setup, storage + NFS mounting, config + credential management, batch execution workflows."
+    },
+    {
+      "test_file": "tests/ (markers)",
+      "issue": "Test markers not consistently applied",
+      "severity": "medium",
+      "improvement": "pytest.ini defines @pytest.mark.unit/integration/e2e markers but tests rarely use them. Found only 1 integration marker usage. Apply markers consistently for selective test execution."
+    },
+    {
+      "test_file": "amplihack builders",
+      "issue": "Zero test coverage for transcript builders",
+      "severity": "high",
+      "improvement": "Transcript builders handle sensitive data and complex JSON transformations. Need tests for: data sanitization, JSON structure validation, export integration, and error handling."
+    }
+  ],
+  "missing_test_scenarios": [
+    {
+      "module": "amplihack/hooks/*",
+      "priority": "critical",
+      "unit_tests_needed": [
+        "test_hook_processor_initialization",
+        "test_hook_processor_path_containment_validation",
+        "test_hook_processor_log_rotation",
+        "test_hook_processor_metric_saving",
+        "test_hook_processor_error_handling",
+        "test_hook_processor_json_io",
+        "test_post_edit_format_processing",
+        "test_post_tool_use_processing",
+        "test_pre_compact_processing",
+        "test_reflection_hook_processing",
+        "test_session_start_initialization",
+        "test_stop_hook_cleanup",
+        "test_stop_azure_continuation"
+      ],
+      "integration_tests_needed": [
+        "test_hook_chain_execution",
+        "test_hooks_with_file_system",
+        "test_hooks_with_metrics_persistence",
+        "test_error_propagation_through_hooks"
+      ],
+      "e2e_tests_needed": [
+        "test_complete_hook_lifecycle"
+      ],
+      "rationale": "Hooks are the core extension mechanism. They handle file I/O, state management, and error propagation. Missing tests mean hook failures could go undetected. HookProcessor has path traversal protection, log rotation, and error handling that all need verification.",
+      "effort": "large"
+    },
+    {
+      "module": "amplihack/reflection/*",
+      "priority": "critical",
+      "unit_tests_needed": [
+        "test_reflection_state_machine_transitions",
+        "test_state_machine_detect_user_intent",
+        "test_state_machine_transition_logic",
+        "test_state_machine_cleanup",
+        "test_security_sanitize_messages",
+        "test_security_filter_pattern_suggestion",
+        "test_security_create_safe_preview",
+        "test_semantic_duplicate_detector_check",
+        "test_semantic_duplicate_detector_store",
+        "test_contextual_error_analyzer",
+        "test_lightweight_analyzer",
+        "test_semaphore_acquire_release",
+        "test_display_functions"
+      ],
+      "integration_tests_needed": [
+        "test_reflection_with_github_api",
+        "test_reflection_duplicate_detection_flow",
+        "test_reflection_state_persistence"
+      ],
+      "e2e_tests_needed": [
+        "test_full_reflection_workflow"
+      ],
+      "rationale": "Reflection system is complex with state machine (7 states), security filtering, GitHub integration, and duplicate detection. State machine has critical transition logic that could lead to workflow failures. Security functions prevent data leakage - must be tested.",
+      "effort": "large"
+    },
+    {
+      "module": "amplihack/xpia_defense",
+      "priority": "critical",
+      "unit_tests_needed": [
+        "test_xpia_defense_engine_initialization",
+        "test_threat_pattern_library_patterns",
+        "test_xpia_validate_content_safe",
+        "test_xpia_validate_content_malicious",
+        "test_xpia_performance_under_100ms",
+        "test_xpia_boundary_conditions",
+        "test_xpia_false_positive_rate",
+        "test_xpia_hook_integration",
+        "test_xpia_fail_secure_behavior"
+      ],
+      "integration_tests_needed": [
+        "test_xpia_with_real_prompts",
+        "test_xpia_with_hook_chain"
+      ],
+      "e2e_tests_needed": [
+        "test_xpia_full_validation_pipeline"
+      ],
+      "rationale": "XPIA Defense is security-critical with documented <100ms and >99% accuracy requirements. Module header states 'Performance First' and 'Zero False Positives' as core principles. These claims MUST be verified with tests. Untested security code is a critical vulnerability.",
+      "effort": "large"
+    },
+    {
+      "module": "amplihack/builders/*",
+      "priority": "high",
+      "unit_tests_needed": [
+        "test_claude_transcript_builder_build",
+        "test_claude_transcript_sanitization",
+        "test_codex_transcripts_builder_build",
+        "test_codex_transcript_structure",
+        "test_export_on_compact_integration"
+      ],
+      "integration_tests_needed": [
+        "test_builder_with_session_data",
+        "test_export_integration_flow"
+      ],
+      "e2e_tests_needed": [
+        "test_full_transcript_export_workflow"
+      ],
+      "rationale": "Builders handle sensitive session data and create structured output. Data sanitization must be tested to prevent information leakage. JSON structure validation needed to ensure exported transcripts are well-formed.",
+      "effort": "medium"
+    },
+    {
+      "module": "amplihack/memory/core",
+      "priority": "high",
+      "unit_tests_needed": [
+        "test_memory_backend_initialization",
+        "test_memory_backend_store",
+        "test_memory_backend_retrieve",
+        "test_memory_backend_database_permissions",
+        "test_memory_backend_concurrent_access",
+        "test_memory_backend_corruption_handling"
+      ],
+      "integration_tests_needed": [
+        "test_memory_with_sqlite_persistence"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "MemoryBackend implementation is missing but interface tests exist (currently skipped). These are TDD tests waiting for implementation. Complete implementation to enable the 12 existing tests.",
+      "effort": "medium"
+    },
+    {
+      "module": "amplihack/context_preservation*",
+      "priority": "high",
+      "unit_tests_needed": [
+        "test_context_preservation_store",
+        "test_context_preservation_retrieve",
+        "test_context_preservation_secure_encryption",
+        "test_context_preservation_key_management"
+      ],
+      "integration_tests_needed": [
+        "test_context_preservation_with_sessions"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "Context preservation handles session state - critical for maintaining agent memory. Secure variant likely handles encryption - needs validation of crypto operations and key management.",
+      "effort": "medium"
+    },
+    {
+      "module": "modules/github_setup",
+      "priority": "high",
+      "unit_tests_needed": [
+        "test_github_setup_gh_cli_detection",
+        "test_github_setup_authentication_check",
+        "test_github_setup_repo_clone",
+        "test_github_setup_ssh_key_setup",
+        "test_github_setup_error_handling"
+      ],
+      "integration_tests_needed": [
+        "test_github_setup_with_vm_provisioning"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "GitHub setup is referenced in E2E tests but has no unit tests. Integrates with gh CLI and SSH - needs error handling for authentication failures.",
+      "effort": "small"
+    },
+    {
+      "module": "modules/notifications",
+      "priority": "medium",
+      "unit_tests_needed": [
+        "test_notification_send_success",
+        "test_notification_send_failure",
+        "test_notification_formatting",
+        "test_notification_retry_logic"
+      ],
+      "integration_tests_needed": [
+        "test_notification_with_imessr_api"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "Notifications used in workflows but not tested. Need to verify API integration, error handling, and retry logic.",
+      "effort": "small"
+    },
+    {
+      "module": "modules/ssh_connector",
+      "priority": "high",
+      "unit_tests_needed": [
+        "test_ssh_connector_connection",
+        "test_ssh_connector_authentication",
+        "test_ssh_connector_command_execution",
+        "test_ssh_connector_error_handling",
+        "test_ssh_connector_timeout"
+      ],
+      "integration_tests_needed": [
+        "test_ssh_connector_with_vm"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "SSH connector is core infrastructure for VM management. Untested SSH code could cause connection failures, hangs, or security issues.",
+      "effort": "medium"
+    },
+    {
+      "module": "modules/ssh_keys",
+      "priority": "high",
+      "unit_tests_needed": [
+        "test_ssh_key_generation",
+        "test_ssh_key_validation",
+        "test_ssh_key_permissions",
+        "test_ssh_key_file_operations"
+      ],
+      "integration_tests_needed": [
+        "test_ssh_keys_with_azure_vm"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "SSH key generation is security-sensitive. Must verify correct permissions (600), key format validation, and secure file handling.",
+      "effort": "small"
+    },
+    {
+      "module": "modules/prerequisites",
+      "priority": "medium",
+      "unit_tests_needed": [
+        "test_prerequisite_check_az_cli",
+        "test_prerequisite_check_ssh",
+        "test_prerequisite_check_python_version",
+        "test_prerequisite_missing_dependency_error"
+      ],
+      "integration_tests_needed": [],
+      "e2e_tests_needed": [],
+      "rationale": "Prerequisites validation ensures environment is correct before operations. Missing tests could allow failures to propagate.",
+      "effort": "small"
+    },
+    {
+      "module": "modules/progress",
+      "priority": "low",
+      "unit_tests_needed": [
+        "test_progress_display_start",
+        "test_progress_display_update",
+        "test_progress_display_complete",
+        "test_progress_display_error"
+      ],
+      "integration_tests_needed": [],
+      "e2e_tests_needed": [],
+      "rationale": "Progress display is UI-focused. Lower priority but should verify display methods don't raise exceptions.",
+      "effort": "small"
+    },
+    {
+      "module": "connection_tracker",
+      "priority": "medium",
+      "unit_tests_needed": [
+        "test_connection_tracker_add",
+        "test_connection_tracker_remove",
+        "test_connection_tracker_list",
+        "test_connection_tracker_persistence"
+      ],
+      "integration_tests_needed": [],
+      "e2e_tests_needed": [],
+      "rationale": "Connection tracking likely maintains VM connection state. Needs tests for state persistence and concurrent access.",
+      "effort": "small"
+    },
+    {
+      "module": "status_dashboard",
+      "priority": "low",
+      "unit_tests_needed": [
+        "test_status_dashboard_vm_list",
+        "test_status_dashboard_metrics",
+        "test_status_dashboard_formatting"
+      ],
+      "integration_tests_needed": [
+        "test_status_dashboard_with_azure_data"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "Status dashboard displays VM information. Lower priority but needs tests for data aggregation and formatting.",
+      "effort": "small"
+    },
+    {
+      "module": "terminal_launcher",
+      "priority": "medium",
+      "unit_tests_needed": [
+        "test_terminal_launcher_launch",
+        "test_terminal_launcher_detect_terminal",
+        "test_terminal_launcher_command_construction"
+      ],
+      "integration_tests_needed": [],
+      "e2e_tests_needed": [],
+      "rationale": "Terminal launcher opens SSH sessions. Needs tests for different terminal types and command construction.",
+      "effort": "small"
+    },
+    {
+      "module": "vm_lifecycle & vm_lifecycle_control",
+      "priority": "medium",
+      "unit_tests_needed": [
+        "test_vm_lifecycle_start",
+        "test_vm_lifecycle_stop",
+        "test_vm_lifecycle_restart",
+        "test_vm_lifecycle_status_check",
+        "test_vm_lifecycle_control_state_transitions"
+      ],
+      "integration_tests_needed": [
+        "test_vm_lifecycle_with_azure_api"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "VM lifecycle management is core functionality. State transitions need validation to prevent VMs getting stuck in invalid states.",
+      "effort": "medium"
+    },
+    {
+      "module": "Integration: VM provisioning flow",
+      "priority": "critical",
+      "unit_tests_needed": [],
+      "integration_tests_needed": [
+        "test_vm_provision_with_network_setup",
+        "test_vm_provision_with_ssh_config",
+        "test_vm_provision_with_storage_attach",
+        "test_vm_provision_rollback_on_failure"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "Current integration tests only cover storage commands and SSH reconnect. Need tests for complete VM provisioning flow including network, storage, and SSH setup. This is where most real-world failures occur.",
+      "effort": "large"
+    },
+    {
+      "module": "Integration: Config + Credentials",
+      "priority": "high",
+      "unit_tests_needed": [],
+      "integration_tests_needed": [
+        "test_config_with_azure_credentials",
+        "test_config_precedence_cli_vs_file",
+        "test_config_persistence_after_operations"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "Config manager and Azure auth need integration tests to verify credential loading, precedence rules, and config persistence.",
+      "effort": "small"
+    },
+    {
+      "module": "Integration: Batch + Remote Exec",
+      "priority": "high",
+      "unit_tests_needed": [],
+      "integration_tests_needed": [
+        "test_batch_executor_with_ssh_connections",
+        "test_batch_executor_parallel_execution",
+        "test_batch_executor_error_handling"
+      ],
+      "e2e_tests_needed": [],
+      "rationale": "Batch executor orchestrates multiple SSH connections. Need integration tests for parallel execution and error handling across multiple VMs.",
+      "effort": "medium"
+    },
+    {
+      "module": "E2E: Complete amplihack workflow",
+      "priority": "high",
+      "unit_tests_needed": [],
+      "integration_tests_needed": [],
+      "e2e_tests_needed": [
+        "test_amplihack_session_with_hooks",
+        "test_amplihack_reflection_workflow",
+        "test_amplihack_transcript_export",
+        "test_amplihack_xpia_defense_integration"
+      ],
+      "rationale": "Amplihack has 102 unit tests but no E2E tests. Need full workflow tests: session start -> hook execution -> reflection -> transcript export. This verifies all components work together.",
+      "effort": "large"
+    },
+    {
+      "module": "E2E: Multi-VM operations",
+      "priority": "medium",
+      "unit_tests_needed": [],
+      "integration_tests_needed": [],
+      "e2e_tests_needed": [
+        "test_provision_multiple_vms",
+        "test_batch_operations_across_fleet",
+        "test_distributed_monitoring"
+      ],
+      "rationale": "Azlin is described as 'VM fleet management' but E2E tests don't verify fleet operations. Need tests for multi-VM scenarios.",
+      "effort": "large"
+    }
+  ],
+  "critical_gaps": [
+    "1. AMPLIHACK HOOKS: Zero test coverage for 8 core hook modules (hook_processor, post_edit_format, post_tool_use, pre_compact, reflection, session_start, stop, stop_azure_continuation). Hooks are extension points with file I/O, path validation, and error handling - critical functionality completely untested.",
+    "2. AMPLIHACK REFLECTION: Zero test coverage for 9 reflection modules including state machine with 7 states and security filtering. State machine transitions, user intent detection, and security sanitization are untested - high risk for workflow failures and data leakage.",
+    "3. XPIA DEFENSE: Security-critical module with documented performance (<100ms) and accuracy (>99%) requirements has zero tests. Claims 'Zero False Positives' and 'Fail Secure' but no test verification. This is a critical security vulnerability.",
+    "4. INTEGRATION TEST DEFICIT: Only 4.5% integration tests vs 30% target. Need 6x more integration tests for: VM provisioning flows, config+credentials, batch execution, and module interactions.",
+    "5. E2E TEST GAP: Only 1.5% E2E vs 10% target. Need 7x more E2E tests for: complete workflows, multi-VM operations, amplihack full lifecycle, and fleet management scenarios."
+  ],
+  "overall_assessment": "MIXED QUALITY WITH CRITICAL GAPS. The project shows strong test coverage in core azlin modules (76% of main modules tested, 651 unit tests). Test quality is generally good with proper mocking, fixtures, and assertion patterns. HOWEVER, the amplihack system has severe gaps: 0% coverage for hooks, reflection, builders, and security (XPIA) despite being ~15K lines of complex code. Testing pyramid is severely imbalanced (86.5% unit, 4.5% integration, 1.5% E2E vs target 60/30/10). Some tests are TDD RED phase (not passing). Integration testing is critically under-developed - modules may work in isolation but fail when integrated. No E2E tests for amplihack workflows or multi-VM fleet operations despite being core functionality. Security-critical modules (XPIA, reflection security, context preservation) are completely untested - high risk.",
+  "improvement_priorities": [
+    "1. IMMEDIATE: Add unit tests for XPIA Defense security validation - critical security module with zero coverage",
+    "2. IMMEDIATE: Add unit tests for amplihack hooks (hook_processor, all hook types) - core extension mechanism untested",
+    "3. IMMEDIATE: Add unit tests for reflection state machine and security filtering - complex state management untested",
+    "4. HIGH: Complete MemoryBackend implementation to enable existing TDD tests in test_interface.py",
+    "5. HIGH: Add integration tests for VM provisioning flow (provision + network + SSH) - where real failures occur",
+    "6. HIGH: Add unit tests for untested security-sensitive modules: ssh_keys, ssh_connector, github_setup",
+    "7. HIGH: Add integration tests for config+credentials, batch+remote_exec, and storage+NFS workflows",
+    "8. MEDIUM: Add E2E test for complete amplihack workflow (session + hooks + reflection + export)",
+    "9. MEDIUM: Add E2E tests for multi-VM fleet operations (provision, batch operations, distributed monitoring)",
+    "10. MEDIUM: Apply pytest markers consistently to enable selective test execution (unit/integration/e2e)",
+    "11. MEDIUM: Add unit tests for amplihack builders (transcript builders, export integration)",
+    "12. LOW: Add tests for UI/display modules (progress, status_dashboard) - lower priority but should verify no exceptions",
+    "13. ONGOING: Resolve TDD RED phase tests - verify which tests now pass and update documentation",
+    "14. ONGOING: Rebalance testing pyramid - reduce unit test percentage, significantly increase integration and E2E tests"
+  ],
+  "test_framework_assessment": {
+    "strengths": [
+      "Well-organized test structure with unit/, integration/, e2e/ directories",
+      "Comprehensive fixtures in conftest.py (Azure mocks, SSH mocks, temp directories)",
+      "Good use of pytest-mock for isolation",
+      "Proper separation of fixtures/, mocks/ for reusable components",
+      "Security-focused tests exist (file_transfer/tests/test_security.py)",
+      "TDD approach in amplihack/memory (tests before implementation)"
+    ],
+    "weaknesses": [
+      "Pytest markers defined but rarely used (only 1 @pytest.mark.integration found)",
+      "No consistent pattern for marking test types",
+      "Integration and E2E tests severely under-represented",
+      "Amplihack tests isolated - not integrated with main test suite",
+      "No coverage reports or CI integration visible in pyproject.toml",
+      "Missing test utilities for common amplihack operations"
+    ],
+    "recommendations": [
+      "Apply pytest markers to all tests for selective execution",
+      "Create shared amplihack test fixtures in .claude/tools/amplihack/conftest.py",
+      "Add integration test helpers for common workflows (provision+SSH, batch+remote)",
+      "Consider adding pytest-asyncio for async amplihack components",
+      "Add coverage reporting to CI pipeline",
+      "Create test utilities for XPIA defense testing (safe/malicious prompts)"
+    ]
+  }
+}

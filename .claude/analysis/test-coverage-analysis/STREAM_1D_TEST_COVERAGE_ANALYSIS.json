@@ -1,0 +1,692 @@
+{
+  "stream": "1D",
+  "scope": "test coverage analysis",
+  "analysis_date": "2025-10-18",
+  "test_files_found": [
+    "/Users/ryan/src/azlin/tests/unit/test_azure_auth.py",
+    "/Users/ryan/src/azlin/tests/unit/test_batch_executor.py",
+    "/Users/ryan/src/azlin/tests/unit/test_cli.py",
+    "/Users/ryan/src/azlin/tests/unit/test_clone_command.py",
+    "/Users/ryan/src/azlin/tests/unit/test_config_manager.py",
+    "/Users/ryan/src/azlin/tests/unit/test_cost_tracker.py",
+    "/Users/ryan/src/azlin/tests/unit/test_default_help.py",
+    "/Users/ryan/src/azlin/tests/unit/test_distributed_top.py",
+    "/Users/ryan/src/azlin/tests/unit/test_env_manager.py",
+    "/Users/ryan/src/azlin/tests/unit/test_interactive_connect.py",
+    "/Users/ryan/src/azlin/tests/unit/test_key_rotator.py",
+    "/Users/ryan/src/azlin/tests/unit/test_log_viewer.py",
+    "/Users/ryan/src/azlin/tests/unit/test_nfs_auto_detection.py",
+    "/Users/ryan/src/azlin/tests/unit/test_nfs_mount_manager.py",
+    "/Users/ryan/src/azlin/tests/unit/test_npm_config.py",
+    "/Users/ryan/src/azlin/tests/unit/test_os_update.py",
+    "/Users/ryan/src/azlin/tests/unit/test_prune_command.py",
+    "/Users/ryan/src/azlin/tests/unit/test_remote_exec.py",
+    "/Users/ryan/src/azlin/tests/unit/test_resource_cleanup.py",
+    "/Users/ryan/src/azlin/tests/unit/test_session_cleanup.py",
+    "/Users/ryan/src/azlin/tests/unit/test_snapshot_manager.py",
+    "/Users/ryan/src/azlin/tests/unit/test_ssh_reconnect.py",
+    "/Users/ryan/src/azlin/tests/unit/test_storage_manager.py",
+    "/Users/ryan/src/azlin/tests/unit/test_tag_manager.py",
+    "/Users/ryan/src/azlin/tests/unit/test_template_manager.py",
+    "/Users/ryan/src/azlin/tests/unit/test_uvx_packaging.py",
+    "/Users/ryan/src/azlin/tests/unit/test_vm_connector.py",
+    "/Users/ryan/src/azlin/tests/unit/test_vm_manager.py",
+    "/Users/ryan/src/azlin/tests/unit/test_vm_provisioning.py",
+    "/Users/ryan/src/azlin/tests/unit/test_vm_updater.py",
+    "/Users/ryan/src/azlin/tests/integration/test_azure_integration.py",
+    "/Users/ryan/src/azlin/tests/integration/test_ssh_reconnect_integration.py",
+    "/Users/ryan/src/azlin/tests/integration/test_storage_commands.py",
+    "/Users/ryan/src/azlin/tests/e2e/test_complete_workflow.py",
+    "/Users/ryan/src/azlin/src/azlin/modules/file_transfer/tests/test_file_transfer.py",
+    "/Users/ryan/src/azlin/src/azlin/modules/file_transfer/tests/test_path_parser.py",
+    "/Users/ryan/src/azlin/src/azlin/modules/file_transfer/tests/test_security.py",
+    "/Users/ryan/src/azlin/src/azlin/modules/file_transfer/tests/test_session_manager.py",
+    "/Users/ryan/src/azlin/tests/test_home_sync.py"
+  ],
+  "coverage_map": {
+    "src/azlin/azure_auth.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_azure_auth.py"],
+      "test_count": 17,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/batch_executor.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_batch_executor.py"],
+      "test_count": 37,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/cli.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_cli.py", "tests/e2e/test_complete_workflow.py"],
+      "test_count": 33,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/config_manager.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_config_manager.py"],
+      "test_count": 13,
+      "coverage_estimate": "medium",
+      "missing_scenarios": [
+        "Error handling for corrupted TOML files",
+        "Concurrent access to config file",
+        "Config file permission errors"
+      ]
+    },
+    "src/azlin/connection_tracker.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "record_connection with valid timestamp",
+        "record_connection with None timestamp (defaults to now)",
+        "get_last_connection for existing VM",
+        "get_last_connection for non-existent VM returns None",
+        "get_all_connections with multiple VMs",
+        "remove_connection for existing VM",
+        "remove_connection for non-existent VM",
+        "File permission validation (0600)",
+        "Directory creation with secure permissions (0700)",
+        "Atomic file write with temp file",
+        "Corrupted TOML file handling",
+        "Concurrent access handling"
+      ]
+    },
+    "src/azlin/cost_tracker.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_cost_tracker.py"],
+      "test_count": 19,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/distributed_top.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_distributed_top.py"],
+      "test_count": 26,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/env_manager.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_env_manager.py"],
+      "test_count": 18,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/key_rotator.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_key_rotator.py"],
+      "test_count": 15,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/log_viewer.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_log_viewer.py"],
+      "test_count": 21,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/prune.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_prune_command.py"],
+      "test_count": 33,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/remote_exec.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_remote_exec.py"],
+      "test_count": 14,
+      "coverage_estimate": "medium",
+      "missing_scenarios": [
+        "SSH timeout handling",
+        "Very large command output handling",
+        "Connection interruption mid-execution"
+      ]
+    },
+    "src/azlin/resource_cleanup.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_resource_cleanup.py"],
+      "test_count": 13,
+      "coverage_estimate": "medium",
+      "missing_scenarios": [
+        "Cleanup when some resources are already deleted",
+        "Partial cleanup failure scenarios"
+      ]
+    },
+    "src/azlin/status_dashboard.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "get_vm_status with no VMs",
+        "get_vm_status with single VM",
+        "get_vm_status with multiple VMs",
+        "get_vm_status filtered by name",
+        "get_vm_status filtered by resource group",
+        "display_status with detailed=True",
+        "display_status with detailed=False",
+        "Cost calculation for running VMs",
+        "Cost calculation for stopped VMs",
+        "Azure CLI command failures",
+        "JSON parsing errors",
+        "Missing public IP handling",
+        "Unknown power state handling",
+        "Unknown VM size cost estimation"
+      ]
+    },
+    "src/azlin/tag_manager.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_tag_manager.py"],
+      "test_count": 23,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/template_manager.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_template_manager.py"],
+      "test_count": 23,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/terminal_launcher.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "launch on macOS with Terminal.app",
+        "launch on Linux with gnome-terminal",
+        "launch on Linux with xterm fallback",
+        "launch on unsupported platform",
+        "fallback_inline_ssh when launch fails",
+        "AppleScript escaping for special characters",
+        "SSH command building with tmux session",
+        "SSH command building without tmux",
+        "has_command with available command",
+        "has_command with unavailable command",
+        "Terminal launch timeout handling",
+        "AppleScript execution failure"
+      ]
+    },
+    "src/azlin/vm_connector.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_vm_connector.py"],
+      "test_count": 21,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/vm_lifecycle.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "delete_vm with valid VM and resources",
+        "delete_vm with non-existent VM",
+        "delete_vm with force=True",
+        "delete_vm with no_wait=True",
+        "delete_vm cleans up connection tracker",
+        "delete_vm cleans up session name mapping",
+        "delete_all_vms in resource group",
+        "delete_all_vms with prefix filter",
+        "delete_all_vms parallel execution",
+        "delete_all_vms with partial failures",
+        "Resource collection (NICs, disks, public IPs)",
+        "NIC deletion success",
+        "Public IP deletion success",
+        "Disk deletion when already auto-deleted",
+        "Azure CLI timeout handling",
+        "ResourceNotFound handling"
+      ]
+    },
+    "src/azlin/vm_lifecycle_control.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "stop_vm deallocates successfully",
+        "stop_vm when already stopped",
+        "stop_vm when already deallocated",
+        "stop_vm with no_wait=True",
+        "stop_vm calculates cost savings",
+        "start_vm from stopped state",
+        "start_vm from deallocated state",
+        "start_vm when already running",
+        "start_vm with no_wait=True",
+        "stop_vms batch operation",
+        "start_vms batch operation",
+        "stop_vms with pattern matching",
+        "Power state extraction from instance view",
+        "Azure CLI failures handling",
+        "Timeout handling for long operations"
+      ]
+    },
+    "src/azlin/vm_manager.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_vm_manager.py"],
+      "test_count": 12,
+      "coverage_estimate": "medium",
+      "missing_scenarios": [
+        "VM creation with custom parameters",
+        "VM list filtering edge cases",
+        "Error recovery scenarios"
+      ]
+    },
+    "src/azlin/vm_provisioning.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_vm_provisioning.py", "tests/integration/test_azure_integration.py"],
+      "test_count": 43,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/vm_updater.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_vm_updater.py"],
+      "test_count": 21,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/modules/github_setup.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "URL validation (HTTPS only)",
+        "URL validation rejects HTTP",
+        "URL validation rejects malformed URLs",
+        "setup_github_auth success",
+        "setup_github_auth failure",
+        "clone_repository success",
+        "clone_repository with custom path",
+        "clone_repository validation errors",
+        "SSH command execution errors",
+        "Repository parsing from URL"
+      ]
+    },
+    "src/azlin/modules/home_sync.py": {
+      "has_tests": true,
+      "test_files": ["tests/test_home_sync.py"],
+      "test_count": 1,
+      "coverage_estimate": "low",
+      "missing_scenarios": [
+        "Sync with rsync success",
+        "Sync with rsync failure",
+        "Dry run mode",
+        "Exclude patterns",
+        "File permission preservation",
+        "Large file sync",
+        "Network interruption handling",
+        "Invalid source/destination paths"
+      ]
+    },
+    "src/azlin/modules/notifications.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "send notification success",
+        "send notification failure",
+        "Notification disabled handling",
+        "Message formatting",
+        "Special character escaping"
+      ]
+    },
+    "src/azlin/modules/npm_config.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_npm_config.py"],
+      "test_count": 22,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/modules/prerequisites.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "check_prerequisites all available",
+        "check_prerequisites some missing",
+        "check_prerequisites all missing",
+        "check_tool_available for installed tool",
+        "check_tool_available for missing tool",
+        "Platform detection (macOS, Linux, Windows)",
+        "Error handling for tool check failures"
+      ]
+    },
+    "src/azlin/modules/progress.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "Progress display initialization",
+        "Update progress step",
+        "Complete progress",
+        "Error display",
+        "Concurrent progress updates"
+      ]
+    },
+    "src/azlin/modules/ssh_connector.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "SSH connection success",
+        "SSH connection failure",
+        "SSH key validation",
+        "Connection timeout",
+        "Host key verification",
+        "Custom port connection",
+        "Jump host/bastion scenarios"
+      ]
+    },
+    "src/azlin/modules/ssh_keys.py": {
+      "has_tests": false,
+      "test_files": [],
+      "test_count": 0,
+      "coverage_estimate": "none",
+      "missing_scenarios": [
+        "Generate SSH key pair",
+        "Key file permissions validation (0600)",
+        "Key already exists handling",
+        "Invalid key path handling",
+        "Public key extraction from private key"
+      ]
+    },
+    "src/azlin/modules/ssh_reconnect.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_ssh_reconnect.py", "tests/integration/test_ssh_reconnect_integration.py"],
+      "test_count": 25,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/modules/nfs_mount_manager.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_nfs_mount_manager.py"],
+      "test_count": 20,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/modules/snapshot_manager.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_snapshot_manager.py"],
+      "test_count": 12,
+      "coverage_estimate": "medium",
+      "missing_scenarios": [
+        "Snapshot creation with tags",
+        "Snapshot deletion error recovery",
+        "Snapshot quota limits"
+      ]
+    },
+    "src/azlin/modules/storage_manager.py": {
+      "has_tests": true,
+      "test_files": ["tests/unit/test_storage_manager.py", "tests/integration/test_storage_commands.py"],
+      "test_count": 44,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/modules/file_transfer/file_transfer.py": {
+      "has_tests": true,
+      "test_files": ["src/azlin/modules/file_transfer/tests/test_file_transfer.py"],
+      "test_count": 15,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/modules/file_transfer/path_parser.py": {
+      "has_tests": true,
+      "test_files": ["src/azlin/modules/file_transfer/tests/test_path_parser.py"],
+      "test_count": 19,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/modules/file_transfer/session_manager.py": {
+      "has_tests": true,
+      "test_files": ["src/azlin/modules/file_transfer/tests/test_session_manager.py"],
+      "test_count": 26,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/modules/file_transfer/exceptions.py": {
+      "has_tests": true,
+      "test_files": ["src/azlin/modules/file_transfer/tests/test_security.py"],
+      "test_count": 17,
+      "coverage_estimate": "high",
+      "missing_scenarios": []
+    },
+    "src/azlin/commands/storage.py": {
+      "has_tests": true,
+      "test_files": ["tests/integration/test_storage_commands.py"],
+      "test_count": 16,
+      "coverage_estimate": "medium",
+      "missing_scenarios": [
+        "CLI argument validation edge cases",
+        "Help text display",
+        "Output formatting variations"
+      ]
+    }
+  },
+  "test_pyramid": {
+    "unit_tests_count": 526,
+    "integration_tests_count": 34,
+    "e2e_tests_count": 11,
+    "file_transfer_tests_count": 77,
+    "total_tests": 648,
+    "unit_percentage": 81.2,
+    "integration_percentage": 5.2,
+    "e2e_percentage": 1.7,
+    "file_transfer_percentage": 11.9,
+    "target_compliance": "above",
+    "assessment": "Excellent unit test coverage (81.2% vs 60% target). Integration tests are below target (5.2% vs 30%), suggesting opportunity to add more integration tests. E2E tests are minimal (1.7% vs 10%), which is acceptable for this type of infrastructure tool."
+  },
+  "critical_gaps": [
+    {
+      "module": "src/azlin/connection_tracker.py",
+      "severity": "high",
+      "gap": "No tests for connection tracking functionality",
+      "recommendation": "Add tests for record_connection, get_last_connection, file permissions, atomic writes, and concurrent access handling. This is critical infrastructure for VM usage tracking.",
+      "test_count_needed": 12,
+      "priority": 1
+    },
+    {
+      "module": "src/azlin/status_dashboard.py",
+      "severity": "high",
+      "gap": "No tests for VM status display and cost calculation",
+      "recommendation": "Add tests for get_vm_status, display_status, cost estimation, Azure CLI integration, and error handling. Critical for user-facing dashboard.",
+      "test_count_needed": 14,
+      "priority": 2
+    },
+    {
+      "module": "src/azlin/terminal_launcher.py",
+      "severity": "high",
+      "gap": "No tests for terminal launching functionality",
+      "recommendation": "Add tests for platform-specific terminal launching, SSH command building, AppleScript escaping, fallback handling. Important for user experience.",
+      "test_count_needed": 12,
+      "priority": 3
+    },
+    {
+      "module": "src/azlin/vm_lifecycle.py",
+      "severity": "high",
+      "gap": "No tests for VM deletion operations",
+      "recommendation": "Add tests for delete_vm, delete_all_vms, resource cleanup, parallel execution, and error scenarios. Critical for destructive operations.",
+      "test_count_needed": 16,
+      "priority": 4
+    },
+    {
+      "module": "src/azlin/vm_lifecycle_control.py",
+      "severity": "high",
+      "gap": "No tests for VM stop/start operations",
+      "recommendation": "Add tests for stop_vm, start_vm, batch operations, cost calculations, power state detection. Important for cost management.",
+      "test_count_needed": 15,
+      "priority": 5
+    },
+    {
+      "module": "src/azlin/modules/github_setup.py",
+      "severity": "medium",
+      "gap": "No tests for GitHub authentication and cloning",
+      "recommendation": "Add tests for URL validation (security), SSH command execution, repository cloning, authentication setup.",
+      "test_count_needed": 10,
+      "priority": 6
+    },
+    {
+      "module": "src/azlin/modules/prerequisites.py",
+      "severity": "medium",
+      "gap": "No tests for prerequisite checking",
+      "recommendation": "Add tests for tool availability checks, platform detection, error reporting. Important for early failure detection.",
+      "test_count_needed": 7,
+      "priority": 7
+    },
+    {
+      "module": "src/azlin/modules/ssh_connector.py",
+      "severity": "medium",
+      "gap": "No tests for SSH connection logic",
+      "recommendation": "Add tests for SSH connection, key validation, timeout handling, host verification. Core connectivity functionality.",
+      "test_count_needed": 7,
+      "priority": 8
+    },
+    {
+      "module": "src/azlin/modules/ssh_keys.py",
+      "severity": "medium",
+      "gap": "No tests for SSH key generation",
+      "recommendation": "Add tests for key pair generation, file permissions (0600 security), key existence handling.",
+      "test_count_needed": 5,
+      "priority": 9
+    },
+    {
+      "module": "src/azlin/modules/home_sync.py",
+      "severity": "low",
+      "gap": "Minimal test coverage (1 test)",
+      "recommendation": "Add tests for rsync operations, dry run mode, exclude patterns, file permissions, error handling.",
+      "test_count_needed": 8,
+      "priority": 10
+    },
+    {
+      "module": "src/azlin/modules/notifications.py",
+      "severity": "low",
+      "gap": "No tests for notification system",
+      "recommendation": "Add tests for notification sending, failure handling, message formatting. Low priority as it's not critical path.",
+      "test_count_needed": 5,
+      "priority": 11
+    },
+    {
+      "module": "src/azlin/modules/progress.py",
+      "severity": "low",
+      "gap": "No tests for progress display",
+      "recommendation": "Add tests for progress updates, error display. Low priority as it's UI-focused.",
+      "test_count_needed": 5,
+      "priority": 12
+    }
+  ],
+  "test_quality_observations": {
+    "strengths": [
+      "Excellent TDD approach - many test files include RED phase comments",
+      "Strong parametrized testing usage (pytest.mark.parametrize)",
+      "Good fixture reuse via conftest.py",
+      "Clear test naming conventions (test_*)",
+      "Mock usage is comprehensive and appropriate",
+      "Good separation of unit, integration, and e2e tests",
+      "File transfer module has excellent isolated test suite",
+      "Storage manager has comprehensive validation tests",
+      "Batch executor has 37 tests - excellent coverage"
+    ],
+    "weaknesses": [
+      "5 critical infrastructure modules have zero tests",
+      "Integration test coverage is below pyramid target (5.2% vs 30%)",
+      "Some modules have shallow test counts (config_manager: 13, vm_manager: 12)",
+      "home_sync.py has only 1 test despite being a core sync feature",
+      "Missing edge case tests for concurrent operations",
+      "Some error recovery paths may be undertested"
+    ],
+    "test_patterns": {
+      "good_examples": [
+        "test_storage_manager.py: Comprehensive validation tests for boundaries, errors, and state",
+        "test_batch_executor.py: 37 tests covering parallel execution, error handling, timeouts",
+        "test_prune_command.py: 33 tests covering idle detection, confirmation prompts, dry-run",
+        "file_transfer tests: Isolated test suite with security validation"
+      ],
+      "needs_improvement": [
+        "test_home_sync.py: Only 1 test for critical sync functionality",
+        "test_config_manager.py: Missing concurrent access and corruption tests",
+        "Missing integration tests for Azure SDK operations",
+        "No performance/load tests for batch operations"
+      ]
+    }
+  },
+  "summary": {
+    "total_test_files": 38,
+    "total_test_count": 648,
+    "modules_tested": 29,
+    "modules_untested": 12,
+    "modules_with_high_coverage": 19,
+    "modules_with_medium_coverage": 7,
+    "modules_with_low_coverage": 3,
+    "modules_with_no_coverage": 12,
+    "critical_gaps_count": 12,
+    "high_severity_gaps": 5,
+    "medium_severity_gaps": 4,
+    "low_severity_gaps": 3,
+    "estimated_missing_tests": 121,
+    "overall_assessment": "Good test foundation with excellent unit test coverage (81.2%). Critical infrastructure modules need immediate attention: connection_tracker, status_dashboard, terminal_launcher, vm_lifecycle, and vm_lifecycle_control have zero tests. Integration test coverage is below pyramid target. File transfer module is exemplary with comprehensive isolated tests."
+  },
+  "recommendations": {
+    "immediate_actions": [
+      {
+        "priority": 1,
+        "action": "Add tests for connection_tracker.py",
+        "rationale": "Critical for VM usage tracking and prune functionality. Security-sensitive file operations.",
+        "estimated_tests": 12
+      },
+      {
+        "priority": 2,
+        "action": "Add tests for status_dashboard.py",
+        "rationale": "User-facing dashboard with cost calculations. Needs comprehensive error handling tests.",
+        "estimated_tests": 14
+      },
+      {
+        "priority": 3,
+        "action": "Add tests for terminal_launcher.py",
+        "rationale": "Platform-specific code with security implications (AppleScript escaping, SSH command building).",
+        "estimated_tests": 12
+      },
+      {
+        "priority": 4,
+        "action": "Add tests for vm_lifecycle.py and vm_lifecycle_control.py",
+        "rationale": "Destructive operations (delete VM, stop/start) need comprehensive safety tests.",
+        "estimated_tests": 31
+      },
+      {
+        "priority": 5,
+        "action": "Increase integration test coverage from 5.2% to closer to 30%",
+        "rationale": "Need more end-to-end Azure SDK integration tests, SSH connection tests, and multi-component workflows.",
+        "estimated_tests": 50
+      }
+    ],
+    "longer_term_improvements": [
+      "Add integration tests for Azure SDK operations (VM creation, network setup, resource cleanup)",
+      "Add load/performance tests for batch operations",
+      "Add chaos/failure injection tests for resilience validation",
+      "Expand home_sync.py tests to cover rsync edge cases",
+      "Add tests for concurrent operations (config file access, connection tracking)",
+      "Consider property-based testing for input validation",
+      "Add contract tests for Azure CLI command construction"
+    ],
+    "test_architecture_recommendations": [
+      "Create shared fixtures for Azure mocks to improve reuse",
+      "Consider adding a test helper module for common assertions",
+      "Implement test categories/markers for different test types (slow, requires_azure, security)",
+      "Add code coverage reporting to CI/CD pipeline",
+      "Set up mutation testing to validate test quality",
+      "Create test data builders for complex objects"
+    ]
+  }
+}

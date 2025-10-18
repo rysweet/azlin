@@ -1,0 +1,45 @@
+{
+  "analysis_metadata": {
+    "generated_at": "2025-10-18",
+    "project": "azlin",
+    "total_issues_found": 234,
+    "critical_severity": 14,
+    "high_severity": 52,
+    "medium_severity": 103,
+    "low_severity": 65
+  },
+  "top_priority_improvements": [
+    {
+      "id": "SECURITY-001",
+      "title": "Add test coverage for security modules",
+      "severity": "critical",
+      "priority": 1,
+      "effort_days": 10
+    },
+    {
+      "id": "HOOKS-001",
+      "title": "Add test coverage for hooks",
+      "severity": "critical",
+      "priority": 2,
+      "effort_days": 8
+    },
+    {
+      "id": "ZERO-BS-001",
+      "title": "Remove fake implementations",
+      "severity": "critical",
+      "priority": 3,
+      "effort_days": 2
+    },
+    {
+      "id": "MODULARITY-001",
+      "title": "Eliminate paths.py duplication",
+      "severity": "critical",
+      "priority": 5,
+      "effort_days": 1
+    }
+  ],
+  "total_discrete_improvements": 29,
+  "estimated_total_effort_days": 66,
+  "philosophy_alignment_current": 6.2,
+  "philosophy_alignment_target": 9.0
+}

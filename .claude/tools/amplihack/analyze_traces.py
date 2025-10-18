@@ -1,19 +1,67 @@
 #!/usr/bin/env python3
 """Analyze claude-trace logs and identify improvement opportunities."""
 
+import re
 import subprocess
 from pathlib import Path
+from typing import List
 
 
-def find_unprocessed_logs(trace_dir: str) -> list[str]:
+def validate_log_path(file_path: str) -> bool:
+    """Validate that a log file path is safe and well-formed.
+
+    Args:
+        file_path: Path to validate
+
+    Returns:
+        True if path is safe, False otherwise
+    """
+    # Reject paths with shell metacharacters
+    dangerous_chars = r'[;&|`$<>(){}[\]!*?~]'
+    if re.search(dangerous_chars, file_path):
+        return False
+
+    # Reject paths with command substitution patterns
+    if '$(' in file_path or '`' in file_path:
+        return False
+
+    # Reject paths attempting directory traversal
+    if '..' in file_path:
+        return False
+
+    # Must be a .jsonl file
+    if not file_path.endswith('.jsonl'):
+        return False
+
+    return True
+
+
+def find_unprocessed_logs(trace_dir: str) -> List[str]:
     trace_path = Path(trace_dir)
     if not trace_path.exists():
         return []
-    return [str(f) for f in trace_path.glob("*.jsonl") if f.parent.name != "already_processed"]
+
+    # Get all unprocessed logs
+    candidate_logs = [
+        str(f) for f in trace_path.glob("*.jsonl")
+        if f.parent.name != "already_processed"
+    ]
+
+    # Validate each path and filter out malicious files
+    validated_logs = []
+    for log_path in candidate_logs:
+        if validate_log_path(log_path):
+            validated_logs.append(log_path)
+        else:
+            print(f"WARNING: Rejected potentially malicious log file: {log_path}")
+
+    return validated_logs
 
 
-def build_analysis_prompt(log_files: list[str]) -> str:
-    logs_list = "\n".join(log_files)
+def build_analysis_prompt(log_files: List[str]) -> str:
+    # Quote all paths to prevent command injection
+    quoted_logs = [f'"{log_file}"' for log_file in log_files]
+    logs_list = "\n".join(quoted_logs)
     return f"""/ultrathink: Please very carefully analyze all of these logs:
 {logs_list}
 

@@ -1,0 +1,656 @@
+{
+  "metadata": {
+    "project": "azlin",
+    "analysis_date": "2025-10-18",
+    "total_issues": 239,
+    "total_modules_analyzed": 89,
+    "lines_of_code_analyzed": 36200,
+    "reconnaissance_streams_completed": 7,
+    "philosophy_compliance_score": "5.8/10"
+  },
+  "executive_summary": {
+    "critical_findings": [
+      {
+        "id": "CRIT-001",
+        "title": "Mock Command Execution Throughout Session System",
+        "severity": "critical",
+        "files_affected": 3,
+        "lines_of_dead_code": 200,
+        "philosophy_violation": "Zero-BS Principle - fake implementations in production code",
+        "recommendation": "DELETE or fully implement - no middle ground"
+      },
+      {
+        "id": "CRIT-002",
+        "title": "1,335 Lines of Unnecessary Security Theater (xpia_defense.py)",
+        "severity": "critical",
+        "files_affected": 1,
+        "lines_of_dead_code": 1335,
+        "philosophy_violation": "Ruthless Simplicity - massive over-engineering for local dev tool",
+        "recommendation": "DELETE entirely - security overkill for trusted workflows"
+      },
+      {
+        "id": "CRIT-003",
+        "title": "880 Lines of Duplicate Security Module (context_preservation_secure.py)",
+        "severity": "critical",
+        "files_affected": 1,
+        "lines_of_dead_code": 880,
+        "philosophy_violation": "Ruthless Simplicity + DRY - entire module duplicates simpler version",
+        "recommendation": "DELETE and use simple version only"
+      },
+      {
+        "id": "CRIT-004",
+        "title": "13 Stub Functions Returning Fake Data (codex_transcripts_builder.py)",
+        "severity": "critical",
+        "files_affected": 1,
+        "lines_of_dead_code": 93,
+        "philosophy_violation": "Zero-BS Principle - functions appear legitimate but return placeholders",
+        "recommendation": "DELETE stub functions or implement properly"
+      },
+      {
+        "id": "CRIT-005",
+        "title": "Complete Stub Module (lightweight_analyzer.py)",
+        "severity": "critical",
+        "files_affected": 1,
+        "lines_of_dead_code": 145,
+        "philosophy_violation": "Zero-BS Principle - TODO comments and placeholder implementation",
+        "recommendation": "DELETE entirely"
+      },
+      {
+        "id": "CRIT-006",
+        "title": "0% Test Coverage Despite 612 Tests Existing",
+        "severity": "critical",
+        "files_affected": "all",
+        "impact": "Cannot measure quality or catch regressions",
+        "philosophy_violation": "Quality over speed - broken test infrastructure",
+        "recommendation": "Fix coverage measurement configuration immediately"
+      }
+    ],
+    "potential_code_reduction": {
+      "total_lines_removable": 3146,
+      "percentage_of_codebase": "8.7%",
+      "categories": {
+        "security_theater": 2215,
+        "stub_functions": 238,
+        "duplicate_code": 280,
+        "dead_code": 413
+      }
+    },
+    "test_coverage_status": {
+      "current_pyramid": "92.6% unit / 5.6% integration / 1.8% E2E",
+      "target_pyramid": "60% unit / 30% integration / 10% E2E",
+      "untested_critical_modules": 30,
+      "coverage_measurement": "BROKEN (shows 0%)"
+    }
+  },
+  "discrete_pr_opportunities": [
+    {
+      "pr_id": "PR-001",
+      "title": "Delete xpia_defense.py - Remove 1,335 Lines of Security Theater",
+      "priority": "CRITICAL",
+      "effort": "LOW",
+      "impact": "HIGH",
+      "files": [".claude/tools/amplihack/xpia_defense.py"],
+      "action": "DELETE",
+      "lines_removed": 1335,
+      "philosophy_wins": ["Ruthless Simplicity", "Code you don't write has no bugs"],
+      "rationale": "Massive over-engineering for local trusted development tool. Security validation unnecessary for user prompts in trusted environment.",
+      "risks": "Low - if security validation is actually needed, it should be minimal (<100 lines)",
+      "testing_required": "Verify hooks still work without XPIA validation",
+      "estimated_time": "2 hours"
+    },
+    {
+      "pr_id": "PR-002",
+      "title": "Delete context_preservation_secure.py - Remove 880 Lines of Duplicate Code",
+      "priority": "CRITICAL",
+      "effort": "LOW",
+      "impact": "HIGH",
+      "files": [".claude/tools/amplihack/context_preservation_secure.py"],
+      "action": "DELETE",
+      "lines_removed": 880,
+      "philosophy_wins": ["Ruthless Simplicity", "DRY Principle"],
+      "rationale": "Entire module duplicates context_preservation.py with added security that won't work on Windows and is unnecessary for trusted input.",
+      "risks": "Low - simple version is sufficient",
+      "testing_required": "Verify context preservation still works",
+      "estimated_time": "1 hour"
+    },
+    {
+      "pr_id": "PR-003",
+      "title": "Delete lightweight_analyzer.py - Remove Complete Stub Module",
+      "priority": "CRITICAL",
+      "effort": "LOW",
+      "impact": "MEDIUM",
+      "files": [".claude/tools/amplihack/reflection/lightweight_analyzer.py"],
+      "action": "DELETE",
+      "lines_removed": 145,
+      "philosophy_wins": ["Zero-BS Principle"],
+      "rationale": "Contains TODO comments and placeholder implementation returning empty data. Never implemented.",
+      "risks": "None - unused stub",
+      "testing_required": "Verify no imports reference this module",
+      "estimated_time": "30 minutes"
+    },
+    {
+      "pr_id": "PR-004",
+      "title": "Delete 13 Stub Functions in codex_transcripts_builder.py",
+      "priority": "CRITICAL",
+      "effort": "LOW",
+      "impact": "MEDIUM",
+      "files": [".claude/tools/amplihack/builders/codex_transcripts_builder.py"],
+      "action": "DELETE or IMPLEMENT",
+      "lines_affected": 93,
+      "philosophy_wins": ["Zero-BS Principle"],
+      "rationale": "Functions return placeholder dictionaries instead of real implementations. Fake data in production code.",
+      "stub_functions": [
+        "_analyze_tool_effectiveness",
+        "_analyze_agent_patterns",
+        "_extract_insights",
+        "_analyze_error_patterns",
+        "_analyze_workflow_patterns",
+        "_analyze_context_management",
+        "_analyze_memory_usage",
+        "_analyze_hook_interactions",
+        "_analyze_session_quality",
+        "_analyze_performance_metrics",
+        "_analyze_user_interactions",
+        "_generate_recommendations",
+        "_analyze_code_quality"
+      ],
+      "risks": "Low if these analytics aren't actually used",
+      "testing_required": "Check if any code calls these functions and expects real data",
+      "estimated_time": "2 hours"
+    },
+    {
+      "pr_id": "PR-005",
+      "title": "Delete or Implement Session System Mock Functionality",
+      "priority": "CRITICAL",
+      "effort": "HIGH",
+      "impact": "HIGH",
+      "files": [
+        ".claude/tools/amplihack/session/claude_session.py",
+        ".claude/tools/amplihack/session/session_manager.py",
+        ".claude/tools/amplihack/session/examples/advanced_scenarios.py"
+      ],
+      "action": "DELETE or IMPLEMENT",
+      "lines_affected": 200,
+      "philosophy_wins": ["Zero-BS Principle"],
+      "rationale": "Entire session system built on _simulate_command_execution() which is fake functionality. Either implement real command execution or delete if not needed.",
+      "decision_required": "Is session management actually needed? If yes, implement properly. If no, delete.",
+      "risks": "Medium - depends on whether this functionality is used",
+      "testing_required": "Determine if session management is in active use",
+      "estimated_time": "8 hours (if implementing) or 2 hours (if deleting)"
+    },
+    {
+      "pr_id": "PR-006",
+      "title": "Fix Test Coverage Measurement - Currently Shows 0% Despite 612 Tests",
+      "priority": "CRITICAL",
+      "effort": "MEDIUM",
+      "impact": "CRITICAL",
+      "files": ["pytest configuration", "coverage configuration"],
+      "action": "FIX",
+      "philosophy_wins": ["Quality over speed"],
+      "rationale": "Cannot measure quality or catch regressions with broken coverage tooling. Tests exist but aren't being measured against source code.",
+      "risks": "None - pure improvement",
+      "testing_required": "Verify coverage reports show actual percentages",
+      "estimated_time": "4 hours"
+    },
+    {
+      "pr_id": "PR-007",
+      "title": "Fix Pervasive Exception Swallowing Across All Modules",
+      "priority": "HIGH",
+      "effort": "MEDIUM",
+      "impact": "HIGH",
+      "files": [
+        ".claude/tools/amplihack/hooks/*.py (8 files)",
+        ".claude/tools/amplihack/memory/*.py (4 files)",
+        ".claude/tools/amplihack/session/*.py (5 files)",
+        ".claude/tools/amplihack/reflection/*.py (3 files)"
+      ],
+      "action": "REFACTOR",
+      "issues_count": 25,
+      "philosophy_wins": ["Zero-BS Principle - no swallowed exceptions"],
+      "rationale": "Errors hidden during development making debugging difficult. Security logging failures completely hidden.",
+      "pattern": "Replace bare 'except:' with proper logging or propagation",
+      "risks": "May expose previously hidden bugs (GOOD)",
+      "testing_required": "Verify error handling works correctly",
+      "estimated_time": "6 hours"
+    },
+    {
+      "pr_id": "PR-008",
+      "title": "Refactor cli.py - Split 5,409 Lines Into Module Groups",
+      "priority": "HIGH",
+      "effort": "HIGH",
+      "impact": "HIGH",
+      "files": [".claude/tools/amplihack/cli.py"],
+      "action": "REFACTOR",
+      "lines_affected": 5409,
+      "philosophy_wins": ["Ruthless Simplicity", "Modularity - brick architecture"],
+      "rationale": "Single 5,409 line file violates modular architecture. Should be split into command group modules.",
+      "suggested_structure": [
+        "cli_vm_commands.py",
+        "cli_storage_commands.py",
+        "cli_snapshot_commands.py",
+        "cli_batch_commands.py",
+        "cli_distributed_commands.py"
+      ],
+      "risks": "Medium - large refactor requires careful testing",
+      "testing_required": "Full integration test suite",
+      "estimated_time": "16 hours"
+    },
+    {
+      "pr_id": "PR-009",
+      "title": "Remove Duplicate Command Execution Bug in post_edit_format.py",
+      "priority": "HIGH",
+      "effort": "LOW",
+      "impact": "LOW",
+      "files": [".claude/tools/amplihack/hooks/post_edit_format.py"],
+      "action": "FIX",
+      "lines_affected": 1,
+      "philosophy_wins": ["Performance"],
+      "rationale": "command_exists() runs 'which' command TWICE unnecessarily",
+      "fix": "Cache result or run once",
+      "risks": "None",
+      "testing_required": "Verify command detection still works",
+      "estimated_time": "15 minutes"
+    },
+    {
+      "pr_id": "PR-010",
+      "title": "Remove Duplicate Context Injection in session_start.py",
+      "priority": "HIGH",
+      "effort": "LOW",
+      "impact": "LOW",
+      "files": [".claude/tools/amplihack/hooks/session_start.py"],
+      "action": "FIX",
+      "lines_affected": 2,
+      "philosophy_wins": ["Zero-BS - no dead code"],
+      "rationale": "Original request context injected twice at lines 227 and 240. Copy-paste error.",
+      "fix": "Remove duplicate injection",
+      "risks": "None",
+      "testing_required": "Verify context injection works correctly",
+      "estimated_time": "15 minutes"
+    },
+    {
+      "pr_id": "PR-011",
+      "title": "Extract Duplicate Security Fallback Code (4 Occurrences)",
+      "priority": "HIGH",
+      "effort": "MEDIUM",
+      "impact": "MEDIUM",
+      "files": [
+        ".claude/tools/amplihack/reflection/contextual_error_analyzer.py",
+        ".claude/tools/amplihack/reflection/reflection.py",
+        ".claude/tools/amplihack/reflection/display.py",
+        ".claude/tools/amplihack/reflection/security.py"
+      ],
+      "action": "REFACTOR",
+      "lines_affected": 200,
+      "philosophy_wins": ["DRY Principle", "Ruthless Simplicity"],
+      "rationale": "Same security fallback code duplicated 4 times across modules",
+      "fix": "Extract to shared utility function",
+      "risks": "Low",
+      "testing_required": "Verify all modules still work with shared code",
+      "estimated_time": "3 hours"
+    },
+    {
+      "pr_id": "PR-012",
+      "title": "Remove Non-Functional semantic_duplicate_detector.py",
+      "priority": "HIGH",
+      "effort": "LOW",
+      "impact": "MEDIUM",
+      "files": [".claude/tools/amplihack/reflection/semantic_duplicate_detector.py"],
+      "action": "DELETE or IMPLEMENT",
+      "lines_affected": 120,
+      "philosophy_wins": ["Zero-BS Principle"],
+      "rationale": "check_duplicate_issue() always returns empty list, store_new_issue() is explicit no-op. Provides illusion of functionality.",
+      "decision_required": "Is duplicate detection needed? If yes, implement. If no, delete.",
+      "risks": "Low - currently provides no value",
+      "testing_required": "Check if any code depends on this",
+      "estimated_time": "1 hour (delete) or 8 hours (implement)"
+    },
+    {
+      "pr_id": "PR-013",
+      "title": "Simplify Over-Complex Error Pattern Fallbacks (18 Patterns → 5)",
+      "priority": "HIGH",
+      "effort": "MEDIUM",
+      "impact": "MEDIUM",
+      "files": [".claude/tools/amplihack/reflection/contextual_error_analyzer.py"],
+      "action": "SIMPLIFY",
+      "lines_affected": 150,
+      "philosophy_wins": ["Ruthless Simplicity", "Trust in AI"],
+      "rationale": "18 hardcoded error patterns and 13 implementation step dictionaries contradict AI-first philosophy. Trust LLM analysis instead.",
+      "fix": "Reduce to 5 critical patterns, let AI handle the rest",
+      "risks": "Low - AI analysis is more flexible anyway",
+      "testing_required": "Verify error analysis still works",
+      "estimated_time": "4 hours"
+    },
+    {
+      "pr_id": "PR-014",
+      "title": "Fix USER_PREFERENCES.md Test Value (Pirate Mode)",
+      "priority": "HIGH",
+      "effort": "LOW",
+      "impact": "LOW",
+      "files": [".claude/context/USER_PREFERENCES.md"],
+      "action": "FIX",
+      "lines_affected": 3,
+      "philosophy_wins": ["Professional standards"],
+      "rationale": "Communication style set to 'pirate' appears to be test value conflicting with professional standards",
+      "fix": "Change to appropriate value (casual/formal/technical)",
+      "risks": "None (unless user actually wants pirate mode!)",
+      "testing_required": "None",
+      "estimated_time": "5 minutes"
+    },
+    {
+      "pr_id": "PR-015",
+      "title": "Consolidate Three-Layer Session Abstraction",
+      "priority": "MEDIUM",
+      "effort": "HIGH",
+      "impact": "MEDIUM",
+      "files": [
+        ".claude/tools/amplihack/session/claude_session.py",
+        ".claude/tools/amplihack/session/session_manager.py",
+        ".claude/tools/amplihack/session/session_toolkit.py"
+      ],
+      "action": "REFACTOR",
+      "lines_affected": 400,
+      "philosophy_wins": ["Ruthless Simplicity"],
+      "rationale": "ClaudeSession → SessionManager → SessionToolkit creates unclear three-layer abstraction. Value of each layer unclear.",
+      "fix": "Consolidate to single session manager or clarify responsibilities",
+      "risks": "Medium - depends on usage patterns",
+      "testing_required": "Full session management tests",
+      "estimated_time": "12 hours"
+    },
+    {
+      "pr_id": "PR-016",
+      "title": "Split Oversized Command Files (>200 Lines)",
+      "priority": "MEDIUM",
+      "effort": "MEDIUM",
+      "impact": "MEDIUM",
+      "files": [
+        ".claude/commands/amplihack/fix.md (400 lines)",
+        ".claude/commands/amplihack/customize.md (263 lines)",
+        ".claude/commands/amplihack/ultrathink.md (300+ lines)"
+      ],
+      "action": "REFACTOR",
+      "philosophy_wins": ["Ruthless Simplicity"],
+      "rationale": "Command files trying to be comprehensive manuals. Should be quick reference with separate documentation.",
+      "fix": "Split into simple usage + docs/ folder for details",
+      "risks": "Low",
+      "testing_required": "Verify commands still work",
+      "estimated_time": "4 hours"
+    },
+    {
+      "pr_id": "PR-017",
+      "title": "Remove References to Non-Existent Config Files",
+      "priority": "MEDIUM",
+      "effort": "LOW",
+      "impact": "MEDIUM",
+      "files": [
+        "Multiple command files referencing .claude/config/*.json"
+      ],
+      "action": "FIX or CREATE",
+      "issues_count": 5,
+      "philosophy_wins": ["Zero-BS Principle"],
+      "rationale": "Documentation references config files that don't exist in project",
+      "fix": "Either create the config files or remove references",
+      "risks": "Low",
+      "testing_required": "None if removing refs, full test if creating files",
+      "estimated_time": "2 hours"
+    },
+    {
+      "pr_id": "PR-018",
+      "title": "Remove All Future Features and Unimplemented Metrics",
+      "priority": "MEDIUM",
+      "effort": "LOW",
+      "impact": "MEDIUM",
+      "files": [
+        ".claude/commands/amplihack/fix.md",
+        "Multiple workflow and command files"
+      ],
+      "action": "DELETE",
+      "issues_count": 6,
+      "philosophy_wins": ["Zero-BS Principle"],
+      "rationale": "Commands promise features, show metrics, reference functionality that doesn't exist",
+      "examples": [
+        "AI learning from fix patterns",
+        "Trace integration",
+        "Pattern matching analytics",
+        "Success rate tracking"
+      ],
+      "fix": "Remove all documentation of unimplemented features",
+      "risks": "None",
+      "testing_required": "None",
+      "estimated_time": "2 hours"
+    },
+    {
+      "pr_id": "PR-019",
+      "title": "Consolidate Duplicate Cleanup Steps in DEFAULT_WORKFLOW.md",
+      "priority": "MEDIUM",
+      "effort": "LOW",
+      "impact": "LOW",
+      "files": [".claude/workflow/DEFAULT_WORKFLOW.md"],
+      "action": "REFACTOR",
+      "lines_affected": 20,
+      "philosophy_wins": ["Ruthless Simplicity"],
+      "rationale": "Step 6 (Refactor and Simplify) and Step 15 (Final Cleanup) are redundant. Single cleanup step sufficient.",
+      "fix": "Remove one cleanup step or clarify distinct purposes",
+      "risks": "None",
+      "testing_required": "None",
+      "estimated_time": "30 minutes"
+    },
+    {
+      "pr_id": "PR-020",
+      "title": "Replace Python with Bash for Simple Operations (lock/unlock)",
+      "priority": "MEDIUM",
+      "effort": "LOW",
+      "impact": "LOW",
+      "files": [
+        ".claude/commands/amplihack/lock.md",
+        ".claude/commands/amplihack/unlock.md"
+      ],
+      "action": "SIMPLIFY",
+      "lines_affected": 20,
+      "philosophy_wins": ["Ruthless Simplicity"],
+      "rationale": "Using Python with pathlib/os when bash 'touch' and 'rm' would work",
+      "fix": "Replace with simple bash commands",
+      "risks": "None",
+      "testing_required": "Verify lock/unlock still works",
+      "estimated_time": "30 minutes"
+    },
+    {
+      "pr_id": "PR-021",
+      "title": "Add Integration Tests to Rebalance Test Pyramid",
+      "priority": "MEDIUM",
+      "effort": "HIGH",
+      "impact": "HIGH",
+      "files": ["Create new test files"],
+      "action": "CREATE",
+      "tests_to_add": 150,
+      "philosophy_wins": ["Testing pyramid 60/30/10"],
+      "rationale": "Current pyramid is 92.6% unit / 5.6% integration / 1.8% E2E. Need to increase integration from 5.6% to 30%.",
+      "focus_areas": [
+        "Module interaction tests",
+        "End-to-end workflow tests",
+        "SSH connection integration",
+        "Azure API integration",
+        "VM lifecycle flows"
+      ],
+      "risks": "Low",
+      "testing_required": "N/A - this IS testing",
+      "estimated_time": "40 hours"
+    },
+    {
+      "pr_id": "PR-022",
+      "title": "Test Security-Critical Untested Modules",
+      "priority": "MEDIUM",
+      "effort": "HIGH",
+      "impact": "CRITICAL",
+      "files": [
+        "modules/ssh_keys.py (324 lines, 0% coverage)",
+        "modules/ssh_connector.py (451 lines, 0% coverage)",
+        ".claude/tools/amplihack/xpia_defense.py (0% coverage)",
+        ".claude/tools/amplihack/context_preservation_secure.py (0% coverage)",
+        ".claude/tools/amplihack/reflection/security.py (0% coverage)"
+      ],
+      "action": "CREATE TESTS",
+      "tests_to_add": 80,
+      "philosophy_wins": ["Security first", "Quality over speed"],
+      "rationale": "Security-critical modules have 0% test coverage. Unacceptable risk.",
+      "focus_areas": [
+        "SSH key generation and validation",
+        "SSH connection security",
+        "Input sanitization",
+        "Security threat detection"
+      ],
+      "risks": "None - pure improvement",
+      "testing_required": "N/A - this IS testing",
+      "estimated_time": "24 hours"
+    },
+    {
+      "pr_id": "PR-023",
+      "title": "Complete or Remove Stub Tests (3 with 'pass # Will implement')",
+      "priority": "MEDIUM",
+      "effort": "LOW",
+      "impact": "LOW",
+      "files": ["Test files with stub implementations"],
+      "action": "IMPLEMENT or DELETE",
+      "tests_affected": 3,
+      "philosophy_wins": ["Zero-BS Principle"],
+      "rationale": "Stub tests with 'pass # Will implement' violate zero-BS principle",
+      "fix": "Either implement the tests or delete them",
+      "risks": "Low",
+      "testing_required": "Verify test suite still passes",
+      "estimated_time": "2 hours"
+    },
+    {
+      "pr_id": "PR-024",
+      "title": "Split README.md (1000+ Lines) Per Ruthless Simplicity",
+      "priority": "MEDIUM",
+      "effort": "MEDIUM",
+      "impact": "LOW",
+      "files": ["README.md"],
+      "action": "REFACTOR",
+      "lines_affected": 1000,
+      "philosophy_wins": ["Ruthless Simplicity"],
+      "rationale": "README has grown to 1000+ lines, violates simplicity principle",
+      "fix": "Split into README.md (quick start) + docs/ folder (detailed guides)",
+      "risks": "Low",
+      "testing_required": "None",
+      "estimated_time": "3 hours"
+    },
+    {
+      "pr_id": "PR-025",
+      "title": "Standardize Tool Count Across Documentation (9 vs 12)",
+      "priority": "LOW",
+      "effort": "LOW",
+      "impact": "LOW",
+      "files": ["Multiple documentation files"],
+      "action": "FIX",
+      "philosophy_wins": ["Consistency"],
+      "rationale": "Different documents claim different numbers of tools exist",
+      "fix": "Count actual tools and update all references",
+      "risks": "None",
+      "testing_required": "None",
+      "estimated_time": "30 minutes"
+    }
+  ],
+  "philosophy_compliance_analysis": {
+    "overall_score": "5.8/10",
+    "dimension_scores": {
+      "ruthless_simplicity": "4/10",
+      "zero_bs_principle": "3/10",
+      "modular_architecture": "7/10",
+      "quality_over_speed": "6/10",
+      "test_driven_development": "5/10"
+    },
+    "major_violations": {
+      "ruthless_simplicity": [
+        "3,146 lines of removable over-engineered code",
+        "Three-layer abstractions with unclear value",
+        "18 hardcoded error patterns instead of trusting AI",
+        "5,409 line cli.py monolith"
+      ],
+      "zero_bs_principle": [
+        "13 stub functions returning fake data",
+        "2 complete stub modules (lightweight_analyzer, semantic_duplicate_detector)",
+        "Mock command execution throughout session system",
+        "25+ instances of swallowed exceptions",
+        "3 stub tests with 'pass # Will implement'",
+        "Documentation referencing non-existent features"
+      ],
+      "quality_over_speed": [
+        "0% coverage measurement (broken tooling)",
+        "30 untested modules including security-critical ones",
+        "Test pyramid severely inverted"
+      ]
+    },
+    "strengths": {
+      "modular_architecture": [
+        "Good brick architecture in feature modules",
+        "Clear tier separation in infrastructure",
+        "Well-defined module boundaries (mostly)"
+      ],
+      "documentation": [
+        "Excellent PHILOSOPHY.md",
+        "Comprehensive coverage (103 files)",
+        "Multi-audience approach"
+      ]
+    }
+  },
+  "prioritization_matrix": {
+    "critical_immediate": [
+      "PR-001: Delete xpia_defense.py",
+      "PR-002: Delete context_preservation_secure.py",
+      "PR-003: Delete lightweight_analyzer.py",
+      "PR-004: Delete stub functions",
+      "PR-005: Fix or delete session mocks",
+      "PR-006: Fix test coverage measurement"
+    ],
+    "high_priority_short_term": [
+      "PR-007: Fix exception swallowing",
+      "PR-008: Refactor cli.py",
+      "PR-009: Fix duplicate command execution",
+      "PR-010: Fix duplicate context injection",
+      "PR-011: Extract duplicate security code",
+      "PR-012: Fix semantic_duplicate_detector",
+      "PR-013: Simplify error patterns",
+      "PR-014: Fix USER_PREFERENCES test value"
+    ],
+    "medium_priority_long_term": [
+      "PR-015: Consolidate session layers",
+      "PR-016: Split oversized command files",
+      "PR-017: Fix config file references",
+      "PR-018: Remove future features",
+      "PR-019: Consolidate cleanup steps",
+      "PR-020: Replace Python with bash",
+      "PR-021: Add integration tests",
+      "PR-022: Test security modules",
+      "PR-023: Fix stub tests",
+      "PR-024: Split README"
+    ],
+    "low_priority_polish": [
+      "PR-025: Standardize tool count"
+    ]
+  },
+  "impact_analysis": {
+    "quick_wins": {
+      "count": 8,
+      "total_time": "6 hours",
+      "lines_removed": 2595,
+      "prs": ["PR-001", "PR-002", "PR-003", "PR-009", "PR-010", "PR-014", "PR-019", "PR-020"]
+    },
+    "high_impact_medium_effort": {
+      "count": 6,
+      "total_time": "23 hours",
+      "prs": ["PR-004", "PR-006", "PR-007", "PR-011", "PR-013", "PR-017"]
+    },
+    "long_term_strategic": {
+      "count": 5,
+      "total_time": "83 hours",
+      "prs": ["PR-005", "PR-008", "PR-015", "PR-021", "PR-022"]
+    },
+    "total_improvement_potential": {
+      "prs": 25,
+      "estimated_time": "112-130 hours",
+      "code_reduction": "3,146+ lines",
+      "tests_added": "230+",
+      "philosophy_score_improvement": "5.8 → 8.5+"
+    }
+  }
+}

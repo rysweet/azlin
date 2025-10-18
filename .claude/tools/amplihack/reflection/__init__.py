@@ -2,7 +2,6 @@
 
 # Export main reflection functions
 # NOTE: Only export functions that actually exist in reflection.py
-from .lightweight_analyzer import LightweightAnalyzer
 from .reflection import analyze_session_patterns, process_reflection_analysis
 
 # Export interactive reflection system components
@@ -23,5 +22,4 @@ __all__ = [
     "ReflectionState",
     "ReflectionStateData",
     "ReflectionStateMachine",
-    "LightweightAnalyzer",
 ]

@@ -1,0 +1,368 @@
+{
+  "documentation_inventory": {
+    "core_docs": [
+      {
+        "file": ".claude/context/PHILOSOPHY.md",
+        "lines": 173,
+        "assessment": "EXCELLENT - Comprehensive philosophy covering ruthless simplicity, brick architecture, zero-BS principles, human-AI partnership. Clear decision framework and examples.",
+        "strengths": ["Clear philosophical foundation", "Well-structured principles", "Actionable decision framework", "Concrete examples"],
+        "gaps": []
+      },
+      {
+        "file": ".claude/workflow/DEFAULT_WORKFLOW.md",
+        "lines": 225,
+        "assessment": "EXCELLENT - Detailed 15-step workflow with explicit agent usage, mandatory checks, and philosophy enforcement. Includes local testing requirements.",
+        "strengths": ["Step-by-step clarity", "Agent delegation documented", "Philosophy compliance checks", "Customization guidance"],
+        "gaps": []
+      },
+      {
+        "file": ".claude/context/USER_PREFERENCES.md",
+        "lines": 120,
+        "assessment": "GOOD - Clear preference structure with MANDATORY ENFORCEMENT. Documents priority hierarchy. Pirate communication style shows customization works.",
+        "strengths": ["Clear preference categories", "Mandatory enforcement noted", "Priority hierarchy documented"],
+        "gaps": ["Limited examples of learned patterns", "Could document how agents read preferences"]
+      },
+      {
+        "file": ".claude/context/USER_REQUIREMENT_PRIORITY.md",
+        "lines": 138,
+        "assessment": "EXCELLENT - Crystal clear priority hierarchy with explicit vs implicit examples. Prevents over-optimization by cleanup agents.",
+        "strengths": ["Clear priority levels", "Explicit examples", "Agent behavior rules", "Error prevention guidance"],
+        "gaps": []
+      },
+      {
+        "file": ".claude/context/PATTERNS.md",
+        "lines": 1895,
+        "assessment": "OUTSTANDING - Comprehensive catalog of proven patterns with context, code examples, real impact data. Living document of lessons learned.",
+        "strengths": ["Extensive pattern library", "Real PR references", "Code examples", "Trade-offs documented"],
+        "gaps": ["Could benefit from pattern index/TOC", "Some patterns overlap with PHILOSOPHY.md"]
+      },
+      {
+        "file": ".claude/context/PROJECT.md",
+        "lines": 184,
+        "assessment": "GOOD - Clear project mission and objectives. Documents agent ecosystem and development principles.",
+        "strengths": ["Clear mission statement", "Success metrics defined", "Agent roles explained"],
+        "gaps": ["Could document relationship to azlin CLI project", "Success metrics not measured/tracked"]
+      },
+      {
+        "file": ".claude/context/DISCOVERIES.md",
+        "lines": 21777,
+        "assessment": "EXCELLENT - Massive knowledge base of discoveries, learnings, and insights. Shows active learning system.",
+        "strengths": ["Extensive knowledge capture", "Chronological discoveries", "Real-world learnings"],
+        "gaps": ["Very large - could benefit from indexing/search", "No clear organization scheme"]
+      }
+    ],
+    "command_docs": [
+      {
+        "file": ".claude/commands/amplihack/customize.md",
+        "lines": 264,
+        "assessment": "EXCELLENT - Comprehensive customization command documentation with implementation details for Claude.",
+        "strengths": ["Clear usage examples", "Implementation instructions", "Validation rules", "Error handling"],
+        "gaps": []
+      },
+      {
+        "file": ".claude/commands/amplihack/ultrathink.md",
+        "lines": 140,
+        "assessment": "GOOD - Documents deep analysis mode and workflow orchestration. Links to DEFAULT_WORKFLOW.md.",
+        "strengths": ["Clear purpose", "Workflow integration", "Mandatory cleanup noted"],
+        "gaps": ["Could provide more examples", "Decision logging format could be clearer"]
+      },
+      {
+        "file": ".claude/commands/amplihack/reflect.md",
+        "lines": 180,
+        "assessment": "EXCELLENT - Clear documentation of reflection system with examples and integration points.",
+        "strengths": ["Multiple invocation modes", "Environment control", "Integration with other commands"],
+        "gaps": []
+      },
+      {
+        "file": ".claude/commands/amplihack/analyze.md",
+        "assessment": "NOT READ - Likely exists based on file listing",
+        "note": "Should verify existence and quality"
+      },
+      {
+        "file": ".claude/commands/amplihack/fix.md",
+        "assessment": "NOT READ - Likely exists based on file listing",
+        "note": "Should verify existence and quality"
+      },
+      {
+        "file": ".claude/commands/amplihack/improve.md",
+        "assessment": "NOT READ - Likely exists based on file listing",
+        "note": "Should verify existence and quality"
+      },
+      {
+        "file": ".claude/commands/amplihack/install.md",
+        "assessment": "NOT READ - Likely exists based on file listing",
+        "note": "Should verify existence and quality"
+      },
+      {
+        "file": ".claude/commands/amplihack/modular-build.md",
+        "assessment": "NOT READ - Likely exists based on file listing",
+        "note": "Should verify existence and quality"
+      },
+      {
+        "file": ".claude/commands/amplihack/transcripts.md",
+        "assessment": "NOT READ - Likely exists based on file listing",
+        "note": "Should verify existence and quality"
+      },
+      {
+        "file": ".claude/commands/amplihack/xpia.md",
+        "assessment": "NOT READ - Likely exists based on file listing",
+        "note": "Should verify existence and quality"
+      }
+    ],
+    "module_docs": [
+      {
+        "module": ".claude/tools/amplihack/memory/interface.py",
+        "assessment": "EXCELLENT - Clean docstrings following bricks & studs. Args, Returns, Raises, Examples all documented.",
+        "strengths": ["Type hints", "Comprehensive docstrings", "Usage examples", "Error conditions documented"],
+        "gaps": []
+      },
+      {
+        "module": ".claude/tools/amplihack/hooks/hook_processor.py",
+        "assessment": "EXCELLENT - Clear module docstring and class documentation. Explains purpose and common operations.",
+        "strengths": ["Module-level purpose statement", "Class responsibilities clear", "Methods documented"],
+        "gaps": []
+      },
+      {
+        "file": "README.md",
+        "lines": 1002,
+        "assessment": "OUTSTANDING - Comprehensive user guide for azlin CLI. Clear examples, use cases, command reference.",
+        "strengths": ["Clear quick start", "Comprehensive examples", "Multiple installation methods", "Troubleshooting section"],
+        "gaps": ["Focus is on azlin CLI, not amplihack framework", "Could link to amplihack docs"]
+      },
+      {
+        "file": "docs/AI_AGENT_GUIDE.md",
+        "lines": 500,
+        "assessment": "EXCELLENT - Comprehensive guide for AI agents. Architecture, testing, patterns, common tasks.",
+        "strengths": ["Clear target audience", "Essential reading order", "Development workflow", "Brick philosophy explained"],
+        "gaps": ["Focuses on azlin CLI architecture", "Could document amplihack framework more"]
+      },
+      {
+        "file": "docs/ARCHITECTURE.md",
+        "lines": 479,
+        "assessment": "EXCELLENT - Detailed system architecture with diagrams, data flow, security model.",
+        "strengths": ["Visual diagrams", "Module interaction matrix", "Security architecture", "Performance considerations"],
+        "gaps": ["Focuses on azlin CLI", "Amplihack framework architecture less documented"]
+      }
+    ],
+    "other_docs": [
+      {
+        "category": "Test documentation",
+        "files": ["tests/README.md", "docs/TEST_STRATEGY.md", "docs/TEST_PLAN.md", "docs/TESTING_EVIDENCE.md"],
+        "total_lines": 1067,
+        "assessment": "GOOD - Testing philosophy and strategy documented. Evidence of TDD approach."
+      },
+      {
+        "category": "Design documentation",
+        "files": ["docs/DESIGN.md", "docs/DESIGN_UPDATE_COMMAND.md", "specs/design.md"],
+        "total_lines": 529,
+        "assessment": "GOOD - Design decisions documented for specific features."
+      },
+      {
+        "category": "Work summaries",
+        "files": ["docs/WORK_COMPLETION_SUMMARY.md", "docs/WORK_SUMMARY.md"],
+        "total_lines": 701,
+        "assessment": "GOOD - Documents completed work and implementation details."
+      },
+      {
+        "category": "Reconnaissance/Analysis reports",
+        "files": ["PROJECT_QUALITY_ANALYSIS_REPORT.md", "PROJECT_STRUCTURE_RECONNAISSANCE.md", "HOOK_ANALYSIS_DETAILED_REPORT.md", etc.],
+        "assessment": "TEMPORARY - Analysis documents useful during development but should be archived or cleaned up."
+      }
+    ]
+  },
+  "philosophy_alignment": {
+    "strengths": [
+      "Ruthless simplicity is clearly documented and explained with examples in PHILOSOPHY.md",
+      "Bricks & studs pattern is consistently referenced across PHILOSOPHY.md, PATTERNS.md, AI_AGENT_GUIDE.md",
+      "Zero-BS principle is well-defined with specific rules (no stubs, no TODOs, no swallowed exceptions)",
+      "Human-AI partnership roles are clearly articulated in PHILOSOPHY.md",
+      "Decision-making framework provides actionable guidance (6 key questions)",
+      "Module structure examples in PATTERNS.md demonstrate philosophy in practice",
+      "DEFAULT_WORKFLOW.md enforces philosophy through explicit compliance checks"
+    ],
+    "gaps": [
+      "Bricks & studs pattern could use more visual diagrams showing module boundaries",
+      "Zero-BS principle examples mostly in PATTERNS.md - could be more prominent in PHILOSOPHY.md",
+      "Limited documentation on how to teach philosophy to new AI agents",
+      "No clear guide for contributors on how to evaluate philosophy compliance",
+      "Philosophy principles not clearly linked to concrete code examples in codebase"
+    ],
+    "improvements": [
+      "Create visual guide showing brick architecture with real modules as examples",
+      "Add 'Philosophy Checklist' for new modules/features (similar to workflow checklist)",
+      "Document common philosophy violations and how to detect them",
+      "Create 'Philosophy 101' onboarding doc for new contributors",
+      "Add philosophy compliance metrics/measurements"
+    ]
+  },
+  "completeness_analysis": {
+    "well_documented": [
+      "Core philosophy and principles (PHILOSOPHY.md)",
+      "Development workflow (DEFAULT_WORKFLOW.md with 15 steps)",
+      "Proven patterns library (PATTERNS.md with 20+ patterns)",
+      "User preferences system (USER_PREFERENCES.md, USER_REQUIREMENT_PRIORITY.md)",
+      "Testing strategy (TEST_STRATEGY.md with TDD pyramid)",
+      "Azure CLI tool (README.md, ARCHITECTURE.md, AI_AGENT_GUIDE.md)",
+      "Module-level docstrings (excellent examples in memory/, hooks/)",
+      "Command documentation (customize, ultrathink, reflect well-documented)"
+    ],
+    "partially_documented": [
+      "Amplihack framework architecture (mentioned but not detailed)",
+      "Hook system architecture (individual hooks documented but no overview)",
+      "Memory system integration (interface documented but usage patterns unclear)",
+      "Session management and lifecycle (mentioned but not detailed)",
+      "Tool integration patterns (some in PATTERNS.md but incomplete)",
+      "Remaining commands (analyze, fix, improve, install, modular-build, transcripts, xpia)",
+      "Agent catalog and capabilities (mentioned in PROJECT.md but no detail)",
+      "Context preservation mechanisms (files exist but not documented)",
+      "Reflection system internals (command documented but implementation unclear)"
+    ],
+    "missing_documentation": [
+      "Amplihack framework overview document (what it is, how it works, architecture)",
+      "Hook system guide (available hooks, execution order, how to create new hooks)",
+      "Session toolkit guide (how to use session management, examples)",
+      "Memory system user guide (when to use, patterns, limitations)",
+      "Complete command reference (catalog of all amplihack commands with examples)",
+      "Agent development guide (how to create new agents, agent patterns)",
+      "Integration guide (how amplihack integrates with Claude Code)",
+      "Troubleshooting guide for amplihack-specific issues",
+      "Migration guide for upgrading amplihack versions",
+      "Performance tuning guide (optimization patterns, profiling)",
+      "Security guide for hook/tool development",
+      "Contribution guide specific to amplihack framework"
+    ],
+    "priority_additions": [
+      "HIGH: Amplihack Framework Overview (amplihack/README.md) - explains what amplihack is, key concepts, architecture",
+      "HIGH: Hook System Guide (.claude/tools/HOOKS.md) - documents all hooks, execution flow, development guide",
+      "HIGH: Complete Command Reference (.claude/commands/README.md) - catalog of all commands with consistent format",
+      "MEDIUM: Session & Memory Guide (.claude/tools/amplihack/session/README.md) - how to use session management and memory",
+      "MEDIUM: Agent Development Guide (.claude/agents/README.md) - how to create and configure agents"
+    ]
+  },
+  "quality_issues": [
+    {
+      "file": ".claude/context/DISCOVERIES.md",
+      "type": "incomplete",
+      "severity": "low",
+      "description": "Massive file (21K+ lines) with no clear organization or indexing",
+      "improvement": "Add table of contents, organize by category, consider splitting into multiple files or creating search index",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/context/PATTERNS.md",
+      "type": "incomplete",
+      "severity": "low",
+      "description": "Very comprehensive (1895 lines) but lacks table of contents or index",
+      "improvement": "Add pattern index at top, group patterns by category (Architecture, Performance, Security, etc.)",
+      "effort": "small"
+    },
+    {
+      "file": ".claude/commands/amplihack/*.md",
+      "type": "incomplete",
+      "severity": "medium",
+      "description": "Only reviewed 3 of ~11 command files. Unclear if all commands are documented consistently.",
+      "improvement": "Review all command files for consistency, create command documentation template, ensure all commands follow same format",
+      "effort": "medium"
+    },
+    {
+      "file": "Various reconnaissance/analysis reports in root",
+      "type": "unclear",
+      "severity": "low",
+      "description": "Multiple analysis reports (RECONNAISSANCE_INDEX.md, STREAM_*.json, etc.) in root directory create clutter",
+      "improvement": "Move analysis reports to .claude/runtime/analysis/ or archive them. Keep root clean.",
+      "effort": "small"
+    },
+    {
+      "file": "README.md vs amplihack docs",
+      "type": "inconsistent",
+      "severity": "medium",
+      "description": "README.md focuses on azlin CLI tool but repo contains amplihack framework. Unclear relationship between the two.",
+      "improvement": "Add section to README.md explaining amplihack framework, or create separate READMEs for azlin/ and .claude/tools/amplihack/",
+      "effort": "medium"
+    },
+    {
+      "file": "docs/ directory",
+      "type": "inconsistent",
+      "severity": "low",
+      "description": "docs/ focuses heavily on azlin CLI with limited amplihack documentation. Unclear which docs are current.",
+      "improvement": "Organize docs/ by topic (azlin/, amplihack/, philosophy/). Add docs/README.md as documentation hub.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/context/PROJECT.md",
+      "type": "outdated",
+      "severity": "medium",
+      "description": "Describes 'Microsoft Hackathon 2025 - Agentic Coding Framework' but doesn't mention azlin CLI relationship",
+      "improvement": "Update PROJECT.md to clarify: amplihack is the framework, azlin is an implementation/example. Explain relationship.",
+      "effort": "small"
+    },
+    {
+      "file": "Module docstrings",
+      "type": "incomplete",
+      "severity": "medium",
+      "description": "Only sampled 2 modules - unknown if all modules have comprehensive docstrings",
+      "improvement": "Audit all Python modules for docstring quality. Create docstring template. Ensure all public APIs documented.",
+      "effort": "large"
+    },
+    {
+      "file": "Philosophy application examples",
+      "type": "incomplete",
+      "severity": "medium",
+      "description": "Philosophy principles are well-documented but limited concrete code examples from actual codebase",
+      "improvement": "Add 'Philosophy in Practice' section linking principles to real code. Annotate example modules with philosophy notes.",
+      "effort": "medium"
+    }
+  ],
+  "strengths": [
+    "Exceptional philosophy documentation - clear, actionable, with decision framework",
+    "Comprehensive patterns library with real-world examples and PR references",
+    "Detailed workflow documentation that enforces philosophy compliance",
+    "Strong emphasis on 'why' not just 'what' - decisions are explained",
+    "User preference system with mandatory enforcement prevents optimization conflicts",
+    "Priority hierarchy prevents agents from over-optimizing away requirements",
+    "Testing strategy well-documented with TDD pyramid approach",
+    "Module-level docstrings follow best practices (from sampled modules)",
+    "Command documentation includes implementation instructions for Claude",
+    "Security principles clearly documented and consistently applied"
+  ],
+  "overall_assessment": "The azlin project demonstrates EXCEPTIONAL documentation quality for the philosophical foundations and core patterns, but has a DOCUMENTATION SPLIT PERSONALITY issue. The documentation is heavily weighted toward:\n\n1. EXCELLENT: Philosophy, patterns, workflow, user preferences (amplihack framework concepts)\n2. EXCELLENT: Azure CLI tool (azlin) - comprehensive user guide, architecture, agent guide\n3. POOR: Amplihack framework itself - no overview doc, incomplete hook/agent documentation\n\nThe paradox: The tools (.claude/tools/amplihack/) and framework infrastructure are extensively built but under-documented, while the philosophical foundations that guide their use are exceptionally well-documented.\n\nThis suggests the project has:\n- Strong philosophical clarity (knows WHY and HOW to build)\n- Strong implementation (tools exist and work based on evidence of patterns used)\n- Weak meta-documentation (doesn't explain WHAT amplihack is as a whole)\n\nThe documentation quality for what IS documented is excellent (4/5 stars), but completeness is moderate (3/5 stars) due to the amplihack framework gap.",
+  "top_priorities": [
+    "1. CREATE: .claude/tools/amplihack/README.md - Framework overview explaining what amplihack is, architecture, key concepts, relationship to azlin CLI",
+    "2. CREATE: .claude/tools/HOOKS.md - Complete hook system guide with all hooks documented, execution flow, development guide",
+    "3. CREATE: .claude/commands/README.md - Complete command catalog ensuring all 11+ commands are consistently documented",
+    "4. IMPROVE: Add Philosophy in Practice guide with annotated code examples showing principles applied in real modules",
+    "5. CLEANUP: Archive or organize analysis reports (RECONNAISSANCE_*, STREAM_*.json) to clean root directory"
+  ],
+  "documentation_metrics": {
+    "total_markdown_files": 37,
+    "total_lines_reviewed": "~28000+ lines",
+    "core_context_lines": 24600,
+    "azlin_docs_lines": 11241,
+    "command_docs_reviewed": 3,
+    "command_docs_total": 11,
+    "module_docstring_sample": 2,
+    "philosophy_alignment": "85%",
+    "completeness_score": "65%",
+    "quality_score": "85%",
+    "overall_maturity": "High philosophy, medium framework documentation"
+  },
+  "recommendations": {
+    "immediate": [
+      "Create amplihack/README.md to explain what the framework is",
+      "Document all hooks in .claude/tools/HOOKS.md",
+      "Complete command documentation review and standardization"
+    ],
+    "short_term": [
+      "Add pattern index/TOC to PATTERNS.md for easier navigation",
+      "Create philosophy checklist for module development",
+      "Audit all Python modules for docstring completeness",
+      "Add 'Philosophy in Practice' examples from real code"
+    ],
+    "long_term": [
+      "Build documentation search/index system for large files",
+      "Create interactive philosophy guide with decision trees",
+      "Develop documentation quality metrics and automation",
+      "Build comprehensive contribution guide"
+    ]
+  }
+}

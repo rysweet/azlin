@@ -1,0 +1,353 @@
+[
+  {
+    "file": ".claude/tools/amplihack/__init__.py",
+    "line": 13,
+    "severity": "low",
+    "category": "quality",
+    "issue": "Global mutable state with _PROJECT_ROOT and _PATHS_INITIALIZED - potential for state leakage in concurrent scenarios",
+    "suggestion": "Consider using a singleton pattern or lazy initialization within a context manager to ensure thread safety",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/__init__.py",
+    "line": 61,
+    "severity": "low",
+    "category": "quality",
+    "issue": "Assert statement used for runtime validation - asserts can be optimized away with -O flag",
+    "suggestion": "Replace assert with explicit if check and raise ImportError if _PROJECT_ROOT is None",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/analyze_traces.py",
+    "line": 18,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "Hardcoded prompt string with '/ultrathink:' command - magic string with unclear purpose",
+    "suggestion": "Extract prompt template to configuration or document the '/ultrathink:' command behavior",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/analyze_traces.py",
+    "line": 50,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "subprocess.run called with check=False but exit code is manually checked - inconsistent error handling pattern",
+    "suggestion": "Either use check=True with try/except or consistently handle returncode everywhere. Current approach is hybrid and confusing",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/analyze_traces.py",
+    "line": 60,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "Swallowed exception - generic except prints message but doesn't re-raise or log properly",
+    "suggestion": "Use logging module instead of print, include exception details with str(e) or repr(e), consider re-raising after logging",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/analyze_traces.py",
+    "line": 1,
+    "severity": "low",
+    "category": "quality",
+    "issue": "Missing type hints on return types and parameters throughout the module",
+    "suggestion": "Add complete type hints for all function signatures",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/context_preservation.py",
+    "line": 16,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "Swallowed ImportError for FrameworkPathResolver with silent fallback to None - unclear if this is intentional or a TODO",
+    "suggestion": "Document why this import is optional, or remove if FrameworkPathResolver is not actually used (appears unused in the code)",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/context_preservation.py",
+    "line": 240,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "Bare except clause catches all exceptions including KeyboardInterrupt and SystemExit - dangerous pattern",
+    "suggestion": "Catch specific exceptions (json.JSONDecodeError, OSError, IOError) instead of bare except",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/context_preservation.py",
+    "line": 355,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "Executable code in if __name__ == '__main__' block that serves as example/test but not actual tests",
+    "suggestion": "Move example code to separate examples/ directory or convert to proper unit tests",
+    "effort": "medium"
+  },
+  {
+    "file": ".claude/tools/amplihack/context_preservation.py",
+    "line": 102,
+    "severity": "low",
+    "category": "ruthless_simplicity",
+    "issue": "Hard limit [:10] on requirements extraction - magic number without configuration",
+    "suggestion": "Extract magic numbers to module-level constants with descriptive names",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/context_preservation_secure.py",
+    "line": 16,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "Duplicate: Swallowed ImportError for FrameworkPathResolver - same issue as non-secure version",
+    "suggestion": "Same as context_preservation.py - document or remove unused import",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/context_preservation_secure.py",
+    "line": 31,
+    "severity": "high",
+    "category": "ruthless_simplicity",
+    "issue": "Massive over-engineering: 850+ lines of security hardening for a context preservation module that processes user prompts. Signal-based timeout protection won't work on Windows (lines 158-190, 207-229, 247-271, 287-314)",
+    "suggestion": "This is overkill for the threat model. User prompts are trusted input from the developer. Remove the entire secure version or significantly simplify if ReDoS is actually a concern. The non-secure version is sufficient",
+    "effort": "high"
+  },
+  {
+    "file": ".claude/tools/amplihack/context_preservation_secure.py",
+    "line": 379,
+    "severity": "high",
+    "category": "zero_bs",
+    "issue": "Swallowed exceptions returning fake data - lines 379-393 catch Exception and return a fake/stub original_request dict instead of failing properly",
+    "suggestion": "Fail explicitly with clear error messages rather than returning synthetic data that looks legitimate",
+    "effort": "medium"
+  },
+  {
+    "file": ".claude/tools/amplihack/context_preservation_secure.py",
+    "line": 482,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "Multiple bare except clauses that swallow errors and add fallback placeholders (lines 482-484, 527-529, 567-569)",
+    "suggestion": "Handle specific exceptions and fail visibly instead of adding placeholder text",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/context_preservation_secure.py",
+    "line": 852,
+    "severity": "low",
+    "category": "zero_bs",
+    "issue": "Duplicate example/test code in if __name__ == '__main__' - same as non-secure version",
+    "suggestion": "Remove or move to proper test suite",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/context_preservation_secure.py",
+    "line": 1,
+    "severity": "high",
+    "category": "modularity",
+    "issue": "Module duplication: This is an 880-line secure variant of a 383-line module. Having two versions violates single responsibility and creates maintenance burden",
+    "suggestion": "Either: (1) Remove this file entirely if security isn't needed, or (2) Merge security features as optional flags in the base module, or (3) Use inheritance/composition to add security layer",
+    "effort": "high"
+  },
+  {
+    "file": ".claude/tools/amplihack/paths.py",
+    "line": 27,
+    "severity": "low",
+    "category": "quality",
+    "issue": "Checks for both '.claude' and 'CLAUDE.md' existence but __init__.py only checks for '.claude' - inconsistent project root detection",
+    "suggestion": "Standardize project root detection logic across all modules",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/paths.py",
+    "line": 61,
+    "severity": "low",
+    "category": "quality",
+    "issue": "Duplicate: Same assert issue as __init__.py line 61",
+    "suggestion": "Replace assert with explicit error handling",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/paths.py",
+    "line": 1,
+    "severity": "medium",
+    "category": "modularity",
+    "issue": "Module duplication: paths.py and __init__.py contain nearly identical path resolution logic (both have _initialize_paths, get_project_root, etc.)",
+    "suggestion": "Consolidate into single module. Either __init__.py imports from paths.py or vice versa. Current setup has duplicate logic",
+    "effort": "medium"
+  },
+  {
+    "file": ".claude/tools/amplihack/xpia_defense.py",
+    "line": 40,
+    "severity": "medium",
+    "category": "ruthless_simplicity",
+    "issue": "sys.path manipulation in a module that should be importable - modifies global state on import",
+    "suggestion": "Remove sys.path manipulation and rely on proper package installation or parent module's path setup",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/xpia_defense.py",
+    "line": 61,
+    "severity": "high",
+    "category": "ruthless_simplicity",
+    "issue": "Massive fallback implementation: Lines 62-163 duplicate the entire interface definition when import fails. This is 100+ lines of code duplication",
+    "suggestion": "The interface should always be available. If it's not, fail fast. Don't duplicate type definitions in fallback code",
+    "effort": "high"
+  },
+  {
+    "file": ".claude/tools/amplihack/xpia_defense.py",
+    "line": 1335,
+    "severity": "critical",
+    "category": "ruthless_simplicity",
+    "issue": "Extreme over-engineering: 1335 lines for XPIA defense in a development tool. This entire module is likely unnecessary complexity. The threat model for a local development tool doesn't justify this level of security infrastructure",
+    "suggestion": "Question if XPIA defense is needed at all for local development workflows. If needed, use a third-party library. If keeping it, reduce to <300 lines focused on critical threats only",
+    "effort": "high"
+  },
+  {
+    "file": ".claude/tools/amplihack/xpia_defense.py",
+    "line": 478,
+    "severity": "medium",
+    "category": "quality",
+    "issue": "lru_cache decorator on method with mutable state - is_development_context caches based on content string but doesn't account for context changes",
+    "suggestion": "Remove cache or make it context-aware by including context parameter in cache key",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/xpia_defense.py",
+    "line": 687,
+    "severity": "low",
+    "category": "quality",
+    "issue": "hashlib.md5 with usedforsecurity=False - parameter added but md5 is still weak hash for cache keys",
+    "suggestion": "Use hashlib.sha256 for better hash distribution even in non-security contexts",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/xpia_defense.py",
+    "line": 796,
+    "severity": "low",
+    "category": "quality",
+    "issue": "max() called on generator expression without default - will raise ValueError if threats list is empty",
+    "suggestion": "Add default parameter: max(threat.severity for threat in threats, default=RiskLevel.NONE)",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/xpia_defense.py",
+    "line": 1127,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "Legacy compatibility layer (XPIADefense class, lines 1127-1180) that wraps new interface - adds unnecessary abstraction layer",
+    "suggestion": "Remove legacy layer and update callers to use new SecurityValidator interface directly",
+    "effort": "medium"
+  },
+  {
+    "file": ".claude/tools/amplihack/xpia_defense.py",
+    "line": 1307,
+    "severity": "low",
+    "category": "zero_bs",
+    "issue": "Example test code in if __name__ == '__main__' that's not actual tests",
+    "suggestion": "Remove or convert to proper test suite",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/__init__.py",
+    "line": 11,
+    "severity": "low",
+    "category": "quality",
+    "issue": "Try/except around import to conditionally add to __all__ - works but is unusual pattern",
+    "suggestion": "This is acceptable for optional dependencies but document why ExportOnCompactIntegration might not be available",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/claude_transcript_builder.py",
+    "line": 13,
+    "severity": "medium",
+    "category": "quality",
+    "issue": "Try/except with fallback function definition for get_project_root - duplicates path resolution logic yet again",
+    "suggestion": "Import from paths module or __init__ module instead of duplicating path resolution",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/claude_transcript_builder.py",
+    "line": 240,
+    "severity": "low",
+    "category": "ruthless_simplicity",
+    "issue": "Magic number: len(match) < 20 for tool name filtering - arbitrary limit without explanation",
+    "suggestion": "Extract to constant with descriptive name like MAX_TOOL_NAME_LENGTH",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/claude_transcript_builder.py",
+    "line": 1,
+    "severity": "low",
+    "category": "quality",
+    "issue": "Missing error handling for file I/O operations - write_text() can fail but no try/except",
+    "suggestion": "Add proper error handling around file operations with specific exception types",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/codex_transcripts_builder.py",
+    "line": 13,
+    "severity": "medium",
+    "category": "quality",
+    "issue": "Duplicate: Same try/except fallback for get_project_root as claude_transcript_builder.py",
+    "suggestion": "Same fix - use shared path resolution module",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/codex_transcripts_builder.py",
+    "line": 589,
+    "severity": "critical",
+    "category": "zero_bs",
+    "issue": "MASSIVE VIOLATION: 13 stub functions with placeholder returns (lines 589-682). Functions return {'placeholder': '...'} or ['Placeholder...'] instead of real implementations",
+    "suggestion": "Either implement these functions properly or remove them entirely. This violates the Zero-BS principle - 'no stubs or placeholders, no dead code'. These are fake implementations",
+    "effort": "high"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/codex_transcripts_builder.py",
+    "line": 228,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "Multiple bare except clauses that silently pass (lines 228-231, 237-240, 247-249, 257-258, 265-266)",
+    "suggestion": "Catch specific exceptions (json.JSONDecodeError, OSError) and log failures instead of silent pass",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/codex_transcripts_builder.py",
+    "line": 1,
+    "severity": "high",
+    "category": "ruthless_simplicity",
+    "issue": "Over-engineered analysis: 731 lines attempting to do sophisticated knowledge extraction, pattern detection, and analytics that likely aren't used or don't provide value proportional to complexity",
+    "suggestion": "Simplify drastically - focus on basic transcript aggregation and remove speculative analytics features unless there's proven value",
+    "effort": "high"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/export_on_compact_integration.py",
+    "line": 13,
+    "severity": "medium",
+    "category": "quality",
+    "issue": "Multiple sys.path insertions at module level - modifies global state on import",
+    "suggestion": "Remove sys.path manipulation and rely on proper package structure",
+    "effort": "low"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/export_on_compact_integration.py",
+    "line": 17,
+    "severity": "medium",
+    "category": "quality",
+    "issue": "Complex import with fallback logic and relative imports that can fail - fragile import structure",
+    "suggestion": "Simplify import strategy - either use absolute imports consistently or fix package structure",
+    "effort": "medium"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/export_on_compact_integration.py",
+    "line": 98,
+    "severity": "medium",
+    "category": "zero_bs",
+    "issue": "Multiple try/except blocks that catch errors and just log warnings instead of failing (lines 98-100, 102-107, 109-115). Errors are swallowed with WARNING level logs",
+    "suggestion": "Decide if these operations are critical or optional. If critical, fail properly. If optional, document why failures are acceptable",
+    "effort": "medium"
+  },
+  {
+    "file": ".claude/tools/amplihack/builders/export_on_compact_integration.py",
+    "line": 245,
+    "severity": "low",
+    "category": "zero_bs",
+    "issue": "Bare except clause with just pass (line 246) when loading session summary",
+    "suggestion": "Log the error instead of silent pass, catch specific exceptions",
+    "effort": "low"
+  }
+]

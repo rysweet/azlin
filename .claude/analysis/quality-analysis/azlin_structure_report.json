@@ -1,0 +1,725 @@
+{
+  "project_metadata": {
+    "name": "azlin",
+    "version": "2.0.0",
+    "description": "Azure VM fleet management CLI - provision, manage, and monitor development VMs",
+    "python_version": ">=3.11",
+    "total_source_lines": 21610,
+    "total_test_lines": 15550,
+    "total_classes": 83,
+    "total_functions": 69,
+    "entry_point": "azlin.cli:main"
+  },
+  
+  "directory_structure": {
+    "root_directories": [
+      {
+        "name": "src/azlin",
+        "type": "source_code",
+        "description": "Main application source code",
+        "subdirectories": [
+          "modules",
+          "commands"
+        ]
+      },
+      {
+        "name": "tests",
+        "type": "test_suite",
+        "description": "Test suite with 106+ tests",
+        "subdirectories": [
+          "unit (60% of tests)",
+          "integration (30% of tests)",
+          "e2e (10% of tests)",
+          "fixtures",
+          "mocks"
+        ]
+      },
+      {
+        "name": "docs",
+        "type": "documentation",
+        "description": "Architecture and design documentation"
+      }
+    ],
+    "core_structure": {
+      "src/azlin": {
+        "__init__.py": "Package initialization, version export",
+        "__main__.py": "Entry point for python -m azlin",
+        "cli.py": "5409 LOC - Main CLI orchestrator with 40+ commands",
+        "azure_auth.py": "Azure CLI authentication handler",
+        "batch_executor.py": "500 LOC - Batch operations on multiple VMs",
+        "config_manager.py": "TOML configuration persistence (~/.azlin/config.toml)",
+        "connection_tracker.py": "Track active SSH connections",
+        "cost_tracker.py": "VM cost estimation and tracking",
+        "distributed_top.py": "547 LOC - Live dashboard for distributed metrics",
+        "env_manager.py": "411 LOC - Environment variable management on VMs",
+        "key_rotator.py": "SSH key rotation and backup",
+        "log_viewer.py": "483 LOC - Remote log viewing",
+        "prune.py": "Stale resource pruning",
+        "remote_exec.py": "504 LOC - Remote command execution via SSH",
+        "resource_cleanup.py": "458 LOC - Resource cleanup on VM deletion",
+        "status_dashboard.py": "VM status dashboard UI",
+        "tag_manager.py": "Azure tag management",
+        "template_manager.py": "VM template creation/import/export",
+        "terminal_launcher.py": "Terminal session launcher",
+        "vm_connector.py": "VM connection utilities",
+        "vm_lifecycle.py": "497 LOC - VM deletion and cleanup",
+        "vm_lifecycle_control.py": "551 LOC - VM power state control",
+        "vm_manager.py": "475 LOC - VM listing and querying",
+        "vm_provisioning.py": "868 LOC - VM creation with cloud-init",
+        "vm_updater.py": "433 LOC - OS updates on VMs"
+      },
+      "src/azlin/modules": {
+        "description": "Feature modules - 16 specialized modules",
+        "files": {
+          "file_transfer/": "Secure SCP-based file transfer with path security",
+          "github_setup.py": "GitHub authentication and repository cloning",
+          "home_sync.py": "708 LOC - Rsync-based home directory synchronization",
+          "nfs_mount_manager.py": "429 LOC - NFS mount/unmount operations",
+          "notifications.py": "Optional imessR notifications",
+          "npm_config.py": "User-local npm configuration",
+          "prerequisites.py": "Prerequisite tool checking (az, gh, git, ssh, tmux)",
+          "progress.py": "Rich-based progress display",
+          "snapshot_manager.py": "688 LOC - VM snapshot management",
+          "ssh_connector.py": "451 LOC - SSH connection and tmux session handling",
+          "ssh_keys.py": "SSH key generation and management (Ed25519)",
+          "ssh_reconnect.py": "SSH reconnection handling",
+          "storage_manager.py": "594 LOC - Azure Files NFS storage operations"
+        }
+      },
+      "src/azlin/modules/file_transfer": {
+        "description": "Secure file transfer submodule",
+        "files": {
+          "__init__.py": "Public API exports",
+          "exceptions.py": "File transfer specific exceptions",
+          "file_transfer.py": "SCP-based transfer implementation",
+          "path_parser.py": "SSH path parsing and validation",
+          "session_manager.py": "SSH session management",
+          "tests/": "4 test files for file_transfer module"
+        }
+      },
+      "src/azlin/commands": {
+        "description": "CLI command modules",
+        "files": {
+          "__init__.py": "Commands package initialization",
+          "storage.py": "515 LOC - Storage management CLI commands"
+        }
+      }
+    }
+  },
+
+  "module_inventory": {
+    "core_infrastructure_modules": [
+      {
+        "name": "azure_auth",
+        "responsibility": "Azure CLI authentication delegation",
+        "key_classes": ["AzureAuthenticator", "AzureCredentials"],
+        "dependencies": ["subprocess", "az CLI"],
+        "security_notes": "No credential storage - delegates to az CLI"
+      },
+      {
+        "name": "config_manager",
+        "responsibility": "Persistent TOML configuration storage",
+        "key_classes": ["ConfigManager", "AzlinConfig"],
+        "dependencies": ["tomli", "tomli_w", "pathlib"],
+        "file_path": "~/.azlin/config.toml",
+        "stores": ["default_resource_group", "default_region", "default_vm_size", "session_names", "vm_storage"]
+      },
+      {
+        "name": "vm_provisioning",
+        "responsibility": "Azure VM creation with cloud-init",
+        "key_classes": ["VMProvisioner", "VMConfig", "VMDetails"],
+        "lines": 868,
+        "dependencies": ["azure_auth", "ssh_keys", "subprocess"],
+        "features": "Pool provisioning, partial success handling, cloud-init templating"
+      }
+    ],
+
+    "vm_management_modules": [
+      {
+        "name": "vm_manager",
+        "responsibility": "VM listing, querying, and status",
+        "key_classes": ["VMManager", "VMInfo"],
+        "lines": 475,
+        "operations": ["list_vms", "get_vm_details", "filter_by_status"]
+      },
+      {
+        "name": "vm_lifecycle",
+        "responsibility": "VM deletion and resource cleanup",
+        "key_classes": ["VMLifecycleManager", "DeletionResult"],
+        "lines": 497,
+        "features": "Batch deletion, resource tracking, cleanup verification"
+      },
+      {
+        "name": "vm_lifecycle_control",
+        "responsibility": "VM power state management",
+        "key_classes": ["VMLifecycleController"],
+        "lines": 551,
+        "operations": ["start", "stop", "deallocate"]
+      },
+      {
+        "name": "resource_cleanup",
+        "responsibility": "Azure resource cleanup after VM deletion",
+        "key_classes": ["ResourceCleaner"],
+        "lines": 458,
+        "cleans": ["NICs", "disks", "public IPs", "vNets"]
+      }
+    ],
+
+    "connection_and_execution_modules": [
+      {
+        "name": "ssh_connector",
+        "responsibility": "SSH connections with tmux session management",
+        "key_classes": ["SSHConnector", "SSHConfig"],
+        "lines": 451,
+        "features": "Tmux integration, automatic reconnection, port forwarding"
+      },
+      {
+        "name": "remote_exec",
+        "responsibility": "Remote command execution via SSH",
+        "key_classes": ["RemoteExecutor", "RemoteResult"],
+        "lines": 504,
+        "features": "Parallel execution, timeout enforcement, command sanitization"
+      },
+      {
+        "name": "batch_executor",
+        "responsibility": "Parallel batch operations on multiple VMs",
+        "key_classes": ["BatchExecutor", "BatchSelector"],
+        "lines": 500,
+        "features": "Tag-based filtering, progress tracking, per-VM error handling"
+      }
+    ],
+
+    "feature_modules": [
+      {
+        "name": "file_transfer (submodule)",
+        "responsibility": "Secure SCP-based file transfer",
+        "key_classes": ["FileTransfer", "PathParser", "SessionManager"],
+        "dependencies": ["subprocess", "ssh", "pathlib"],
+        "security": "Path traversal prevention, symlink security validation"
+      },
+      {
+        "name": "home_sync",
+        "responsibility": "Rsync-based home directory synchronization",
+        "key_classes": ["HomeSyncManager", "SyncResult"],
+        "lines": 708,
+        "features": "Dry-run, exclusion patterns, security validation"
+      },
+      {
+        "name": "storage_manager",
+        "responsibility": "Azure Files NFS storage account management",
+        "key_classes": ["StorageManager", "StorageInfo", "StorageStatus"],
+        "lines": 594,
+        "operations": ["create", "list", "delete", "get_status"]
+      },
+      {
+        "name": "nfs_mount_manager",
+        "responsibility": "NFS mount/unmount operations on VMs",
+        "key_classes": ["NFSMountManager", "MountInfo"],
+        "lines": 429
+      },
+      {
+        "name": "snapshot_manager",
+        "responsibility": "VM snapshot creation, listing, and restoration",
+        "key_classes": ["SnapshotManager", "SnapshotInfo"],
+        "lines": 688,
+        "features": "Scheduled snapshots, incremental backups"
+      },
+      {
+        "name": "key_rotator",
+        "responsibility": "SSH key rotation and backup management",
+        "key_classes": ["SSHKeyRotator", "KeyBackup"],
+        "lines": 502,
+        "features": "Backup creation, batch key rotation"
+      },
+      {
+        "name": "distributed_top",
+        "responsibility": "Live distributed metrics dashboard",
+        "key_classes": ["DistributedTopExecutor", "VMMetrics"],
+        "lines": 547,
+        "technology": "Rich live dashboard, parallel collection"
+      }
+    ],
+
+    "utility_and_support_modules": [
+      {
+        "name": "prerequisites",
+        "responsibility": "Prerequisite tool validation",
+        "checks": ["az CLI", "gh CLI", "git", "ssh", "tmux", "uv", "python"],
+        "dependencies": "stdlib only"
+      },
+      {
+        "name": "ssh_keys",
+        "responsibility": "SSH key generation and management",
+        "key_classes": ["SSHKeyManager", "SSHKeyPair"],
+        "key_type": "Ed25519",
+        "permissions": "0600 (private), 0644 (public)"
+      },
+      {
+        "name": "progress",
+        "responsibility": "User-friendly progress display",
+        "key_classes": ["ProgressDisplay", "ProgressStage"],
+        "technology": "Rich library"
+      },
+      {
+        "name": "notifications",
+        "responsibility": "Optional completion notifications",
+        "technology": "imessR (optional)",
+        "graceful_degradation": true
+      },
+      {
+        "name": "env_manager",
+        "responsibility": "Environment variable management on VMs",
+        "lines": 411,
+        "features": "Set, get, list, export, import, clear operations"
+      },
+      {
+        "name": "cost_tracker",
+        "responsibility": "VM cost estimation and tracking",
+        "features": "Per-VM costs, batch summaries"
+      },
+      {
+        "name": "github_setup",
+        "responsibility": "GitHub authentication and repo cloning",
+        "operations": ["gh auth", "git clone"]
+      },
+      {
+        "name": "log_viewer",
+        "responsibility": "Remote log file viewing and tailing",
+        "lines": 483,
+        "features": "Real-time tailing, filtering"
+      },
+      {
+        "name": "npm_config",
+        "responsibility": "User-local npm configuration",
+        "prevents": "sudo requirement for npm install -g"
+      },
+      {
+        "name": "tag_manager",
+        "responsibility": "Azure resource tag management",
+        "operations": ["list", "set", "get"]
+      },
+      {
+        "name": "template_manager",
+        "responsibility": "VM template creation and management",
+        "operations": ["create", "list", "delete", "export", "import"]
+      }
+    ]
+  },
+
+  "cli_structure": {
+    "file": "src/azlin/cli.py",
+    "lines": 5409,
+    "entry_point": "main()",
+    "command_groups": [
+      {
+        "group": "VM Provisioning",
+        "commands": ["new", "create", "vm"]
+      },
+      {
+        "group": "VM Listing",
+        "commands": ["list", "w", "ps", "status"]
+      },
+      {
+        "group": "VM Control",
+        "commands": ["start", "stop", "kill", "destroy", "killall"]
+      },
+      {
+        "group": "VM Monitoring",
+        "commands": ["top", "os_update", "update", "prune", "cost"]
+      },
+      {
+        "group": "Connection & Session",
+        "commands": ["session", "connect", "ssh_reconnect"]
+      },
+      {
+        "group": "File Operations",
+        "commands": ["cp", "sync", "clone"]
+      },
+      {
+        "group": "Batch Operations",
+        "commands": ["batch (group)", "batch_start", "batch_stop", "batch_sync", "command"]
+      },
+      {
+        "group": "SSH Keys Management",
+        "commands": ["keys (group)", "keys_rotate", "keys_list", "keys_export", "keys_backup"]
+      },
+      {
+        "group": "VM Templates",
+        "commands": ["template (group)", "template_create", "template_list", "template_delete", "template_export", "template_import"]
+      },
+      {
+        "group": "VM Snapshots",
+        "commands": ["snapshot (group)", "snapshot_enable", "snapshot_disable", "snapshot_sync", "snapshot_status", "snapshot_create", "snapshot_list", "snapshot_restore", "snapshot_delete"]
+      },
+      {
+        "group": "Environment Variables",
+        "commands": ["env (group)", "env_set", "env_list", "env_delete", "env_export", "env_import", "env_clear"]
+      },
+      {
+        "group": "Storage Management",
+        "commands": ["storage (group)", "storage_create", "storage_list", "storage_status", "storage_delete", "storage_mount", "storage_unmount"]
+      }
+    ],
+    "total_commands": 40,
+    "orchestrator_class": "CLIOrchestrator"
+  },
+
+  "architecture_patterns": {
+    "overall_pattern": "Brick Architecture (Self-Contained Modules)",
+    "principles": [
+      "Ruthless Simplicity",
+      "Fail Fast with Helpful Guidance",
+      "Security by Design",
+      "Clear Module Boundaries"
+    ],
+    
+    "module_patterns": [
+      {
+        "name": "CLI Command Brick",
+        "examples": ["prerequisites.py", "ssh_keys.py", "progress.py"],
+        "characteristics": "Single responsibility, CLI-ready interface"
+      },
+      {
+        "name": "Azure Integration Brick",
+        "examples": ["azure_auth.py", "vm_provisioning.py", "storage_manager.py"],
+        "characteristics": "Subprocess-based Azure CLI delegation, no credentials"
+      },
+      {
+        "name": "Remote Execution Brick",
+        "examples": ["remote_exec.py", "ssh_connector.py", "home_sync.py"],
+        "characteristics": "SSH-based operations, parallel execution, timeout enforcement"
+      },
+      {
+        "name": "Data Persistence Brick",
+        "examples": ["config_manager.py"],
+        "characteristics": "TOML storage with secure permissions"
+      }
+    ],
+
+    "layering_approach": {
+      "layer_1": "CLI Layer (cli.py) - 40+ commands",
+      "layer_2": "Orchestration Layer (batch_executor, remote_exec, vm_manager)",
+      "layer_3": "Feature Modules (file_transfer, home_sync, snapshots)",
+      "layer_4": "Infrastructure Layer (azure_auth, ssh_connector, config_manager)",
+      "layer_5": "System Integration (subprocess, file I/O, networking)"
+    },
+
+    "separation_of_concerns": {
+      "azure_operations": "vm_provisioning.py, storage_manager.py, vm_lifecycle.py",
+      "ssh_operations": "ssh_connector.py, remote_exec.py, file_transfer/",
+      "configuration": "config_manager.py, env_manager.py",
+      "monitoring": "distributed_top.py, status_dashboard.py, log_viewer.py",
+      "user_experience": "progress.py, notifications.py, terminal_launcher.py"
+    },
+
+    "security_layers": [
+      "Input Validation - All parameters sanitized before Azure/SSH calls",
+      "Permission Enforcement - SSH keys 0600, config 0600",
+      "Credential Delegation - No credential storage, uses az/gh/ssh tools",
+      "Output Sanitization - Logging removes sensitive data",
+      "Path Security - File transfer validates no path traversal",
+      "Command Isolation - No shell=True, uses shlex.quote()"
+    ]
+  },
+
+  "dependency_graph": {
+    "entry_point": "cli.py",
+    "immediate_dependencies": [
+      "CLIOrchestrator (coordinator)",
+      "batch_executor (batch operations)",
+      "vm_manager (listing)",
+      "remote_exec (command execution)",
+      "config_manager (configuration)"
+    ],
+
+    "tier_1_core": {
+      "description": "Direct CLI dependencies",
+      "modules": [
+        "azure_auth",
+        "vm_provisioning",
+        "ssh_connector",
+        "config_manager",
+        "batch_executor",
+        "vm_manager",
+        "remote_exec",
+        "distributed_top"
+      ]
+    },
+
+    "tier_2_infrastructure": {
+      "description": "Support for tier 1",
+      "modules": [
+        "modules/ssh_keys",
+        "modules/prerequisites",
+        "modules/progress",
+        "modules/ssh_connector"
+      ]
+    },
+
+    "tier_3_features": {
+      "description": "Optional/extended features",
+      "modules": [
+        "modules/file_transfer",
+        "modules/home_sync",
+        "modules/storage_manager",
+        "modules/snapshot_manager",
+        "modules/github_setup"
+      ]
+    },
+
+    "tier_4_utilities": {
+      "description": "Helper modules",
+      "modules": [
+        "modules/notifications",
+        "modules/npm_config",
+        "modules/progress",
+        "cost_tracker",
+        "tag_manager",
+        "connection_tracker"
+      ]
+    },
+
+    "external_dependencies": {
+      "cli_framework": "click >= 8.1.0",
+      "configuration": "tomli >= 2.0.0, tomli-w >= 1.0.0",
+      "markup": "pyyaml >= 6.0.0",
+      "ui": "rich >= 13.7.0",
+      "external_tools": [
+        "az (Azure CLI)",
+        "gh (GitHub CLI)",
+        "git",
+        "ssh",
+        "tmux",
+        "ssh-keygen",
+        "rsync",
+        "uv"
+      ]
+    }
+  },
+
+  "entry_points": {
+    "cli_entry": "azlin.cli:main",
+    "module_entry": "azlin.__main__:main",
+    "workflow_orchestrator": "azlin.cli.CLIOrchestrator",
+    
+    "command_categories": {
+      "basic_provisioning": {
+        "entry": "azlin new",
+        "flow": ["prerequisites check", "azure auth", "ssh key generation", "vm provisioning", "ssh connection"]
+      },
+      "vm_discovery": {
+        "entry": "azlin list",
+        "flow": ["config manager", "vm manager", "status lookup"]
+      },
+      "batch_operations": {
+        "entry": "azlin batch",
+        "flow": ["vm selection", "batch executor", "parallel execution"]
+      },
+      "monitoring": {
+        "entry": "azlin top",
+        "flow": ["vm discovery", "distributed top executor", "live dashboard"]
+      }
+    }
+  },
+
+  "test_structure": {
+    "total_test_lines": 15550,
+    "test_files": 42,
+    "pyramid": {
+      "unit_tests": {
+        "percentage": 60,
+        "count_estimate": 63,
+        "location": "tests/unit/",
+        "focus": "Individual module functionality with heavy mocking"
+      },
+      "integration_tests": {
+        "percentage": 30,
+        "count_estimate": 31,
+        "location": "tests/integration/",
+        "focus": "Multi-module workflows with Azure/SSH mocking"
+      },
+      "e2e_tests": {
+        "percentage": 10,
+        "count_estimate": 12,
+        "location": "tests/e2e/",
+        "focus": "Real Azure VMs (expensive)"
+      }
+    },
+    
+    "test_files": [
+      "test_azure_auth.py",
+      "test_batch_executor.py",
+      "test_cli.py",
+      "test_config_manager.py",
+      "test_cost_tracker.py",
+      "test_distributed_top.py",
+      "test_env_manager.py",
+      "test_key_rotator.py",
+      "test_nfs_mount_manager.py",
+      "test_remote_exec.py",
+      "test_snapshot_manager.py",
+      "test_storage_manager.py",
+      "test_vm_manager.py",
+      "test_vm_provisioning.py",
+      "test_vm_lifecycle.py"
+    ],
+
+    "fixtures": [
+      "azure_responses.py - Mock Azure CLI responses",
+      "ssh_configs.py - Mock SSH configuration",
+      "sample_configs.py - Sample configurations",
+      "conftest.py - Global pytest fixtures"
+    ],
+
+    "mocks": [
+      "azure_mock.py",
+      "github_mock.py",
+      "subprocess_mock.py"
+    ]
+  },
+
+  "module_responsibilities_matrix": {
+    "VM Lifecycle": {
+      "provision": "vm_provisioning.py",
+      "list": "vm_manager.py",
+      "start": "vm_lifecycle_control.py",
+      "stop": "vm_lifecycle_control.py",
+      "delete": "vm_lifecycle.py",
+      "query": "vm_manager.py"
+    },
+    "Connection": {
+      "authenticate": "azure_auth.py",
+      "ssh_connect": "ssh_connector.py",
+      "remote_exec": "remote_exec.py",
+      "file_transfer": "modules/file_transfer/"
+    },
+    "Configuration": {
+      "persistent_config": "config_manager.py",
+      "env_vars": "env_manager.py",
+      "ssh_keys": "modules/ssh_keys.py",
+      "templates": "template_manager.py"
+    },
+    "Monitoring": {
+      "vm_status": "vm_manager.py",
+      "metrics": "distributed_top.py",
+      "logs": "log_viewer.py",
+      "costs": "cost_tracker.py"
+    },
+    "Storage": {
+      "nfs_accounts": "modules/storage_manager.py",
+      "nfs_mounts": "modules/nfs_mount_manager.py",
+      "home_sync": "modules/home_sync.py"
+    },
+    "Security": {
+      "key_rotation": "key_rotator.py",
+      "path_validation": "modules/file_transfer/path_parser.py",
+      "permissions": "modules/ssh_keys.py"
+    }
+  },
+
+  "key_flows": [
+    {
+      "flow_name": "Basic VM Provisioning",
+      "entry": "azlin new",
+      "steps": [
+        "1. CLIOrchestrator.__init__() - Initialize orchestrator",
+        "2. PrerequisiteChecker.check_all() - Verify tools installed",
+        "3. AzureAuthenticator.authenticate() - Login to Azure",
+        "4. SSHKeyManager.ensure_ssh_key() - Generate/get SSH key",
+        "5. VMProvisioner.provision() - Create VM with cloud-init",
+        "6. VMManager.get_vm_details() - Poll for VM ready",
+        "7. SSHConnector.connect() - SSH into VM with tmux",
+        "8. NotificationHandler.notify() - Optional notification"
+      ],
+      "duration": "4-7 minutes"
+    },
+    {
+      "flow_name": "List VMs",
+      "entry": "azlin list",
+      "steps": [
+        "1. ConfigManager.load() - Get default resource group",
+        "2. VMManager.list_vms() - Query Azure for VMs",
+        "3. Rich table formatting - Display results"
+      ],
+      "duration": "< 5 seconds"
+    },
+    {
+      "flow_name": "Batch Operations",
+      "entry": "azlin batch start",
+      "steps": [
+        "1. VMManager.list_vms() - Get VM list",
+        "2. BatchSelector.select() - Filter by tags/pattern",
+        "3. BatchExecutor.execute() - Parallel execution",
+        "4. RemoteExecutor.execute_command() - SSH on each VM",
+        "5. Aggregation - Combine results"
+      ],
+      "duration": "Varies with operation"
+    },
+    {
+      "flow_name": "Live Monitoring Dashboard",
+      "entry": "azlin top",
+      "steps": [
+        "1. VMManager.list_vms() - Get running VMs",
+        "2. DistributedTopExecutor.collect_metrics() - Parallel SSH top",
+        "3. Rich Live display - Real-time dashboard",
+        "4. 10-second refresh - Continuous updates"
+      ],
+      "duration": "Continuous until Ctrl+C"
+    }
+  ],
+
+  "quality_metrics": {
+    "test_coverage_target": "> 80%",
+    "modules_tested": "25+",
+    "critical_paths": [
+      "VM provisioning (high: customer-facing)",
+      "SSH connection (high: security-critical)",
+      "Resource cleanup (high: cost-critical)",
+      "Azure auth (high: user-blocking)"
+    ],
+    "code_quality": {
+      "linter": "ruff",
+      "type_checker": "pyright (basic)",
+      "complexity_limit": "15 (mccabe)",
+      "line_length": "100"
+    }
+  },
+
+  "architectural_insights": {
+    "strengths": [
+      "Clear brick architecture - modules are self-contained",
+      "Security by delegation - no credentials stored",
+      "Fail fast pattern - errors caught early",
+      "Comprehensive CLI - 40+ commands for full VM management",
+      "Extensible design - new commands easy to add",
+      "Rich user experience - progress display, formatted output"
+    ],
+    
+    "module_boundaries": {
+      "well_defined": [
+        "azure_auth - Only responsible for auth, no VM creation",
+        "ssh_keys - Only responsible for key generation/management",
+        "config_manager - TOML persistence, no logic",
+        "prerequisites - Just checking tools, no fixing"
+      ],
+      "somewhat_fluid": [
+        "vm_manager, vm_lifecycle, vm_lifecycle_control - Some overlap in VM state",
+        "modules/ssh_connector, remote_exec - Both do SSH, divided by purpose"
+      ]
+    },
+
+    "clear_abstractions": [
+      "VMInfo dataclass - VM state representation",
+      "SSHConfig dataclass - SSH connection parameters",
+      "RemoteResult dataclass - Command execution results",
+      "VMMetrics dataclass - Monitoring data"
+    ],
+
+    "implicit_workflows": [
+      "Configuration flows - Config loaded, used, saved by various modules",
+      "SSH connection lifecycle - Key generation -> provisioning -> connection",
+      "Resource tracking - Creation -> enumeration -> cleanup",
+      "Error handling - Local exceptions + Azure errors"
+    ]
+  }
+}

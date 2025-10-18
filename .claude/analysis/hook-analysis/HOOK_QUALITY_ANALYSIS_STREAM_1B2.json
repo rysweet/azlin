@@ -1,0 +1,544 @@
+{
+  "analysis_metadata": {
+    "stream": "1B.2",
+    "focus": "Hook Implementations Deep Analysis",
+    "timestamp": "2025-10-18",
+    "files_analyzed": 10,
+    "total_issues": 47,
+    "philosophy_principles": [
+      "Ruthless Simplicity",
+      "Zero-BS Principle",
+      "Hook-Specific Quality"
+    ]
+  },
+  "findings": [
+    {
+      "file": ".claude/tools/amplihack/hooks/hook_processor.py",
+      "line": 36,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Complex project root resolution logic with 10-level fallback traversal and multiple conditional branches",
+      "suggestion": "Extract project root resolution to a dedicated utility function. The fallback logic should be simpler and fail fast if .claude is not found within 3-4 levels.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/hook_processor.py",
+      "line": 64,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Duplicate claude directory resolution logic - checks both root and package locations",
+      "suggestion": "Consolidate claude directory resolution into a single function. The two-location check adds unnecessary complexity.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/hook_processor.py",
+      "line": 113,
+      "severity": "low",
+      "category": "ruthless_simplicity",
+      "issue": "Log rotation logic embedded in log() method adds complexity (size check, rotation, timestamp formatting)",
+      "suggestion": "Either remove log rotation (simpler) or extract to a separate method. For development tools, unlimited logs may be acceptable.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/hook_processor.py",
+      "line": 149,
+      "severity": "low",
+      "category": "zero_bs",
+      "issue": "save_metric() method swallows exceptions with only WARNING log - no visibility during development",
+      "suggestion": "Re-raise exceptions or make them visible. The philosophy demands 'No swallowed exceptions' - handle errors transparently.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/hook_processor.py",
+      "line": 247,
+      "severity": "low",
+      "category": "zero_bs",
+      "issue": "save_session_data() swallows exceptions with only WARNING log",
+      "suggestion": "Make exceptions visible or re-raise them. Users should know when session data fails to save.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/hook_processor.py",
+      "line": 254,
+      "severity": "medium",
+      "category": "hooks",
+      "issue": "Path validation in save_session_data() is incomplete - only checks for '..' and '/' but not other path traversal vectors",
+      "suggestion": "Use Path.resolve() and containment check (similar to validate_path_containment method) for proper validation.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/post_edit_format.py",
+      "line": 112,
+      "severity": "high",
+      "category": "zero_bs",
+      "issue": "command_exists() function runs 'which' command TWICE - once to check return code, then immediately again",
+      "suggestion": "Store the result of the first subprocess.run() and check returncode once. This is wasteful and violates simplicity.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/post_edit_format.py",
+      "line": 132,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "get_file_hash() swallows all exceptions and returns None silently",
+      "suggestion": "Handle specific exceptions (FileNotFoundError, PermissionError) and log them. Don't hide failures.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/post_edit_format.py",
+      "line": 175,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Complex command template parsing with '{file}' placeholder replacement and injection prevention logic",
+      "suggestion": "Simplify by requiring formatters to use file path as last argument. Remove template string replacement complexity.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/post_edit_format.py",
+      "line": 188,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Special-case handling for 'jq' formatter with different execution path (capture output, write back)",
+      "suggestion": "Either make jq formatting consistent with others or remove it. Special cases add complexity.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/post_edit_format.py",
+      "line": 217,
+      "severity": "low",
+      "category": "zero_bs",
+      "issue": "subprocess.TimeoutExpired exception caught and logged but continues to next formatter - swallows timeout issue",
+      "suggestion": "Consider whether timeout should be treated as failure. At minimum, make timeout visible to user.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/post_edit_format.py",
+      "line": 321,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "Two generic exception handlers that swallow ALL errors and return empty dict - hides all failures",
+      "suggestion": "Handle specific exceptions. At minimum, log to stderr so user sees formatting failures during development.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/post_tool_use.py",
+      "line": 48,
+      "severity": "low",
+      "category": "zero_bs",
+      "issue": "result variable extracted but never meaningfully used (only checked for existence, not for actual error handling)",
+      "suggestion": "Either use result data properly or remove the extraction. Don't extract data you don't use.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/post_tool_use.py",
+      "line": 64,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "Tool type checking and metric saving - creates metadata dict that's only used for errors, otherwise never returned",
+      "suggestion": "Simplify: either always return validation info or remove the unused output dict. Currently it's dead code path.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/post_tool_use.py",
+      "line": 75,
+      "severity": "low",
+      "category": "ruthless_simplicity",
+      "issue": "Multiple conditional metric saving blocks (bash_commands, file_operations, search_operations) adds branching complexity",
+      "suggestion": "Use a lookup table/dict to map tool names to metric categories. Reduces branching.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/pre_compact.py",
+      "line": 54,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Creates ContextPreserver then immediately overrides its session_dir attribute - suggests poor initialization API",
+      "suggestion": "ContextPreserver should accept session_dir in constructor, not require manual override after construction.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/pre_compact.py",
+      "line": 61,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Complex loop to find 'original request' from conversation by role and length heuristics",
+      "suggestion": "Simplify: take first substantial user message or make ContextPreserver handle this internally. The heuristic is fragile.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/pre_compact.py",
+      "line": 78,
+      "severity": "low",
+      "category": "ruthless_simplicity",
+      "issue": "Creates transcript copy in two locations (main session_dir and transcripts subdirectory) - duplication",
+      "suggestion": "Store transcript in one canonical location. If multiple copies are needed, document why clearly.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/pre_compact.py",
+      "line": 86,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "Exception handler swallows transcript copy failure with only WARNING - user doesn't know copy failed",
+      "suggestion": "Make failure visible or include in return status. Silent failures violate Zero-BS principle.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/pre_compact.py",
+      "line": 104,
+      "severity": "low",
+      "category": "zero_bs",
+      "issue": "Generic exception handler on json.load() - swallows JSON parsing errors and returns empty list",
+      "suggestion": "Log the specific error. Users should know if metadata file is corrupted.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/pre_compact.py",
+      "line": 136,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "restore_conversation_from_latest() method exists but appears unused - no callers in the hook flow",
+      "suggestion": "Remove if truly unused (dead code). If used elsewhere, document the public API contract.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/reflection.py",
+      "line": 18,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "PATTERNS dict with nested configuration is overly complex - multiple thresholds, keywords lists, actions",
+      "suggestion": "Simplify pattern detection. Start with fewer patterns (2-3 critical ones) and add more only if needed.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/reflection.py",
+      "line": 55,
+      "severity": "low",
+      "category": "ruthless_simplicity",
+      "issue": "analyze_session() builds complex nested findings dict with multiple pattern checks - could be simpler",
+      "suggestion": "Focus on 1-2 high-value patterns initially. The reflection module tries to detect too many patterns at once.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/reflection.py",
+      "line": 120,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "_extract_tool_uses() uses string matching on content to detect tool use - fragile and tool-specific",
+      "suggestion": "If messages have structured tool_use fields, use those instead of string matching. Otherwise, this is brittle.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/reflection.py",
+      "line": 158,
+      "severity": "low",
+      "category": "ruthless_simplicity",
+      "issue": "_find_error_patterns() maintains error_samples list with deduplication logic - adds complexity",
+      "suggestion": "Either keep all samples or none. The deduplication check adds little value.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/reflection.py",
+      "line": 209,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "_generate_suggestions() has complex conditional logic based on pattern types with multiple branches",
+      "suggestion": "Use a lookup table mapping pattern type to suggestion. Reduces branching complexity.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/reflection.py",
+      "line": 247,
+      "severity": "low",
+      "category": "zero_bs",
+      "issue": "save_reflection_summary() silently returns None if analysis is skipped - no indication to caller",
+      "suggestion": "Return a sentinel value or log that summary was skipped. Make the skip explicit.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/session_start.py",
+      "line": 23,
+      "severity": "high",
+      "category": "zero_bs",
+      "issue": "Imports wrapped in try/except with fallback to None - then code checks 'if ContextPreserver' throughout",
+      "suggestion": "Either require imports or fail fast. Don't silently degrade functionality. This hides missing dependencies.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/session_start.py",
+      "line": 57,
+      "severity": "low",
+      "category": "ruthless_simplicity",
+      "issue": "substantial_keywords list with complex check for 'substantial request' - heuristic-based and fragile",
+      "suggestion": "Simplify: either always capture or use prompt length only. Keyword matching is brittle.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/session_start.py",
+      "line": 103,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "try/except ImportError for uvx_staging - swallows import failure and continues silently",
+      "suggestion": "Log the import failure or make UVX staging explicitly optional. Silent imports violate transparency.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/session_start.py",
+      "line": 140,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Complex regex-based preference extraction from markdown file with multiple patterns",
+      "suggestion": "Use structured config format (YAML/TOML) instead of parsing markdown with regex. Simpler and more reliable.",
+      "effort": "high"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/session_start.py",
+      "line": 166,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "Exception handler swallows ALL preference reading errors with 'fail silently' comment",
+      "suggestion": "Make preference failures visible. Users should know if preferences aren't loading. Don't 'fail silently'.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/session_start.py",
+      "line": 200,
+      "severity": "low",
+      "category": "ruthless_simplicity",
+      "issue": "Complex string building with multiple conditional context_parts appends - hard to follow the final context structure",
+      "suggestion": "Build context structure as data first, then render to string. Separation of concerns.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/session_start.py",
+      "line": 226,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "original_request_context injected twice (lines 227 and 240) with different conditional logic - duplication bug?",
+      "suggestion": "Remove duplication. This appears to be a copy-paste error that adds original request context twice.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/stop.py",
+      "line": 33,
+      "severity": "medium",
+      "category": "hooks",
+      "issue": "Exception handling catches PermissionError/OSError and falls back to 'allow stop' - may not be correct behavior",
+      "suggestion": "Consider whether permission errors should block stop instead. Current behavior might bypass lock mechanism unintentionally.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/stop.py",
+      "line": 45,
+      "severity": "low",
+      "category": "hooks",
+      "issue": "Hard-coded reason message is very long and specific about 'parallel tasks' - may not match all use cases",
+      "suggestion": "Make reason configurable or read from lock file metadata. Current message is too prescriptive.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/stop_azure_continuation.py",
+      "line": 43,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "is_proxy_active() checks 4 different environment variables with overlapping logic - overly complex detection",
+      "suggestion": "Use a single canonical environment variable for proxy detection. Multiple checks add confusion.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/stop_azure_continuation.py",
+      "line": 80,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "extract_todo_items() traverses nested message structures with multiple isinstance checks - complex navigation",
+      "suggestion": "Provide a utility function to flatten/normalize message structure. Don't traverse complex structures directly.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/stop_azure_continuation.py",
+      "line": 128,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "check_for_continuation_phrases() uses 12 different regex patterns - high complexity and maintenance burden",
+      "suggestion": "Reduce to 3-5 key patterns. More patterns don't necessarily improve detection and add maintenance cost.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/stop_azure_continuation.py",
+      "line": 180,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "check_request_unfulfilled() with nested conditionals and multiple pattern types - complex control flow",
+      "suggestion": "Simplify: focus on one clear indicator of unfulfilled work (like incomplete TODO items).",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/amplihack/hooks/stop_azure_continuation.py",
+      "line": 219,
+      "severity": "low",
+      "category": "ruthless_simplicity",
+      "issue": "should_continue() calls 3 separate check functions and combines results - could be streamlined",
+      "suggestion": "Consider whether all 3 checks are needed. Each check adds to the decision complexity.",
+      "effort": "medium"
+    },
+    {
+      "file": ".claude/tools/xpia/hooks/post_tool_use.py",
+      "line": 39,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "analyze_command_output() has 2 separate pattern lists with similar structure - could be unified",
+      "suggestion": "Use single pattern list with risk level attribute. Reduces duplication.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/xpia/hooks/post_tool_use.py",
+      "line": 80,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Risk level determination logic with nested conditionals checking 'privilege', 'password', 'secret' in descriptions",
+      "suggestion": "Store risk level with pattern definition. Don't recompute from description strings.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/xpia/hooks/post_tool_use.py",
+      "line": 104,
+      "severity": "low",
+      "category": "zero_bs",
+      "issue": "Exception handler returns 'unknown' risk level on error - masks real security issues",
+      "suggestion": "Either fail explicitly or return high risk on analysis error. Don't hide security analysis failures.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/xpia/hooks/post_tool_use.py",
+      "line": 22,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "log_security_event() swallows ALL exceptions silently with pass - security logging failures are invisible",
+      "suggestion": "At minimum log to stderr or raise on security log failure. Security logging must be reliable.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/xpia/hooks/pre_tool_use.py",
+      "line": 56,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "validate_bash_command() has separate high-risk and medium-risk pattern lists with similar structure",
+      "suggestion": "Unify into single pattern list with risk_level attribute. Current structure duplicates logic.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/xpia/hooks/pre_tool_use.py",
+      "line": 86,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Two separate loops checking patterns - could be unified into single loop with different risk handling",
+      "suggestion": "Single loop over unified pattern list would be simpler and more maintainable.",
+      "effort": "low"
+    },
+    {
+      "file": ".claude/tools/xpia/hooks/pre_tool_use.py",
+      "line": 39,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "log_security_event() swallows ALL exceptions with silent pass - critical for security monitoring",
+      "suggestion": "Security event logging must be reliable. Fail explicitly or alert on logging failures.",
+      "effort": "low"
+    }
+  ],
+  "summary_by_category": {
+    "ruthless_simplicity": {
+      "count": 24,
+      "key_themes": [
+        "Overly complex conditional logic and branching",
+        "Duplicate code patterns and logic",
+        "Fragile heuristic-based detection (keywords, regex patterns)",
+        "Complex nested data structure traversal",
+        "Configuration stored in code rather than data"
+      ]
+    },
+    "zero_bs": {
+      "count": 17,
+      "key_themes": [
+        "Swallowed exceptions throughout - violations of 'no swallowed exceptions' principle",
+        "Silent failures and degradation without user visibility",
+        "Dead/unused code and variables",
+        "Try/except with graceful degradation hides missing dependencies",
+        "Security-critical logging failures silently ignored"
+      ]
+    },
+    "hooks": {
+      "count": 3,
+      "key_themes": [
+        "Unclear error recovery behavior in hook contracts",
+        "Hard-coded behavior that should be configurable",
+        "Inconsistent error handling across hooks"
+      ]
+    },
+    "quality": {
+      "count": 3,
+      "key_themes": [
+        "Path validation incomplete in some areas",
+        "Security implications of error handling",
+        "Inconsistent patterns between similar hooks"
+      ]
+    }
+  },
+  "critical_findings": [
+    {
+      "issue": "Pervasive exception swallowing violates Zero-BS principle",
+      "impact": "Errors hidden during development, making debugging difficult",
+      "files_affected": 8,
+      "recommendation": "Audit all exception handlers. Either handle specifically or make errors visible."
+    },
+    {
+      "issue": "Duplicate command execution in post_edit_format.py command_exists()",
+      "impact": "Performance degradation and unnecessary system calls",
+      "files_affected": 1,
+      "recommendation": "Fix immediately - clear bug/waste"
+    },
+    {
+      "issue": "Original request context injected twice in session_start.py",
+      "impact": "Duplicate data in context, potential user confusion",
+      "files_affected": 1,
+      "recommendation": "Remove duplication - appears to be copy-paste error"
+    },
+    {
+      "issue": "Security logging failures silently ignored in XPIA hooks",
+      "impact": "Security monitoring may fail without detection",
+      "files_affected": 2,
+      "recommendation": "Make security logging failures explicit and visible"
+    }
+  ],
+  "recommendations": {
+    "immediate_actions": [
+      "Fix command_exists() duplicate execution bug (post_edit_format.py:112)",
+      "Remove duplicate original_request_context injection (session_start.py:240)",
+      "Make security logging failures visible (xpia/hooks/*.py)",
+      "Audit and fix exception swallowing in all hooks"
+    ],
+    "architectural_improvements": [
+      "Standardize error handling patterns across all hooks",
+      "Extract common patterns (project root resolution, path validation) to shared utilities",
+      "Replace regex-based config parsing with structured formats (YAML/TOML)",
+      "Unify pattern detection logic across hooks (stop_azure_continuation, reflection)"
+    ],
+    "simplification_opportunities": [
+      "Reduce number of regex patterns in continuation detection (12 -> 3-5)",
+      "Simplify pattern detection in reflection.py (remove less useful patterns)",
+      "Consolidate proxy detection logic (4 env vars -> 1 canonical)",
+      "Remove unused/dead code (restore_conversation_from_latest, unused output dicts)"
+    ]
+  },
+  "metrics": {
+    "lines_of_code_analyzed": 1893,
+    "average_issues_per_file": 4.7,
+    "high_severity_issues": 2,
+    "medium_severity_issues": 28,
+    "low_severity_issues": 17,
+    "estimated_refactor_effort": {
+      "low": 26,
+      "medium": 19,
+      "high": 2
+    }
+  }
+}

@@ -1,0 +1,576 @@
+{
+  "analysis_metadata": {
+    "analysis_type": "DEEP",
+    "target_areas": [
+      "memory modules",
+      "session modules",
+      "context_preservation files"
+    ],
+    "analysis_date": "2025-10-18",
+    "philosophy_principles_applied": [
+      "Wabi-sabi minimalism",
+      "Occam's Razor",
+      "Zero-BS",
+      "Bricks & studs modularity",
+      "Quality over speed"
+    ],
+    "total_files_analyzed": 17
+  },
+  "memory_modules": {
+    "files_analyzed": [
+      "/Users/ryan/src/azlin/.claude/tools/amplihack/memory/__init__.py",
+      "/Users/ryan/src/azlin/.claude/tools/amplihack/memory/core.py",
+      "/Users/ryan/src/azlin/.claude/tools/amplihack/memory/interface.py",
+      "/Users/ryan/src/azlin/.claude/tools/amplihack/memory/context_preservation.py"
+    ],
+    "quality_issues": [
+      {
+        "file": "__init__.py",
+        "type": "modularity",
+        "severity": "medium",
+        "description": "Imports from 'amplihack.memory' (lines 44) suggest external dependency not in codebase, creates coupling",
+        "location": "line 44: from amplihack.memory import MemoryEntry, MemoryManager, MemoryType",
+        "improvement": "Either implement these classes locally or clarify the import structure. The dependency is unclear.",
+        "effort": "medium",
+        "philosophy_principle": "Bricks & studs: Dependencies should be clear and minimal"
+      },
+      {
+        "file": "__init__.py",
+        "type": "simplicity",
+        "severity": "low",
+        "description": "Global singleton pattern with thread lock adds unnecessary complexity for what should be simple memory access",
+        "location": "lines 46-93: _memory_manager_instance and get_memory_manager()",
+        "improvement": "Consider removing singleton pattern. Let callers manage instances directly. Simpler: MemoryManager().store() vs get_memory_manager().store()",
+        "effort": "medium",
+        "philosophy_principle": "Wabi-sabi minimalism: Singleton pattern is extra complexity"
+      },
+      {
+        "file": "__init__.py",
+        "type": "zero_bs",
+        "severity": "low",
+        "description": "Swallowed exceptions with generic print statements hide failures",
+        "location": "lines 89-90, 191, 240, 269: print() instead of proper error handling",
+        "improvement": "Use proper logging or raise exceptions. print() is not production error handling.",
+        "effort": "small",
+        "philosophy_principle": "Zero-BS: No swallowed exceptions, errors must be visible"
+      },
+      {
+        "file": "__init__.py",
+        "type": "simplicity",
+        "severity": "low",
+        "description": "Graceful degradation (returning None) hides failures, making debugging harder",
+        "location": "Multiple functions return None on failure (lines 52, 92, 149, 178, 228)",
+        "improvement": "Consider fail-fast approach. Let exceptions propagate so failures are visible during development.",
+        "effort": "small",
+        "philosophy_principle": "Zero-BS: Fail fast and visibly during development"
+      },
+      {
+        "file": "core.py",
+        "type": "zero_bs",
+        "severity": "medium",
+        "description": "Swallowed exceptions in _init_database (lines 36-39) hide initialization failures",
+        "location": "lines 36-39: except Exception sets _connection = None silently",
+        "improvement": "Let initialization failures propagate. If database can't be initialized, the system shouldn't pretend it works.",
+        "effort": "small",
+        "philosophy_principle": "Zero-BS: No swallowed exceptions, errors must be visible"
+      },
+      {
+        "file": "core.py",
+        "type": "zero_bs",
+        "severity": "low",
+        "description": "Multiple print() statements for error handling instead of proper logging",
+        "location": "lines 38, 151, 209, 261, 305, 337, 368",
+        "improvement": "Use logger parameter or raise exceptions. print() is not production-ready error handling.",
+        "effort": "small",
+        "philosophy_principle": "Zero-BS: Proper error handling required"
+      },
+      {
+        "file": "core.py",
+        "type": "simplicity",
+        "severity": "low",
+        "description": "Graceful degradation pattern returns False/None on errors, hiding failures",
+        "location": "All methods return bool or None on failure instead of raising",
+        "improvement": "Consider fail-fast: raise exceptions for errors so problems are visible immediately.",
+        "effort": "medium",
+        "philosophy_principle": "Zero-BS: Fail fast and visibly during development"
+      },
+      {
+        "file": "interface.py",
+        "type": "zero_bs",
+        "severity": "low",
+        "description": "Swallowed exception in __init__ (lines 59-61) with print statement",
+        "location": "lines 59-61: except Exception prints warning and sets backend=None",
+        "improvement": "Let initialization failures propagate or use proper logging framework.",
+        "effort": "small",
+        "philosophy_principle": "Zero-BS: No swallowed exceptions"
+      },
+      {
+        "file": "interface.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "Enabled flag adds complexity - disabled memory still pretends to work (returns True)",
+        "location": "lines 98-99: if not enabled return True (lie about success)",
+        "improvement": "Remove enabled flag. If memory isn't needed, don't create the object. Don't lie about success.",
+        "effort": "medium",
+        "philosophy_principle": "Zero-BS: No fake implementations"
+      },
+      {
+        "file": "context_preservation.py",
+        "type": "modularity",
+        "severity": "high",
+        "description": "Complex sys.path manipulation (lines 19-29) indicates architectural issues",
+        "location": "lines 19-29: sys.path.insert() with fallbacks",
+        "improvement": "Fix import structure. Modules should import cleanly without path manipulation. This is a red flag for coupling issues.",
+        "effort": "large",
+        "philosophy_principle": "Bricks & studs: Clean module boundaries, no path hacking"
+      },
+      {
+        "file": "context_preservation.py",
+        "type": "modularity",
+        "severity": "medium",
+        "description": "Imports from 'amplihack.memory' creates unclear dependency",
+        "location": "line 31: from amplihack.memory import MemoryManager, MemoryType",
+        "improvement": "Clarify where MemoryManager comes from. Is it external or internal? Dependency structure unclear.",
+        "effort": "medium",
+        "philosophy_principle": "Bricks & studs: Clear dependencies"
+      },
+      {
+        "file": "context_preservation.py",
+        "type": "zero_bs",
+        "severity": "low",
+        "description": "Swallowed exception in __init__ (lines 44-47) silently sets memory=None",
+        "location": "lines 44-47: except Exception sets self.memory = None",
+        "improvement": "Let initialization failures be visible. If memory can't initialize, system should know.",
+        "effort": "small",
+        "philosophy_principle": "Zero-BS: No swallowed exceptions"
+      },
+      {
+        "file": "context_preservation.py",
+        "type": "zero_bs",
+        "severity": "low",
+        "description": "Placeholder implementation in cleanup_old_context (lines 340-361)",
+        "location": "lines 356-361: returns 0 as placeholder with comment",
+        "improvement": "Either implement properly or remove the method. No placeholder functions.",
+        "effort": "medium",
+        "philosophy_principle": "Zero-BS: No placeholders or stubs"
+      }
+    ],
+    "architectural_concerns": [
+      "Dependency confusion: 'amplihack.memory' imports suggest external package but no clear source",
+      "sys.path manipulation indicates import structure needs redesign",
+      "Singleton pattern adds unnecessary complexity to what should be simple object instantiation",
+      "Graceful degradation pattern (return None/False) hides failures instead of making them visible",
+      "Print statements for error handling not production-ready"
+    ],
+    "strengths": [
+      "Clean interface design in interface.py (AgentMemory class)",
+      "Good docstrings with examples throughout",
+      "Thread-safety considerations (RLock usage)",
+      "SQLite backend with proper indexes and schema design",
+      "Context manager support (__enter__/__exit__)"
+    ]
+  },
+  "session_modules": {
+    "files_analyzed": [
+      "/Users/ryan/src/azlin/.claude/tools/amplihack/session/__init__.py",
+      "/Users/ryan/src/azlin/.claude/tools/amplihack/session/claude_session.py",
+      "/Users/ryan/src/azlin/.claude/tools/amplihack/session/file_utils.py",
+      "/Users/ryan/src/azlin/.claude/tools/amplihack/session/session_manager.py",
+      "/Users/ryan/src/azlin/.claude/tools/amplihack/session/session_toolkit.py",
+      "/Users/ryan/src/azlin/.claude/tools/amplihack/session/toolkit_logger.py"
+    ],
+    "quality_issues": [
+      {
+        "file": "claude_session.py",
+        "type": "zero_bs",
+        "severity": "high",
+        "description": "Fake/mock implementation of _simulate_command_execution (lines 235-249)",
+        "location": "lines 235-249: _simulate_command_execution with time.sleep(random)",
+        "improvement": "Remove simulation. Either integrate real Claude API or remove this abstraction entirely.",
+        "effort": "large",
+        "philosophy_principle": "Zero-BS: No fake APIs or mock implementations in production code"
+      },
+      {
+        "file": "claude_session.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "Complex timeout handling with threading adds significant complexity",
+        "location": "lines 207-233: _execute_with_timeout using thread.join(timeout)",
+        "improvement": "Consider using asyncio or simpler timeout mechanisms. Threading for timeout is heavy-handed.",
+        "effort": "large",
+        "philosophy_principle": "Occam's Razor: Simpler timeout approach exists"
+      },
+      {
+        "file": "claude_session.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "Heartbeat monitoring thread may be over-engineering",
+        "location": "lines 128-143: _heartbeat_loop and monitoring infrastructure",
+        "improvement": "Question necessity: Is heartbeat monitoring actually needed? Start without it.",
+        "effort": "medium",
+        "philosophy_principle": "Wabi-sabi minimalism: Add complexity only when needed"
+      },
+      {
+        "file": "claude_session.py",
+        "type": "simplicity",
+        "severity": "low",
+        "description": "Checkpoint system may be unnecessary complexity",
+        "location": "lines 255-274: save_checkpoint/restore_checkpoint",
+        "improvement": "Start without checkpoints. Add only if needed. YAGNI principle.",
+        "effort": "small",
+        "philosophy_principle": "Wabi-sabi minimalism: Avoid future-proofing"
+      },
+      {
+        "file": "file_utils.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "Extensive defensive programming with retries, checksums, atomicity adds significant complexity",
+        "location": "Entire file: 561 lines of defensive I/O utilities",
+        "improvement": "Start simpler. Python's built-in file I/O is robust. Add defensive measures only when specific failures occur.",
+        "effort": "large",
+        "philosophy_principle": "Occam's Razor: Start minimal, grow as needed"
+      },
+      {
+        "file": "file_utils.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "File locking context manager may be unnecessary for single-process use",
+        "location": "lines 80-116: file_lock() context manager",
+        "improvement": "Is multi-process file access a real requirement? If not, remove this complexity.",
+        "effort": "small",
+        "philosophy_principle": "Wabi-sabi minimalism: Don't solve non-existent problems"
+      },
+      {
+        "file": "file_utils.py",
+        "type": "simplicity",
+        "severity": "low",
+        "description": "Checksum verification for every read/write may be overkill",
+        "location": "lines 119-138, 169-175, verify_checksum parameters throughout",
+        "improvement": "Is data corruption a real problem? If not, remove checksum overhead.",
+        "effort": "medium",
+        "philosophy_principle": "Wabi-sabi minimalism: Solve actual problems, not hypothetical ones"
+      },
+      {
+        "file": "file_utils.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "BatchFileOperations adds abstraction layer that may not be needed",
+        "location": "lines 480-561: BatchFileOperations class",
+        "improvement": "Are batch operations a real requirement? Can be added later if needed.",
+        "effort": "small",
+        "philosophy_principle": "YAGNI: You Aren't Gonna Need It"
+      },
+      {
+        "file": "session_manager.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "Session registry adds complexity - could use simpler file-based discovery",
+        "location": "lines 333-348: _load_session_registry and _save_session_registry",
+        "improvement": "Just scan directory for session files. No need for separate registry.",
+        "effort": "medium",
+        "philosophy_principle": "Occam's Razor: Simpler approaches exist"
+      },
+      {
+        "file": "session_manager.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "Auto-save thread adds complexity that may not be needed",
+        "location": "lines 355-372: _start_auto_save and _auto_save_loop",
+        "improvement": "Explicit save is simpler. Auto-save adds threading complexity.",
+        "effort": "medium",
+        "philosophy_principle": "Wabi-sabi minimalism: Simple explicit save better than auto-save thread"
+      },
+      {
+        "file": "session_manager.py",
+        "type": "simplicity",
+        "severity": "low",
+        "description": "Archive functionality may be premature",
+        "location": "lines 239-269: archive_session and cleanup_old_sessions",
+        "improvement": "Start without archival. Add when disk space becomes actual problem.",
+        "effort": "small",
+        "philosophy_principle": "YAGNI: Add features when needed"
+      },
+      {
+        "file": "session_toolkit.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "SessionToolkit adds wrapper layer over SessionManager - may be redundant",
+        "location": "Entire file: wrapper around SessionManager",
+        "improvement": "Does this abstraction provide value? Consider if SessionManager alone is sufficient.",
+        "effort": "large",
+        "philosophy_principle": "Occam's Razor: Minimize abstraction layers"
+      },
+      {
+        "file": "session_toolkit.py",
+        "type": "zero_bs",
+        "severity": "low",
+        "description": "Import from non-existent submodule",
+        "location": "line 213: from .session.file_utils import cleanup_temp_files",
+        "improvement": "Should be: from .file_utils import cleanup_temp_files (no .session subpath)",
+        "effort": "small",
+        "philosophy_principle": "Zero-BS: Code must work"
+      },
+      {
+        "file": "toolkit_logger.py",
+        "type": "simplicity",
+        "severity": "high",
+        "description": "Complex structured logging system with rotation, JSON formatting, operation tracking is over-engineered",
+        "location": "Entire file: 413 lines of logging infrastructure",
+        "improvement": "Python's logging module is sufficient. This is massive over-engineering. Start with basic logging.Logger.",
+        "effort": "large",
+        "philosophy_principle": "Occam's Razor: Start with stdlib logging, add complexity only if needed"
+      },
+      {
+        "file": "toolkit_logger.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "Custom log rotation handler when logging.handlers.RotatingFileHandler exists",
+        "location": "lines 68-138: FileRotatingHandler class",
+        "improvement": "Use stdlib logging.handlers.RotatingFileHandler. Don't reinvent the wheel.",
+        "effort": "medium",
+        "philosophy_principle": "Library vs Custom: Use battle-tested stdlib solution"
+      },
+      {
+        "file": "toolkit_logger.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "Operation tracking system (operation context manager, stack) adds complexity",
+        "location": "lines 300-342: start_operation, end_operation, operation context manager",
+        "improvement": "Simple logging with timestamps is sufficient. Operation tracking can be added layer if needed.",
+        "effort": "medium",
+        "philosophy_principle": "Wabi-sabi minimalism: Start simple, add features when proven necessary"
+      }
+    ],
+    "architectural_concerns": [
+      "Session system is massively over-engineered for current needs",
+      "Multiple abstraction layers (ClaudeSession -> SessionManager -> SessionToolkit) may be excessive",
+      "Fake implementation (_simulate_command_execution) indicates uncertain integration path",
+      "Defensive file utilities (561 lines) solve hypothetical problems, not actual ones",
+      "Logging system (413 lines) far more complex than needed",
+      "Threading used extensively (heartbeat, auto-save, timeouts) adds complexity",
+      "Many 'nice to have' features (checkpoints, archive, rotation) that may never be used"
+    ],
+    "strengths": [
+      "Comprehensive docstrings with examples",
+      "Good use of dataclasses for configuration and state",
+      "Context manager patterns used correctly",
+      "Thread-safety considerations where needed",
+      "File utilities show understanding of atomic operations and data integrity"
+    ]
+  },
+  "context_preservation": {
+    "duplication_analysis": "Two separate context_preservation files exist at different locations with MASSIVE duplication:\n\n1. /Users/ryan/src/azlin/.claude/tools/amplihack/context_preservation.py (383 lines)\n2. /Users/ryan/src/azlin/.claude/tools/amplihack/context_preservation_secure.py (880 lines)\n3. /Users/ryan/src/azlin/.claude/tools/amplihack/memory/context_preservation.py (420 lines)\n\nThe 'secure' version is 2.3x larger with security theater:\n- SecurityConfig class with arbitrary limits (50KB input, 1000 lines, etc.)\n- SecurityValidator with regex timeouts and input sanitization\n- Signal-based timeouts (Unix/macOS only, Windows fallback)\n- HTML escaping in markdown files (unnecessary)\n- Character whitelisting that removes valid Unicode\n\nASSESSMENT: The security additions are NOT genuine security improvements:\n1. Input size limits arbitrary - no threat model\n2. Regex DoS protection overly complex (signal-based)\n3. HTML escaping in markdown files is security theater\n4. Character whitelist breaks legitimate input\n5. All this complexity for processing prompts that come from trusted source (Claude itself)\n\nRECOMMENDATION: Use ONLY the simple version. The 'secure' version is 500 lines of unnecessary complexity without real security benefit.",
+    "quality_issues": [
+      {
+        "file": "context_preservation.py AND context_preservation_secure.py",
+        "type": "zero_bs",
+        "severity": "high",
+        "description": "Massive code duplication - two versions of same functionality",
+        "location": "Entire files - 383 lines vs 880 lines",
+        "improvement": "Delete context_preservation_secure.py. It's security theater, not real security.",
+        "effort": "small",
+        "philosophy_principle": "Zero-BS: No duplicate code, no security theater"
+      },
+      {
+        "file": "context_preservation_secure.py",
+        "type": "simplicity",
+        "severity": "high",
+        "description": "500+ lines of security code without threat model or justification",
+        "location": "lines 31-315: SecurityConfig, SecurityValidator, all safe_regex methods",
+        "improvement": "Remove all security apparatus. These are Claude prompts, not user attacks.",
+        "effort": "large",
+        "philosophy_principle": "Occam's Razor: Complexity must be justified"
+      },
+      {
+        "file": "context_preservation_secure.py",
+        "type": "zero_bs",
+        "severity": "high",
+        "description": "Security theater: HTML escaping markdown files, character whitelists, regex timeouts for trusted input",
+        "location": "lines 118-124, 623-654, 720-762: HTML escaping, sanitization",
+        "improvement": "This is not real security. These prompts come from Claude, a trusted source.",
+        "effort": "large",
+        "philosophy_principle": "Zero-BS: No fake security, no theater"
+      },
+      {
+        "file": "context_preservation_secure.py",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "Signal-based timeout pattern is Unix-specific and overly complex",
+        "location": "lines 158-190, 207-229, etc: signal.SIGALRM with Windows fallbacks",
+        "improvement": "If timeout needed, use simpler mechanisms. But for prompt parsing, timeout is unnecessary.",
+        "effort": "medium",
+        "philosophy_principle": "Occam's Razor: Simpler approaches exist"
+      },
+      {
+        "file": "Both context_preservation files",
+        "type": "simplicity",
+        "severity": "medium",
+        "description": "Complex regex-based parsing of prompts may be over-engineered",
+        "location": "_parse_requirements, _parse_constraints, _parse_success_criteria, _parse_target",
+        "improvement": "Consider simpler structured format (YAML/JSON) instead of parsing freeform text.",
+        "effort": "large",
+        "philosophy_principle": "Occam's Razor: Structured input simpler than regex parsing"
+      },
+      {
+        "file": "Both context_preservation files",
+        "type": "zero_bs",
+        "severity": "low",
+        "description": "Swallowed exceptions in get_original_request (line 240-241 in simple version)",
+        "location": "lines 238-241: except Exception return None",
+        "improvement": "Let exceptions propagate or log them properly.",
+        "effort": "small",
+        "philosophy_principle": "Zero-BS: No swallowed exceptions"
+      },
+      {
+        "file": "memory/context_preservation.py",
+        "type": "modularity",
+        "severity": "high",
+        "description": "Third copy of context preservation logic in memory module - severe duplication",
+        "location": "Entire file overlaps with other two versions",
+        "improvement": "Consolidate. One implementation only.",
+        "effort": "large",
+        "philosophy_principle": "Zero-BS: No duplicate code"
+      }
+    ],
+    "improvement_opportunities": [
+      "DELETE context_preservation_secure.py entirely - it's security theater",
+      "CONSOLIDATE the three context preservation files into ONE clear implementation",
+      "Consider structured format (YAML/JSON) instead of regex parsing freeform text",
+      "Remove all HTML escaping and sanitization - unnecessary for trusted Claude prompts",
+      "Simplify error handling - stop swallowing exceptions",
+      "Document actual threat model if security is genuinely needed"
+    ]
+  },
+  "overall_assessment": {
+    "total_issues_found": 41,
+    "priority_improvements": [
+      "1. CRITICAL: Delete context_preservation_secure.py - 500 lines of security theater without threat model or real benefit",
+      "2. CRITICAL: Remove fake implementation (_simulate_command_execution) from claude_session.py - violates Zero-BS principle",
+      "3. HIGH: Consolidate three copies of context_preservation into single implementation",
+      "4. HIGH: Simplify file_utils.py - 561 lines solving hypothetical problems. Start with simple file I/O, add defenses when actual failures occur",
+      "5. HIGH: Simplify toolkit_logger.py - 413 lines reinventing Python's logging. Use stdlib logging.Logger and logging.handlers",
+      "6. HIGH: Fix import structure - stop using sys.path manipulation in context_preservation.py",
+      "7. MEDIUM: Clarify 'amplihack.memory' dependency - unclear if external package or internal module",
+      "8. MEDIUM: Remove singleton pattern from memory/__init__.py - adds complexity without benefit",
+      "9. MEDIUM: Remove graceful degradation (return None/False) - fail fast and visibly instead",
+      "10. MEDIUM: Replace print() statements with proper logging or exceptions throughout"
+    ],
+    "philosophy_compliance": "POOR - Multiple serious violations:\n\n❌ Zero-BS Violations:\n- Security theater in context_preservation_secure.py (500 lines)\n- Fake/mock implementation (_simulate_command_execution)\n- Swallowed exceptions throughout (print instead of raise)\n- Placeholder function (cleanup_old_context returns 0)\n- Graceful degradation hides failures\n\n❌ Wabi-sabi Minimalism Violations:\n- 561 lines of defensive file I/O for hypothetical problems\n- 413 lines of logging infrastructure reinventing stdlib\n- Heartbeat monitoring, checkpoints, auto-save may be unnecessary\n- Many 'nice to have' features that may never be used\n\n❌ Occam's Razor Violations:\n- Three abstraction layers (ClaudeSession -> SessionManager -> SessionToolkit)\n- Custom log rotation when stdlib solution exists\n- Complex threading for timeouts instead of simpler approaches\n- Session registry when file scanning would suffice\n\n❌ Bricks & Studs Violations:\n- sys.path manipulation indicates broken module boundaries\n- Unclear dependencies (amplihack.memory)\n- Tight coupling through import hacks\n\n✅ STRENGTHS:\n- Good docstrings with examples\n- Proper use of context managers\n- Thread-safety considerations\n- Clean interface designs in some modules",
+    "technical_debt_summary": {
+      "high_priority": {
+        "count": 10,
+        "estimated_effort": "2-3 weeks",
+        "risk": "Code is maintainable but violates core principles. Growing complexity will make future changes harder."
+      },
+      "medium_priority": {
+        "count": 18,
+        "estimated_effort": "1-2 weeks",
+        "risk": "Complexity accumulating. Start simplifying before it becomes unmaintainable."
+      },
+      "low_priority": {
+        "count": 13,
+        "estimated_effort": "3-5 days",
+        "risk": "Minor issues but worth fixing to maintain code quality."
+      }
+    },
+    "recommendation": "MAJOR SIMPLIFICATION REQUIRED\n\nThe memory and session systems show signs of over-engineering:\n\n1. Too many abstraction layers\n2. Solving hypothetical problems instead of actual ones\n3. Security theater without threat model\n4. Reinventing stdlib solutions\n5. Feature bloat (checkpoints, archive, heartbeat, etc.)\n\nRECOMMENDED APPROACH:\n\n1. Start with MINIMAL implementations\n2. Add complexity ONLY when specific problems arise\n3. Use stdlib solutions (logging, file I/O) before custom\n4. Delete security theater\n5. Fix import structure\n6. Make errors visible (fail fast)\n\nThe philosophy says:\n- 'Start minimal, grow as needed'\n- 'It's easier to add complexity later than to remove it'\n- 'Code you don't write has no bugs'\n- 'Favor clarity over cleverness'\n\nThese modules violate all of these principles. They were built for imagined future needs instead of current actual needs."
+  },
+  "discrete_pr_opportunities": [
+    {
+      "title": "Delete security theater from context_preservation_secure.py",
+      "description": "Remove 500 lines of unnecessary security code. The 'secure' version adds complexity without real security benefit for trusted Claude prompts.",
+      "files": ["context_preservation_secure.py"],
+      "effort": "small",
+      "impact": "high",
+      "philosophy": "Zero-BS, Occam's Razor"
+    },
+    {
+      "title": "Remove fake Claude API simulation",
+      "description": "Delete _simulate_command_execution mock. Either integrate real API or remove abstraction.",
+      "files": ["session/claude_session.py"],
+      "effort": "medium",
+      "impact": "high",
+      "philosophy": "Zero-BS: No mock implementations"
+    },
+    {
+      "title": "Consolidate three context_preservation copies",
+      "description": "Merge context_preservation.py, context_preservation_secure.py, and memory/context_preservation.py into single implementation.",
+      "files": ["context_preservation.py", "context_preservation_secure.py", "memory/context_preservation.py"],
+      "effort": "large",
+      "impact": "high",
+      "philosophy": "Zero-BS: No duplicate code"
+    },
+    {
+      "title": "Simplify file_utils to use stdlib",
+      "description": "Replace 561 lines of defensive file I/O with simple stdlib calls. Add defenses only when failures occur.",
+      "files": ["session/file_utils.py"],
+      "effort": "large",
+      "impact": "medium",
+      "philosophy": "Occam's Razor, Wabi-sabi minimalism"
+    },
+    {
+      "title": "Replace custom logging with stdlib",
+      "description": "Replace 413-line ToolkitLogger with Python's logging.Logger and logging.handlers. Massive over-engineering.",
+      "files": ["session/toolkit_logger.py"],
+      "effort": "large",
+      "impact": "medium",
+      "philosophy": "Library vs Custom Code"
+    },
+    {
+      "title": "Fix import structure in memory modules",
+      "description": "Remove sys.path manipulation. Fix amplihack.memory imports to be clear.",
+      "files": ["memory/context_preservation.py", "memory/__init__.py"],
+      "effort": "medium",
+      "impact": "medium",
+      "philosophy": "Bricks & studs: Clean module boundaries"
+    },
+    {
+      "title": "Remove singleton pattern from memory manager",
+      "description": "Let callers instantiate MemoryManager directly. Singleton adds complexity without benefit.",
+      "files": ["memory/__init__.py"],
+      "effort": "medium",
+      "impact": "low",
+      "philosophy": "Wabi-sabi minimalism"
+    },
+    {
+      "title": "Replace print() with proper error handling",
+      "description": "Use logging or raise exceptions instead of print() for errors throughout codebase.",
+      "files": ["memory/__init__.py", "memory/core.py", "memory/interface.py"],
+      "effort": "small",
+      "impact": "medium",
+      "philosophy": "Zero-BS: Proper error handling"
+    },
+    {
+      "title": "Remove graceful degradation - fail fast instead",
+      "description": "Stop returning None/False on errors. Let exceptions propagate so failures are visible.",
+      "files": ["memory/__init__.py", "memory/core.py", "memory/interface.py"],
+      "effort": "medium",
+      "impact": "medium",
+      "philosophy": "Zero-BS: Fail fast and visibly"
+    },
+    {
+      "title": "Remove placeholder cleanup_old_context function",
+      "description": "Either implement or delete. No placeholder functions allowed.",
+      "files": ["memory/context_preservation.py"],
+      "effort": "small",
+      "impact": "low",
+      "philosophy": "Zero-BS: No stubs or placeholders"
+    },
+    {
+      "title": "Simplify session system - remove unnecessary features",
+      "description": "Remove checkpoints, heartbeat monitoring, archive system, auto-save thread. Add back only if proven necessary.",
+      "files": ["session/claude_session.py", "session/session_manager.py"],
+      "effort": "large",
+      "impact": "high",
+      "philosophy": "Wabi-sabi minimalism, YAGNI"
+    },
+    {
+      "title": "Remove SessionToolkit wrapper layer",
+      "description": "Evaluate if SessionToolkit adds value over SessionManager. May be redundant abstraction.",
+      "files": ["session/session_toolkit.py"],
+      "effort": "medium",
+      "impact": "medium",
+      "philosophy": "Occam's Razor: Minimize layers"
+    }
+  ]
+}

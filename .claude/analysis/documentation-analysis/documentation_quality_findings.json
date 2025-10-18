@@ -1,0 +1,182 @@
+[
+  {
+    "file": "/Users/ryan/src/azlin/README.md",
+    "section": "Command Reference Organization",
+    "severity": "medium",
+    "category": "simplicity",
+    "issue": "The main README contains a comprehensive 900+ line command reference that duplicates content from QUICK_REFERENCE.md. This violates the ruthless simplicity principle and makes the README overwhelming for new users.",
+    "suggestion": "Move the detailed command reference to QUICK_REFERENCE.md (as it already exists there), keep only a 'Quick Start' section in README.md with 3-5 most common commands, and link to QUICK_REFERENCE.md for complete documentation. This follows the principle of 'simplest implementation that meets current needs'.",
+    "effort": "medium"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/README.md",
+    "section": "Storage Documentation",
+    "severity": "low",
+    "category": "consistency",
+    "issue": "Storage commands and NFS documentation are embedded in the main README (lines 675-765), but there's also a dedicated docs/STORAGE_README.md file. Content appears duplicated but may drift over time.",
+    "suggestion": "Keep only a brief overview (3-4 lines) and quick example in main README, move all detailed storage documentation to docs/STORAGE_README.md, and add clear cross-reference link. Maintain single source of truth.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/docs/README.md",
+    "section": "Documentation Index Structure",
+    "severity": "low",
+    "category": "coverage",
+    "issue": "The docs/README.md index lists AI_AGENT_GUIDE.md multiple times with different descriptions ('START HERE for AI agents', 'Complete development guide'), which creates confusion about the purpose and may indicate documentation overlap.",
+    "suggestion": "Clarify the specific purpose of AI_AGENT_GUIDE.md in a single entry. Consider whether it overlaps with ARCHITECTURE_SUMMARY.md and consolidate if necessary, following the brick philosophy of single responsibility.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/.claude/workflow/DEFAULT_WORKFLOW.md",
+    "section": "User Preferences Integration",
+    "severity": "medium",
+    "category": "consistency",
+    "issue": "The workflow document mentions 'Always talk like a pirate' as a user preference (line 18 in USER_PREFERENCES.md) but this preference doesn't appear to be integrated or referenced anywhere in the actual workflow steps. This creates inconsistency between stated preferences and implemented behavior.",
+    "suggestion": "Either: (1) Remove the 'pirate communication style' preference as it doesn't align with the project's professional nature and technical focus, or (2) Add a clear note that communication preferences are enforced by the system layer, not workflow steps. Recommend option 1 for simplicity and consistency.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/.claude/context/USER_PREFERENCES.md",
+    "section": "Communication Style Preference",
+    "severity": "high",
+    "category": "consistency",
+    "issue": "The file specifies 'Communication Style: pirate (Always talk like a pirate)' which directly conflicts with the project's professional documentation tone and the mandate in PHILOSOPHY.md to avoid emojis unless requested. This creates confusion about actual communication standards.",
+    "suggestion": "Update USER_PREFERENCES.md to reflect actual project communication standards: 'Communication Style: technical - Clear, professional, direct responses focused on code and architecture'. Remove the pirate preference which appears to be a test/example value that was never cleaned up.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/.claude/context/PHILOSOPHY.md",
+    "section": "Testing Strategy Coverage",
+    "severity": "low",
+    "category": "completeness",
+    "issue": "PHILOSOPHY.md section on Testing Strategy (lines 118-125) provides only high-level principles (emphasis on behavior testing, testing pyramid 60/30/10) but lacks specifics on test implementation patterns, which are extensively documented in tests/README.md. This creates a gap where developers must discover testing patterns elsewhere.",
+    "suggestion": "Add a reference link from PHILOSOPHY.md testing section to tests/README.md and docs/TEST_STRATEGY.md for implementation details. Consider adding 2-3 concrete examples of what 'behavior testing at module boundaries' looks like in practice.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/docs/ARCHITECTURE.md",
+    "section": "Module Count Consistency",
+    "severity": "low",
+    "category": "accuracy",
+    "issue": "ARCHITECTURE.md references 9 core modules in the 'System Architecture' diagram (lines 10-42) but AI_AGENT_GUIDE.md also mentions 9 modules with slightly different descriptions. The actual module count should be verified against the codebase to ensure accuracy.",
+    "suggestion": "Perform a quick verification: count actual modules in src/azlin/modules/ directory and ensure both ARCHITECTURE.md and AI_AGENT_GUIDE.md reflect the same accurate count and module list. Update both documents to maintain consistency.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/specs/requirements.md",
+    "section": "Date Accuracy",
+    "severity": "low",
+    "category": "accuracy",
+    "issue": "The requirements document header states 'Date: October 9, 2025' which is a future date (we are in 2025-10-18 according to system env). This appears to be when requirements were originally written, but the verification date also shows 2025-10-09, suggesting this document hasn't been updated since initial creation despite project evolution.",
+    "suggestion": "Update the document date format to clarify 'Originally Created: 2025-10-09' and add 'Last Reviewed: [current date]' to show the document has been validated against current implementation. This provides better historical context.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/tests/README.md",
+    "section": "Test Count Statistics",
+    "severity": "medium",
+    "category": "accuracy",
+    "issue": "The tests/README.md document claims specific test counts (72 unit tests, 36 integration tests, 12 E2E tests) but these are likely outdated. No evidence of regular updates to keep test counts current as the codebase evolves.",
+    "suggestion": "Either: (1) Remove specific test counts and use ranges ('60+ unit tests'), or (2) Add a script that auto-generates test statistics and update README programmatically. Option 1 is simpler and follows ruthless simplicity. Update to: 'Unit tests (majority of coverage), Integration tests (module interactions), E2E tests (complete workflows)'.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/.claude/context/PATTERNS.md",
+    "section": "Pattern Documentation Length",
+    "severity": "medium",
+    "category": "simplicity",
+    "issue": "PATTERNS.md is 1895 lines long and contains 23 detailed patterns. While comprehensive, this violates the 'ruthless simplicity' principle by making it difficult to find relevant patterns quickly. The file has become a knowledge dump rather than a quick reference.",
+    "suggestion": "Reorganize PATTERNS.md: (1) Create a 'Quick Pattern Index' at the top with one-line summaries and line numbers for each pattern. (2) Consider splitting into multiple files by category (e.g., PATTERNS_TESTING.md, PATTERNS_SECURITY.md, PATTERNS_ARCHITECTURE.md). (3) Move historical/less relevant patterns to PATTERNS_ARCHIVE.md. Keep only the top 10 most frequently referenced patterns in the main file.",
+    "effort": "high"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/.claude/workflow/DEFAULT_WORKFLOW.md",
+    "section": "Workflow Step Duplication",
+    "severity": "medium",
+    "category": "simplicity",
+    "issue": "Step 6 (Refactor and Simplify) and Step 15 (Final Cleanup and Verification) appear to have overlapping responsibilities. Both emphasize cleanup, simplification, removal of unnecessary abstractions, and validation that user requirements are preserved. This redundancy violates the single responsibility principle.",
+    "suggestion": "Consolidate into a single cleanup step after implementation (Step 6) and make Step 15 purely a verification/validation step (no cleanup). Or clarify that Step 6 is 'code-level cleanup' (abstractions, dead code) while Step 15 is 'artifact cleanup' (temp files, test data). Clear differentiation prevents confusion.",
+    "effort": "medium"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/.claude/context/USER_REQUIREMENT_PRIORITY.md",
+    "section": "Practical Application Examples",
+    "severity": "low",
+    "category": "clarity",
+    "issue": "The priority hierarchy is well-defined but lacks concrete workflow integration examples. Developers/agents may understand the hierarchy conceptually but struggle to apply it in practice when requirements conflict.",
+    "suggestion": "Add a 'Practical Decision Tree' section with 3-4 real scenarios from the project history showing step-by-step how to resolve conflicts. For example: 'User says ALL files + Philosophy says simplicity = Resolution: Include ALL files but optimize HOW they are included'. Include the actual PR or issue number for context.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/docs/AI_AGENT_GUIDE.md",
+    "section": "Security Architecture Detail Level",
+    "severity": "low",
+    "category": "consistency",
+    "issue": "The AI_AGENT_GUIDE.md provides detailed security architecture (7-layer defense, command sanitization) starting at line 129, but the main PHILOSOPHY.md only mentions 'Security: Never compromise on security fundamentals' without elaboration. This creates inconsistency in where security guidance lives.",
+    "suggestion": "Add a 'Security Principles' subsection to PHILOSOPHY.md that summarizes the core security principles (no credentials in code, delegate auth, validate inputs, sanitize outputs) and references AI_AGENT_GUIDE.md for implementation details. This maintains PHILOSOPHY.md as the complete high-level guide while keeping implementation details in AI_AGENT_GUIDE.md.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/.claude/context/PROJECT.md",
+    "section": "Hackathon Context Accuracy",
+    "severity": "medium",
+    "category": "accuracy",
+    "issue": "PROJECT.md identifies this as 'Microsoft Hackathon 2025' project (line 180) and states 'Phase: Active Development', but the main README.md and other documentation make no mention of this hackathon context. This creates confusion about the project's actual status and purpose.",
+    "suggestion": "Clarify the project context: Is this actually a hackathon project or is PROJECT.md outdated? If it's a hackathon project, add this context to the main README.md for transparency. If PROJECT.md is aspirational/template content, update it to reflect the actual project (azlin - Azure VM provisioning) rather than generic 'Agentic Coding Framework' content.",
+    "effort": "low"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/.claude/context/DISCOVERIES.md",
+    "section": "Entries Chronology and Maintenance",
+    "severity": "low",
+    "category": "coverage",
+    "issue": "DISCOVERIES.md shows entries with dates (2025-09-26, 2025-09-23, 2025-01-23) but there's no clear pattern of regular updates despite the project being actively developed. This suggests discoveries are documented reactively rather than proactively, potentially losing valuable insights.",
+    "suggestion": "Add a note at the top of DISCOVERIES.md encouraging proactive documentation: 'When you solve a non-obvious problem or learn something surprising, add it here immediately. Don't wait for reflection/review.' Consider adding a '/amplihack:discover' command that makes it easy to append new discoveries without opening the file manually.",
+    "effort": "medium"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/README.md",
+    "section": "Feature Organization and User Journey",
+    "severity": "medium",
+    "category": "clarity",
+    "issue": "The README jumps between conceptual overview (lines 1-100), detailed command reference (lines 196-800+), and then back to advanced usage. This creates a non-linear reading experience that makes it hard for new users to follow a clear path from installation to first use.",
+    "suggestion": "Reorganize README to follow a clear user journey: (1) What is azlin? (2) Prerequisites, (3) Installation, (4) Your first VM (single example), (5) Common workflows (3-5 scenarios), (6) Link to full command reference. Move the extensive command catalog entirely to QUICK_REFERENCE.md. Follow the '80/20 principle' - README should cover the 20% of features that 80% of users need.",
+    "effort": "high"
+  },
+  {
+    "file": "Cross-document",
+    "section": "VM Provisioning Time Claims",
+    "severity": "low",
+    "category": "consistency",
+    "issue": "Multiple documents make claims about VM provisioning time: README.md says '4-7 minutes', specs/requirements.md says '< 10 minutes' (REQ-PERF-001), and ARCHITECTURE.md shows detailed breakdown suggesting 7-9 minutes. These varying claims create uncertainty about actual performance.",
+    "suggestion": "Establish a single authoritative performance specification: 'Typical provisioning time: 7-9 minutes (can vary from 5-12 minutes based on Azure region load and VM size)'. Use this consistently across all documentation. Document the breakdown in ARCHITECTURE.md, reference it from other docs. Validate periodically and update if Azure performance characteristics change.",
+    "effort": "low"
+  },
+  {
+    "file": "Cross-document",
+    "section": "Tool Count: 9 vs 12 vs 'multiple'",
+    "severity": "low",
+    "category": "accuracy",
+    "issue": "Different documents cite different numbers of development tools installed: README.md header says '12 essential development tools', specs/requirements.md lists 9 tools (REQ-TOOLS-001), ARCHITECTURE.md mentions '9 dev tools'. This inconsistency undermines credibility.",
+    "suggestion": "Conduct an audit of the actual cloud-init script to count exact tools installed. Update all documentation to use the same accurate count. If there are 9 core tools + 3 AI CLI tools, clarify this breakdown consistently: '9 development tools + 3 AI coding assistants = 12 total tools' across all documents.",
+    "effort": "low"
+  },
+  {
+    "file": "Cross-document",
+    "section": "Philosophy Enforcement Mechanisms",
+    "severity": "medium",
+    "category": "coverage",
+    "issue": "PHILOSOPHY.md establishes strong principles (ruthless simplicity, zero-BS implementation, etc.) but there's no documented process for enforcing these principles during development. The workflow references cleanup agents, but how they verify philosophy compliance isn't clear.",
+    "suggestion": "Create a PHILOSOPHY_CHECKLIST.md that translates abstract principles into concrete yes/no questions developers/agents can use during review. For example: 'Are there any TODO comments? (Should be NO)', 'Does every function work or not exist? (Should be YES)', 'Can each module be regenerated from its README? (Should be YES)'. Reference this checklist from DEFAULT_WORKFLOW.md Step 13 (Philosophy Compliance Check).",
+    "effort": "medium"
+  },
+  {
+    "file": "/Users/ryan/src/azlin/.claude/context/",
+    "section": "Missing Context Files",
+    "severity": "low",
+    "category": "coverage",
+    "issue": "The context directory contains 9 markdown files but there's no INDEX.md or CONTEXT_README.md that explains what each file is for and in what order to read them. New contributors or AI agents must discover the structure through trial and error.",
+    "suggestion": "Create .claude/context/README.md that: (1) Explains the purpose of the context directory, (2) Lists all context files with one-sentence descriptions, (3) Provides recommended reading order for different audiences (new contributors, AI agents, reviewers), (4) Clarifies the relationship between context files and workflow files. This should take <100 lines following simplicity principles.",
+    "effort": "low"
+  }
+]

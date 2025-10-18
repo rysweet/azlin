@@ -1,0 +1,507 @@
+{
+  "catalog_metadata": {
+    "created": "2025-10-18",
+    "project": "azlin",
+    "phase": "Phase 1 - Reconnaissance Complete",
+    "total_opportunities": 27,
+    "high_priority": 8,
+    "medium_priority": 12,
+    "low_priority": 7
+  },
+  "executive_summary": {
+    "hooks_analysis": {
+      "files_analyzed": 8,
+      "total_issues": 58,
+      "discrete_prs": 8,
+      "severity_breakdown": {
+        "high": 12,
+        "medium": 33,
+        "low": 13
+      }
+    },
+    "memory_session_analysis": {
+      "files_analyzed": 17,
+      "total_issues": 41,
+      "discrete_prs": 12,
+      "critical_findings": [
+        "Security theater (880 lines to delete)",
+        "Fake Claude API implementation",
+        "Massive duplication (3x context_preservation)",
+        "Over-engineering (file utilities, custom logging)"
+      ]
+    },
+    "documentation_analysis": {
+      "quality_score": "85%",
+      "completeness_score": "65%",
+      "discrete_prs": 9,
+      "critical_gaps": [
+        "Missing amplihack framework overview",
+        "Missing hook system guide",
+        "Incomplete command reference"
+      ]
+    },
+    "test_coverage_analysis": {
+      "total_tests": 753,
+      "critical_gaps": 3,
+      "pyramid_imbalance": "86.5/4.5/1.5 vs target 60/30/10",
+      "discrete_prs": 10,
+      "highest_priority": "XPIA Defense security tests (0% coverage)"
+    }
+  },
+  "high_priority_opportunities": [
+    {
+      "id": "HP-01",
+      "title": "Delete Security Theater in context_preservation_secure.py",
+      "category": "zero_bs_violation",
+      "severity": "critical",
+      "effort": "1 hour",
+      "impact": "Remove 880 lines of unnecessary code",
+      "philosophy_principle": "Zero-BS (no security theater), Ruthless Simplicity",
+      "source": "Memory & Session Analysis",
+      "description": "context_preservation_secure.py implements 880 lines of fake security with no threat model. HTML escaping markdown files, arbitrary limits with no rationale.",
+      "improvement": "DELETE ENTIRE FILE. Use standard context_preservation.py with proper security practices if needed.",
+      "files_affected": [".claude/tools/amplihack/context_preservation_secure.py"],
+      "estimated_loc_reduction": 880
+    },
+    {
+      "id": "HP-02",
+      "title": "Remove Fake Claude API Implementation",
+      "category": "zero_bs_violation",
+      "severity": "critical",
+      "effort": "1 day",
+      "impact": "Replace mock implementation with real integration",
+      "philosophy_principle": "Zero-BS (no fake APIs or mock implementations)",
+      "source": "Memory & Session Analysis",
+      "description": "_simulate_command_execution uses time.sleep(random) to fake Claude API responses. Violates explicit Zero-BS principle.",
+      "improvement": "Remove fake implementation. Either implement real Claude API integration or remove feature entirely.",
+      "files_affected": [".claude/tools/amplihack/session/examples/advanced_scenarios.py"],
+      "estimated_loc_reduction": 50,
+      "blockers": ["Requires real Claude API credentials or feature removal decision"]
+    },
+    {
+      "id": "HP-03",
+      "title": "Implement XPIA Defense Security Tests (0% Coverage)",
+      "category": "test_coverage",
+      "severity": "critical",
+      "effort": "2 days",
+      "impact": "Verify security claims (<100ms, >99% accuracy)",
+      "philosophy_principle": "Quality over Speed, Zero-BS (verify claims with tests)",
+      "source": "Test Coverage Analysis",
+      "description": "XPIA Defense module claims <100ms processing and >99% accuracy but has ZERO tests. Critical security vulnerability.",
+      "improvement": "Implement comprehensive security test suite with performance benchmarks and accuracy validation.",
+      "files_affected": [
+        ".claude/tools/xpia/",
+        "tests/test_xpia_defense.py (create)"
+      ],
+      "estimated_loc_addition": 300,
+      "templates_available": "TEST_TEMPLATES.md - Template 1"
+    },
+    {
+      "id": "HP-04",
+      "title": "Remove All Exception Swallowing in Hooks",
+      "category": "zero_bs_violation",
+      "severity": "high",
+      "effort": "2-3 days",
+      "impact": "Fix 23 instances of swallowed exceptions across 8 files",
+      "philosophy_principle": "Zero-BS (fail fast during development, transparent errors)",
+      "source": "Hooks Quality Analysis",
+      "description": "Hooks swallow exceptions with bare except blocks, silent try/except/pass, and 'fail silently' comments. Violates fail-fast principle.",
+      "improvement": "Replace bare except blocks with specific exception types or remove entirely. Let errors propagate during development.",
+      "files_affected": [
+        ".claude/tools/amplihack/hooks/hook_processor.py",
+        ".claude/tools/amplihack/hooks/post_edit_format.py",
+        ".claude/tools/amplihack/hooks/pre_compact.py",
+        ".claude/tools/amplihack/hooks/session_start.py",
+        ".claude/tools/amplihack/hooks/stop_azure_continuation.py",
+        ".claude/tools/amplihack/hooks/stop.py"
+      ],
+      "estimated_loc_changed": 100
+    },
+    {
+      "id": "HP-05",
+      "title": "Consolidate Context Preservation Duplication",
+      "category": "simplicity_violation",
+      "severity": "high",
+      "effort": "2-3 days",
+      "impact": "Eliminate duplicate logic across 3 implementations",
+      "philosophy_principle": "Ruthless Simplicity, DRY",
+      "source": "Memory & Session Analysis",
+      "description": "THREE separate implementations of context_preservation logic with overlapping functionality and inconsistent behavior.",
+      "improvement": "Consolidate into single canonical implementation. Choose best parts from each, eliminate duplication.",
+      "files_affected": [
+        ".claude/tools/amplihack/context_preservation.py",
+        ".claude/tools/amplihack/context_preservation_secure.py",
+        ".claude/tools/amplihack/memory/context_preservation.py"
+      ],
+      "estimated_loc_reduction": 400,
+      "dependencies": ["HP-01 (delete secure version first)"]
+    },
+    {
+      "id": "HP-06",
+      "title": "Implement Amplihack Hooks Tests (0% Coverage)",
+      "category": "test_coverage",
+      "severity": "high",
+      "effort": "3 days",
+      "impact": "Test 8 hook modules with file I/O and path validation",
+      "philosophy_principle": "Quality over Speed, Bricks & Studs (test at module boundaries)",
+      "source": "Test Coverage Analysis",
+      "description": "Core extension mechanism (8 hook modules) has ZERO test coverage. High risk for production failures with file operations.",
+      "improvement": "Implement comprehensive hook test suite covering all 8 hooks with integration tests.",
+      "files_affected": [
+        ".claude/tools/amplihack/hooks/ (all files)",
+        "tests/test_hooks/ (create directory)"
+      ],
+      "estimated_loc_addition": 500,
+      "templates_available": "TEST_TEMPLATES.md - Template 2"
+    },
+    {
+      "id": "HP-07",
+      "title": "Implement Reflection System Tests (0% Coverage)",
+      "category": "test_coverage",
+      "severity": "high",
+      "effort": "3 days",
+      "impact": "Test state machine (7 states) and security filtering",
+      "philosophy_principle": "Quality over Speed, Zero-BS (verify state transitions)",
+      "source": "Test Coverage Analysis",
+      "description": "Reflection system with complex state machine (7 states) and security filtering for data leakage has ZERO tests.",
+      "improvement": "Implement state machine tests, security filtering tests, and integration tests for all 9 reflection modules.",
+      "files_affected": [
+        ".claude/tools/amplihack/reflection/ (all files)",
+        "tests/test_reflection/ (create directory)"
+      ],
+      "estimated_loc_addition": 400,
+      "templates_available": "TEST_TEMPLATES.md - Template 3"
+    },
+    {
+      "id": "HP-08",
+      "title": "Create Amplihack Framework Overview Documentation",
+      "category": "documentation",
+      "severity": "high",
+      "effort": "1 day",
+      "impact": "Provide missing 'forest view' of framework architecture",
+      "philosophy_principle": "Bricks & Studs (document architecture and contracts)",
+      "source": "Documentation Quality Analysis",
+      "description": "Amplihack framework lacks central overview document. Individual pieces documented but no cohesive whole.",
+      "improvement": "Create .claude/tools/amplihack/README.md explaining framework purpose, architecture, key components, and integration points.",
+      "files_affected": [".claude/tools/amplihack/README.md (create)"],
+      "estimated_loc_addition": 300
+    }
+  ],
+  "medium_priority_opportunities": [
+    {
+      "id": "MP-01",
+      "title": "Simplify session_start.py Complexity",
+      "category": "simplicity_violation",
+      "severity": "medium",
+      "effort": "2 days",
+      "impact": "Remove duplicate code, fix import fallbacks (7 issues)",
+      "philosophy_principle": "Ruthless Simplicity, Zero-BS (no dead code)",
+      "source": "Hooks Quality Analysis",
+      "files_affected": [".claude/tools/amplihack/hooks/session_start.py"],
+      "estimated_loc_reduction": 50
+    },
+    {
+      "id": "MP-02",
+      "title": "Fix pre_compact.py Session Directory Override Hack",
+      "category": "simplicity_violation",
+      "severity": "medium",
+      "effort": "2 days",
+      "impact": "Fix root cause instead of workaround (6 issues)",
+      "philosophy_principle": "Ruthless Simplicity (fix root cause, not symptoms)",
+      "source": "Hooks Quality Analysis",
+      "files_affected": [
+        ".claude/tools/amplihack/hooks/pre_compact.py",
+        ".claude/tools/amplihack/memory/context_preservation.py"
+      ],
+      "estimated_loc_changed": 30
+    },
+    {
+      "id": "MP-03",
+      "title": "Consolidate Hook Infrastructure (HookProcessor adoption)",
+      "category": "modularity_issue",
+      "severity": "medium",
+      "effort": "2 days",
+      "impact": "Ensure all hooks use HookProcessor base class (5 issues)",
+      "philosophy_principle": "Bricks & Studs (consistent module contracts)",
+      "source": "Hooks Quality Analysis",
+      "files_affected": [
+        ".claude/tools/amplihack/hooks/post_edit_format.py",
+        ".claude/tools/amplihack/hooks/stop_azure_continuation.py"
+      ],
+      "estimated_loc_changed": 50
+    },
+    {
+      "id": "MP-04",
+      "title": "Simplify File Utilities Over-Engineering",
+      "category": "simplicity_violation",
+      "severity": "medium",
+      "effort": "2-3 days",
+      "impact": "Reduce 561 lines to ~50 lines using stdlib",
+      "philosophy_principle": "Occam's Razor (simplest solution), Zero-BS (no imagined problems)",
+      "source": "Memory & Session Analysis",
+      "files_affected": [".claude/tools/amplihack/session/file_utils.py"],
+      "estimated_loc_reduction": 510
+    },
+    {
+      "id": "MP-05",
+      "title": "Replace Custom Logging with Python stdlib",
+      "category": "simplicity_violation",
+      "severity": "medium",
+      "effort": "2-3 days",
+      "impact": "Reduce 413 lines to ~20 lines using stdlib logging",
+      "philosophy_principle": "Ruthless Simplicity (don't reinvent stdlib)",
+      "source": "Memory & Session Analysis",
+      "files_affected": [".claude/tools/amplihack/session/toolkit_logger.py"],
+      "estimated_loc_reduction": 390
+    },
+    {
+      "id": "MP-06",
+      "title": "Remove Dead Code in Hooks",
+      "category": "zero_bs_violation",
+      "severity": "medium",
+      "effort": "1 day",
+      "impact": "Remove unused variables, duplicate executions, dead methods (4 issues)",
+      "philosophy_principle": "Zero-BS (no dead code)",
+      "source": "Hooks Quality Analysis",
+      "files_affected": [
+        ".claude/tools/amplihack/hooks/post_tool_use.py",
+        ".claude/tools/amplihack/hooks/pre_compact.py",
+        ".claude/tools/amplihack/hooks/session_start.py"
+      ],
+      "estimated_loc_reduction": 30
+    },
+    {
+      "id": "MP-07",
+      "title": "Simplify post_edit_format.py Formatter Handling",
+      "category": "simplicity_violation",
+      "severity": "medium",
+      "effort": "1 day",
+      "impact": "Unify formatter configuration, remove duplication (7 issues)",
+      "philosophy_principle": "Ruthless Simplicity",
+      "source": "Hooks Quality Analysis",
+      "files_affected": [".claude/tools/amplihack/hooks/post_edit_format.py"],
+      "estimated_loc_reduction": 40
+    },
+    {
+      "id": "MP-08",
+      "title": "Create Hook System Comprehensive Guide",
+      "category": "documentation",
+      "severity": "medium",
+      "effort": "1 day",
+      "impact": "Document hook architecture, lifecycle, and development guide",
+      "philosophy_principle": "Bricks & Studs (document extension points)",
+      "source": "Documentation Quality Analysis",
+      "files_affected": [".claude/tools/HOOKS.md (create)"],
+      "estimated_loc_addition": 400
+    },
+    {
+      "id": "MP-09",
+      "title": "Create Complete Command Reference",
+      "category": "documentation",
+      "severity": "medium",
+      "effort": "1 day",
+      "impact": "Catalog and standardize all 11+ slash commands",
+      "philosophy_principle": "Clear documentation of public interfaces",
+      "source": "Documentation Quality Analysis",
+      "files_affected": [".claude/commands/README.md (create)"],
+      "estimated_loc_addition": 300
+    },
+    {
+      "id": "MP-10",
+      "title": "Balance Testing Pyramid (6x Integration, 7x E2E)",
+      "category": "test_coverage",
+      "severity": "medium",
+      "effort": "4-6 weeks",
+      "impact": "Rebalance from 86.5/4.5/1.5 to target 60/30/10",
+      "philosophy_principle": "Testing Pyramid (60% unit, 30% integration, 10% E2E)",
+      "source": "Test Coverage Analysis",
+      "files_affected": ["tests/ (multiple files)"],
+      "estimated_loc_addition": 2000
+    },
+    {
+      "id": "MP-11",
+      "title": "Fix sys.path Manipulation in Memory Modules",
+      "category": "modularity_issue",
+      "severity": "medium",
+      "effort": "1 day",
+      "impact": "Fix broken import structure",
+      "philosophy_principle": "Bricks & Studs (clean dependencies)",
+      "source": "Memory & Session Analysis",
+      "files_affected": [
+        ".claude/tools/amplihack/memory/__init__.py",
+        ".claude/tools/amplihack/memory/core.py"
+      ],
+      "estimated_loc_changed": 20
+    },
+    {
+      "id": "MP-12",
+      "title": "Archive Analysis Reports (Root Directory Cleanup)",
+      "category": "project_organization",
+      "severity": "medium",
+      "effort": "30 minutes",
+      "impact": "Clean root directory clutter",
+      "philosophy_principle": "Ruthless Simplicity (organized structure)",
+      "source": "Documentation Quality Analysis",
+      "files_affected": [
+        "RECONNAISSANCE_*.md",
+        "STREAM_*.json",
+        "PROJECT_*.md",
+        "HOOK_*.md",
+        "DOCUMENTATION_*.md",
+        "*_REPORT.md"
+      ],
+      "estimated_action": "Move to .claude/analysis/ directory"
+    }
+  ],
+  "low_priority_opportunities": [
+    {
+      "id": "LP-01",
+      "title": "Review and Simplify/Remove reflection.py",
+      "category": "simplicity_violation",
+      "severity": "low",
+      "effort": "2 days",
+      "impact": "Simplify pattern detection or remove if unused (5 issues)",
+      "philosophy_principle": "Zero-BS (no unused code)",
+      "source": "Hooks Quality Analysis",
+      "files_affected": [".claude/tools/amplihack/hooks/reflection.py"],
+      "rationale": "If reflection metrics not actively monitored, remove entire hook",
+      "estimated_loc_reduction": 250
+    },
+    {
+      "id": "LP-02",
+      "title": "Clarify Error Handling Defaults in Hooks",
+      "category": "error_handling",
+      "severity": "low",
+      "effort": "1 day",
+      "impact": "Document fail-safe behaviors (3 issues)",
+      "philosophy_principle": "Transparent error handling",
+      "source": "Hooks Quality Analysis",
+      "files_affected": [
+        ".claude/tools/amplihack/hooks/stop.py",
+        ".claude/tools/amplihack/hooks/stop_azure_continuation.py"
+      ],
+      "estimated_loc_addition": 50
+    },
+    {
+      "id": "LP-03",
+      "title": "Create Philosophy in Practice Guide",
+      "category": "documentation",
+      "severity": "low",
+      "effort": "2 days",
+      "impact": "Add annotated code examples for philosophy principles",
+      "philosophy_principle": "Clear teaching of philosophy",
+      "source": "Documentation Quality Analysis",
+      "files_affected": [".claude/context/PHILOSOPHY_IN_PRACTICE.md (create)"],
+      "estimated_loc_addition": 500
+    },
+    {
+      "id": "LP-04",
+      "title": "Add Table of Contents to PATTERNS.md",
+      "category": "documentation",
+      "severity": "low",
+      "effort": "1 hour",
+      "impact": "Improve navigation of 1,895-line file",
+      "philosophy_principle": "Clear documentation structure",
+      "source": "Documentation Quality Analysis",
+      "files_affected": [".claude/context/PATTERNS.md"],
+      "estimated_loc_addition": 50
+    },
+    {
+      "id": "LP-05",
+      "title": "Organize/Index DISCOVERIES.md (21K+ Lines)",
+      "category": "documentation",
+      "severity": "low",
+      "effort": "2 days",
+      "impact": "Make massive discovery log searchable",
+      "philosophy_principle": "Useful documentation structure",
+      "source": "Documentation Quality Analysis",
+      "files_affected": [".claude/context/DISCOVERIES.md"],
+      "estimated_loc_addition": 200
+    },
+    {
+      "id": "LP-06",
+      "title": "Clarify Amplihack-Azlin Relationship in README",
+      "category": "documentation",
+      "severity": "low",
+      "effort": "1 hour",
+      "impact": "Explain how framework relates to CLI tool",
+      "philosophy_principle": "Clear architecture documentation",
+      "source": "Documentation Quality Analysis",
+      "files_affected": ["README.md"],
+      "estimated_loc_addition": 100
+    },
+    {
+      "id": "LP-07",
+      "title": "Add Visual Diagrams for Brick Architecture",
+      "category": "documentation",
+      "severity": "low",
+      "effort": "1 day",
+      "impact": "Improve philosophy teaching with visuals",
+      "philosophy_principle": "Clear communication of bricks & studs pattern",
+      "source": "Documentation Quality Analysis",
+      "files_affected": [".claude/context/PHILOSOPHY.md"],
+      "estimated_loc_addition": 100
+    }
+  ],
+  "parallel_execution_plan": {
+    "wave_1_critical_security": {
+      "can_run_parallel": true,
+      "opportunities": ["HP-01", "HP-02", "HP-03"],
+      "total_effort": "4 days",
+      "rationale": "Security issues - highest priority, independent worktrees"
+    },
+    "wave_2_critical_testing": {
+      "can_run_parallel": true,
+      "opportunities": ["HP-06", "HP-07"],
+      "total_effort": "6 days",
+      "rationale": "Critical test coverage gaps, independent modules",
+      "dependencies": ["Wave 1 complete for better codebase understanding"]
+    },
+    "wave_3_hooks_cleanup": {
+      "can_run_parallel": true,
+      "opportunities": ["HP-04", "MP-01", "MP-02", "MP-03", "MP-06", "MP-07"],
+      "total_effort": "10 days",
+      "rationale": "Hook system improvements, mostly independent files"
+    },
+    "wave_4_memory_simplification": {
+      "can_run_parallel": true,
+      "opportunities": ["HP-05", "MP-04", "MP-05", "MP-11"],
+      "total_effort": "8 days",
+      "rationale": "Memory/session module improvements",
+      "dependencies": ["HP-01 complete (delete secure version first)"]
+    },
+    "wave_5_documentation": {
+      "can_run_parallel": true,
+      "opportunities": ["HP-08", "MP-08", "MP-09", "LP-03", "LP-04", "LP-06"],
+      "total_effort": "6 days",
+      "rationale": "Documentation improvements, all independent"
+    },
+    "wave_6_testing_pyramid": {
+      "can_run_parallel": false,
+      "opportunities": ["MP-10"],
+      "total_effort": "4-6 weeks",
+      "rationale": "Long-term test balancing, sequential development recommended"
+    },
+    "wave_7_low_priority_cleanup": {
+      "can_run_parallel": true,
+      "opportunities": ["LP-01", "LP-02", "LP-05", "LP-07", "MP-12"],
+      "total_effort": "7 days",
+      "rationale": "Nice-to-have improvements, low risk"
+    }
+  },
+  "estimated_impact": {
+    "total_loc_reduction": 2380,
+    "total_loc_addition": 4850,
+    "net_loc_change": 2470,
+    "total_estimated_effort": "15-17 weeks",
+    "parallel_execution_time": "8-10 weeks",
+    "high_priority_completion": "2-3 weeks",
+    "philosophy_compliance_improvement": "Poor (40%) → Good (85%)"
+  },
+  "next_immediate_actions": [
+    "HP-01: Delete security theater (1 hour)",
+    "HP-03: Implement XPIA security tests (2 days)",
+    "HP-08: Create framework overview doc (1 day)",
+    "MP-12: Archive analysis reports (30 minutes)"
+  ]
+}

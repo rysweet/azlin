@@ -14,12 +14,12 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 # Clean import setup
 sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
-    from paths import get_project_root
+    from amplihack import get_project_root
 
     project_root = get_project_root()
     sys.path.insert(0, str(project_root / "src"))
@@ -34,7 +34,7 @@ from amplihack.memory import MemoryManager, MemoryType
 class ContextPreserver:
     """Manages context preservation for Claude agent workflows."""
 
-    def __init__(self, session_id: str | None = None):
+    def __init__(self, session_id: Optional[str] = None):
         """Initialize context preserver.
 
         Args:
@@ -50,10 +50,10 @@ class ContextPreserver:
         self,
         agent_id: str,
         conversation_summary: str,
-        key_decisions: list[str],
-        active_tasks: list[str],
-        metadata: dict[str, Any] | None = None,
-    ) -> str | None:
+        key_decisions: List[str],
+        active_tasks: List[str],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
         """Preserve current conversation context.
 
         Stores a comprehensive snapshot of the current conversation state
@@ -104,11 +104,11 @@ class ContextPreserver:
         self,
         workflow_name: str,
         current_step: str,
-        completed_steps: list[str],
-        pending_steps: list[str],
-        step_results: dict[str, Any],
-        workflow_metadata: dict[str, Any] | None = None,
-    ) -> str | None:
+        completed_steps: List[str],
+        pending_steps: List[str],
+        step_results: Dict[str, Any],
+        workflow_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
         """Preserve workflow execution state.
 
         Stores the current state of a multi-step workflow including
@@ -167,10 +167,10 @@ class ContextPreserver:
         decision_title: str,
         decision_description: str,
         reasoning: str,
-        alternatives_considered: list[str],
-        impact_assessment: str | None = None,
-        related_decisions: list[str] | None = None,
-    ) -> str | None:
+        alternatives_considered: List[str],
+        impact_assessment: Optional[str] = None,
+        related_decisions: Optional[List[str]] = None,
+    ) -> Optional[str]:
         """Preserve agent decision with full context.
 
         Stores a comprehensive record of an agent's decision including
@@ -223,7 +223,9 @@ class ContextPreserver:
             metadata={"context_type": "decision", "decision_agent": agent_id},
         )
 
-    def restore_conversation_context(self, agent_id: str | None = None) -> dict[str, Any] | None:
+    def restore_conversation_context(
+        self, agent_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Restore the most recent conversation context.
 
         Retrieves the latest conversation context for continued operation.
@@ -257,7 +259,7 @@ class ContextPreserver:
 
         return None
 
-    def restore_workflow_state(self, workflow_name: str) -> dict[str, Any] | None:
+    def restore_workflow_state(self, workflow_name: str) -> Optional[Dict[str, Any]]:
         """Restore workflow execution state.
 
         Retrieves the latest state for a specific workflow.
@@ -292,8 +294,8 @@ class ContextPreserver:
         return None
 
     def get_decision_history(
-        self, agent_id: str | None = None, limit: int = 10
-    ) -> list[dict[str, Any]]:
+        self, agent_id: Optional[str] = None, limit: int = 10
+    ) -> List[Dict[str, Any]]:
         """Get agent decision history.
 
         Retrieves recent decisions made by agents for context awareness.
@@ -335,38 +337,15 @@ class ContextPreserver:
 
         return decision_history
 
-    def cleanup_old_context(self, older_than_days: int = 7) -> int:
-        """Clean up old context entries.
-
-        Removes context memories older than specified days to prevent
-        database growth and maintain performance.
-
-        Args:
-            older_than_days: Remove context older than this many days
-
-        Returns:
-            Number of cleaned up contexts
-
-        Example:
-            cleaned = preserver.cleanup_old_context(older_than_days=30)
-            print(f"Cleaned up {cleaned} old context entries")
-        """
-        if not self.memory:
-            return 0
-
-        # This would require additional database methods for cleanup
-        # For now, return 0 as placeholder
-        return 0
-
 
 # Convenience functions for common operations
 def preserve_current_context(
     agent_id: str,
     summary: str,
-    decisions: list[str],
-    tasks: list[str],
-    session_id: str | None = None,
-) -> str | None:
+    decisions: List[str],
+    tasks: List[str],
+    session_id: Optional[str] = None,
+) -> Optional[str]:
     """Convenience function to preserve current context.
 
     Args:
@@ -394,8 +373,8 @@ def preserve_current_context(
 
 
 def restore_latest_context(
-    agent_id: str | None = None, session_id: str | None = None
-) -> dict[str, Any] | None:
+    agent_id: Optional[str] = None, session_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
     """Convenience function to restore latest context.
 
     Args:

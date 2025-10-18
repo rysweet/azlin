@@ -1,0 +1,572 @@
+{
+  "analysis_metadata": {
+    "stream": "1B.5",
+    "focus": "CLI Commands & Workflows",
+    "timestamp": "2025-10-18",
+    "files_analyzed": 22,
+    "analyzer": "Deep Analysis Mode"
+  },
+  "summary": {
+    "total_issues": 53,
+    "by_severity": {
+      "high": 23,
+      "medium": 18,
+      "low": 12
+    },
+    "by_category": {
+      "ruthless_simplicity": 15,
+      "zero_bs": 19,
+      "usability": 11,
+      "consistency": 8
+    }
+  },
+  "findings": [
+    {
+      "file": ".claude/commands/amplihack/auto.md",
+      "line": 43,
+      "severity": "high",
+      "category": "ruthless_simplicity",
+      "issue": "Overly complex bash argument parsing with BASH_REMATCH regex when simpler approach exists",
+      "suggestion": "Replace complex bash parsing with direct argument passthrough. The amplihack CLI should handle argument parsing, not the command file.",
+      "effort": "low",
+      "rationale": "Lines 49-60 implement manual argument parsing in bash that duplicates logic the CLI tool should handle. This violates 'Start minimal, grow as needed' principle."
+    },
+    {
+      "file": ".claude/commands/amplihack/auto.md",
+      "line": 89,
+      "severity": "medium",
+      "category": "usability",
+      "issue": "References non-existent documentation file 'docs/AUTO_MODE.md'",
+      "suggestion": "Either create the referenced documentation or remove the reference. Currently it's a dead link.",
+      "effort": "low",
+      "rationale": "Violates Zero-BS principle - no placeholder references that lead nowhere."
+    },
+    {
+      "file": ".claude/commands/amplihack/lock.md",
+      "line": 20,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Uses Python code embedded in markdown when a simple bash touch command would suffice",
+      "suggestion": "Replace Python code with: touch .claude/tools/amplihack/.lock_active",
+      "effort": "low",
+      "rationale": "Creates unnecessary complexity. Python imports (os, pathlib) and exception handling for what should be a simple file creation."
+    },
+    {
+      "file": ".claude/commands/amplihack/lock.md",
+      "line": 1,
+      "severity": "high",
+      "category": "zero_bs",
+      "issue": "Lock mechanism lacks documented validation that it actually works. No integration with stop hook.",
+      "suggestion": "Add validation step to test lock prevents stops. Document integration points with stop.py hook.",
+      "effort": "medium",
+      "rationale": "Command promises behavior ('Claude will continue working until unlocked') without documented implementation or verification."
+    },
+    {
+      "file": ".claude/commands/amplihack/unlock.md",
+      "line": 18,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Uses Python pathlib when simple bash rm would work",
+      "suggestion": "Replace Python code with: rm -f .claude/tools/amplihack/.lock_active",
+      "effort": "low",
+      "rationale": "Unnecessary Python dependency for simple file removal. Lines 22-28 have redundant checks (unlink with missing_ok=True, then check exists(), then unlink again)."
+    },
+    {
+      "file": ".claude/commands/amplihack/customize.md",
+      "line": 100,
+      "severity": "high",
+      "category": "ruthless_simplicity",
+      "issue": "Entire command is reinventing configuration management instead of using simple file editing",
+      "suggestion": "Remove this command entirely. Users can directly edit USER_PREFERENCES.md with standard Read/Edit tools. Add a simple template file instead.",
+      "effort": "high",
+      "rationale": "Lines 100-263 implement a complete configuration management system in a command prompt. This violates 'Minimize abstractions' - the underlying tools already exist."
+    },
+    {
+      "file": ".claude/commands/amplihack/customize.md",
+      "line": 237,
+      "severity": "high",
+      "category": "zero_bs",
+      "issue": "Command has detailed error handling spec but no actual implementation",
+      "suggestion": "Either implement the validation in actual code, or simplify to basic file editing instructions.",
+      "effort": "high",
+      "rationale": "Lines 232-238 promise complex error handling that doesn't exist. This is specification without implementation."
+    },
+    {
+      "file": ".claude/commands/amplihack/customize.md",
+      "line": 147,
+      "severity": "medium",
+      "category": "consistency",
+      "issue": "Default template includes MANDATORY ENFORCEMENT language that's inconsistent with project philosophy",
+      "suggestion": "Remove aggressive enforcement language. Trust users and agents to follow preferences without threats.",
+      "effort": "low",
+      "rationale": "Line 149: 'These are NOT advisory - they are REQUIRED behavior that CANNOT be optimized away' contradicts the trust-based philosophy."
+    },
+    {
+      "file": ".claude/commands/amplihack/analyze.md",
+      "line": 12,
+      "severity": "medium",
+      "category": "usability",
+      "issue": "Usage shows /analyze but purpose says comprehensive review - unclear scope",
+      "suggestion": "Clarify: Is this for code analysis or philosophy compliance? Pick one clear purpose.",
+      "effort": "low",
+      "rationale": "Command tries to do both code analysis AND philosophy review. Should have single clear responsibility."
+    },
+    {
+      "file": ".claude/commands/amplihack/analyze.md",
+      "line": 76,
+      "severity": "low",
+      "category": "zero_bs",
+      "issue": "Example output is placeholder text, not real analysis format",
+      "suggestion": "Either provide real example or remove the example section entirely.",
+      "effort": "low",
+      "rationale": "Lines 77-97 show hypothetical output that may not match actual behavior."
+    },
+    {
+      "file": ".claude/commands/amplihack/fix.md",
+      "line": 1,
+      "severity": "high",
+      "category": "ruthless_simplicity",
+      "issue": "Command file is 400 lines attempting to be complete documentation, workflow, and configuration",
+      "suggestion": "Split into: 1) Simple command usage (50 lines), 2) Separate workflow doc, 3) Configuration file",
+      "effort": "high",
+      "rationale": "Violates single responsibility. One command file should not contain complete workflow documentation, examples, integration points, metrics tracking, etc."
+    },
+    {
+      "file": ".claude/commands/amplihack/fix.md",
+      "line": 48,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "Defines ERROR_PATTERNS dict in markdown that doesn't actually exist in code",
+      "suggestion": "Either implement the pattern matching in actual code or document that this is conceptual.",
+      "effort": "medium",
+      "rationale": "Lines 48-62 show Python-style dict that implies implementation but is just documentation."
+    },
+    {
+      "file": ".claude/commands/amplihack/fix.md",
+      "line": 254,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Success Metrics section promises tracking that isn't implemented",
+      "suggestion": "Remove metrics section until tracking is actually implemented, or clearly mark as 'Future'.",
+      "effort": "low",
+      "rationale": "Lines 254-268 specify detailed metrics without implementation. Violates Zero-BS (no placeholders)."
+    },
+    {
+      "file": ".claude/commands/amplihack/fix.md",
+      "line": 326,
+      "severity": "high",
+      "category": "ruthless_simplicity",
+      "issue": "Advanced Features section describes context learning and integration that don't exist",
+      "suggestion": "Remove entire Advanced Features section (lines 323-356) until features are implemented.",
+      "effort": "low",
+      "rationale": "Describes non-existent AI learning, trace integration, and custom patterns. Pure speculation."
+    },
+    {
+      "file": ".claude/commands/amplihack/fix.md",
+      "line": 359,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "Configuration section references non-existent .claude/config/fix-command.json",
+      "suggestion": "Remove configuration section or create the actual config file.",
+      "effort": "medium",
+      "rationale": "Lines 359-377 document configuration that doesn't exist."
+    },
+    {
+      "file": ".claude/commands/amplihack/improve.md",
+      "line": 35,
+      "severity": "medium",
+      "category": "consistency",
+      "issue": "References 'improvement-workflow agent' that doesn't exist in agent definitions",
+      "suggestion": "Either create the agent or update to reference existing agents.",
+      "effort": "medium",
+      "rationale": "Line 37 and throughout - references non-existent agent. Breaks agent orchestration consistency."
+    },
+    {
+      "file": ".claude/commands/amplihack/improve.md",
+      "line": 213,
+      "severity": "medium",
+      "category": "usability",
+      "issue": "Key Lessons section references 'PR #44' without context or link",
+      "suggestion": "Either provide link to PR #44 or make lessons generic without specific PR reference.",
+      "effort": "low",
+      "rationale": "Line 213 assumes reader has context about a specific PR. Not self-contained documentation."
+    },
+    {
+      "file": ".claude/commands/amplihack/install.md",
+      "line": 1,
+      "severity": "low",
+      "category": "usability",
+      "issue": "Minimal documentation - no description of what gets installed",
+      "suggestion": "Add brief description of installation actions and requirements before the script command.",
+      "effort": "low",
+      "rationale": "User has no idea what the install script does before running it."
+    },
+    {
+      "file": ".claude/commands/amplihack/modular-build.md",
+      "line": 45,
+      "severity": "high",
+      "category": "zero_bs",
+      "issue": "Validation section mentions schemas that don't exist or aren't provided",
+      "suggestion": "Either provide the actual schemas or remove validation section.",
+      "effort": "high",
+      "rationale": "Lines 38-44 reference Input Schema and Output Schema without providing them or their location."
+    },
+    {
+      "file": ".claude/commands/amplihack/modular-build.md",
+      "line": 128,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "Configuration section references non-existent .claude/config/modular-build.json",
+      "suggestion": "Create the config file or remove the reference.",
+      "effort": "medium",
+      "rationale": "Lines 128-135 document configuration file that doesn't exist."
+    },
+    {
+      "file": ".claude/commands/amplihack/modular-build.md",
+      "line": 157,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Success Metrics section is aspirational, not actual",
+      "suggestion": "Remove or clearly mark as goals rather than current capabilities.",
+      "effort": "low",
+      "rationale": "Lines 157-163 state specific metrics (95%+ pass rate, sub-30 min builds) without evidence."
+    },
+    {
+      "file": ".claude/commands/amplihack/reflect.md",
+      "line": 67,
+      "severity": "low",
+      "category": "usability",
+      "issue": "Example output format shows emojis despite project guideline against them",
+      "suggestion": "Remove emojis from example output to match project standards.",
+      "effort": "low",
+      "rationale": "Lines 67-77 use emojis in output format examples. Project philosophy avoids emojis."
+    },
+    {
+      "file": ".claude/commands/amplihack/transcripts.md",
+      "line": 43,
+      "severity": "high",
+      "category": "zero_bs",
+      "issue": "Implementation section points to wrong hardcoded path from different project",
+      "suggestion": "Update path to correct location or remove if not applicable.",
+      "effort": "low",
+      "rationale": "Line 43: Path '/Users/ryan/src/hackathon/MicrosoftHackathon2025-AgenticCoding/' is from different project. Copy-paste error."
+    },
+    {
+      "file": ".claude/commands/amplihack/transcripts.md",
+      "line": 52,
+      "severity": "low",
+      "category": "usability",
+      "issue": "Example output uses emojis inconsistent with project style",
+      "suggestion": "Replace emoji-based output format with clean text format.",
+      "effort": "low",
+      "rationale": "Lines 52-66 heavily use emojis. Inconsistent with project guidelines."
+    },
+    {
+      "file": ".claude/commands/amplihack/ultrathink.md",
+      "line": 18,
+      "severity": "high",
+      "category": "ruthless_simplicity",
+      "issue": "Command implementation is overly complex - embedding entire workflow execution in command",
+      "suggestion": "Simplify to: Read workflow, create todos, execute steps. Don't embed 6 different execution patterns.",
+      "effort": "medium",
+      "rationale": "Lines 15-66 create multiple overlapping execution instructions. Should be simple workflow orchestration."
+    },
+    {
+      "file": ".claude/commands/amplihack/ultrathink.md",
+      "line": 63,
+      "severity": "medium",
+      "category": "consistency",
+      "issue": "Section 'ACTUAL IMPLEMENTATION PROMPT' is empty/placeholder",
+      "suggestion": "Either complete the implementation section or remove it.",
+      "effort": "low",
+      "rationale": "Line 63: Section header with no content. Violates Zero-BS (no placeholders)."
+    },
+    {
+      "file": ".claude/commands/amplihack/ultrathink.md",
+      "line": 119,
+      "severity": "high",
+      "category": "zero_bs",
+      "issue": "Mandatory Cleanup Phase section emphasizes cleanup but stop hook already does this",
+      "suggestion": "Remove redundant cleanup specification or clarify difference from stop hook cleanup.",
+      "effort": "medium",
+      "rationale": "Lines 119-136 duplicate functionality that exists in stop.py hook. Redundant specification."
+    },
+    {
+      "file": ".claude/commands/amplihack/uninstall.md",
+      "line": 1,
+      "severity": "low",
+      "category": "usability",
+      "issue": "Typo in title: 'unintalling' should be 'uninstalling'",
+      "suggestion": "Fix typo in line 1.",
+      "effort": "low",
+      "rationale": "Simple typo affects professionalism."
+    },
+    {
+      "file": ".claude/commands/amplihack/uninstall.md",
+      "line": 1,
+      "severity": "low",
+      "category": "usability",
+      "issue": "No description of what gets uninstalled",
+      "suggestion": "Add description of uninstall actions before the script command.",
+      "effort": "low",
+      "rationale": "User doesn't know what will be removed."
+    },
+    {
+      "file": ".claude/commands/amplihack/xpia.md",
+      "line": 76,
+      "severity": "high",
+      "category": "zero_bs",
+      "issue": "Implementation section references scripts that don't exist in current project structure",
+      "suggestion": "Verify all script paths exist or mark this command as incomplete.",
+      "effort": "medium",
+      "rationale": "Lines 79-90 reference ~/.claude/src/amplihack/security/xpia_health.py and other paths that don't exist in the project."
+    },
+    {
+      "file": ".claude/commands/amplihack/xpia.md",
+      "line": 148,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "Configuration section shows YAML config that doesn't exist in project",
+      "suggestion": "Create the config file or remove the reference.",
+      "effort": "medium",
+      "rationale": "Lines 149-162 document configuration file that isn't present."
+    },
+    {
+      "file": ".claude/workflow/DEFAULT_WORKFLOW.md",
+      "line": 88,
+      "severity": "high",
+      "category": "zero_bs",
+      "issue": "Step 6 instruction conflicts with user requirements preservation",
+      "suggestion": "Rewrite cleanup step to explicitly preserve all user requirements while simplifying implementation.",
+      "effort": "medium",
+      "rationale": "Lines 90-100 emphasize cleanup but the parenthetical warnings suggest confusion about what can be removed. Cleanup agents may over-optimize."
+    },
+    {
+      "file": ".claude/workflow/DEFAULT_WORKFLOW.md",
+      "line": 98,
+      "severity": "high",
+      "category": "zero_bs",
+      "issue": "Zero-BS verification focuses on stubs/TODOs but doesn't define what constitutes 'no swallowed exceptions'",
+      "suggestion": "Add concrete examples of what counts as swallowed exceptions vs acceptable error handling.",
+      "effort": "low",
+      "rationale": "Line 98: 'no swallowed exceptions' is vague. Needs specific guidance."
+    },
+    {
+      "file": ".claude/workflow/DEFAULT_WORKFLOW.md",
+      "line": 112,
+      "severity": "high",
+      "category": "ruthless_simplicity",
+      "issue": "Step 8 (Mandatory Local Testing) adds bureaucracy without clear integration",
+      "suggestion": "Simplify to: 'Test changes locally in realistic scenarios before committing.' Remove the essay.",
+      "effort": "low",
+      "rationale": "Lines 112-135 turn simple instruction into extensive explanation. The 'CRITICAL' and 'RULE' emphasis suggests this was added reactively. Keep it simple."
+    },
+    {
+      "file": ".claude/workflow/DEFAULT_WORKFLOW.md",
+      "line": 195,
+      "severity": "medium",
+      "category": "consistency",
+      "issue": "Step 15 repeats Step 6 almost verbatim - redundant cleanup steps",
+      "suggestion": "Merge Steps 6 and 15 into single comprehensive cleanup phase, or remove Step 15.",
+      "effort": "medium",
+      "rationale": "Lines 198-208 duplicate lines 88-100. Having two cleanup steps creates confusion about when to clean up."
+    },
+    {
+      "file": ".claude/workflow/fix/FIX_WORKFLOW_TEMPLATES.md",
+      "line": 109,
+      "severity": "medium",
+      "category": "zero_bs",
+      "issue": "Success Metrics section promises tracking without implementation",
+      "suggestion": "Remove metrics section or mark as future work.",
+      "effort": "low",
+      "rationale": "Lines 109-123 specify metrics tracking that doesn't exist."
+    },
+    {
+      "file": ".claude/workflow/fix/ci-fix-template.md",
+      "line": 1,
+      "severity": "low",
+      "category": "usability",
+      "issue": "Template is comprehensive (366 lines) but lacks quick-reference section at top",
+      "suggestion": "Add TL;DR section at top with most common fixes before diving into details.",
+      "effort": "low",
+      "rationale": "User needs quick answers, not a 366-line manual for common CI issues."
+    },
+    {
+      "file": ".claude/workflow/fix/code-quality-fix-template.md",
+      "line": 221,
+      "severity": "low",
+      "category": "consistency",
+      "issue": "Success rates shown (98%, 95%, etc.) appear aspirational, not measured",
+      "suggestion": "Remove specific percentages or add disclaimer that these are estimated.",
+      "effort": "low",
+      "rationale": "Lines 221-231 list precise success rates without data source. Appears speculative."
+    },
+    {
+      "file": ".claude/workflow/fix/import-fix-template.md",
+      "line": 322,
+      "severity": "low",
+      "category": "consistency",
+      "issue": "Success rates inconsistent with other templates' format",
+      "suggestion": "Standardize success rate presentation across all fix templates.",
+      "effort": "low",
+      "rationale": "Different templates show success rates differently. Need consistency."
+    },
+    {
+      "file": ".claude/workflow/fix/config-fix-template.md",
+      "line": 268,
+      "severity": "medium",
+      "category": "ruthless_simplicity",
+      "issue": "Example shows hardcoded password with 'pragma: allowlist secret' comment",
+      "suggestion": "Remove the pragma comment approach - it's a hack. Show proper env var loading instead.",
+      "effort": "low",
+      "rationale": "Lines 268-270 use inline comment to bypass security scanning. This is exactly the kind of workaround PHILOSOPHY.md opposes."
+    },
+    {
+      "file": ".claude/workflow/fix/logic-fix-template.md",
+      "line": 1,
+      "severity": "low",
+      "category": "usability",
+      "issue": "Template is 520 lines - too comprehensive for quick reference",
+      "suggestion": "Create separate 'Logic Fix Quick Reference' (50 lines) and move detailed examples to separate doc.",
+      "effort": "medium",
+      "rationale": "Template tries to be both quick reference and comprehensive guide. Choose one purpose."
+    },
+    {
+      "file": ".claude/workflow/fix/test-fix-template.md",
+      "line": 355,
+      "severity": "low",
+      "category": "consistency",
+      "issue": "Good Test Characteristics use different format than other templates' principles",
+      "suggestion": "Standardize principle formatting across all templates.",
+      "effort": "low",
+      "rationale": "Lines 355-365 use different structure than similar sections in other templates."
+    }
+  ],
+  "patterns_identified": [
+    {
+      "pattern": "Configuration File References",
+      "occurrences": 5,
+      "description": "Multiple commands reference .claude/config/*.json files that don't exist",
+      "impact": "Users try to customize based on documentation and fail",
+      "recommendation": "Either create all referenced config files with defaults, or remove configuration sections"
+    },
+    {
+      "pattern": "Python When Bash Suffices",
+      "occurrences": 3,
+      "description": "Commands use embedded Python for simple file operations (touch, rm)",
+      "impact": "Unnecessary complexity and dependencies",
+      "recommendation": "Replace with simple bash commands"
+    },
+    {
+      "pattern": "Metrics Without Implementation",
+      "occurrences": 4,
+      "description": "Multiple files promise success metrics tracking that doesn't exist",
+      "impact": "Sets false expectations about system capabilities",
+      "recommendation": "Remove all metrics sections until actually implemented"
+    },
+    {
+      "pattern": "Over-Documentation",
+      "occurrences": 8,
+      "description": "Command files contain 300-500 lines attempting to be complete references",
+      "impact": "Commands are unreadable and unmaintainable",
+      "recommendation": "Split: Simple usage in command file, detailed docs in separate location"
+    },
+    {
+      "pattern": "Emoji Inconsistency",
+      "occurrences": 3,
+      "description": "Some commands show emoji output despite project guidelines against them",
+      "impact": "Inconsistent user experience",
+      "recommendation": "Remove all emojis from example outputs"
+    },
+    {
+      "pattern": "Non-Existent Agent References",
+      "occurrences": 2,
+      "description": "Commands reference agents that don't exist in agent definitions",
+      "impact": "Commands fail when trying to invoke missing agents",
+      "recommendation": "Verify all agent references or create missing agents"
+    },
+    {
+      "pattern": "Redundant Cleanup Steps",
+      "occurrences": 2,
+      "description": "Workflow has multiple cleanup phases that overlap",
+      "impact": "Confusion about when cleanup should happen",
+      "recommendation": "Single cleanup phase after implementation, before commit"
+    },
+    {
+      "pattern": "Hardcoded Project Paths",
+      "occurrences": 2,
+      "description": "Files contain hardcoded paths from other projects",
+      "impact": "Commands don't work in current project",
+      "recommendation": "Use relative paths or path resolution logic"
+    }
+  ],
+  "priority_recommendations": [
+    {
+      "priority": 1,
+      "category": "zero_bs",
+      "action": "Remove all references to non-existent configuration files, or create them",
+      "files_affected": 5,
+      "rationale": "Users follow documentation and hit dead ends"
+    },
+    {
+      "priority": 2,
+      "category": "ruthless_simplicity",
+      "action": "Split oversized command files (>200 lines) into usage + separate docs",
+      "files_affected": 4,
+      "rationale": "Commands should be quick reference, not comprehensive manuals"
+    },
+    {
+      "priority": 3,
+      "category": "zero_bs",
+      "action": "Remove or implement all promised metrics/features sections",
+      "files_affected": 6,
+      "rationale": "Violates Zero-BS principle - no placeholders or speculation"
+    },
+    {
+      "priority": 4,
+      "category": "ruthless_simplicity",
+      "action": "Replace Python code with bash for simple file operations",
+      "files_affected": 3,
+      "rationale": "Unnecessary complexity for touch/rm operations"
+    },
+    {
+      "priority": 5,
+      "category": "consistency",
+      "action": "Standardize all fix templates format and success rate presentation",
+      "files_affected": 6,
+      "rationale": "Inconsistent formatting hurts usability"
+    }
+  ],
+  "severity_distribution": {
+    "high_severity_breakdown": {
+      "ruthless_simplicity": 7,
+      "zero_bs": 12,
+      "usability": 2,
+      "consistency": 2
+    },
+    "medium_severity_breakdown": {
+      "ruthless_simplicity": 6,
+      "zero_bs": 7,
+      "usability": 3,
+      "consistency": 2
+    },
+    "low_severity_breakdown": {
+      "ruthless_simplicity": 2,
+      "zero_bs": 1,
+      "usability": 6,
+      "consistency": 3
+    }
+  },
+  "effort_analysis": {
+    "low_effort_fixes": 24,
+    "medium_effort_fixes": 18,
+    "high_effort_fixes": 11,
+    "quick_wins": [
+      "Fix typos (unintalling -> uninstalling)",
+      "Remove emoji examples",
+      "Fix hardcoded project paths",
+      "Remove empty section placeholders",
+      "Add missing documentation where files are < 20 lines"
+    ]
+  }
+}
