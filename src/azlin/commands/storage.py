@@ -302,18 +302,18 @@ def delete_storage(name: str, resource_group: str | None, force: bool):
         try:
             config = ConfigManager.load_config()
             config_dict = config.to_dict()
-            
+
             # Remove from storage accounts if present
             storage_accounts = config_dict.get("storage_accounts", {})
             if name in storage_accounts:
                 del storage_accounts[name]
-            
+
             # Remove any VM storage mappings
             vm_storage = config_dict.get("vm_storage", {})
             vms_to_update = [vm for vm, storage in vm_storage.items() if storage == name]
             for vm_name in vms_to_update:
                 del vm_storage[vm_name]
-                
+
             # Save updated config if changes were made
             if vms_to_update or name in config_dict.get("storage_accounts", {}):
                 # Update the config object attributes
