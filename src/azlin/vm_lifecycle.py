@@ -12,7 +12,6 @@ Security:
 - No shell=True
 """
 
-import json
 import logging
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,6 +20,7 @@ from typing import Any
 
 from azlin.config_manager import ConfigManager
 from azlin.connection_tracker import ConnectionTracker
+from azlin.vm_queries import VMQueryError, VMQueryService
 
 logger = logging.getLogger(__name__)
 
@@ -255,33 +255,10 @@ class VMLifecycleManager:
             VM details dictionary or None if not found
         """
         try:
-            cmd = [
-                "az",
-                "vm",
-                "show",
-                "--name",
-                vm_name,
-                "--resource-group",
-                resource_group,
-                "--output",
-                "json",
-            ]
-
-            result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True
-            )
-
-            vm_details: dict[str, Any] = json.loads(result.stdout)
-            return vm_details
-
-        except subprocess.CalledProcessError as e:
-            if "ResourceNotFound" in e.stderr:
-                return None
-            raise VMLifecycleError(f"Failed to get VM details: {e.stderr}") from e
-        except subprocess.TimeoutExpired as e:
-            raise VMLifecycleError("VM details query timed out") from e
-        except json.JSONDecodeError as e:
-            raise VMLifecycleError("Failed to parse VM details") from e
+            # Use centralized VM query service
+            return VMQueryService.get_vm_details(vm_name, resource_group)
+        except VMQueryError as e:
+            raise VMLifecycleError(str(e)) from e
 
     @classmethod
     def _list_vms_in_group(cls, resource_group: str) -> list[str]:
@@ -294,33 +271,10 @@ class VMLifecycleManager:
             List of VM names
         """
         try:
-            cmd = [
-                "az",
-                "vm",
-                "list",
-                "--resource-group",
-                resource_group,
-                "--query",
-                "[].name",
-                "--output",
-                "json",
-            ]
-
-            result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True
-            )
-
-            vm_names: list[str] = json.loads(result.stdout)
-            return vm_names
-
-        except subprocess.CalledProcessError as e:
-            if "ResourceGroupNotFound" in e.stderr:
-                return []
-            raise VMLifecycleError(f"Failed to list VMs: {e.stderr}") from e
-        except subprocess.TimeoutExpired as e:
-            raise VMLifecycleError("VM list operation timed out") from e
-        except json.JSONDecodeError as e:
-            raise VMLifecycleError("Failed to parse VM list") from e
+            # Use centralized VM query service
+            return VMQueryService.list_vm_names(resource_group)
+        except VMQueryError as e:
+            raise VMLifecycleError(str(e)) from e
 
     @classmethod
     def _collect_vm_resources(cls, vm_info: dict[str, Any]) -> list[tuple[str, str]]:

@@ -189,12 +189,12 @@ Test Pyramid (106+ tests):
   - Unit (60%, ~63 tests): tests/unit/
     Focus: Single module with heavy mocking
     Speed: Fast (< 3 seconds)
-  
+
   - Integration (30%, ~31 tests): tests/integration/
     Focus: Multi-module workflows
     Mocking: Azure/SSH mocked
     Speed: Medium (< 30 seconds)
-  
+
   - E2E (10%, ~12 tests): tests/e2e/
     Focus: Real Azure VMs
     Cost: Expensive (creates real resources)

@@ -13,13 +13,14 @@ Security:
 - Confirmation prompts for batch operations
 """
 
-import json
 import logging
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from typing import Any, ClassVar
+
+from azlin.vm_queries import VMQueryError, VMQueryService
 
 logger = logging.getLogger(__name__)
 
@@ -461,31 +462,10 @@ class VMLifecycleController:
             VM details dictionary or None if not found
         """
         try:
-            # Use get-instance-view to include power state
-            cmd = [
-                "az",
-                "vm",
-                "get-instance-view",
-                "--name",
-                vm_name,
-                "--resource-group",
-                resource_group,
-                "--output",
-                "json",
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
-
-            return json.loads(result.stdout)
-
-        except subprocess.CalledProcessError as e:
-            if "ResourceNotFound" in e.stderr:
-                return None
-            raise VMLifecycleControlError(f"Failed to get VM details: {e.stderr}") from e
-        except subprocess.TimeoutExpired as e:
-            raise VMLifecycleControlError("VM details query timed out") from e
-        except json.JSONDecodeError as e:
-            raise VMLifecycleControlError("Failed to parse VM details") from e
+            # Use centralized VM query service
+            return VMQueryService.get_vm_instance_view(vm_name, resource_group)
+        except VMQueryError as e:
+            raise VMLifecycleControlError(str(e)) from e
 
     @classmethod
     def _list_vms_in_group(cls, resource_group: str) -> list[str]:
@@ -498,30 +478,10 @@ class VMLifecycleController:
             List of VM names
         """
         try:
-            cmd = [
-                "az",
-                "vm",
-                "list",
-                "--resource-group",
-                resource_group,
-                "--query",
-                "[].name",
-                "--output",
-                "json",
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
-
-            return json.loads(result.stdout)
-
-        except subprocess.CalledProcessError as e:
-            if "ResourceGroupNotFound" in e.stderr:
-                return []
-            raise VMLifecycleControlError(f"Failed to list VMs: {e.stderr}") from e
-        except subprocess.TimeoutExpired as e:
-            raise VMLifecycleControlError("VM list operation timed out") from e
-        except json.JSONDecodeError as e:
-            raise VMLifecycleControlError("Failed to parse VM list") from e
+            # Use centralized VM query service
+            return VMQueryService.list_vm_names(resource_group)
+        except VMQueryError as e:
+            raise VMLifecycleControlError(str(e)) from e
 
     @classmethod
     def _get_power_state(cls, vm_info: dict[str, Any]) -> str:
@@ -533,15 +493,8 @@ class VMLifecycleController:
         Returns:
             Power state string (e.g., "VM running", "VM deallocated")
         """
-        # get-instance-view returns statuses at the root level
-        statuses = vm_info.get("statuses", [])
-
-        for status in statuses:
-            code = status.get("code", "")
-            if code.startswith("PowerState/"):
-                return code.replace("PowerState/", "VM ")
-
-        return "Unknown"
+        # Use centralized power state extraction
+        return VMQueryService.get_power_state(vm_info)
 
 
 __all__ = [

@@ -1,6 +1,7 @@
 """Unit tests for vm_manager module."""
 
 import json
+import subprocess
 from unittest.mock import MagicMock, patch
 
 from azlin.vm_manager import VMInfo, VMManager
@@ -47,26 +48,23 @@ class TestVMInfo:
 class TestVMManager:
     """Tests for VMManager class."""
 
-    @patch("azlin.vm_manager.subprocess.run")
-    def test_list_vms_success(self, mock_run):
+    @patch("azlin.vm_queries.VMQueryService.get_all_public_ips")
+    @patch("azlin.vm_queries.VMQueryService.list_vms")
+    def test_list_vms_success(self, mock_list_vms, mock_get_public_ips):
         """Test successful VM listing."""
-        mock_output = json.dumps(
-            [
-                {
-                    "name": "azlin-test-1",
-                    "resourceGroup": "test-rg",
-                    "location": "eastus",
-                    "powerState": "VM running",
-                    "publicIps": "1.2.3.4",
-                    "privateIps": "10.0.0.4",
-                    "hardwareProfile": {"vmSize": "Standard_D2s_v3"},
-                    "storageProfile": {"osDisk": {"osType": "Linux"}},
-                    "provisioningState": "Succeeded",
-                }
-            ]
-        )
-
-        mock_run.return_value = MagicMock(returncode=0, stdout=mock_output, stderr="")
+        mock_list_vms.return_value = [
+            {
+                "name": "azlin-test-1",
+                "resourceGroup": "test-rg",
+                "location": "eastus",
+                "powerState": "VM running",
+                "privateIps": "10.0.0.4",
+                "hardwareProfile": {"vmSize": "Standard_D2s_v3"},
+                "storageProfile": {"osDisk": {"osType": "Linux"}},
+                "provisioningState": "Succeeded",
+            }
+        ]
+        mock_get_public_ips.return_value = {"azlin-test-1PublicIP": "1.2.3.4"}
 
         vms = VMManager.list_vms("test-rg")
 
@@ -75,10 +73,12 @@ class TestVMManager:
         assert vms[0].public_ip == "1.2.3.4"
         assert vms[0].power_state == "VM running"
 
-    @patch("azlin.vm_manager.subprocess.run")
-    def test_list_vms_resource_group_not_found(self, mock_run):
+    @patch("azlin.vm_queries.VMQueryService.get_all_public_ips")
+    @patch("azlin.vm_queries.VMQueryService.list_vms")
+    def test_list_vms_resource_group_not_found(self, mock_list_vms, mock_get_public_ips):
         """Test VM listing when resource group doesn't exist."""
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ResourceGroupNotFound")
+        mock_list_vms.return_value = []
+        mock_get_public_ips.return_value = {}
 
         vms = VMManager.list_vms("missing-rg")
         assert vms == []
@@ -107,7 +107,7 @@ class TestVMManager:
     @patch("azlin.vm_manager.subprocess.run")
     def test_get_vm_not_found(self, mock_run):
         """Test getting VM that doesn't exist."""
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ResourceNotFound")
+        mock_run.side_effect = subprocess.CalledProcessError(1, "az", stderr="ResourceNotFound")
 
         vm = VMManager.get_vm("missing-vm", "test-rg")
         assert vm is None

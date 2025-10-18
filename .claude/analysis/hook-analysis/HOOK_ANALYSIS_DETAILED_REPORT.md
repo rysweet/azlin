@@ -739,4 +739,3 @@ The hook implementations show signs of organic growth without consistent refacto
 3. Create issues/tasks for each category
 4. Consider adding pre-commit hooks to prevent future violations
 5. Document hook contracts explicitly
-

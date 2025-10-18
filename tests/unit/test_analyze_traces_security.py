@@ -28,8 +28,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 # Add .claude/tools to path to import amplihack modules
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / ".claude" / "tools"))
 

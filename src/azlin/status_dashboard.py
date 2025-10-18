@@ -4,13 +4,13 @@ This module provides functionality to display VM status information
 including resource usage, costs, and configuration details.
 """
 
-import json
-import subprocess
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from rich.console import Console
 from rich.table import Table
+
+from azlin.vm_queries import VMQueryService
 
 
 @dataclass
@@ -58,27 +58,6 @@ class StatusDashboard:
         """Initialize the status dashboard."""
         self.console = Console()
 
-    def _run_az_command(self, command: list[str]) -> Any:
-        """Run an Azure CLI command and return JSON output.
-
-        Args:
-            command: Azure CLI command as list of strings
-
-        Returns:
-            Parsed JSON output from the command (dict or list)
-
-        Raises:
-            subprocess.CalledProcessError: If the command fails
-            json.JSONDecodeError: If output is not valid JSON
-        """
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return json.loads(result.stdout) if result.stdout.strip() else {}
-
     def _get_vm_list(self, resource_group: str | None = None) -> list[dict[str, Any]]:
         """Get list of VMs.
 
@@ -88,13 +67,11 @@ class StatusDashboard:
         Returns:
             List of VM dictionaries from Azure CLI
         """
-        command = ["az", "vm", "list", "--output", "json"]
-        if resource_group:
-            command.extend(["--resource-group", resource_group])
+        if not resource_group:
+            raise ValueError("Resource group must be specified")
 
-        result = self._run_az_command(command)
-        assert isinstance(result, list), "Expected list from az vm list"
-        return result  # type: ignore[return-value]
+        # Use centralized VM query service
+        return VMQueryService.list_vms(resource_group)
 
     def _get_vm_instance_view(self, vm_name: str, resource_group: str) -> dict[str, Any]:
         """Get detailed instance view for a VM.
@@ -106,18 +83,10 @@ class StatusDashboard:
         Returns:
             Instance view dictionary from Azure CLI
         """
-        command = [
-            "az",
-            "vm",
-            "get-instance-view",
-            "--name",
-            vm_name,
-            "--resource-group",
-            resource_group,
-            "--output",
-            "json",
-        ]
-        return self._run_az_command(command)
+        instance_view = VMQueryService.get_vm_instance_view(vm_name, resource_group)
+        if instance_view is None:
+            raise ValueError(f"VM not found: {vm_name}")
+        return instance_view
 
     def _get_public_ip(self, vm_name: str, resource_group: str) -> str | None:
         """Get public IP address for a VM.
@@ -130,32 +99,10 @@ class StatusDashboard:
             Public IP address or None if not found
         """
         try:
-            command = [
-                "az",
-                "vm",
-                "list-ip-addresses",
-                "--name",
-                vm_name,
-                "--resource-group",
-                resource_group,
-                "--output",
-                "json",
-            ]
-            result = self._run_az_command(command)
-
-            if result and isinstance(result, list) and len(result) > 0:  # type: ignore[arg-type]
-                virtual_machine = result[0]  # type: ignore[misc]
-                network_interfaces = (  # type: ignore[misc]
-                    virtual_machine.get("virtualMachine", {})  # type: ignore[union-attr,misc]
-                    .get("network", {})  # type: ignore[union-attr]
-                    .get("publicIpAddresses", [])  # type: ignore[union-attr]
-                )
-
-                if network_interfaces:
-                    return network_interfaces[0].get("ipAddress")  # type: ignore[union-attr]
-
-            return None
-        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
+            # Get all public IPs and match by convention
+            public_ips = VMQueryService.get_all_public_ips(resource_group)
+            return public_ips.get(f"{vm_name}PublicIP")
+        except Exception:
             return None
 
     def _extract_power_state(self, instance_view: dict[str, Any]) -> str:
@@ -165,16 +112,12 @@ class StatusDashboard:
             instance_view: Instance view dictionary
 
         Returns:
-            Power state string (e.g., 'Running', 'Stopped', 'Deallocated')
+            Power state string (e.g., 'running', 'stopped', 'deallocated')
         """
-        statuses = instance_view.get("instanceView", {}).get("statuses", [])
-
-        for status in statuses:
-            code = status.get("code", "")
-            if code.startswith("PowerState/"):
-                return code.replace("PowerState/", "")
-
-        return "Unknown"
+        # Use centralized power state extraction
+        power_state = VMQueryService.get_power_state(instance_view)
+        # Remove "VM " prefix to match original format
+        return power_state.replace("VM ", "").lower() if power_state != "Unknown" else "Unknown"
 
     def _calculate_uptime(self, instance_view: dict[str, Any]) -> str | None:
         """Calculate VM uptime based on instance view.
@@ -236,7 +179,7 @@ class StatusDashboard:
                 power_state = self._extract_power_state(instance_view)
                 provisioning_state = instance_view.get("provisioningState", "Unknown")
                 uptime = self._calculate_uptime(instance_view)
-            except (subprocess.CalledProcessError, json.JSONDecodeError):
+            except Exception:
                 power_state = "Unknown"
                 provisioning_state = "Unknown"
                 uptime = None

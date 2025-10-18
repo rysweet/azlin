@@ -30,7 +30,7 @@ Complete TDD test plan for Azure Files NFS storage feature following DEFAULT_WOR
 **Fix**: Change `status.name` to `status.info.name`, etc.
 
 #### Bug 3: NFS implementation uses wrong Azure service
-**File**: `src/azlin/modules/storage_manager.py` lines 148-194  
+**File**: `src/azlin/modules/storage_manager.py` lines 148-194
 **Issue**: Uses HNS + blob storage for NFS, should use Azure Files NFS
 **Fix**: Use FileStorage kind + file shares, not StorageV2 + blob containers
 
@@ -112,7 +112,7 @@ Complete TDD test plan for Azure Files NFS storage feature following DEFAULT_WOR
 
 All of these must pass before merge:
 - [ ] All unit tests pass
-- [ ] All integration tests pass  
+- [ ] All integration tests pass
 - [ ] Pre-commit hooks pass
 - [ ] Manual test: Create storage account
 - [ ] Manual test: List storage accounts

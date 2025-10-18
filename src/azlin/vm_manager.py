@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from azlin.vm_queries import VMQueryError, VMQueryService
+
 logger = logging.getLogger(__name__)
 
 
@@ -88,17 +90,11 @@ class VMManager:
             VMManagerError: If listing fails
         """
         try:
-            # List VMs without show-details first (faster and more reliable)
-            cmd = ["az", "vm", "list", "--resource-group", resource_group, "--output", "json"]
-
-            result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True
-            )
-
-            vms_data: list[dict[str, Any]] = json.loads(result.stdout)
+            # Use centralized VM query service
+            vms_data = VMQueryService.list_vms(resource_group)
 
             # Fetch all public IPs in a single batch call
-            public_ips = cls._get_all_public_ips(resource_group)
+            public_ips = VMQueryService.get_all_public_ips(resource_group)
 
             vms: list[VMInfo] = []
 
@@ -121,51 +117,8 @@ class VMManager:
             logger.debug(f"Found {len(vms)} VMs in resource group: {resource_group}")
             return vms
 
-        except subprocess.CalledProcessError as e:
-            # Check if resource group doesn't exist
-            if "ResourceGroupNotFound" in e.stderr:
-                logger.debug(f"Resource group not found: {resource_group}")
-                return []
-            raise VMManagerError(f"Failed to list VMs: {e.stderr}") from e
-        except json.JSONDecodeError as e:
-            raise VMManagerError("Failed to parse VM list response") from e
-        except subprocess.TimeoutExpired as e:
-            raise VMManagerError("VM list operation timed out") from e
-
-    @classmethod
-    def _get_all_public_ips(cls, resource_group: str) -> dict[str, str]:
-        """Get all public IPs in the resource group in a single batch call.
-
-        Args:
-            resource_group: Resource group name
-
-        Returns:
-            Dictionary mapping public IP resource name to IP address
-        """
-        try:
-            cmd = [
-                "az",
-                "network",
-                "public-ip",
-                "list",
-                "--resource-group",
-                resource_group,
-                "--query",
-                "[].{name:name, ip:ipAddress}",
-                "--output",
-                "json",
-            ]
-
-            result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=10, check=True
-            )
-
-            ips_data: list[dict[str, Any]] = json.loads(result.stdout)
-            return {item["name"]: item["ip"] for item in ips_data if item.get("ip")}
-
-        except Exception as e:
-            logger.debug(f"Failed to fetch public IPs: {e}")
-            return {}
+        except VMQueryError as e:
+            raise VMManagerError(str(e)) from e
 
     @classmethod
     def get_vm(cls, vm_name: str, resource_group: str) -> VMInfo | None:

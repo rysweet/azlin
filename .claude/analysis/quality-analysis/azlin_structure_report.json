@@ -10,7 +10,7 @@
     "total_functions": 69,
     "entry_point": "azlin.cli:main"
   },
-  
+
   "directory_structure": {
     "root_directories": [
       {
@@ -372,7 +372,7 @@
       "Security by Design",
       "Clear Module Boundaries"
     ],
-    
+
     "module_patterns": [
       {
         "name": "CLI Command Brick",
@@ -501,7 +501,7 @@
     "cli_entry": "azlin.cli:main",
     "module_entry": "azlin.__main__:main",
     "workflow_orchestrator": "azlin.cli.CLIOrchestrator",
-    
+
     "command_categories": {
       "basic_provisioning": {
         "entry": "azlin new",
@@ -545,7 +545,7 @@
         "focus": "Real Azure VMs (expensive)"
       }
     },
-    
+
     "test_files": [
       "test_azure_auth.py",
       "test_batch_executor.py",
@@ -694,7 +694,7 @@
       "Extensible design - new commands easy to add",
       "Rich user experience - progress display, formatted output"
     ],
-    
+
     "module_boundaries": {
       "well_defined": [
         "azure_auth - Only responsible for auth, no VM creation",
