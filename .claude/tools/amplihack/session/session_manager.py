@@ -377,8 +377,8 @@ class SessionManager:
             content = safe_read_file(file_path)
             if content:
                 return hashlib.md5(content.encode()).hexdigest()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"Could not read file hash: {e}")
         return ""
 
     def _get_data_hash(self, data: dict[str, Any]) -> str:
@@ -386,7 +386,8 @@ class SessionManager:
         try:
             content = json.dumps(data, sort_keys=True)
             return hashlib.md5(content.encode()).hexdigest()
-        except Exception:
+        except Exception as e:
+            self.logger.debug(f"Could not compute data hash: {e}")
             return ""
 
     def stop(self) -> None:

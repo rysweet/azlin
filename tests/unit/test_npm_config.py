@@ -63,7 +63,7 @@ class TestNpmConfiguratorBasics:
 
     def test_creates_npm_configurator_with_ssh_config(self):
         """Test creating npm configurator with SSH configuration."""
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
 
@@ -74,7 +74,7 @@ class TestNpmConfiguratorBasics:
 
     def test_generates_correct_npmrc_content(self):
         """Test that .npmrc content is correctly generated."""
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         npmrc_content = configurator.get_npmrc_content()
@@ -83,7 +83,7 @@ class TestNpmConfiguratorBasics:
 
     def test_generates_correct_bashrc_content(self):
         """Test that .bashrc additions are correctly generated."""
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         bashrc_content = configurator.get_bashrc_content()
@@ -111,7 +111,7 @@ class TestNpmDirectoryCreation:
             vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.create_npm_directory()
@@ -132,7 +132,7 @@ class TestNpmDirectoryCreation:
             vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         configurator.create_npm_directory()
@@ -149,7 +149,7 @@ class TestNpmDirectoryCreation:
             vm_name="test-vm", success=False, stdout="", stderr="Permission denied", exit_code=1
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
 
@@ -169,7 +169,7 @@ class TestNpmrcConfiguration:
             vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npmrc()
@@ -188,7 +188,7 @@ class TestNpmrcConfiguration:
             RemoteResult(vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0),
         ]
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npmrc()
@@ -207,7 +207,7 @@ class TestNpmrcConfiguration:
             exit_code=0,
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npmrc()
@@ -227,7 +227,7 @@ class TestBashrcConfiguration:
             vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_bashrc()
@@ -245,7 +245,7 @@ class TestBashrcConfiguration:
             RemoteResult(vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0),
         ]
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_bashrc()
@@ -260,7 +260,7 @@ class TestBashrcConfiguration:
             vm_name="test-vm", success=True, stdout="NPM_PACKAGES=", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_bashrc()
@@ -280,7 +280,7 @@ class TestBashrcSourceing:
             vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.source_bashrc()
@@ -306,7 +306,7 @@ class TestNpmConfigurationEndToEnd:
             vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npm()
@@ -339,7 +339,7 @@ class TestNpmConfigurationEndToEnd:
             ),
         ]
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
 
@@ -365,7 +365,7 @@ class TestNpmConfigurationEndToEnd:
             RemoteResult(vm_name="test-vm", success=True, stdout="", stderr="", exit_code=0),
         ]
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npm()
@@ -390,7 +390,7 @@ class TestNpmConfigIntegrationWithProvisioning:
             bashrc_sourced=True,
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
         result = configurator.configure_npm()
@@ -400,7 +400,7 @@ class TestNpmConfigIntegrationWithProvisioning:
 
     def test_npm_configurator_has_vm_name_attribute(self):
         """Test that npm configurator tracks VM name for logging."""
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
 
@@ -423,7 +423,7 @@ class TestNpmConfigErrorHandling:
             vm_name="test-vm", success=False, stdout="", stderr="Disk full", exit_code=1
         )
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
 
         configurator = NpmConfigurator(ssh_config)
 

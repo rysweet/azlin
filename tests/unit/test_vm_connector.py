@@ -16,22 +16,22 @@ class TestVMConnector:
 
     def test_is_valid_ip_valid(self):
         """Test IP validation with valid IPs."""
-        assert VMConnector._is_valid_ip("192.168.1.1") is True
-        assert VMConnector._is_valid_ip("10.0.0.1") is True
-        assert VMConnector._is_valid_ip("172.16.0.1") is True
-        assert VMConnector._is_valid_ip("20.1.2.3") is True
-        assert VMConnector._is_valid_ip("255.255.255.255") is True
+        assert VMConnector.is_valid_ip("192.168.1.1") is True
+        assert VMConnector.is_valid_ip("10.0.0.1") is True
+        assert VMConnector.is_valid_ip("172.16.0.1") is True
+        assert VMConnector.is_valid_ip("20.1.2.3") is True
+        assert VMConnector.is_valid_ip("255.255.255.255") is True
 
     def test_is_valid_ip_invalid(self):
         """Test IP validation with invalid IPs."""
-        assert VMConnector._is_valid_ip("my-vm-name") is False
-        assert VMConnector._is_valid_ip("azlin-vm-12345") is False
-        assert VMConnector._is_valid_ip("256.1.1.1") is False
-        assert VMConnector._is_valid_ip("192.168.1") is False
-        assert VMConnector._is_valid_ip("192.168.1.1.1") is False
-        assert VMConnector._is_valid_ip("192.168.-1.1") is False
-        assert VMConnector._is_valid_ip("") is False
-        assert VMConnector._is_valid_ip("invalid") is False
+        assert VMConnector.is_valid_ip("my-vm-name") is False
+        assert VMConnector.is_valid_ip("azlin-vm-12345") is False
+        assert VMConnector.is_valid_ip("256.1.1.1") is False
+        assert VMConnector.is_valid_ip("192.168.1") is False
+        assert VMConnector.is_valid_ip("192.168.1.1.1") is False
+        assert VMConnector.is_valid_ip("192.168.-1.1") is False
+        assert VMConnector.is_valid_ip("") is False
+        assert VMConnector.is_valid_ip("invalid") is False
 
     @patch("azlin.vm_connector.VMManager")
     @patch("azlin.vm_connector.ConfigManager")

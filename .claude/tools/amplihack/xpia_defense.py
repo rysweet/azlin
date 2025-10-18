@@ -794,8 +794,7 @@ class XPIADefenseEngine:
         if not threats:
             return RiskLevel.NONE
 
-        max_severity = max(threat.severity for threat in threats)  # type: ignore
-        return max_severity
+        return max(threat.severity for threat in threats)  # type: ignore
 
     def _generate_recommendations(
         self, threats: list[ThreatDetection], risk_level: RiskLevel
@@ -946,14 +945,13 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
         try:
             # Run validation in thread pool to maintain async interface
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
+            return await loop.run_in_executor(
                 None, self.engine.validate_content, content, content_type, context, security_level
             )
-            return result
 
         except Exception as e:
             self.logger.error(f"Content validation failed: {e}")
-            raise ValidationError(f"Validation failed: {e!s}")
+            raise ValidationError(f"Validation failed: {e!s}") from e
 
     async def validate_bash_command(  # type: ignore
         self,
@@ -1060,7 +1058,7 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
 
         except Exception as e:
             self.logger.error(f"Failed to update configuration: {e}")
-            raise ConfigurationError(f"Configuration update failed: {e!s}")
+            raise ConfigurationError(f"Configuration update failed: {e!s}") from e
 
     def register_hook(self, registration: HookRegistration) -> str:  # type: ignore
         """Register a security hook, returns hook ID"""
@@ -1070,7 +1068,7 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
             return hook_id
         except Exception as e:
             self.logger.error(f"Failed to register hook {registration.name}: {e}")
-            raise HookError(f"Hook registration failed: {e!s}")
+            raise HookError(f"Hook registration failed: {e!s}") from e
 
     def unregister_hook(self, hook_id: str) -> bool:
         """Unregister a security hook"""
@@ -1081,7 +1079,7 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
             return success
         except Exception as e:
             self.logger.error(f"Failed to unregister hook {hook_id}: {e}")
-            raise HookError(f"Hook unregistration failed: {e!s}")
+            raise HookError(f"Hook unregistration failed: {e!s}") from e
 
     async def health_check(self) -> dict[str, Any]:
         """Perform health check and return status"""
@@ -1096,7 +1094,7 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
             # Gather system metrics
             metrics = self.engine.performance_metrics
 
-            health_data = {
+            return {
                 "status": "healthy" if test_result else "unhealthy",
                 "version": "1.0.0",
                 "uptime": time.time(),  # Simplified uptime
@@ -1117,7 +1115,6 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
                 },
             }
 
-            return health_data
 
         except Exception as e:
             self.logger.error(f"Health check failed: {e}")
@@ -1150,15 +1147,14 @@ class XPIADefense:
             loop.close()
 
         # Convert to legacy format
-        legacy_threats = []
-        for threat in result.threats:
-            legacy_threats.append(
-                {
-                    "pattern": threat.threat_type.value,
-                    "level": self._risk_to_threat_level(threat.severity).value,
-                    "matches": [threat.description],
-                }
-            )
+        legacy_threats = [
+            {
+                "pattern": threat.threat_type.value,
+                "level": self._risk_to_threat_level(threat.severity).value,
+                "matches": [threat.description],
+            }
+            for threat in result.threats
+        ]
 
         return LegacyValidationResult(
             is_safe=result.is_valid,

@@ -35,7 +35,7 @@ class MountResult:
     nfs_endpoint: str
     backed_up_files: int = 0
     copied_files: int = 0
-    errors: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)  # type: ignore[misc]
 
 
 @dataclass
@@ -45,7 +45,7 @@ class UnmountResult:
     success: bool
     mount_point: str
     backed_up_files: int = 0
-    errors: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)  # type: ignore[misc]
 
 
 @dataclass
@@ -97,9 +97,10 @@ class NFSMountManager:
         Returns:
             MountResult with success status and details
         """
-        errors = []
+        errors: list[str] = []
         backed_up_files = 0
         copied_files = 0
+        backup_dir = f"{mount_point}.backup"  # Define early for rollback
 
         try:
             # Step 1: Wait for package manager, then install nfs-common
@@ -111,7 +112,6 @@ class NFSMountManager:
 
             # Step 2: Backup existing mount point
             logger.info(f"Backing up existing {mount_point}")
-            backup_dir = f"{mount_point}.backup"
 
             # Check if mount point exists and has files
             check_cmd = f"[ -d {mount_point} ] && ls -A {mount_point} | wc -l || echo 0"
@@ -242,7 +242,7 @@ class NFSMountManager:
         Returns:
             UnmountResult with success status
         """
-        errors = []
+        errors: list[str] = []
         backed_up_files = 0
 
         try:
