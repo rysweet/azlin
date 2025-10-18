@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
 
-from azlin.modules.ssh_connector import SSHConfig
+from azlin.modules.ssh_connector import SSHConfig, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.remote_exec import RemoteExecError, RemoteExecutor
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
@@ -286,15 +286,10 @@ class LogViewer:
         # Build follow command
         command = cls._build_follow_command(log_type, since, service)
 
-        # Execute with RemoteExecutor for long-running command (large timeout)
-        from azlin.remote_exec import RemoteExecutor
-
-        result = RemoteExecutor.execute_command(
-            ssh_config=ssh_config,
-            command=command,
-            timeout=3600,  # 1 hour for follow mode
+        # Connect with interactive SSH to stream logs
+        return SSHConnector.connect(
+            ssh_config=ssh_config, remote_command=command, tmux_session=None, auto_tmux=False
         )
-        return 0 if result.success else 1
 
     @classmethod
     def _prepare_connection(cls, vm_name: str, resource_group: str) -> tuple[VMInfo, SSHConfig]:

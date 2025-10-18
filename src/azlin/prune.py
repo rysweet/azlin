@@ -10,8 +10,7 @@ Security:
 """
 
 import logging
-from datetime import UTC, datetime
-from typing import Any
+from datetime import datetime
 
 from azlin.config_manager import ConfigManager
 from azlin.connection_tracker import ConnectionTracker
@@ -40,12 +39,12 @@ class PruneManager:
         dt = PruneManager._parse_iso_datetime(timestamp_str)
         if not dt:
             return None
-        return (datetime.now(UTC) - dt.replace(tzinfo=None)).days
+        return (datetime.utcnow() - dt.replace(tzinfo=None)).days
 
     @classmethod
     def filter_by_age(cls, vms: list[VMInfo], age_days: int) -> list[VMInfo]:
         """Filter VMs older than age_days."""
-        filtered: list[VMInfo] = []
+        filtered = []
         for vm in vms:
             age = cls._days_since(vm.created_time)
             if age is not None and age >= age_days:
@@ -54,10 +53,10 @@ class PruneManager:
 
     @classmethod
     def filter_by_idle(
-        cls, vms: list[VMInfo], idle_days: int, connection_data: dict[str, dict[str, Any]]
+        cls, vms: list[VMInfo], idle_days: int, connection_data: dict[str, dict]
     ) -> list[VMInfo]:
         """Filter VMs idle longer than idle_days, or never connected."""
-        filtered: list[VMInfo] = []
+        filtered = []
         for vm in vms:
             last_connected_str = connection_data.get(vm.name, {}).get("last_connected")
             idle = cls._days_since(last_connected_str)
@@ -72,7 +71,7 @@ class PruneManager:
         vms: list[VMInfo],
         age_days: int,
         idle_days: int,
-        connection_data: dict[str, dict[str, Any]],
+        connection_data: dict[str, dict],
         include_running: bool = False,
         include_named: bool = False,
     ) -> list[VMInfo]:
@@ -116,15 +115,13 @@ class PruneManager:
         return candidates
 
     @classmethod
-    def format_prune_table(
-        cls, vms: list[VMInfo], connection_data: dict[str, dict[str, Any]]
-    ) -> str:
+    def format_prune_table(cls, vms: list[VMInfo], connection_data: dict[str, dict]) -> str:
         """Format VM list as a table for display."""
         if not vms:
             return "No VMs to display."
 
         # Build table
-        rows: list[str] = []
+        rows = []
         header = f"{'Session Name':<20} {'VM Name':<35} {'Age (days)':<12} {'Idle (days)':<12} {'Status':<15} {'Location':<12} {'Size':<12}"
         separator = "=" * 130
 
@@ -162,7 +159,7 @@ class PruneManager:
         idle_days: int = 14,
         include_running: bool = False,
         include_named: bool = False,
-    ) -> tuple[list[VMInfo], dict[str, dict[str, Any]]]:
+    ) -> tuple[list[VMInfo], dict[str, dict]]:
         """Get VMs that are candidates for pruning.
 
         Args:
@@ -208,7 +205,7 @@ class PruneManager:
         cls,
         candidates: list[VMInfo],
         resource_group: str,
-    ) -> dict[str, Any]:
+    ) -> dict:
         """Execute deletion of candidate VMs.
 
         Args:
@@ -229,7 +226,7 @@ class PruneManager:
         """
         deleted_count = 0
         failed_count = 0
-        errors: list[str] = []
+        errors = []
 
         for vm in candidates:
             try:
@@ -268,7 +265,7 @@ class PruneManager:
         force: bool = False,
         include_running: bool = False,
         include_named: bool = False,
-    ) -> dict[str, Any]:
+    ) -> dict:
         """Prune inactive VMs based on criteria.
 
         Args:

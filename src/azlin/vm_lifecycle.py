@@ -424,7 +424,7 @@ class VMLifecycleManager:
         if no_wait:
             cmd.append("--no-wait")
 
-        _result: subprocess.CompletedProcess[str] = subprocess.run(
+        subprocess.run(
             cmd, capture_output=True, text=True, timeout=300 if not no_wait else 30, check=True
         )
 

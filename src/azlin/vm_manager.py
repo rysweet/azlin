@@ -230,8 +230,7 @@ class VMManager:
                 cmd, capture_output=True, text=True, timeout=30, check=True
             )
 
-            groups: list[str] = json.loads(result.stdout)
-            return groups
+            return json.loads(result.stdout)
 
         except subprocess.CalledProcessError as e:
             raise VMManagerError(f"Failed to list resource groups: {e.stderr}") from e

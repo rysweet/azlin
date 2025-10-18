@@ -174,7 +174,7 @@ class CostTracker:
                 )
 
             # Calculate cost for each VM
-            estimates: list[VMCostEstimate] = []
+            estimates = []
             total_cost = Decimal("0")
             running_vms = 0
             stopped_vms = 0
@@ -302,7 +302,7 @@ class CostTracker:
         Returns:
             Formatted table string
         """
-        lines: list[str] = []
+        lines = []
 
         # Header
         lines.append("=" * 100)
