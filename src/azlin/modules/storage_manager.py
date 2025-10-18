@@ -326,7 +326,7 @@ class StorageManager:
                 tier = "Premium" if "Premium" in sku else "Standard"
 
                 # Get file share info for size
-                size_gb = cls._get_share_quota(account["name"])
+                size_gb = cls._get_share_quota(account["name"], resource_group)
 
                 nfs_endpoint = f"{account['name']}.file.core.windows.net:/{account['name']}/home"
 
@@ -357,7 +357,7 @@ class StorageManager:
             return []
 
     @classmethod
-    def _get_share_quota(cls, storage_account: str) -> int:
+    def _get_share_quota(cls, storage_account: str, resource_group: str) -> int:
         """Get file share quota in GB."""
         try:
             cmd = [
@@ -367,6 +367,8 @@ class StorageManager:
                 "list",
                 "--storage-account",
                 storage_account,
+                "--resource-group",
+                resource_group,
                 "--query",
                 "[0].shareQuota",
                 "--output",
@@ -419,7 +421,7 @@ class StorageManager:
             tier = "Premium" if "Premium" in sku else "Standard"
 
             # Get file share info for size
-            size_gb = cls._get_share_quota(name)
+            size_gb = cls._get_share_quota(name, resource_group)
 
             nfs_endpoint = f"{name}.file.core.windows.net:/{name}/home"
 
