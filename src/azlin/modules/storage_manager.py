@@ -413,13 +413,14 @@ class StorageManager:
         utilization = (used_gb / info.size_gb * 100) if info.size_gb > 0 else 0
 
         # Get connected VMs from config
-        from azlin.modules.config_manager import ConfigManager
+        from azlin.config_manager import ConfigManager
 
         connected_vms = []
         try:
             # Get all VMs that have this storage attached
-            config = ConfigManager.get_config()
-            vm_storage = config.get("vm_storage", {})
+            config_obj = ConfigManager.load_config()
+            config_dict = config_obj.to_dict()
+            vm_storage = config_dict.get("vm_storage", {})
             connected_vms = [vm for vm, storage in vm_storage.items() if storage == name]
         except Exception as e:
             logger.warning(f"Failed to get connected VMs: {e}")

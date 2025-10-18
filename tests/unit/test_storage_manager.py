@@ -226,7 +226,7 @@ class TestGetStorageStatus:
     """Test getting detailed storage status."""
 
     @patch("azlin.modules.storage_manager.subprocess.run")
-    @patch("azlin.modules.config_manager.ConfigManager")
+    @patch("azlin.config_manager.ConfigManager")
     def test_status_includes_usage(self, mock_config, mock_run):
         """Status should include used space and utilization."""
         mock_run.side_effect = [
@@ -236,7 +236,9 @@ class TestGetStorageStatus:
             ),
             MagicMock(returncode=0, stdout='100'),  # quota
         ]
-        mock_config.get_config.return_value = {"vm_storage": {}}
+        mock_config_obj = MagicMock()
+        mock_config_obj.to_dict.return_value = {"vm_storage": {}}
+        mock_config.load_config.return_value = mock_config_obj
         
         result = StorageManager.get_storage_status("test123", "test-rg")
         
@@ -244,7 +246,7 @@ class TestGetStorageStatus:
         assert result.used_gb >= 0
 
     @patch("azlin.modules.storage_manager.subprocess.run")
-    @patch("azlin.modules.config_manager.ConfigManager")
+    @patch("azlin.config_manager.ConfigManager")
     def test_status_includes_connected_vms(self, mock_config, mock_run):
         """Status should list connected VMs."""
         mock_run.side_effect = [
@@ -254,7 +256,9 @@ class TestGetStorageStatus:
             ),
             MagicMock(returncode=0, stdout='100'),
         ]
-        mock_config.get_config.return_value = {"vm_storage": {"vm1": "test123", "vm2": "test123"}}
+        mock_config_obj = MagicMock()
+        mock_config_obj.to_dict.return_value = {"vm_storage": {"vm1": "test123", "vm2": "test123"}}
+        mock_config.load_config.return_value = mock_config_obj
         
         result = StorageManager.get_storage_status("test123", "test-rg")
         
@@ -262,7 +266,7 @@ class TestGetStorageStatus:
         assert len(result.connected_vms) == 2
 
     @patch("azlin.modules.storage_manager.subprocess.run")
-    @patch("azlin.modules.config_manager.ConfigManager")
+    @patch("azlin.config_manager.ConfigManager")
     def test_status_calculates_cost(self, mock_config, mock_run):
         """Status should calculate monthly cost."""
         mock_run.side_effect = [
@@ -272,7 +276,9 @@ class TestGetStorageStatus:
             ),
             MagicMock(returncode=0, stdout='100'),
         ]
-        mock_config.get_config.return_value = {"vm_storage": {}}
+        mock_config_obj = MagicMock()
+        mock_config_obj.to_dict.return_value = {"vm_storage": {}}
+        mock_config.load_config.return_value = mock_config_obj
         
         result = StorageManager.get_storage_status("test123", "test-rg")
         
@@ -283,7 +289,7 @@ class TestDeleteStorage:
     """Test storage account deletion."""
 
     @patch("azlin.modules.storage_manager.subprocess.run")
-    @patch("azlin.modules.config_manager.ConfigManager")
+    @patch("azlin.config_manager.ConfigManager")
     def test_delete_success(self, mock_config, mock_run):
         """Delete should successfully remove storage."""
         mock_run.side_effect = [
@@ -294,12 +300,14 @@ class TestDeleteStorage:
             MagicMock(returncode=0, stdout='100'),
             MagicMock(returncode=0),  # delete
         ]
-        mock_config.get_config.return_value = {"vm_storage": {}}
+        mock_config_obj = MagicMock()
+        mock_config_obj.to_dict.return_value = {"vm_storage": {}}
+        mock_config.load_config.return_value = mock_config_obj
         
         # Should not raise
         StorageManager.delete_storage("test123", "test-rg", force=True)
 
-    @patch("azlin.modules.config_manager.ConfigManager")
+    @patch("azlin.config_manager.ConfigManager")
     @patch("azlin.modules.storage_manager.subprocess.run")
     def test_delete_with_connected_vms(self, mock_run, mock_config):
         """Delete should fail if VMs connected and not force."""
@@ -310,17 +318,21 @@ class TestDeleteStorage:
             ),
             MagicMock(returncode=0, stdout='100'),
         ]
-        mock_config.get_config.return_value = {"vm_storage": {"vm1": "test123"}}
+        mock_config_obj = MagicMock()
+        mock_config_obj.to_dict.return_value = {"vm_storage": {"vm1": "test123"}}
+        mock_config.load_config.return_value = mock_config_obj
         
-        with pytest.raises(StorageInUseError, match="VMs still connected"):
+        with pytest.raises(StorageInUseError, match="still has VMs connected"):
             StorageManager.delete_storage("test123", "test-rg", force=False)
 
     @patch("azlin.modules.storage_manager.subprocess.run")
-    @patch("azlin.modules.config_manager.ConfigManager")
+    @patch("azlin.config_manager.ConfigManager")
     def test_delete_force_with_connected_vms(self, mock_config, mock_run):
         """Delete with force should succeed even with connected VMs."""
         mock_run.return_value = MagicMock(returncode=0)
-        mock_config.get_config.return_value = {}
+        mock_config_obj = MagicMock()
+        mock_config_obj.to_dict.return_value = {"vm_storage": {}}
+        mock_config.load_config.return_value = mock_config_obj
         
         # Should not raise
         StorageManager.delete_storage("test123", "test-rg", force=True)
