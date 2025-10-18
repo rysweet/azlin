@@ -432,8 +432,8 @@ class VMProvisioner:
         report_progress(f"Creating resource group: {config.resource_group}")
         self.create_resource_group(config.resource_group, config.location)
 
-        # Generate cloud-init
-        cloud_init = self._generate_cloud_init()
+        # Generate cloud-init with SSH key
+        cloud_init = self._generate_cloud_init(config.ssh_public_key)
 
         # Build VM create command
         cmd = [
@@ -542,13 +542,30 @@ class VMProvisioner:
         except subprocess.CalledProcessError as e:
             raise ProvisioningError(f"Failed to create resource group: {e.stderr}") from e
 
-    def _generate_cloud_init(self) -> str:
+    def _generate_cloud_init(self, ssh_public_key: str | None = None) -> str:
         """Generate cloud-init script for tool installation.
+
+        Args:
+            ssh_public_key: SSH public key to add to authorized_keys (workaround for waagent bug)
 
         Returns:
             Cloud-init YAML content
         """
-        return """#cloud-config
+        # Build SSH key setup command if provided
+        ssh_key_setup = ""
+        if ssh_public_key:
+            # Escape the key for safe inclusion in YAML
+            escaped_key = ssh_public_key.replace("'", "'\\''")
+            ssh_key_setup = f"""  # WORKAROUND: Explicitly set SSH key (waagent sometimes fails to write authorized_keys)
+  - mkdir -p /home/azureuser/.ssh
+  - chmod 700 /home/azureuser/.ssh
+  - echo '{escaped_key}' > /home/azureuser/.ssh/authorized_keys
+  - chmod 600 /home/azureuser/.ssh/authorized_keys
+  - chown -R azureuser:azureuser /home/azureuser/.ssh
+
+"""
+
+        return f"""#cloud-config
 package_update: true
 package_upgrade: true
 
@@ -562,7 +579,7 @@ packages:
   - software-properties-common
 
 runcmd:
-  # Python 3.12+ from deadsnakes PPA
+{ssh_key_setup}  # Python 3.12+ from deadsnakes PPA
   - add-apt-repository -y ppa:deadsnakes/ppa
   - apt update
   - apt install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils
@@ -589,12 +606,12 @@ runcmd:
 
   # npm user-local configuration (avoid sudo for global installs)
   - mkdir -p /home/azureuser/.npm-packages
-  - echo 'prefix=${HOME}/.npm-packages' > /home/azureuser/.npmrc
+  - echo 'prefix=${{HOME}}/.npm-packages' > /home/azureuser/.npmrc
   - |
     cat >> /home/azureuser/.bashrc << 'EOF'
 
     # npm user-local configuration
-    NPM_PACKAGES="${HOME}/.npm-packages"
+    NPM_PACKAGES="${{HOME}}/.npm-packages"
     PATH="$NPM_PACKAGES/bin:$PATH"
     MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
 

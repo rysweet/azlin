@@ -132,12 +132,15 @@ class NFSMountManager:
 
             # Step 4: Mount NFS share
             logger.info(f"Mounting NFS share {nfs_endpoint}")
-            mount_cmd = f"sudo mount -t nfs -o sec=sys {nfs_endpoint} {mount_point}"
+            # Azure Files NFS requires NFSv4.1 with specific options
+            mount_cmd = (
+                f"sudo mount -t nfs -o vers=4,minorversion=1,sec=sys {nfs_endpoint} {mount_point}"
+            )
             cls._ssh_command(vm_ip, ssh_key, mount_cmd)
 
             # Step 5: Update /etc/fstab
             logger.info("Updating /etc/fstab")
-            fstab_entry = f"{nfs_endpoint} {mount_point} nfs defaults 0 0"
+            fstab_entry = f"{nfs_endpoint} {mount_point} nfs vers=4,minorversion=1,sec=sys 0 0"
             cls._ssh_command(
                 vm_ip,
                 ssh_key,

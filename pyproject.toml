@@ -123,3 +123,6 @@ max-complexity = 15
     "S101",   # assert allowed
     "T201",   # print allowed
 ]
+"src/azlin/vm_provisioning.py" = [
+    "S608",   # False positive: cloud-init YAML, not SQL
+]
