@@ -21,13 +21,11 @@ Public API:
 """
 
 import json
+import logging
 import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -440,26 +438,9 @@ class StorageManager:
     @classmethod
     def _get_storage_usage(cls, storage_account: str) -> float:
         """Get storage usage in GB."""
-        try:
-            cmd = [
-                "az",
-                "storage",
-                "account",
-                "show",
-                "--name",
-                storage_account,
-                "--query",
-                "primaryEndpoints.file",
-                "--output",
-                "tsv",
-            ]
-
-            # For now, return 0 as usage metrics require additional setup
-            # In production, would query Azure Monitor metrics
-            return 0.0
-
-        except Exception:
-            return 0.0
+        # For now, return 0 as usage metrics require additional setup
+        # In production, would query Azure Monitor metrics
+        return 0.0
 
     @classmethod
     def delete_storage(

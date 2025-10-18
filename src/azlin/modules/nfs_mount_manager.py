@@ -113,12 +113,12 @@ class NFSMountManager:
             # Step 2: Backup existing mount point
             logger.info(f"Backing up existing {mount_point}")
             backup_dir = f"{mount_point}.backup"
-            
+
             # Check if mount point exists and has files
             check_cmd = f"[ -d {mount_point} ] && ls -A {mount_point} | wc -l || echo 0"
             result = cls._ssh_command(vm_ip, ssh_key, check_cmd)
             file_count = int(result.strip()) if result.strip().isdigit() else 0
-            
+
             if file_count > 0:
                 cls._ssh_command(
                     vm_ip,
@@ -156,7 +156,7 @@ class NFSMountManager:
                 share_files_cmd = f"ls -A {mount_point} | wc -l"
                 result = cls._ssh_command(vm_ip, ssh_key, share_files_cmd)
                 share_file_count = int(result.strip()) if result.strip().isdigit() else 0
-                
+
                 if share_file_count == 0:
                     cls._ssh_command(
                         vm_ip,
@@ -250,12 +250,12 @@ class NFSMountManager:
             # Step 1: Copy mounted files to local backup
             logger.info(f"Backing up mounted files from {mount_point}")
             local_backup = f"{mount_point}.local"
-            
+
             # Count files
             count_cmd = f"ls -A {mount_point} | wc -l"
             result = cls._ssh_command(vm_ip, ssh_key, count_cmd)
             backed_up_files = int(result.strip()) if result.strip().isdigit() else 0
-            
+
             # Copy files
             cls._ssh_command(
                 vm_ip,
