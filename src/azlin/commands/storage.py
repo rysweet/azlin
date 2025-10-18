@@ -94,9 +94,9 @@ def create_storage(name: str, size: int, tier: str, resource_group: str | None, 
     try:
         # Get config
         try:
-            config = ConfigManager.get_config()
-            rg = resource_group or config.resource_group
-            location = region or config.region
+            config = ConfigManager.load_config()
+            rg = resource_group or config.default_resource_group
+            location = region or config.default_region
         except ConfigError:
             click.echo(
                 "Error: No config found. Run 'azlin new' first or specify --resource-group and --region.",
@@ -161,8 +161,8 @@ def list_storage(resource_group: str | None):
     try:
         # Get config
         try:
-            config = ConfigManager.get_config()
-            rg = resource_group or config.resource_group
+            config = ConfigManager.load_config()
+            rg = resource_group or config.default_resource_group
         except ConfigError:
             click.echo(
                 "Error: No config found. Run 'azlin new' first or specify --resource-group.",
@@ -214,8 +214,8 @@ def show_status(name: str, resource_group: str | None):
     try:
         # Get config
         try:
-            config = ConfigManager.get_config()
-            rg = resource_group or config.resource_group
+            config = ConfigManager.load_config()
+            rg = resource_group or config.default_resource_group
         except ConfigError:
             click.echo(
                 "Error: No config found. Run 'azlin new' first or specify --resource-group.",
@@ -274,8 +274,8 @@ def delete_storage(name: str, resource_group: str | None, force: bool):
     try:
         # Get config
         try:
-            config = ConfigManager.get_config()
-            rg = resource_group or config.resource_group
+            config = ConfigManager.load_config()
+            rg = resource_group or config.default_resource_group
         except ConfigError:
             click.echo(
                 "Error: No config found. Run 'azlin new' first or specify --resource-group.",
@@ -326,8 +326,8 @@ def mount_storage(storage_name: str, vm: str, resource_group: str | None):
     try:
         # Get config
         try:
-            config = ConfigManager.get_config()
-            rg = resource_group or config.resource_group
+            config = ConfigManager.load_config()
+            rg = resource_group or config.default_resource_group
         except ConfigError:
             click.echo(
                 "Error: No config found. Run 'azlin new' first or specify --resource-group.",
@@ -398,7 +398,9 @@ def mount_storage(storage_name: str, vm: str, resource_group: str | None):
 
         # Update config to track storage
         try:
-            config.vm_storage = storage_name
+            if config.vm_storage is None:
+                config.vm_storage = {}
+            config.vm_storage[vm_obj.name] = storage_name
             ConfigManager.save_config(config)
         except Exception:
             pass  # Non-critical
@@ -424,8 +426,8 @@ def unmount_storage(vm: str, resource_group: str | None):
     try:
         # Get config
         try:
-            config = ConfigManager.get_config()
-            rg = resource_group or config.resource_group
+            config = ConfigManager.load_config()
+            rg = resource_group or config.default_resource_group
         except ConfigError:
             click.echo(
                 "Error: No config found. Run 'azlin new' first or specify --resource-group.",
@@ -478,8 +480,9 @@ def unmount_storage(vm: str, resource_group: str | None):
 
         # Update config
         try:
-            config.vm_storage = None
-            ConfigManager.save_config(config)
+            if config.vm_storage and vm_obj.name in config.vm_storage:
+                del config.vm_storage[vm_obj.name]
+                ConfigManager.save_config(config)
         except Exception:
             pass  # Non-critical
 
