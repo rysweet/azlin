@@ -666,127 +666,67 @@ cp ~/.bashrc ~/.vimrc ~/.gitconfig ~/.azlin/home/
 
 ## Storage & NFS
 
-**NEW**: Share home directories across multiple VMs using Azure Files NFS storage.
+**COMING SOON**: Share home directories across multiple VMs using Azure Files NFS storage.
 
 ### Overview
 
-The storage modules enable multiple VMs to share a common home directory via NFS, perfect for:
+Planned feature to enable multiple VMs to share a common home directory via NFS, perfect for:
 - Team collaboration with shared development environments
 - Consistent tooling and configuration across all VMs
 - Seamless switching between VMs without data loss
 - Cost-effective multi-VM workflows
 
-### Storage Manager API
+### Planned CLI Commands
 
-Manage Azure Files NFS storage accounts (API-level, CLI integration coming soon):
-
-```python
-from azlin.modules.storage_manager import StorageManager
-
-# Create shared storage (100GB Premium NFS)
-storage = StorageManager.create_storage(
-    name="myteam-shared",
-    resource_group="azlin-rg",
-    size_gb=100,
-    tier="Premium"
-)
-
-# List all storage accounts
-accounts = StorageManager.list_storage("azlin-rg")
-
-# Get storage details and usage
-status = StorageManager.get_storage_status("myteam-shared", "azlin-rg")
-print(f"Used: {status.used_gb}GB / {status.size_gb}GB")
-print(f"Connected VMs: {status.connected_vms}")
-print(f"Cost: ${status.cost_per_month}/month")
-
-# Delete storage (with safety checks)
-StorageManager.delete_storage("myteam-shared", "azlin-rg", force=False)
-```
-
-### NFS Mount Manager API
-
-Mount and unmount NFS shares on VMs:
-
-```python
-from azlin.modules.nfs_mount_manager import NFSMountManager
-from pathlib import Path
-
-# Mount shared storage on VM
-result = NFSMountManager.mount_storage(
-    vm_ip="10.0.1.5",
-    ssh_key=Path("~/.ssh/azlin-key"),
-    nfs_endpoint="storageacct.blob.core.windows.net:/share"
-)
-
-# Verify mount status
-is_mounted = NFSMountManager.verify_mount(vm_ip, ssh_key)
-
-# Get mount information
-info = NFSMountManager.get_mount_info(vm_ip, ssh_key)
-print(f"Mounted: {info.is_mounted}")
-print(f"Mount point: {info.mount_point}")
-print(f"Endpoint: {info.nfs_endpoint}")
-
-# Unmount and restore local data
-result = NFSMountManager.unmount_storage(vm_ip, ssh_key)
-```
-
-### Features
-
-✅ **Atomic Operations** - Mount/unmount with automatic rollback on failure  
-✅ **Data Preservation** - Automatic backup of existing home directories  
-✅ **Safety Checks** - Prevents deletion of storage with connected VMs  
-✅ **Cost Tracking** - Calculate monthly costs per storage account  
-✅ **VNet Security** - NFS endpoints only accessible within Azure VNet  
-✅ **Idempotent** - Safe to run operations multiple times  
-
-### Storage Tiers & Costs
-
-**Premium Tier** (Premium_LRS):
-- Cost: $0.153/GB/month
-- Performance: High IOPS, low latency
-- Use case: Development environments, frequent access
-
-**Standard Tier** (Standard_LRS):
-- Cost: $0.0184/GB/month
-- Performance: Standard IOPS
-- Use case: Backups, archival, less frequent access
-
-Example costs for 100GB shared storage:
-- Premium: ~$15.30/month
-- Standard: ~$1.84/month
-
-### CLI Integration (Coming Soon)
-
-Planned CLI commands for easier storage management:
+Storage commands are currently in development. The following commands are planned:
 
 ```bash
-# Create shared storage
+# Create shared storage (100GB Premium NFS)
 azlin storage create myteam-shared --size 100 --tier Premium
 
 # List storage accounts
 azlin storage list
 
-# Mount storage on VM
+# Mount storage on VM (shares home directory)
 azlin storage mount myteam-shared --vm my-dev-vm
 
-# Unmount storage
+# Unmount storage from VM
 azlin storage unmount my-dev-vm
 
-# Show storage status
+# Show storage status and usage
 azlin storage status myteam-shared
 
 # Delete storage
 azlin storage delete myteam-shared
 ```
 
-### Documentation
+**Use cases**:
+- Create a shared storage once, mount it on multiple VMs
+- All VMs see the same home directory with shared files and configs
+- Switch between VMs seamlessly without copying data
+- Team members collaborate in shared development environment
 
-- **Requirements**: [AZURE_FILES_NFS_REQUIREMENTS.md](AZURE_FILES_NFS_REQUIREMENTS.md)
-- **Design**: [DESIGN_NFS_STORAGE.md](DESIGN_NFS_STORAGE.md)
-- **Manual Testing**: [MANUAL_TEST_PLAN.md](MANUAL_TEST_PLAN.md)
-- **Implementation Status**: [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)
+### Storage Tiers & Costs
+
+**Premium Tier** (Premium_LRS):
+- Cost: $0.153/GB/month
+- Performance: High IOPS, low latency
+- Best for: Active development environments
+
+**Standard Tier** (Standard_LRS):
+- Cost: $0.0184/GB/month
+- Performance: Standard IOPS
+- Best for: Backups, archival data
+
+**Example**: 100GB shared storage
+- Premium: ~$15.30/month
+- Standard: ~$1.84/month
+
+### Implementation Status
+
+The core modules (`storage_manager.py` and `nfs_mount_manager.py`) are complete and tested. CLI integration is in progress.
+
+**Technical details**: [DESIGN_NFS_STORAGE.md](DESIGN_NFS_STORAGE.md)
 
 ---
 
