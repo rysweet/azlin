@@ -57,6 +57,7 @@ from azlin.modules.home_sync import (
 from azlin.modules.notifications import NotificationHandler
 from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
 from azlin.modules.progress import ProgressDisplay, ProgressStage
+from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.prune import PruneManager
@@ -67,14 +68,12 @@ from azlin.remote_exec import (
     RemoteExecutor,
     WCommandExecutor,
 )
-from azlin.snapshot_manager import SnapshotManager, SnapshotManagerError
 from azlin.tag_manager import TagManager
 from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
 from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
-from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
 from azlin.vm_provisioning import (
     ProvisioningError,
     VMDetails,
@@ -3807,7 +3806,7 @@ def snapshot_enable(
         click.echo(f"✓ Enabled scheduled snapshots for {vm_name}")
         click.echo(f"  Interval: every {interval_hours} hours")
         click.echo(f"  Retention: keep {keep_count} snapshots")
-        click.echo(f"\nRun 'azlin snapshot sync' to trigger snapshot creation.")
+        click.echo("\nRun 'azlin snapshot sync' to trigger snapshot creation.")
 
     except SnapshotError as e:
         click.echo(f"Error: {e}", err=True)
@@ -3876,7 +3875,7 @@ def snapshot_sync(resource_group: str | None, config: str | None, vm_name: str |
 
         results = SnapshotManager.sync_snapshots(rg, vm_name)
 
-        click.echo(f"\n✓ Sync complete:")
+        click.echo("\n✓ Sync complete:")
         click.echo(f"  VMs checked: {results['checked']}")
         click.echo(f"  Snapshots created: {results['created']}")
         click.echo(f"  Old snapshots cleaned: {results['cleaned']}")

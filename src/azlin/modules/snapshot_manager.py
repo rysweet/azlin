@@ -12,9 +12,10 @@ Design Philosophy:
 
 import json
 import logging
+import re
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,38 @@ class SnapshotManager:
 
     SCHEDULE_TAG_KEY = "azlin:snapshot-schedule"
 
+    # Azure naming validation patterns
+    VM_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+    RG_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.\(\)]{1,90}$")
+
+    @classmethod
+    def _validate_vm_name(cls, vm_name: str) -> None:
+        """Validate VM name against Azure naming rules.
+
+        Args:
+            vm_name: VM name to validate
+
+        Raises:
+            SnapshotError: If VM name is invalid
+        """
+        if not vm_name or not cls.VM_NAME_PATTERN.match(vm_name):
+            raise SnapshotError(
+                f"Invalid VM name: {vm_name}. Must be 1-64 alphanumeric/hyphen/underscore characters"
+            )
+
+    @classmethod
+    def _validate_resource_group(cls, rg_name: str) -> None:
+        """Validate resource group name against Azure naming rules.
+
+        Args:
+            rg_name: Resource group name to validate
+
+        Raises:
+            SnapshotError: If resource group name is invalid
+        """
+        if not rg_name or not cls.RG_NAME_PATTERN.match(rg_name):
+            raise SnapshotError(f"Invalid resource group name: {rg_name}")
+
     @classmethod
     def enable_snapshots(
         cls,
@@ -101,6 +134,9 @@ class SnapshotManager:
         Raises:
             SnapshotError: If enable operation fails
         """
+        cls._validate_vm_name(vm_name)
+        cls._validate_resource_group(resource_group)
+
         if interval_hours < 1:
             raise SnapshotError("Interval must be at least 1 hour")
         if keep_count < 1:
@@ -129,6 +165,9 @@ class SnapshotManager:
         Raises:
             SnapshotError: If disable operation fails
         """
+        cls._validate_vm_name(vm_name)
+        cls._validate_resource_group(resource_group)
+
         cls._remove_vm_tag(vm_name, resource_group, cls.SCHEDULE_TAG_KEY)
         logger.info(f"Disabled snapshots for {vm_name}")
 
@@ -189,8 +228,8 @@ class SnapshotManager:
                     results["created"] += 1
                     logger.info(f"Created snapshot {snapshot_name} for {vm}")
 
-                    # Update last snapshot time
-                    schedule.last_snapshot_time = datetime.now()
+                    # Update last snapshot time (timezone-aware)
+                    schedule.last_snapshot_time = datetime.now(UTC)
                     cls._set_vm_tag(
                         vm, resource_group, cls.SCHEDULE_TAG_KEY, schedule.to_tag_value()
                     )
@@ -218,7 +257,15 @@ class SnapshotManager:
         if not schedule.last_snapshot_time:
             return True  # Never taken snapshot
 
-        elapsed = datetime.now() - schedule.last_snapshot_time
+        # Use timezone-aware datetime for comparison
+        now = datetime.now(UTC)
+
+        # Ensure last_snapshot_time is timezone-aware
+        last_time = schedule.last_snapshot_time
+        if last_time.tzinfo is None:
+            last_time = last_time.replace(tzinfo=UTC)
+
+        elapsed = now - last_time
         threshold = timedelta(hours=schedule.interval_hours)
 
         return elapsed >= threshold
@@ -350,7 +397,7 @@ class SnapshotManager:
         snapshots.sort(key=lambda s: s.creation_time)
 
         # Delete oldest beyond keep_count
-        to_delete = snapshots[: -keep_count] if len(snapshots) > keep_count else []
+        to_delete = snapshots[:-keep_count] if len(snapshots) > keep_count else []
 
         deleted_count = 0
         for snapshot in to_delete:
@@ -379,14 +426,13 @@ class SnapshotManager:
             SnapshotError: If listing fails
         """
         try:
+            # List ALL snapshots, then filter in Python (prevents JMESPath injection)
             cmd = [
                 "az",
                 "snapshot",
                 "list",
                 "--resource-group",
                 resource_group,
-                "--query",
-                f"[?starts_with(name, '{vm_name}-snapshot-')]",
                 "--output",
                 "json",
             ]
@@ -399,13 +445,17 @@ class SnapshotManager:
                 check=True,
             )
 
-            snapshots_data = json.loads(result.stdout)
+            all_snapshots = json.loads(result.stdout)
+
+            # Filter snapshots in Python (safe from injection)
+            expected_prefix = f"{vm_name}-snapshot-"
+            snapshots_data = [
+                snap for snap in all_snapshots if snap.get("name", "").startswith(expected_prefix)
+            ]
 
             snapshots = []
             for snap in snapshots_data:
-                creation_time = datetime.fromisoformat(
-                    snap["timeCreated"].replace("Z", "+00:00")
-                )
+                creation_time = datetime.fromisoformat(snap["timeCreated"].replace("Z", "+00:00"))
                 snapshots.append(
                     SnapshotInfo(
                         name=snap["name"],
@@ -484,7 +534,7 @@ class SnapshotManager:
                 "--resource-group",
                 resource_group,
                 "--query",
-                f"[?tags.\"{cls.SCHEDULE_TAG_KEY}\" != null].name",
+                f'[?tags."{cls.SCHEDULE_TAG_KEY}" != null].name',
                 "--output",
                 "json",
             ]
@@ -532,7 +582,7 @@ class SnapshotManager:
                 "--resource-group",
                 resource_group,
                 "--query",
-                f"tags.\"{tag_key}\"",
+                f'tags."{tag_key}"',
                 "--output",
                 "tsv",
             ]
