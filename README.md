@@ -663,6 +663,71 @@ cp ~/.bashrc ~/.vimrc ~/.gitconfig ~/.azlin/home/
 
 ---
 
+## Shared Storage
+
+Share home directories across multiple VMs using Azure Files NFS.
+
+### Quick Start
+
+```bash
+# Create shared storage
+azlin storage create myteam-shared --size 100 --tier Premium
+
+# Mount on VMs
+azlin storage mount myteam-shared --vm vm1
+azlin storage mount myteam-shared --vm vm2
+
+# Now both VMs share the same home directory!
+```
+
+### Commands
+
+```bash
+# Create storage (100GB Premium = ~$15/month)
+azlin storage create myteam-shared --size 100 --tier Premium
+
+# List storage accounts
+azlin storage list
+
+# Check usage and connected VMs
+azlin storage status myteam-shared
+
+# Mount storage on VM (replaces home directory)
+azlin storage mount myteam-shared --vm my-dev-vm
+
+# Unmount storage (restores local home)
+azlin storage unmount --vm my-dev-vm
+
+# Delete storage
+azlin storage delete myteam-shared
+```
+
+### Use Cases
+
+- **Team Collaboration**: Multiple devs in the same environment
+- **Seamless Switching**: Move between VMs without losing work
+- **Consistent Tools**: Same configs and tools across all VMs
+- **Multi-VM Workflows**: Different tasks, shared data
+
+### Storage Tiers
+
+| Tier | Cost/GB/month | Use Case |
+|------|---------------|----------|
+| **Premium** | $0.153 | Active development, high performance |
+| **Standard** | $0.0184 | Backups, archival, less frequent access |
+
+**Example**: 100GB Premium = ~$15.30/month, 100GB Standard = ~$1.84/month
+
+### How It Works
+
+1. **Mount**: Existing home directory backed up, NFS share mounted
+2. **Share**: All VMs with same storage see same files
+3. **Unmount**: NFS unmounted, local home restored from backup
+
+For complete documentation, see [docs/STORAGE_README.md](docs/STORAGE_README.md).
+
+---
+
 ## Cost Management
 
 ### `azlin cost` - Track VM spending
