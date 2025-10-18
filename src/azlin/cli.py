@@ -74,6 +74,7 @@ from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_lifecycle import VMLifecycleError, VMLifecycleManager
 from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
+from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
 from azlin.vm_provisioning import (
     ProvisioningError,
     VMDetails,
@@ -3737,25 +3738,197 @@ def template():
 @main.group(name="snapshot")
 @click.pass_context
 def snapshot(ctx):
-    """Manage VM snapshots.
+    """Manage VM snapshots and scheduled backups.
 
-    Create, list, restore, and delete VM disk snapshots for backup and recovery.
+    Enable scheduled snapshots, sync snapshots manually, or manage snapshot schedules.
 
     \b
     EXAMPLES:
-        # Create a snapshot of a VM
-        $ azlin snapshot create my-vm
+        # Enable scheduled snapshots (every 24 hours, keep 2)
+        $ azlin snapshot enable my-vm --every 24
 
-        # List snapshots for a VM
-        $ azlin snapshot list my-vm
+        # Enable with custom retention (every 12 hours, keep 5)
+        $ azlin snapshot enable my-vm --every 12 --keep 5
 
-        # Restore VM from a snapshot
-        $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
+        # Sync snapshots now (checks all VMs with schedules)
+        $ azlin snapshot sync
 
-        # Delete a snapshot
-        $ azlin snapshot delete my-vm-snapshot-20251015-053000
+        # Sync specific VM
+        $ azlin snapshot sync --vm my-vm
+
+        # Disable scheduled snapshots
+        $ azlin snapshot disable my-vm
+
+        # Show snapshot schedule
+        $ azlin snapshot status my-vm
     """
     pass
+
+
+@snapshot.command(name="enable")
+@click.argument("vm_name", type=str)
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option(
+    "--every",
+    "interval_hours",
+    type=int,
+    required=True,
+    help="Snapshot interval in hours (e.g., 24 for daily)",
+)
+@click.option(
+    "--keep", "keep_count", type=int, default=2, help="Number of snapshots to keep (default: 2)"
+)
+def snapshot_enable(
+    vm_name: str,
+    resource_group: str | None,
+    config: str | None,
+    interval_hours: int,
+    keep_count: int,
+):
+    """Enable scheduled snapshots for a VM.
+
+    Configures the VM to take snapshots every N hours, keeping only the most recent snapshots.
+    Schedule is stored in VM tags and triggered by `azlin snapshot sync`.
+
+    \b
+    Examples:
+        azlin snapshot enable my-vm --every 24          # Daily, keep 2
+        azlin snapshot enable my-vm --every 12 --keep 5 # Every 12h, keep 5
+    """
+    try:
+        rg = ConfigManager.get_resource_group(resource_group, config)
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        SnapshotManager.enable_snapshots(vm_name, rg, interval_hours, keep_count)
+
+        click.echo(f"✓ Enabled scheduled snapshots for {vm_name}")
+        click.echo(f"  Interval: every {interval_hours} hours")
+        click.echo(f"  Retention: keep {keep_count} snapshots")
+        click.echo(f"\nRun 'azlin snapshot sync' to trigger snapshot creation.")
+
+    except SnapshotError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name="disable")
+@click.argument("vm_name", type=str)
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+def snapshot_disable(vm_name: str, resource_group: str | None, config: str | None):
+    """Disable scheduled snapshots for a VM.
+
+    Removes the snapshot schedule from the VM. Existing snapshots are not deleted.
+
+    \b
+    Example:
+        azlin snapshot disable my-vm
+    """
+    try:
+        rg = ConfigManager.get_resource_group(resource_group, config)
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        SnapshotManager.disable_snapshots(vm_name, rg)
+
+        click.echo(f"✓ Disabled scheduled snapshots for {vm_name}")
+        click.echo("Existing snapshots were not deleted.")
+
+    except SnapshotError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name="sync")
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--vm", "vm_name", help="Sync specific VM only", type=str)
+def snapshot_sync(resource_group: str | None, config: str | None, vm_name: str | None):
+    """Sync snapshots for VMs with schedules.
+
+    Checks all VMs (or specific VM) and creates snapshots if needed based on their schedules.
+    Old snapshots beyond retention count are automatically deleted (FIFO).
+
+    This is the main command to run periodically (e.g., via cron) to trigger snapshot creation.
+
+    \b
+    Examples:
+        azlin snapshot sync                # Sync all VMs
+        azlin snapshot sync --vm my-vm     # Sync specific VM
+    """
+    try:
+        rg = ConfigManager.get_resource_group(resource_group, config)
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        click.echo("Syncing scheduled snapshots...")
+
+        results = SnapshotManager.sync_snapshots(rg, vm_name)
+
+        click.echo(f"\n✓ Sync complete:")
+        click.echo(f"  VMs checked: {results['checked']}")
+        click.echo(f"  Snapshots created: {results['created']}")
+        click.echo(f"  Old snapshots cleaned: {results['cleaned']}")
+        click.echo(f"  VMs skipped: {results['skipped']}")
+
+    except SnapshotError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@snapshot.command(name="status")
+@click.argument("vm_name", type=str)
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+def snapshot_status(vm_name: str, resource_group: str | None, config: str | None):
+    """Show snapshot schedule status for a VM.
+
+    \b
+    Example:
+        azlin snapshot status my-vm
+    """
+    try:
+        rg = ConfigManager.get_resource_group(resource_group, config)
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        schedule = SnapshotManager.get_snapshot_schedule(vm_name, rg)
+
+        if not schedule:
+            click.echo(f"No snapshot schedule configured for {vm_name}")
+            return
+
+        click.echo(f"Snapshot schedule for {vm_name}:")
+        click.echo(f"  Status: {'Enabled' if schedule.enabled else 'Disabled'}")
+        click.echo(f"  Interval: every {schedule.interval_hours} hours")
+        click.echo(f"  Retention: keep {schedule.keep_count} snapshots")
+
+        if schedule.last_snapshot_time:
+            click.echo(f"  Last snapshot: {schedule.last_snapshot_time.isoformat()}")
+        else:
+            click.echo("  Last snapshot: Never")
+
+    except SnapshotError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
 
 
 @keys_group.command(name="rotate")
