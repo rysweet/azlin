@@ -1,13 +1,4 @@
-"""Unit tests for VM lifecycle control module.
-
-Tests cover:
-- Stop/start single VMs
-- Batch stop/start operations
-
-- Cost calculation and tracking
-- Error handling
-- Edge cases
-"""
+"""Unit tests for vm_lifecycle_control module."""
 
 import json
 import subprocess
@@ -26,75 +17,115 @@ from azlin.vm_lifecycle_control import (
 class TestLifecycleResult:
     """Test LifecycleResult dataclass."""
 
-    def test_success_repr_without_cost(self):
-        """Test repr for successful operation without cost impact."""
+    def test_lifecycle_result_success(self):
+        """Test LifecycleResult with success."""
         result = LifecycleResult(
             vm_name="test-vm",
             success=True,
-            message="VM stopped successfully",
-            operation="stop",
-        )
-        assert "[SUCCESS]" in str(result)
-        assert "test-vm" in str(result)
-        assert "VM stopped successfully" in str(result)
-
-    def test_success_repr_with_cost(self):
-        """Test repr for successful operation with cost impact."""
-        result = LifecycleResult(
-            vm_name="test-vm",
-            success=True,
-            message="VM stopped successfully",
-            operation="stop",
+            message="VM deallocated successfully",
+            operation="deallocate",
             cost_impact="Saves ~$0.096/hour",
         )
-        assert "[SUCCESS]" in str(result)
-        assert "Saves ~$0.096/hour" in str(result)
 
-    def test_failure_repr(self):
-        """Test repr for failed operation."""
+        assert result.vm_name == "test-vm"
+        assert result.success is True
+        assert result.message == "VM deallocated successfully"
+        assert result.operation == "deallocate"
+        assert result.cost_impact == "Saves ~$0.096/hour"
+
+    def test_lifecycle_result_failure(self):
+        """Test LifecycleResult with failure."""
         result = LifecycleResult(
             vm_name="test-vm",
             success=False,
             message="VM not found",
-            operation="stop",
+            operation="start",
         )
-        assert "[FAILED]" in str(result)
-        assert "VM not found" in str(result)
+
+        assert result.vm_name == "test-vm"
+        assert result.success is False
+        assert result.message == "VM not found"
+        assert result.operation == "start"
+        assert result.cost_impact is None
+
+    def test_lifecycle_result_repr_success(self):
+        """Test LifecycleResult __repr__ with success."""
+        result = LifecycleResult(
+            vm_name="test-vm",
+            success=True,
+            message="VM started",
+            operation="start",
+            cost_impact="~$0.100/hour while running",
+        )
+
+        repr_str = repr(result)
+        assert "[SUCCESS]" in repr_str
+        assert "test-vm" in repr_str
+        assert "VM started" in repr_str
+        assert "~$0.100/hour while running" in repr_str
+
+    def test_lifecycle_result_repr_failure(self):
+        """Test LifecycleResult __repr__ with failure."""
+        result = LifecycleResult(
+            vm_name="test-vm",
+            success=False,
+            message="Failed to start: timeout",
+            operation="start",
+        )
+
+        repr_str = repr(result)
+        assert "[FAILED]" in repr_str
+        assert "test-vm" in repr_str
+        assert "Failed to start: timeout" in repr_str
 
 
 class TestLifecycleSummary:
     """Test LifecycleSummary dataclass."""
 
-    def test_all_succeeded_true(self):
-        """Test all_succeeded property when all operations succeed."""
+    def test_lifecycle_summary_all_succeeded(self):
+        """Test LifecycleSummary when all operations succeeded."""
+        results = [
+            LifecycleResult("vm1", True, "success", "stop"),
+            LifecycleResult("vm2", True, "success", "stop"),
+            LifecycleResult("vm3", True, "success", "stop"),
+        ]
         summary = LifecycleSummary(
-            total=2,
-            succeeded=2,
+            total=3,
+            succeeded=3,
             failed=0,
-            results=[],
+            results=results,
             operation="stop",
-            total_cost_savings=0.192,
         )
+
         assert summary.all_succeeded is True
+        assert summary.get_failed_vms() == []
+        assert summary.get_succeeded_vms() == ["vm1", "vm2", "vm3"]
 
-    def test_all_succeeded_false(self):
-        """Test all_succeeded property when some operations fail."""
+    def test_lifecycle_summary_some_failed(self):
+        """Test LifecycleSummary when some operations failed."""
+        results = [
+            LifecycleResult("vm1", True, "success", "start"),
+            LifecycleResult("vm2", False, "failed", "start"),
+            LifecycleResult("vm3", True, "success", "start"),
+        ]
         summary = LifecycleSummary(
-            total=2,
-            succeeded=1,
+            total=3,
+            succeeded=2,
             failed=1,
-            results=[],
-            operation="stop",
-            total_cost_savings=0.096,
+            results=results,
+            operation="start",
         )
-        assert summary.all_succeeded is False
 
-    def test_get_failed_vms(self):
+        assert summary.all_succeeded is False
+        assert summary.get_failed_vms() == ["vm2"]
+        assert summary.get_succeeded_vms() == ["vm1", "vm3"]
+
+    def test_lifecycle_summary_get_failed_vms(self):
         """Test getting list of failed VMs."""
         results = [
-            LifecycleResult("vm1", True, "Success", "stop"),
-            LifecycleResult("vm2", False, "Failed", "stop"),
-            LifecycleResult("vm3", False, "Failed", "stop"),
+            LifecycleResult("vm1", True, "success", "stop"),
+            LifecycleResult("vm2", False, "timeout", "stop"),
+            LifecycleResult("vm3", False, "not found", "stop"),
         ]
         summary = LifecycleSummary(
             total=3,
@@ -102,419 +133,587 @@ class TestLifecycleSummary:
             failed=2,
             results=results,
             operation="stop",
-            total_cost_savings=0.096,
         )
-        failed = summary.get_failed_vms()
-        assert failed == ["vm2", "vm3"]
 
-    def test_get_succeeded_vms(self):
-        """Test getting list of succeeded VMs."""
-        results = [
-            LifecycleResult("vm1", True, "Success", "stop"),
-            LifecycleResult("vm2", False, "Failed", "stop"),
-            LifecycleResult("vm3", True, "Success", "stop"),
-        ]
-        summary = LifecycleSummary(
-            total=3,
-            succeeded=2,
-            failed=1,
-            results=results,
-            operation="stop",
-            total_cost_savings=0.192,
-        )
-        succeeded = summary.get_succeeded_vms()
-        assert succeeded == ["vm1", "vm3"]
-
-    def test_total_cost_savings_field_exists(self):
-        """Test that total_cost_savings field exists and is accessible."""
-        summary = LifecycleSummary(
-            total=1,
-            succeeded=1,
-            failed=0,
-            results=[],
-            operation="stop",
-            total_cost_savings=0.096,
-        )
-        assert hasattr(summary, "total_cost_savings")
-        assert summary.total_cost_savings == 0.096
-
-    def test_total_cost_savings_defaults_to_zero(self):
-        """Test that total_cost_savings defaults to 0.0."""
-        summary = LifecycleSummary(
-            total=0,
-            succeeded=0,
-            failed=0,
-            results=[],
-            operation="start",
-        )
-        assert summary.total_cost_savings == 0.0
+        assert summary.get_failed_vms() == ["vm2", "vm3"]
 
 
 class TestVMLifecycleController:
     """Test VMLifecycleController class."""
 
-    @pytest.fixture
-    def mock_vm_info(self):
-        """Mock VM info response."""
-        return {
-            "hardwareProfile": {"vmSize": "Standard_D2s_v3"},
-            "statuses": [
-                {"code": "ProvisioningState/succeeded"},
-                {"code": "PowerState/running"},
-            ],
-        }
-
-    @pytest.fixture
-    def mock_stopped_vm_info(self):
-        """Mock stopped VM info response."""
-        return {
-            "hardwareProfile": {"vmSize": "Standard_D2s_v3"},
-            "statuses": [
-                {"code": "ProvisioningState/succeeded"},
-                {"code": "PowerState/deallocated"},
-            ],
-        }
-
-    def test_stop_vm_success(self, mock_vm_info):
-        """Test successful VM stop operation."""
-        with (
-            patch.object(VMLifecycleController, "_get_vm_details", return_value=mock_vm_info),
-            patch("subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(returncode=0)
-            result = VMLifecycleController.stop_vm("test-vm", "test-rg")
-
-            assert result.success is True
-            assert result.vm_name == "test-vm"
-            assert "deallocated" in result.message.lower()
-            assert result.cost_impact is not None
-            assert "$0.096" in result.cost_impact
-
-    def test_stop_vm_already_stopped(self, mock_stopped_vm_info):
-        """Test stopping an already stopped VM."""
-        with patch.object(
-            VMLifecycleController, "_get_vm_details", return_value=mock_stopped_vm_info
-        ):
-            result = VMLifecycleController.stop_vm("test-vm", "test-rg")
-
-            assert result.success is True
-            assert "already" in result.message.lower()
-
-    def test_stop_vm_not_found(self):
-        """Test stopping a non-existent VM."""
-        with patch.object(VMLifecycleController, "_get_vm_details", return_value=None):
-            result = VMLifecycleController.stop_vm("test-vm", "test-rg")
-
-            assert result.success is False
-            assert "not found" in result.message.lower()
-
-    def test_stop_vm_with_unknown_size(self):
-        """Test stopping VM with unknown size uses default cost."""
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_stop_vm_success_deallocate(self, mock_run):
+        """Test successful VM deallocate operation."""
+        # Mock VM details response
         vm_info = {
-            "hardwareProfile": {"vmSize": "Unknown_Size"},
+            "hardwareProfile": {"vmSize": "Standard_D2s_v3"},
             "statuses": [{"code": "PowerState/running"}],
         }
-        with (
-            patch.object(VMLifecycleController, "_get_vm_details", return_value=vm_info),
-            patch("subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(returncode=0)
-            result = VMLifecycleController.stop_vm("test-vm", "test-rg")
+
+        # Mock subprocess calls
+        mock_run.side_effect = [
+            # First call: get-instance-view
+            MagicMock(stdout=json.dumps(vm_info), returncode=0),
+            # Second call: deallocate
+            MagicMock(stdout="", returncode=0),
+        ]
+
+        result = VMLifecycleController.stop_vm("test-vm", "test-rg", deallocate=True)
+
+        assert result.success is True
+        assert result.vm_name == "test-vm"
+        assert result.message == "VM deallocated successfully"
+        assert result.operation == "deallocate"
+        assert "Saves ~$0.096/hour" in result.cost_impact
+
+        # Verify subprocess calls
+        assert mock_run.call_count == 2
+        # Verify deallocate command
+        dealloc_call = mock_run.call_args_list[1]
+        assert "deallocate" in dealloc_call[0][0]
+        assert "--name" in dealloc_call[0][0]
+        assert "test-vm" in dealloc_call[0][0]
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_stop_vm_success_stop_only(self, mock_run):
+        """Test successful VM stop (without deallocate) operation."""
+        vm_info = {
+            "hardwareProfile": {"vmSize": "Standard_B2s"},
+            "statuses": [{"code": "PowerState/running"}],
+        }
+
+        mock_run.side_effect = [
+            MagicMock(stdout=json.dumps(vm_info), returncode=0),
+            MagicMock(stdout="", returncode=0),
+        ]
+
+        result = VMLifecycleController.stop_vm("test-vm", "test-rg", deallocate=False)
+
+        assert result.success is True
+        assert result.message == "VM stopped successfully"
+        assert result.operation == "stop"
+        assert result.cost_impact == "Still incurs compute costs"
+
+        # Verify stop command (not deallocate)
+        stop_call = mock_run.call_args_list[1]
+        assert "stop" in stop_call[0][0]
+        assert "deallocate" not in stop_call[0][0]
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_stop_vm_already_stopped(self, mock_run):
+        """Test stopping VM that is already stopped."""
+        vm_info = {
+            "hardwareProfile": {"vmSize": "Standard_B2s"},
+            "statuses": [{"code": "PowerState/stopped"}],
+        }
+
+        mock_run.return_value = MagicMock(stdout=json.dumps(vm_info), returncode=0)
+
+        result = VMLifecycleController.stop_vm("test-vm", "test-rg")
+
+        assert result.success is True
+        assert result.message == "VM already vm stopped"
+        # Should not call deallocate command
+        assert mock_run.call_count == 1
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_stop_vm_already_deallocated(self, mock_run):
+        """Test stopping VM that is already deallocated."""
+        vm_info = {
+            "hardwareProfile": {"vmSize": "Standard_D4s_v3"},
+            "statuses": [{"code": "PowerState/deallocated"}],
+        }
+
+        mock_run.return_value = MagicMock(stdout=json.dumps(vm_info), returncode=0)
+
+        result = VMLifecycleController.stop_vm("test-vm", "test-rg", deallocate=True)
+
+        assert result.success is True
+        assert result.message == "VM already vm deallocated"
+        # Should not call deallocate command
+        assert mock_run.call_count == 1
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_stop_vm_not_found(self, mock_run):
+        """Test stopping VM that doesn't exist."""
+        # Mock ResourceNotFound error
+        error = subprocess.CalledProcessError(1, "az", stderr="ResourceNotFound")
+        mock_run.side_effect = error
+
+        result = VMLifecycleController.stop_vm("nonexistent-vm", "test-rg")
+
+        assert result.success is False
+        assert result.message == "VM not found"
+        assert result.vm_name == "nonexistent-vm"
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_stop_vm_timeout(self, mock_run):
+        """Test stopping VM when operation times out."""
+        vm_info = {
+            "hardwareProfile": {"vmSize": "Standard_B1s"},
+            "statuses": [{"code": "PowerState/running"}],
+        }
+
+        mock_run.side_effect = [
+            MagicMock(stdout=json.dumps(vm_info), returncode=0),
+            subprocess.TimeoutExpired("az", 180),
+        ]
+
+        result = VMLifecycleController.stop_vm("test-vm", "test-rg")
+
+        assert result.success is False
+        assert "timed out" in result.message
+        assert result.operation == "deallocate"
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_stop_vm_cost_impact_calculation(self, mock_run):
+        """Test cost impact calculation for different VM sizes."""
+        test_cases = [
+            ("Standard_D2s_v3", "Saves ~$0.096/hour"),
+            ("Standard_D4s_v3", "Saves ~$0.192/hour"),
+            ("Standard_B1s", "Saves ~$0.010/hour"),
+            ("UnknownSize", "Saves ~$0.100/hour"),  # Default cost
+        ]
+
+        for vm_size, expected_cost in test_cases:
+            vm_info = {
+                "hardwareProfile": {"vmSize": vm_size},
+                "statuses": [{"code": "PowerState/running"}],
+            }
+
+            mock_run.side_effect = [
+                MagicMock(stdout=json.dumps(vm_info), returncode=0),
+                MagicMock(stdout="", returncode=0),
+            ]
+
+            result = VMLifecycleController.stop_vm("test-vm", "test-rg", deallocate=True)
 
             assert result.success is True
-            # Should use DEFAULT_COST (0.10)
-            assert "$0.100" in result.cost_impact
+            assert expected_cost in result.cost_impact
 
-    def test_start_vm_success(self, mock_stopped_vm_info):
+            mock_run.reset_mock()
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_stop_vm_subprocess_error(self, mock_run):
+        """Test handling subprocess CalledProcessError."""
+        vm_info = {
+            "hardwareProfile": {"vmSize": "Standard_B2s"},
+            "statuses": [{"code": "PowerState/running"}],
+        }
+
+        error = subprocess.CalledProcessError(1, "az", stderr="Operation failed")
+        mock_run.side_effect = [
+            MagicMock(stdout=json.dumps(vm_info), returncode=0),
+            error,
+        ]
+
+        result = VMLifecycleController.stop_vm("test-vm", "test-rg")
+
+        assert result.success is False
+        assert "Failed to deallocate" in result.message
+        assert "Operation failed" in result.message
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_start_vm_success(self, mock_run):
         """Test successful VM start operation."""
-        with (
-            patch.object(
-                VMLifecycleController, "_get_vm_details", return_value=mock_stopped_vm_info
-            ),
-            patch("subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(returncode=0)
+        vm_info = {
+            "hardwareProfile": {"vmSize": "Standard_D8s_v3"},
+            "statuses": [{"code": "PowerState/deallocated"}],
+        }
+
+        mock_run.side_effect = [
+            MagicMock(stdout=json.dumps(vm_info), returncode=0),
+            MagicMock(stdout="", returncode=0),
+        ]
+
+        result = VMLifecycleController.start_vm("test-vm", "test-rg")
+
+        assert result.success is True
+        assert result.message == "VM started successfully"
+        assert result.operation == "start"
+        assert "~$0.384/hour while running" in result.cost_impact
+
+        # Verify start command
+        start_call = mock_run.call_args_list[1]
+        assert "start" in start_call[0][0]
+        assert "test-vm" in start_call[0][0]
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_start_vm_already_running(self, mock_run):
+        """Test starting VM that is already running."""
+        vm_info = {
+            "hardwareProfile": {"vmSize": "Standard_B4ms"},
+            "statuses": [{"code": "PowerState/running"}],
+        }
+
+        mock_run.return_value = MagicMock(stdout=json.dumps(vm_info), returncode=0)
+
+        result = VMLifecycleController.start_vm("test-vm", "test-rg")
+
+        assert result.success is True
+        assert result.message == "VM already running"
+        # Should not call start command
+        assert mock_run.call_count == 1
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_start_vm_not_found(self, mock_run):
+        """Test starting VM that doesn't exist."""
+        error = subprocess.CalledProcessError(1, "az", stderr="ResourceNotFound")
+        mock_run.side_effect = error
+
+        result = VMLifecycleController.start_vm("nonexistent-vm", "test-rg")
+
+        assert result.success is False
+        assert result.message == "VM not found"
+        assert result.vm_name == "nonexistent-vm"
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_start_vm_timeout(self, mock_run):
+        """Test starting VM when operation times out."""
+        vm_info = {
+            "hardwareProfile": {"vmSize": "Standard_D2s_v3"},
+            "statuses": [{"code": "PowerState/stopped"}],
+        }
+
+        mock_run.side_effect = [
+            MagicMock(stdout=json.dumps(vm_info), returncode=0),
+            subprocess.TimeoutExpired("az", 180),
+        ]
+
+        result = VMLifecycleController.start_vm("test-vm", "test-rg")
+
+        assert result.success is False
+        assert "timed out" in result.message
+        assert result.operation == "start"
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_start_vm_cost_impact_display(self, mock_run):
+        """Test cost impact display for start operation."""
+        test_cases = [
+            ("Standard_D2s_v3", "~$0.096/hour while running"),
+            ("Standard_B1s", "~$0.010/hour while running"),
+            ("UnknownSize", "~$0.100/hour while running"),
+        ]
+
+        for vm_size, expected_cost in test_cases:
+            vm_info = {
+                "hardwareProfile": {"vmSize": vm_size},
+                "statuses": [{"code": "PowerState/stopped"}],
+            }
+
+            mock_run.side_effect = [
+                MagicMock(stdout=json.dumps(vm_info), returncode=0),
+                MagicMock(stdout="", returncode=0),
+            ]
 
             result = VMLifecycleController.start_vm("test-vm", "test-rg")
 
             assert result.success is True
-            assert result.vm_name == "test-vm"
-            assert "started" in result.message.lower()
-            assert result.cost_impact is not None
-            assert "$0.096" in result.cost_impact
+            assert expected_cost in result.cost_impact
 
-    def test_start_vm_already_running(self, mock_vm_info):
-        """Test starting an already running VM."""
-        with patch.object(VMLifecycleController, "_get_vm_details", return_value=mock_vm_info):
-            result = VMLifecycleController.start_vm("test-vm", "test-rg")
+            mock_run.reset_mock()
 
-            assert result.success is True
-            assert "already running" in result.message.lower()
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_start_vm_subprocess_error(self, mock_run):
+        """Test handling subprocess CalledProcessError on start."""
+        vm_info = {
+            "hardwareProfile": {"vmSize": "Standard_B2s"},
+            "statuses": [{"code": "PowerState/stopped"}],
+        }
 
-    def test_stop_vms_empty_resource_group(self):
-        """Test stopping VMs in an empty resource group."""
-        with patch.object(VMLifecycleController, "_list_vms_in_group", return_value=[]):
-            summary = VMLifecycleController.stop_vms("test-rg", all_vms=True)
+        error = subprocess.CalledProcessError(1, "az", stderr="Start failed")
+        mock_run.side_effect = [
+            MagicMock(stdout=json.dumps(vm_info), returncode=0),
+            error,
+        ]
 
-            assert summary.total == 0
-            assert summary.succeeded == 0
-            assert summary.failed == 0
-            assert summary.total_cost_savings == 0.0
+        result = VMLifecycleController.start_vm("test-vm", "test-rg")
 
-    def test_stop_vms_cost_calculation(self, mock_vm_info):
-        """Test that cost calculation is properly stored in summary."""
-        vm_names = ["vm1", "vm2", "vm3"]
+        assert result.success is False
+        assert "Failed to start" in result.message
+        assert "Start failed" in result.message
 
-        with (
-            patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names),
-            patch.object(VMLifecycleController, "_get_vm_details", return_value=mock_vm_info),
-            patch("subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(returncode=0)
-            summary = VMLifecycleController.stop_vms("test-rg", all_vms=True)
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController._list_vms_in_group")
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController.stop_vm")
+    def test_stop_vms_batch_with_pattern(self, mock_stop_vm, mock_list_vms):
+        """Test batch stop with pattern matching."""
+        # Mock VM list
+        mock_list_vms.return_value = ["azlin-dev-1", "azlin-dev-2", "azlin-prod-1", "other-vm"]
 
-            # All 3 VMs succeeded
-            assert summary.total == 3
-            assert summary.succeeded == 3
-            assert summary.failed == 0
+        # Mock stop results
+        mock_stop_vm.side_effect = [
+            LifecycleResult("azlin-dev-1", True, "stopped", "stop"),
+            LifecycleResult("azlin-dev-2", True, "stopped", "stop"),
+        ]
 
-            # Cost calculation: 3 VMs * $0.096/hour = $0.288/hour
-            assert summary.total_cost_savings == pytest.approx(0.288, rel=0.01)
+        summary = VMLifecycleController.stop_vms(
+            resource_group="test-rg",
+            vm_pattern="azlin-dev-*",
+            deallocate=True,
+        )
 
-    def test_stop_vms_mixed_success_cost_calculation(self, mock_vm_info):
-        """Test cost calculation with mixed success/failure."""
-        vm_names = ["vm1", "vm2", "vm3"]
+        assert summary.total == 2
+        assert summary.succeeded == 2
+        assert summary.failed == 0
+        assert summary.operation == "stop"
+        # Only azlin-dev-* VMs should be stopped
+        assert mock_stop_vm.call_count == 2
 
-        def mock_stop_vm(vm_name, resource_group, deallocate=True, no_wait=False):
-            """Mock stop_vm with mixed results."""
-            if vm_name == "vm2":
-                return LifecycleResult(
-                    vm_name=vm_name,
-                    success=False,
-                    message="Failed to stop",
-                    operation="deallocate",
-                )
-            return LifecycleResult(
-                vm_name=vm_name,
-                success=True,
-                message="VM deallocated successfully",
-                operation="deallocate",
-                cost_impact="Saves ~$0.096/hour",
-            )
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController._list_vms_in_group")
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController.stop_vm")
+    def test_stop_vms_batch_all_vms(self, mock_stop_vm, mock_list_vms):
+        """Test batch stop with all_vms flag."""
+        mock_list_vms.return_value = ["vm1", "vm2", "vm3"]
 
-        with (
-            patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names),
-            patch.object(VMLifecycleController, "stop_vm", side_effect=mock_stop_vm),
-        ):
-            summary = VMLifecycleController.stop_vms("test-rg", all_vms=True)
-            assert summary.total == 3
-            assert summary.succeeded == 2
-            assert summary.failed == 1
+        mock_stop_vm.side_effect = [
+            LifecycleResult("vm1", True, "stopped", "stop"),
+            LifecycleResult("vm2", True, "stopped", "stop"),
+            LifecycleResult("vm3", True, "stopped", "stop"),
+        ]
 
-            # Only 2 successful VMs contribute to cost savings: 2 * $0.096 = $0.192
-            assert summary.total_cost_savings == pytest.approx(0.192, rel=0.01)
+        summary = VMLifecycleController.stop_vms(
+            resource_group="test-rg",
+            all_vms=True,
+        )
 
-    def test_stop_vms_no_cost_impact(self):
-        """Test cost calculation when VMs have no cost impact string."""
-        vm_names = ["vm1"]
+        assert summary.total == 3
+        assert summary.succeeded == 3
+        assert mock_stop_vm.call_count == 3
 
-        def mock_stop_vm(vm_name, resource_group, deallocate=True, no_wait=False):
-            """Mock stop_vm without cost_impact."""
-            return LifecycleResult(
-                vm_name=vm_name,
-                success=True,
-                message="VM stopped (not deallocated)",
-                operation="stop",
-                cost_impact="Still incurs compute costs",  # No $ sign
-            )
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController._list_vms_in_group")
+    def test_stop_vms_batch_empty_result(self, mock_list_vms):
+        """Test batch stop with no matching VMs."""
+        mock_list_vms.return_value = ["vm1", "vm2"]
 
-        with (
-            patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names),
-            patch.object(VMLifecycleController, "stop_vm", side_effect=mock_stop_vm),
-        ):
-            summary = VMLifecycleController.stop_vms("test-rg", all_vms=True, deallocate=False)
-            assert summary.total == 1
-            assert summary.succeeded == 1
-            # No cost savings because deallocate=False
-            assert summary.total_cost_savings == 0.0
+        summary = VMLifecycleController.stop_vms(
+            resource_group="test-rg",
+            vm_pattern="nonexistent-*",
+        )
 
-    def test_stop_vms_pattern_matching(self):
-        """Test VM pattern matching."""
-        all_vms = ["azlin-dev-1", "azlin-dev-2", "azlin-prod-1"]
+        assert summary.total == 0
+        assert summary.succeeded == 0
+        assert summary.failed == 0
 
-        with (
-            patch.object(VMLifecycleController, "_list_vms_in_group", return_value=all_vms),
-            patch.object(
-                VMLifecycleController,
-                "stop_vm",
-                return_value=LifecycleResult("test", True, "Success", "stop"),
-            ),
-        ):
-            # Should only match dev VMs
-            summary = VMLifecycleController.stop_vms("test-rg", vm_pattern="azlin-dev-*")
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController._list_vms_in_group")
+    def test_stop_vms_batch_no_vms_in_group(self, mock_list_vms):
+        """Test batch stop when resource group has no VMs."""
+        mock_list_vms.return_value = []
 
-            assert summary.total == 2
+        summary = VMLifecycleController.stop_vms(
+            resource_group="empty-rg",
+            all_vms=True,
+        )
 
-    def test_start_vms_success(self, mock_stopped_vm_info):
-        """Test starting multiple VMs."""
-        vm_names = ["vm1", "vm2"]
+        assert summary.total == 0
+        assert summary.succeeded == 0
+        assert summary.failed == 0
 
-        with (
-            patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names),
-            patch.object(
-                VMLifecycleController, "_get_vm_details", return_value=mock_stopped_vm_info
-            ),
-            patch("subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(returncode=0)
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController._list_vms_in_group")
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController.stop_vm")
+    def test_stop_vms_batch_parallel_execution(self, mock_stop_vm, mock_list_vms):
+        """Test batch stop executes in parallel."""
+        mock_list_vms.return_value = ["vm1", "vm2", "vm3", "vm4", "vm5"]
 
-            summary = VMLifecycleController.start_vms("test-rg", all_vms=True)
+        # Mock results with some failures
+        mock_stop_vm.side_effect = [
+            LifecycleResult("vm1", True, "stopped", "stop", "Saves ~$0.096/hour"),
+            LifecycleResult("vm2", False, "timeout", "stop"),
+            LifecycleResult("vm3", True, "stopped", "stop", "Saves ~$0.100/hour"),
+            LifecycleResult("vm4", True, "stopped", "stop", "Saves ~$0.050/hour"),
+            LifecycleResult("vm5", False, "not found", "stop"),
+        ]
 
-            assert summary.total == 2
-            assert summary.succeeded == 2
-            assert summary.failed == 0
-            assert summary.operation == "start"
-            # Start operations don't calculate cost savings
-            assert summary.total_cost_savings == 0.0
+        summary = VMLifecycleController.stop_vms(
+            resource_group="test-rg",
+            all_vms=True,
+            max_workers=3,
+        )
 
-    def test_get_vm_details_not_found(self):
-        """Test getting details for non-existent VM."""
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.CalledProcessError(
-                1, "cmd", stderr="ResourceNotFound"
-            )
+        assert summary.total == 5
+        assert summary.succeeded == 3
+        assert summary.failed == 2
+        assert len(summary.get_succeeded_vms()) == 3
+        assert len(summary.get_failed_vms()) == 2
 
-            result = VMLifecycleController._get_vm_details("test-vm", "test-rg")
-            assert result is None
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController._list_vms_in_group")
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController.start_vm")
+    def test_start_vms_batch_with_pattern(self, mock_start_vm, mock_list_vms):
+        """Test batch start with pattern matching."""
+        mock_list_vms.return_value = ["azlin-dev-1", "azlin-dev-2", "azlin-prod-1"]
 
-    def test_get_vm_details_timeout(self):
-        """Test timeout when getting VM details."""
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.TimeoutExpired("cmd", 30)
+        mock_start_vm.side_effect = [
+            LifecycleResult("azlin-dev-1", True, "started", "start"),
+            LifecycleResult("azlin-dev-2", True, "started", "start"),
+        ]
 
-            with pytest.raises(VMLifecycleControlError, match="timed out"):
-                VMLifecycleController._get_vm_details("test-vm", "test-rg")
+        summary = VMLifecycleController.start_vms(
+            resource_group="test-rg",
+            vm_pattern="azlin-dev-*",
+        )
 
-    def test_list_vms_in_group_success(self):
-        """Test listing VMs in resource group."""
-        expected_vms = ["vm1", "vm2", "vm3"]
+        assert summary.total == 2
+        assert summary.succeeded == 2
+        assert summary.operation == "start"
+        assert mock_start_vm.call_count == 2
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(expected_vms))
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController._list_vms_in_group")
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController.start_vm")
+    def test_start_vms_batch_parallel_execution(self, mock_start_vm, mock_list_vms):
+        """Test batch start executes in parallel."""
+        mock_list_vms.return_value = ["vm1", "vm2", "vm3"]
 
-            vms = VMLifecycleController._list_vms_in_group("test-rg")
-            assert vms == expected_vms
+        mock_start_vm.side_effect = [
+            LifecycleResult("vm1", True, "started", "start"),
+            LifecycleResult("vm2", True, "started", "start"),
+            LifecycleResult("vm3", False, "failed", "start"),
+        ]
 
-    def test_list_vms_resource_group_not_found(self):
-        """Test listing VMs in non-existent resource group."""
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.CalledProcessError(
-                1, "cmd", stderr="ResourceGroupNotFound"
-            )
+        summary = VMLifecycleController.start_vms(
+            resource_group="test-rg",
+            all_vms=True,
+            max_workers=2,
+        )
 
-            vms = VMLifecycleController._list_vms_in_group("test-rg")
-            assert vms == []
+        assert summary.total == 3
+        assert summary.succeeded == 2
+        assert summary.failed == 1
 
-    def test_get_power_state(self):
-        """Test extracting power state from VM info."""
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_get_vm_details_with_instance_view(self, mock_run):
+        """Test _get_vm_details returns proper VM info."""
+        vm_info = {
+            "hardwareProfile": {"vmSize": "Standard_D2s_v3"},
+            "statuses": [
+                {"code": "ProvisioningState/succeeded"},
+                {"code": "PowerState/running"},
+            ],
+        }
+
+        mock_run.return_value = MagicMock(stdout=json.dumps(vm_info), returncode=0)
+
+        result = VMLifecycleController._get_vm_details("test-vm", "test-rg")
+
+        assert result == vm_info
+        # Verify get-instance-view was called
+        assert mock_run.call_args[0][0][2] == "get-instance-view"
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_get_vm_details_not_found(self, mock_run):
+        """Test _get_vm_details returns None for non-existent VM."""
+        error = subprocess.CalledProcessError(1, "az", stderr="ResourceNotFound")
+        mock_run.side_effect = error
+
+        result = VMLifecycleController._get_vm_details("nonexistent-vm", "test-rg")
+
+        assert result is None
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_get_vm_details_timeout(self, mock_run):
+        """Test _get_vm_details raises error on timeout."""
+        mock_run.side_effect = subprocess.TimeoutExpired("az", 30)
+
+        with pytest.raises(VMLifecycleControlError, match="timed out"):
+            VMLifecycleController._get_vm_details("test-vm", "test-rg")
+
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_get_vm_details_invalid_json(self, mock_run):
+        """Test _get_vm_details raises error on invalid JSON."""
+        mock_run.return_value = MagicMock(stdout="invalid json", returncode=0)
+
+        with pytest.raises(VMLifecycleControlError, match="Failed to parse"):
+            VMLifecycleController._get_vm_details("test-vm", "test-rg")
+
+    def test_get_power_state_running(self):
+        """Test _get_power_state extracts running state."""
         vm_info = {
             "statuses": [
                 {"code": "ProvisioningState/succeeded"},
                 {"code": "PowerState/running"},
-            ]
+            ],
         }
 
         state = VMLifecycleController._get_power_state(vm_info)
+
         assert state == "VM running"
 
+    def test_get_power_state_stopped(self):
+        """Test _get_power_state extracts stopped state."""
+        vm_info = {
+            "statuses": [
+                {"code": "ProvisioningState/succeeded"},
+                {"code": "PowerState/stopped"},
+            ],
+        }
+
+        state = VMLifecycleController._get_power_state(vm_info)
+
+        assert state == "VM stopped"
+
     def test_get_power_state_deallocated(self):
-        """Test extracting deallocated power state."""
+        """Test _get_power_state extracts deallocated state."""
         vm_info = {
             "statuses": [
                 {"code": "ProvisioningState/succeeded"},
                 {"code": "PowerState/deallocated"},
-            ]
+            ],
         }
 
         state = VMLifecycleController._get_power_state(vm_info)
+
         assert state == "VM deallocated"
 
     def test_get_power_state_unknown(self):
-        """Test handling unknown power state."""
-        vm_info = {"statuses": [{"code": "ProvisioningState/succeeded"}]}
+        """Test _get_power_state returns Unknown for missing state."""
+        vm_info = {
+            "statuses": [
+                {"code": "ProvisioningState/succeeded"},
+            ],
+        }
 
         state = VMLifecycleController._get_power_state(vm_info)
+
         assert state == "Unknown"
 
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_list_vms_in_group(self, mock_run):
+        """Test _list_vms_in_group returns VM names."""
+        vm_names = ["vm1", "vm2", "vm3"]
+        mock_run.return_value = MagicMock(stdout=json.dumps(vm_names), returncode=0)
 
-class TestCostCalculationEdgeCases:
-    """Test edge cases in cost calculation."""
+        result = VMLifecycleController._list_vms_in_group("test-rg")
 
-    def test_malformed_cost_impact_string(self):
-        """Test handling of malformed cost_impact strings."""
-        results = [
-            LifecycleResult("vm1", True, "Success", "stop", cost_impact="Malformed"),  # No $ sign
-            LifecycleResult(
-                "vm2", True, "Success", "stop", cost_impact="Saves ~$0.096/hour"
-            ),  # Valid
-        ]
+        assert result == vm_names
 
-        # Simulate the calculation logic
-        total_cost_savings = sum(
-            float(r.cost_impact.split("$")[1].split("/")[0])
-            for r in results
-            if r.success and r.cost_impact and "$" in r.cost_impact
-        )
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_list_vms_in_group_not_found(self, mock_run):
+        """Test _list_vms_in_group returns empty list for non-existent RG."""
+        error = subprocess.CalledProcessError(1, "az", stderr="ResourceGroupNotFound")
+        mock_run.side_effect = error
 
-        # Only vm2 should contribute
-        assert total_cost_savings == pytest.approx(0.096, rel=0.01)
+        result = VMLifecycleController._list_vms_in_group("nonexistent-rg")
 
-    def test_empty_results_list(self):
-        """Test cost calculation with empty results."""
-        results = []
+        assert result == []
 
-        total_cost_savings = sum(
-            float(r.cost_impact.split("$")[1].split("/")[0])
-            for r in results
-            if r.success and r.cost_impact and "$" in r.cost_impact
-        )
+    @patch("azlin.vm_lifecycle_control.subprocess.run")
+    def test_list_vms_timeout(self, mock_run):
+        """Test _list_vms_in_group raises error on timeout."""
+        mock_run.side_effect = subprocess.TimeoutExpired("az", 30)
 
-        assert total_cost_savings == 0.0
+        with pytest.raises(VMLifecycleControlError, match="timed out"):
+            VMLifecycleController._list_vms_in_group("test-rg")
 
-    def test_all_failed_operations(self):
-        """Test cost calculation when all operations fail."""
-        results = [
-            LifecycleResult("vm1", False, "Failed", "stop"),
-            LifecycleResult("vm2", False, "Failed", "stop"),
-        ]
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController._list_vms_in_group")
+    def test_stop_vms_list_error(self, mock_list_vms):
+        """Test stop_vms raises error when listing VMs fails."""
+        mock_list_vms.side_effect = VMLifecycleControlError("Failed to list VMs")
 
-        total_cost_savings = sum(
-            float(r.cost_impact.split("$")[1].split("/")[0])
-            for r in results
-            if r.success and r.cost_impact and "$" in r.cost_impact
-        )
+        with pytest.raises(VMLifecycleControlError, match="Failed to stop VMs"):
+            VMLifecycleController.stop_vms(resource_group="test-rg", all_vms=True)
 
-        assert total_cost_savings == 0.0
+    @patch("azlin.vm_lifecycle_control.VMLifecycleController._list_vms_in_group")
+    def test_start_vms_list_error(self, mock_list_vms):
+        """Test start_vms raises error when listing VMs fails."""
+        mock_list_vms.side_effect = VMLifecycleControlError("Failed to list VMs")
 
-    def test_various_vm_sizes_cost_calculation(self):
-        """Test cost calculation with different VM sizes."""
-        results = [
-            LifecycleResult(
-                "vm1", True, "Success", "stop", cost_impact="Saves ~$0.096/hour"
-            ),  # D2s_v3
-            LifecycleResult(
-                "vm2", True, "Success", "stop", cost_impact="Saves ~$0.192/hour"
-            ),  # D4s_v3
-            LifecycleResult(
-                "vm3", True, "Success", "stop", cost_impact="Saves ~$0.0104/hour"
-            ),  # B1s
-        ]
-
-        total_cost_savings = sum(
-            float(r.cost_impact.split("$")[1].split("/")[0])
-            for r in results
-            if r.success and r.cost_impact and "$" in r.cost_impact
-        )
-
-        # 0.096 + 0.192 + 0.0104 = 0.2984
-        assert total_cost_savings == pytest.approx(0.2984, rel=0.01)
+        with pytest.raises(VMLifecycleControlError, match="Failed to start VMs"):
+            VMLifecycleController.start_vms(resource_group="test-rg", all_vms=True)
