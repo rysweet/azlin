@@ -56,6 +56,7 @@ class LifecycleSummary:
     failed: int
     results: list[LifecycleResult]
     operation: str  # 'stop' or 'start'
+    total_cost_savings: float | None = None  # Total hourly cost impact in USD
 
     @property
     def all_succeeded(self) -> bool:
@@ -69,6 +70,17 @@ class LifecycleSummary:
     def get_succeeded_vms(self) -> list[str]:
         """Get list of VMs that succeeded."""
         return [r.vm_name for r in self.results if r.success]
+
+    def __str__(self) -> str:
+        """Get human-readable summary."""
+        summary = (
+            f"{self.operation.capitalize()} operation: {self.succeeded}/{self.total} succeeded"
+        )
+        if self.failed > 0:
+            summary += f", {self.failed} failed"
+        if self.total_cost_savings is not None and self.total_cost_savings > 0:
+            summary += f" (Total savings: ~${self.total_cost_savings:.3f}/hour)"
+        return summary
 
 
 class VMLifecycleController:
@@ -345,10 +357,8 @@ class VMLifecycleController:
             failed = sum(1 for r in results if not r.success)
 
             # Calculate total cost savings
-            sum(
-                float(r.cost_impact.split("$")[1].split("/")[0])
-                for r in results
-                if r.success and r.cost_impact and "$" in r.cost_impact
+            total_cost_savings = sum(
+                cls._extract_cost_from_impact(r.cost_impact) for r in results if r.success
             )
 
             return LifecycleSummary(
@@ -357,6 +367,7 @@ class VMLifecycleController:
                 failed=failed,
                 results=results,
                 operation="stop",
+                total_cost_savings=total_cost_savings if total_cost_savings > 0 else None,
             )
 
         except Exception as e:
@@ -437,12 +448,18 @@ class VMLifecycleController:
             succeeded = sum(1 for r in results if r.success)
             failed = sum(1 for r in results if not r.success)
 
+            # Calculate total cost when starting (cost incurred, not saved)
+            total_cost_savings = sum(
+                cls._extract_cost_from_impact(r.cost_impact) for r in results if r.success
+            )
+
             return LifecycleSummary(
                 total=len(results),
                 succeeded=succeeded,
                 failed=failed,
                 results=results,
                 operation="start",
+                total_cost_savings=total_cost_savings if total_cost_savings > 0 else None,
             )
 
         except Exception as e:
@@ -541,6 +558,26 @@ class VMLifecycleController:
                 return code.replace("PowerState/", "VM ")
 
         return "Unknown"
+
+    @classmethod
+    def _extract_cost_from_impact(cls, cost_impact: str | None) -> float:
+        """Extract cost value from cost_impact string.
+
+        Args:
+            cost_impact: Cost impact string (e.g., "Saves ~$0.096/hour")
+
+        Returns:
+            Cost value as float, or 0.0 if unable to extract
+        """
+        if not cost_impact or "$" not in cost_impact:
+            return 0.0
+
+        try:
+            # Extract the number between $ and /
+            cost_str = cost_impact.split("$")[1].split("/")[0]
+            return float(cost_str)
+        except (IndexError, ValueError):
+            return 0.0
 
 
 __all__ = [
