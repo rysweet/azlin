@@ -13,11 +13,11 @@ Each module is a self-contained component with clear contracts:
 """
 
 __all__ = [
-    "prerequisites",
-    "ssh_keys",
-    "ssh_connector",
     "github_setup",
-    "npm_config",
-    "progress",
     "notifications",
+    "npm_config",
+    "prerequisites",
+    "progress",
+    "ssh_connector",
+    "ssh_keys",
 ]

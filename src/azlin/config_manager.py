@@ -146,7 +146,7 @@ class ConfigManager:
 
             if mode & 0o077:  # Check if group/other have any permissions
                 logger.warning(
-                    f"Config file has insecure permissions: {oct(mode)}. " "Fixing to 0600..."
+                    f"Config file has insecure permissions: {oct(mode)}. Fixing to 0600..."
                 )
                 os.chmod(config_path, 0o600)
 
@@ -385,4 +385,4 @@ class ConfigManager:
         return None
 
 
-__all__ = ["ConfigManager", "AzlinConfig", "ConfigError"]
+__all__ = ["AzlinConfig", "ConfigError", "ConfigManager"]

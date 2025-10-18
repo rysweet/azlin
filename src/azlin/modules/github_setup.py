@@ -13,7 +13,6 @@ Security Requirements:
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
 from urllib.parse import urlparse
 
 from .ssh_connector import SSHConfig, SSHConnector
@@ -26,7 +25,7 @@ class GitHubConfig:
     """GitHub setup configuration."""
 
     repo_url: str
-    clone_path: Optional[str] = None  # Remote path, default: ~/repo-name
+    clone_path: str | None = None  # Remote path, default: ~/repo-name
 
 
 @dataclass
@@ -56,7 +55,7 @@ class GitHubSetupHandler:
 
     @classmethod
     def setup_github_on_vm(
-        cls, ssh_config: SSHConfig, repo_url: str, clone_path: Optional[str] = None
+        cls, ssh_config: SSHConfig, repo_url: str, clone_path: str | None = None
     ) -> RepoDetails:
         """
         Run GitHub authentication and clone repository on VM.
@@ -296,7 +295,7 @@ class GitHubSetupHandler:
 
 # Convenience functions for CLI use
 def setup_github(
-    ssh_config: SSHConfig, repo_url: str, clone_path: Optional[str] = None
+    ssh_config: SSHConfig, repo_url: str, clone_path: str | None = None
 ) -> RepoDetails:
     """
     Setup GitHub on VM (convenience function).

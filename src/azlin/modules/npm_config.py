@@ -292,7 +292,7 @@ MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
 
 
 __all__ = [
-    "NpmConfigurator",
     "NpmConfigError",
     "NpmConfigResult",
+    "NpmConfigurator",
 ]

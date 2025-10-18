@@ -17,7 +17,6 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +32,9 @@ class AzureCredentials:
     """Azure credentials representation."""
 
     method: str  # 'az_cli', 'env_vars', or 'managed_identity'
-    token: Optional[str] = None
-    subscription_id: Optional[str] = None
-    tenant_id: Optional[str] = None
+    token: str | None = None
+    subscription_id: str | None = None
+    tenant_id: str | None = None
 
 
 class AzureAuthenticator:
@@ -51,7 +50,7 @@ class AzureAuthenticator:
     - Caches credential objects (not tokens)
     """
 
-    def __init__(self, subscription_id: Optional[str] = None, use_managed_identity: bool = False):
+    def __init__(self, subscription_id: str | None = None, use_managed_identity: bool = False):
         """Initialize Azure authenticator.
 
         Args:
@@ -60,7 +59,7 @@ class AzureAuthenticator:
         """
         self._subscription_id = subscription_id
         self._use_managed_identity = use_managed_identity
-        self._credentials_cache: Optional[AzureCredentials] = None
+        self._credentials_cache: AzureCredentials | None = None
 
     def get_credentials(self) -> AzureCredentials:
         """Get Azure credentials from available sources.
@@ -116,12 +115,11 @@ class AzureAuthenticator:
                 logger.debug(f"az CLI credentials not available: {e}")
 
         # Priority 3: Managed identity
-        if self._use_managed_identity:
-            if self._check_managed_identity():
-                creds = AzureCredentials(method="managed_identity")
-                self._credentials_cache = creds
-                logger.info("Using Azure managed identity")
-                return creds
+        if self._use_managed_identity and self._check_managed_identity():
+            creds = AzureCredentials(method="managed_identity")
+            self._credentials_cache = creds
+            logger.info("Using Azure managed identity")
+            return creds
 
         raise AuthenticationError("No Azure credentials available. Please run: az login")
 
@@ -178,7 +176,7 @@ class AzureAuthenticator:
         except Exception:
             return False
 
-    def validate_subscription_id(self, subscription_id: Optional[str]) -> bool:
+    def validate_subscription_id(self, subscription_id: str | None) -> bool:
         """Validate subscription ID format.
 
         Args:
@@ -261,4 +259,4 @@ class AzureAuthenticator:
         logger.debug("Cleared credentials cache")
 
 
-__all__ = ["AzureAuthenticator", "AzureCredentials", "AuthenticationError"]
+__all__ = ["AuthenticationError", "AzureAuthenticator", "AzureCredentials"]

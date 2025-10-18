@@ -178,8 +178,9 @@ class TestOSUpdateCLI:
         mock_executor.format_output.return_value = "Update successful"
 
         # This will be implemented in cli.py
-        from azlin.cli import main
         from click.testing import CliRunner
+
+        from azlin.cli import main
 
         runner = CliRunner()
         result = runner.invoke(main, ["os-update", "my-session"])
@@ -203,8 +204,9 @@ class TestOSUpdateCLI:
         )
         mock_executor.execute_os_update.return_value = mock_result
 
-        from azlin.cli import main
         from click.testing import CliRunner
+
+        from azlin.cli import main
 
         runner = CliRunner()
         result = runner.invoke(main, ["os-update", "my-session"])

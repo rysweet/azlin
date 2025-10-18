@@ -14,6 +14,7 @@ Test Coverage:
 - Configuration loading from CLI args
 """
 
+import contextlib
 from unittest.mock import patch
 
 import pytest
@@ -175,21 +176,21 @@ class TestCLIErrorHandling:
         from azlin.cli import CLIError, parse_args
 
         with pytest.raises((CLIError, SystemExit)):
-            args = parse_args(["--vm-size", "InvalidSize"])
+            parse_args(["--vm-size", "InvalidSize"])
 
     def test_cli_rejects_invalid_region(self):
         """Test that invalid region is rejected."""
         from azlin.cli import CLIError, parse_args
 
         with pytest.raises((CLIError, SystemExit)):
-            args = parse_args(["--region", "invalid-region"])
+            parse_args(["--region", "invalid-region"])
 
     def test_cli_rejects_invalid_repo_url(self):
         """Test that invalid repository URL is rejected."""
         from azlin.cli import CLIError, parse_args
 
         with pytest.raises((CLIError, SystemExit)):
-            args = parse_args(["--repo", "not-a-valid-url"])
+            parse_args(["--repo", "not-a-valid-url"])
 
 
 # ============================================================================
@@ -213,10 +214,8 @@ class TestCLIMainEntryPoint:
 
         # Mock sys.argv
         with patch("sys.argv", ["azlin", "--repo", "https://github.com/user/repo"]):
-            try:
+            with contextlib.suppress(SystemExit):
                 main()
-            except SystemExit:
-                pass
 
         mock_orchestrator.assert_called_once()
 
@@ -227,9 +226,8 @@ class TestCLIMainEntryPoint:
 
         mock_orchestrator.return_value.run.side_effect = KeyboardInterrupt()
 
-        with patch("sys.argv", ["azlin"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with patch("sys.argv", ["azlin"]), pytest.raises(SystemExit) as exc_info:
+            main()
 
         # Should exit with code 130 (128 + SIGINT)
         assert exc_info.value.code in (130, 1)
@@ -241,9 +239,8 @@ class TestCLIMainEntryPoint:
 
         mock_orchestrator.return_value.run.side_effect = Exception("Test error")
 
-        with patch("sys.argv", ["azlin"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with patch("sys.argv", ["azlin"]), pytest.raises(SystemExit) as exc_info:
+            main()
 
         assert exc_info.value.code == 1
 

@@ -17,7 +17,6 @@ import json
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from functools import lru_cache
-from typing import Optional
 
 
 @dataclass
@@ -60,7 +59,7 @@ class SemanticDuplicateDetector:
 
     async def detect_with_llm(
         self, new_content: str, existing_content: str, timeout_seconds: int = 120
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Use Claude SDK to semantically compare content."""
         if not self._sdk_available:
             return None
@@ -127,7 +126,7 @@ Don't consider duplicates if they:
             # Call with timeout
             return await asyncio.wait_for(_sdk_call(), timeout=timeout_seconds)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             print(f"Claude SDK timed out after {timeout_seconds} seconds")
         except Exception as e:
             print(f"SDK detection failed: {e}")
@@ -210,7 +209,7 @@ _detector = SemanticDuplicateDetector()
 
 
 def check_duplicate_issue(
-    title: str, body: str, pattern_type: Optional[str] = None, repository: str = "current"
+    title: str, body: str, pattern_type: str | None = None, repository: str = "current"
 ) -> DuplicateDetectionResult:
     """Check if an issue is a duplicate of existing issues.
 
@@ -246,7 +245,7 @@ def store_new_issue(
     issue_id: str,
     title: str,
     body: str,
-    pattern_type: Optional[str] = None,
+    pattern_type: str | None = None,
     priority: str = "medium",
     repository: str = "current",
 ) -> None:

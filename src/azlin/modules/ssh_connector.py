@@ -17,7 +17,6 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -137,9 +136,7 @@ class SSHConnector:
         safe_session = shlex.quote(session_name)
 
         # Try to attach to existing session, create if doesn't exist
-        command = f"tmux attach-session -t {safe_session} 2>/dev/null || tmux new-session -s {safe_session}"
-
-        return command
+        return f"tmux attach-session -t {safe_session} 2>/dev/null || tmux new-session -s {safe_session}"
 
     @classmethod
     def wait_for_ssh_ready(
@@ -185,7 +182,7 @@ class SSHConnector:
                 if cls._test_ssh_connection(host, key_path, port):
                     elapsed = time.time() - start_time
                     logger.info(
-                        f"SSH ready on {host}:{port} " f"(after {elapsed:.1f}s, {attempt} attempts)"
+                        f"SSH ready on {host}:{port} (after {elapsed:.1f}s, {attempt} attempts)"
                     )
                     return True
 
@@ -220,7 +217,7 @@ class SSHConnector:
             result = sock.connect_ex((host, port))
             sock.close()
             return result == 0
-        except (OSError, socket.timeout):
+        except (TimeoutError, OSError):
             return False
 
     @classmethod
@@ -276,9 +273,7 @@ class SSHConnector:
             return False
 
     @classmethod
-    def build_ssh_command(
-        cls, config: SSHConfig, remote_command: Optional[str] = None
-    ) -> list[str]:
+    def build_ssh_command(cls, config: SSHConfig, remote_command: str | None = None) -> list[str]:
         """
         Build SSH command with proper flags.
 
@@ -428,7 +423,7 @@ class SSHConnector:
 
 # Convenience functions for CLI use
 def connect_ssh(
-    host: str, user: str = "azureuser", key_path: Optional[Path] = None, tmux_session: str = "azlin"
+    host: str, user: str = "azureuser", key_path: Path | None = None, tmux_session: str = "azlin"
 ) -> int:
     """
     Connect to VM via SSH (convenience function).

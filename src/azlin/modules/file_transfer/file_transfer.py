@@ -4,7 +4,6 @@ import ipaddress
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from .exceptions import InvalidTransferError, TransferError
 from .session_manager import VMSession
@@ -15,16 +14,15 @@ class TransferEndpoint:
     """Represents a transfer source or destination."""
 
     path: Path  # Validated local path
-    session: Optional[VMSession]  # None for local, VMSession for remote
+    session: VMSession | None  # None for local, VMSession for remote
 
     def to_rsync_arg(self) -> str:
         """Convert to rsync argument."""
         if self.session is None:
             # Local path
             return str(self.path)
-        else:
-            # Remote path: user@host:path
-            return f"{self.session.user}@{self.session.public_ip}:{self.path}"
+        # Remote path: user@host:path
+        return f"{self.session.user}@{self.session.public_ip}:{self.path}"
 
 
 @dataclass
@@ -46,7 +44,7 @@ class FileTransfer:
         cls,
         source: TransferEndpoint,
         dest: TransferEndpoint,
-        progress_callback: Optional[callable] = None,
+        progress_callback: callable | None = None,
     ) -> TransferResult:
         """
         Transfer files from source to destination.

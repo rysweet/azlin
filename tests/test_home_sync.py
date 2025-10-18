@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from azlin.modules.home_sync import (
     HomeSyncManager,
     RsyncError,
@@ -74,9 +75,9 @@ class TestPatternMatching:
         for key_name in blocked_keys:
             key_path = ssh_dir / key_name
             key_path.write_text("private key content")
-            assert HomeSyncManager._is_path_blocked(
-                key_path, sync_dir
-            ), f"{key_name} should be blocked"
+            assert HomeSyncManager._is_path_blocked(key_path, sync_dir), (
+                f"{key_name} should be blocked"
+            )
 
     def test_ssh_pub_keys_allowed(self, tmp_path):
         """Test that public SSH keys are explicitly allowed."""
@@ -95,9 +96,9 @@ class TestPatternMatching:
         for filename in allowed_files:
             file_path = ssh_dir / filename
             file_path.write_text("content")
-            assert HomeSyncManager._is_path_allowed(
-                file_path, sync_dir
-            ), f"{filename} should be allowed"
+            assert HomeSyncManager._is_path_allowed(file_path, sync_dir), (
+                f"{filename} should be allowed"
+            )
 
     def test_aws_credentials_blocked(self, tmp_path):
         """Test that AWS credential files are blocked."""
@@ -114,9 +115,9 @@ class TestPatternMatching:
         for filename in blocked_files:
             file_path = aws_dir / filename
             file_path.write_text("aws_access_key_id = ...")
-            assert HomeSyncManager._is_path_blocked(
-                file_path, sync_dir
-            ), f"{filename} should be blocked"
+            assert HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                f"{filename} should be blocked"
+            )
 
     def test_credential_filename_variants_blocked(self, tmp_path):
         """Test that files with 'credentials' in name are blocked."""
@@ -133,9 +134,9 @@ class TestPatternMatching:
         for filename in blocked_files:
             file_path = sync_dir / filename
             file_path.write_text("content")
-            assert HomeSyncManager._is_path_blocked(
-                file_path, sync_dir
-            ), f"{filename} should be blocked"
+            assert HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                f"{filename} should be blocked"
+            )
 
     def test_env_files_blocked(self, tmp_path):
         """Test that .env files are blocked."""
@@ -152,9 +153,9 @@ class TestPatternMatching:
         for filename in blocked_files:
             file_path = sync_dir / filename
             file_path.write_text("SECRET_KEY=...")
-            assert HomeSyncManager._is_path_blocked(
-                file_path, sync_dir
-            ), f"{filename} should be blocked"
+            assert HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                f"{filename} should be blocked"
+            )
 
     def test_safe_dotfiles_not_blocked(self, tmp_path):
         """Test that safe configuration files are not blocked."""
@@ -171,9 +172,67 @@ class TestPatternMatching:
         for filename in safe_files:
             file_path = sync_dir / filename
             file_path.write_text("safe config")
-            assert not HomeSyncManager._is_path_blocked(
-                file_path, sync_dir
-            ), f"{filename} should not be blocked"
+            assert not HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                f"{filename} should not be blocked"
+            )
+
+    def test_azure_config_files_whitelisted(self, tmp_path):
+        """Test that safe Azure config files are whitelisted and NOT blocked."""
+        sync_dir = tmp_path / "sync"
+        sync_dir.mkdir()
+        azure_dir = sync_dir / ".azure"
+        azure_dir.mkdir()
+
+        # Safe Azure files that should be allowed
+        safe_azure_files = [
+            "azureProfile.json",
+            "config",
+            "clouds.config",
+        ]
+
+        for filename in safe_azure_files:
+            file_path = azure_dir / filename
+            file_path.write_text('{"safe": "config"}')
+
+            # Should be whitelisted
+            assert HomeSyncManager._is_path_allowed(file_path, sync_dir), (
+                f"{filename} should be whitelisted"
+            )
+            # Should NOT be blocked
+            assert not HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                f"{filename} should not be blocked"
+            )
+
+    def test_azure_secret_files_blocked(self, tmp_path):
+        """Test that Azure credential/token files are blocked (not whitelisted)."""
+        sync_dir = tmp_path / "sync"
+        sync_dir.mkdir()
+        azure_dir = sync_dir / ".azure"
+        azure_dir.mkdir()
+
+        # Dangerous Azure files that should be blocked
+        blocked_azure_files = [
+            "accessTokens.json",
+            "msal_token_cache.json",
+            "msal_token_cache.bin.json",
+            "service_principal.json",
+            "my_token.json",
+            "azure_secret.json",
+            "credentials.json",
+        ]
+
+        for filename in blocked_azure_files:
+            file_path = azure_dir / filename
+            file_path.write_text('{"token": "secret"}')
+
+            # Should NOT be whitelisted
+            assert not HomeSyncManager._is_path_allowed(file_path, sync_dir), (
+                f"{filename} should not be whitelisted"
+            )
+            # Should be blocked
+            assert HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                f"{filename} should be blocked"
+            )
 
 
 class TestSymlinkValidation:
@@ -230,7 +289,7 @@ class TestSymlinkValidation:
         sync_dir.mkdir()
 
         # Create symlink to dangerous location
-        link = sync_dir / "dangerous_link"
+        sync_dir / "dangerous_link"
         target = Path.home() / ".ssh"
 
         # Mock the symlink
@@ -428,7 +487,7 @@ class TestSecurityValidation:
         assert len(result.blocked_files) == 0
 
     def test_validation_with_credentials_blocks(self, tmp_path):
-        """Test that validation blocks when credentials are found."""
+        """Test that validation tracks blocked files (Phase 1: non-fatal)."""
         sync_dir = tmp_path / "sync"
         sync_dir.mkdir()
         ssh_dir = sync_dir / ".ssh"
@@ -439,11 +498,13 @@ class TestSecurityValidation:
 
         result = HomeSyncManager.validate_sync_directory(sync_dir)
 
-        assert not result.is_safe
+        # Phase 1: Non-fatal validation - returns is_safe=True with blocked_files populated
+        assert result.is_safe
         assert len(result.blocked_files) > 0
+        assert ".ssh/id_rsa" in result.blocked_files[0]
 
     def test_validation_with_mixed_files(self, tmp_path):
-        """Test validation with both safe and unsafe files."""
+        """Test validation with both safe and unsafe files (Phase 1: non-fatal)."""
         sync_dir = tmp_path / "sync"
         sync_dir.mkdir()
         ssh_dir = sync_dir / ".ssh"
@@ -458,7 +519,8 @@ class TestSecurityValidation:
 
         result = HomeSyncManager.validate_sync_directory(sync_dir)
 
-        assert not result.is_safe
+        # Phase 1: Non-fatal validation - returns is_safe=True with blocked_files populated
+        assert result.is_safe
         assert len(result.blocked_files) > 0
 
     def test_nonexistent_directory_is_safe(self, tmp_path):
@@ -473,12 +535,16 @@ class TestSecurityValidation:
 class TestRsyncExecution:
     """Test rsync command execution."""
 
+    @patch("azlin.modules.home_sync.HomeSyncManager.get_sync_directory")
     @patch("subprocess.run")
-    def test_sync_success(self, mock_run, tmp_path):
+    def test_sync_success(self, mock_run, mock_sync_dir, tmp_path):
         """Test successful sync operation."""
         sync_dir = tmp_path / "sync"
         sync_dir.mkdir()
         (sync_dir / ".bashrc").write_text("content")
+
+        # Mock get_sync_directory to return tmp_path
+        mock_sync_dir.return_value = sync_dir
 
         # Mock successful rsync
         mock_result = MagicMock()
@@ -495,9 +561,10 @@ class TestRsyncExecution:
         assert result.success
         assert mock_run.called
 
+    @patch("azlin.modules.home_sync.HomeSyncManager.get_sync_directory")
     @patch("subprocess.run")
-    def test_sync_with_security_validation_failure(self, mock_run, tmp_path):
-        """Test that sync fails when security validation fails."""
+    def test_sync_with_security_validation_failure(self, mock_run, mock_sync_dir, tmp_path):
+        """Test that sync continues with warnings when blocked files are found (Phase 1: non-fatal)."""
         sync_dir = tmp_path / "sync"
         sync_dir.mkdir()
         ssh_dir = sync_dir / ".ssh"
@@ -506,20 +573,40 @@ class TestRsyncExecution:
         # Create blocked file
         (ssh_dir / "id_rsa").write_text("private key")
 
+        # Mock get_sync_directory to return tmp_path
+        mock_sync_dir.return_value = sync_dir
+
+        # Mock successful rsync
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = (
+            "Number of regular files transferred: 0\nTotal transferred file size: 0"
+        )
+        mock_run.return_value = mock_result
+
         ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 
-        with pytest.raises(SecurityValidationError):
-            HomeSyncManager.sync_to_vm(ssh_config, dry_run=False)
+        # Phase 1: Sync should succeed with warnings, not raise exception
+        result = HomeSyncManager.sync_to_vm(ssh_config, dry_run=False)
 
-        # rsync should not be called
-        assert not mock_run.called
+        # Sync should succeed
+        assert result.success
+        # Should have warnings about skipped files
+        assert len(result.warnings) > 0
+        assert any("Skipped (sensitive)" in w for w in result.warnings)
+        # rsync should be called
+        assert mock_run.called
 
+    @patch("azlin.modules.home_sync.HomeSyncManager.get_sync_directory")
     @patch("subprocess.run")
-    def test_sync_timeout_raises_error(self, mock_run, tmp_path):
+    def test_sync_timeout_raises_error(self, mock_run, mock_sync_dir, tmp_path):
         """Test that sync timeout raises appropriate error."""
         sync_dir = tmp_path / "sync"
         sync_dir.mkdir()
         (sync_dir / ".bashrc").write_text("content")
+
+        # Mock get_sync_directory to return tmp_path
+        mock_sync_dir.return_value = sync_dir
 
         mock_run.side_effect = subprocess.TimeoutExpired("rsync", 300)
 
@@ -551,9 +638,9 @@ class TestSecurityBypassAttempts:
 
             # Should be blocked
             if "pub" not in filename:
-                assert HomeSyncManager._is_path_blocked(
-                    file_path, sync_dir
-                ), f"{filename} should be blocked"
+                assert HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                    f"{filename} should be blocked"
+                )
 
     def test_nested_credential_files_blocked(self, tmp_path):
         """Test that credentials in nested directories are blocked."""
@@ -571,10 +658,14 @@ class TestSecurityBypassAttempts:
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
-    def test_empty_directory(self, tmp_path):
+    @patch("azlin.modules.home_sync.HomeSyncManager.get_sync_directory")
+    def test_empty_directory(self, mock_sync_dir, tmp_path):
         """Test handling of empty sync directory."""
         sync_dir = tmp_path / "sync"
         sync_dir.mkdir()
+
+        # Mock get_sync_directory to return tmp_path
+        mock_sync_dir.return_value = sync_dir
 
         ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 
@@ -583,9 +674,13 @@ class TestEdgeCases:
         assert result.success
         assert "empty" in result.warnings[0].lower()
 
-    def test_nonexistent_directory(self, tmp_path):
+    @patch("azlin.modules.home_sync.HomeSyncManager.get_sync_directory")
+    def test_nonexistent_directory(self, mock_sync_dir, tmp_path):
         """Test handling of nonexistent sync directory."""
-        sync_dir = tmp_path / "does_not_exist"
+        nonexistent = tmp_path / "does_not_exist"
+
+        # Mock get_sync_directory to return tmp_path
+        mock_sync_dir.return_value = nonexistent
 
         ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 

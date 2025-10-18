@@ -106,7 +106,7 @@ class LogViewer:
         logger.debug(f"Retrieving system logs from {vm_name}")
 
         # Validate and get VM
-        vm, ssh_config = cls._prepare_connection(vm_name, resource_group)
+        _vm, ssh_config = cls._prepare_connection(vm_name, resource_group)
 
         # Build journalctl command
         command = cls._build_journalctl_command(
@@ -114,15 +114,13 @@ class LogViewer:
         )
 
         # Execute command
-        result = cls._execute_log_command(
+        return cls._execute_log_command(
             ssh_config=ssh_config,
             command=command,
             vm_name=vm_name,
             log_type=LogType.SYSTEM,
             timeout=timeout,
         )
-
-        return result
 
     @classmethod
     def get_boot_logs(
@@ -151,7 +149,7 @@ class LogViewer:
         logger.debug(f"Retrieving boot logs from {vm_name}")
 
         # Validate and get VM
-        vm, ssh_config = cls._prepare_connection(vm_name, resource_group)
+        _vm, ssh_config = cls._prepare_connection(vm_name, resource_group)
 
         # Build journalctl command with boot flag
         command = cls._build_journalctl_command(
@@ -159,15 +157,13 @@ class LogViewer:
         )
 
         # Execute command
-        result = cls._execute_log_command(
+        return cls._execute_log_command(
             ssh_config=ssh_config,
             command=command,
             vm_name=vm_name,
             log_type=LogType.BOOT,
             timeout=timeout,
         )
-
-        return result
 
     @classmethod
     def get_kernel_logs(
@@ -196,7 +192,7 @@ class LogViewer:
         logger.debug(f"Retrieving kernel logs from {vm_name}")
 
         # Validate and get VM
-        vm, ssh_config = cls._prepare_connection(vm_name, resource_group)
+        _vm, ssh_config = cls._prepare_connection(vm_name, resource_group)
 
         # Build journalctl command with kernel flag
         command = cls._build_journalctl_command(
@@ -204,15 +200,13 @@ class LogViewer:
         )
 
         # Execute command
-        result = cls._execute_log_command(
+        return cls._execute_log_command(
             ssh_config=ssh_config,
             command=command,
             vm_name=vm_name,
             log_type=LogType.KERNEL,
             timeout=timeout,
         )
-
-        return result
 
     @classmethod
     def get_app_logs(
@@ -243,7 +237,7 @@ class LogViewer:
         logger.debug(f"Retrieving app logs for {service} from {vm_name}")
 
         # Validate and get VM
-        vm, ssh_config = cls._prepare_connection(vm_name, resource_group)
+        _vm, ssh_config = cls._prepare_connection(vm_name, resource_group)
 
         # Build journalctl command with service filter
         command = cls._build_journalctl_command(
@@ -251,15 +245,13 @@ class LogViewer:
         )
 
         # Execute command
-        result = cls._execute_log_command(
+        return cls._execute_log_command(
             ssh_config=ssh_config,
             command=command,
             vm_name=vm_name,
             log_type=LogType.APP,
             timeout=timeout,
         )
-
-        return result
 
     @classmethod
     def follow_logs(
@@ -288,17 +280,15 @@ class LogViewer:
         logger.debug(f"Following {log_type.value} logs from {vm_name}")
 
         # Validate and get VM
-        vm, ssh_config = cls._prepare_connection(vm_name, resource_group)
+        _vm, ssh_config = cls._prepare_connection(vm_name, resource_group)
 
         # Build follow command
         command = cls._build_follow_command(log_type, since, service)
 
         # Connect with interactive SSH to stream logs
-        exit_code = SSHConnector.connect(
+        return SSHConnector.connect(
             ssh_config=ssh_config, remote_command=command, tmux_session=None, auto_tmux=False
         )
-
-        return exit_code
 
     @classmethod
     def _prepare_connection(cls, vm_name: str, resource_group: str) -> tuple[VMInfo, SSHConfig]:
@@ -445,9 +435,8 @@ class LogViewer:
             parts.append("-b")
         elif log_type == LogType.KERNEL:
             parts.append("-k")
-        elif log_type == LogType.APP:
-            if service:
-                parts.append(f"-u {service}")
+        elif log_type == LogType.APP and service:
+            parts.append(f"-u {service}")
 
         # Add time filter
         if since:
@@ -491,4 +480,4 @@ class LogViewer:
         )
 
 
-__all__ = ["LogViewer", "LogViewerError", "LogType", "LogResult"]
+__all__ = ["LogResult", "LogType", "LogViewer", "LogViewerError"]

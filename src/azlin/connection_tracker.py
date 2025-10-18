@@ -8,7 +8,6 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 try:
     import tomli
@@ -91,7 +90,7 @@ class ConnectionTracker:
             raise ConnectionTrackerError(f"Failed to save connections: {e}")
 
     @classmethod
-    def record_connection(cls, vm_name: str, timestamp: Optional[datetime] = None) -> None:
+    def record_connection(cls, vm_name: str, timestamp: datetime | None = None) -> None:
         """Record connection timestamp for a VM (defaults to now)."""
         if timestamp is None:
             timestamp = datetime.utcnow()
@@ -104,7 +103,7 @@ class ConnectionTracker:
             raise ConnectionTrackerError(f"Failed to record connection: {e}")
 
     @classmethod
-    def get_last_connection(cls, vm_name: str) -> Optional[datetime]:
+    def get_last_connection(cls, vm_name: str) -> datetime | None:
         """Get last connection timestamp for a VM, or None if never connected."""
         try:
             connections = cls.load_connections()

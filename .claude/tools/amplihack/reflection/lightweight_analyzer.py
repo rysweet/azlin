@@ -2,7 +2,6 @@
 
 import json
 import time
-from typing import Optional
 
 
 class LightweightAnalyzer:
@@ -13,7 +12,7 @@ class LightweightAnalyzer:
         self.max_duration = 5.0  # seconds
 
     def analyze_recent_responses(
-        self, messages: list[dict], tool_logs: Optional[list[str]] = None
+        self, messages: list[dict], tool_logs: list[str] | None = None
     ) -> dict:
         """Analyze last 2 responses for patterns.
 

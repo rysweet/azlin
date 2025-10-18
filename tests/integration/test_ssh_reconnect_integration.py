@@ -6,6 +6,7 @@ These tests verify the integration between vm_connector and ssh_reconnect module
 from unittest.mock import patch
 
 import pytest
+
 from azlin.modules.ssh_keys import SSHKeyPair
 from azlin.vm_connector import VMConnector
 from azlin.vm_manager import VMInfo

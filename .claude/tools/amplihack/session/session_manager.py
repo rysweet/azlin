@@ -7,7 +7,7 @@ import threading
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .claude_session import ClaudeSession, SessionConfig
 from .file_utils import safe_read_file, safe_read_json, safe_write_json
@@ -31,7 +31,7 @@ class SessionManager:
         >>> resumed_session = manager.resume_session(session_id)
     """
 
-    def __init__(self, runtime_dir: Optional[Path] = None):
+    def __init__(self, runtime_dir: Path | None = None):
         """Initialize session manager.
 
         Args:
@@ -52,7 +52,7 @@ class SessionManager:
         # Auto-save configuration
         self.auto_save_enabled = True
         self.auto_save_interval = 60.0  # seconds
-        self._auto_save_thread: Optional[threading.Thread] = None
+        self._auto_save_thread: threading.Thread | None = None
         self._shutdown_event = threading.Event()
 
         self._load_session_registry()
@@ -61,8 +61,8 @@ class SessionManager:
     def create_session(
         self,
         name: str,
-        config: Optional[SessionConfig] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        config: SessionConfig | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Create a new session.
 
@@ -93,7 +93,7 @@ class SessionManager:
         self.logger.info(f"Created session '{name}' with ID: {session.state.session_id}")
         return session.state.session_id
 
-    def get_session(self, session_id: str) -> Optional[ClaudeSession]:
+    def get_session(self, session_id: str) -> ClaudeSession | None:
         """Get active session by ID.
 
         Args:
@@ -148,7 +148,7 @@ class SessionManager:
                 self.logger.error(f"Failed to save session {session_id}: {e}")
                 return False
 
-    def resume_session(self, session_id: str) -> Optional[ClaudeSession]:
+    def resume_session(self, session_id: str) -> ClaudeSession | None:
         """Resume session from disk.
 
         Args:
@@ -304,7 +304,7 @@ class SessionManager:
             "metadata": self._session_metadata.get(session.state.session_id, {}),
         }
 
-    def _deserialize_session(self, data: dict[str, Any]) -> Optional[ClaudeSession]:
+    def _deserialize_session(self, data: dict[str, Any]) -> ClaudeSession | None:
         """Deserialize session from saved data."""
         try:
             # Reconstruct config

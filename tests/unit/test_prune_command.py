@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
+
 from azlin.vm_manager import VMInfo
 
 # ============================================================================
@@ -580,7 +581,7 @@ class TestSessionNameTableDisplay:
 
         # Verify unnamed VM shows dash
         lines = table.split("\n")
-        unnamed_line = [line for line in lines if "unnamed-vm" in line][0]
+        unnamed_line = next(line for line in lines if "unnamed-vm" in line)
         # Check that the session name column shows a dash
         assert "-" in unnamed_line
 
@@ -1178,17 +1179,17 @@ class TestPruneCLIArguments:
         - Default value is reasonable (e.g., 30)
         - Custom values are accepted
         """
-        from azlin.cli import main
-
         # Test with Click CLI runner
         from click.testing import CliRunner
+
+        from azlin.cli import main
 
         runner = CliRunner()
 
         with patch("azlin.prune.PruneManager.get_candidates") as mock_get_candidates:
             mock_get_candidates.return_value = ([], {})
 
-            result = runner.invoke(main, ["prune", "--age-days", "45", "--force"])
+            runner.invoke(main, ["prune", "--age-days", "45", "--force"])
 
             # Should call get_candidates with custom age_days
             assert mock_get_candidates.called
@@ -1203,15 +1204,16 @@ class TestPruneCLIArguments:
         - Default value is reasonable (e.g., 14)
         - Custom values are accepted
         """
-        from azlin.cli import main
         from click.testing import CliRunner
+
+        from azlin.cli import main
 
         runner = CliRunner()
 
         with patch("azlin.prune.PruneManager.get_candidates") as mock_get_candidates:
             mock_get_candidates.return_value = ([], {})
 
-            result = runner.invoke(main, ["prune", "--idle-days", "21", "--force"])
+            runner.invoke(main, ["prune", "--idle-days", "21", "--force"])
 
             # Should call get_candidates with custom idle_days
             assert mock_get_candidates.called
@@ -1227,17 +1229,16 @@ class TestPruneCLIArguments:
         - --include-running flag
         - --include-named flag
         """
-        from azlin.cli import main
         from click.testing import CliRunner
+
+        from azlin.cli import main
 
         runner = CliRunner()
 
         with patch("azlin.prune.PruneManager.get_candidates") as mock_get_candidates:
             mock_get_candidates.return_value = ([], {})
 
-            result = runner.invoke(
-                main, ["prune", "--dry-run", "--include-running", "--include-named"]
-            )
+            runner.invoke(main, ["prune", "--dry-run", "--include-running", "--include-named"])
 
             # Should call get_candidates with flags
             assert mock_get_candidates.called

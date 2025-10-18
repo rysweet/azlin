@@ -13,7 +13,6 @@ import logging
 import shutil
 import subprocess
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ class NotificationConfig:
 
     enabled: bool
     message: str
-    recipient: Optional[str] = None  # For future use
+    recipient: str | None = None  # For future use
 
 
 @dataclass
@@ -33,7 +32,7 @@ class NotificationResult:
 
     sent: bool
     message: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class NotificationHandler:
@@ -60,7 +59,7 @@ class NotificationHandler:
             return "imessR"
 
     @classmethod
-    def send_notification(cls, message: str, recipient: Optional[str] = None) -> NotificationResult:
+    def send_notification(cls, message: str, recipient: str | None = None) -> NotificationResult:
         """
         Send notification if imessR available.
 
@@ -97,7 +96,7 @@ class NotificationHandler:
             args = [notification_cmd, message]
 
             # Execute notification command
-            result = subprocess.run(args, capture_output=True, text=True, timeout=10, check=True)
+            subprocess.run(args, capture_output=True, text=True, timeout=10, check=True)
 
             logger.info("Notification sent successfully")
 

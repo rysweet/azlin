@@ -2,7 +2,6 @@
 
 import re
 from pathlib import Path
-from typing import Optional
 
 from .exceptions import InvalidPathError, PathTraversalError, SymlinkSecurityError
 
@@ -30,7 +29,7 @@ class PathParser:
 
     @classmethod
     def parse_and_validate(
-        cls, path_str: str, allow_absolute: bool = False, base_dir: Optional[Path] = None
+        cls, path_str: str, allow_absolute: bool = False, base_dir: Path | None = None
     ) -> Path:
         """
         Parse and validate a path string with comprehensive security checks.
@@ -159,7 +158,7 @@ class PathParser:
         return any(re.search(pattern, path_str) for pattern in cls.BLOCKED_PATH_PATTERNS)
 
     @classmethod
-    def sanitize_for_display(cls, path: Path, base: Optional[Path] = None) -> str:
+    def sanitize_for_display(cls, path: Path, base: Path | None = None) -> str:
         """
         Sanitize path for error messages (show relative path only).
 

@@ -19,7 +19,6 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from fnmatch import fnmatch
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ class LifecycleResult:
     success: bool
     message: str
     operation: str  # 'stop', 'start'
-    cost_impact: Optional[str] = None  # Cost savings/cost info
+    cost_impact: str | None = None  # Cost savings/cost info
 
     def __repr__(self) -> str:
         status = "SUCCESS" if self.success else "FAILED"
@@ -155,7 +154,7 @@ class VMLifecycleController:
             if no_wait:
                 cmd.append("--no-wait")
 
-            result = subprocess.run(
+            subprocess.run(
                 cmd, capture_output=True, text=True, timeout=180 if not no_wait else 30, check=True
             )
 
@@ -232,7 +231,7 @@ class VMLifecycleController:
             if no_wait:
                 cmd.append("--no-wait")
 
-            result = subprocess.run(
+            subprocess.run(
                 cmd, capture_output=True, text=True, timeout=180 if not no_wait else 30, check=True
             )
 
@@ -269,7 +268,7 @@ class VMLifecycleController:
     def stop_vms(
         cls,
         resource_group: str,
-        vm_pattern: Optional[str] = None,
+        vm_pattern: str | None = None,
         all_vms: bool = False,
         deallocate: bool = True,
         max_workers: int = 5,
@@ -346,7 +345,7 @@ class VMLifecycleController:
             failed = sum(1 for r in results if not r.success)
 
             # Calculate total cost savings
-            total_savings = sum(
+            sum(
                 float(r.cost_impact.split("$")[1].split("/")[0])
                 for r in results
                 if r.success and r.cost_impact and "$" in r.cost_impact
@@ -367,7 +366,7 @@ class VMLifecycleController:
     def start_vms(
         cls,
         resource_group: str,
-        vm_pattern: Optional[str] = None,
+        vm_pattern: str | None = None,
         all_vms: bool = False,
         max_workers: int = 5,
     ) -> LifecycleSummary:
@@ -450,7 +449,7 @@ class VMLifecycleController:
             raise VMLifecycleControlError(f"Failed to start VMs: {e}")
 
     @classmethod
-    def _get_vm_details(cls, vm_name: str, resource_group: str) -> Optional[dict]:
+    def _get_vm_details(cls, vm_name: str, resource_group: str) -> dict | None:
         """Get VM details from Azure including instance view.
 
         Args:
@@ -545,8 +544,8 @@ class VMLifecycleController:
 
 
 __all__ = [
-    "VMLifecycleController",
-    "VMLifecycleControlError",
     "LifecycleResult",
     "LifecycleSummary",
+    "VMLifecycleControlError",
+    "VMLifecycleController",
 ]

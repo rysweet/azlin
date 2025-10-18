@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+
 from azlin.batch_executor import (
     BatchExecutor,
     BatchExecutorError,
@@ -303,9 +304,7 @@ class TestBatchExecutor:
 
         # Execute
         executor = BatchExecutor(max_workers=2)
-        results = executor.execute_stop(
-            sample_vms[:2], "test-rg", progress_callback=progress_callback
-        )
+        executor.execute_stop(sample_vms[:2], "test-rg", progress_callback=progress_callback)
 
         # Verify progress was reported
         assert len(progress_calls) > 0

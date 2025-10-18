@@ -9,7 +9,7 @@ import os
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class SessionReflector:
@@ -155,7 +155,7 @@ class SessionReflector:
         repeated = {k: v for k, v in counts.items() if v >= threshold}
         return repeated
 
-    def _find_error_patterns(self, messages: list[dict]) -> Optional[dict]:
+    def _find_error_patterns(self, messages: list[dict]) -> dict | None:
         """Detect error-related patterns"""
         error_count = 0
         error_samples = []
@@ -175,7 +175,7 @@ class SessionReflector:
             return {"count": error_count, "samples": error_samples}
         return None
 
-    def _find_frustration_patterns(self, messages: list[dict]) -> Optional[dict]:
+    def _find_frustration_patterns(self, messages: list[dict]) -> dict | None:
         """Detect user frustration indicators"""
         frustration_count = 0
         keywords = self.PATTERNS["frustration"]["keywords"]
@@ -244,7 +244,7 @@ class SessionReflector:
         return suggestions
 
 
-def save_reflection_summary(analysis: dict, output_dir: Path) -> Optional[Path]:
+def save_reflection_summary(analysis: dict, output_dir: Path) -> Path | None:
     """Save reflection analysis to a summary file"""
     if analysis.get("skipped"):
         return None

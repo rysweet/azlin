@@ -67,9 +67,8 @@ class PrerequisiteChecker:
         if result:
             logger.debug(f"Found {tool_name} at {result}")
             return True
-        else:
-            logger.debug(f"Tool not found: {tool_name}")
-            return False
+        logger.debug(f"Tool not found: {tool_name}")
+        return False
 
     @classmethod
     def check_all(cls) -> PrerequisiteResult:
@@ -132,15 +131,14 @@ class PrerequisiteChecker:
 
         if system == "darwin":
             return "macos"
-        elif system == "linux":
+        if system == "linux":
             # Check if WSL
             if cls._is_wsl():
                 return "wsl"
             return "linux"
-        elif system == "windows":
+        if system == "windows":
             return "windows"
-        else:
-            return "unknown"
+        return "unknown"
 
     @classmethod
     def _is_wsl(cls) -> bool:

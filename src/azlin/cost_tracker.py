@@ -14,7 +14,6 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
 
@@ -38,7 +37,7 @@ class VMCostEstimate:
     hours_running: Decimal
     estimated_cost: Decimal
     region: str
-    created_time: Optional[str] = None
+    created_time: str | None = None
 
     def is_running(self) -> bool:
         """Check if VM is currently running."""
@@ -54,7 +53,7 @@ class CostSummary:
     running_vms: int
     stopped_vms: int
     estimates: list[VMCostEstimate]
-    date_range: Optional[tuple] = None
+    date_range: tuple | None = None
 
     def get_monthly_estimate(self) -> Decimal:
         """Get monthly cost estimate for currently running VMs."""
@@ -101,7 +100,7 @@ class CostTracker:
 
     @classmethod
     def estimate_vm_cost(
-        cls, vm: VMInfo, from_date: Optional[datetime] = None, to_date: Optional[datetime] = None
+        cls, vm: VMInfo, from_date: datetime | None = None, to_date: datetime | None = None
     ) -> VMCostEstimate:
         """Estimate cost for a single VM.
 
@@ -140,8 +139,8 @@ class CostTracker:
     def estimate_costs(
         cls,
         resource_group: str,
-        from_date: Optional[datetime] = None,
-        to_date: Optional[datetime] = None,
+        from_date: datetime | None = None,
+        to_date: datetime | None = None,
         include_stopped: bool = True,
     ) -> CostSummary:
         """Estimate costs for all VMs in a resource group.
@@ -218,32 +217,31 @@ class CostTracker:
         # Estimate based on naming patterns
         if "B1" in vm_size:
             return Decimal("0.02")
-        elif "B2" in vm_size:
+        if "B2" in vm_size:
             return Decimal("0.04")
-        elif "B4" in vm_size:
+        if "B4" in vm_size:
             return Decimal("0.16")
-        elif "D2" in vm_size:
+        if "D2" in vm_size:
             return Decimal("0.10")
-        elif "D4" in vm_size:
+        if "D4" in vm_size:
             return Decimal("0.20")
-        elif "D8" in vm_size:
+        if "D8" in vm_size:
             return Decimal("0.40")
-        elif "E2" in vm_size:
+        if "E2" in vm_size:
             return Decimal("0.13")
-        elif "E4" in vm_size:
+        if "E4" in vm_size:
             return Decimal("0.25")
-        elif "F2" in vm_size:
+        if "F2" in vm_size:
             return Decimal("0.09")
-        elif "F4" in vm_size:
+        if "F4" in vm_size:
             return Decimal("0.17")
-        else:
-            # Default estimate for unknown sizes
-            logger.warning(f"Unknown VM size: {vm_size}, using default rate")
-            return Decimal("0.10")
+        # Default estimate for unknown sizes
+        logger.warning(f"Unknown VM size: {vm_size}, using default rate")
+        return Decimal("0.10")
 
     @classmethod
     def _calculate_hours_running(
-        cls, vm: VMInfo, from_date: Optional[datetime], to_date: Optional[datetime]
+        cls, vm: VMInfo, from_date: datetime | None, to_date: datetime | None
     ) -> Decimal:
         """Calculate hours a VM has been running.
 
@@ -365,4 +363,4 @@ class CostTracker:
         return "\n".join(lines)
 
 
-__all__ = ["CostTracker", "CostSummary", "VMCostEstimate", "CostTrackerError"]
+__all__ = ["CostSummary", "CostTracker", "CostTrackerError", "VMCostEstimate"]

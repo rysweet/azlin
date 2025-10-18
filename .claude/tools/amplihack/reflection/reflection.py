@@ -9,7 +9,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 try:
     from .display import (
@@ -220,7 +219,7 @@ def analyze_session_patterns(messages: list[dict]) -> list[dict]:
     return patterns
 
 
-def create_github_issue(pattern: dict) -> Optional[str]:
+def create_github_issue(pattern: dict) -> str | None:
     """Create GitHub issue for improvement pattern with duplicate detection.
 
     Returns issue URL on success, None on failure or skip.
@@ -384,7 +383,7 @@ def delegate_to_ultrathink(issue_number: str, pattern: dict) -> bool:
         return False
 
 
-def process_reflection_analysis(messages: list[dict]) -> Optional[str]:
+def process_reflection_analysis(messages: list[dict]) -> str | None:
     """Main reflection analysis entry point with user visibility."""
 
     if not is_reflection_enabled():

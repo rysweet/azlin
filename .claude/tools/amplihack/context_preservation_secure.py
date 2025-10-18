@@ -17,7 +17,7 @@ import re
 import signal
 import unicodedata
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 # Use clean import through dedicated paths module
 from paths import get_project_root
@@ -316,7 +316,7 @@ class ContextPreserver:
     - Comprehensive error handling for malformed input
     """
 
-    def __init__(self, session_id: Optional[str] = None):
+    def __init__(self, session_id: str | None = None):
         """Initialize context preserver.
 
         Args:
@@ -668,7 +668,7 @@ All agents should receive this context to ensure user requirements are preserved
         with open(json_file, "w") as f:
             json.dump(original_request, f, indent=2)
 
-    def get_original_request(self, session_id: Optional[str] = None) -> Optional[dict[str, Any]]:
+    def get_original_request(self, session_id: str | None = None) -> dict[str, Any] | None:
         """Retrieve original request for a session.
 
         Args:
@@ -696,7 +696,7 @@ All agents should receive this context to ensure user requirements are preserved
         except Exception:
             return None
 
-    def format_agent_context(self, original_request: Optional[dict[str, Any]] = None) -> str:
+    def format_agent_context(self, original_request: dict[str, Any] | None = None) -> str:
         """Format original request as context for agent injection.
 
         Args:
@@ -798,7 +798,7 @@ All agents should receive this context to ensure user requirements are preserved
 
         return str(transcript_file)
 
-    def get_latest_session_id(self) -> Optional[str]:
+    def get_latest_session_id(self) -> str | None:
         """Get the most recent session ID with security protections."""
         try:
             logs_dir = self.project_root / ".claude" / "runtime" / "logs"
@@ -834,7 +834,7 @@ All agents should receive this context to ensure user requirements are preserved
             return None
 
 
-def create_context_preserver(session_id: Optional[str] = None) -> ContextPreserver:
+def create_context_preserver(session_id: str | None = None) -> ContextPreserver:
     """Factory function to create a ContextPreserver instance."""
     return ContextPreserver(session_id)
 
