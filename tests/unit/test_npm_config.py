@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from azlin.modules.npm_config import NpmConfigError, NpmConfigResult, NpmConfigurator
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.remote_exec import RemoteResult

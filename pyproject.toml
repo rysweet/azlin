@@ -25,6 +25,7 @@ classifiers = [
 dependencies = [
     "click>=8.1.0",
     "pyyaml>=6.0.0",
+    "rich>=13.7.0",
     "tomli>=2.0.0; python_version < '3.11'",
     "tomli-w>=1.0.0",
 ]
@@ -84,5 +85,41 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["E501"]  # Line too long (handled by formatter)
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "W",    # pycodestyle warnings
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "S",    # flake8-bandit (security)
+    "RET",  # flake8-return
+    "RSE",  # flake8-raise
+    "PT",   # flake8-pytest-style
+    "C90",  # mccabe complexity
+    "PERF", # perflint
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "S101",   # Use of assert (needed for pytest)
+    "S603",   # subprocess untrusted input (intentional in CLI)
+    "S607",   # partial executable path (intentional in CLI)
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",   # assert allowed in tests
+    "PT009",  # pytest unittest style
+    "PT027",  # pytest unittest raises
+]
+".claude/**/*.py" = [
+    "S101",   # assert allowed
+    "T201",   # print allowed
+]

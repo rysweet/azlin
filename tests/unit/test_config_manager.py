@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 
 

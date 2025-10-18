@@ -14,7 +14,7 @@ import logging
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +33,14 @@ class VMInfo:
     resource_group: str
     location: str
     power_state: str
-    public_ip: Optional[str] = None
-    private_ip: Optional[str] = None
-    vm_size: Optional[str] = None
-    os_type: Optional[str] = None
-    provisioning_state: Optional[str] = None
-    created_time: Optional[str] = None
-    tags: Optional[dict[str, str]] = None
-    session_name: Optional[str] = None  # Session name from config
+    public_ip: str | None = None
+    private_ip: str | None = None
+    vm_size: str | None = None
+    os_type: str | None = None
+    provisioning_state: str | None = None
+    created_time: str | None = None
+    tags: dict[str, str] | None = None
+    session_name: str | None = None  # Session name from config
 
     def is_running(self) -> bool:
         """Check if VM is running."""
@@ -54,10 +54,9 @@ class VMInfo:
         """Get formatted status display."""
         if self.is_running():
             return "Running"
-        elif self.is_stopped():
+        if self.is_stopped():
             return "Stopped"
-        else:
-            return self.power_state.replace("VM ", "")
+        return self.power_state.replace("VM ", "")
 
     def get_display_name(self) -> str:
         """Get display name (session name if set, otherwise VM name)."""
@@ -165,7 +164,7 @@ class VMManager:
             return {}
 
     @classmethod
-    def get_vm(cls, vm_name: str, resource_group: str) -> Optional[VMInfo]:
+    def get_vm(cls, vm_name: str, resource_group: str) -> VMInfo | None:
         """Get specific VM details.
 
         Args:
@@ -223,8 +222,7 @@ class VMManager:
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
 
-            groups = json.loads(result.stdout)
-            return groups
+            return json.loads(result.stdout)
 
         except subprocess.CalledProcessError as e:
             raise VMManagerError(f"Failed to list resource groups: {e.stderr}")
@@ -234,7 +232,7 @@ class VMManager:
             raise VMManagerError("Resource group list timed out")
 
     @classmethod
-    def get_vm_ip(cls, vm_name: str, resource_group: str) -> Optional[str]:
+    def get_vm_ip(cls, vm_name: str, resource_group: str) -> str | None:
         """Get VM public IP address.
 
         Args:
@@ -474,4 +472,4 @@ class VMManager:
         )
 
 
-__all__ = ["VMManager", "VMInfo", "VMManagerError"]
+__all__ = ["VMInfo", "VMManager", "VMManagerError"]

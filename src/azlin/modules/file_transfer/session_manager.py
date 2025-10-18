@@ -3,7 +3,6 @@
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from .exceptions import InvalidSessionNameError, MultipleSessionsError, SessionNotFoundError
 
@@ -70,7 +69,7 @@ class SessionManager:
         return session_name
 
     @classmethod
-    def parse_session_path(cls, arg: str) -> tuple[Optional[str], str]:
+    def parse_session_path(cls, arg: str) -> tuple[str | None, str]:
         """
         Parse session:path notation safely.
 

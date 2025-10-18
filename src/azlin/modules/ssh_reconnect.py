@@ -119,7 +119,7 @@ class SSHReconnectHandler:
         while attempt <= self.max_retries:
             # Connect to SSH
             logger.info(
-                f"Connecting to {vm_name} " f"(attempt {attempt + 1}/{self.max_retries + 1})..."
+                f"Connecting to {vm_name} (attempt {attempt + 1}/{self.max_retries + 1})..."
             )
 
             exit_code = SSHConnector.connect(
@@ -143,7 +143,7 @@ class SSHReconnectHandler:
             # Check if we've exhausted retries
             if attempt >= self.max_retries:
                 logger.error(
-                    f"Maximum reconnection attempts ({self.max_retries}) reached. " "Giving up."
+                    f"Maximum reconnection attempts ({self.max_retries}) reached. Giving up."
                 )
                 return exit_code
 

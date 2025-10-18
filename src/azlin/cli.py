@@ -217,8 +217,7 @@ class CLIOrchestrator:
             # STEP 9: Auto-connect via SSH with tmux
             if self.auto_connect:
                 self.progress.update("Connecting via SSH...", ProgressStage.STARTED)
-                exit_code = self._connect_ssh(vm_details, ssh_key_pair.private_path)
-                return exit_code
+                return self._connect_ssh(vm_details, ssh_key_pair.private_path)
 
             return 0
 
@@ -391,7 +390,7 @@ class CLIOrchestrator:
                 if "status: done" in output:
                     self.progress.update("cloud-init completed successfully")
                     return
-                elif "status: running" in output:
+                if "status: running" in output:
                     self.progress.update(
                         f"cloud-init still running... (attempt {attempt + 1}/{max_attempts})"
                     )
@@ -624,9 +623,7 @@ class CLIOrchestrator:
         click.echo("=" * 60 + "\n")
 
         # Connect with auto-tmux
-        exit_code = SSHConnector.connect(ssh_config, tmux_session="azlin", auto_tmux=True)
-
-        return exit_code
+        return SSHConnector.connect(ssh_config, tmux_session="azlin", auto_tmux=True)
 
     def _send_notification(self, vm_details: VMDetails, success: bool = True) -> None:
         """Send completion notification via imessR if available.
@@ -750,11 +747,9 @@ def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> int | None:
             # Sync home directory before connection (silent)
             _auto_sync_home_directory(ssh_config)
 
-            exit_code = SSHConnector.connect(ssh_config, tmux_session="azlin", auto_tmux=True)
-            return exit_code
-        else:
-            click.echo("VM is not running or has no public IP")
-            return 1
+            return SSHConnector.connect(ssh_config, tmux_session="azlin", auto_tmux=True)
+        click.echo("VM is not running or has no public IP")
+        return 1
 
     # Multiple VMs - show menu
     click.echo("\n" + "=" * 60)
@@ -796,11 +791,9 @@ def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> int | None:
             # Sync home directory before connection (silent)
             _auto_sync_home_directory(ssh_config)
 
-            exit_code = SSHConnector.connect(ssh_config, tmux_session="azlin", auto_tmux=True)
-            return exit_code
-        else:
-            click.echo("Invalid selection")
-            return 1
+            return SSHConnector.connect(ssh_config, tmux_session="azlin", auto_tmux=True)
+        click.echo("Invalid selection")
+        return 1
     except ValueError:
         click.echo("Invalid input")
         return 1
@@ -906,9 +899,8 @@ def select_vm_for_command(vms: list[VMInfo], command: str) -> VMInfo | None:
         idx = int(choice) - 1
         if 0 <= idx < len(vms):
             return vms[idx]
-        else:
-            click.echo("Invalid selection")
-            return None
+        click.echo("Invalid selection")
+        return None
     except ValueError:
         click.echo("Invalid input")
         return None
@@ -1242,10 +1234,9 @@ def new_command(
             sys.exit(0)
 
     # Validate repo URL if provided
-    if repo:
-        if not repo.startswith("https://github.com/"):
-            click.echo("Error: Invalid GitHub URL. Must start with https://github.com/", err=True)
-            sys.exit(1)
+    if repo and not repo.startswith("https://github.com/"):
+        click.echo("Error: Invalid GitHub URL. Must start with https://github.com/", err=True)
+        sys.exit(1)
 
     # Create orchestrator and run
     orchestrator = CLIOrchestrator(
@@ -2394,9 +2385,8 @@ def connect(
                         tmux_session=tmux_session,
                     )
                     return
-                else:
-                    click.echo("Cancelled.")
-                    sys.exit(0)
+                click.echo("Cancelled.")
+                sys.exit(0)
 
             # Display VM list
             click.echo("\nAvailable VMs:")
@@ -2432,11 +2422,10 @@ def connect(
                             tmux_session=tmux_session,
                         )
                         return
-                    elif 1 <= selection <= len(vms):
+                    if 1 <= selection <= len(vms):
                         vm_identifier = vms[selection - 1].name
                         break
-                    else:
-                        click.echo(f"Invalid selection. Please choose 0-{len(vms)}", err=True)
+                    click.echo(f"Invalid selection. Please choose 0-{len(vms)}", err=True)
                 except (ValueError, click.Abort):
                     click.echo("\nCancelled.")
                     sys.exit(0)
@@ -3375,9 +3364,8 @@ def _copy_home_directories(
             if result2.returncode == 0:
                 click.echo(f"  ✓ {clone_vm.name} copy complete")
                 return (clone_vm.name, True)
-            else:
-                click.echo(f"  ✗ {clone_vm.name} upload failed: {result2.stderr[:100]}", err=True)
-                return (clone_vm.name, False)
+            click.echo(f"  ✗ {clone_vm.name} upload failed: {result2.stderr[:100]}", err=True)
+            return (clone_vm.name, False)
 
         except subprocess.TimeoutExpired:
             click.echo(f"  ✗ {clone_vm.name} copy timeout", err=True)
@@ -3674,9 +3662,9 @@ def template_create(
     try:
         # Load config for defaults
         try:
-            config = ConfigManager.load_config()
+            ConfigManager.load_config()
         except ConfigError:
-            config = AzlinConfig()
+            AzlinConfig()
 
         if not rg:
             click.echo("Error: No resource group specified.", err=True)
@@ -4812,9 +4800,9 @@ def env_set(
         value = value.strip()
 
         # Remove quotes if present
-        if value.startswith('"') and value.endswith('"'):
-            value = value[1:-1]
-        elif value.startswith("'") and value.endswith("'"):
+        if (value.startswith('"') and value.endswith('"')) or (
+            value.startswith("'") and value.endswith("'")
+        ):
             value = value[1:-1]
 
         # Get SSH config
@@ -5100,4 +5088,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["main", "CLIOrchestrator", "AzlinError"]
+__all__ = ["AzlinError", "CLIOrchestrator", "main"]

@@ -134,7 +134,7 @@ class BatchResult:
 
     def format_summary(self) -> str:
         """Format summary of results."""
-        return f"Total: {self.total}, " f"Succeeded: {self.succeeded}, " f"Failed: {self.failed}"
+        return f"Total: {self.total}, Succeeded: {self.succeeded}, Failed: {self.failed}"
 
 
 class BatchSelector:
@@ -256,7 +256,7 @@ class BatchExecutor:
             except Exception as e:
                 duration = time.time() - start_time
                 if progress_callback:
-                    progress_callback(f"✗ {vm.name}: {str(e)}")
+                    progress_callback(f"✗ {vm.name}: {e!s}")
 
                 return BatchOperationResult(
                     vm_name=vm.name, success=False, message=str(e), duration=duration
@@ -320,7 +320,7 @@ class BatchExecutor:
             except Exception as e:
                 duration = time.time() - start_time
                 if progress_callback:
-                    progress_callback(f"✗ {vm.name}: {str(e)}")
+                    progress_callback(f"✗ {vm.name}: {e!s}")
 
                 return BatchOperationResult(
                     vm_name=vm.name, success=False, message=str(e), duration=duration
@@ -399,7 +399,7 @@ class BatchExecutor:
             except Exception as e:
                 duration = time.time() - start_time
                 if progress_callback:
-                    progress_callback(f"✗ {vm.name}: {str(e)}")
+                    progress_callback(f"✗ {vm.name}: {e!s}")
 
                 return BatchOperationResult(
                     vm_name=vm.name, success=False, message=str(e), duration=duration
@@ -473,7 +473,7 @@ class BatchExecutor:
             except Exception as e:
                 duration = time.time() - start_time
                 if progress_callback:
-                    progress_callback(f"✗ {vm.name}: {str(e)}")
+                    progress_callback(f"✗ {vm.name}: {e!s}")
 
                 return BatchOperationResult(
                     vm_name=vm.name, success=False, message=str(e), duration=duration
@@ -492,9 +492,9 @@ class BatchExecutor:
 
 __all__ = [
     "BatchExecutor",
-    "BatchSelector",
-    "BatchResult",
-    "BatchOperationResult",
     "BatchExecutorError",
+    "BatchOperationResult",
+    "BatchResult",
+    "BatchSelector",
     "TagFilter",
 ]

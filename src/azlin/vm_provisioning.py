@@ -17,7 +17,6 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,7 @@ class VMConfig:
     location: str = "westus2"  # Better capacity than eastus
     size: str = "Standard_B2s"  # Widely available, affordable burstable VM
     image: str = "Ubuntu2204"
-    ssh_public_key: Optional[str] = None
+    ssh_public_key: str | None = None
     admin_username: str = "azureuser"
     disable_password_auth: bool = True
 
@@ -50,10 +49,10 @@ class VMDetails:
     resource_group: str
     location: str
     size: str
-    public_ip: Optional[str] = None
-    private_ip: Optional[str] = None
+    public_ip: str | None = None
+    private_ip: str | None = None
     state: str = "Unknown"
-    id: Optional[str] = None
+    id: str | None = None
 
 
 @dataclass
@@ -130,7 +129,7 @@ class PoolProvisioningResult:
 class ThreadSafeProgressReporter:
     """Thread-safe progress message coordinator."""
 
-    def __init__(self, callback: Optional[Callable[[str], None]] = None):
+    def __init__(self, callback: Callable[[str], None] | None = None):
         """Initialize progress reporter.
 
         Args:
@@ -307,7 +306,7 @@ class VMProvisioner:
     # Fallback regions to try if SKU unavailable (in order of preference)
     FALLBACK_REGIONS = ["westus2", "centralus", "eastus2", "westus", "westeurope"]
 
-    def __init__(self, subscription_id: Optional[str] = None):
+    def __init__(self, subscription_id: str | None = None):
         """Initialize VM provisioner.
 
         Args:
@@ -321,7 +320,7 @@ class VMProvisioner:
         resource_group: str,
         location: str = "eastus",
         size: str = "Standard_D2s_v3",
-        ssh_public_key: Optional[str] = None,
+        ssh_public_key: str | None = None,
     ) -> VMConfig:
         """Create VM configuration with validation.
 
@@ -341,8 +340,7 @@ class VMProvisioner:
         # Validate VM size (case-insensitive)
         if not self.validate_vm_size(size):
             raise ValueError(
-                f"Invalid VM size: {size}. "
-                f"Valid sizes: {', '.join(sorted(self.VALID_VM_SIZES))}"
+                f"Invalid VM size: {size}. Valid sizes: {', '.join(sorted(self.VALID_VM_SIZES))}"
             )
 
         # Validate region
@@ -403,7 +401,7 @@ class VMProvisioner:
         return any(indicator.lower() in error_message.lower() for indicator in sku_error_indicators)
 
     def _try_provision_vm(
-        self, config: VMConfig, progress_callback: Optional[Callable[[str], None]] = None
+        self, config: VMConfig, progress_callback: Callable[[str], None] | None = None
     ) -> VMDetails:
         """Attempt to provision VM (internal method).
 
@@ -666,7 +664,7 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
         )
 
     def provision_vm(
-        self, config: VMConfig, progress_callback: Optional[Callable[[str], None]] = None
+        self, config: VMConfig, progress_callback: Callable[[str], None] | None = None
     ) -> VMDetails:
         """Provision Azure VM with development tools.
 
@@ -728,9 +726,8 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                         f"SKU {config.size} not available in {region}, trying next region..."
                     )
                     continue  # Try next region
-                else:
-                    # Non-SKU error - don't retry
-                    raise ProvisioningError(f"VM provisioning failed: {error_msg}")
+                # Non-SKU error - don't retry
+                raise ProvisioningError(f"VM provisioning failed: {error_msg}")
 
             except json.JSONDecodeError:
                 raise ProvisioningError("Failed to parse VM creation response")
@@ -745,7 +742,7 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
     def provision_vm_pool(
         self,
         configs: list[VMConfig],
-        progress_callback: Optional[Callable[[str], None]] = None,
+        progress_callback: Callable[[str], None] | None = None,
         max_workers: int = 10,
     ) -> PoolProvisioningResult:
         """Provision multiple VMs in parallel (thread-safe).
@@ -837,7 +834,7 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                 except Exception as e:
                     failure = ProvisioningFailure(config=config, error=str(e), error_type="unknown")
                     failed.append(failure)
-                    progress.report(f"✗ {config.name} failed: {str(e)}")
+                    progress.report(f"✗ {config.name} failed: {e!s}")
 
         # Build result
         result = PoolProvisioningResult(
@@ -861,11 +858,11 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
 
 
 __all__ = [
-    "VMProvisioner",
-    "VMConfig",
-    "VMDetails",
-    "ProvisioningError",
     "PoolProvisioningResult",
+    "ProvisioningError",
     "ProvisioningFailure",
     "ResourceGroupFailure",
+    "VMConfig",
+    "VMDetails",
+    "VMProvisioner",
 ]

@@ -152,14 +152,13 @@ class VMUpdater:
                 message = "System packages updated successfully"
                 logger.info(f"{tool_name}: {message}")
                 return UpdateResult(tool_name, True, message, duration)
-            else:
-                message = f"Failed to update: {result.stderr[:200]}"
-                logger.error(f"{tool_name}: {message}")
-                return UpdateResult(tool_name, False, message, duration)
+            message = f"Failed to update: {result.stderr[:200]}"
+            logger.error(f"{tool_name}: {message}")
+            return UpdateResult(tool_name, False, message, duration)
 
         except RemoteExecError as e:
             duration = time.time() - start_time
-            message = f"Update failed: {str(e)}"
+            message = f"Update failed: {e!s}"
             logger.error(f"{tool_name}: {message}")
             return UpdateResult(tool_name, False, message, duration)
 
@@ -184,14 +183,13 @@ class VMUpdater:
                 message = "Azure CLI updated successfully"
                 logger.info(f"{tool_name}: {message}")
                 return UpdateResult(tool_name, True, message, duration)
-            else:
-                message = f"Failed to update: {result.stderr[:200]}"
-                logger.error(f"{tool_name}: {message}")
-                return UpdateResult(tool_name, False, message, duration)
+            message = f"Failed to update: {result.stderr[:200]}"
+            logger.error(f"{tool_name}: {message}")
+            return UpdateResult(tool_name, False, message, duration)
 
         except RemoteExecError as e:
             duration = time.time() - start_time
-            message = f"Update failed: {str(e)}"
+            message = f"Update failed: {e!s}"
             logger.error(f"{tool_name}: {message}")
             return UpdateResult(tool_name, False, message, duration)
 
@@ -216,14 +214,13 @@ class VMUpdater:
                 message = "GitHub CLI extensions updated successfully"
                 logger.info(f"{tool_name}: {message}")
                 return UpdateResult(tool_name, True, message, duration)
-            else:
-                message = f"Failed to update: {result.stderr[:200]}"
-                logger.error(f"{tool_name}: {message}")
-                return UpdateResult(tool_name, False, message, duration)
+            message = f"Failed to update: {result.stderr[:200]}"
+            logger.error(f"{tool_name}: {message}")
+            return UpdateResult(tool_name, False, message, duration)
 
         except RemoteExecError as e:
             duration = time.time() - start_time
-            message = f"Update failed: {str(e)}"
+            message = f"Update failed: {e!s}"
             logger.error(f"{tool_name}: {message}")
             return UpdateResult(tool_name, False, message, duration)
 
@@ -248,14 +245,13 @@ class VMUpdater:
                 message = "npm updated successfully"
                 logger.info(f"{tool_name}: {message}")
                 return UpdateResult(tool_name, True, message, duration)
-            else:
-                message = f"Failed to update: {result.stderr[:200]}"
-                logger.error(f"{tool_name}: {message}")
-                return UpdateResult(tool_name, False, message, duration)
+            message = f"Failed to update: {result.stderr[:200]}"
+            logger.error(f"{tool_name}: {message}")
+            return UpdateResult(tool_name, False, message, duration)
 
         except RemoteExecError as e:
             duration = time.time() - start_time
-            message = f"Update failed: {str(e)}"
+            message = f"Update failed: {e!s}"
             logger.error(f"{tool_name}: {message}")
             return UpdateResult(tool_name, False, message, duration)
 
@@ -280,14 +276,13 @@ class VMUpdater:
                 message = "npm packages updated successfully"
                 logger.info(f"{tool_name}: {message}")
                 return UpdateResult(tool_name, True, message, duration)
-            else:
-                message = f"Failed to update: {result.stderr[:200]}"
-                logger.error(f"{tool_name}: {message}")
-                return UpdateResult(tool_name, False, message, duration)
+            message = f"Failed to update: {result.stderr[:200]}"
+            logger.error(f"{tool_name}: {message}")
+            return UpdateResult(tool_name, False, message, duration)
 
         except RemoteExecError as e:
             duration = time.time() - start_time
-            message = f"Update failed: {str(e)}"
+            message = f"Update failed: {e!s}"
             logger.error(f"{tool_name}: {message}")
             return UpdateResult(tool_name, False, message, duration)
 
@@ -313,14 +308,13 @@ class VMUpdater:
                 message = "Rust toolchain updated successfully"
                 logger.info(f"{tool_name}: {message}")
                 return UpdateResult(tool_name, True, message, duration)
-            else:
-                message = f"Failed to update: {result.stderr[:200]}"
-                logger.error(f"{tool_name}: {message}")
-                return UpdateResult(tool_name, False, message, duration)
+            message = f"Failed to update: {result.stderr[:200]}"
+            logger.error(f"{tool_name}: {message}")
+            return UpdateResult(tool_name, False, message, duration)
 
         except RemoteExecError as e:
             duration = time.time() - start_time
-            message = f"Update failed: {str(e)}"
+            message = f"Update failed: {e!s}"
             logger.error(f"{tool_name}: {message}")
             return UpdateResult(tool_name, False, message, duration)
 
@@ -345,14 +339,13 @@ class VMUpdater:
                 message = "astral-uv updated successfully"
                 logger.info(f"{tool_name}: {message}")
                 return UpdateResult(tool_name, True, message, duration)
-            else:
-                message = f"Failed to update: {result.stderr[:200]}"
-                logger.error(f"{tool_name}: {message}")
-                return UpdateResult(tool_name, False, message, duration)
+            message = f"Failed to update: {result.stderr[:200]}"
+            logger.error(f"{tool_name}: {message}")
+            return UpdateResult(tool_name, False, message, duration)
 
         except RemoteExecError as e:
             duration = time.time() - start_time
-            message = f"Update failed: {str(e)}"
+            message = f"Update failed: {e!s}"
             logger.error(f"{tool_name}: {message}")
             return UpdateResult(tool_name, False, message, duration)
 
@@ -405,7 +398,7 @@ class VMUpdater:
                 error_result = UpdateResult(
                     tool_name=tool_name,
                     success=False,
-                    message=f"Unexpected error: {str(e)}",
+                    message=f"Unexpected error: {e!s}",
                     duration=0.0,
                 )
                 failed.append(error_result)
@@ -437,4 +430,4 @@ class VMUpdater:
         return summary
 
 
-__all__ = ["VMUpdater", "UpdateResult", "VMUpdateSummary", "VMUpdaterError"]
+__all__ = ["UpdateResult", "VMUpdateSummary", "VMUpdater", "VMUpdaterError"]

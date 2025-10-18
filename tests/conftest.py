@@ -196,7 +196,7 @@ def mock_gh_cli_authenticated():
                     return Mock(
                         returncode=0, stdout="Logged in to github.com as testuser", stderr=""
                     )
-                elif "repo" in cmd and "clone" in cmd:
+                if "repo" in cmd and "clone" in cmd:
                     return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=1, stderr="command not found")
 

@@ -4,8 +4,9 @@ Issue #16: Change default behavior to show help instead of provisioning.
 """
 
 import pytest
-from azlin.cli import main
 from click.testing import CliRunner
+
+from azlin.cli import main
 
 
 class TestDefaultHelpBehavior:

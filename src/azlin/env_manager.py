@@ -209,8 +209,7 @@ class EnvManager:
             if output_file:
                 Path(output_file).write_text(content + "\n")
                 return output_file
-            else:
-                return content
+            return content
 
         except Exception as e:
             raise EnvManagerError(f"Failed to export environment variables: {e}")
@@ -253,9 +252,9 @@ class EnvManager:
                     value = value.strip()
 
                     # Remove quotes if present
-                    if value.startswith('"') and value.endswith('"'):
-                        value = value[1:-1]
-                    elif value.startswith("'") and value.endswith("'"):
+                    if (value.startswith('"') and value.endswith('"')) or (
+                        value.startswith("'") and value.endswith("'")
+                    ):
                         value = value[1:-1]
 
                     # Validate and set
@@ -355,9 +354,9 @@ class EnvManager:
             if cls.ENV_MARKER_START in line:
                 in_section = True
                 continue
-            elif cls.ENV_MARKER_END in line:
+            if cls.ENV_MARKER_END in line:
                 break
-            elif in_section:
+            if in_section:
                 # Parse export lines: export KEY="value" or export KEY=value
                 match = re.match(r'export\s+([A-Z_][A-Z0-9_]*)="?(.*?)"?\s*$', line)
                 if match:
@@ -400,10 +399,10 @@ class EnvManager:
             if cls.ENV_MARKER_START in line:
                 in_section = True
                 continue
-            elif cls.ENV_MARKER_END in line:
+            if cls.ENV_MARKER_END in line:
                 in_section = False
                 continue
-            elif not in_section:
+            if not in_section:
                 new_lines.append(line)
 
         return "\n".join(new_lines)

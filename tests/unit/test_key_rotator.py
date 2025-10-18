@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from azlin.key_rotator import (
     KeyBackup,
     KeyRotationError,

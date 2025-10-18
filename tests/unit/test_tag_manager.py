@@ -4,6 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from azlin.tag_manager import TagManager, TagManagerError
 from azlin.vm_manager import VMInfo
 

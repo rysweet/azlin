@@ -79,11 +79,11 @@ class TestCloneCommandOptions:
         """Test that num-replicas defaults to 1."""
         from azlin.cli import main
 
-        with patch("azlin.cli.clone_command") as mock_clone:
-            result = CliRunner().invoke(main, ["clone", "my-vm"])
+        with patch("azlin.cli.clone_command"):
+            CliRunner().invoke(main, ["clone", "my-vm"])
 
             # Default should be 1
-            assert result.exit_code == 0 or True  # Will check in implementation
+            assert True  # Will check in implementation
 
     def test_clone_accepts_session_prefix_option(self):
         """Test --session-prefix option."""

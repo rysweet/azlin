@@ -14,7 +14,6 @@ import logging
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Optional
 
 from azlin.modules.ssh_connector import SSHConfig
 
@@ -145,7 +144,7 @@ class RemoteExecutor:
         results = []
         num_workers = min(max_workers, len(ssh_configs))
 
-        logger.debug(f"Executing command on {len(ssh_configs)} VMs " f"with {num_workers} workers")
+        logger.debug(f"Executing command on {len(ssh_configs)} VMs with {num_workers} workers")
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             # Submit all tasks
@@ -201,7 +200,7 @@ class RemoteExecutor:
         return "\n".join(lines)
 
     @classmethod
-    def parse_command_from_args(cls, args: list[str], delimiter: str = "--") -> Optional[str]:
+    def parse_command_from_args(cls, args: list[str], delimiter: str = "--") -> str | None:
         """Parse command from argument list after delimiter.
 
         Args:
@@ -496,10 +495,10 @@ class OSUpdateExecutor:
 
 
 __all__ = [
+    "OSUpdateExecutor",
+    "PSCommandExecutor",
+    "RemoteExecError",
     "RemoteExecutor",
     "RemoteResult",
-    "RemoteExecError",
     "WCommandExecutor",
-    "PSCommandExecutor",
-    "OSUpdateExecutor",
 ]

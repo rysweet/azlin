@@ -196,10 +196,9 @@ def ssh_keygen_handler(cmd: list[str], **kwargs) -> Mock:
         return Mock(returncode=1, stderr="command not found")
 
     # Extract key path from -f argument
-    key_path = None
     for i, arg in enumerate(cmd):
         if arg == "-f" and i + 1 < len(cmd):
-            key_path = cmd[i + 1]
+            cmd[i + 1]
             break
 
     return Mock(returncode=0, stdout=SSH_KEYGEN_OUTPUT, stderr="")

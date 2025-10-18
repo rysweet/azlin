@@ -283,7 +283,7 @@ class TestVMProvisioning:
         )
 
         provisioner = VMProvisioner(name="test-vm", size="Standard_D2s_v3", region="eastus")
-        vm = provisioner.provision()
+        provisioner.provision()
 
         # Should have called done() to check status
         assert mock_poller.done.call_count >= 1
@@ -465,12 +465,12 @@ class TestAICLIToolsInstallation:
 
         # AI CLI tools should be installed after npm configuration
         assert npm_config_pos != -1, "npm configuration not found"
-        assert (
-            github_copilot_pos > npm_config_pos
-        ), "GitHub Copilot should be installed after npm config"
-        assert (
-            openai_codex_pos > npm_config_pos
-        ), "OpenAI Codex should be installed after npm config"
+        assert github_copilot_pos > npm_config_pos, (
+            "GitHub Copilot should be installed after npm config"
+        )
+        assert openai_codex_pos > npm_config_pos, (
+            "OpenAI Codex should be installed after npm config"
+        )
         assert claude_code_pos > npm_config_pos, "Claude Code should be installed after npm config"
 
     def test_ai_cli_tools_installed_as_azureuser(self):
@@ -494,9 +494,9 @@ class TestAICLIToolsInstallation:
                 # Check that we're in a su/runuser context for azureuser
                 # Look backwards to find the su command
                 context = "\n".join(lines[max(0, i - 5) : i + 10])
-                assert (
-                    "su - azureuser" in context or "runuser -l azureuser" in context
-                ), f"AI CLI tools should be installed as azureuser, not root. Context:\n{context}"
+                assert "su - azureuser" in context or "runuser -l azureuser" in context, (
+                    f"AI CLI tools should be installed as azureuser, not root. Context:\n{context}"
+                )
                 break
 
         assert found_ai_install_section, "AI CLI tools installation section not found"
@@ -624,6 +624,6 @@ class TestPython312Installation:
         # Python 3.12 should be installed before astral-uv
         assert python312_install_pos != -1, "Python 3.12+ installation not found"
         assert astral_uv_pos != -1, "astral-uv installation not found"
-        assert (
-            python312_install_pos < astral_uv_pos
-        ), "Python 3.12+ should be installed before astral-uv"
+        assert python312_install_pos < astral_uv_pos, (
+            "Python 3.12+ should be installed before astral-uv"
+        )

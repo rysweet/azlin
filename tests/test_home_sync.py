@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from azlin.modules.home_sync import (
     HomeSyncManager,
     RsyncError,
@@ -74,9 +75,9 @@ class TestPatternMatching:
         for key_name in blocked_keys:
             key_path = ssh_dir / key_name
             key_path.write_text("private key content")
-            assert HomeSyncManager._is_path_blocked(
-                key_path, sync_dir
-            ), f"{key_name} should be blocked"
+            assert HomeSyncManager._is_path_blocked(key_path, sync_dir), (
+                f"{key_name} should be blocked"
+            )
 
     def test_ssh_pub_keys_allowed(self, tmp_path):
         """Test that public SSH keys are explicitly allowed."""
@@ -95,9 +96,9 @@ class TestPatternMatching:
         for filename in allowed_files:
             file_path = ssh_dir / filename
             file_path.write_text("content")
-            assert HomeSyncManager._is_path_allowed(
-                file_path, sync_dir
-            ), f"{filename} should be allowed"
+            assert HomeSyncManager._is_path_allowed(file_path, sync_dir), (
+                f"{filename} should be allowed"
+            )
 
     def test_aws_credentials_blocked(self, tmp_path):
         """Test that AWS credential files are blocked."""
@@ -114,9 +115,9 @@ class TestPatternMatching:
         for filename in blocked_files:
             file_path = aws_dir / filename
             file_path.write_text("aws_access_key_id = ...")
-            assert HomeSyncManager._is_path_blocked(
-                file_path, sync_dir
-            ), f"{filename} should be blocked"
+            assert HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                f"{filename} should be blocked"
+            )
 
     def test_credential_filename_variants_blocked(self, tmp_path):
         """Test that files with 'credentials' in name are blocked."""
@@ -133,9 +134,9 @@ class TestPatternMatching:
         for filename in blocked_files:
             file_path = sync_dir / filename
             file_path.write_text("content")
-            assert HomeSyncManager._is_path_blocked(
-                file_path, sync_dir
-            ), f"{filename} should be blocked"
+            assert HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                f"{filename} should be blocked"
+            )
 
     def test_env_files_blocked(self, tmp_path):
         """Test that .env files are blocked."""
@@ -152,9 +153,9 @@ class TestPatternMatching:
         for filename in blocked_files:
             file_path = sync_dir / filename
             file_path.write_text("SECRET_KEY=...")
-            assert HomeSyncManager._is_path_blocked(
-                file_path, sync_dir
-            ), f"{filename} should be blocked"
+            assert HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                f"{filename} should be blocked"
+            )
 
     def test_safe_dotfiles_not_blocked(self, tmp_path):
         """Test that safe configuration files are not blocked."""
@@ -171,9 +172,9 @@ class TestPatternMatching:
         for filename in safe_files:
             file_path = sync_dir / filename
             file_path.write_text("safe config")
-            assert not HomeSyncManager._is_path_blocked(
-                file_path, sync_dir
-            ), f"{filename} should not be blocked"
+            assert not HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                f"{filename} should not be blocked"
+            )
 
 
 class TestSymlinkValidation:
@@ -230,7 +231,7 @@ class TestSymlinkValidation:
         sync_dir.mkdir()
 
         # Create symlink to dangerous location
-        link = sync_dir / "dangerous_link"
+        sync_dir / "dangerous_link"
         target = Path.home() / ".ssh"
 
         # Mock the symlink
@@ -551,9 +552,9 @@ class TestSecurityBypassAttempts:
 
             # Should be blocked
             if "pub" not in filename:
-                assert HomeSyncManager._is_path_blocked(
-                    file_path, sync_dir
-                ), f"{filename} should be blocked"
+                assert HomeSyncManager._is_path_blocked(file_path, sync_dir), (
+                    f"{filename} should be blocked"
+                )
 
     def test_nested_credential_files_blocked(self, tmp_path):
         """Test that credentials in nested directories are blocked."""
@@ -585,7 +586,7 @@ class TestEdgeCases:
 
     def test_nonexistent_directory(self, tmp_path):
         """Test handling of nonexistent sync directory."""
-        sync_dir = tmp_path / "does_not_exist"
+        tmp_path / "does_not_exist"
 
         ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 

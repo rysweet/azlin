@@ -16,21 +16,21 @@ from .path_parser import PathParser
 from .session_manager import SessionManager, VMSession
 
 __all__ = [
+    "FileTransfer",
     # Exceptions
     "FileTransferError",
-    "PathTraversalError",
     "InvalidPathError",
-    "SymlinkSecurityError",
     "InvalidSessionNameError",
-    "SessionNotFoundError",
-    "MultipleSessionsError",
-    "TransferError",
     "InvalidTransferError",
+    "MultipleSessionsError",
     # Classes
     "PathParser",
+    "PathTraversalError",
     "SessionManager",
-    "VMSession",
-    "FileTransfer",
+    "SessionNotFoundError",
+    "SymlinkSecurityError",
     "TransferEndpoint",
+    "TransferError",
     "TransferResult",
+    "VMSession",
 ]

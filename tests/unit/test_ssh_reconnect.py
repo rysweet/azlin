@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pytest
+
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.ssh_reconnect import (
     SSHReconnectHandler,

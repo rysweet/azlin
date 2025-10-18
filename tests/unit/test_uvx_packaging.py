@@ -137,9 +137,9 @@ class TestUvxDocumentation:
         assert "uvx" in content.lower(), "README doesn't mention uvx"
 
         # Should show git+https usage
-        assert (
-            "git+https://github.com/rysweet/azlin" in content
-        ), "README doesn't show uvx git+ usage"
+        assert "git+https://github.com/rysweet/azlin" in content, (
+            "README doesn't show uvx git+ usage"
+        )
 
     def test_readme_has_uvx_examples(self):
         """Test that README has uvx usage examples."""
@@ -147,6 +147,6 @@ class TestUvxDocumentation:
         content = readme_path.read_text()
 
         # Should have example commands
-        assert (
-            "uvx --from git+https://github.com/rysweet/azlin azlin" in content
-        ), "README missing uvx example commands"
+        assert "uvx --from git+https://github.com/rysweet/azlin azlin" in content, (
+            "README missing uvx example commands"
+        )

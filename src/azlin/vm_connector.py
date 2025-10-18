@@ -14,7 +14,6 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.connection_tracker import ConnectionTracker
@@ -41,7 +40,7 @@ class ConnectionInfo:
     ip_address: str
     resource_group: str
     ssh_user: str = "azureuser"
-    ssh_key_path: Optional[Path] = None
+    ssh_key_path: Path | None = None
 
 
 class VMConnector:
@@ -58,12 +57,12 @@ class VMConnector:
     def connect(
         cls,
         vm_identifier: str,
-        resource_group: Optional[str] = None,
+        resource_group: str | None = None,
         use_tmux: bool = True,
-        tmux_session: Optional[str] = None,
-        remote_command: Optional[str] = None,
+        tmux_session: str | None = None,
+        remote_command: str | None = None,
         ssh_user: str = "azureuser",
-        ssh_key_path: Optional[Path] = None,
+        ssh_key_path: Path | None = None,
         enable_reconnect: bool = True,
         max_reconnect_retries: int = 3,
     ) -> bool:
@@ -177,12 +176,12 @@ class VMConnector:
     def connect_by_name(
         cls,
         vm_name: str,
-        resource_group: Optional[str] = None,
+        resource_group: str | None = None,
         use_tmux: bool = True,
-        tmux_session: Optional[str] = None,
-        remote_command: Optional[str] = None,
+        tmux_session: str | None = None,
+        remote_command: str | None = None,
         ssh_user: str = "azureuser",
-        ssh_key_path: Optional[Path] = None,
+        ssh_key_path: Path | None = None,
     ) -> bool:
         """Connect to a VM by name.
 
@@ -216,10 +215,10 @@ class VMConnector:
         cls,
         ip_address: str,
         use_tmux: bool = True,
-        tmux_session: Optional[str] = None,
-        remote_command: Optional[str] = None,
+        tmux_session: str | None = None,
+        remote_command: str | None = None,
         ssh_user: str = "azureuser",
-        ssh_key_path: Optional[Path] = None,
+        ssh_key_path: Path | None = None,
     ) -> bool:
         """Connect to a VM by IP address.
 
@@ -255,9 +254,9 @@ class VMConnector:
     def _resolve_connection_info(
         cls,
         vm_identifier: str,
-        resource_group: Optional[str],
+        resource_group: str | None,
         ssh_user: str,
-        ssh_key_path: Optional[Path],
+        ssh_key_path: Path | None,
     ) -> ConnectionInfo:
         """Resolve VM connection information.
 
@@ -311,14 +310,13 @@ class VMConnector:
             # Check if VM is running
             if not vm_info.is_running():
                 logger.warning(
-                    f"VM is not running (state: {vm_info.power_state}). " "Connection may fail."
+                    f"VM is not running (state: {vm_info.power_state}). Connection may fail."
                 )
 
             # Get IP address
             if not vm_info.public_ip:
                 raise VMConnectorError(
-                    f"VM {vm_name} has no public IP address. "
-                    "Ensure VM has a public IP configured."
+                    f"VM {vm_name} has no public IP address. Ensure VM has a public IP configured."
                 )
 
             return ConnectionInfo(
@@ -366,4 +364,4 @@ class VMConnector:
         return True
 
 
-__all__ = ["VMConnector", "VMConnectorError", "ConnectionInfo"]
+__all__ = ["ConnectionInfo", "VMConnector", "VMConnectorError"]

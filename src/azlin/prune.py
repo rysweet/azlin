@@ -11,7 +11,6 @@ Security:
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from azlin.config_manager import ConfigManager
 from azlin.connection_tracker import ConnectionTracker
@@ -25,7 +24,7 @@ class PruneManager:
     """Manage VM pruning operations."""
 
     @staticmethod
-    def _parse_iso_datetime(timestamp_str: str) -> Optional[datetime]:
+    def _parse_iso_datetime(timestamp_str: str) -> datetime | None:
         """Parse ISO format timestamp, returning None on error."""
         try:
             return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
@@ -33,7 +32,7 @@ class PruneManager:
             return None
 
     @staticmethod
-    def _days_since(timestamp_str: Optional[str]) -> Optional[int]:
+    def _days_since(timestamp_str: str | None) -> int | None:
         """Calculate days since timestamp, returning None if unparseable."""
         if not timestamp_str:
             return None
@@ -247,7 +246,7 @@ class PruneManager:
             except Exception as e:
                 logger.error(f"Failed to delete {vm.name}: {e}")
                 failed_count += 1
-                errors.append(f"{vm.name}: {str(e)}")
+                errors.append(f"{vm.name}: {e!s}")
 
         return {
             "deleted": deleted_count,
@@ -293,7 +292,7 @@ class PruneManager:
             ... )
         """
         # Get candidates (single API call)
-        candidates, connection_data = cls.get_candidates(
+        candidates, _connection_data = cls.get_candidates(
             resource_group=resource_group,
             age_days=age_days,
             idle_days=idle_days,

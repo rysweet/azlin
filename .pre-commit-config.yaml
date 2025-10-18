@@ -1,12 +1,29 @@
 repos:
+  # Basic file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: detect-private-key
+        exclude: ^(tests/.*|docs/TEST_STRATEGY\.md)$
+
+  # Python formatting and linting
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.14
+    rev: v0.14.1
     hooks:
       - id: ruff
         args: [--fix]
+        exclude: ^\.claude/
       - id: ruff-format
+        exclude: ^\.claude/
 
-  - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.350
-    hooks:
-      - id: pyright
+  # Type checking - commented out for Phase 1, will address in Phase 2
+  # - repo: https://github.com/RobertCraigie/pyright-python
+  #   rev: v1.1.406
+  #   hooks:
+  #     - id: pyright

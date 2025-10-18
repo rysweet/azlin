@@ -14,7 +14,6 @@ import sys
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -78,11 +77,11 @@ class ProgressDisplay:
         """
         self.use_unicode = use_unicode
         self.output_file = output_file or sys.stdout
-        self.current_operation: Optional[str] = None
-        self.start_time: Optional[float] = None
+        self.current_operation: str | None = None
+        self.start_time: float | None = None
         self.updates: list[ProgressUpdate] = []
 
-    def start_operation(self, name: str, estimated_seconds: Optional[int] = None) -> None:
+    def start_operation(self, name: str, estimated_seconds: int | None = None) -> None:
         """
         Begin showing progress for an operation.
 
@@ -128,7 +127,7 @@ class ProgressDisplay:
         formatted = self._format_update(update)
         self._print(formatted)
 
-    def complete(self, success: bool = True, message: Optional[str] = None) -> None:
+    def complete(self, success: bool = True, message: str | None = None) -> None:
         """
         Mark operation complete.
 
@@ -188,14 +187,13 @@ class ProgressDisplay:
         """
         if seconds < 60:
             return f"{seconds:.1f}s"
-        elif seconds < 3600:
+        if seconds < 3600:
             minutes = int(seconds // 60)
             secs = int(seconds % 60)
             return f"{minutes}m {secs}s"
-        else:
-            hours = int(seconds // 3600)
-            minutes = int((seconds % 3600) // 60)
-            return f"{hours}h {minutes}m"
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        return f"{hours}h {minutes}m"
 
     def _print(self, message: str) -> None:
         """

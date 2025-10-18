@@ -310,7 +310,7 @@ class SSHKeyRotator:
                 new_public_key,
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=True)
 
             logger.debug(f"Successfully updated SSH key for VM: {vm_name}")
             return True
@@ -499,4 +499,4 @@ class SSHKeyRotator:
             return False
 
 
-__all__ = ["SSHKeyRotator", "KeyRotationResult", "KeyBackup", "VMKeyInfo", "KeyRotationError"]
+__all__ = ["KeyBackup", "KeyRotationError", "KeyRotationResult", "SSHKeyRotator", "VMKeyInfo"]
