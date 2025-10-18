@@ -15,9 +15,10 @@ Test Coverage:
 from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
+
 from azlin.cli import main
 from azlin.vm_manager import VMInfo
-from click.testing import CliRunner
 
 
 class TestInteractiveVMSelection:
@@ -56,9 +57,11 @@ class TestInteractiveVMSelection:
         When no VM identifier is provided, should display list of VMs
         and prompt for selection.
         """
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"), patch(
-            "azlin.cli.VMManager.list_vms", return_value=mock_vms
-        ), patch("azlin.cli.VMConnector.connect", return_value=True):
+        with (
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"),
+            patch("azlin.cli.VMManager.list_vms", return_value=mock_vms),
+            patch("azlin.cli.VMConnector.connect", return_value=True),
+        ):
             result = runner.invoke(main, ["connect"], input="1\n")
 
             assert result.exit_code == 0
@@ -69,9 +72,11 @@ class TestInteractiveVMSelection:
 
     def test_connect_select_first_vm(self, runner, mock_vms):
         """Test selecting first VM from list."""
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"), patch(
-            "azlin.cli.VMManager.list_vms", return_value=mock_vms
-        ), patch("azlin.cli.VMConnector.connect", return_value=True) as mock_connect:
+        with (
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"),
+            patch("azlin.cli.VMManager.list_vms", return_value=mock_vms),
+            patch("azlin.cli.VMConnector.connect", return_value=True) as mock_connect,
+        ):
             result = runner.invoke(main, ["connect"], input="1\n")
 
             assert result.exit_code == 0
@@ -82,9 +87,11 @@ class TestInteractiveVMSelection:
 
     def test_connect_select_second_vm(self, runner, mock_vms):
         """Test selecting second VM from list."""
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"), patch(
-            "azlin.cli.VMManager.list_vms", return_value=mock_vms
-        ), patch("azlin.cli.VMConnector.connect", return_value=True) as mock_connect:
+        with (
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"),
+            patch("azlin.cli.VMManager.list_vms", return_value=mock_vms),
+            patch("azlin.cli.VMConnector.connect", return_value=True) as mock_connect,
+        ):
             result = runner.invoke(main, ["connect"], input="2\n")
 
             assert result.exit_code == 0
@@ -93,9 +100,11 @@ class TestInteractiveVMSelection:
 
     def test_connect_create_new_vm_option(self, runner, mock_vms):
         """Test selecting option 0 to create new VM."""
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"), patch(
-            "azlin.cli.VMManager.list_vms", return_value=mock_vms
-        ), patch("azlin.cli.new_command") as mock_new:
+        with (
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"),
+            patch("azlin.cli.VMManager.list_vms", return_value=mock_vms),
+            patch("azlin.cli.new_command") as mock_new,
+        ):
             result = runner.invoke(main, ["connect"], input="0\n")
 
             # Should invoke new command
@@ -103,8 +112,9 @@ class TestInteractiveVMSelection:
 
     def test_connect_no_vms_prompts_create(self, runner):
         """Test that when no VMs exist, prompts to create one."""
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"), patch(
-            "azlin.cli.VMManager.list_vms", return_value=[]
+        with (
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"),
+            patch("azlin.cli.VMManager.list_vms", return_value=[]),
         ):
             result = runner.invoke(main, ["connect"], input="y\n")
 
@@ -113,8 +123,9 @@ class TestInteractiveVMSelection:
 
     def test_connect_no_vms_decline_create(self, runner):
         """Test declining to create VM when none exist."""
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"), patch(
-            "azlin.cli.VMManager.list_vms", return_value=[]
+        with (
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"),
+            patch("azlin.cli.VMManager.list_vms", return_value=[]),
         ):
             result = runner.invoke(main, ["connect"], input="n\n")
 
@@ -123,9 +134,11 @@ class TestInteractiveVMSelection:
 
     def test_connect_invalid_selection_reprompts(self, runner, mock_vms):
         """Test that invalid selection number asks again."""
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"), patch(
-            "azlin.cli.VMManager.list_vms", return_value=mock_vms
-        ), patch("azlin.cli.VMConnector.connect", return_value=True):
+        with (
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"),
+            patch("azlin.cli.VMManager.list_vms", return_value=mock_vms),
+            patch("azlin.cli.VMConnector.connect", return_value=True),
+        ):
             # Try invalid selection (99), then valid selection (1)
             result = runner.invoke(main, ["connect"], input="99\n1\n")
 
@@ -133,9 +146,10 @@ class TestInteractiveVMSelection:
 
     def test_connect_with_vm_name_skips_interactive(self, runner):
         """Test that providing VM name skips interactive selection."""
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"), patch(
-            "azlin.cli.VMConnector.connect", return_value=True
-        ) as mock_connect:
+        with (
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"),
+            patch("azlin.cli.VMConnector.connect", return_value=True) as mock_connect,
+        ):
             result = runner.invoke(main, ["connect", "my-vm"])
 
             # Should not show interactive list
@@ -156,8 +170,9 @@ class TestInteractiveVMSelection:
         """Test handling of error when listing VMs fails."""
         from azlin.vm_manager import VMManagerError
 
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"), patch(
-            "azlin.cli.VMManager.list_vms", side_effect=VMManagerError("API error")
+        with (
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"),
+            patch("azlin.cli.VMManager.list_vms", side_effect=VMManagerError("API error")),
         ):
             result = runner.invoke(main, ["connect"])
 
@@ -166,8 +181,9 @@ class TestInteractiveVMSelection:
 
     def test_connect_user_abort(self, runner, mock_vms):
         """Test user cancelling (Ctrl+C) during selection."""
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"), patch(
-            "azlin.cli.VMManager.list_vms", return_value=mock_vms
+        with (
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"),
+            patch("azlin.cli.VMManager.list_vms", return_value=mock_vms),
         ):
             # Simulate Ctrl+C by not providing input
             result = runner.invoke(main, ["connect"], input="")

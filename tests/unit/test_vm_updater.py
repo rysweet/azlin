@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.remote_exec import RemoteResult
 from azlin.vm_updater import UpdateResult, VMUpdater, VMUpdateSummary

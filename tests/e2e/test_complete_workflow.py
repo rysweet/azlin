@@ -11,6 +11,7 @@ Test Coverage:
 - Workflow with authentication failure
 """
 
+import contextlib
 from unittest.mock import Mock, patch
 
 import pytest
@@ -53,11 +54,12 @@ class TestCompleteWorkflowWithRepo:
         from azlin.cli import main
 
         # Mock progress display to avoid output
-        with patch("azlin.progress.ProgressDisplay") as mock_progress, patch(
-            "azlin.ssh_config.SSHConfigurator.generate_key"
-        ) as mock_ssh_keygen, patch(
-            "azlin.ssh_config.SSHConfigurator.connect"
-        ) as mock_ssh_connect, patch("azlin.notifications.send_imessr_notification") as mock_notify:
+        with (
+            patch("azlin.progress.ProgressDisplay"),
+            patch("azlin.ssh_config.SSHConfigurator.generate_key") as mock_ssh_keygen,
+            patch("azlin.ssh_config.SSHConfigurator.connect") as mock_ssh_connect,
+            patch("azlin.notifications.send_imessr_notification") as mock_notify,
+        ):
             # Configure mocks for success
             mock_ssh_keygen.return_value = ("~/.ssh/azlin_rsa", "~/.ssh/azlin_rsa.pub")
             mock_ssh_connect.return_value = True
@@ -94,13 +96,12 @@ class TestCompleteWorkflowWithRepo:
         """Test workflow with custom VM size parameter."""
         from azlin.cli import main
 
-        with patch("azlin.progress.ProgressDisplay"), patch(
-            "azlin.ssh_config.SSHConfigurator.connect"
+        with (
+            patch("azlin.progress.ProgressDisplay"),
+            patch("azlin.ssh_config.SSHConfigurator.connect"),
         ):
-            try:
+            with contextlib.suppress(SystemExit):
                 main()
-            except SystemExit:
-                pass
 
             # Verify VM was created with specified size
             call_args = mock_azure_compute_client.return_value.virtual_machines.begin_create_or_update.call_args
@@ -139,15 +140,14 @@ class TestCompleteWorkflowWithoutRepo:
         """
         from azlin.cli import main
 
-        with patch("azlin.progress.ProgressDisplay"), patch(
-            "azlin.ssh_config.SSHConfigurator.connect"
-        ) as mock_ssh_connect:
+        with (
+            patch("azlin.progress.ProgressDisplay"),
+            patch("azlin.ssh_config.SSHConfigurator.connect") as mock_ssh_connect,
+        ):
             mock_ssh_connect.return_value = True
 
-            try:
-                exit_code = main()
-            except SystemExit as e:
-                exit_code = e.code
+            with contextlib.suppress(SystemExit):
+                main()
 
             # Verify VM was created
             mock_azure_compute_client.return_value.virtual_machines.begin_create_or_update.assert_called_once()
@@ -177,15 +177,14 @@ class TestWorkflowWithExistingVM:
         existing_vm = Mock(name="existing-vm", provisioning_state="Succeeded", location="eastus")
         mock_azure_compute_client.return_value.virtual_machines.get.return_value = existing_vm
 
-        with patch("azlin.progress.ProgressDisplay"), patch(
-            "azlin.ssh_config.SSHConfigurator.connect"
-        ) as mock_ssh_connect:
+        with (
+            patch("azlin.progress.ProgressDisplay"),
+            patch("azlin.ssh_config.SSHConfigurator.connect") as mock_ssh_connect,
+        ):
             mock_ssh_connect.return_value = True
 
-            try:
+            with contextlib.suppress(SystemExit):
                 main()
-            except SystemExit:
-                pass
 
             # Verify VM creation was NOT called
             mock_azure_compute_client.return_value.virtual_machines.begin_create_or_update.assert_not_called()
@@ -210,9 +209,10 @@ class TestWorkflowFailureScenarios:
         # Make authentication fail
         mock_azure_credentials.side_effect = Exception("Authentication failed")
 
-        with patch("azlin.progress.ProgressDisplay") as mock_progress, patch(
-            "azlin.notifications.send_imessr_notification"
-        ) as mock_notify:
+        with (
+            patch("azlin.progress.ProgressDisplay") as mock_progress,
+            patch("azlin.notifications.send_imessr_notification") as mock_notify,
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
 
@@ -258,11 +258,12 @@ class TestWorkflowFailureScenarios:
         """Test workflow handles GitHub clone failure (gh not installed)."""
         from azlin.cli import main
 
-        with patch("azlin.progress.ProgressDisplay") as mock_progress, patch(
-            "azlin.ssh_config.SSHConfigurator.connect"
+        with (
+            patch("azlin.progress.ProgressDisplay"),
+            patch("azlin.ssh_config.SSHConfigurator.connect"),
+            pytest.raises(SystemExit),
         ):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+            main()
 
             # May exit with error if gh is required
             # Or continue with warning if gh is optional
@@ -281,25 +282,17 @@ class TestWorkflowProgressTracking:
         """Test that progress is displayed for each workflow step."""
         from azlin.cli import main
 
-        with patch("azlin.progress.ProgressDisplay") as mock_progress, patch(
-            "azlin.ssh_config.SSHConfigurator.connect"
+        with (
+            patch("azlin.progress.ProgressDisplay") as mock_progress,
+            patch("azlin.ssh_config.SSHConfigurator.connect"),
         ):
-            try:
+            with contextlib.suppress(SystemExit):
                 main()
-            except SystemExit:
-                pass
 
             progress_instance = mock_progress.return_value
 
             # Verify progress was updated for major steps
-            update_calls = [str(call) for call in progress_instance.update.mock_calls]
-
-            expected_steps = [
-                "Authenticating",
-                "Creating VM",
-                "Configuring SSH",
-                "Installing tools",
-            ]
+            [str(call) for call in progress_instance.update.mock_calls]
 
             # At least some progress steps should be shown
             assert progress_instance.update.called or progress_instance.start.called
@@ -311,13 +304,12 @@ class TestWorkflowProgressTracking:
         """Test that final completion message is shown."""
         from azlin.cli import main
 
-        with patch("azlin.progress.ProgressDisplay") as mock_progress, patch(
-            "azlin.ssh_config.SSHConfigurator.connect"
+        with (
+            patch("azlin.progress.ProgressDisplay") as mock_progress,
+            patch("azlin.ssh_config.SSHConfigurator.connect"),
         ):
-            try:
+            with contextlib.suppress(SystemExit):
                 main()
-            except SystemExit:
-                pass
 
             # Should call complete() or show success message
             assert mock_progress.return_value.complete.called or any(
@@ -341,15 +333,15 @@ class TestWorkflowNotifications:
         """Test success notification is sent on completion."""
         from azlin.cli import main
 
-        with patch("azlin.progress.ProgressDisplay"), patch(
-            "azlin.ssh_config.SSHConfigurator.connect"
-        ), patch("azlin.notifications.send_imessr_notification") as mock_notify:
+        with (
+            patch("azlin.progress.ProgressDisplay"),
+            patch("azlin.ssh_config.SSHConfigurator.connect"),
+            patch("azlin.notifications.send_imessr_notification") as mock_notify,
+        ):
             mock_notify.return_value = True
 
-            try:
+            with contextlib.suppress(SystemExit):
                 main()
-            except SystemExit:
-                pass
 
             # Should send success notification
             mock_notify.assert_called_once()
@@ -371,9 +363,10 @@ class TestWorkflowNotifications:
             "Failed"
         )
 
-        with patch("azlin.progress.ProgressDisplay"), patch(
-            "azlin.notifications.send_imessr_notification"
-        ) as mock_notify:
+        with (
+            patch("azlin.progress.ProgressDisplay"),
+            patch("azlin.notifications.send_imessr_notification") as mock_notify,
+        ):
             with pytest.raises(SystemExit):
                 main()
 

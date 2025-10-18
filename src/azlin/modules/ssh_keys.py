@@ -15,7 +15,6 @@ import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,7 @@ class SSHKeyManager:
     SSH_DIR = Path.home() / ".ssh"
 
     @classmethod
-    def ensure_key_exists(cls, key_path: Optional[Path] = None) -> SSHKeyPair:
+    def ensure_key_exists(cls, key_path: Path | None = None) -> SSHKeyPair:
         """
         Create SSH key if missing, return existing if present.
 
@@ -146,7 +145,7 @@ class SSHKeyManager:
 
             logger.debug("Generating SSH key with ssh-keygen")
 
-            result = subprocess.run(args, capture_output=True, text=True, timeout=30, check=True)
+            subprocess.run(args, capture_output=True, text=True, timeout=30, check=True)
 
             logger.info("SSH key generated successfully")
 
@@ -225,7 +224,7 @@ class SSHKeyManager:
         public_mode = public_stat.st_mode & 0o777
 
         if public_mode != 0o644:
-            logger.debug(f"Public key permissions: {oct(public_mode)} " f"(expected 0644)")
+            logger.debug(f"Public key permissions: {oct(public_mode)} (expected 0644)")
 
     @classmethod
     def _fix_permissions(cls, private_path: Path, public_path: Path) -> None:
@@ -249,7 +248,7 @@ class SSHKeyManager:
             logger.debug("Set public key permissions: 0644")
 
     @classmethod
-    def read_public_key(cls, key_path: Optional[Path] = None) -> str:
+    def read_public_key(cls, key_path: Path | None = None) -> str:
         """
         Read public key content for VM provisioning.
 
@@ -290,7 +289,7 @@ class SSHKeyManager:
 
 
 # Convenience functions for CLI use
-def ensure_ssh_key(key_path: Optional[Path] = None) -> SSHKeyPair:
+def ensure_ssh_key(key_path: Path | None = None) -> SSHKeyPair:
     """
     Ensure SSH key exists (convenience function).
 
@@ -308,7 +307,7 @@ def ensure_ssh_key(key_path: Optional[Path] = None) -> SSHKeyPair:
     return SSHKeyManager.ensure_key_exists(key_path)
 
 
-def get_public_key(key_path: Optional[Path] = None) -> str:
+def get_public_key(key_path: Path | None = None) -> str:
     """
     Get public key content (convenience function).
 

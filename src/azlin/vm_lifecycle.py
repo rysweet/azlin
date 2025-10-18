@@ -17,7 +17,7 @@ import logging
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from azlin.connection_tracker import ConnectionTracker
 
@@ -160,7 +160,7 @@ class VMLifecycleManager:
         cls,
         resource_group: str,
         force: bool = False,
-        vm_prefix: Optional[str] = None,
+        vm_prefix: str | None = None,
         max_workers: int = 5,
     ) -> DeletionSummary:
         """Delete all VMs in resource group.
@@ -236,7 +236,7 @@ class VMLifecycleManager:
             raise VMLifecycleError(f"Failed to delete VMs: {e}")
 
     @classmethod
-    def _get_vm_details(cls, vm_name: str, resource_group: str) -> Optional[dict[str, Any]]:
+    def _get_vm_details(cls, vm_name: str, resource_group: str) -> dict[str, Any] | None:
         """Get VM details including network interfaces.
 
         Args:
@@ -358,7 +358,7 @@ class VMLifecycleManager:
         return resources
 
     @classmethod
-    def _get_public_ip_from_nic(cls, nic_name: str, resource_group: str) -> Optional[str]:
+    def _get_public_ip_from_nic(cls, nic_name: str, resource_group: str) -> str | None:
         """Get public IP name associated with NIC.
 
         Args:
@@ -410,7 +410,7 @@ class VMLifecycleManager:
         if no_wait:
             cmd.append("--no-wait")
 
-        result = subprocess.run(
+        subprocess.run(
             cmd, capture_output=True, text=True, timeout=300 if not no_wait else 30, check=True
         )
 
@@ -486,4 +486,4 @@ class VMLifecycleManager:
         logger.debug(f"Deleted Disk: {disk_name}")
 
 
-__all__ = ["VMLifecycleManager", "VMLifecycleError", "DeletionResult", "DeletionSummary"]
+__all__ = ["DeletionResult", "DeletionSummary", "VMLifecycleError", "VMLifecycleManager"]

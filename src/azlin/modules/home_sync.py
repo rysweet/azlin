@@ -23,6 +23,7 @@ SECURITY HARDENING:
     4. Command injection prevention (argument arrays, no shell=True)
 """
 
+import contextlib
 import ipaddress
 import logging
 import re
@@ -477,10 +478,7 @@ class HomeSyncManager:
 
         # Validate hostname (RFC 1123)
         hostname_pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
-        if re.match(hostname_pattern, host) and len(host) <= 253:
-            return True
-
-        return False
+        return bool(re.match(hostname_pattern, host) and len(host) <= 253)
 
     @classmethod
     def _build_rsync_command(
@@ -567,10 +565,8 @@ class HomeSyncManager:
             if "Number of regular files transferred:" in line:
                 parts = line.split(":")
                 if len(parts) == 2:
-                    try:
+                    with contextlib.suppress(ValueError):
                         files_synced = int(parts[1].strip())
-                    except ValueError:
-                        pass
             elif "Total transferred file size:" in line:
                 parts = line.split(":")
                 if len(parts) == 2:
@@ -671,16 +667,16 @@ class HomeSyncManager:
         except subprocess.CalledProcessError as e:
             raise RsyncError(f"rsync failed: {e.stderr}")
         except Exception as e:
-            raise RsyncError(f"Sync failed: {str(e)}")
+            raise RsyncError(f"Sync failed: {e!s}")
 
 
 # Public API
 __all__ = [
+    "HomeSyncError",
     "HomeSyncManager",
+    "RsyncError",
+    "SecurityValidationError",
+    "SecurityWarning",
     "SyncResult",
     "ValidationResult",
-    "SecurityWarning",
-    "HomeSyncError",
-    "SecurityValidationError",
-    "RsyncError",
 ]

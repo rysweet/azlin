@@ -4,6 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from azlin.snapshot_manager import SnapshotInfo, SnapshotManager, SnapshotManagerError
 
 

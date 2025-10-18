@@ -16,7 +16,6 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +33,9 @@ class TerminalConfig:
     ssh_host: str
     ssh_user: str
     ssh_key_path: Path
-    command: Optional[str] = None
-    title: Optional[str] = None
-    tmux_session: Optional[str] = None
+    command: str | None = None
+    title: str | None = None
+    tmux_session: str | None = None
 
 
 class TerminalLauncher:
@@ -66,13 +65,12 @@ class TerminalLauncher:
         try:
             if platform == "darwin":
                 return cls._launch_macos(config)
-            elif platform.startswith("linux"):
+            if platform.startswith("linux"):
                 return cls._launch_linux(config)
-            else:
-                logger.warning(f"Unsupported platform: {platform}")
-                if fallback_inline:
-                    return cls._fallback_inline_ssh(config)
-                return False
+            logger.warning(f"Unsupported platform: {platform}")
+            if fallback_inline:
+                return cls._fallback_inline_ssh(config)
+            return False
 
         except Exception as e:
             logger.error(f"Failed to launch terminal: {e}")
@@ -121,9 +119,8 @@ class TerminalLauncher:
         if result.returncode == 0:
             logger.info("Terminal launched successfully")
             return True
-        else:
-            logger.error(f"AppleScript failed: {result.stderr}")
-            return False
+        logger.error(f"AppleScript failed: {result.stderr}")
+        return False
 
     @classmethod
     def _launch_linux(cls, config: TerminalConfig) -> bool:
@@ -254,7 +251,7 @@ class TerminalLauncher:
         ssh_user: str,
         ssh_key_path: Path,
         command: str,
-        title: Optional[str] = None,
+        title: str | None = None,
     ) -> bool:
         """Launch terminal and execute command on remote host.
 
@@ -279,4 +276,4 @@ class TerminalLauncher:
         return cls.launch(config)
 
 
-__all__ = ["TerminalLauncher", "TerminalConfig", "TerminalLauncherError"]
+__all__ = ["TerminalConfig", "TerminalLauncher", "TerminalLauncherError"]

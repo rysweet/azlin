@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from azlin.env_manager import EnvManager, EnvManagerError
 from azlin.modules.ssh_connector import SSHConfig
 
@@ -153,7 +154,7 @@ export API_KEY="secret123"
         ]
 
         for key in valid_keys:
-            is_valid, message = EnvManager.validate_env_key(key)
+            is_valid, _message = EnvManager.validate_env_key(key)
             assert is_valid is True, f"Expected {key} to be valid"
 
     def test_validate_env_key_invalid(self):
@@ -186,9 +187,9 @@ export API_KEY="secret123"
             warnings = EnvManager.detect_secrets(value)
             assert len(warnings) > 0, f"Expected warnings for {value}"
             for pattern in expected_patterns:
-                assert any(
-                    pattern.lower() in w.lower() for w in warnings
-                ), f"Expected pattern '{pattern}' in warnings for {value}"
+                assert any(pattern.lower() in w.lower() for w in warnings), (
+                    f"Expected pattern '{pattern}' in warnings for {value}"
+                )
 
     def test_detect_secrets_no_warning(self):
         """Test no warnings for non-secret values."""
@@ -268,10 +269,7 @@ DATABASE_URL="value"
             import re
 
             match = re.search(r"printf '%s' '(.+?)' >", printf_command, re.DOTALL)
-            if match:
-                written_content = match.group(1).replace("'\\''", "'")
-            else:
-                written_content = printf_command
+            written_content = match.group(1).replace("'\\''", "'") if match else printf_command
 
             # Original content should be preserved
             assert "export PATH=$HOME/bin:$PATH" in written_content

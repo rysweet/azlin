@@ -298,7 +298,7 @@ azlin list --resource-group my-custom-rg
 **Output example**:
 ```
 VMs in resource group 'azlin-rg-1234567890':
-SESSION NAME         VM NAME                             STATUS          IP              REGION     SIZE      
+SESSION NAME         VM NAME                             STATUS          IP              REGION     SIZE
 my-project           azlin-vm-001                        Running         20.12.34.56     eastus     Standard_D2s_v3
 -                    azlin-vm-002                        Stopped         N/A             westus2    Standard_B2s
 ```
@@ -690,7 +690,7 @@ azlin cost --resource-group my-rg
 ```
 Cost Summary (2025-01-01 to 2025-01-31):
   Total: $247.50
-  
+
   By VM:
     azlin-vm-001 (Standard_D2s_v3): $142.00
     azlin-vm-002 (Standard_B2s):     $105.50

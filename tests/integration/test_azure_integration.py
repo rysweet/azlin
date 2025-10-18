@@ -107,12 +107,19 @@ class TestVMProvisioningWorkflow:
 
         mock_env = create_mock_azure_environment()
 
-        with patch(
-            "azure.mgmt.compute.ComputeManagementClient", return_value=mock_env["compute_client"]
-        ), patch(
-            "azure.mgmt.network.NetworkManagementClient", return_value=mock_env["network_client"]
-        ), patch(
-            "azure.mgmt.resource.ResourceManagementClient", return_value=mock_env["resource_client"]
+        with (
+            patch(
+                "azure.mgmt.compute.ComputeManagementClient",
+                return_value=mock_env["compute_client"],
+            ),
+            patch(
+                "azure.mgmt.network.NetworkManagementClient",
+                return_value=mock_env["network_client"],
+            ),
+            patch(
+                "azure.mgmt.resource.ResourceManagementClient",
+                return_value=mock_env["resource_client"],
+            ),
         ):
             provisioner = VMProvisioner(
                 name="test-vm", size="Standard_D2s_v3", region="eastus", resource_group="azlin-rg"
@@ -148,13 +155,20 @@ class TestVMProvisioningWorkflow:
 
             return wrapper
 
-        with patch(
-            "azure.mgmt.resource.ResourceManagementClient", return_value=mock_env["resource_client"]
-        ) as mock_resource, patch(
-            "azure.mgmt.network.NetworkManagementClient", return_value=mock_env["network_client"]
-        ) as mock_network, patch(
-            "azure.mgmt.compute.ComputeManagementClient", return_value=mock_env["compute_client"]
-        ) as mock_compute:
+        with (
+            patch(
+                "azure.mgmt.resource.ResourceManagementClient",
+                return_value=mock_env["resource_client"],
+            ) as mock_resource,
+            patch(
+                "azure.mgmt.network.NetworkManagementClient",
+                return_value=mock_env["network_client"],
+            ) as mock_network,
+            patch(
+                "azure.mgmt.compute.ComputeManagementClient",
+                return_value=mock_env["compute_client"],
+            ) as mock_compute,
+        ):
             # Track call order
             mock_resource.return_value.resource_groups.create_or_update.side_effect = track_call(
                 "resource_group"
@@ -228,7 +242,7 @@ class TestAzureErrorHandling:
 
         with patch(
             "azure.mgmt.compute.ComputeManagementClient", return_value=mock_env["compute_client"]
-        ) as mock_compute:
+        ):
             # Set quota exceeded failure
             mock_env["compute_client"].virtual_machines.set_failure_mode(True, "quota")
 
@@ -260,11 +274,16 @@ class TestResourceCleanup:
 
             return wrapper
 
-        with patch(
-            "azure.mgmt.compute.ComputeManagementClient", return_value=mock_env["compute_client"]
-        ) as mock_compute, patch(
-            "azure.mgmt.network.NetworkManagementClient", return_value=mock_env["network_client"]
-        ) as mock_network:
+        with (
+            patch(
+                "azure.mgmt.compute.ComputeManagementClient",
+                return_value=mock_env["compute_client"],
+            ) as mock_compute,
+            patch(
+                "azure.mgmt.network.NetworkManagementClient",
+                return_value=mock_env["network_client"],
+            ) as mock_network,
+        ):
             # Mock cleanup methods
             mock_compute.return_value.virtual_machines.begin_delete.side_effect = track_cleanup(
                 "vm"
@@ -296,11 +315,16 @@ class TestResourceCleanup:
 
         mock_env = create_mock_azure_environment()
 
-        with patch(
-            "azure.mgmt.compute.ComputeManagementClient", return_value=mock_env["compute_client"]
-        ) as mock_compute, patch(
-            "azure.mgmt.network.NetworkManagementClient", return_value=mock_env["network_client"]
-        ) as mock_network:
+        with (
+            patch(
+                "azure.mgmt.compute.ComputeManagementClient",
+                return_value=mock_env["compute_client"],
+            ) as mock_compute,
+            patch(
+                "azure.mgmt.network.NetworkManagementClient",
+                return_value=mock_env["network_client"],
+            ) as mock_network,
+        ):
             provisioner = VMProvisioner(name="test-vm", size="Standard_D2s_v3", region="eastus")
 
             # Provision VM first

@@ -5,7 +5,7 @@ This module provides mocks for GitHub CLI (gh) and GitHub API
 interactions without making actual network requests.
 """
 
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import Mock
 
 
@@ -44,7 +44,7 @@ class MockGitHubCLI:
 
         return Mock(returncode=0, stdout=f"✓ Logged in as {self.username}", stderr="")
 
-    def repo_clone(self, repo_url: str, directory: Optional[str] = None) -> Mock:
+    def repo_clone(self, repo_url: str, directory: str | None = None) -> Mock:
         """Mock 'gh repo clone' command."""
         clone_cmd = f"repo clone {repo_url}"
         if directory:
@@ -55,10 +55,10 @@ class MockGitHubCLI:
             return Mock(returncode=1, stdout="", stderr="authentication required")
 
         return Mock(
-            returncode=0, stdout=f'Cloning into \'{repo_url.split("/")[-1]}\'...\nDone.', stderr=""
+            returncode=0, stdout=f"Cloning into '{repo_url.split('/')[-1]}'...\nDone.", stderr=""
         )
 
-    def repo_view(self, repo: Optional[str] = None) -> Mock:
+    def repo_view(self, repo: str | None = None) -> Mock:
         """Mock 'gh repo view' command."""
         view_cmd = f"repo view {repo}" if repo else "repo view"
         self.repo_calls.append(view_cmd)
@@ -76,17 +76,17 @@ class MockGitHubCLI:
 
         if "auth status" in cmd_str:
             return self.auth_status()
-        elif "auth login" in cmd_str:
+        if "auth login" in cmd_str:
             protocol = "https"
             if "--git-protocol" in cmd:
                 idx = cmd.index("--git-protocol")
                 if idx + 1 < len(cmd):
                     protocol = cmd[idx + 1]
             return self.auth_login(protocol)
-        elif "repo clone" in cmd_str:
+        if "repo clone" in cmd_str:
             repo_url = None
             directory = None
-            for i, arg in enumerate(cmd):
+            for _i, arg in enumerate(cmd):
                 if (
                     not arg.startswith("-")
                     and "gh" not in arg
@@ -98,7 +98,7 @@ class MockGitHubCLI:
                     else:
                         directory = arg
             return self.repo_clone(repo_url or "", directory)
-        elif "repo view" in cmd_str:
+        if "repo view" in cmd_str:
             repo = None
             for arg in cmd:
                 if (
@@ -140,7 +140,7 @@ class MockGitHubAPI:
         }
         return self.repos[repo_id]
 
-    def get_repo(self, owner: str, name: str) -> Optional[dict[str, Any]]:
+    def get_repo(self, owner: str, name: str) -> dict[str, Any] | None:
         """Get a repository by owner and name."""
         repo_id = f"{owner}/{name}"
         return self.repos.get(repo_id)
@@ -159,7 +159,7 @@ class MockGitHubAPI:
         }
         return self.users[login]
 
-    def get_user(self, login: str) -> Optional[dict[str, Any]]:
+    def get_user(self, login: str) -> dict[str, Any] | None:
         """Get a user by login."""
         return self.users.get(login)
 

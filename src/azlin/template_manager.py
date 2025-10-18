@@ -269,8 +269,7 @@ class TemplateManager:
             with open(template_path) as f:
                 data = yaml.safe_load(f)
 
-            template = VMTemplateConfig.from_dict(data)
-            return template
+            return VMTemplateConfig.from_dict(data)
 
         except Exception as e:
             raise TemplateError(f"Failed to load template '{name}': {e}")
@@ -366,4 +365,4 @@ class TemplateManager:
             raise TemplateError(f"Failed to import template: {e}")
 
 
-__all__ = ["TemplateManager", "VMTemplateConfig", "TemplateError"]
+__all__ = ["TemplateError", "TemplateManager", "VMTemplateConfig"]

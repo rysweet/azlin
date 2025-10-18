@@ -236,7 +236,7 @@ ENV_VAR_OVERRIDES = {
 def create_config(
     vm_size: str = "Standard_D2s_v3",
     region: str = "eastus",
-    tools: list = None,
+    tools: list | None = None,
     auto_connect: bool = True,
     auto_clone: bool = True,
 ) -> dict[str, Any]:

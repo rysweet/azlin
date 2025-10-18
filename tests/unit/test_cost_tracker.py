@@ -5,6 +5,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+
 from azlin.cost_tracker import CostSummary, CostTracker, CostTrackerError, VMCostEstimate
 from azlin.vm_manager import VMInfo, VMManagerError
 
@@ -385,9 +386,10 @@ class TestCostTracker:
             created_time="2024-10-01T00:00:00Z",
         )
 
-        with patch("azlin.cost_tracker.VMManager.list_vms") as mock_list, patch(
-            "azlin.cost_tracker.VMManager.filter_by_prefix"
-        ) as mock_filter:
+        with (
+            patch("azlin.cost_tracker.VMManager.list_vms") as mock_list,
+            patch("azlin.cost_tracker.VMManager.filter_by_prefix") as mock_filter,
+        ):
             mock_list.return_value = [vm]
             mock_filter.return_value = [vm]
 

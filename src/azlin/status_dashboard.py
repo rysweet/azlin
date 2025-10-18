@@ -7,7 +7,7 @@ including resource usage, costs, and configuration details.
 import json
 import subprocess
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
@@ -23,13 +23,13 @@ class VMStatus:
     resource_group: str
     location: str
     size: str
-    public_ip: Optional[str]
+    public_ip: str | None
     provisioning_state: str
     os_type: str
-    uptime: Optional[str] = None
-    cpu_usage: Optional[float] = None
-    memory_usage: Optional[float] = None
-    estimated_cost: Optional[float] = None
+    uptime: str | None = None
+    cpu_usage: float | None = None
+    memory_usage: float | None = None
+    estimated_cost: float | None = None
 
 
 class StatusDashboard:
@@ -79,7 +79,7 @@ class StatusDashboard:
         )
         return json.loads(result.stdout) if result.stdout.strip() else {}
 
-    def _get_vm_list(self, resource_group: Optional[str] = None) -> list[dict[str, Any]]:
+    def _get_vm_list(self, resource_group: str | None = None) -> list[dict[str, Any]]:
         """Get list of VMs.
 
         Args:
@@ -117,7 +117,7 @@ class StatusDashboard:
         ]
         return self._run_az_command(command)
 
-    def _get_public_ip(self, vm_name: str, resource_group: str) -> Optional[str]:
+    def _get_public_ip(self, vm_name: str, resource_group: str) -> str | None:
         """Get public IP address for a VM.
 
         Args:
@@ -174,7 +174,7 @@ class StatusDashboard:
 
         return "Unknown"
 
-    def _calculate_uptime(self, instance_view: dict[str, Any]) -> Optional[str]:
+    def _calculate_uptime(self, instance_view: dict[str, Any]) -> str | None:
         """Calculate VM uptime based on instance view.
 
         Args:
@@ -201,7 +201,7 @@ class StatusDashboard:
         return hourly_rate * hours
 
     def get_vm_status(
-        self, vm_name: Optional[str] = None, resource_group: Optional[str] = None
+        self, vm_name: str | None = None, resource_group: str | None = None
     ) -> list[VMStatus]:
         """Get status information for VMs.
 
@@ -265,8 +265,8 @@ class StatusDashboard:
 
     def display_status(
         self,
-        vm_name: Optional[str] = None,
-        resource_group: Optional[str] = None,
+        vm_name: str | None = None,
+        resource_group: str | None = None,
         detailed: bool = False,
     ) -> None:
         """Display VM status in a formatted table.
@@ -345,8 +345,8 @@ class StatusDashboard:
 
 
 def show_vm_status(
-    vm_name: Optional[str] = None,
-    resource_group: Optional[str] = None,
+    vm_name: str | None = None,
+    resource_group: str | None = None,
     detailed: bool = False,
 ) -> None:
     """Show VM status dashboard.

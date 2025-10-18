@@ -6,7 +6,7 @@ common test operations and assertions.
 """
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import Mock
 
 
@@ -142,7 +142,7 @@ class ConfigBuilder:
         }
 
     def with_vm(
-        self, size: str = "Standard_D2s_v3", region: str = "eastus", name: Optional[str] = None
+        self, size: str = "Standard_D2s_v3", region: str = "eastus", name: str | None = None
     ) -> "ConfigBuilder":
         """Configure VM settings."""
         self.config["vm"]["size"] = size
@@ -214,7 +214,7 @@ class FileSystemHelper:
         public_key_path.write_text(public_key)
 
     @staticmethod
-    def assert_file_exists(path: Path, message: Optional[str] = None):
+    def assert_file_exists(path: Path, message: str | None = None):
         """Assert that a file exists.
 
         Args:
@@ -289,7 +289,7 @@ class TestDataFactory:
 
 
 def assert_command_executed(
-    subprocess_calls: list[list[str]], command: str, message: Optional[str] = None
+    subprocess_calls: list[list[str]], command: str, message: str | None = None
 ):
     """Assert that a command was executed.
 
@@ -338,9 +338,7 @@ def assert_azure_resource_created(resource_client: Mock, resource_type: str, res
         raise AssertionError(f"Azure {resource_type} '{resource_name}' was not created")
 
 
-def assert_ssh_config_entry_exists(
-    ssh_config_path: Path, host: str, hostname: Optional[str] = None
-):
+def assert_ssh_config_entry_exists(ssh_config_path: Path, host: str, hostname: str | None = None):
     """Assert that SSH config contains an entry for a host.
 
     Args:

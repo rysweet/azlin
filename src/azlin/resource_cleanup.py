@@ -45,16 +45,15 @@ class OrphanedResource:
             if "Premium" in self.tier:
                 # Premium SSD: ~$0.135/GB/month
                 return self.size_gb * 0.135
-            elif "StandardSSD" in self.tier:
+            if "StandardSSD" in self.tier:
                 # Standard SSD: ~$0.075/GB/month
                 return self.size_gb * 0.075
-            else:
-                # Standard HDD: ~$0.05/GB/month
-                return self.size_gb * 0.05
-        elif self.resource_type == "public-ip":
+            # Standard HDD: ~$0.05/GB/month
+            return self.size_gb * 0.05
+        if self.resource_type == "public-ip":
             # Public IP: ~$3.65/month
             return 3.65
-        elif self.resource_type == "nic":
+        if self.resource_type == "nic":
             # NICs don't have direct cost, but minimal
             return 0.0
         return 0.0
@@ -332,11 +331,10 @@ class ResourceCleanup:
             if result.returncode == 0:
                 logger.info(f"Successfully deleted {resource.resource_type}: {resource.name}")
                 return True
-            else:
-                logger.error(
-                    f"Failed to delete {resource.resource_type} {resource.name}: {result.stderr}"
-                )
-                return False
+            logger.error(
+                f"Failed to delete {resource.resource_type} {resource.name}: {result.stderr}"
+            )
+            return False
 
         except subprocess.TimeoutExpired:
             logger.error(f"Timeout deleting {resource.resource_type}: {resource.name}")
@@ -457,4 +455,4 @@ class ResourceCleanup:
         return "\n".join(lines)
 
 
-__all__ = ["OrphanedResource", "CleanupSummary", "ResourceCleanup", "ResourceCleanupError"]
+__all__ = ["CleanupSummary", "OrphanedResource", "ResourceCleanup", "ResourceCleanupError"]

@@ -5,7 +5,7 @@ This module provides comprehensive mock implementations of Azure SDK clients
 that simulate realistic Azure API behavior without making actual API calls.
 """
 
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import Mock
 
 from ..fixtures.azure_responses import (
@@ -81,9 +81,9 @@ class MockNetworkInterface:
         response = SAMPLE_NETWORK_INTERFACE.copy()
         response["name"] = self.name
         response["location"] = self.location
-        response["properties"]["ipConfigurations"][0]["properties"]["publicIPAddress"][
-            "id"
-        ] = self.public_ip_id
+        response["properties"]["ipConfigurations"][0]["properties"]["publicIPAddress"]["id"] = (
+            self.public_ip_id
+        )
         return response
 
 
@@ -111,7 +111,7 @@ class MockPoller:
         self._delay = delay
         self._done = False
 
-    def result(self, timeout: Optional[float] = None):
+    def result(self, timeout: float | None = None):
         """Return the result of the operation."""
         self._done = True
         return self._result
@@ -120,7 +120,7 @@ class MockPoller:
         """Check if operation is done."""
         return self._done
 
-    def wait(self, timeout: Optional[float] = None):
+    def wait(self, timeout: float | None = None):
         """Wait for operation to complete."""
         self._done = True
 
@@ -158,8 +158,7 @@ class MockVirtualMachinesOperations:
         if self._should_fail:
             if self._fail_reason == "quota":
                 raise Exception(QUOTA_EXCEEDED_ERROR["error"]["message"])
-            else:
-                raise Exception("VM creation failed")
+            raise Exception("VM creation failed")
 
         vm = MockVirtualMachine(
             name=vm_name,
@@ -206,7 +205,7 @@ class MockVirtualMachinesOperations:
         """List all VMs in resource group."""
         return list(self._vms.values())
 
-    def set_failure_mode(self, should_fail: bool, reason: Optional[str] = None):
+    def set_failure_mode(self, should_fail: bool, reason: str | None = None):
         """Configure mock to simulate failures."""
         self._should_fail = should_fail
         self._fail_reason = reason

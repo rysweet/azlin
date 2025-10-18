@@ -87,7 +87,7 @@ class TagManager:
         except subprocess.TimeoutExpired:
             raise TagManagerError("Tag operation timed out")
         except Exception as e:
-            raise TagManagerError(f"Failed to add tags: {str(e)}")
+            raise TagManagerError(f"Failed to add tags: {e!s}")
 
     @classmethod
     def remove_tags(cls, vm_name: str, resource_group: str, tag_keys: list[str]) -> None:
@@ -131,7 +131,7 @@ class TagManager:
         except subprocess.TimeoutExpired:
             raise TagManagerError("Tag operation timed out")
         except Exception as e:
-            raise TagManagerError(f"Failed to remove tags: {str(e)}")
+            raise TagManagerError(f"Failed to remove tags: {e!s}")
 
     @classmethod
     def get_tags(cls, vm_name: str, resource_group: str) -> dict[str, str]:
@@ -179,7 +179,7 @@ class TagManager:
         except subprocess.TimeoutExpired:
             raise TagManagerError("Tag operation timed out")
         except Exception as e:
-            raise TagManagerError(f"Failed to get tags: {str(e)}")
+            raise TagManagerError(f"Failed to get tags: {e!s}")
 
     @classmethod
     def filter_vms_by_tag(cls, vms: list[VMInfo], tag_filter: str) -> list[VMInfo]:
@@ -228,8 +228,7 @@ class TagManager:
             # Split only on first '=' to handle values with '='
             parts = tag_filter.split("=", 1)
             return parts[0], parts[1]
-        else:
-            return tag_filter, None
+        return tag_filter, None
 
     @classmethod
     def parse_tag_assignment(cls, tag_str: str) -> tuple[str, str]:

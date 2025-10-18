@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+
 from azlin.log_viewer import LogResult, LogType, LogViewer, LogViewerError
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.vm_manager import VMInfo
@@ -43,9 +44,11 @@ class TestLogViewer:
 
     def test_get_system_logs_success(self, mock_vm, ssh_config):
         """Test retrieving system logs successfully."""
-        with patch("azlin.log_viewer.VMManager") as mock_vm_manager, patch(
-            "azlin.log_viewer.SSHKeyManager"
-        ) as mock_ssh_keys, patch("azlin.log_viewer.RemoteExecutor") as mock_executor:
+        with (
+            patch("azlin.log_viewer.VMManager") as mock_vm_manager,
+            patch("azlin.log_viewer.SSHKeyManager") as mock_ssh_keys,
+            patch("azlin.log_viewer.RemoteExecutor") as mock_executor,
+        ):
             # Setup mocks
             mock_vm_manager.get_vm.return_value = mock_vm
             mock_ssh_keys.ensure_key_exists.return_value = Mock(
@@ -77,9 +80,11 @@ class TestLogViewer:
 
     def test_get_boot_logs_success(self, mock_vm):
         """Test retrieving boot logs successfully."""
-        with patch("azlin.log_viewer.VMManager") as mock_vm_manager, patch(
-            "azlin.log_viewer.SSHKeyManager"
-        ) as mock_ssh_keys, patch("azlin.log_viewer.RemoteExecutor") as mock_executor:
+        with (
+            patch("azlin.log_viewer.VMManager") as mock_vm_manager,
+            patch("azlin.log_viewer.SSHKeyManager") as mock_ssh_keys,
+            patch("azlin.log_viewer.RemoteExecutor") as mock_executor,
+        ):
             # Setup mocks
             mock_vm_manager.get_vm.return_value = mock_vm
             mock_ssh_keys.ensure_key_exists.return_value = Mock(
@@ -103,9 +108,11 @@ class TestLogViewer:
 
     def test_get_kernel_logs_success(self, mock_vm):
         """Test retrieving kernel logs successfully."""
-        with patch("azlin.log_viewer.VMManager") as mock_vm_manager, patch(
-            "azlin.log_viewer.SSHKeyManager"
-        ) as mock_ssh_keys, patch("azlin.log_viewer.RemoteExecutor") as mock_executor:
+        with (
+            patch("azlin.log_viewer.VMManager") as mock_vm_manager,
+            patch("azlin.log_viewer.SSHKeyManager") as mock_ssh_keys,
+            patch("azlin.log_viewer.RemoteExecutor") as mock_executor,
+        ):
             # Setup mocks
             mock_vm_manager.get_vm.return_value = mock_vm
             mock_ssh_keys.ensure_key_exists.return_value = Mock(
@@ -131,9 +138,11 @@ class TestLogViewer:
 
     def test_get_logs_with_since_time(self, mock_vm):
         """Test retrieving logs with --since time filter."""
-        with patch("azlin.log_viewer.VMManager") as mock_vm_manager, patch(
-            "azlin.log_viewer.SSHKeyManager"
-        ) as mock_ssh_keys, patch("azlin.log_viewer.RemoteExecutor") as mock_executor:
+        with (
+            patch("azlin.log_viewer.VMManager") as mock_vm_manager,
+            patch("azlin.log_viewer.SSHKeyManager") as mock_ssh_keys,
+            patch("azlin.log_viewer.RemoteExecutor") as mock_executor,
+        ):
             # Setup mocks
             mock_vm_manager.get_vm.return_value = mock_vm
             mock_ssh_keys.ensure_key_exists.return_value = Mock(
@@ -197,9 +206,11 @@ class TestLogViewer:
 
     def test_ssh_command_failure(self, mock_vm):
         """Test handling of SSH command failure."""
-        with patch("azlin.log_viewer.VMManager") as mock_vm_manager, patch(
-            "azlin.log_viewer.SSHKeyManager"
-        ) as mock_ssh_keys, patch("azlin.log_viewer.RemoteExecutor") as mock_executor:
+        with (
+            patch("azlin.log_viewer.VMManager") as mock_vm_manager,
+            patch("azlin.log_viewer.SSHKeyManager") as mock_ssh_keys,
+            patch("azlin.log_viewer.RemoteExecutor") as mock_executor,
+        ):
             # Setup mocks
             mock_vm_manager.get_vm.return_value = mock_vm
             mock_ssh_keys.ensure_key_exists.return_value = Mock(
@@ -217,9 +228,11 @@ class TestLogViewer:
 
     def test_follow_logs(self, mock_vm):
         """Test following logs in real-time."""
-        with patch("azlin.log_viewer.VMManager") as mock_vm_manager, patch(
-            "azlin.log_viewer.SSHKeyManager"
-        ) as mock_ssh_keys, patch("azlin.log_viewer.SSHConnector") as mock_connector:
+        with (
+            patch("azlin.log_viewer.VMManager") as mock_vm_manager,
+            patch("azlin.log_viewer.SSHKeyManager") as mock_ssh_keys,
+            patch("azlin.log_viewer.SSHConnector") as mock_connector,
+        ):
             # Setup mocks
             mock_vm_manager.get_vm.return_value = mock_vm
             mock_ssh_keys.ensure_key_exists.return_value = Mock(
@@ -267,9 +280,11 @@ class TestLogViewer:
 
     def test_line_limiting(self, mock_vm):
         """Test that line limiting is applied correctly."""
-        with patch("azlin.log_viewer.VMManager") as mock_vm_manager, patch(
-            "azlin.log_viewer.SSHKeyManager"
-        ) as mock_ssh_keys, patch("azlin.log_viewer.RemoteExecutor") as mock_executor:
+        with (
+            patch("azlin.log_viewer.VMManager") as mock_vm_manager,
+            patch("azlin.log_viewer.SSHKeyManager") as mock_ssh_keys,
+            patch("azlin.log_viewer.RemoteExecutor") as mock_executor,
+        ):
             # Setup mocks
             mock_vm_manager.get_vm.return_value = mock_vm
             mock_ssh_keys.ensure_key_exists.return_value = Mock(
@@ -289,9 +304,11 @@ class TestLogViewer:
 
     def test_get_app_logs_with_service(self, mock_vm):
         """Test retrieving application logs for a specific service."""
-        with patch("azlin.log_viewer.VMManager") as mock_vm_manager, patch(
-            "azlin.log_viewer.SSHKeyManager"
-        ) as mock_ssh_keys, patch("azlin.log_viewer.RemoteExecutor") as mock_executor:
+        with (
+            patch("azlin.log_viewer.VMManager") as mock_vm_manager,
+            patch("azlin.log_viewer.SSHKeyManager") as mock_ssh_keys,
+            patch("azlin.log_viewer.RemoteExecutor") as mock_executor,
+        ):
             # Setup mocks
             mock_vm_manager.get_vm.return_value = mock_vm
             mock_ssh_keys.ensure_key_exists.return_value = Mock(
@@ -367,9 +384,11 @@ class TestLogViewer:
 
     def test_timeout_parameter(self, mock_vm):
         """Test that timeout parameter is passed to SSH executor."""
-        with patch("azlin.log_viewer.VMManager") as mock_vm_manager, patch(
-            "azlin.log_viewer.SSHKeyManager"
-        ) as mock_ssh_keys, patch("azlin.log_viewer.RemoteExecutor") as mock_executor:
+        with (
+            patch("azlin.log_viewer.VMManager") as mock_vm_manager,
+            patch("azlin.log_viewer.SSHKeyManager") as mock_ssh_keys,
+            patch("azlin.log_viewer.RemoteExecutor") as mock_executor,
+        ):
             # Setup mocks
             mock_vm_manager.get_vm.return_value = mock_vm
             mock_ssh_keys.ensure_key_exists.return_value = Mock(
