@@ -10,8 +10,8 @@ Security:
 - Sanitized logging
 """
 
+import ipaddress
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -111,7 +111,7 @@ class VMConnector:
             ssh_keys = SSHKeyManager.ensure_key_exists(conn_info.ssh_key_path)
             conn_info.ssh_key_path = ssh_keys.private_path
         except SSHKeyError as e:
-            raise VMConnectorError(f"SSH key error: {e}")
+            raise VMConnectorError(f"SSH key error: {e}") from e
 
         # If reconnect is enabled and no remote command, use direct SSH with reconnect
         # Otherwise use terminal launcher (which opens new windows)
@@ -144,7 +144,7 @@ class VMConnector:
 
                 return exit_code == 0
             except Exception as e:
-                raise VMConnectorError(f"SSH connection failed: {e}")
+                raise VMConnectorError(f"SSH connection failed: {e}") from e
         else:
             # Build terminal config for new window or remote command
             terminal_config = TerminalConfig(
@@ -170,7 +170,7 @@ class VMConnector:
 
                 return success
             except TerminalLauncherError as e:
-                raise VMConnectorError(f"Failed to launch terminal: {e}")
+                raise VMConnectorError(f"Failed to launch terminal: {e}") from e
 
     @classmethod
     def connect_by_name(
@@ -297,7 +297,7 @@ class VMConnector:
                         "Or specify with --resource-group option."
                     )
             except ConfigError as e:
-                raise VMConnectorError(f"Config error: {e}")
+                raise VMConnectorError(f"Config error: {e}") from e
 
         # Query VM details
         try:
@@ -328,40 +328,34 @@ class VMConnector:
             )
 
         except VMManagerError as e:
-            raise VMConnectorError(f"Failed to get VM info: {e}")
+            raise VMConnectorError(f"Failed to get VM info: {e}") from e
 
     @classmethod
     def _is_valid_ip(cls, identifier: str) -> bool:
         """Check if string is a valid IP address.
 
+        Uses Python's ipaddress module for standards-compliant validation.
+        Supports both IPv4 and IPv6 addresses.
+
         Args:
             identifier: String to check
 
         Returns:
-            True if valid IPv4 address
+            True if valid IPv4 or IPv6 address
 
         Example:
             >>> VMConnector._is_valid_ip("192.168.1.1")
             True
+            >>> VMConnector._is_valid_ip("2001:db8::1")
+            True
             >>> VMConnector._is_valid_ip("my-vm-name")
             False
         """
-        # Simple IPv4 pattern
-        ip_pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
-        if not re.match(ip_pattern, identifier):
+        try:
+            ipaddress.ip_address(identifier)
+            return True
+        except ValueError:
             return False
-
-        # Validate octets
-        octets = identifier.split(".")
-        for octet in octets:
-            try:
-                value = int(octet)
-                if value < 0 or value > 255:
-                    return False
-            except ValueError:
-                return False
-
-        return True
 
 
 __all__ = ["ConnectionInfo", "VMConnector", "VMConnectorError"]
