@@ -7,12 +7,14 @@ This module provides the enhanced command-line interface with:
 - Parallel VM provisioning (pools)
 - Remote command execution
 - Enhanced help
+- Distributed monitoring
 
 Commands:
     azlin                    # Show help
     azlin new                # Provision new VM
     azlin list               # List VMs in resource group
     azlin w                  # Run 'w' command on all VMs
+    azlin top                # Live distributed VM metrics dashboard
     azlin -- <command>       # Execute command on VM(s)
 """
 
@@ -35,6 +37,7 @@ from azlin.commands.storage import storage_group
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
+from azlin.distributed_top import DistributedTopError, DistributedTopExecutor
 from azlin.env_manager import EnvManager, EnvManagerError
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
 from azlin.modules.file_transfer import (
@@ -1649,6 +1652,107 @@ def w(resource_group: str | None, config: str | None):
         sys.exit(1)
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option(
+    "--interval",
+    "-i",
+    help="Refresh interval in seconds (default 10)",
+    type=int,
+    default=10,
+)
+@click.option(
+    "--timeout",
+    "-t",
+    help="SSH timeout per VM in seconds (default 5)",
+    type=int,
+    default=5,
+)
+def top(
+    resource_group: str | None,
+    config: str | None,
+    interval: int,
+    timeout: int,
+):
+    """Run distributed top command on all VMs.
+
+    Shows real-time CPU, memory, load, and top processes across all VMs
+    in a unified dashboard that updates every N seconds.
+
+    \b
+    Examples:
+        azlin top                    # Default: 10s refresh
+        azlin top -i 5               # 5 second refresh
+        azlin top --rg my-rg         # Specific resource group
+        azlin top -i 15 -t 10        # 15s refresh, 10s timeout
+
+    \b
+    Press Ctrl+C to exit the dashboard.
+    """
+    try:
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        if not rg:
+            click.echo("Error: No resource group specified.", err=True)
+            sys.exit(1)
+
+        # Get SSH key
+        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+        # List running VMs
+        vms = VMManager.list_vms(rg, include_stopped=False)
+        vms = VMManager.filter_by_prefix(vms, "azlin")
+
+        if not vms:
+            click.echo("No running VMs found.")
+            return
+
+        running_vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+
+        if not running_vms:
+            click.echo("No running VMs with public IPs found.")
+            return
+
+        click.echo(
+            f"Starting distributed top for {len(running_vms)} VMs "
+            f"(refresh: {interval}s, timeout: {timeout}s)..."
+        )
+        click.echo("Press Ctrl+C to exit.\n")
+
+        # Build SSH configs
+        ssh_configs = [
+            SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
+            for vm in running_vms
+        ]
+
+        # Create and run executor
+        executor = DistributedTopExecutor(
+            ssh_configs=ssh_configs,
+            interval=interval,
+            timeout=timeout,
+        )
+        executor.run_dashboard()
+
+    except VMManagerError as e:
+        # VMManagerError is already user-friendly
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except DistributedTopError as e:
+        # DistributedTopError is already user-friendly
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo("\nDashboard stopped by user.")
+        sys.exit(0)
+    except Exception as e:
+        # Log detailed error for debugging, show generic error to user
+        logger.debug(f"Unexpected error in distributed top: {e}", exc_info=True)
+        click.echo("Error: An unexpected error occurred. Run with --verbose for details.", err=True)
         sys.exit(1)
 
 
