@@ -228,6 +228,9 @@ azlin new --name my-dev-vm
 # Provision with GitHub repo clone
 azlin new --repo https://github.com/microsoft/vscode
 
+# Provision with shared NFS storage for home directory
+azlin new --nfs-storage team-shared --name worker-1
+
 # Specify VM size and region
 azlin new --vm-size Standard_D4s_v3 --region westus2
 
@@ -242,6 +245,11 @@ azlin new --resource-group my-rg
 
 # Combine options
 azlin new --name gpu-trainer --vm-size Standard_NC6 --repo https://github.com/openai/whisper
+
+# Create multiple workers with shared storage
+azlin storage create team-shared --size 100
+azlin new --nfs-storage team-shared --name worker-1
+azlin new --nfs-storage team-shared --name worker-2
 ```
 
 **Use cases**:
@@ -249,6 +257,7 @@ azlin new --name gpu-trainer --vm-size Standard_NC6 --repo https://github.com/op
 - Testing across multiple VM instances
 - GPU-enabled model training
 - Team onboarding (everyone gets identical setup)
+- Distributed computing with shared storage
 
 #### `azlin clone` - Clone a VM with home directory
 
@@ -673,12 +682,37 @@ Share home directories across multiple VMs using Azure Files NFS.
 # Create shared storage
 azlin storage create myteam-shared --size 100 --tier Premium
 
-# Mount on VMs
-azlin storage mount myteam-shared --vm vm1
-azlin storage mount myteam-shared --vm vm2
+# Provision VMs with shared home directory
+azlin new --nfs-storage myteam-shared --name worker-1
+azlin new --nfs-storage myteam-shared --name worker-2
 
-# Now both VMs share the same home directory!
+# Or mount on existing VMs
+azlin storage mount myteam-shared --vm existing-vm
+
+# Now all VMs share the same home directory!
 ```
+
+### Provisioning VMs with Shared Storage
+
+The easiest way to use shared storage is to specify it when creating a new VM:
+
+```bash
+# Create storage once
+azlin storage create team-shared --size 100 --tier Premium
+
+# Create multiple VMs that share the same home directory
+azlin new --nfs-storage team-shared --name worker-1
+azlin new --nfs-storage team-shared --name worker-2
+azlin new --nfs-storage team-shared --name worker-3
+
+# All VMs will have /home/azureuser mounted from NFS
+# Any file created on one VM is immediately visible on all others
+```
+
+When you use `--nfs-storage`, the VM's home directory is automatically mounted from the NFS share during provisioning. This means:
+- No need to run separate mount commands
+- Files are shared immediately
+- Your `~/.azlin/home` contents (if any) are copied to the shared storage on first mount
 
 ### Commands
 
@@ -692,7 +726,7 @@ azlin storage list
 # Check usage and connected VMs
 azlin storage status myteam-shared
 
-# Mount storage on VM (replaces home directory)
+# Mount storage on existing VM (replaces home directory)
 azlin storage mount myteam-shared --vm my-dev-vm
 
 # Unmount storage (restores local home)
@@ -704,10 +738,11 @@ azlin storage delete myteam-shared
 
 ### Use Cases
 
-- **Team Collaboration**: Multiple devs in the same environment
+- **Team Collaboration**: Multiple developers in the same environment
 - **Seamless Switching**: Move between VMs without losing work
 - **Consistent Tools**: Same configs and tools across all VMs
 - **Multi-VM Workflows**: Different tasks, shared data
+- **Distributed Computing**: Multiple workers accessing shared datasets
 
 ### Storage Tiers
 
@@ -721,8 +756,10 @@ azlin storage delete myteam-shared
 ### How It Works
 
 1. **Mount**: Existing home directory backed up, NFS share mounted
-2. **Share**: All VMs with same storage see same files
+2. **Share**: All VMs with same storage see same files instantly
 3. **Unmount**: NFS unmounted, local home restored from backup
+
+**Security**: Storage is accessible only within your Azure VNet - no public access.
 
 For complete documentation, see [docs/STORAGE_README.md](docs/STORAGE_README.md).
 

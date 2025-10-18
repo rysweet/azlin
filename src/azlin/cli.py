@@ -29,6 +29,9 @@ from azlin import __version__
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 
+# Storage commands
+from azlin.commands.storage import storage_group
+
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
@@ -74,9 +77,6 @@ from azlin.vm_provisioning import (
     VMProvisioner,
 )
 
-# Storage commands
-from azlin.commands.storage import storage_group
-
 logger = logging.getLogger(__name__)
 
 
@@ -109,6 +109,7 @@ class CLIOrchestrator:
         resource_group: str | None = None,
         auto_connect: bool = True,
         config_file: str | None = None,
+        nfs_storage: str | None = None,
     ):
         """Initialize CLI orchestrator.
 
@@ -119,6 +120,7 @@ class CLIOrchestrator:
             resource_group: Resource group name (optional)
             auto_connect: Whether to auto-connect via SSH
             config_file: Configuration file path (optional)
+            nfs_storage: NFS storage account name to mount as home directory (optional)
         """
         self.repo = repo
         self.vm_size = vm_size
@@ -126,6 +128,7 @@ class CLIOrchestrator:
         self.resource_group = resource_group
         self.auto_connect = auto_connect
         self.config_file = config_file
+        self.nfs_storage = nfs_storage
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -179,10 +182,17 @@ class CLIOrchestrator:
             self._wait_for_cloud_init(vm_details, ssh_key_pair.private_path)
             self.progress.complete(success=True, message="All development tools installed")
 
-            # STEP 5.5: Sync home directory (NEW)
-            self.progress.start_operation("Syncing home directory")
-            self._sync_home_directory(vm_details, ssh_key_pair.private_path)
-            self.progress.complete(success=True, message="Home directory synced")
+            # STEP 5.5: Mount NFS storage if specified (BEFORE home sync)
+            if self.nfs_storage:
+                self.progress.start_operation(f"Mounting NFS storage: {self.nfs_storage}")
+                self._mount_nfs_storage(vm_details, ssh_key_pair.private_path)
+                self.progress.complete(success=True, message="NFS storage mounted")
+            else:
+                # Only sync home directory if NOT using NFS storage
+                # (NFS storage provides the home directory)
+                self.progress.start_operation("Syncing home directory")
+                self._sync_home_directory(vm_details, ssh_key_pair.private_path)
+                self.progress.complete(success=True, message="Home directory synced")
 
             # STEP 6: GitHub setup (if repo provided)
             if self.repo:
@@ -442,6 +452,65 @@ class CLIOrchestrator:
             # Catch all other errors
             self.progress.update("Home sync failed (unexpected error)", ProgressStage.WARNING)
             logger.exception("Unexpected error during home sync")
+
+    def _mount_nfs_storage(self, vm_details: VMDetails, key_path: Path) -> None:
+        """Mount NFS storage on VM home directory.
+
+        Args:
+            vm_details: VM details
+            key_path: SSH private key path
+
+        Raises:
+            Exception: If storage mount fails (this is a critical operation)
+        """
+        from azlin.modules.nfs_mount_manager import NFSMountManager
+        from azlin.modules.storage_manager import StorageManager
+
+        try:
+            # Get storage details
+            self.progress.update(f"Fetching storage account: {self.nfs_storage}")
+
+            # Get resource group (use the VM's resource group)
+            rg = vm_details.resource_group
+
+            # List storage accounts to find the one we want
+            accounts = StorageManager.list_storage(rg)
+            storage = next((a for a in accounts if a.name == self.nfs_storage), None)
+
+            if not storage:
+                raise Exception(
+                    f"Storage account '{self.nfs_storage}' not found in resource group '{rg}'. "
+                    f"Create it first with: azlin storage create {self.nfs_storage}"
+                )
+
+            self.progress.update(f"Storage found: {storage.nfs_endpoint}")
+
+            # Mount storage
+            self.progress.update("Installing NFS client tools...")
+            result = NFSMountManager.mount_storage(
+                vm_ip=vm_details.public_ip,
+                ssh_key=key_path,
+                nfs_endpoint=storage.nfs_endpoint,
+                mount_point="/home/azureuser",
+            )
+
+            if not result.success:
+                error_msg = "; ".join(result.errors) if result.errors else "Unknown error"
+                raise Exception(f"Failed to mount NFS storage: {error_msg}")
+
+            if result.backed_up_files > 0:
+                self.progress.update(f"Backed up {result.backed_up_files} existing files")
+
+            if result.copied_files > 0:
+                self.progress.update(f"Copied {result.copied_files} files from backup to shared storage")
+
+            self.progress.update(
+                f"NFS storage mounted at /home/azureuser from {storage.nfs_endpoint}"
+            )
+
+        except Exception as e:
+            # Storage mount failures are critical - we want to know about them
+            raise Exception(f"NFS storage mount failed: {e}") from e
 
     def _setup_github(self, vm_details: VMDetails, key_path: Path) -> None:
         """Setup GitHub on VM and clone repository.
@@ -929,6 +998,12 @@ def main(ctx):
         $ azlin snapshot list my-vm
         $ azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
 
+        # Shared NFS storage for home directories
+        $ azlin storage create team-shared --size 100 --tier Premium
+        $ azlin new --nfs-storage team-shared --name worker-1
+        $ azlin new --nfs-storage team-shared --name worker-2
+        $ azlin storage status team-shared
+
         # View costs
         $ azlin cost --by-vm
         $ azlin cost --from 2025-01-01 --to 2025-01-31
@@ -1012,6 +1087,7 @@ def help_command(ctx, command_name):
 @click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
+@click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
 def new_command(
     ctx,
     repo: str | None,
@@ -1023,6 +1099,7 @@ def new_command(
     no_auto_connect: bool,
     config: str | None,
     template: str | None,
+    nfs_storage: str | None,
 ):
     """Provision a new Azure VM with development tools.
 
@@ -1045,6 +1122,9 @@ def new_command(
 
         # Provision from template
         $ azlin new --template dev-vm
+
+        # Provision with NFS storage for shared home directory
+        $ azlin new --nfs-storage myteam-shared --name worker-1
 
         # Provision and execute command
         $ azlin new -- python train.py
@@ -1113,6 +1193,7 @@ def new_command(
         resource_group=final_rg,
         auto_connect=not no_auto_connect,
         config_file=config,
+        nfs_storage=nfs_storage,
     )
 
     # Update config with used resource group
@@ -1235,6 +1316,7 @@ def new_command(
 @click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
+@click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
 def vm_command(ctx, **kwargs):
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
@@ -1252,6 +1334,7 @@ def vm_command(ctx, **kwargs):
 @click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
+@click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
 def create_command(ctx, **kwargs):
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
