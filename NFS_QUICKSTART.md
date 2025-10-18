@@ -7,7 +7,7 @@ The `--nfs-storage` option lets you create multiple VMs that all share the same 
 ## Why use it?
 
 - **Team Collaboration**: Multiple developers in the same environment
-- **Seamless Switching**: Move between VMs without losing work  
+- **Seamless Switching**: Move between VMs without losing work
 - **Distributed Computing**: Multiple workers accessing shared datasets
 - **Consistent Environment**: Same configs and tools across all VMs
 
@@ -104,7 +104,7 @@ azlin storage create ml-shared --size 500 --tier Premium
 
 # Create 3 worker VMs
 azlin new --nfs-storage ml-shared --name ml-worker-1
-azlin new --nfs-storage ml-shared --name ml-worker-2  
+azlin new --nfs-storage ml-shared --name ml-worker-2
 azlin new --nfs-storage ml-shared --name ml-worker-3
 
 # All workers now have access to:

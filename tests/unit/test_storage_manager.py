@@ -7,6 +7,7 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from azlin.modules.storage_manager import (
     StorageError,
     StorageInfo,

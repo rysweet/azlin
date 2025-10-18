@@ -34,13 +34,13 @@ azlin storage list
 # Example output:
 # Storage Accounts in azlin-rg:
 # ================================================================================
-# 
+#
 # myteam-shared
 #   Endpoint: myteam-shared.blob.core.windows.net:/myteam-shared/share
 #   Size: 100GB
 #   Tier: Premium
 #   Location: westus2
-# 
+#
 # Total: 1 storage account(s)
 ```
 
@@ -57,15 +57,15 @@ azlin storage status myteam-shared
 #   Endpoint: myteam-shared.blob.core.windows.net:/myteam-shared/share
 #   Location: westus2
 #   Tier: Premium
-# 
+#
 # Capacity:
 #   Total: 100GB
 #   Used: 12GB (12.0%)
 #   Available: 88GB
-# 
+#
 # Cost:
 #   Monthly: $15.30
-# 
+#
 # Connected VMs:
 #   - azlin-20251017-162042-05
 #   - azlin-20251017-153211-22
@@ -87,7 +87,7 @@ azlin storage mount myteam-shared --vm my-dev-vm
 #   VM: azlin-20251017-162042-05 (20.12.34.56)
 # ✓ Existing home directory backed up to: /home/azureuser.backup
 # ✓ Storage mounted successfully on azlin-20251017-162042-05
-# 
+#
 # The VM now uses shared storage for its home directory.
 # All files in /home/azureuser are now shared across any VM with this storage mounted.
 ```
@@ -111,7 +111,7 @@ azlin storage unmount --vm my-dev-vm
 #   VM: azlin-20251017-162042-05 (20.12.34.56)
 # ✓ Local home directory restored from: /home/azureuser.backup
 # ✓ Storage unmounted successfully from azlin-20251017-162042-05
-# 
+#
 # The VM now uses its local disk for the home directory.
 ```
 

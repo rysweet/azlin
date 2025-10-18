@@ -327,12 +327,12 @@ Each phase includes:
    ```bash
    # Create shared storage
    azlin storage create team-home --tier Premium --size 100
-   
+
    # Create VMs with shared home
    azlin new --nfs-storage team-home --name worker-1
    azlin new --nfs-storage team-home --name worker-2
    azlin new --nfs-storage team-home --name worker-3
-   
+
    # All VMs share /home/azureuser content
    # Files created on worker-1 visible on worker-2, worker-3
    ```

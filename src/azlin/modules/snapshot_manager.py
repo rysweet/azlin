@@ -685,4 +685,4 @@ class SnapshotManager:
             raise SnapshotError("Remove VM tag timed out") from e
 
 
-__all__ = ["SnapshotManager", "SnapshotSchedule", "SnapshotInfo", "SnapshotError"]
+__all__ = ["SnapshotError", "SnapshotInfo", "SnapshotManager", "SnapshotSchedule"]

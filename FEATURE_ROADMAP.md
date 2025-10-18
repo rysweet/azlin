@@ -1,6 +1,6 @@
 # azlin Feature Roadmap 2025-2026
 
-**Version**: 2.0.0 → 3.0.0  
+**Version**: 2.0.0 → 3.0.0
 **Updated**: October 17, 2025
 
 ---
@@ -18,8 +18,8 @@ This roadmap outlines the evolution of azlin from a single-VM provisioning tool 
 **Goal**: Enable multiple VMs to share home directories via Azure Files NFS.
 
 ### 1.1 Core Storage Management
-**Epic**: Basic Azure Files NFS integration  
-**Effort**: 3 weeks  
+**Epic**: Basic Azure Files NFS integration
+**Effort**: 3 weeks
 **Value**: HIGH - Enables all subsequent distributed features
 
 **Commands**:
@@ -44,8 +44,8 @@ azlin storage delete <name>
 - Documentation with examples
 
 ### 1.2 VM-Storage Integration
-**Epic**: Provision VMs with shared storage  
-**Effort**: 2 weeks  
+**Epic**: Provision VMs with shared storage
+**Effort**: 2 weeks
 **Value**: HIGH - Core user-facing feature
 
 **Commands**:
@@ -68,8 +68,8 @@ azlin storage detach --vm <vm-name>
 - Troubleshooting guide
 
 ### 1.3 Hybrid Storage Modes
-**Epic**: Selective shared/local mounts  
-**Effort**: 2 weeks  
+**Epic**: Selective shared/local mounts
+**Effort**: 2 weeks
 **Value**: MEDIUM - Performance optimization
 
 **Commands**:
@@ -92,8 +92,8 @@ azlin storage unmount --vm <vm> --path ~/projects
 - Migration guide (full shared → hybrid)
 
 ### 1.4 Storage Templates
-**Epic**: Pre-configured storage layouts  
-**Effort**: 1 week  
+**Epic**: Pre-configured storage layouts
+**Effort**: 1 week
 **Value**: MEDIUM - Improved UX
 
 **Built-in Templates**:
@@ -115,7 +115,7 @@ azlin storage template create <name> --shared <paths> --local <paths>
 - Custom template support
 - Migration between templates
 
-**Phase 1 Total**: 8 weeks  
+**Phase 1 Total**: 8 weeks
 **Release**: azlin v2.1.0 with Shared Storage
 
 ---
@@ -125,8 +125,8 @@ azlin storage template create <name> --shared <paths> --local <paths>
 **Goal**: Advanced multi-VM orchestration and state management.
 
 ### 2.1 Distributed Command Execution
-**Epic**: Coordinated fleet operations  
-**Effort**: 2 weeks  
+**Epic**: Coordinated fleet operations
+**Effort**: 2 weeks
 **Value**: HIGH - Enables distributed workflows
 
 **Commands**:
@@ -149,8 +149,8 @@ azlin fleet exec --with-leader "python coordinator.py"
 - Examples: distributed testing, parallel training
 
 ### 2.2 Fleet State Management
-**Epic**: Manage VMs as cohesive fleets  
-**Effort**: 2 weeks  
+**Epic**: Manage VMs as cohesive fleets
+**Effort**: 2 weeks
 **Value**: HIGH - Organizational improvement
 
 **Commands**:
@@ -175,8 +175,8 @@ azlin fleet snapshot <name>
 - Documentation
 
 ### 2.3 Load Balancer Integration
-**Epic**: Expose fleet as load-balanced service  
-**Effort**: 2 weeks  
+**Epic**: Expose fleet as load-balanced service
+**Effort**: 2 weeks
 **Value**: MEDIUM - Web service support
 
 **Commands**:
@@ -200,7 +200,7 @@ azlin lb remove-backend <fleet> <vm-name>
 - Web service examples
 - Load testing guide
 
-**Phase 2 Total**: 6 weeks  
+**Phase 2 Total**: 6 weeks
 **Release**: azlin v2.2.0 with Fleet Management
 
 ---
@@ -210,8 +210,8 @@ azlin lb remove-backend <fleet> <vm-name>
 **Goal**: Enhanced developer workflows and specialized VM types.
 
 ### 3.1 GPU VM Support
-**Epic**: First-class GPU VM support  
-**Effort**: 2 weeks  
+**Epic**: First-class GPU VM support
+**Effort**: 2 weeks
 **Value**: HIGH - ML/AI workflows
 
 **Commands**:
@@ -235,8 +235,8 @@ azlin gpu cost <vm-name>
 - ML framework examples (PyTorch, TensorFlow)
 
 ### 3.2 Jupyter Notebook Integration
-**Epic**: Automated Jupyter setup  
-**Effort**: 1 week  
+**Epic**: Automated Jupyter setup
+**Effort**: 1 week
 **Value**: MEDIUM - Data science workflows
 
 **Commands**:
@@ -260,8 +260,8 @@ azlin jupyter token <vm-name>
 - Example notebooks
 
 ### 3.3 Dev Container Support
-**Epic**: VS Code dev containers on Azure VMs  
-**Effort**: 2 weeks  
+**Epic**: VS Code dev containers on Azure VMs
+**Effort**: 2 weeks
 **Value**: MEDIUM - Modern dev workflows
 
 **Commands**:
@@ -283,7 +283,7 @@ azlin dev-container rebuild <vm-name>
 - VS Code integration guide
 - Example dev containers
 
-**Phase 3 Total**: 5 weeks  
+**Phase 3 Total**: 5 weeks
 **Release**: azlin v2.3.0 with Developer Features
 
 ---
@@ -293,8 +293,8 @@ azlin dev-container rebuild <vm-name>
 **Goal**: Production-grade monitoring, logging, and backup.
 
 ### 4.1 Centralized Logging
-**Epic**: Fleet-wide log aggregation  
-**Effort**: 2 weeks  
+**Epic**: Fleet-wide log aggregation
+**Effort**: 2 weeks
 **Value**: HIGH - Operations visibility
 
 **Commands**:
@@ -318,8 +318,8 @@ azlin logs alert "out of memory" --email admin@example.com
 - Troubleshooting playbooks
 
 ### 4.2 Performance Metrics
-**Epic**: VM and application monitoring  
-**Effort**: 2 weeks  
+**Epic**: VM and application monitoring
+**Effort**: 2 weeks
 **Value**: MEDIUM - Performance insights
 
 **Commands**:
@@ -343,8 +343,8 @@ azlin analyze <vm-name>  # Get recommendations
 - Optimization guide
 
 ### 4.3 Backup & Disaster Recovery
-**Epic**: Automated backup workflows  
-**Effort**: 2 weeks  
+**Epic**: Automated backup workflows
+**Effort**: 2 weeks
 **Value**: HIGH - Data protection
 
 **Commands**:
@@ -367,7 +367,7 @@ azlin backup replicate <vm> --to <region>
 - DR testing guide
 - Compliance documentation
 
-**Phase 4 Total**: 6 weeks  
+**Phase 4 Total**: 6 weeks
 **Release**: azlin v2.4.0 with Ops Features
 
 ---
@@ -377,8 +377,8 @@ azlin backup replicate <vm> --to <region>
 **Goal**: Intelligent cost management and scaling.
 
 ### 5.1 Auto-Scaling
-**Epic**: Dynamic fleet scaling  
-**Effort**: 3 weeks  
+**Epic**: Dynamic fleet scaling
+**Effort**: 3 weeks
 **Value**: HIGH - Cost savings
 
 **Commands**:
@@ -401,8 +401,8 @@ azlin autoscale disable <fleet>
 - Best practices guide
 
 ### 5.2 Spot Instance Support
-**Epic**: Low-cost VMs with Spot instances  
-**Effort**: 2 weeks  
+**Epic**: Low-cost VMs with Spot instances
+**Effort**: 2 weeks
 **Value**: MEDIUM - 70-90% cost savings
 
 **Commands**:
@@ -425,8 +425,8 @@ azlin spot history --region westus2
 - Fault-tolerant workflows
 
 ### 5.3 Cost Alerts & Budgets
-**Epic**: Proactive cost management  
-**Effort**: 1 week  
+**Epic**: Proactive cost management
+**Effort**: 1 week
 **Value**: MEDIUM - Budget control
 
 **Commands**:
@@ -448,7 +448,7 @@ azlin cost optimize  # Get suggestions
 - Optimization reports
 - Savings calculator
 
-**Phase 5 Total**: 6 weeks  
+**Phase 5 Total**: 6 weeks
 **Release**: azlin v2.5.0 with Cost Management
 
 ---
@@ -458,8 +458,8 @@ azlin cost optimize  # Get suggestions
 **Goal**: Enterprise security and compliance features.
 
 ### 6.1 Security Hardening
-**Epic**: Automated security baseline  
-**Effort**: 2 weeks  
+**Epic**: Automated security baseline
+**Effort**: 2 weeks
 **Value**: HIGH - Security posture
 
 **Commands**:
@@ -483,8 +483,8 @@ azlin security report --fleet <name>
 - Security best practices
 
 ### 6.2 Secrets Management
-**Epic**: Azure Key Vault integration  
-**Effort**: 2 weeks  
+**Epic**: Azure Key Vault integration
+**Effort**: 2 weeks
 **Value**: MEDIUM - Credential security
 
 **Commands**:
@@ -508,8 +508,8 @@ azlin secret audit <vm>
 - Integration examples
 
 ### 6.3 Compliance Reporting
-**Epic**: Automated compliance checks  
-**Effort**: 1 week  
+**Epic**: Automated compliance checks
+**Effort**: 1 week
 **Value**: LOW - Enterprise requirements
 
 **Commands**:
@@ -531,7 +531,7 @@ azlin compliance export --to <path>
 - Evidence archive
 - Certification guide
 
-**Phase 6 Total**: 5 weeks  
+**Phase 6 Total**: 5 weeks
 **Release**: azlin v3.0.0 - Enterprise Edition
 
 ---
@@ -684,11 +684,11 @@ This roadmap transforms azlin from a single-VM provisioning tool into a comprehe
 
 **Recommended Action**: Begin Phase 1 implementation immediately. The shared storage feature is highly feasible (using Azure Files NFS), provides high user value, and enables the strategic vision for azlin as a fleet management platform.
 
-**Estimated Timeline**: 18 months to complete all phases  
-**Total Effort**: ~36 weeks of development  
+**Estimated Timeline**: 18 months to complete all phases
+**Total Effort**: ~36 weeks of development
 **Expected Outcome**: azlin v3.0.0 Enterprise Edition
 
 ---
 
-*Roadmap created on October 17, 2025*  
+*Roadmap created on October 17, 2025*
 *Next Review: January 2026*

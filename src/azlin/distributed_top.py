@@ -133,7 +133,9 @@ class DistributedTopExecutor:
 
         # Mask internal IP addresses
         sanitized = re.sub(r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "10.x.x.x", sanitized)
-        sanitized = re.sub(r"\b172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}\b", "172.x.x.x", sanitized)
+        sanitized = re.sub(
+            r"\b172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}\b", "172.x.x.x", sanitized
+        )
         sanitized = re.sub(r"\b192\.168\.\d{1,3}\.\d{1,3}\b", "192.168.x.x", sanitized)
 
         # Limit length to 100 chars

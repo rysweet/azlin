@@ -1,7 +1,7 @@
 # Bug Fix: Home Directory Sync Failure
 
-**Date**: October 17, 2025  
-**Issue**: Home directory sync not working on VM creation  
+**Date**: October 17, 2025
+**Issue**: Home directory sync not working on VM creation
 **Status**: FIXED ✅
 
 ---
@@ -32,7 +32,7 @@ Files from `~/.azlin/home/` should be synced to the VM during provisioning (Step
 1. **Verified sync directory exists**: `~/.azlin/home/` contains 49,475 files including `src/` subdirectory
 2. **Checked sync was called**: Code shows `_sync_home_directory()` is called at line 181 in cli.py
 3. **Tested rsync manually**: Discovered rsync was failing with buffer overflow error
-4. **Identified the issue**: 
+4. **Identified the issue**:
    - The `--delete-excluded` flag combined with ~50k files
    - Version mismatch between macOS rsync (openrsync) and Linux rsync (3.2.7)
    - Buffer overflow on receiver side: `buffer overflow: recv_rules (file=exclude.c, line=1682)`
@@ -47,8 +47,8 @@ The rsync command was using `--delete-excluded` flag which caused a buffer overf
 
 ### Code Changes
 
-**File**: `src/azlin/modules/home_sync.py`  
-**Method**: `_build_rsync_command()`  
+**File**: `src/azlin/modules/home_sync.py`
+**Method**: `_build_rsync_command()`
 **Line**: 536
 
 **Before**:

@@ -237,7 +237,7 @@ def show_status(name: str, resource_group: str | None):
         click.echo(f"  Tier: {status.tier}")
         click.echo("\nCapacity:")
         click.echo(f"  Total: {status.size_gb}GB")
-        click.echo(f"  Used: {status.used_gb}GB ({status.used_gb/status.size_gb*100:.1f}%)")
+        click.echo(f"  Used: {status.used_gb}GB ({status.used_gb / status.size_gb * 100:.1f}%)")
         click.echo(f"  Available: {status.size_gb - status.used_gb}GB")
         click.echo("\nCost:")
         click.echo(f"  Monthly: ${status.cost_per_month:.2f}")

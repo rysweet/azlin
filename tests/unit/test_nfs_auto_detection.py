@@ -1,12 +1,11 @@
 """Tests for NFS storage auto-detection and home directory setup."""
 
-import pytest
 from unittest.mock import MagicMock, patch
-from pathlib import Path
+
+import pytest
 
 from azlin.cli import CLIOrchestrator
 from azlin.modules.storage_manager import StorageInfo
-from azlin.vm_provisioning import VMDetails
 
 
 @pytest.fixture
@@ -29,27 +28,27 @@ class TestNFSAutoDetection:
     def test_explicit_nfs_storage_used(self, mock_storage_info):
         """Test that explicitly specified NFS storage is used."""
         orchestrator = CLIOrchestrator(nfs_storage="test-storage")
-        
+
         with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
             mock_list.return_value = [mock_storage_info]
-            
+
             result = orchestrator._resolve_nfs_storage("test-rg", None)
             assert result == "test-storage"
 
     def test_single_storage_auto_detected(self, mock_storage_info):
         """Test that single NFS storage is auto-detected."""
         orchestrator = CLIOrchestrator()  # No explicit nfs_storage
-        
+
         with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
             mock_list.return_value = [mock_storage_info]
-            
+
             result = orchestrator._resolve_nfs_storage("test-rg", None)
             assert result == "test-storage"
 
     def test_multiple_storages_without_explicit_choice_errors(self, mock_storage_info):
         """Test that multiple NFS storages without explicit choice raises error."""
         orchestrator = CLIOrchestrator()  # No explicit nfs_storage
-        
+
         storage2 = StorageInfo(
             name="test-storage-2",
             resource_group="test-rg",
@@ -59,43 +58,43 @@ class TestNFSAutoDetection:
             nfs_endpoint="test-storage-2.file.core.windows.net:/test-share",
             created=None,
         )
-        
+
         with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
             mock_list.return_value = [mock_storage_info, storage2]
-            
+
             with pytest.raises(ValueError, match="Multiple NFS storage accounts found"):
                 orchestrator._resolve_nfs_storage("test-rg", None)
 
     def test_no_storages_returns_none(self):
         """Test that no NFS storages returns None."""
         orchestrator = CLIOrchestrator()
-        
+
         with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
             mock_list.return_value = []
-            
+
             result = orchestrator._resolve_nfs_storage("test-rg", None)
             assert result is None
 
     def test_config_default_storage_used(self, mock_storage_info):
         """Test that config default_nfs_storage is used."""
         orchestrator = CLIOrchestrator()
-        
+
         mock_config = MagicMock()
         mock_config.default_nfs_storage = "test-storage"
-        
+
         with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
             mock_list.return_value = [mock_storage_info]
-            
+
             result = orchestrator._resolve_nfs_storage("test-rg", mock_config)
             assert result == "test-storage"
 
     def test_explicit_overrides_config(self, mock_storage_info):
         """Test that explicit --nfs-storage overrides config default."""
         orchestrator = CLIOrchestrator(nfs_storage="explicit-storage")
-        
+
         mock_config = MagicMock()
         mock_config.default_nfs_storage = "config-storage"
-        
+
         with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
             mock_list.return_value = [
                 mock_storage_info,
@@ -109,7 +108,7 @@ class TestNFSAutoDetection:
                     created=None,
                 ),
             ]
-            
+
             result = orchestrator._resolve_nfs_storage("test-rg", mock_config)
             assert result == "explicit-storage"
 
@@ -134,10 +133,10 @@ class TestBackwardCompatibility:
     def test_no_nfs_uses_rsync(self):
         """Test that without NFS, regular rsync is used."""
         orchestrator = CLIOrchestrator()
-        
+
         with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
             mock_list.return_value = []
-            
+
             result = orchestrator._resolve_nfs_storage("test-rg", None)
             assert result is None
             # Orchestrator should fall back to regular home sync
