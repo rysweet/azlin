@@ -11,6 +11,7 @@ Security:
 
 import logging
 import os
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ class AzlinConfig:
     notification_command: str = "imessR"
     session_names: dict[str, str] | None = None  # vm_name -> session_name mapping
     vm_storage: dict[str, str] | None = None  # vm_name -> storage_name mapping (for NFS)
+    default_nfs_storage: str | None = None  # Default NFS storage for new VMs
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
@@ -65,6 +67,7 @@ class AzlinConfig:
             notification_command=data.get("notification_command", "imessR"),
             session_names=data.get("session_names", {}),
             vm_storage=data.get("vm_storage", {}),
+            default_nfs_storage=data.get("default_nfs_storage"),
         )
 
 
@@ -337,7 +340,16 @@ class ConfigManager:
 
         Returns:
             True if deleted, False if not found
+
+        Raises:
+            ValueError: If vm_name format is invalid
         """
+        # Validate vm_name format (defense in depth)
+        # Azure VM naming: 1-64 characters, alphanumeric + hyphen/underscore
+        if not vm_name or not re.match(r"^[a-zA-Z0-9_-]{1,64}$", vm_name):
+            logger.warning(f"Invalid vm_name format: {vm_name}")
+            raise ValueError(f"Invalid VM name format: {vm_name}")
+
         try:
             config = cls.load_config(custom_path)
             if config.session_names and vm_name in config.session_names:
