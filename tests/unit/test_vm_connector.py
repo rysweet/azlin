@@ -17,70 +17,70 @@ class TestVMConnector:
     def test_is_valid_ip_valid_ipv4(self):
         """Test IP validation with valid IPv4 addresses."""
         # Standard private IPs
-        assert VMConnector._is_valid_ip("192.168.1.1") is True
-        assert VMConnector._is_valid_ip("10.0.0.1") is True
-        assert VMConnector._is_valid_ip("172.16.0.1") is True
+        assert VMConnector.is_valid_ip("192.168.1.1") is True
+        assert VMConnector.is_valid_ip("10.0.0.1") is True
+        assert VMConnector.is_valid_ip("172.16.0.1") is True
 
         # Public IPs
-        assert VMConnector._is_valid_ip("20.1.2.3") is True
-        assert VMConnector._is_valid_ip("8.8.8.8") is True
+        assert VMConnector.is_valid_ip("20.1.2.3") is True
+        assert VMConnector.is_valid_ip("8.8.8.8") is True
 
         # Edge cases
-        assert VMConnector._is_valid_ip("0.0.0.0") is True  # noqa: S104
-        assert VMConnector._is_valid_ip("255.255.255.255") is True
-        assert VMConnector._is_valid_ip("127.0.0.1") is True  # Loopback
+        assert VMConnector.is_valid_ip("0.0.0.0") is True  # noqa: S104
+        assert VMConnector.is_valid_ip("255.255.255.255") is True
+        assert VMConnector.is_valid_ip("127.0.0.1") is True  # Loopback
 
     def test_is_valid_ip_valid_ipv6(self):
         """Test IP validation with valid IPv6 addresses."""
         # Standard IPv6
-        assert VMConnector._is_valid_ip("2001:0db8:85a3::8a2e:0370:7334") is True
-        assert VMConnector._is_valid_ip("2001:db8:85a3:0:0:8a2e:370:7334") is True
+        assert VMConnector.is_valid_ip("2001:0db8:85a3::8a2e:0370:7334") is True
+        assert VMConnector.is_valid_ip("2001:db8:85a3:0:0:8a2e:370:7334") is True
 
         # Compressed IPv6
-        assert VMConnector._is_valid_ip("2001:db8::1") is True
-        assert VMConnector._is_valid_ip("::1") is True  # Loopback
-        assert VMConnector._is_valid_ip("::") is True  # All zeros
+        assert VMConnector.is_valid_ip("2001:db8::1") is True
+        assert VMConnector.is_valid_ip("::1") is True  # Loopback
+        assert VMConnector.is_valid_ip("::") is True  # All zeros
 
         # Link-local
-        assert VMConnector._is_valid_ip("fe80::1") is True
-        assert VMConnector._is_valid_ip("fe80::200:5aee:feaa:20a2") is True
+        assert VMConnector.is_valid_ip("fe80::1") is True
+        assert VMConnector.is_valid_ip("fe80::200:5aee:feaa:20a2") is True
 
         # IPv6 with embedded IPv4
-        assert VMConnector._is_valid_ip("::ffff:192.0.2.1") is True
+        assert VMConnector.is_valid_ip("::ffff:192.0.2.1") is True
 
     def test_is_valid_ip_invalid(self):
         """Test IP validation with invalid IP addresses."""
         # Invalid VM names
-        assert VMConnector._is_valid_ip("my-vm-name") is False
-        assert VMConnector._is_valid_ip("azlin-vm-12345") is False
-        assert VMConnector._is_valid_ip("invalid") is False
+        assert VMConnector.is_valid_ip("my-vm-name") is False
+        assert VMConnector.is_valid_ip("azlin-vm-12345") is False
+        assert VMConnector.is_valid_ip("invalid") is False
 
         # Invalid IPv4 - out of range octets
-        assert VMConnector._is_valid_ip("256.1.1.1") is False
-        assert VMConnector._is_valid_ip("192.168.1.256") is False
-        assert VMConnector._is_valid_ip("300.300.300.300") is False
+        assert VMConnector.is_valid_ip("256.1.1.1") is False
+        assert VMConnector.is_valid_ip("192.168.1.256") is False
+        assert VMConnector.is_valid_ip("300.300.300.300") is False
 
         # Invalid IPv4 - wrong number of octets
-        assert VMConnector._is_valid_ip("192.168.1") is False
-        assert VMConnector._is_valid_ip("192.168.1.1.1") is False
+        assert VMConnector.is_valid_ip("192.168.1") is False
+        assert VMConnector.is_valid_ip("192.168.1.1.1") is False
 
         # Invalid IPv4 - negative values
-        assert VMConnector._is_valid_ip("192.168.-1.1") is False
-        assert VMConnector._is_valid_ip("-1.-1.-1.-1") is False
+        assert VMConnector.is_valid_ip("192.168.-1.1") is False
+        assert VMConnector.is_valid_ip("-1.-1.-1.-1") is False
 
         # Invalid IPv6
-        assert VMConnector._is_valid_ip("gggg::1") is False
-        assert VMConnector._is_valid_ip("2001:db8::g123") is False
-        assert VMConnector._is_valid_ip(":::1") is False
+        assert VMConnector.is_valid_ip("gggg::1") is False
+        assert VMConnector.is_valid_ip("2001:db8::g123") is False
+        assert VMConnector.is_valid_ip(":::1") is False
 
         # Empty and whitespace
-        assert VMConnector._is_valid_ip("") is False
-        assert VMConnector._is_valid_ip(" ") is False
-        assert VMConnector._is_valid_ip("   ") is False
+        assert VMConnector.is_valid_ip("") is False
+        assert VMConnector.is_valid_ip(" ") is False
+        assert VMConnector.is_valid_ip("   ") is False
 
         # Special cases
-        assert VMConnector._is_valid_ip("192.168.1.1/24") is False  # CIDR notation
-        assert VMConnector._is_valid_ip("192.168.1.1:8080") is False  # With port
+        assert VMConnector.is_valid_ip("192.168.1.1/24") is False  # CIDR notation
+        assert VMConnector.is_valid_ip("192.168.1.1:8080") is False  # With port
 
     @patch("azlin.vm_connector.VMManager")
     @patch("azlin.vm_connector.ConfigManager")

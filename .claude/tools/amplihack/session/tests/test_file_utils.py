@@ -78,7 +78,7 @@ class TestRetryDecorator:
         def os_error_operation():
             raise OSError("OS error")
 
-        with pytest.raises(OSError):  # Should not be retried
+        with pytest.raises(OSError, match="OS error"):  # Should not be retried
             os_error_operation()
 
 

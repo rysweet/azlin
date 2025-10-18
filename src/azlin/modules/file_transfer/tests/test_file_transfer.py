@@ -52,21 +52,21 @@ class TestIPAddressValidation:
 
     def test_accepts_valid_ipv4(self):
         """Should accept valid IPv4 addresses"""
-        FileTransfer._validate_ip_address("192.168.1.1")
-        FileTransfer._validate_ip_address("10.0.0.1")
+        FileTransfer.validate_ip_address("192.168.1.1")
+        FileTransfer.validate_ip_address("10.0.0.1")
 
     def test_accepts_valid_ipv6(self):
         """Should accept valid IPv6 addresses"""
-        FileTransfer._validate_ip_address("::1")
-        FileTransfer._validate_ip_address("2001:0db8:85a3:0000:0000:8a2e:0370:7334")
+        FileTransfer.validate_ip_address("::1")
+        FileTransfer.validate_ip_address("2001:0db8:85a3:0000:0000:8a2e:0370:7334")
 
     def test_rejects_invalid_ip(self):
         """Should reject invalid IP addresses"""
         with pytest.raises(TransferError, match="Invalid IP address"):
-            FileTransfer._validate_ip_address("not-an-ip")
+            FileTransfer.validate_ip_address("not-an-ip")
 
         with pytest.raises(TransferError, match="Invalid IP address"):
-            FileTransfer._validate_ip_address("999.999.999.999")
+            FileTransfer.validate_ip_address("999.999.999.999")
 
 
 class TestRsyncCommandConstruction:
@@ -85,7 +85,7 @@ class TestRsyncCommandConstruction:
         )
         dest = TransferEndpoint(path=Path("/home/azureuser/test.txt"), session=session)
 
-        cmd = FileTransfer._build_rsync_command(source, dest)
+        cmd = FileTransfer.build_rsync_command(source, dest)
 
         assert cmd[0] == "rsync"
         assert "-avz" in cmd
@@ -111,7 +111,7 @@ class TestRsyncCommandConstruction:
         source = TransferEndpoint(path=Path("/home/azureuser/test.txt"), session=session)
         dest = TransferEndpoint(path=Path("/home/user/test.txt"), session=None)
 
-        cmd = FileTransfer._build_rsync_command(source, dest)
+        cmd = FileTransfer.build_rsync_command(source, dest)
 
         assert "azureuser@1.2.3.4:/home/azureuser/test.txt" in cmd
         assert "/home/user/test.txt" in cmd
@@ -129,7 +129,7 @@ class TestRsyncCommandConstruction:
         )
         dest = TransferEndpoint(path=Path("/home/azureuser/test.txt"), session=session)
 
-        cmd = FileTransfer._build_rsync_command(source, dest)
+        cmd = FileTransfer.build_rsync_command(source, dest)
 
         # Command should be a list
         assert isinstance(cmd, list)
@@ -148,13 +148,13 @@ test.txt
 sent 1,234 bytes  received 56 bytes  1,290.00 bytes/sec
 total size is 1,000  speedup is 0.78
 """
-        stats = FileTransfer._parse_rsync_output(output)
+        stats = FileTransfer.parse_rsync_output(output)
         assert stats["bytes"] == 1234
         assert stats["files"] > 0
 
     def test_handles_empty_output(self):
         """Should handle empty output gracefully"""
-        stats = FileTransfer._parse_rsync_output("")
+        stats = FileTransfer.parse_rsync_output("")
         assert stats["bytes"] == 0
         assert stats["files"] == 0
 
@@ -163,7 +163,7 @@ total size is 1,000  speedup is 0.78
         output = """sending incremental file list
 test.txt
 """
-        stats = FileTransfer._parse_rsync_output(output)
+        stats = FileTransfer.parse_rsync_output(output)
         assert stats["files"] > 0
 
 
@@ -171,7 +171,7 @@ class TestTransferExecution:
     """Test transfer execution."""
 
     @patch("subprocess.run")
-    def test_successful_transfer(self, mock_run):
+    def test_successful_transfer(self, mock_run: Mock):
         """Should execute transfer successfully"""
         # Mock subprocess.run
         mock_result = Mock()
@@ -201,7 +201,7 @@ class TestTransferExecution:
         assert call_args.kwargs.get("shell", False) is False
 
     @patch("subprocess.run")
-    def test_failed_transfer(self, mock_run):
+    def test_failed_transfer(self, mock_run: Mock):
         """Should handle failed transfers"""
         # Mock subprocess.run to raise CalledProcessError
         from subprocess import CalledProcessError
@@ -228,7 +228,7 @@ class TestTransferExecution:
         assert "rsync failed" in result.errors[0]
 
     @patch("subprocess.run")
-    def test_timeout_handling(self, mock_run):
+    def test_timeout_handling(self, mock_run: Mock):
         """Should handle transfer timeouts"""
         from subprocess import TimeoutExpired
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .file_utils import safe_write_file
+import contextlib
 
 
 @dataclass
@@ -131,10 +132,8 @@ class FileRotatingHandler(logging.Handler):
 
         # Remove excess files
         for old_file in log_files[self.max_files - 1 :]:
-            try:
+            with contextlib.suppress(Exception):
                 old_file.unlink()
-            except Exception:
-                pass
 
 
 class ToolkitLogger:

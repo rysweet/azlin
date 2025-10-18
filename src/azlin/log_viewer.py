@@ -23,6 +23,7 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
+from typing import ClassVar
 
 from azlin.modules.ssh_connector import SSHConfig, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
@@ -72,7 +73,7 @@ class LogViewer:
     """
 
     # Valid time format patterns for validation
-    TIME_PATTERNS = [
+    TIME_PATTERNS: ClassVar[list[str]] = [
         r"^\d+ (second|minute|hour|day|week|month|year)s? ago$",
         r"^\d{4}-\d{2}-\d{2}$",
         r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$",
@@ -332,9 +333,9 @@ class LogViewer:
             return vm, ssh_config
 
         except VMManagerError as e:
-            raise LogViewerError(f"Failed to get VM info: {e}")
+            raise LogViewerError(f"Failed to get VM info: {e}") from e
         except SSHKeyError as e:
-            raise LogViewerError(f"Failed to get SSH key: {e}")
+            raise LogViewerError(f"Failed to get SSH key: {e}") from e
 
     @classmethod
     def _execute_log_command(
@@ -367,7 +368,7 @@ class LogViewer:
             return LogResult(success=True, logs=result.stdout, vm_name=vm_name, log_type=log_type)
 
         except RemoteExecError as e:
-            raise LogViewerError(f"SSH command failed: {e}")
+            raise LogViewerError(f"SSH command failed: {e}") from e
 
     @classmethod
     def _build_journalctl_command(

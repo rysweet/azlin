@@ -291,12 +291,13 @@ class TestSSHKeyRotator:
     def test_export_public_keys(self, mock_path, mock_key_manager):
         """Test exporting public keys to file."""
         # Setup
+        import tempfile
 
         mock_key_pair = MagicMock()
         mock_key_pair.public_key_content = "ssh-ed25519 AAAA... azlin-key"
         mock_key_manager.ensure_key_exists.return_value = mock_key_pair
 
-        output_file = Path("/tmp/keys.txt")
+        output_file = Path(tempfile.gettempdir()) / "keys.txt"
 
         # Execute
         success = SSHKeyRotator.export_public_key(output_file=output_file)

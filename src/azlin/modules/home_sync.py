@@ -32,6 +32,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from .ssh_connector import SSHConfig
 
@@ -70,8 +71,8 @@ class ValidationResult:
     """Result of security validation."""
 
     is_safe: bool
-    blocked_files: list[str] = field(default_factory=list)
-    warnings: list[SecurityWarning] = field(default_factory=list)
+    blocked_files: list[str] = field(default_factory=list)  # type: ignore[misc]
+    warnings: list[SecurityWarning] = field(default_factory=list)  # type: ignore[misc]
 
 
 @dataclass
@@ -81,8 +82,8 @@ class SyncResult:
     success: bool
     files_synced: int = 0
     bytes_transferred: int = 0
-    warnings: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)  # type: ignore[misc]
+    errors: list[str] = field(default_factory=list)  # type: ignore[misc]
     duration_seconds: float = 0.0
 
 
@@ -105,7 +106,7 @@ class HomeSyncManager:
     # SECURITY LAYER 1: Glob patterns for path-based blocking (NOT regex)
     # CRITICAL FIX: Remove ** prefix - Path.match() requires relative paths without **
     # The ** prefix breaks matching and would allow ALL credential files through!
-    BLOCKED_GLOBS = [
+    BLOCKED_GLOBS: ClassVar[list[str]] = [
         # SSH keys (private) - Matches id_rsa, id_ed25519 but NOT id_rsa.pub
         ".ssh/id_*[!.pub]",
         ".ssh/*_key",
@@ -117,14 +118,9 @@ class HomeSyncManager:
         ".config/gcloud/**/*.json",
         ".config/gcloud/credentials*",
         ".config/gcloud/access_tokens.db",
-        # Azure - GRANULAR: Block tokens/secrets, allow config
-        ".azure/accessTokens.json",
-        ".azure/msal_token_cache.json",
-        ".azure/msal_token_cache.*.json",
-        ".azure/service_principal*.json",
-        ".azure/*token*",
-        ".azure/*secret*",
-        ".azure/*credential*",
+        # Azure - USER REQUEST: Allow .azure/ directory for VM authentication
+        # Only block obviously dangerous files, allow tokens/cache for az CLI
+        ".azure/service_principal*.json",  # Keep blocking service principals
         # Generic credential files
         "*.key",
         "*.pem",
@@ -146,10 +142,25 @@ class HomeSyncManager:
         ".chrome/**",
         ".config/**/*cache*",
         ".config/**/*Cache*",
+        # Development toolchains and package managers (PERFORMANCE: Blocks 2GB+ of files)
+        ".rustup/**",  # Rust toolchains - 1.3GB
+        ".cargo/registry/**",  # Cargo registry cache
+        ".cargo/git/**",  # Cargo git cache
+        ".npm/**",  # npm cache - 283MB
+        ".npm-packages/**",  # npm packages - 421MB
+        ".npm-global/**",  # global npm - 95MB
+        ".pnpm-store/**",  # pnpm store
+        ".yarn/**",  # yarn cache
+        "node_modules/**",  # node modules (already covered but explicit)
+        ".venv/**",  # Python virtual environments
+        "venv/**",  # Python virtual environments
+        ".pyenv/**",  # pyenv versions
+        ".rbenv/**",  # rbenv versions
+        ".nvm/**",  # nvm versions
     ]
 
     # Whitelist overrides blacklist
-    ALLOWED_GLOBS = [
+    ALLOWED_GLOBS: ClassVar[list[str]] = [
         ".ssh/config",
         ".ssh/known_hosts",
         ".ssh/*.pub",
@@ -161,7 +172,7 @@ class HomeSyncManager:
 
     # SECURITY LAYER 2: Dangerous symlink targets
     # SECURITY FIX: Prevent symlink-based credential exfiltration
-    DANGEROUS_SYMLINK_TARGETS = [
+    DANGEROUS_SYMLINK_TARGETS: ClassVar[list[Path]] = [
         Path.home() / ".ssh",
         Path.home() / ".aws",
         Path.home() / ".azure",
@@ -170,7 +181,7 @@ class HomeSyncManager:
 
     # SECURITY LAYER 3: Content-based secret patterns (regex for content only)
     # SECURITY FIX: Detect embedded secrets in config files
-    SECRET_CONTENT_PATTERNS = [
+    SECRET_CONTENT_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         (r"AKIA[0-9A-Z]{16}", "AWS Access Key"),
         (r"aws_secret_access_key\s*=\s*[A-Za-z0-9/+=]{40}", "AWS Secret Key"),
         (r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----", "Private Key"),
@@ -278,7 +289,7 @@ class HomeSyncManager:
         Returns:
             List of security warnings found
         """
-        warnings = []
+        warnings: list[SecurityWarning] = []
 
         # Skip large files (> 1MB)
         try:
@@ -321,7 +332,7 @@ class HomeSyncManager:
         Returns:
             List of security warnings
         """
-        warnings = []
+        warnings: list[SecurityWarning] = []
 
         if not directory.exists():
             return warnings
@@ -442,14 +453,8 @@ class HomeSyncManager:
             ".ssh/*.pem",
             ".aws/credentials",
             ".aws/config",
-            # Azure - granular blocking
-            ".azure/accessTokens.json",
-            ".azure/msal_token_cache.json",
-            ".azure/msal_token_cache.*.json",
+            # Azure - USER REQUEST: Allow .azure/ for VM auth, only block service principals
             ".azure/service_principal*.json",
-            ".azure/*token*",
-            ".azure/*secret*",
-            ".azure/*credential*",
             ".config/gcloud/",
             "*.key",
             "*.pem",
@@ -470,9 +475,23 @@ class HomeSyncManager:
             "*.pyc",
             "node_modules/",
             ".venv/",
+            "venv/",
             ".git/",
             ".mozilla/",
             ".chrome/",
+            "",
+            "# Development toolchains (PERFORMANCE: Blocks 2GB+)",
+            ".rustup/",
+            ".cargo/registry/",
+            ".cargo/git/",
+            ".npm/",
+            ".npm-packages/",
+            ".npm-global/",
+            ".pnpm-store/",
+            ".yarn/",
+            ".pyenv/",
+            ".rbenv/",
+            ".nvm/",
             cls.EXCLUDE_FILE_NAME,  # Don't sync the exclude file itself
         ]
 
@@ -570,7 +589,7 @@ class HomeSyncManager:
         return cmd
 
     @classmethod
-    def _parse_rsync_stats(cls, output: str) -> tuple:
+    def _parse_rsync_stats(cls, output: str) -> tuple[int, int]:
         """Parse rsync output for statistics.
 
         Args:
@@ -644,12 +663,15 @@ class HomeSyncManager:
 
         # PHASE 1 FIX: Don't throw exception, just collect warnings
         # Rsync exclude file will handle blocking
-        sync_warnings = []
+        sync_warnings: list[str] = []
 
         if validation.blocked_files:
             # Add blocked files to warnings list
             sync_warnings.extend(
-                f"Skipped (sensitive): {blocked_file}" for blocked_file in validation.blocked_files
+                [
+                    f"Skipped (sensitive): {blocked_file}"
+                    for blocked_file in validation.blocked_files
+                ]
             )
 
         # Report validation warnings (non-blocking)
@@ -666,34 +688,34 @@ class HomeSyncManager:
         # Execute rsync
         try:
             if progress_callback:
-                progress_callback("Syncing files to VM...")
+                progress_callback("Syncing files to VM (progress will be shown below)...")
 
-            result = subprocess.run(
+            # USER REQUEST: Show verbose progress - let rsync output stream to terminal
+            # Don't capture output so user can see file-by-file transfer progress
+            subprocess.run(
                 cmd,
-                capture_output=True,
                 text=True,
                 timeout=300,  # 5 minutes
                 check=True,
             )
 
-            # Parse rsync output for stats
-            files_synced, bytes_transferred = cls._parse_rsync_stats(result.stdout)
-
+            # Since we're not capturing output, we can't parse exact stats
+            # But user has full visibility into the sync process
             duration = time.time() - start_time
             return SyncResult(
                 success=True,
-                files_synced=files_synced,
-                bytes_transferred=bytes_transferred,
+                files_synced=0,  # Stats unavailable when showing live progress
+                bytes_transferred=0,  # Stats unavailable when showing live progress
                 duration_seconds=duration,
                 warnings=sync_warnings,  # Include blocked file warnings
             )
 
-        except subprocess.TimeoutExpired:
-            raise RsyncError("Sync timed out after 5 minutes")
+        except subprocess.TimeoutExpired as e:
+            raise RsyncError("Sync timed out after 5 minutes") from e
         except subprocess.CalledProcessError as e:
-            raise RsyncError(f"rsync failed: {e.stderr}")
+            raise RsyncError("rsync failed (see output above for details)") from e
         except Exception as e:
-            raise RsyncError(f"Sync failed: {e!s}")
+            raise RsyncError(f"Sync failed: {e!s}") from e
 
 
 # Public API

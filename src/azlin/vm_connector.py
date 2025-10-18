@@ -237,7 +237,7 @@ class VMConnector:
             VMConnectorError: If connection fails
         """
         # Validate IP address
-        if not cls._is_valid_ip(ip_address):
+        if not cls.is_valid_ip(ip_address):
             raise VMConnectorError(f"Invalid IP address: {ip_address}")
 
         return cls.connect(
@@ -273,7 +273,7 @@ class VMConnector:
             VMConnectorError: If VM not found or info cannot be resolved
         """
         # Check if identifier is an IP address
-        if cls._is_valid_ip(vm_identifier):
+        if cls.is_valid_ip(vm_identifier):
             return ConnectionInfo(
                 vm_name=vm_identifier,
                 ip_address=vm_identifier,
@@ -331,7 +331,7 @@ class VMConnector:
             raise VMConnectorError(f"Failed to get VM info: {e}") from e
 
     @classmethod
-    def _is_valid_ip(cls, identifier: str) -> bool:
+    def is_valid_ip(cls, identifier: str) -> bool:
         """Check if string is a valid IP address.
 
         Uses Python's ipaddress module for standards-compliant validation.
@@ -344,11 +344,11 @@ class VMConnector:
             True if valid IPv4 or IPv6 address
 
         Example:
-            >>> VMConnector._is_valid_ip("192.168.1.1")
+            >>> VMConnector.is_valid_ip("192.168.1.1")
             True
-            >>> VMConnector._is_valid_ip("2001:db8::1")
+            >>> VMConnector.is_valid_ip("2001:db8::1")
             True
-            >>> VMConnector._is_valid_ip("my-vm-name")
+            >>> VMConnector.is_valid_ip("my-vm-name")
             False
         """
         try:

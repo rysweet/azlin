@@ -82,7 +82,7 @@ class TestMountStorage:
         """Mount should copy backed up files to empty share."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
 
-        result = NFSMountManager.mount_storage("1.2.3.4", Path("/fake/key"), "endpoint:/share")
+        NFSMountManager.mount_storage("1.2.3.4", Path("/fake/key"), "endpoint:/share")
 
         # Should copy backup files
         ssh_commands = [call[0][0] for call in mock_run.call_args_list]
