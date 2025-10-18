@@ -208,7 +208,7 @@ class NFSMountManager:
                     )
             except Exception as rollback_error:
                 logger.error(f"Rollback failed: {rollback_error}")
-                errors.append(f"Rollback error: {str(rollback_error)}")
+                errors.append(f"Rollback error: {rollback_error!s}")
 
             return MountResult(
                 success=False,
@@ -422,8 +422,8 @@ class NFSMountManager:
 
 # Public API
 __all__ = [
-    "NFSMountManager",
-    "MountResult",
-    "UnmountResult",
     "MountInfo",
+    "MountResult",
+    "NFSMountManager",
+    "UnmountResult",
 ]

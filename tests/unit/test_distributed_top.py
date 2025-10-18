@@ -332,9 +332,7 @@ class TestSecurityValidation:
         key.touch()
 
         malicious_config = SSHConfig(
-            host="-oProxyCommand=evil",
-            user="azureuser",
-            key_path=str(key)
+            host="-oProxyCommand=evil", user="azureuser", key_path=str(key)
         )
 
         metrics = DistributedTopExecutor.collect_vm_metrics(malicious_config, timeout=5)
@@ -349,11 +347,7 @@ class TestSecurityValidation:
         key.touch()
 
         # Test username with special characters
-        invalid_config = SSHConfig(
-            host="10.0.0.1",
-            user="user;whoami",
-            key_path=str(key)
-        )
+        invalid_config = SSHConfig(host="10.0.0.1", user="user;whoami", key_path=str(key))
 
         metrics = DistributedTopExecutor.collect_vm_metrics(invalid_config, timeout=5)
 
@@ -365,11 +359,7 @@ class TestSecurityValidation:
         key = tmp_path / "key"
         key.touch()
 
-        invalid_config = SSHConfig(
-            host="10.0.0.1",
-            user="user name",
-            key_path=str(key)
-        )
+        invalid_config = SSHConfig(host="10.0.0.1", user="user name", key_path=str(key))
 
         metrics = DistributedTopExecutor.collect_vm_metrics(invalid_config, timeout=5)
 
@@ -379,9 +369,7 @@ class TestSecurityValidation:
     def test_missing_key_path_handling(self):
         """Test that missing SSH key paths are rejected."""
         missing_key_config = SSHConfig(
-            host="10.0.0.1",
-            user="azureuser",
-            key_path="/nonexistent/path/to/key"
+            host="10.0.0.1", user="azureuser", key_path="/nonexistent/path/to/key"
         )
 
         metrics = DistributedTopExecutor.collect_vm_metrics(missing_key_config, timeout=5)
@@ -394,11 +382,7 @@ class TestSecurityValidation:
         key_dir = tmp_path / "keydir"
         key_dir.mkdir()
 
-        invalid_config = SSHConfig(
-            host="10.0.0.1",
-            user="azureuser",
-            key_path=str(key_dir)
-        )
+        invalid_config = SSHConfig(host="10.0.0.1", user="azureuser", key_path=str(key_dir))
 
         metrics = DistributedTopExecutor.collect_vm_metrics(invalid_config, timeout=5)
 

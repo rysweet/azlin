@@ -20,7 +20,6 @@ import pytest
 from azlin.modules.home_sync import (
     HomeSyncManager,
     RsyncError,
-    SecurityValidationError,
 )
 from azlin.modules.ssh_connector import SSHConfig
 

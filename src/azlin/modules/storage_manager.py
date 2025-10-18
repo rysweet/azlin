@@ -508,7 +508,7 @@ class StorageManager:
         """Validate storage tier."""
         if tier not in cls.VALID_TIERS:
             raise ValidationError(
-                f"Tier must be one of: {', '.join(cls.VALID_TIERS)} " f"(got: {tier})"
+                f"Tier must be one of: {', '.join(cls.VALID_TIERS)} (got: {tier})"
             )
 
     @classmethod
@@ -523,11 +523,11 @@ class StorageManager:
 
 # Public API
 __all__ = [
-    "StorageManager",
-    "StorageInfo",
-    "StorageStatus",
     "StorageError",
-    "StorageNotFoundError",
     "StorageInUseError",
+    "StorageInfo",
+    "StorageManager",
+    "StorageNotFoundError",
+    "StorageStatus",
     "ValidationError",
 ]

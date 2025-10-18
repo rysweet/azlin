@@ -1,7 +1,7 @@
 # Azure Files NFS Feature Requirements
 
-**Epic**: Phase 1.1 - Core Storage Management  
-**Date**: October 18, 2025  
+**Epic**: Phase 1.1 - Core Storage Management
+**Date**: October 18, 2025
 **Status**: Requirements Definition
 
 ---
@@ -347,21 +347,21 @@ azlin storage delete dev-shared  # After detaching all VMs
 ### High Risk
 1. **NFS performance** - May not meet expectations
    - Mitigation: Test early, offer hybrid mode
-   
+
 2. **VNet complexity** - Networking issues
    - Mitigation: Auto-create VNet, clear error messages
 
 ### Medium Risk
 1. **Cost overrun** - Storage costs add up
    - Mitigation: Clear cost estimates, warnings
-   
+
 2. **Data loss** - Accidental deletion
    - Mitigation: Confirmation prompts, backup warnings
 
 ### Low Risk
 1. **Azure API changes** - Breaking changes
    - Mitigation: Use stable API versions
-   
+
 2. **Concurrent access issues** - File locking
    - Mitigation: Document limitations, best practices
 

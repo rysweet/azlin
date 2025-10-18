@@ -2,6 +2,7 @@
 
 import ipaddress
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,7 +45,7 @@ class FileTransfer:
         cls,
         source: TransferEndpoint,
         dest: TransferEndpoint,
-        progress_callback: callable | None = None,
+        progress_callback: Callable[..., None] | None = None,
     ) -> TransferResult:
         """
         Transfer files from source to destination.

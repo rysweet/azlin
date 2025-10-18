@@ -544,18 +544,17 @@ class CLIOrchestrator:
 
         if len(storages) == 0:
             return None
-        elif len(storages) == 1:
+        if len(storages) == 1:
             # Auto-detect single storage
             storage_name = storages[0].name
             self.progress.update(f"Auto-detected NFS storage: {storage_name}")
             return storage_name
-        else:
-            # Multiple storages without explicit choice
-            storage_names = [s.name for s in storages]
-            raise ValueError(
-                f"Multiple NFS storage accounts found: {', '.join(storage_names)}. "
-                f"Please specify one with --nfs-storage or set default_nfs_storage in config."
-            )
+        # Multiple storages without explicit choice
+        storage_names = [s.name for s in storages]
+        raise ValueError(
+            f"Multiple NFS storage accounts found: {', '.join(storage_names)}. "
+            f"Please specify one with --nfs-storage or set default_nfs_storage in config."
+        )
 
     def _mount_nfs_storage(self, vm_details: VMDetails, key_path: Path, storage_name: str) -> None:
         """Mount NFS storage on VM home directory.
