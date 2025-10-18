@@ -2466,6 +2466,24 @@ def connect(
                     err=True,
                 )
                 sys.exit(1)
+
+            # Verify VM exists if it was resolved from a session name
+            if original_identifier != vm_identifier:
+                try:
+                    vm_info = VMManager.get_vm(vm_identifier, rg)
+                    if vm_info is None:
+                        click.echo(
+                            f"Error: Session '{original_identifier}' points to VM '{vm_identifier}' "
+                            f"which no longer exists.",
+                            err=True,
+                        )
+                        # Clean up stale mapping
+                        ConfigManager.delete_session_name(vm_identifier)
+                        click.echo(f"Removed stale session mapping for '{vm_identifier}'")
+                        sys.exit(1)
+                except VMManagerError as e:
+                    click.echo(f"Error: Failed to verify VM exists: {e}", err=True)
+                    sys.exit(1)
         else:
             rg = resource_group
 

@@ -11,6 +11,7 @@ Security:
 
 import logging
 import os
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -339,7 +340,16 @@ class ConfigManager:
 
         Returns:
             True if deleted, False if not found
+
+        Raises:
+            ValueError: If vm_name format is invalid
         """
+        # Validate vm_name format (defense in depth)
+        # Azure VM naming: 1-64 characters, alphanumeric + hyphen/underscore
+        if not vm_name or not re.match(r"^[a-zA-Z0-9_-]{1,64}$", vm_name):
+            logger.warning(f"Invalid vm_name format: {vm_name}")
+            raise ValueError(f"Invalid VM name format: {vm_name}")
+
         try:
             config = cls.load_config(custom_path)
             if config.session_names and vm_name in config.session_names:
