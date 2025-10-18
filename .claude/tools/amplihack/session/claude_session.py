@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -17,7 +17,7 @@ class SessionConfig:
     heartbeat_interval: float = 30.0
     enable_logging: bool = True
     log_level: str = "INFO"
-    session_id: Optional[str] = None
+    session_id: str | None = None
     auto_save_interval: float = 60.0  # Auto-save every minute
 
 
@@ -31,7 +31,7 @@ class SessionState:
     is_active: bool = True
     command_count: int = 0
     error_count: int = 0
-    last_error: Optional[str] = None
+    last_error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -61,7 +61,7 @@ class ClaudeSession:
         ...     session.save_checkpoint()
     """
 
-    def __init__(self, config: Optional[SessionConfig] = None):
+    def __init__(self, config: SessionConfig | None = None):
         """Initialize Claude session with configuration.
 
         Args:
@@ -70,7 +70,7 @@ class ClaudeSession:
         self.config = config or SessionConfig()
         self.state = SessionState(session_id=self.config.session_id or self._generate_session_id())
         self.logger = self._setup_logger()
-        self._heartbeat_thread: Optional[threading.Thread] = None
+        self._heartbeat_thread: threading.Thread | None = None
         self._shutdown_event = threading.Event()
         self._command_history: list[dict[str, Any]] = []
         self._checkpoints: list[SessionState] = []
@@ -158,7 +158,7 @@ class ClaudeSession:
         self.state.last_error = f"Session timeout after {self.config.timeout}s"
         self.logger.error(self.state.last_error)
 
-    def execute_command(self, command: str, timeout: Optional[float] = None, **kwargs) -> Any:
+    def execute_command(self, command: str, timeout: float | None = None, **kwargs) -> Any:
         """Execute a command with timeout and retry logic.
 
         Args:

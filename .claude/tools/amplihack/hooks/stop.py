@@ -15,7 +15,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Clean import structure
 sys.path.insert(0, str(Path(__file__).parent))
@@ -39,7 +39,7 @@ class StopHook(HookProcessor):
     def __init__(self):
         super().__init__("stop")
 
-    def display_decision_summary(self, session_id: Optional[str] = None) -> str:
+    def display_decision_summary(self, session_id: str | None = None) -> str:
         """Display decision records summary at session end.
 
         Args:
@@ -436,7 +436,7 @@ class StopHook(HookProcessor):
             self.log(f"Error reading transcript: {e}", "ERROR")
             return []
 
-    def find_session_transcript(self, session_id: str) -> Optional[Path]:
+    def find_session_transcript(self, session_id: str) -> Path | None:
         """Find transcript file for a given session ID.
 
         Args:

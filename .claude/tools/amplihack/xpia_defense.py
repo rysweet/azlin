@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from functools import lru_cache
-from typing import Any, Optional, Union
+from typing import Any
 
 # Add the project root to the Python path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
@@ -92,18 +92,18 @@ except ImportError:
     @dataclass
     class ValidationContext:
         source: str
-        session_id: Optional[str] = None
-        agent_id: Optional[str] = None
-        working_directory: Optional[str] = None
-        environment: Optional[dict[str, str]] = None
+        session_id: str | None = None
+        agent_id: str | None = None
+        working_directory: str | None = None
+        environment: dict[str, str] | None = None
 
     @dataclass
     class ThreatDetection:
         threat_type: ThreatType
         severity: RiskLevel
         description: str
-        location: Optional[dict[str, int]] = None
-        mitigation: Optional[str] = None
+        location: dict[str, int] | None = None
+        mitigation: str | None = None
 
     @dataclass
     class ValidationResult:
@@ -146,8 +146,8 @@ except ImportError:
     class HookRegistration:
         name: str
         hook_type: HookType
-        callback: Union[str, Callable]
-        conditions: Optional[dict[str, Any]] = None
+        callback: str | Callable
+        conditions: dict[str, Any] | None = None
         priority: int = 50
 
     class XPIADefenseError(Exception):
@@ -180,7 +180,7 @@ class PatternDefinition:
     risk_level: RiskLevel
     threat_type: ThreatType
     description: str
-    mitigation: Optional[str] = None
+    mitigation: str | None = None
     context_exceptions: set[str] = field(default_factory=set)
 
 
@@ -520,7 +520,7 @@ class XPIADefenseEngine:
     performance optimization, and graduated response system.
     """
 
-    def __init__(self, config: Optional[SecurityConfiguration] = None):
+    def __init__(self, config: SecurityConfiguration | None = None):
         self.config = config or SecurityConfiguration()
         self.pattern_library = ThreatPatternLibrary()
         self.performance_metrics = PerformanceMetrics()
@@ -537,8 +537,8 @@ class XPIADefenseEngine:
         self,
         content: str,
         content_type: ContentType,
-        context: Optional[ValidationContext] = None,
-        security_level: Optional[SecurityLevel] = None,
+        context: ValidationContext | None = None,
+        security_level: SecurityLevel | None = None,
     ) -> ValidationResult:
         """
         Multi-stage validation pipeline
@@ -689,7 +689,7 @@ class XPIADefenseEngine:
         return f"{content_hash}_{content_type.value}_{security_level.value}"
 
     def _get_context_string(
-        self, context: Optional[ValidationContext], content_type: ContentType
+        self, context: ValidationContext | None, content_type: ContentType
     ) -> str:
         """Extract context string for pattern matching"""
         if context and context.source:
@@ -909,7 +909,7 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
     optimization and comprehensive error handling.
     """
 
-    def __init__(self, config: Optional[SecurityConfiguration] = None):
+    def __init__(self, config: SecurityConfiguration | None = None):
         self.config = config or SecurityConfiguration()
         self.engine = XPIADefenseEngine(self.config)
         self.logger = logging.getLogger(__name__)
@@ -918,8 +918,8 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
         self,
         content: str,
         content_type: ContentType,
-        context: Optional[ValidationContext] = None,
-        security_level: Optional[SecurityLevel] = None,
+        context: ValidationContext | None = None,
+        security_level: SecurityLevel | None = None,
     ) -> ValidationResult:
         """
         Validate arbitrary content for security threats
@@ -958,8 +958,8 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
     async def validate_bash_command(  # type: ignore
         self,
         command: str,
-        arguments: Optional[list[str]] = None,
-        context: Optional[ValidationContext] = None,
+        arguments: list[str] | None = None,
+        context: ValidationContext | None = None,
     ) -> ValidationResult:
         """
         Validate bash commands for security threats
@@ -1198,7 +1198,7 @@ def create_default_configuration() -> SecurityConfiguration:
 
 
 async def create_xpia_defense_client(
-    api_base_url: Optional[str] = None, api_key: Optional[str] = None, timeout: int = 30
+    api_base_url: str | None = None, api_key: str | None = None, timeout: int = 30
 ) -> SecurityValidator:
     """
     Factory function to create XPIA Defense client
@@ -1216,8 +1216,8 @@ async def create_xpia_defense_client(
 
 def create_validation_context(
     source: str = "system",
-    session_id: Optional[str] = None,
-    agent_id: Optional[str] = None,
+    session_id: str | None = None,
+    agent_id: str | None = None,
     **kwargs,
 ) -> ValidationContext:
     """Create a validation context with sensible defaults"""
@@ -1254,7 +1254,7 @@ def pre_validate_user_input(content: str, context: str = "user") -> str:
     return content
 
 
-def validate_bash_command_hook(command: str, args: Optional[list[str]] = None) -> bool:
+def validate_bash_command_hook(command: str, args: list[str] | None = None) -> bool:
     """
     Hook for bash command validation
 

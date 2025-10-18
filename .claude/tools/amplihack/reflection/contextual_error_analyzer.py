@@ -11,7 +11,7 @@ import importlib.util
 import json
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any
 
 SDK_AVAILABLE = importlib.util.find_spec("claude_code_sdk") is not None
 
@@ -79,7 +79,7 @@ class ContextualErrorAnalyzer:
         # Fallback to keyword-based analysis
         return self._analyze_with_keywords(safe_content, safe_context)
 
-    async def _analyze_with_llm(self, error_content: str, context: str) -> Optional[ErrorAnalysis]:
+    async def _analyze_with_llm(self, error_content: str, context: str) -> ErrorAnalysis | None:
         """Analyze errors using Claude Code SDK with proper timeout handling."""
 
         prompt = self._create_analysis_prompt(error_content, context)
@@ -121,7 +121,7 @@ Return ONLY valid JSON with the specified structure.""",
             # Call with timeout
             return await asyncio.wait_for(_sdk_analysis(), timeout=120)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             print("Claude Code SDK timed out after 120 seconds")
             return None
         except Exception as e:
@@ -166,7 +166,7 @@ Guidelines:
 
 Return ONLY the JSON response, no additional text."""
 
-    def _parse_llm_response(self, response: str) -> Optional[ErrorAnalysis]:
+    def _parse_llm_response(self, response: str) -> ErrorAnalysis | None:
         """Parse LLM response and create ErrorAnalysis object."""
 
         # Handle markdown code blocks
@@ -347,7 +347,7 @@ Return ONLY the JSON response, no additional text."""
             confidence=0.0,
         )
 
-    def get_top_suggestion(self, error_content: str, context: str = "") -> Optional[dict[str, Any]]:
+    def get_top_suggestion(self, error_content: str, context: str = "") -> dict[str, Any] | None:
         """Get the top error suggestion for integration with reflection system.
 
         Args:
@@ -464,7 +464,7 @@ Return ONLY the JSON response, no additional text."""
 
 # Integration point for reflection.py
 def analyze_session_patterns(
-    session_content: str, context: Optional[dict[str, Any]] = None
+    session_content: str, context: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Integration point for reflection system to analyze session patterns.
 

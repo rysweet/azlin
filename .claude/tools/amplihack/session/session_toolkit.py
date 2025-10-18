@@ -6,7 +6,7 @@ Provides a single interface for all session management capabilities.
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .claude_session import ClaudeSession, SessionConfig
 from .file_utils import safe_read_json, safe_write_json
@@ -30,7 +30,7 @@ class SessionToolkit:
     """
 
     def __init__(
-        self, runtime_dir: Optional[Path] = None, auto_save: bool = True, log_level: str = "INFO"
+        self, runtime_dir: Path | None = None, auto_save: bool = True, log_level: str = "INFO"
     ):
         """Initialize session toolkit.
 
@@ -45,15 +45,15 @@ class SessionToolkit:
 
         # Initialize components
         self.session_manager = SessionManager(self.runtime_dir / "sessions")
-        self._current_session: Optional[ClaudeSession] = None
-        self._current_session_id: Optional[str] = None
-        self._logger: Optional[ToolkitLogger] = None
+        self._current_session: ClaudeSession | None = None
+        self._current_session_id: str | None = None
+        self._logger: ToolkitLogger | None = None
 
     def create_session(
         self,
         name: str,
-        config: Optional[SessionConfig] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        config: SessionConfig | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Create a new session.
 
@@ -68,11 +68,11 @@ class SessionToolkit:
         session_id = self.session_manager.create_session(name, config, metadata)
         return session_id
 
-    def get_session(self, session_id: str) -> Optional[ClaudeSession]:
+    def get_session(self, session_id: str) -> ClaudeSession | None:
         """Get session by ID."""
         return self.session_manager.get_session(session_id)
 
-    def resume_session(self, session_id: str) -> Optional[ClaudeSession]:
+    def resume_session(self, session_id: str) -> ClaudeSession | None:
         """Resume session from disk."""
         return self.session_manager.resume_session(session_id)
 
@@ -85,7 +85,7 @@ class SessionToolkit:
         return self.session_manager.archive_session(session_id)
 
     @contextmanager
-    def session(self, name_or_id: str, config: Optional[SessionConfig] = None, resume: bool = True):
+    def session(self, name_or_id: str, config: SessionConfig | None = None, resume: bool = True):
         """Context manager for session lifecycle.
 
         Args:
@@ -152,11 +152,11 @@ class SessionToolkit:
             self._current_session_id = None
             self._logger = None
 
-    def get_current_session(self) -> Optional[ClaudeSession]:
+    def get_current_session(self) -> ClaudeSession | None:
         """Get currently active session."""
         return self._current_session
 
-    def get_logger(self, component: Optional[str] = None) -> Optional[ToolkitLogger]:
+    def get_logger(self, component: str | None = None) -> ToolkitLogger | None:
         """Get logger for current session.
 
         Args:
@@ -277,7 +277,7 @@ class SessionToolkit:
                 self._logger.error(f"Failed to export session {session_id}: {e}")
             return False
 
-    def import_session_data(self, import_path: Path) -> Optional[str]:
+    def import_session_data(self, import_path: Path) -> str | None:
         """Import session data from export file.
 
         Args:

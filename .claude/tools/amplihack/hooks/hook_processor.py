@@ -10,7 +10,7 @@ import traceback
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class HookProcessor(ABC):
@@ -41,7 +41,7 @@ class HookProcessor(ABC):
         except ImportError:
             # Fallback: try to find project root by looking for .claude marker
             current = Path(__file__).resolve().parent
-            found_root: Optional[Path] = None
+            found_root: Path | None = None
 
             for _ in range(10):  # Max 10 levels up
                 # Check old location (repo root)
@@ -146,7 +146,7 @@ class HookProcessor(ABC):
         """
         json.dump(output, sys.stdout)
 
-    def save_metric(self, metric_name: str, value: Any, metadata: Optional[dict] = None):
+    def save_metric(self, metric_name: str, value: Any, metadata: dict | None = None):
         """Save a metric to the metrics directory.
 
         Args:

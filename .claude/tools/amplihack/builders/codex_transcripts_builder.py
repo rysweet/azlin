@@ -7,7 +7,7 @@ Builds structured knowledge extraction and codex from multiple session transcrip
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 try:
     from ..paths import get_project_root
@@ -22,7 +22,7 @@ except ImportError:
 class CodexTranscriptsBuilder:
     """Builds codex and knowledge extraction from multiple session transcripts."""
 
-    def __init__(self, output_dir: Optional[str] = None):
+    def __init__(self, output_dir: str | None = None):
         """Initialize codex builder.
 
         Args:
@@ -37,7 +37,7 @@ class CodexTranscriptsBuilder:
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def build_comprehensive_codex(self, session_ids: Optional[list[str]] = None) -> str:
+    def build_comprehensive_codex(self, session_ids: list[str] | None = None) -> str:
         """Build comprehensive codex from all or specified sessions.
 
         Args:
@@ -78,7 +78,7 @@ class CodexTranscriptsBuilder:
 
         return str(codex_file)
 
-    def build_focused_codex(self, focus_area: str, session_ids: Optional[list[str]] = None) -> str:
+    def build_focused_codex(self, focus_area: str, session_ids: list[str] | None = None) -> str:
         """Build focused codex for specific area (tools, errors, patterns, etc.).
 
         Args:
@@ -111,7 +111,7 @@ class CodexTranscriptsBuilder:
 
         return str(codex_file)
 
-    def extract_learning_corpus(self, session_ids: Optional[list[str]] = None) -> str:
+    def extract_learning_corpus(self, session_ids: list[str] | None = None) -> str:
         """Extract learning corpus for training and knowledge transfer.
 
         Args:
@@ -145,7 +145,7 @@ class CodexTranscriptsBuilder:
 
         return str(corpus_file)
 
-    def generate_insights_report(self, session_ids: Optional[list[str]] = None) -> str:
+    def generate_insights_report(self, session_ids: list[str] | None = None) -> str:
         """Generate insights report from session transcripts.
 
         Args:
@@ -178,7 +178,7 @@ class CodexTranscriptsBuilder:
 
         return str(report_file)
 
-    def _get_sessions(self, session_ids: Optional[list[str]]) -> list[dict[str, Any]]:
+    def _get_sessions(self, session_ids: list[str] | None) -> list[dict[str, Any]]:
         """Get session data for specified or all sessions."""
         if session_ids:
             available_ids = set(self._get_all_session_ids())
@@ -206,7 +206,7 @@ class CodexTranscriptsBuilder:
 
         return sorted(session_ids, reverse=True)
 
-    def _load_session_data(self, session_id: str) -> Optional[dict[str, Any]]:
+    def _load_session_data(self, session_id: str) -> dict[str, Any] | None:
         """Load session data from various files."""
         session_dir = self.logs_dir / session_id
         if not session_dir.exists():
