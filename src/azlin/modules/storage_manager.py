@@ -146,12 +146,18 @@ class StorageManager:
         logger.info(f"Creating storage account {name} in {resource_group}")
 
         try:
-            # For NFS, we need StorageV2 with hierarchical namespace
-            # Premium tier uses Premium_ZRS, Standard uses Standard_LRS
-            sku = "Premium_ZRS" if tier == "Premium" else "Standard_LRS"
-            kind = "StorageV2"
+            # For NFS Premium, we use FileStorage with NFS file shares
+            # For NFS Standard, we use StorageV2 with hierarchical namespace and blob containers
+            if tier == "Premium":
+                sku = "Premium_ZRS"
+                kind = "FileStorage"
+                enable_hns = False
+            else:
+                sku = "Standard_LRS"
+                kind = "StorageV2"
+                enable_hns = True
 
-            # Create storage account with hierarchical namespace and NFS
+            # Build create command
             cmd = [
                 "az",
                 "storage",
@@ -167,10 +173,6 @@ class StorageManager:
                 sku,
                 "--kind",
                 kind,
-                "--enable-hierarchical-namespace",
-                "true",
-                "--enable-nfs-v3",
-                "true",
                 "--https-only",
                 "false",  # NFS requires http
                 "--default-action",
@@ -181,18 +183,27 @@ class StorageManager:
                 "json",
             ]
 
+            # Only add HNS and NFS-v3 flags for Standard (StorageV2)
+            if enable_hns:
+                cmd.extend(["--enable-hierarchical-namespace", "true"])
+                cmd.extend(["--enable-nfs-v3", "true"])
+
             logger.info(f"Running command: {' '.join(cmd)}")
 
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
 
             storage_data = json.loads(result.stdout)
 
-            # Create blob container with NFS protocol (not file share for HNS accounts!)
-            container_name = "home"
-            cls._create_nfs_container(name, resource_group, container_name)
-
-            # Get NFS endpoint - for NFS with HNS, we use blob storage
-            nfs_endpoint = f"{name}.blob.core.windows.net:/{name}/{container_name}"
+            # Create appropriate storage type
+            share_name = "home"
+            if tier == "Premium":
+                # Premium uses NFS file shares
+                cls._create_nfs_file_share(name, resource_group, share_name, size_gb)
+                nfs_endpoint = f"{name}.file.core.windows.net:/{name}/{share_name}"
+            else:
+                # Standard uses blob containers with NFS
+                cls._create_nfs_container(name, resource_group, share_name)
+                nfs_endpoint = f"{name}.blob.core.windows.net:/{name}/{share_name}"
 
             return StorageInfo(
                 name=name,
