@@ -19,7 +19,7 @@ from azlin.modules.nfs_mount_manager import (
 class TestMountStorage:
     """Test NFS mount operations."""
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_mount_installs_nfs_common(self, mock_run):
         """Mount should install nfs-common if not present."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -35,7 +35,7 @@ class TestMountStorage:
         assert any("apt-get install" in str(cmd) and "nfs-common" in str(cmd) 
                    for cmd in ssh_commands)
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_mount_backs_up_existing_data(self, mock_run):
         """Mount should backup existing home directory."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -50,7 +50,7 @@ class TestMountStorage:
         assert any("mv /home/azureuser /home/azureuser.backup" in str(cmd)
                    for cmd in ssh_commands)
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_mount_creates_mount_point(self, mock_run):
         """Mount should create mount point directory."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -65,7 +65,7 @@ class TestMountStorage:
         assert any("mkdir -p /home/azureuser" in str(cmd)
                    for cmd in ssh_commands)
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_mount_mounts_nfs_share(self, mock_run):
         """Mount should execute NFS mount command."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -80,7 +80,7 @@ class TestMountStorage:
         assert any("mount -t nfs" in str(cmd) and "endpoint.file.core.windows.net:/share" in str(cmd)
                    for cmd in ssh_commands)
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_mount_updates_fstab(self, mock_run):
         """Mount should add entry to /etc/fstab for persistence."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -94,7 +94,7 @@ class TestMountStorage:
         ssh_commands = [call[0][0] for call in mock_run.call_args_list]
         assert any("/etc/fstab" in str(cmd) for cmd in ssh_commands)
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_mount_copies_backup_if_share_empty(self, mock_run):
         """Mount should copy backed up files to empty share."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -110,7 +110,7 @@ class TestMountStorage:
         assert any("cp -a" in str(cmd) and ".backup" in str(cmd)
                    for cmd in ssh_commands)
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_mount_returns_mount_result(self, mock_run):
         """Mount should return MountResult with status."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -125,7 +125,7 @@ class TestMountStorage:
         assert result.success is True
         assert result.mount_point == "/home/azureuser"
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_mount_rollback_on_failure(self, mock_run):
         """Mount should rollback on failure."""
         # First few commands succeed, then mount fails
@@ -151,7 +151,7 @@ class TestMountStorage:
 class TestUnmountStorage:
     """Test NFS unmount operations."""
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_unmount_copies_data_to_local(self, mock_run):
         """Unmount should copy shared data to local backup."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -162,7 +162,7 @@ class TestUnmountStorage:
         assert any("cp -a /home/azureuser" in str(cmd) and ".local" in str(cmd)
                    for cmd in ssh_commands)
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_unmount_unmounts_nfs_share(self, mock_run):
         """Unmount should execute umount command."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -173,7 +173,7 @@ class TestUnmountStorage:
         assert any("umount /home/azureuser" in str(cmd)
                    for cmd in ssh_commands)
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_unmount_removes_fstab_entry(self, mock_run):
         """Unmount should remove entry from /etc/fstab."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -184,7 +184,7 @@ class TestUnmountStorage:
         assert any("/etc/fstab" in str(cmd) and ("sed" in str(cmd) or "grep -v" in str(cmd))
                    for cmd in ssh_commands)
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_unmount_restores_local_copy(self, mock_run):
         """Unmount should move local copy back to home."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -195,7 +195,7 @@ class TestUnmountStorage:
         assert any("mv" in str(cmd) and ".local" in str(cmd) and "/home/azureuser" in str(cmd)
                    for cmd in ssh_commands)
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_unmount_returns_unmount_result(self, mock_run):
         """Unmount should return UnmountResult."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -209,7 +209,7 @@ class TestUnmountStorage:
 class TestVerifyMount:
     """Test mount verification."""
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_verify_mount_nfs_mounted(self, mock_run):
         """Verify should return True if NFS mounted."""
         mock_run.return_value = MagicMock(
@@ -221,7 +221,7 @@ class TestVerifyMount:
         
         assert result is True
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_verify_mount_not_mounted(self, mock_run):
         """Verify should return False if not mounted."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -234,7 +234,7 @@ class TestVerifyMount:
 class TestGetMountInfo:
     """Test getting mount information."""
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_get_mount_info_when_mounted(self, mock_run):
         """Get mount info should return MountInfo if mounted."""
         mock_run.return_value = MagicMock(
@@ -249,7 +249,7 @@ class TestGetMountInfo:
         assert "endpoint:/share" in result.nfs_endpoint
         assert result.filesystem_type == "nfs4"
 
-    @patch("azlin.nfs_mount_manager.subprocess.run")
+    @patch("azlin.modules.nfs_mount_manager.subprocess.run")
     def test_get_mount_info_when_not_mounted(self, mock_run):
         """Get mount info should return None if not mounted."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
