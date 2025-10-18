@@ -182,10 +182,18 @@ class CLIOrchestrator:
             self._wait_for_cloud_init(vm_details, ssh_key_pair.private_path)
             self.progress.complete(success=True, message="All development tools installed")
 
-            # STEP 5.5: Mount NFS storage if specified (BEFORE home sync)
-            if self.nfs_storage:
-                self.progress.start_operation(f"Mounting NFS storage: {self.nfs_storage}")
-                self._mount_nfs_storage(vm_details, ssh_key_pair.private_path)
+            # STEP 5.5: Resolve and mount NFS storage if configured (BEFORE home sync)
+            # Load config for NFS defaults
+            try:
+                azlin_config = ConfigManager.load_config(self.config_file)
+            except ConfigError:
+                azlin_config = AzlinConfig()
+
+            resolved_nfs = self._resolve_nfs_storage(rg_name, azlin_config)
+
+            if resolved_nfs:
+                self.progress.start_operation(f"Mounting NFS storage: {resolved_nfs}")
+                self._mount_nfs_storage(vm_details, ssh_key_pair.private_path, resolved_nfs)
                 self.progress.complete(success=True, message="NFS storage mounted")
             else:
                 # Only sync home directory if NOT using NFS storage
@@ -453,12 +461,64 @@ class CLIOrchestrator:
             self.progress.update("Home sync failed (unexpected error)", ProgressStage.WARNING)
             logger.exception("Unexpected error during home sync")
 
-    def _mount_nfs_storage(self, vm_details: VMDetails, key_path: Path) -> None:
+    def _resolve_nfs_storage(self, resource_group: str, config: AzlinConfig | None) -> str | None:
+        """Resolve which NFS storage to use.
+
+        Priority:
+        1. Explicit --nfs-storage option
+        2. Config file default_nfs_storage
+        3. Auto-detect if only one storage exists
+        4. None if no storage or multiple without explicit choice
+
+        Args:
+            resource_group: Resource group to search for storage
+            config: Configuration object (optional)
+
+        Returns:
+            Storage name or None
+
+        Raises:
+            ValueError: If multiple storages exist without explicit choice
+        """
+        from azlin.modules.storage_manager import StorageManager
+
+        # Priority 1: Explicit --nfs-storage option
+        if self.nfs_storage:
+            return self.nfs_storage
+
+        # Priority 2: Config file default
+        if config and config.default_nfs_storage:
+            return config.default_nfs_storage
+
+        # Priority 3: Auto-detect
+        try:
+            storages = StorageManager.list_storage(resource_group)
+        except Exception as e:
+            logger.debug(f"Failed to list storages: {e}")
+            return None
+
+        if len(storages) == 0:
+            return None
+        elif len(storages) == 1:
+            # Auto-detect single storage
+            storage_name = storages[0].name
+            self.progress.update(f"Auto-detected NFS storage: {storage_name}")
+            return storage_name
+        else:
+            # Multiple storages without explicit choice
+            storage_names = [s.name for s in storages]
+            raise ValueError(
+                f"Multiple NFS storage accounts found: {', '.join(storage_names)}. "
+                f"Please specify one with --nfs-storage or set default_nfs_storage in config."
+            )
+
+    def _mount_nfs_storage(self, vm_details: VMDetails, key_path: Path, storage_name: str) -> None:
         """Mount NFS storage on VM home directory.
 
         Args:
             vm_details: VM details
             key_path: SSH private key path
+            storage_name: Name of the NFS storage account to mount
 
         Raises:
             Exception: If storage mount fails (this is a critical operation)
@@ -468,19 +528,19 @@ class CLIOrchestrator:
 
         try:
             # Get storage details
-            self.progress.update(f"Fetching storage account: {self.nfs_storage}")
+            self.progress.update(f"Fetching storage account: {storage_name}")
 
             # Get resource group (use the VM's resource group)
             rg = vm_details.resource_group
 
             # List storage accounts to find the one we want
             accounts = StorageManager.list_storage(rg)
-            storage = next((a for a in accounts if a.name == self.nfs_storage), None)
+            storage = next((a for a in accounts if a.name == storage_name), None)
 
             if not storage:
                 raise Exception(
-                    f"Storage account '{self.nfs_storage}' not found in resource group '{rg}'. "
-                    f"Create it first with: azlin storage create {self.nfs_storage}"
+                    f"Storage account '{storage_name}' not found in resource group '{rg}'. "
+                    f"Create it first with: azlin storage create {storage_name}"
                 )
 
             self.progress.update(f"Storage found: {storage.nfs_endpoint}")
@@ -502,7 +562,9 @@ class CLIOrchestrator:
                 self.progress.update(f"Backed up {result.backed_up_files} existing files")
 
             if result.copied_files > 0:
-                self.progress.update(f"Copied {result.copied_files} files from backup to shared storage")
+                self.progress.update(
+                    f"Copied {result.copied_files} files from backup to shared storage"
+                )
 
             self.progress.update(
                 f"NFS storage mounted at /home/azureuser from {storage.nfs_endpoint}"

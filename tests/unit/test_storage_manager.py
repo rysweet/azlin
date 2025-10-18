@@ -4,15 +4,13 @@ TDD Approach: Write these tests FIRST, then implement to make them pass.
 """
 
 import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from azlin.modules.storage_manager import (
     StorageError,
-    StorageInUseError,
     StorageInfo,
+    StorageInUseError,
     StorageManager,
     StorageNotFoundError,
     StorageStatus,
@@ -37,7 +35,7 @@ class TestStorageNameValidation:
         """Storage name must be alphanumeric."""
         with pytest.raises(ValidationError, match="alphanumeric"):
             StorageManager.create_storage("test-storage", "test-rg", "westus2")
-            
+
     def test_name_valid(self):
         """Valid storage names should pass validation."""
         # This test will fail until we implement create_storage
@@ -90,11 +88,11 @@ class TestCreateStorage:
         mock_run.side_effect = [
             subprocess.CalledProcessError(1, "az", stderr="ResourceNotFound"),  # get_storage check
             MagicMock(returncode=0, stdout='{"name": "test123", "location": "westus2"}'),  # create
-            MagicMock(returncode=0, stdout='{}'),  # create file share
+            MagicMock(returncode=0, stdout="{}"),  # create file share
         ]
-        
+
         result = StorageManager.create_storage("test123", "test-rg", "westus2")
-        
+
         assert mock_run.called
         # Check that az storage account create was called
         call_args_str = str(mock_run.call_args_list)
@@ -106,19 +104,25 @@ class TestCreateStorage:
         """Creating existing storage should return existing."""
         # Mock successful get_storage (exists)
         mock_run.side_effect = [
-            MagicMock(returncode=0, stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}}'),
-            MagicMock(returncode=0, stdout='100'),  # share quota
+            MagicMock(
+                returncode=0,
+                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}}',
+            ),
+            MagicMock(returncode=0, stdout="100"),  # share quota
         ]
-        
+
         result1 = StorageManager.create_storage("test123", "test-rg", "westus2")
-        
+
         # Reset and call again
         mock_run.side_effect = [
-            MagicMock(returncode=0, stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}}'),
-            MagicMock(returncode=0, stdout='100'),
+            MagicMock(
+                returncode=0,
+                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}}',
+            ),
+            MagicMock(returncode=0, stdout="100"),
         ]
         result2 = StorageManager.create_storage("test123", "test-rg", "westus2")
-        
+
         assert result1.name == result2.name
 
     @patch("azlin.modules.storage_manager.subprocess.run")
@@ -127,11 +131,11 @@ class TestCreateStorage:
         mock_run.side_effect = [
             subprocess.CalledProcessError(1, "az", stderr="ResourceNotFound"),  # doesn't exist
             MagicMock(returncode=0, stdout='{"name": "test123", "location": "westus2"}'),  # create
-            MagicMock(returncode=0, stdout='{}'),  # file share
+            MagicMock(returncode=0, stdout="{}"),  # file share
         ]
-        
+
         result = StorageManager.create_storage("test123", "test-rg", "westus2")
-        
+
         assert isinstance(result, StorageInfo)
         assert result.name == "test123"
         assert result.region == "westus2"
@@ -141,9 +145,11 @@ class TestCreateStorage:
         """Create should handle Azure CLI errors."""
         mock_run.side_effect = [
             subprocess.CalledProcessError(1, "az", stderr="ResourceNotFound"),  # doesn't exist
-            subprocess.CalledProcessError(1, "az", stderr="Error: quota exceeded"),  # creation fails
+            subprocess.CalledProcessError(
+                1, "az", stderr="Error: quota exceeded"
+            ),  # creation fails
         ]
-        
+
         with pytest.raises(StorageError, match="quota exceeded"):
             StorageManager.create_storage("test123", "test-rg", "westus2")
 
@@ -155,9 +161,9 @@ class TestListStorage:
     def test_list_empty(self, mock_run):
         """List should return empty list when no storage."""
         mock_run.return_value = MagicMock(returncode=0, stdout="[]")
-        
+
         result = StorageManager.list_storage("test-rg")
-        
+
         assert result == []
 
     @patch("azlin.modules.storage_manager.subprocess.run")
@@ -166,14 +172,14 @@ class TestListStorage:
         mock_run.side_effect = [
             MagicMock(
                 returncode=0,
-                stdout='[{"name": "storage1", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}, {"name": "storage2", "location": "westus2", "sku": {"name": "Standard_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}]'
+                stdout='[{"name": "storage1", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}, {"name": "storage2", "location": "westus2", "sku": {"name": "Standard_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}]',
             ),
-            MagicMock(returncode=0, stdout='100'),  # quota for storage1
-            MagicMock(returncode=0, stdout='200'),  # quota for storage2
+            MagicMock(returncode=0, stdout="100"),  # quota for storage1
+            MagicMock(returncode=0, stdout="200"),  # quota for storage2
         ]
-        
+
         result = StorageManager.list_storage("test-rg")
-        
+
         assert len(result) == 2
         assert result[0].name == "storage1"
         assert result[1].name == "storage2"
@@ -184,11 +190,11 @@ class TestListStorage:
         # The query already filters by managed-by=azlin tag
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout='[{"name": "azlinstorage", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}]'
+            stdout='[{"name": "azlinstorage", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}]',
         )
-        
+
         result = StorageManager.list_storage("test-rg")
-        
+
         # Should return filtered results
         assert len(result) >= 0  # Just check it doesn't crash
 
@@ -202,22 +208,20 @@ class TestGetStorage:
         mock_run.side_effect = [
             MagicMock(
                 returncode=0,
-                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}'
+                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}',
             ),
-            MagicMock(returncode=0, stdout='100'),  # quota
+            MagicMock(returncode=0, stdout="100"),  # quota
         ]
-        
+
         result = StorageManager.get_storage("test123", "test-rg")
-        
+
         assert result.name == "test123"
 
     @patch("azlin.modules.storage_manager.subprocess.run")
     def test_get_not_found(self, mock_run):
         """Get should raise error when storage doesn't exist."""
-        mock_run.side_effect = subprocess.CalledProcessError(
-            1, "az", stderr="ResourceNotFound"
-        )
-        
+        mock_run.side_effect = subprocess.CalledProcessError(1, "az", stderr="ResourceNotFound")
+
         with pytest.raises(StorageNotFoundError):
             StorageManager.get_storage("nonexistent", "test-rg")
 
@@ -232,16 +236,16 @@ class TestGetStorageStatus:
         mock_run.side_effect = [
             MagicMock(
                 returncode=0,
-                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}'
+                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}',
             ),
-            MagicMock(returncode=0, stdout='100'),  # quota
+            MagicMock(returncode=0, stdout="100"),  # quota
         ]
         mock_config_obj = MagicMock()
         mock_config_obj.to_dict.return_value = {"vm_storage": {}}
         mock_config.load_config.return_value = mock_config_obj
-        
+
         result = StorageManager.get_storage_status("test123", "test-rg")
-        
+
         assert isinstance(result, StorageStatus)
         assert result.used_gb >= 0
 
@@ -252,16 +256,16 @@ class TestGetStorageStatus:
         mock_run.side_effect = [
             MagicMock(
                 returncode=0,
-                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}'
+                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}',
             ),
-            MagicMock(returncode=0, stdout='100'),
+            MagicMock(returncode=0, stdout="100"),
         ]
         mock_config_obj = MagicMock()
         mock_config_obj.to_dict.return_value = {"vm_storage": {"vm1": "test123", "vm2": "test123"}}
         mock_config.load_config.return_value = mock_config_obj
-        
+
         result = StorageManager.get_storage_status("test123", "test-rg")
-        
+
         assert isinstance(result.connected_vms, list)
         assert len(result.connected_vms) == 2
 
@@ -272,16 +276,16 @@ class TestGetStorageStatus:
         mock_run.side_effect = [
             MagicMock(
                 returncode=0,
-                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}'
+                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}',
             ),
-            MagicMock(returncode=0, stdout='100'),
+            MagicMock(returncode=0, stdout="100"),
         ]
         mock_config_obj = MagicMock()
         mock_config_obj.to_dict.return_value = {"vm_storage": {}}
         mock_config.load_config.return_value = mock_config_obj
-        
+
         result = StorageManager.get_storage_status("test123", "test-rg")
-        
+
         assert result.cost_per_month > 0
 
 
@@ -295,15 +299,15 @@ class TestDeleteStorage:
         mock_run.side_effect = [
             MagicMock(
                 returncode=0,
-                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}'
+                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}',
             ),
-            MagicMock(returncode=0, stdout='100'),
+            MagicMock(returncode=0, stdout="100"),
             MagicMock(returncode=0),  # delete
         ]
         mock_config_obj = MagicMock()
         mock_config_obj.to_dict.return_value = {"vm_storage": {}}
         mock_config.load_config.return_value = mock_config_obj
-        
+
         # Should not raise
         StorageManager.delete_storage("test123", "test-rg", force=True)
 
@@ -314,14 +318,14 @@ class TestDeleteStorage:
         mock_run.side_effect = [
             MagicMock(
                 returncode=0,
-                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}'
+                stdout='{"name": "test123", "location": "westus2", "sku": {"name": "Premium_LRS"}, "creationTime": "2025-01-01T00:00:00Z"}',
             ),
-            MagicMock(returncode=0, stdout='100'),
+            MagicMock(returncode=0, stdout="100"),
         ]
         mock_config_obj = MagicMock()
         mock_config_obj.to_dict.return_value = {"vm_storage": {"vm1": "test123"}}
         mock_config.load_config.return_value = mock_config_obj
-        
+
         with pytest.raises(StorageInUseError, match="still has VMs connected"):
             StorageManager.delete_storage("test123", "test-rg", force=False)
 
@@ -333,17 +337,15 @@ class TestDeleteStorage:
         mock_config_obj = MagicMock()
         mock_config_obj.to_dict.return_value = {"vm_storage": {}}
         mock_config.load_config.return_value = mock_config_obj
-        
+
         # Should not raise
         StorageManager.delete_storage("test123", "test-rg", force=True)
 
     @patch("azlin.modules.storage_manager.subprocess.run")
     def test_delete_not_found(self, mock_run):
         """Delete non-existent storage should be idempotent."""
-        mock_run.side_effect = subprocess.CalledProcessError(
-            1, "az", stderr="ResourceNotFound"
-        )
-        
+        mock_run.side_effect = subprocess.CalledProcessError(1, "az", stderr="ResourceNotFound")
+
         # Should not raise (idempotent)
         StorageManager.delete_storage("nonexistent", "test-rg", force=True)
 
@@ -354,7 +356,7 @@ class TestStorageInfo:
     def test_storage_info_creation(self):
         """StorageInfo should be creatable with all fields."""
         from datetime import datetime
-        
+
         info = StorageInfo(
             name="test123",
             resource_group="test-rg",
@@ -364,7 +366,7 @@ class TestStorageInfo:
             nfs_endpoint="test123.file.core.windows.net:/share",
             created=datetime.now(),
         )
-        
+
         assert info.name == "test123"
         assert info.tier == "Premium"
 
@@ -375,7 +377,7 @@ class TestStorageStatus:
     def test_storage_status_creation(self):
         """StorageStatus should include all required fields."""
         from datetime import datetime
-        
+
         info = StorageInfo(
             name="test123",
             resource_group="test-rg",
@@ -385,7 +387,7 @@ class TestStorageStatus:
             nfs_endpoint="test123.file.core.windows.net:/share",
             created=datetime.now(),
         )
-        
+
         status = StorageStatus(
             info=info,
             used_gb=45.0,
@@ -393,6 +395,6 @@ class TestStorageStatus:
             connected_vms=["vm1", "vm2"],
             cost_per_month=15.36,
         )
-        
+
         assert status.used_gb == 45.0
         assert len(status.connected_vms) == 2

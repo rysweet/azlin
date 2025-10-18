@@ -47,6 +47,7 @@ class AzlinConfig:
     notification_command: str = "imessR"
     session_names: dict[str, str] | None = None  # vm_name -> session_name mapping
     vm_storage: dict[str, str] | None = None  # vm_name -> storage_name mapping (for NFS)
+    default_nfs_storage: str | None = None  # Default NFS storage for new VMs
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
@@ -65,6 +66,7 @@ class AzlinConfig:
             notification_command=data.get("notification_command", "imessR"),
             session_names=data.get("session_names", {}),
             vm_storage=data.get("vm_storage", {}),
+            default_nfs_storage=data.get("default_nfs_storage"),
         )
 
 
