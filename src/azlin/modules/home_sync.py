@@ -31,7 +31,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from .ssh_connector import SSHConfig
 
@@ -471,7 +470,7 @@ class HomeSyncManager:
         # Try IP address (strict validation)
         try:
             # This will properly reject invalid IPs like 999.999.999.999
-            ip = ipaddress.ip_address(host)
+            ipaddress.ip_address(host)
             return True
         except (ValueError, ipaddress.AddressValueError):
             pass
@@ -533,7 +532,8 @@ class HomeSyncManager:
             "-avz",  # Archive, verbose, compress
             "--safe-links",  # SECURITY FIX: Prevent symlink attacks
             "--progress",  # Show progress
-            "--delete-excluded",  # Remove excluded files on remote
+            "--partial",  # Keep partial files (resume on failure)
+            "--inplace",  # Update files in-place (better for large syncs)
             f"--exclude-from={exclude_file}",  # Exclusion patterns
             "-e",
             ssh_opts,  # SSH command (as separate arg)
@@ -587,7 +587,7 @@ class HomeSyncManager:
         cls,
         ssh_config: SSHConfig,
         dry_run: bool = False,
-        progress_callback: Optional[Callable[[str], None]] = None,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> SyncResult:
         """Sync local home directory to remote VM.
 
