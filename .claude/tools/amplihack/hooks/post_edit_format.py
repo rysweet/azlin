@@ -109,21 +109,13 @@ def is_language_enabled(extension: str) -> bool:
 def command_exists(command: str) -> bool:
     """Check if a command exists in PATH"""
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["which", command],
             capture_output=True,
             check=False,
             timeout=1,
         )
-        return (
-            subprocess.run(
-                ["which", command],
-                capture_output=True,
-                check=False,
-                timeout=1,
-            ).returncode
-            == 0
-        )
+        return result.returncode == 0
     except (subprocess.SubprocessError, OSError):
         return False
 

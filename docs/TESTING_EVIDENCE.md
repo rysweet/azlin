@@ -93,7 +93,7 @@ Total: 2 storage account(s)
 ## Summary
 All storage commands are now working correctly:
 - ✅ `azlin storage create` - Creates NFS storage accounts
-- ✅ `azlin storage list` - Lists all storage accounts  
+- ✅ `azlin storage list` - Lists all storage accounts
 - ✅ `azlin storage status` - Shows detailed storage status
 - ✅ `azlin storage delete` - Deletes storage accounts **WITHOUT ERRORS**
 
