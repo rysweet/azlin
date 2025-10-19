@@ -98,6 +98,96 @@ class ConfigManager:
     DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.toml"
 
     @classmethod
+    def _validate_config_path(cls, path_str: str, must_exist: bool = False) -> Path:
+        """Validate and sanitize config file path to prevent path traversal attacks.
+
+        This method implements defense-in-depth security:
+        1. Validates input is not empty or whitespace-only
+        2. Expands ~ to home directory
+        3. Resolves path to absolute, canonical form (follows symlinks if exists)
+        4. Verifies resolved path is within allowed directories:
+           - ~/.azlin/ (primary config directory)
+           - Current working directory (for testing/development)
+
+        Args:
+            path_str: Path string to validate
+            must_exist: If True, path must exist (default: False for save operations)
+
+        Returns:
+            Validated and resolved Path object
+
+        Raises:
+            ConfigError: If path is invalid, empty, or outside allowed directories
+
+        Security:
+            - Prevents path traversal (../../etc/passwd)
+            - Prevents symlink attacks to sensitive files
+            - Prevents access to arbitrary filesystem locations
+            - Uses whitelist approach (deny by default)
+        """
+        # Validate input is not empty or whitespace
+        if not path_str or not path_str.strip():
+            raise ConfigError("Config path cannot be empty or whitespace")
+
+        try:
+            # Expand ~ to home directory
+            path = Path(path_str).expanduser()
+
+            # For non-existent paths, we need to resolve the parent directory
+            # and then add the filename back to prevent path traversal
+            if not path.exists() and not must_exist:
+                # Resolve parent directory (must exist for mkdir to work later)
+                parent = path.parent
+                if parent.exists():
+                    resolved_parent = parent.resolve()
+                    resolved_path = resolved_parent / path.name
+                else:
+                    # If parent doesn't exist, resolve as much as possible
+                    resolved_path = path.resolve()
+            else:
+                # Path exists or must exist - resolve fully (follows symlinks)
+                resolved_path = path.resolve()
+
+        except (ValueError, OSError, RuntimeError) as e:
+            raise ConfigError(f"Invalid path: {path_str}: {e}") from e
+
+        # Define allowed directories (whitelist approach)
+        allowed_dirs = [
+            cls.DEFAULT_CONFIG_DIR.resolve(),  # ~/.azlin/
+            Path.cwd().resolve(),  # Current working directory
+        ]
+
+        # Check if resolved path is within any allowed directory
+        # Use try_relative_to() if available (Python 3.12+), otherwise use is_relative_to()
+        is_allowed = False
+        for allowed_dir in allowed_dirs:
+            try:
+                # Check if path is within allowed directory
+                if hasattr(resolved_path, "is_relative_to"):
+                    # Python 3.9+
+                    is_allowed = resolved_path.is_relative_to(allowed_dir)
+                else:
+                    # Python 3.8 fallback
+                    try:
+                        resolved_path.relative_to(allowed_dir)
+                        is_allowed = True
+                    except ValueError:
+                        is_allowed = False
+
+                if is_allowed:
+                    break
+            except (ValueError, TypeError):
+                continue
+
+        if not is_allowed:
+            raise ConfigError(
+                f"Config path is outside allowed directories: {resolved_path}\n"
+                f"Allowed directories: {', '.join(str(d) for d in allowed_dirs)}"
+            )
+
+        return resolved_path
+
+    @classmethod
     def get_config_path(cls, custom_path: str | None = None) -> Path:
         """Get configuration file path.
 
@@ -106,9 +196,15 @@ class ConfigManager:
 
         Returns:
             Path to config file
+
+        Raises:
+            ConfigError: If path is invalid or outside allowed directories
         """
-        if custom_path:
-            path = Path(custom_path).expanduser().resolve()
+        # Treat empty string as None (use default)
+        if custom_path and custom_path.strip():
+            # Validate path to prevent path traversal attacks
+            # For get_config_path, we check existence separately to give better error message
+            path = cls._validate_config_path(custom_path, must_exist=False)
             if not path.exists():
                 raise ConfigError(f"Config file not found: {path}")
             return path
@@ -201,13 +297,15 @@ class ConfigManager:
             custom_path: Custom config file path (optional)
 
         Raises:
-            ConfigError: If saving fails
+            ConfigError: If saving fails or path is invalid
         """
         temp_path: Path | None = None
         try:
             # Determine config path
             if custom_path:
-                config_path = Path(custom_path).expanduser().resolve()
+                # Validate path to prevent path traversal attacks
+                # Note: For save operations, we validate even if file doesn't exist yet
+                config_path = cls._validate_config_path(custom_path, must_exist=False)
                 # Ensure parent directory exists
                 config_path.parent.mkdir(parents=True, exist_ok=True)
             else:
