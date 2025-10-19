@@ -594,13 +594,33 @@ class StorageManager:
 
     @classmethod
     def _validate_name(cls, name: str) -> None:
-        """Validate storage account name."""
+        """Validate storage account name against Azure requirements and security best practices.
+
+        Security: Prevents path traversal attacks by enforcing strict alphanumeric pattern.
+        Azure storage account names must be 3-24 characters, lowercase letters and numbers only.
+
+        Args:
+            name: Storage account name to validate
+
+        Raises:
+            ValidationError: If name violates Azure naming rules or contains unsafe characters
+        """
+        # Check for None or empty
+        if not name or not isinstance(name, str):
+            raise ValidationError("Storage name must be a non-empty string")
+
+        # Security: Explicit path traversal checks (defense in depth)
+        if ".." in name or "/" in name or "\\" in name:
+            raise ValidationError("Storage name contains path traversal sequences")
+
+        # Check length constraints (Azure requirements)
         if len(name) < cls.MIN_NAME_LENGTH:
             raise ValidationError(f"Storage name must be at least {cls.MIN_NAME_LENGTH} characters")
 
         if len(name) > cls.MAX_NAME_LENGTH:
             raise ValidationError(f"Storage name must be at most {cls.MAX_NAME_LENGTH} characters")
 
+        # Security: Strict alphanumeric validation (prevents all special characters)
         if not cls.VALID_NAME_PATTERN.match(name):
             raise ValidationError("Storage name must be alphanumeric lowercase (a-z, 0-9)")
 
