@@ -524,6 +524,14 @@ tramp
 .claude/runtime/logs/**/*.log
 .claude/runtime/logs/**/*.jsonl
 
+# Analysis reports (generated, not source)
+# Keep directory structure but ignore generated reports
+.claude/analysis/*.md
+.claude/analysis/archive/**/*.md
+.claude/analysis/archive/**/*.txt
+!.claude/analysis/README.md
+!.claude/analysis/archive/INDEX.md
+
 # Security analysis artifacts (generated, not source)
 SECURITY*.md
 SECURITY*.txt
