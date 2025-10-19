@@ -10,7 +10,7 @@ import traceback
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Optional
 
 
 class HookProcessor(ABC):
@@ -38,10 +38,10 @@ class HookProcessor(ABC):
             from paths import get_project_root
 
             self.project_root = get_project_root()
-        except ImportError as e:
+        except ImportError:
             # Fallback: try to find project root by looking for .claude marker
             current = Path(__file__).resolve().parent
-            found_root: Path | None = None
+            found_root: Optional[Path] = None
 
             for _ in range(10):  # Max 10 levels up
                 # Check old location (repo root)
@@ -57,7 +57,7 @@ class HookProcessor(ABC):
                 current = current.parent
 
             if found_root is None:
-                raise ValueError("Could not find project root with .claude marker") from e
+                raise ValueError("Could not find project root with .claude marker")
 
             self.project_root = found_root
 
@@ -98,8 +98,8 @@ class HookProcessor(ABC):
             # Check if path is within project root
             resolved.relative_to(self.project_root)
             return resolved
-        except ValueError as e:
-            raise ValueError(f"Path escapes project root: {path}") from e
+        except ValueError:
+            raise ValueError(f"Path escapes project root: {path}")
 
     def log(self, message: str, level: str = "INFO"):
         """Log a message to the hook's log file.
@@ -124,7 +124,7 @@ class HookProcessor(ABC):
             # If we can't log, at least try stderr
             print(f"Logging error: {e}", file=sys.stderr)
 
-    def read_input(self) -> dict[str, Any]:
+    def read_input(self) -> Dict[str, Any]:
         """Read and parse JSON input from stdin.
 
         Returns:
@@ -138,7 +138,7 @@ class HookProcessor(ABC):
             return {}
         return json.loads(raw_input)
 
-    def write_output(self, output: dict[str, Any]):
+    def write_output(self, output: Dict[str, Any]):
         """Write JSON output to stdout.
 
         Args:
@@ -146,7 +146,7 @@ class HookProcessor(ABC):
         """
         json.dump(output, sys.stdout)
 
-    def save_metric(self, metric_name: str, value: Any, metadata: dict | None = None):
+    def save_metric(self, metric_name: str, value: Any, metadata: Optional[Dict] = None):
         """Save a metric to the metrics directory.
 
         Args:
@@ -173,7 +173,7 @@ class HookProcessor(ABC):
             self.log(f"Failed to save metric: {e}", "WARNING")
 
     @abstractmethod
-    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
+    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process the hook input and return output.
 
         This method must be implemented by subclasses.

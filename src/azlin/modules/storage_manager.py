@@ -621,6 +621,206 @@ class StorageManager:
         if size_gb < 0:
             raise ValidationError("Size must be positive")
 
+    @classmethod
+    def configure_nfs_network_access(
+        cls,
+        storage_account: str,
+        resource_group: str,
+        vm_subnet_id: str,
+    ) -> None:
+        """Configure storage account network access for NFS mounting.
+
+        NFS Premium shares require:
+        1. Subnet with Microsoft.Storage service endpoint enabled
+        2. Storage account with defaultAction: Deny
+        3. Explicit virtual network rule for the VM's subnet
+
+        Args:
+            storage_account: Storage account name
+            resource_group: Resource group name
+            vm_subnet_id: Full Azure resource ID of VM's subnet
+
+        Raises:
+            StorageError: If configuration fails
+        """
+        logger.info(f"Configuring NFS network access for {storage_account}")
+
+        try:
+            # Step 1: Enable Microsoft.Storage service endpoint on subnet
+            logger.info("Enabling Microsoft.Storage service endpoint on subnet")
+            endpoint_cmd = [
+                "az",
+                "network",
+                "vnet",
+                "subnet",
+                "update",
+                "--ids",
+                vm_subnet_id,
+                "--service-endpoints",
+                "Microsoft.Storage",
+                "--output",
+                "none",
+            ]
+            subprocess.run(endpoint_cmd, capture_output=True, text=True, check=True, timeout=120)
+
+            # Step 2: Add subnet to storage account network rules
+            logger.info("Adding subnet to storage account network rules")
+            add_rule_cmd = [
+                "az",
+                "storage",
+                "account",
+                "network-rule",
+                "add",
+                "--account-name",
+                storage_account,
+                "--resource-group",
+                resource_group,
+                "--subnet",
+                vm_subnet_id,
+                "--output",
+                "none",
+            ]
+            subprocess.run(add_rule_cmd, capture_output=True, text=True, check=True, timeout=60)
+
+            # Step 3: Set default action to Deny (required for NFS)
+            logger.info("Setting storage account default action to Deny")
+            default_action_cmd = [
+                "az",
+                "storage",
+                "account",
+                "update",
+                "--name",
+                storage_account,
+                "--resource-group",
+                resource_group,
+                "--default-action",
+                "Deny",
+                "--output",
+                "none",
+            ]
+            subprocess.run(
+                default_action_cmd, capture_output=True, text=True, check=True, timeout=60
+            )
+
+            logger.info("NFS network access configured successfully")
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if e.stderr else str(e)
+            raise StorageError(f"Failed to configure NFS network access: {error_msg}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error configuring NFS access: {e}") from e
+
+    @classmethod
+    def write_ssh_keys_to_storage(
+        cls,
+        storage_account: str,
+        resource_group: str,
+        ssh_public_key: str,
+        share_name: str = "home",
+    ) -> None:
+        """Write SSH authorized_keys file directly to Azure Files NFS share.
+
+        This pre-populates the .ssh/authorized_keys file in the share BEFORE
+        the VM mounts it, ensuring SSH keys are present even if cloud-init
+        overwrites them during provisioning.
+
+        Args:
+            storage_account: Storage account name
+            resource_group: Azure resource group
+            ssh_public_key: SSH public key content
+            share_name: File share name (default: home)
+
+        Raises:
+            StorageError: If write fails
+        """
+        import tempfile
+        from pathlib import Path
+
+        logger.info(f"Writing SSH keys to {storage_account}/{share_name}/.ssh/authorized_keys")
+
+        try:
+            # Create temp file with SSH key
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".pub") as temp_file:
+                temp_file.write(ssh_public_key)
+                temp_path = Path(temp_file.name)
+
+            try:
+                # Get storage account key for authentication
+                key_cmd = [
+                    "az",
+                    "storage",
+                    "account",
+                    "keys",
+                    "list",
+                    "--account-name",
+                    storage_account,
+                    "--resource-group",
+                    resource_group,
+                    "--query",
+                    "[0].value",
+                    "--output",
+                    "tsv",
+                ]
+
+                key_result = subprocess.run(
+                    key_cmd, capture_output=True, text=True, check=True, timeout=30
+                )
+                account_key = key_result.stdout.strip()
+
+                # Create .ssh directory in share
+                mkdir_cmd = [
+                    "az",
+                    "storage",
+                    "directory",
+                    "create",
+                    "--name",
+                    ".ssh",
+                    "--share-name",
+                    share_name,
+                    "--account-name",
+                    storage_account,
+                    "--account-key",
+                    account_key,
+                    "--output",
+                    "none",
+                ]
+
+                subprocess.run(mkdir_cmd, capture_output=True, text=True, check=False, timeout=30)
+
+                # Upload authorized_keys file
+                upload_cmd = [
+                    "az",
+                    "storage",
+                    "file",
+                    "upload",
+                    "--share-name",
+                    share_name,
+                    "--source",
+                    str(temp_path),
+                    "--path",
+                    ".ssh/authorized_keys",
+                    "--account-name",
+                    storage_account,
+                    "--account-key",
+                    account_key,
+                    "--output",
+                    "none",
+                ]
+
+                subprocess.run(upload_cmd, capture_output=True, text=True, check=True, timeout=60)
+
+                logger.info("SSH keys written successfully to Azure Files")
+
+            finally:
+                # Clean up temp file
+                temp_path.unlink(missing_ok=True)
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if e.stderr else str(e)
+            raise StorageError(f"Failed to write SSH keys to storage: {error_msg}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error writing SSH keys: {e}") from e
+
 
 # Public API
 __all__ = [

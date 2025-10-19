@@ -11,7 +11,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 # Add project src to path for imports
 project_root = Path(__file__).parents[4]
@@ -48,13 +48,12 @@ def log_security_event(event_type: str, data: dict) -> None:
     try:
         with open(log_file, "a") as f:
             f.write(json.dumps(log_entry) + "\n")
-    except Exception as e:
+    except Exception:
         # Don't fail tool execution if logging fails
-        import sys
-        print(f"XPIA logging failed: {e}", file=sys.stderr)
+        pass
 
 
-def validate_bash_command(command: str, context: dict[str, Any]) -> dict[str, Any]:
+def validate_bash_command(command: str, context: Dict[str, Any]) -> Dict[str, Any]:
     """
     Validate bash command for security threats
 
@@ -137,7 +136,7 @@ def validate_bash_command(command: str, context: dict[str, Any]) -> dict[str, An
         }
 
 
-def process_tool_use_request(tool_name: str, parameters: dict[str, Any]) -> dict[str, Any]:
+def process_tool_use_request(tool_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
     """Process pre-tool-use validation"""
     try:
         # Only validate Bash tool usage

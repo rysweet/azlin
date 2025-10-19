@@ -10,6 +10,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 # Clean import setup
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -128,7 +129,7 @@ def command_exists(command: str) -> bool:
         return False
 
 
-def get_file_hash(file_path: Path) -> str | None:
+def get_file_hash(file_path: Path) -> Optional[str]:
     """Get hash of file content for change detection"""
     try:
         import hashlib
@@ -139,7 +140,7 @@ def get_file_hash(file_path: Path) -> str | None:
         return None
 
 
-def format_file(file_path: Path) -> tuple[bool, str | None]:
+def format_file(file_path: Path) -> Tuple[bool, Optional[str]]:
     """
     Format a file with appropriate formatter.
     Returns (success, formatter_used)
@@ -224,7 +225,7 @@ def format_file(file_path: Path) -> tuple[bool, str | None]:
     return False, None
 
 
-def extract_edited_files(tool_use: dict) -> list[Path]:
+def extract_edited_files(tool_use: Dict) -> List[Path]:
     """Extract file paths from Edit/MultiEdit tool usage"""
     edited_files = []
     tool_name = tool_use.get("name", "")

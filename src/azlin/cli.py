@@ -176,7 +176,6 @@ class CLIOrchestrator:
             timestamp = int(time.time())
             vm_name = f"azlin-vm-{timestamp}"
             rg_name = self.resource_group or f"azlin-rg-{timestamp}"
-
             self.progress.start_operation(f"Provisioning VM: {vm_name}", estimated_seconds=300)
             vm_details = self._provision_vm(vm_name, rg_name, ssh_key_pair.public_key_content)
             self.vm_details = vm_details
@@ -569,6 +568,126 @@ class CLIOrchestrator:
             f"Please specify one with --nfs-storage or set default_nfs_storage in config."
         )
 
+    def _get_vm_subnet_id(self, vm_details: VMDetails) -> str:
+        """Get the subnet ID for a VM.
+
+        Args:
+            vm_details: VM details object
+
+        Returns:
+            Full Azure resource ID of the VM's subnet
+
+        Raises:
+            Exception: If subnet ID cannot be retrieved
+        """
+        import subprocess
+
+        try:
+            # Get the NIC ID from the VM
+            nic_cmd = [
+                "az",
+                "vm",
+                "show",
+                "--resource-group",
+                vm_details.resource_group,
+                "--name",
+                vm_details.name,
+                "--query",
+                "networkProfile.networkInterfaces[0].id",
+                "--output",
+                "tsv",
+            ]
+            nic_result = subprocess.run(
+                nic_cmd, capture_output=True, text=True, check=True, timeout=30
+            )
+            nic_id = nic_result.stdout.strip()
+
+            # Get the subnet ID from the NIC
+            subnet_cmd = [
+                "az",
+                "network",
+                "nic",
+                "show",
+                "--ids",
+                nic_id,
+                "--query",
+                "ipConfigurations[0].subnet.id",
+                "--output",
+                "tsv",
+            ]
+            subnet_result = subprocess.run(
+                subnet_cmd, capture_output=True, text=True, check=True, timeout=30
+            )
+            subnet_id = subnet_result.stdout.strip()
+
+            if not subnet_id:
+                raise Exception("Failed to get subnet ID from VM")
+
+            return subnet_id
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if e.stderr else str(e)
+            raise Exception(f"Failed to get VM subnet ID: {error_msg}") from e
+
+    def _restore_ssh_keys_via_runcommand(self, vm_details: VMDetails, key_path: Path) -> None:
+        """Restore SSH keys via Azure run-command.
+
+        Azure's waagent overwrites SSH authorized_keys after cloud-init completes,
+        breaking SSH access. This method uses Azure's run-command API to restore
+        the keys without requiring SSH access.
+
+        Args:
+            vm_details: VM details object
+            key_path: Path to SSH private key (public key must be at key_path.pub)
+
+        Raises:
+            Exception: If key restoration fails
+        """
+        import subprocess
+
+        try:
+            # Read public key
+            pub_key_path = Path(str(key_path) + ".pub")
+            if not pub_key_path.exists():
+                raise Exception(f"SSH public key not found: {pub_key_path}")
+
+            pub_key = pub_key_path.read_text().strip()
+
+            # Create script to restore SSH keys
+            script = f"""#!/bin/bash
+mkdir -p /home/azureuser/.ssh
+echo '{pub_key}' > /home/azureuser/.ssh/authorized_keys
+chown -R azureuser:azureuser /home/azureuser/.ssh
+chmod 700 /home/azureuser/.ssh
+chmod 600 /home/azureuser/.ssh/authorized_keys
+"""
+
+            # Execute via Azure run-command
+            cmd = [
+                "az",
+                "vm",
+                "run-command",
+                "invoke",
+                "--resource-group",
+                vm_details.resource_group,
+                "--name",
+                vm_details.name,
+                "--command-id",
+                "RunShellScript",
+                "--scripts",
+                script,
+            ]
+
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
+
+            logger.info("SSH keys restored successfully via run-command")
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if e.stderr else str(e)
+            raise Exception(f"Failed to restore SSH keys via run-command: {error_msg}") from e
+        except Exception as e:
+            raise Exception(f"Failed to restore SSH keys: {e}") from e
+
     def _mount_nfs_storage(self, vm_details: VMDetails, key_path: Path, storage_name: str) -> None:
         """Mount NFS storage on VM home directory.
 
@@ -606,6 +725,21 @@ class CLIOrchestrator:
                 )
 
             self.progress.update(f"Storage found: {storage.nfs_endpoint}")
+
+            # Restore SSH keys before NFS mount
+            # Azure's waagent overwrites SSH keys after cloud-init completes,
+            # breaking SSH access. We restore them via run-command before mounting.
+            self.progress.update("Restoring SSH keys for NFS mount...")
+            self._restore_ssh_keys_via_runcommand(vm_details, key_path)
+
+            # Configure network access for NFS
+            self.progress.update("Configuring NFS network access...")
+            vm_subnet_id = self._get_vm_subnet_id(vm_details)
+            StorageManager.configure_nfs_network_access(
+                storage_account=storage_name,
+                resource_group=rg,
+                vm_subnet_id=vm_subnet_id,
+            )
 
             # Mount storage
             self.progress.update("Installing NFS client tools...")

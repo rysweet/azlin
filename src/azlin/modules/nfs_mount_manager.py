@@ -151,6 +151,14 @@ class NFSMountManager:
             verify_cmd = f"mount | grep {mount_point}"
             cls._ssh_command(vm_ip, ssh_key, verify_cmd)
 
+            # Step 6.5: Fix home directory ownership and permissions
+            # The NFS mount replaces the home directory, so we need to:
+            # 1. Set correct ownership (azureuser:azureuser)
+            # 2. Set correct permissions (755) - SSH requires this
+            logger.info(f"Fixing ownership and permissions on {mount_point}")
+            cls._ssh_command(vm_ip, ssh_key, f"sudo chown azureuser:azureuser {mount_point}")
+            cls._ssh_command(vm_ip, ssh_key, f"sudo chmod 755 {mount_point}")
+
             # Step 7: Copy backup if share is empty
             if backed_up_files > 0:
                 logger.info("Copying backup files to mounted share")
@@ -167,7 +175,15 @@ class NFSMountManager:
                     )
                     copied_files = backed_up_files
 
-            # Set ownership
+            # Step 7.5: Restore SSH keys to NFS mount
+            # The mount replaced /home/azureuser, wiping out .ssh/authorized_keys
+            # We need to restore it so SSH continues to work
+            logger.info("Restoring SSH keys to mounted share")
+            cls._restore_ssh_keys(
+                vm_ip, ssh_key, mount_point, backup_dir if backed_up_files > 0 else None
+            )
+
+            # Set ownership recursively
             cls._ssh_command(
                 vm_ip,
                 ssh_key,
@@ -471,20 +487,88 @@ class NFSMountManager:
                     raise
 
     @classmethod
-    def _ssh_command(cls, vm_ip: str, ssh_key: Path, command: str) -> str:
-        """Execute SSH command on VM.
+    def _restore_ssh_keys(
+        cls,
+        vm_ip: str,
+        ssh_key: Path,
+        mount_point: str,
+        backup_dir: str | None = None,
+    ) -> None:
+        """Restore SSH keys to mounted NFS share.
+
+        When an NFS share is mounted over /home/azureuser, it replaces the directory
+        contents including .ssh/authorized_keys, breaking SSH access. This method
+        restores the keys from either:
+        1. The backup directory (if available)
+        2. The SSH public key file (fallback)
+
+        Args:
+            vm_ip: VM IP address
+            ssh_key: Path to SSH private key (for auth and deriving public key)
+            mount_point: Mount point path (e.g., /home/azureuser)
+            backup_dir: Optional backup directory path
+        """
+        try:
+            # Try to restore from backup first
+            if backup_dir:
+                check_cmd = (
+                    f"[ -f {backup_dir}/.ssh/authorized_keys ] && echo 'exists' || echo 'missing'"
+                )
+                result = cls._ssh_command(vm_ip, ssh_key, check_cmd)
+                if "exists" in result:
+                    logger.info("Restoring SSH keys from backup")
+                    cls._ssh_command(
+                        vm_ip,
+                        ssh_key,
+                        f"sudo mkdir -p {mount_point}/.ssh && "
+                        f"sudo cp -a {backup_dir}/.ssh/authorized_keys {mount_point}/.ssh/ && "
+                        f"sudo chown azureuser:azureuser {mount_point}/.ssh/authorized_keys && "
+                        f"sudo chmod 600 {mount_point}/.ssh/authorized_keys",
+                    )
+                    return
+
+            # Fallback: Read public key from local file and write to VM
+            logger.info("Restoring SSH keys from public key file")
+            pub_key_path = Path(str(ssh_key) + ".pub")
+            if pub_key_path.exists():
+                pub_key = pub_key_path.read_text().strip()
+                # Use heredoc to safely write the key
+                cls._ssh_command(
+                    vm_ip,
+                    ssh_key,
+                    f"sudo mkdir -p {mount_point}/.ssh && "
+                    f"echo '{pub_key}' | sudo tee {mount_point}/.ssh/authorized_keys > /dev/null && "
+                    f"sudo chown azureuser:azureuser {mount_point}/.ssh/authorized_keys && "
+                    f"sudo chmod 600 {mount_point}/.ssh/authorized_keys",
+                )
+            else:
+                logger.warning("No SSH public key found to restore")
+
+        except Exception as e:
+            logger.error(f"Failed to restore SSH keys: {e}")
+            raise
+
+    @classmethod
+    def _ssh_command(cls, vm_ip: str, ssh_key: Path, command: str, retries: int = 3) -> str:
+        """Execute SSH command on VM with retry logic.
+
+        Retries are helpful when SSH service is briefly restarting or
+        authentication is temporarily unavailable (e.g., during cloud-init finalization).
 
         Args:
             vm_ip: VM IP address
             ssh_key: Path to SSH private key
             command: Command to execute
+            retries: Number of retry attempts (default: 3)
 
         Returns:
             Command stdout
 
         Raises:
-            subprocess.CalledProcessError: If command fails
+            subprocess.CalledProcessError: If all attempts fail
         """
+        import time
+
         ssh_cmd = [
             "ssh",
             "-i",
@@ -499,15 +583,35 @@ class NFSMountManager:
             command,
         ]
 
-        result = subprocess.run(
-            ssh_cmd,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=60,
-        )
+        last_error = None
+        for attempt in range(1, retries + 1):
+            try:
+                result = subprocess.run(
+                    ssh_cmd,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=60,
+                )
+                return result.stdout
 
-        return result.stdout
+            except subprocess.CalledProcessError as e:
+                last_error = e
+                if attempt < retries:
+                    wait_time = 5 * attempt  # 5s, 10s, 15s
+                    logger.debug(
+                        f"SSH command failed (attempt {attempt}/{retries}), "
+                        f"retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"SSH command failed after {retries} attempts")
+                    raise last_error
+
+        # Should never reach here, but satisfy linter
+        if last_error:
+            raise last_error
+        raise RuntimeError("SSH command failed with no error")
 
 
 # Public API

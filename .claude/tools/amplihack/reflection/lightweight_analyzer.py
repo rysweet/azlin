@@ -2,6 +2,7 @@
 
 import json
 import time
+from typing import Dict, List, Optional
 
 
 class LightweightAnalyzer:
@@ -12,8 +13,8 @@ class LightweightAnalyzer:
         self.max_duration = 5.0  # seconds
 
     def analyze_recent_responses(
-        self, messages: list[dict], tool_logs: list[str] | None = None
-    ) -> dict:
+        self, messages: List[Dict], tool_logs: Optional[List[str]] = None
+    ) -> Dict:
         """Analyze last 2 responses for patterns.
 
         Args:
@@ -68,7 +69,7 @@ class LightweightAnalyzer:
                 "elapsed_seconds": time.time() - start_time,
             }
 
-    def _build_analysis_prompt(self, messages: list[dict], tool_logs: list[str]) -> str:
+    def _build_analysis_prompt(self, messages: List[Dict], tool_logs: List[str]) -> str:
         """Build concise analysis prompt."""
         # Extract message contents
         message_contents = []
@@ -109,7 +110,7 @@ Be concise and specific. Return JSON format:
 If no issues found, return: {{"patterns": []}}
 """
 
-    def _call_claude_sdk(self, prompt: str) -> list[dict]:
+    def _call_claude_sdk(self, prompt: str) -> List[Dict]:
         """Call Claude Code SDK for analysis.
 
         TODO: User needs to specify which Claude Code SDK method to use.

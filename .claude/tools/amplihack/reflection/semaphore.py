@@ -1,11 +1,11 @@
 """Loop prevention semaphore for reflection system."""
 
-import contextlib
 import json
 import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Optional
 
 
 @dataclass
@@ -21,7 +21,7 @@ class LockData:
 class ReflectionLock:
     """File-based semaphore to prevent reflection loops."""
 
-    def __init__(self, runtime_dir: Path | None = None):
+    def __init__(self, runtime_dir: Optional[Path] = None):
         """Initialize lock with runtime directory."""
         if runtime_dir is None:
             # Find .claude/runtime/ directory
@@ -69,8 +69,10 @@ class ReflectionLock:
     def release(self):
         """Release lock by removing file."""
         if self.lock_file.exists():
-            with contextlib.suppress(OSError):
+            try:
                 self.lock_file.unlink()
+            except OSError:
+                pass  # Already removed or permission error
 
     def is_locked(self) -> bool:
         """Check if lock file exists."""
@@ -88,7 +90,7 @@ class ReflectionLock:
         age = time.time() - lock_data.timestamp
         return age > self.stale_timeout
 
-    def read_lock(self) -> LockData | None:
+    def read_lock(self) -> Optional[LockData]:
         """Read lock data from file."""
         if not self.is_locked():
             return None

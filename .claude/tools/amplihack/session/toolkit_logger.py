@@ -9,10 +9,9 @@ import traceback
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 from .file_utils import safe_write_file
-import contextlib
 
 
 @dataclass
@@ -22,13 +21,13 @@ class LogEntry:
     timestamp: float
     level: str
     message: str
-    session_id: str | None = None
-    component: str | None = None
-    operation: str | None = None
-    duration: float | None = None
-    metadata: dict[str, Any] = None
-    error: str | None = None
-    traceback: str | None = None
+    session_id: Optional[str] = None
+    component: Optional[str] = None
+    operation: Optional[str] = None
+    duration: Optional[float] = None
+    metadata: Dict[str, Any] = None
+    error: Optional[str] = None
+    traceback: Optional[str] = None
 
     def __post_init__(self):
         if self.metadata is None:
@@ -132,8 +131,10 @@ class FileRotatingHandler(logging.Handler):
 
         # Remove excess files
         for old_file in log_files[self.max_files - 1 :]:
-            with contextlib.suppress(Exception):
+            try:
                 old_file.unlink()
+            except Exception:
+                pass
 
 
 class ToolkitLogger:
@@ -157,9 +158,9 @@ class ToolkitLogger:
 
     def __init__(
         self,
-        session_id: str | None = None,
-        component: str | None = None,
-        log_dir: Path | None = None,
+        session_id: Optional[str] = None,
+        component: Optional[str] = None,
+        log_dir: Optional[Path] = None,
         level: str = "INFO",
         enable_console: bool = True,
         enable_file: bool = True,
@@ -188,9 +189,9 @@ class ToolkitLogger:
         self.logger.handlers.clear()  # Remove existing handlers
 
         # Operation tracking
-        self._current_operation: str | None = None
-        self._operation_start_time: float | None = None
-        self._operation_stack: list[tuple] = []
+        self._current_operation: Optional[str] = None
+        self._operation_start_time: Optional[float] = None
+        self._operation_stack: List[tuple] = []
 
         # Setup handlers
         if enable_console:
@@ -227,9 +228,9 @@ class ToolkitLogger:
         self,
         level: str,
         message: str,
-        operation: str | None = None,
-        duration: float | None = None,
-        metadata: dict[str, Any] | None = None,
+        operation: Optional[str] = None,
+        duration: Optional[float] = None,
+        metadata: Optional[Dict[str, Any]] = None,
         exc_info: bool = False,
     ) -> None:
         """Internal logging method with context."""
@@ -254,22 +255,22 @@ class ToolkitLogger:
         # Emit the record
         self.logger.handle(record)
 
-    def debug(self, message: str, metadata: dict[str, Any] | None = None, **kwargs) -> None:
+    def debug(self, message: str, metadata: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         """Log debug message."""
         self._log("DEBUG", message, metadata=metadata, **kwargs)
 
-    def info(self, message: str, metadata: dict[str, Any] | None = None, **kwargs) -> None:
+    def info(self, message: str, metadata: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         """Log info message."""
         self._log("INFO", message, metadata=metadata, **kwargs)
 
-    def warning(self, message: str, metadata: dict[str, Any] | None = None, **kwargs) -> None:
+    def warning(self, message: str, metadata: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         """Log warning message."""
         self._log("WARNING", message, metadata=metadata, **kwargs)
 
     def error(
         self,
         message: str,
-        metadata: dict[str, Any] | None = None,
+        metadata: Optional[Dict[str, Any]] = None,
         exc_info: bool = True,
         **kwargs,
     ) -> None:
@@ -279,7 +280,7 @@ class ToolkitLogger:
     def critical(
         self,
         message: str,
-        metadata: dict[str, Any] | None = None,
+        metadata: Optional[Dict[str, Any]] = None,
         exc_info: bool = True,
         **kwargs,
     ) -> None:
@@ -289,8 +290,8 @@ class ToolkitLogger:
     def success(
         self,
         message: str,
-        duration: float | None = None,
-        metadata: dict[str, Any] | None = None,
+        duration: Optional[float] = None,
+        metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> None:
         """Log success message (custom level)."""
@@ -306,7 +307,7 @@ class ToolkitLogger:
         self._operation_start_time = time.time()
         self.info(f"Started operation: {operation}")
 
-    def end_operation(self, success: bool = True, message: str | None = None) -> float | None:
+    def end_operation(self, success: bool = True, message: Optional[str] = None) -> Optional[float]:
         """End current operation and return duration."""
         if not self._current_operation:
             self.warning("No active operation to end")
@@ -340,7 +341,7 @@ class ToolkitLogger:
         """
         return OperationContext(self, name)
 
-    def get_session_logs(self, limit: int | None = None) -> list[dict[str, Any]]:
+    def get_session_logs(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get logs for current session.
 
         Args:

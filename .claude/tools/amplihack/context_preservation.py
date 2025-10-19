@@ -7,7 +7,7 @@ Preserves original user requests and conversation context to prevent loss during
 import json
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 # Use clean import through dedicated paths module
 from paths import get_project_root
@@ -21,7 +21,7 @@ except ImportError:
 class ContextPreserver:
     """Handles preservation and retrieval of conversation context and original requests."""
 
-    def __init__(self, session_id: str | None = None):
+    def __init__(self, session_id: Optional[str] = None):
         """Initialize context preserver.
 
         Args:
@@ -32,7 +32,7 @@ class ContextPreserver:
         self.session_dir = self.project_root / ".claude" / "runtime" / "logs" / self.session_id
         self.session_dir.mkdir(parents=True, exist_ok=True)
 
-    def extract_original_request(self, prompt: str) -> dict[str, Any]:
+    def extract_original_request(self, prompt: str) -> Dict[str, Any]:
         """Extract and structure original user requirements from initial prompt.
 
         Args:
@@ -74,16 +74,14 @@ class ContextPreserver:
 
         return original_request
 
-    def _parse_requirements(self, prompt: str) -> list[str]:
+    def _parse_requirements(self, prompt: str) -> List[str]:
         """Parse explicit requirements from prompt."""
         requirements = []
 
         # Extract marked sections first
         for pattern in [r"\*\*(Target|Problem)\*\*:\s*(.+?)(?:\n|$)"]:
-            requirements.extend(
-                f"{match.group(1).UPPER()}: {match.group(2).strip()}"
-                for match in re.finditer(pattern, prompt, re.IGNORECASE)
-            )
+            for match in re.finditer(pattern, prompt, re.IGNORECASE):
+                requirements.append(f"{match.group(1).upper()}: {match.group(2).strip()}")
 
         # Extract quantified statements (ALL, EVERY, etc.)
         quantifier_words = ["ALL", "EVERY", "EACH", "COMPLETE", "COMPREHENSIVE"]
@@ -103,7 +101,7 @@ class ContextPreserver:
 
         return requirements[:10]
 
-    def _parse_constraints(self, prompt: str) -> list[str]:
+    def _parse_constraints(self, prompt: str) -> List[str]:
         """Parse constraints from prompt."""
         constraints = []
 
@@ -125,7 +123,7 @@ class ContextPreserver:
 
         return constraints[:5]
 
-    def _parse_success_criteria(self, prompt: str) -> list[str]:
+    def _parse_success_criteria(self, prompt: str) -> List[str]:
         """Parse success criteria from prompt."""
         criteria = []
 
@@ -164,7 +162,7 @@ class ContextPreserver:
 
         return "General development task"
 
-    def _save_original_request(self, original_request: dict[str, Any]):
+    def _save_original_request(self, original_request: Dict[str, Any]):
         """Save original request to session logs."""
         request_file = self.session_dir / "ORIGINAL_REQUEST.md"
 
@@ -214,7 +212,7 @@ All agents should receive this context to ensure user requirements are preserved
         with open(json_file, "w") as f:
             json.dump(original_request, f, indent=2)
 
-    def get_original_request(self, session_id: str | None = None) -> dict[str, Any] | None:
+    def get_original_request(self, session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve original request for a session.
 
         Args:
@@ -242,7 +240,7 @@ All agents should receive this context to ensure user requirements are preserved
         except Exception:
             return None
 
-    def format_agent_context(self, original_request: dict[str, Any] | None = None) -> str:
+    def format_agent_context(self, original_request: Optional[Dict[str, Any]] = None) -> str:
         """Format original request as context for agent injection.
 
         Args:
@@ -266,17 +264,20 @@ All agents should receive this context to ensure user requirements are preserved
 
         if original_request["requirements"]:
             context_parts.append("**Requirements**:")
-            context_parts.extend(f"• {req}" for req in original_request["requirements"])
+            for req in original_request["requirements"]:
+                context_parts.append(f"• {req}")
             context_parts.append("")
 
         if original_request["constraints"]:
             context_parts.append("**Constraints**:")
-            context_parts.extend(f"• {constraint}" for constraint in original_request["constraints"])
+            for constraint in original_request["constraints"]:
+                context_parts.append(f"• {constraint}")
             context_parts.append("")
 
         if original_request["success_criteria"]:
             context_parts.append("**Success Criteria**:")
-            context_parts.extend(f"• {criterion}" for criterion in original_request["success_criteria"])
+            for criterion in original_request["success_criteria"]:
+                context_parts.append(f"• {criterion}")
             context_parts.append("")
 
         context_parts.extend(
@@ -289,7 +290,7 @@ All agents should receive this context to ensure user requirements are preserved
 
         return "\n".join(context_parts)
 
-    def export_conversation_transcript(self, conversation_data: list[dict[str, Any]]) -> str:
+    def export_conversation_transcript(self, conversation_data: List[Dict[str, Any]]) -> str:
         """Export complete conversation transcript (Amplifier-style).
 
         Args:
@@ -330,7 +331,7 @@ All agents should receive this context to ensure user requirements are preserved
 
         return str(transcript_file)
 
-    def get_latest_session_id(self) -> str | None:
+    def get_latest_session_id(self) -> Optional[str]:
         """Get the most recent session ID."""
         logs_dir = self.project_root / ".claude" / "runtime" / "logs"
         if not logs_dir.exists():
@@ -345,7 +346,7 @@ All agents should receive this context to ensure user requirements are preserved
         return sorted(session_dirs)[-1].name
 
 
-def create_context_preserver(session_id: str | None = None) -> ContextPreserver:
+def create_context_preserver(session_id: Optional[str] = None) -> ContextPreserver:
     """Factory function to create a ContextPreserver instance."""
     return ContextPreserver(session_id)
 

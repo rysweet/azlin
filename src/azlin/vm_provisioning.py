@@ -546,20 +546,45 @@ class VMProvisioner:
         """Generate cloud-init script for tool installation.
 
         Args:
-            ssh_public_key: SSH public key to add to authorized_keys (workaround for waagent bug)
+            ssh_public_key: SSH public key to add to authorized_keys (required to override waagent)
 
         Returns:
             Cloud-init YAML content
         """
-        # Build SSH authorized keys section if provided (runs early in boot process)
+        # Add SSH key explicitly to cloud-init and disable ssh_authkey_fingerprints module
+        # The ssh_authkey_fingerprints module overwrites authorized_keys with empty content
+        # from Azure's metadata service. We must disable it to preserve our keys.
         ssh_keys_section = ""
         if ssh_public_key:
-            # Cloud-init ssh_authorized_keys runs before waagent
-            ssh_keys_section = f"""
-# WORKAROUND: waagent sometimes fails to write SSH keys
-# This ensures the key is added early in the boot process
-ssh_authorized_keys:
+            ssh_keys_section = f"""ssh_authorized_keys:
   - {ssh_public_key}
+
+cloud_final_modules:
+  - package-update-upgrade-install
+  - fan
+  - landscape
+  - lxd
+  - ubuntu-advantage
+  - puppet
+  - chef
+  - ansible
+  - mcollective
+  - salt-minion
+  - reset_rmc
+  - refresh_rmc_and_interface
+  - rightscale_userdata
+  - scripts-vendor
+  - scripts-per-once
+  - scripts-per-boot
+  - scripts-per-instance
+  - scripts-user
+  - ssh-import-id
+  # ssh-authkey-fingerprints is INTENTIONALLY OMITTED to prevent key overwriting
+  - keys-to-console
+  - install-hotplug
+  - phone-home
+  - final-message
+  - power-state-change
 
 """
 

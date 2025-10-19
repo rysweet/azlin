@@ -10,7 +10,7 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List
 
 # Clean import setup
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -35,10 +35,9 @@ def log(message: str, level: str = "INFO"):
     try:
         with open(log_file, "a") as f:
             f.write(f"[{timestamp}] {level}: {message}\n")
-    except Exception as e:
+    except Exception:
         # Silently fail - don't disrupt the hook
-        import sys
-        print(f"Logging failed: {e}", file=sys.stderr)
+        pass
 
 
 def is_proxy_active() -> bool:
@@ -78,7 +77,7 @@ def is_proxy_active() -> bool:
         return False
 
 
-def extract_todo_items(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def extract_todo_items(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Extract TODO items from messages that used TodoWrite tool.
 
     Args:
@@ -109,7 +108,7 @@ def extract_todo_items(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return todos
 
 
-def has_uncompleted_todos(todos: list[dict[str, Any]]) -> bool:
+def has_uncompleted_todos(todos: List[Dict[str, Any]]) -> bool:
     """Check if there are uncompleted TODO items.
 
     Args:
@@ -126,7 +125,7 @@ def has_uncompleted_todos(todos: list[dict[str, Any]]) -> bool:
     return False
 
 
-def check_for_continuation_phrases(messages: list[dict[str, Any]]) -> bool:
+def check_for_continuation_phrases(messages: List[Dict[str, Any]]) -> bool:
     """Check if assistant mentioned next steps or continuation.
 
     Args:
@@ -178,7 +177,7 @@ def check_for_continuation_phrases(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
-def check_request_unfulfilled(messages: list[dict[str, Any]]) -> bool:
+def check_request_unfulfilled(messages: List[Dict[str, Any]]) -> bool:
     """Check if the original user request appears unfulfilled.
 
     Args:
@@ -217,7 +216,7 @@ def check_request_unfulfilled(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
-def should_continue(messages: list[dict[str, Any]]) -> bool:
+def should_continue(messages: List[Dict[str, Any]]) -> bool:
     """Determine if the assistant should continue working.
 
     Args:
