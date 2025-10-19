@@ -8,21 +8,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- CI/CD pipeline with comprehensive testing and security scanning
+- Dependabot automation for dependency management
+
+## [2.1.0] - 2025-10-19
+
+### Added
 - Comprehensive unit tests for CLI components
 - CLI decomposition Phase 1 - Foundation established ([#128](https://github.com/rysweet/azlin/pull/128))
 - Comprehensive tests for stop and reflection hooks ([#121](https://github.com/rysweet/azlin/pull/121))
-- API reference documentation
+- API reference documentation (3,547 lines) ([#127](https://github.com/rysweet/azlin/pull/127))
+- Unit tests for vm_lifecycle.py (38 tests, 92% coverage) ([#135](https://github.com/rysweet/azlin/pull/135))
+- Unit tests for terminal_launcher.py (29 tests, 100% coverage) ([#133](https://github.com/rysweet/azlin/pull/133))
+- Unit tests for vm_lifecycle_control.py (41 tests) ([#136](https://github.com/rysweet/azlin/pull/136))
+- Unit tests for status_dashboard.py (39 tests, 98% coverage) ([#134](https://github.com/rysweet/azlin/pull/134))
+- Unit tests for connection_tracker.py (82 tests, 94% coverage) ([#111](https://github.com/rysweet/azlin/pull/111))
+- CI/CD pipeline with multi-Python testing (3.11, 3.12, 3.13)
+- Security scanning with 6 tools (GitGuardian, Bandit, Safety, CodeQL, Trivy, OSSF Scorecard)
+- Dependabot automation for weekly dependency updates
 
 ### Fixed
-- Missing imports in test files
+- Missing imports in test files across 8 PRs
 - Orphaned test files removed
 - Merge conflicts and import resolution
-- Silent exception handling replaced with proper logging (36 locations)
-- Remove placeholder data from 23 stub functions in codex_transcripts_builder
+- Silent exception handling replaced with proper logging (36 locations) ([#118](https://github.com/rysweet/azlin/pull/118))
+- Remove placeholder data from 23 stub functions in codex_transcripts_builder ([#119](https://github.com/rysweet/azlin/pull/119))
+- Unused cost calculation now stored and used ([#104](https://github.com/rysweet/azlin/pull/104))
+- IP validation security using ipaddress module ([#103](https://github.com/rysweet/azlin/pull/103))
 
 ### Changed
 - Consolidated duplicate VM listing logic ([#126](https://github.com/rysweet/azlin/pull/126))
-- Updated ARCHITECTURE.md to reflect v2.0 reality
+- Updated ARCHITECTURE.md to reflect v2.0 reality (15,000 LOC)
+- Updated CHANGELOG.md with complete version history
+
+### Security
+- Path traversal protection in config_manager.py ([#105](https://github.com/rysweet/azlin/pull/105))
+- IP validation using standards-based ipaddress module ([#103](https://github.com/rysweet/azlin/pull/103))
+
+### Removed
+- Unused xpia_defense.py module (1,331 lines) ([#129](https://github.com/rysweet/azlin/pull/129))
 
 ## [2.0.0] - 2025-10-18
 
@@ -176,7 +200,8 @@ This release represents a significant evolution of azlin with over 90 merged PRs
 
 First stable release of azlin providing core Azure VM provisioning and management capabilities.
 
-[Unreleased]: https://github.com/rysweet/azlin/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/rysweet/azlin/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/rysweet/azlin/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/rysweet/azlin/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/rysweet/azlin/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/rysweet/azlin/releases/tag/v0.1.0
