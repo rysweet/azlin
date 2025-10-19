@@ -726,13 +726,7 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
 
             self.progress.update(f"Storage found: {storage.nfs_endpoint}")
 
-            # Restore SSH keys before NFS mount
-            # Azure's waagent overwrites SSH keys after cloud-init completes,
-            # breaking SSH access. We restore them via run-command before mounting.
-            self.progress.update("Restoring SSH keys for NFS mount...")
-            self._restore_ssh_keys_via_runcommand(vm_details, key_path)
-
-            # Configure network access for NFS
+            # Configure network access for NFS (must be done before mount)
             self.progress.update("Configuring NFS network access...")
             vm_subnet_id = self._get_vm_subnet_id(vm_details)
             StorageManager.configure_nfs_network_access(
@@ -741,12 +735,19 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
                 vm_subnet_id=vm_subnet_id,
             )
 
-            # Mount storage
-            self.progress.update("Installing NFS client tools...")
-            result = NFSMountManager.mount_storage(
-                vm_ip=public_ip,
-                ssh_key=key_path,
+            # Read SSH public key for restoration after mount
+            pub_key_path = Path(str(key_path) + ".pub")
+            if not pub_key_path.exists():
+                raise Exception(f"SSH public key not found: {pub_key_path}")
+            ssh_public_key = pub_key_path.read_text().strip()
+
+            # Mount storage via run-command (bypasses SSH key limitations)
+            self.progress.update("Mounting NFS storage via run-command...")
+            result = NFSMountManager.mount_storage_via_runcommand(
+                vm_name=vm_details.name,
+                resource_group=rg,
                 nfs_endpoint=storage.nfs_endpoint,
+                ssh_public_key=ssh_public_key,
                 mount_point="/home/azureuser",
             )
 

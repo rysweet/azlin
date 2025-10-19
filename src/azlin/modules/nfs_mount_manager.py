@@ -66,6 +66,239 @@ class NFSMountManager:
     """
 
     @classmethod
+    def mount_storage_via_runcommand(
+        cls,
+        vm_name: str,
+        resource_group: str,
+        nfs_endpoint: str,
+        ssh_public_key: str,
+        mount_point: str = "/home/azureuser",
+    ) -> MountResult:
+        """Mount NFS share on VM using Azure run-command (no SSH required).
+
+        This method executes the entire mount operation via Azure's run-command API,
+        bypassing the SSH limitation where Azure's waagent continuously overwrites
+        SSH keys every 10-30 seconds.
+
+        Steps executed in single run-command script:
+        1. Wait for package manager availability
+        2. Install nfs-common
+        3. Backup existing mount point
+        4. Create mount point
+        5. Mount NFS share
+        6. Update /etc/fstab
+        7. Restore SSH keys
+        8. Fix permissions
+        9. Copy backup files if share is empty
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+            nfs_endpoint: NFS endpoint (e.g., "server:/share")
+            ssh_public_key: SSH public key to restore after mount
+            mount_point: Mount point path (default: /home/azureuser)
+
+        Returns:
+            MountResult with success status and details
+        """
+        import subprocess
+
+        backup_dir = f"{mount_point}.backup"
+
+        # Generate comprehensive mount script
+        mount_script = f"""#!/bin/bash
+set -e  # Exit on any error
+
+# Output for debugging
+exec 1> >(logger -s -t nfs-mount) 2>&1
+
+echo "=== NFS Mount Script Starting ==="
+echo "Endpoint: {nfs_endpoint}"
+echo "Mount point: {mount_point}"
+
+# Step 1: Wait for package manager
+echo "Step 1: Waiting for package manager..."
+for i in {{1..30}}; do
+    if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && \
+       ! fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+        echo "Package manager available"
+        break
+    fi
+    echo "Waiting for package manager (attempt $i/30)..."
+    sleep 2
+done
+
+# Step 2: Install nfs-common
+echo "Step 2: Installing nfs-common..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y nfs-common
+
+# Step 3: Backup existing mount point
+echo "Step 3: Backing up {mount_point}..."
+if [ -d "{mount_point}" ] && [ "$(ls -A {mount_point} 2>/dev/null)" ]; then
+    if [ ! -d "{backup_dir}" ]; then
+        mv "{mount_point}" "{backup_dir}"
+        BACKED_UP_FILES=$(find "{backup_dir}" -type f | wc -l)
+        echo "Backed up $BACKED_UP_FILES files to {backup_dir}"
+    else
+        echo "Backup already exists at {backup_dir}"
+        BACKED_UP_FILES=$(find "{backup_dir}" -type f | wc -l)
+    fi
+else
+    BACKED_UP_FILES=0
+    echo "No files to backup"
+fi
+
+# Step 4: Create mount point
+echo "Step 4: Creating mount point..."
+mkdir -p "{mount_point}"
+
+# Step 5: Mount NFS share
+echo "Step 5: Mounting NFS share..."
+mount -t nfs -o vers=4,minorversion=1,sec=sys {nfs_endpoint} {mount_point}
+echo "Mount successful!"
+
+# Step 6: Update /etc/fstab
+echo "Step 6: Updating /etc/fstab..."
+FSTAB_ENTRY="{nfs_endpoint} {mount_point} nfs vers=4,minorversion=1,sec=sys 0 0"
+if ! grep -q "{nfs_endpoint}" /etc/fstab; then
+    echo "$FSTAB_ENTRY" >> /etc/fstab
+    echo "Added to /etc/fstab"
+else
+    echo "Already in /etc/fstab"
+fi
+
+# Step 7: Fix ownership and permissions
+echo "Step 7: Fixing ownership and permissions..."
+chown azureuser:azureuser "{mount_point}"
+chmod 755 "{mount_point}"
+
+# Step 8: Restore SSH keys
+echo "Step 8: Restoring SSH keys..."
+mkdir -p "{mount_point}/.ssh"
+cat > "{mount_point}/.ssh/authorized_keys" << 'SSHKEY'
+{ssh_public_key}
+SSHKEY
+chown -R azureuser:azureuser "{mount_point}/.ssh"
+chmod 700 "{mount_point}/.ssh"
+chmod 600 "{mount_point}/.ssh/authorized_keys"
+echo "SSH keys restored"
+
+# Step 9: Copy backup files if share is empty
+echo "Step 9: Checking if backup restore needed..."
+SHARE_FILES=$(ls -A "{mount_point}" 2>/dev/null | grep -v '^\\.ssh$' | wc -l)
+if [ "$BACKED_UP_FILES" -gt 0 ] && [ "$SHARE_FILES" -eq 0 ]; then
+    echo "Restoring backup files..."
+    cp -a "{backup_dir}"/* "{mount_point}"/ 2>/dev/null || true
+    # Fix ownership after copy
+    chown -R azureuser:azureuser "{mount_point}"
+    COPIED_FILES=$(find "{mount_point}" -type f | wc -l)
+    echo "Copied $COPIED_FILES files from backup"
+else
+    echo "No backup restore needed (share has $SHARE_FILES files)"
+    COPIED_FILES=0
+fi
+
+# Step 10: Verify mount
+echo "Step 10: Verifying mount..."
+if mount | grep -q "{mount_point}"; then
+    echo "=== NFS Mount Complete ==="
+    echo "Mount point: {mount_point}"
+    echo "Backed up files: $BACKED_UP_FILES"
+    echo "Copied files: $COPIED_FILES"
+    df -h "{mount_point}"
+    exit 0
+else
+    echo "ERROR: Mount verification failed"
+    exit 1
+fi
+"""
+
+        try:
+            logger.info(f"Executing NFS mount via run-command on {vm_name}")
+
+            # Execute via Azure run-command
+            cmd = [
+                "az",
+                "vm",
+                "run-command",
+                "invoke",
+                "--resource-group",
+                resource_group,
+                "--name",
+                vm_name,
+                "--command-id",
+                "RunShellScript",
+                "--scripts",
+                mount_script,
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=600,  # 10 minutes for full operation
+            )
+
+            # Parse output for backed_up and copied files counts
+            output = result.stdout
+            backed_up_files = 0
+            copied_files = 0
+
+            # Extract counts from output
+            import re
+            backed_up_match = re.search(r"Backed up (\d+) files", output)
+            if backed_up_match:
+                backed_up_files = int(backed_up_match.group(1))
+
+            copied_match = re.search(r"Copied (\d+) files", output)
+            if copied_match:
+                copied_files = int(copied_match.group(1))
+
+            logger.info(f"NFS mount completed successfully via run-command")
+
+            return MountResult(
+                success=True,
+                mount_point=mount_point,
+                nfs_endpoint=nfs_endpoint,
+                backed_up_files=backed_up_files,
+                copied_files=copied_files,
+                errors=[],
+            )
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if e.stderr else str(e)
+            logger.error(f"NFS mount via run-command failed: {error_msg}")
+
+            # Try to get output even on failure
+            if e.stdout:
+                logger.debug(f"Run-command output: {e.stdout}")
+
+            return MountResult(
+                success=False,
+                mount_point=mount_point,
+                nfs_endpoint=nfs_endpoint,
+                backed_up_files=0,
+                copied_files=0,
+                errors=[error_msg],
+            )
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Unexpected error in NFS mount: {error_msg}")
+
+            return MountResult(
+                success=False,
+                mount_point=mount_point,
+                nfs_endpoint=nfs_endpoint,
+                backed_up_files=0,
+                copied_files=0,
+                errors=[error_msg],
+            )
+
+    @classmethod
     def mount_storage(
         cls,
         vm_ip: str,
