@@ -11,7 +11,9 @@ SECURITY FOCUS:
 - Test malformed inputs
 """
 
+import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from azlin.modules.home_sync import (
     HomeSyncManager,
