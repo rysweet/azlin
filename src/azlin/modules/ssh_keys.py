@@ -152,15 +152,15 @@ class SSHKeyManager:
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
             logger.error(f"ssh-keygen failed: {error_msg}")
-            raise SSHKeyError(f"Failed to generate SSH key: {error_msg}")
+            raise SSHKeyError(f"Failed to generate SSH key: {error_msg}") from e
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             logger.error("ssh-keygen timed out")
-            raise SSHKeyError("SSH key generation timed out")
+            raise SSHKeyError("SSH key generation timed out") from e
 
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error("ssh-keygen not found in PATH")
-            raise SSHKeyError("ssh-keygen not found. Please install OpenSSH client.")
+            raise SSHKeyError("ssh-keygen not found. Please install OpenSSH client.") from e
 
         # Set permissions
         cls._fix_permissions(key_path, public_path)
@@ -285,7 +285,7 @@ class SSHKeyManager:
             return content
 
         except Exception as e:
-            raise SSHKeyError(f"Failed to read public key: {e}")
+            raise SSHKeyError(f"Failed to read public key: {e}") from e
 
 
 # Convenience functions for CLI use

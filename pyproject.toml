@@ -73,7 +73,7 @@ exclude_lines = [
 ]
 
 [tool.pyright]
-typeCheckingMode = "basic"
+typeCheckingMode = "strict"
 pythonVersion = "3.11"
 include = ["src"]
 exclude = ["**/__pycache__", "**/.pytest_cache", "**/node_modules"]
@@ -122,4 +122,7 @@ max-complexity = 15
 ".claude/**/*.py" = [
     "S101",   # assert allowed
     "T201",   # print allowed
+]
+"src/azlin/vm_provisioning.py" = [
+    "S608",   # False positive: cloud-init YAML, not SQL
 ]

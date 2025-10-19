@@ -114,7 +114,7 @@ class SSHConnector:
             return 130  # Standard exit code for Ctrl+C
 
         except Exception as e:
-            raise SSHConnectionError(f"SSH connection failed: {e}")
+            raise SSHConnectionError(f"SSH connection failed: {e}") from e
 
     @classmethod
     def _build_tmux_command(cls, session_name: str) -> str:
@@ -412,15 +412,15 @@ class SSHConnector:
 
             return result.stdout
 
-        except subprocess.TimeoutExpired:
-            raise SSHConnectionError(f"Remote command timed out after {timeout}s")
+        except subprocess.TimeoutExpired as e:
+            raise SSHConnectionError(f"Remote command timed out after {timeout}s") from e
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            raise SSHConnectionError(f"Remote command failed: {error_msg}")
+            raise SSHConnectionError(f"Remote command failed: {error_msg}") from e
 
         except Exception as e:
-            raise SSHConnectionError(f"Failed to execute remote command: {e}")
+            raise SSHConnectionError(f"Failed to execute remote command: {e}") from e
 
 
 # Convenience functions for CLI use

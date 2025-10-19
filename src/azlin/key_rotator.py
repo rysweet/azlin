@@ -238,8 +238,8 @@ class SSHKeyRotator:
             )
 
         # Update VMs in parallel
-        vms_updated = []
-        vms_failed = []
+        vms_updated: list[str] = []
+        vms_failed: list[str] = []
 
         with ThreadPoolExecutor(max_workers=cls.MAX_WORKERS) as executor:
             # Submit all update tasks
@@ -347,7 +347,7 @@ class SSHKeyRotator:
         try:
             key_pair = SSHKeyManager.ensure_key_exists(key_path)
         except Exception as e:
-            raise KeyRotationError(f"Failed to get current key: {e}")
+            raise KeyRotationError(f"Failed to get current key: {e}") from e
 
         # Create timestamped backup directory
         timestamp = datetime.now()
@@ -381,7 +381,7 @@ class SSHKeyRotator:
             # Cleanup on failure
             if backup_dir.exists():
                 shutil.rmtree(backup_dir)
-            raise KeyRotationError(f"Failed to backup keys: {e}")
+            raise KeyRotationError(f"Failed to backup keys: {e}") from e
 
     @classmethod
     def list_vm_keys(cls, resource_group: str, vm_prefix: str = "azlin") -> list[VMKeyInfo]:
@@ -406,7 +406,7 @@ class SSHKeyRotator:
             vms = VMManager.filter_by_prefix(vms, vm_prefix)
 
             # Get key info for each VM using az CLI
-            vm_keys = []
+            vm_keys: list[VMKeyInfo] = []
             for vm in vms:
                 try:
                     # Get VM details including SSH keys

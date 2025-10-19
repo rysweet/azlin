@@ -7,7 +7,7 @@ including resource usage, costs, and configuration details.
 import json
 import subprocess
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 from rich.console import Console
 from rich.table import Table
@@ -36,7 +36,7 @@ class StatusDashboard:
     """Manages VM status display and retrieval."""
 
     # Approximate hourly costs for common VM sizes (USD)
-    VM_COST_ESTIMATES = {
+    VM_COST_ESTIMATES: ClassVar[dict[str, float]] = {
         "Standard_B1s": 0.0104,
         "Standard_B1ms": 0.0207,
         "Standard_B2s": 0.0416,
@@ -58,14 +58,14 @@ class StatusDashboard:
         """Initialize the status dashboard."""
         self.console = Console()
 
-    def _run_az_command(self, command: list[str]) -> dict[str, Any]:
+    def _run_az_command(self, command: list[str]) -> Any:
         """Run an Azure CLI command and return JSON output.
 
         Args:
             command: Azure CLI command as list of strings
 
         Returns:
-            Parsed JSON output from the command
+            Parsed JSON output from the command (dict or list)
 
         Raises:
             subprocess.CalledProcessError: If the command fails
@@ -92,7 +92,9 @@ class StatusDashboard:
         if resource_group:
             command.extend(["--resource-group", resource_group])
 
-        return self._run_az_command(command)
+        result = self._run_az_command(command)
+        assert isinstance(result, list), "Expected list from az vm list"
+        return result  # type: ignore[return-value]
 
     def _get_vm_instance_view(self, vm_name: str, resource_group: str) -> dict[str, Any]:
         """Get detailed instance view for a VM.
@@ -141,16 +143,16 @@ class StatusDashboard:
             ]
             result = self._run_az_command(command)
 
-            if result and len(result) > 0:
-                virtual_machine = result[0]
-                network_interfaces = (
-                    virtual_machine.get("virtualMachine", {})
-                    .get("network", {})
-                    .get("publicIpAddresses", [])
+            if result and isinstance(result, list) and len(result) > 0:  # type: ignore[arg-type]
+                virtual_machine = result[0]  # type: ignore[misc]
+                network_interfaces = (  # type: ignore[misc]
+                    virtual_machine.get("virtualMachine", {})  # type: ignore[union-attr,misc]
+                    .get("network", {})  # type: ignore[union-attr]
+                    .get("publicIpAddresses", [])  # type: ignore[union-attr]
                 )
 
                 if network_interfaces:
-                    return network_interfaces[0].get("ipAddress")
+                    return network_interfaces[0].get("ipAddress")  # type: ignore[union-attr]
 
             return None
         except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
@@ -213,7 +215,7 @@ class StatusDashboard:
         Returns:
             List of VMStatus objects
         """
-        vm_statuses = []
+        vm_statuses: list[VMStatus] = []
 
         # Get VM list
         vms = self._get_vm_list(resource_group)

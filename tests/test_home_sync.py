@@ -15,8 +15,6 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from azlin.modules.home_sync import (
     HomeSyncManager,
     RsyncError,
@@ -292,14 +290,14 @@ class TestSymlinkValidation:
         target = Path.home() / ".ssh"
 
         # Mock the symlink
-        with patch.object(Path, "is_symlink", return_value=True):
-            with patch.object(Path, "resolve", return_value=target):
-                warnings = HomeSyncManager.scan_for_secrets(sync_dir)
+        with (
+            patch.object(Path, "is_symlink", return_value=True),
+            patch.object(Path, "resolve", return_value=target),
+        ):
+            warnings = HomeSyncManager.scan_for_secrets(sync_dir)
 
-                # Should have warning about dangerous symlink
-                assert any(
-                    w.severity == "error" and "symlink" in w.reason.lower() for w in warnings
-                )
+            # Should have warning about dangerous symlink
+            assert any(w.severity == "error" and "symlink" in w.reason.lower() for w in warnings)
 
 
 class TestContentScanning:

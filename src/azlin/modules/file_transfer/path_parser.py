@@ -3,6 +3,7 @@
 import logging
 import re
 from pathlib import Path
+from typing import ClassVar
 
 from .exceptions import InvalidPathError, PathTraversalError, SymlinkSecurityError
 
@@ -14,7 +15,7 @@ class PathParser:
 
     # Security boundaries
     HOME_DIR = Path.home()
-    ALLOWED_BASE_DIRS = [
+    ALLOWED_BASE_DIRS: ClassVar[list[Path]] = [
         HOME_DIR,
         HOME_DIR / "Desktop",
         HOME_DIR / "Documents",
@@ -22,7 +23,7 @@ class PathParser:
     ]
 
     # Blocked patterns for extra safety
-    BLOCKED_PATH_PATTERNS = [
+    BLOCKED_PATH_PATTERNS: ClassVar[list[str]] = [
         r"\.ssh/id_[a-z0-9]+$",
         r"\.ssh/.*_key$",
         r"\.aws/credentials$",
@@ -71,7 +72,7 @@ class PathParser:
         try:
             path = Path(path_str).expanduser()
         except (ValueError, RuntimeError) as e:
-            raise InvalidPathError(f"Invalid path format: {e}")
+            raise InvalidPathError(f"Invalid path format: {e}") from e
 
         # Check for absolute path if not allowed
         if path.is_absolute() and not allow_absolute:
@@ -88,7 +89,7 @@ class PathParser:
         try:
             normalized = path.resolve(strict=False)
         except (ValueError, RuntimeError) as e:
-            raise InvalidPathError(f"Cannot normalize path: {e}")
+            raise InvalidPathError(f"Cannot normalize path: {e}") from e
 
         # Check for path traversal by verifying it's within allowed boundaries
         if not cls._is_within_allowed_boundaries(normalized):
@@ -153,7 +154,7 @@ class PathParser:
                 raise SymlinkSecurityError(f"Symlink points to credential file: {path} -> {target}")
 
         except (OSError, RuntimeError) as e:
-            raise SymlinkSecurityError(f"Cannot validate symlink: {e}")
+            raise SymlinkSecurityError(f"Cannot validate symlink: {e}") from e
 
     @classmethod
     def _is_credential_file(cls, path: Path) -> bool:

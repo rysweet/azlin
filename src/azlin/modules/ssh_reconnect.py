@@ -115,6 +115,7 @@ class SSHReconnectHandler:
             >>> exit_code = handler.connect_with_reconnect(config, "my-vm")
         """
         attempt = 0
+        exit_code = 0  # Initialize for type checker
 
         while attempt <= self.max_retries:
             # Connect to SSH

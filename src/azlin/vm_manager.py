@@ -91,14 +91,16 @@ class VMManager:
             # List VMs without show-details first (faster and more reliable)
             cmd = ["az", "vm", "list", "--resource-group", resource_group, "--output", "json"]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=True
+            )
 
-            vms_data = json.loads(result.stdout)
+            vms_data: list[dict[str, Any]] = json.loads(result.stdout)
 
             # Fetch all public IPs in a single batch call
             public_ips = cls._get_all_public_ips(resource_group)
 
-            vms = []
+            vms: list[VMInfo] = []
 
             # Parse VM data and match with public IPs
             for vm_data in vms_data:
@@ -124,11 +126,11 @@ class VMManager:
             if "ResourceGroupNotFound" in e.stderr:
                 logger.debug(f"Resource group not found: {resource_group}")
                 return []
-            raise VMManagerError(f"Failed to list VMs: {e.stderr}")
-        except json.JSONDecodeError:
-            raise VMManagerError("Failed to parse VM list response")
-        except subprocess.TimeoutExpired:
-            raise VMManagerError("VM list operation timed out")
+            raise VMManagerError(f"Failed to list VMs: {e.stderr}") from e
+        except json.JSONDecodeError as e:
+            raise VMManagerError("Failed to parse VM list response") from e
+        except subprocess.TimeoutExpired as e:
+            raise VMManagerError("VM list operation timed out") from e
 
     @classmethod
     def _get_all_public_ips(cls, resource_group: str) -> dict[str, str]:
@@ -154,9 +156,11 @@ class VMManager:
                 "json",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=True)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=10, check=True
+            )
 
-            ips_data = json.loads(result.stdout)
+            ips_data: list[dict[str, Any]] = json.loads(result.stdout)
             return {item["name"]: item["ip"] for item in ips_data if item.get("ip")}
 
         except Exception as e:
@@ -191,9 +195,11 @@ class VMManager:
                 "json",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=True
+            )
 
-            vm_data = json.loads(result.stdout)
+            vm_data: dict[str, Any] = json.loads(result.stdout)
             return cls._parse_vm_data(vm_data)
 
         except subprocess.CalledProcessError as e:
@@ -201,11 +207,11 @@ class VMManager:
             if "ResourceNotFound" in e.stderr:
                 logger.debug(f"VM not found: {vm_name}")
                 return None
-            raise VMManagerError(f"Failed to get VM details: {e.stderr}")
-        except json.JSONDecodeError:
-            raise VMManagerError("Failed to parse VM details response")
-        except subprocess.TimeoutExpired:
-            raise VMManagerError("VM details query timed out")
+            raise VMManagerError(f"Failed to get VM details: {e.stderr}") from e
+        except json.JSONDecodeError as e:
+            raise VMManagerError("Failed to parse VM details response") from e
+        except subprocess.TimeoutExpired as e:
+            raise VMManagerError("VM details query timed out") from e
 
     @classmethod
     def list_resource_groups(cls) -> list[str]:
@@ -220,16 +226,18 @@ class VMManager:
         try:
             cmd = ["az", "group", "list", "--query", "[].name", "--output", "json"]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=True
+            )
 
             return json.loads(result.stdout)
 
         except subprocess.CalledProcessError as e:
-            raise VMManagerError(f"Failed to list resource groups: {e.stderr}")
-        except json.JSONDecodeError:
-            raise VMManagerError("Failed to parse resource groups response")
-        except subprocess.TimeoutExpired:
-            raise VMManagerError("Resource group list timed out")
+            raise VMManagerError(f"Failed to list resource groups: {e.stderr}") from e
+        except json.JSONDecodeError as e:
+            raise VMManagerError("Failed to parse resource groups response") from e
+        except subprocess.TimeoutExpired as e:
+            raise VMManagerError("Resource group list timed out") from e
 
     @classmethod
     def get_vm_ip(cls, vm_name: str, resource_group: str) -> str | None:
@@ -261,17 +269,19 @@ class VMManager:
                 "tsv",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=True
+            )
 
-            ip = result.stdout.strip()
+            ip: str = result.stdout.strip()
             return ip if ip else None
 
         except subprocess.CalledProcessError as e:
             if "ResourceNotFound" in e.stderr:
                 return None
-            raise VMManagerError(f"Failed to get VM IP: {e.stderr}")
-        except subprocess.TimeoutExpired:
-            raise VMManagerError("VM IP query timed out")
+            raise VMManagerError(f"Failed to get VM IP: {e.stderr}") from e
+        except subprocess.TimeoutExpired as e:
+            raise VMManagerError("VM IP query timed out") from e
 
     @classmethod
     def filter_by_prefix(cls, vms: list[VMInfo], prefix: str = "azlin") -> list[VMInfo]:
@@ -304,7 +314,7 @@ class VMManager:
                     # Parse ISO format timestamp
                     return datetime.fromisoformat(vm.created_time.replace("Z", "+00:00"))
                 except Exception as e:
-                    logger.warning(f"Failed to parse VM creation time '{vm.created_time}': {e}")
+                    logger.debug(f"Could not parse timestamp for {vm.name}: {e}")
             return datetime.min
 
         return sorted(vms, key=get_time, reverse=reverse)
@@ -336,7 +346,7 @@ class VMManager:
                 "json",
             ]
 
-            result = subprocess.run(
+            result: subprocess.CompletedProcess[str] = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -344,7 +354,7 @@ class VMManager:
                 check=True,
             )
 
-            instance_view = json.loads(result.stdout)
+            instance_view: dict[str, Any] = json.loads(result.stdout)
 
             # Add instance view to VM data
             vm_data["instanceView"] = instance_view
@@ -388,9 +398,11 @@ class VMManager:
                     "tsv",
                 ]
 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=True)
+                result: subprocess.CompletedProcess[str] = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=5, check=True
+                )
 
-                public_ip_id = result.stdout.strip()
+                public_ip_id: str = result.stdout.strip()
                 if public_ip_id and public_ip_id != "None":
                     public_ip_name = public_ip_id.split("/")[-1]
 
@@ -410,11 +422,11 @@ class VMManager:
                         "tsv",
                     ]
 
-                    result = subprocess.run(
+                    result: subprocess.CompletedProcess[str] = subprocess.run(
                         cmd, capture_output=True, text=True, timeout=5, check=True
                     )
 
-                    public_ip = result.stdout.strip()
+                    public_ip: str = result.stdout.strip()
                     if public_ip and public_ip != "None":
                         vm_data["publicIps"] = public_ip
 

@@ -65,8 +65,7 @@ class SessionToolkit:
         Returns:
             Session ID
         """
-        session_id = self.session_manager.create_session(name, config, metadata)
-        return session_id
+        return self.session_manager.create_session(name, config, metadata)
 
     def get_session(self, session_id: str) -> ClaudeSession | None:
         """Get session by ID."""

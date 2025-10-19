@@ -12,6 +12,7 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +68,10 @@ class CleanupSummary:
     orphaned_disks: int = 0
     orphaned_nics: int = 0
     orphaned_public_ips: int = 0
-    resources: list[OrphanedResource] = field(default_factory=list)
+    resources: list[OrphanedResource] = field(default_factory=list)  # type: ignore[misc]
     deleted_count: int = 0
     failed_count: int = 0
-    errors: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)  # type: ignore[misc]
     dry_run: bool = False
     cancelled: bool = False
     estimated_monthly_savings: float = 0.0
@@ -99,13 +100,15 @@ class ResourceCleanup:
         try:
             cmd = ["az", "disk", "list", "--resource-group", resource_group, "--output", "json"]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=60, check=False
+            )
 
             if result.returncode != 0:
                 raise ResourceCleanupError(f"Failed to list disks: {result.stderr.strip()}")
 
-            disks = json.loads(result.stdout)
-            orphaned = []
+            disks: list[dict[str, Any]] = json.loads(result.stdout)
+            orphaned: list[OrphanedResource] = []
 
             for disk in disks:
                 # Check if disk is unattached
@@ -126,12 +129,12 @@ class ResourceCleanup:
 
             return orphaned
 
-        except subprocess.TimeoutExpired:
-            raise ResourceCleanupError("Timeout listing disks")
+        except subprocess.TimeoutExpired as e:
+            raise ResourceCleanupError("Timeout listing disks") from e
         except json.JSONDecodeError as e:
-            raise ResourceCleanupError(f"Failed to parse disk list: {e}")
+            raise ResourceCleanupError(f"Failed to parse disk list: {e}") from e
         except Exception as e:
-            raise ResourceCleanupError(f"Error detecting orphaned disks: {e}")
+            raise ResourceCleanupError(f"Error detecting orphaned disks: {e}") from e
 
     @classmethod
     def detect_orphaned_nics(cls, resource_group: str) -> list[OrphanedResource]:
@@ -158,13 +161,15 @@ class ResourceCleanup:
                 "json",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=60, check=False
+            )
 
             if result.returncode != 0:
                 raise ResourceCleanupError(f"Failed to list NICs: {result.stderr.strip()}")
 
-            nics = json.loads(result.stdout)
-            orphaned = []
+            nics: list[dict[str, Any]] = json.loads(result.stdout)
+            orphaned: list[OrphanedResource] = []
 
             for nic in nics:
                 # Check if NIC is not attached to a VM
@@ -182,12 +187,12 @@ class ResourceCleanup:
 
             return orphaned
 
-        except subprocess.TimeoutExpired:
-            raise ResourceCleanupError("Timeout listing NICs")
+        except subprocess.TimeoutExpired as e:
+            raise ResourceCleanupError("Timeout listing NICs") from e
         except json.JSONDecodeError as e:
-            raise ResourceCleanupError(f"Failed to parse NIC list: {e}")
+            raise ResourceCleanupError(f"Failed to parse NIC list: {e}") from e
         except Exception as e:
-            raise ResourceCleanupError(f"Error detecting orphaned NICs: {e}")
+            raise ResourceCleanupError(f"Error detecting orphaned NICs: {e}") from e
 
     @classmethod
     def detect_orphaned_public_ips(cls, resource_group: str) -> list[OrphanedResource]:
@@ -214,13 +219,15 @@ class ResourceCleanup:
                 "json",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=60, check=False
+            )
 
             if result.returncode != 0:
                 raise ResourceCleanupError(f"Failed to list public IPs: {result.stderr.strip()}")
 
-            public_ips = json.loads(result.stdout)
-            orphaned = []
+            public_ips: list[dict[str, Any]] = json.loads(result.stdout)
+            orphaned: list[OrphanedResource] = []
 
             for ip in public_ips:
                 # Check if IP is not attached to a NIC
@@ -239,12 +246,12 @@ class ResourceCleanup:
 
             return orphaned
 
-        except subprocess.TimeoutExpired:
-            raise ResourceCleanupError("Timeout listing public IPs")
+        except subprocess.TimeoutExpired as e:
+            raise ResourceCleanupError("Timeout listing public IPs") from e
         except json.JSONDecodeError as e:
-            raise ResourceCleanupError(f"Failed to parse public IP list: {e}")
+            raise ResourceCleanupError(f"Failed to parse public IP list: {e}") from e
         except Exception as e:
-            raise ResourceCleanupError(f"Error detecting orphaned public IPs: {e}")
+            raise ResourceCleanupError(f"Error detecting orphaned public IPs: {e}") from e
 
     @classmethod
     def find_orphaned_resources(cls, resource_group: str) -> CleanupSummary:
@@ -326,7 +333,9 @@ class ResourceCleanup:
                 logger.error(f"Unknown resource type: {resource.resource_type}")
                 return False
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=120, check=False
+            )
 
             if result.returncode == 0:
                 logger.info(f"Successfully deleted {resource.resource_type}: {resource.name}")
@@ -397,7 +406,7 @@ class ResourceCleanup:
         Returns:
             Formatted string for CLI display
         """
-        lines = []
+        lines: list[str] = []
         lines.append("")
         lines.append("=" * 80)
         lines.append("Orphaned Resources Found")
@@ -418,8 +427,7 @@ class ResourceCleanup:
 
         if nics:
             lines.append(f"\nNETWORK INTERFACES ({len(nics)}):")
-            for nic in nics:
-                lines.append(f"  - {nic.name}")
+            lines.extend(f"  - {nic.name}" for nic in nics)
 
         if ips:
             lines.append(f"\nPUBLIC IPs ({len(ips)}):")
@@ -446,8 +454,7 @@ class ResourceCleanup:
             lines.append(f"  Failed: {summary.failed_count}")
             if summary.errors:
                 lines.append("\nErrors:")
-                for error in summary.errors:
-                    lines.append(f"  - {error}")
+                lines.extend(f"  - {error}" for error in summary.errors)
 
         lines.append("=" * 80)
         lines.append("")

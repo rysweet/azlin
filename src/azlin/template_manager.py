@@ -27,8 +27,8 @@ from typing import Any
 
 try:
     import yaml
-except ImportError:
-    raise ImportError("PyYAML not available. Install with: pip install pyyaml")
+except ImportError as e:
+    raise ImportError("PyYAML not available. Install with: pip install pyyaml") from e
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class VMTemplateConfig:
     vm_size: str
     region: str
     cloud_init: str | None = None
-    custom_metadata: dict[str, Any] = field(default_factory=dict)
+    custom_metadata: dict[str, Any] = field(default_factory=dict)  # type: ignore[misc]
 
     def to_dict(self) -> dict[str, Any]:
         """Convert template to dictionary for YAML serialization.
@@ -131,7 +131,7 @@ class TemplateManager:
             cls.TEMPLATES_DIR.chmod(0o755)
             return cls.TEMPLATES_DIR
         except Exception as e:
-            raise TemplateError(f"Failed to create templates directory: {e}")
+            raise TemplateError(f"Failed to create templates directory: {e}") from e
 
     @classmethod
     def validate_template_name(cls, name: str) -> bool:
@@ -210,7 +210,7 @@ class TemplateManager:
             logger.info(f"Created template: {template.name}")
 
         except Exception as e:
-            raise TemplateError(f"Failed to create template: {e}")
+            raise TemplateError(f"Failed to create template: {e}") from e
 
     @classmethod
     def list_templates(cls) -> list[VMTemplateConfig]:
@@ -226,7 +226,7 @@ class TemplateManager:
         if not cls.TEMPLATES_DIR.exists():
             return []
 
-        templates = []
+        templates: list[VMTemplateConfig] = []
 
         # Read all .yaml files
         for template_file in cls.TEMPLATES_DIR.glob("*.yaml"):
@@ -272,7 +272,7 @@ class TemplateManager:
             return VMTemplateConfig.from_dict(data)
 
         except Exception as e:
-            raise TemplateError(f"Failed to load template '{name}': {e}")
+            raise TemplateError(f"Failed to load template '{name}': {e}") from e
 
     @classmethod
     def delete_template(cls, name: str) -> None:
@@ -294,7 +294,7 @@ class TemplateManager:
             logger.info(f"Deleted template: {name}")
 
         except Exception as e:
-            raise TemplateError(f"Failed to delete template '{name}': {e}")
+            raise TemplateError(f"Failed to delete template '{name}': {e}") from e
 
     @classmethod
     def export_template(cls, name: str, output_path: Path) -> None:
@@ -321,7 +321,7 @@ class TemplateManager:
             logger.info(f"Exported template '{name}' to {output_path}")
 
         except Exception as e:
-            raise TemplateError(f"Failed to export template: {e}")
+            raise TemplateError(f"Failed to export template: {e}") from e
 
     @classmethod
     def import_template(cls, input_path: Path) -> VMTemplateConfig:
@@ -358,11 +358,11 @@ class TemplateManager:
             return template
 
         except yaml.YAMLError as e:
-            raise TemplateError(f"Invalid YAML: {e}")
+            raise TemplateError(f"Invalid YAML: {e}") from e
         except TemplateError:
             raise
         except Exception as e:
-            raise TemplateError(f"Failed to import template: {e}")
+            raise TemplateError(f"Failed to import template: {e}") from e
 
 
 __all__ = ["TemplateError", "TemplateManager", "VMTemplateConfig"]

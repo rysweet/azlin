@@ -15,6 +15,7 @@ import logging
 import platform
 import shutil
 from dataclasses import dataclass
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,8 @@ class PrerequisiteChecker:
     - tmux (optional but recommended)
     """
 
-    REQUIRED_TOOLS = ["az", "gh", "git", "ssh"]
-    OPTIONAL_TOOLS = ["tmux"]
+    REQUIRED_TOOLS: ClassVar[list[str]] = ["az", "gh", "git", "ssh"]
+    OPTIONAL_TOOLS: ClassVar[list[str]] = ["tmux"]
 
     @classmethod
     def check_tool(cls, tool_name: str) -> bool:
@@ -83,8 +84,8 @@ class PrerequisiteChecker:
             >>> if not result.all_available:
             ...     print(f"Missing: {result.missing}")
         """
-        missing = []
-        available = []
+        missing: list[str] = []
+        available: list[str] = []
 
         # Check required tools
         for tool in cls.REQUIRED_TOOLS:
@@ -177,11 +178,8 @@ class PrerequisiteChecker:
         if not missing:
             return "All prerequisites are installed."
 
-        lines = ["Missing required tools:", ""]
-
-        for tool in missing:
-            lines.append(f"  - {tool}")
-
+        lines: list[str] = ["Missing required tools:", ""]
+        lines.extend(f"  - {tool}" for tool in missing)
         lines.append("")
         lines.append(f"Platform: {platform_name}")
         lines.append("")
@@ -205,7 +203,7 @@ class PrerequisiteChecker:
     @classmethod
     def _format_macos_instructions(cls, missing: list[str]) -> list[str]:
         """Format installation instructions for macOS."""
-        instructions = []
+        instructions: list[str] = []
 
         if "az" in missing:
             instructions.extend(["Install Azure CLI:", "  brew install azure-cli", ""])
@@ -228,7 +226,7 @@ class PrerequisiteChecker:
     @classmethod
     def _format_linux_instructions(cls, missing: list[str]) -> list[str]:
         """Format installation instructions for Linux."""
-        instructions = []
+        instructions: list[str] = []
 
         if "az" in missing:
             instructions.extend(
@@ -271,7 +269,7 @@ class PrerequisiteChecker:
     @classmethod
     def _format_windows_instructions(cls, missing: list[str]) -> list[str]:
         """Format installation instructions for Windows."""
-        instructions = []
+        instructions: list[str] = []
 
         if "az" in missing:
             instructions.extend(
@@ -306,7 +304,7 @@ class PrerequisiteChecker:
     @classmethod
     def _format_generic_instructions(cls, missing: list[str]) -> list[str]:
         """Format generic installation instructions for unknown platforms."""
-        instructions = ["Please install the following tools:", ""]
+        instructions: list[str] = ["Please install the following tools:", ""]
 
         for tool in missing:
             if tool == "az":

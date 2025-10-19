@@ -17,7 +17,7 @@ import re
 import signal
 import unicodedata
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
 # Use clean import through dedicated paths module
 from paths import get_project_root
@@ -44,7 +44,7 @@ class SecurityConfig:
     REGEX_TIMEOUT = 1.0  # 1 second timeout for regex operations
 
     # Allowed characters (whitelist approach)
-    ALLOWED_CHARS = set(
+    ALLOWED_CHARS: ClassVar[set] = set(
         "abcdefghijklmnopqrstuvwxyz"
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         "0123456789"
@@ -600,9 +600,10 @@ class ContextPreserver:
                 if len(sentence) > 10 and len(sentence) <= 200:
                     return sentence
 
-        except (RegexTimeoutError, Exception):
+        except (RegexTimeoutError, Exception) as e:
             # If parsing fails, return safe fallback
-            pass
+            import logging
+            logging.getLogger(__name__).debug(f"Target parsing failed: {e}")
 
         return "General development task"
 

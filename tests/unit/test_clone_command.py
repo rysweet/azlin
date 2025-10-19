@@ -184,10 +184,8 @@ class TestSourceVMResolution:
         mock_vm_mgr.get_vm.return_value = None
         mock_config_mgr.get_vm_by_session.return_value = None
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(Exception, match=r"(?i)not found"):
             _resolve_source_vm("nonexistent", "test-rg", mock_config_mgr)
-
-        assert "not found" in str(exc_info.value).lower()
 
 
 # ============================================================================

@@ -10,7 +10,6 @@ Security:
 """
 
 import logging
-import os
 import shlex
 import subprocess
 import sys
@@ -77,7 +76,7 @@ class TerminalLauncher:
             if fallback_inline:
                 logger.info("Falling back to inline SSH connection")
                 return cls._fallback_inline_ssh(config)
-            raise TerminalLauncherError(f"Terminal launch failed: {e}")
+            raise TerminalLauncherError(f"Terminal launch failed: {e}") from e
 
     @classmethod
     def _launch_macos(cls, config: TerminalConfig) -> bool:
@@ -222,11 +221,16 @@ class TerminalLauncher:
         ssh_cmd = cls._build_ssh_command(config)
         logger.info(f"Connecting via SSH: {ssh_cmd}")
 
-        # Execute SSH in current terminal
-        exit_code = os.system(ssh_cmd)
+        # Execute SSH in current terminal - use subprocess instead of os.system for security
+        # Parse the command string back into a list for subprocess
+        import shlex
 
-        # Return based on exit code
-        return exit_code == 0
+        try:
+            result = subprocess.run(shlex.split(ssh_cmd), check=False)
+            return result.returncode == 0
+        except Exception as e:
+            logger.error(f"SSH connection failed: {e}")
+            return False
 
     @classmethod
     def _has_command(cls, command: str) -> bool:

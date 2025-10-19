@@ -13,14 +13,12 @@ Test Coverage:
 - Resource dependency management
 """
 
-import logging
+import contextlib
 from unittest.mock import Mock, patch
 
 import pytest
 
 from tests.mocks.azure_mock import create_mock_azure_environment
-
-logger = logging.getLogger(__name__)
 
 # ============================================================================
 # FULL AUTHENTICATION WORKFLOW TESTS
@@ -303,10 +301,8 @@ class TestResourceCleanup:
 
             provisioner = VMProvisioner(name="test-vm", size="Standard_D2s_v3", region="eastus")
 
-            try:
+            with contextlib.suppress(Exception):
                 provisioner.provision_with_networking(cleanup_on_failure=True)
-            except Exception as e:
-                logger.debug(f"Test provisioning failed as expected: {e}")
 
             # Verify cleanup was attempted for created resources
             # (Even if VM creation failed, network resources might have been created)

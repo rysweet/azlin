@@ -114,11 +114,11 @@ class RemoteExecutor:
                 duration=duration,
             )
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             duration = time.time() - start_time
-            raise RemoteExecError(f"Command timed out after {timeout}s on {ssh_config.host}")
+            raise RemoteExecError(f"Command timed out after {timeout}s on {ssh_config.host}") from e
         except Exception as e:
-            raise RemoteExecError(f"Failed to execute command: {e}")
+            raise RemoteExecError(f"Failed to execute command: {e}") from e
 
     @classmethod
     def execute_parallel(
@@ -141,7 +141,7 @@ class RemoteExecutor:
         if not ssh_configs:
             return []
 
-        results = []
+        results: list[RemoteResult] = []
         num_workers = min(max_workers, len(ssh_configs))
 
         logger.debug(f"Executing command on {len(ssh_configs)} VMs with {num_workers} workers")
@@ -184,15 +184,14 @@ class RemoteExecutor:
         Returns:
             Formatted output string
         """
-        lines = []
+        lines: list[str] = []
 
         for result in results:
             prefix = f"[{result.vm_name}] " if show_vm_name else ""
 
             if result.success:
                 # Split output into lines and prefix each
-                for line in result.stdout.splitlines():
-                    lines.append(f"{prefix}{line}")
+                lines.extend(f"{prefix}{line}" for line in result.stdout.splitlines())
             else:
                 # Show error
                 lines.append(f"{prefix}ERROR: {result.stderr}")
@@ -247,7 +246,7 @@ class RemoteExecutor:
         words = command.split()[:3]
 
         # Clean and join
-        slug_parts = []
+        slug_parts: list[str] = []
         for word in words:
             # Remove special chars, keep alphanumeric and dash
             clean = "".join(c if c.isalnum() else "-" for c in word)
@@ -295,7 +294,7 @@ class WCommandExecutor:
         Returns:
             Formatted output string
         """
-        lines = []
+        lines: list[str] = []
 
         for result in results:
             lines.append("=" * 60)
@@ -350,7 +349,7 @@ class PSCommandExecutor:
         Returns:
             Formatted output string with [vm-name] prefix per line
         """
-        lines = []
+        lines: list[str] = []
 
         for result in results:
             if not result.success:
@@ -381,7 +380,7 @@ class PSCommandExecutor:
         Returns:
             Formatted output string grouped by VM
         """
-        lines = []
+        lines: list[str] = []
 
         for result in results:
             lines.append("=" * 80)
@@ -467,7 +466,7 @@ class OSUpdateExecutor:
         Returns:
             Formatted output string
         """
-        lines = []
+        lines: list[str] = []
 
         lines.append("=" * 70)
         lines.append(f"OS Update: {result.vm_name}")
