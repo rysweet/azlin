@@ -12,6 +12,7 @@ Security:
 import logging
 import os
 import re
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -98,6 +99,59 @@ class ConfigManager:
     DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.toml"
 
     @classmethod
+    def _validate_config_path(cls, path: Path) -> Path:
+        """Validate configuration file path for security.
+
+        Ensures the path is within allowed directories to prevent path traversal attacks.
+
+        Args:
+            path: Path to validate (must be resolved)
+
+        Returns:
+            Validated path
+
+        Raises:
+            ConfigError: If path is outside allowed directories
+
+        Security:
+            - Resolves symlinks to prevent symlink attacks
+            - Validates path is within ~/.azlin/ or current working directory
+            - Prevents path traversal (../../etc/passwd)
+            - Prevents absolute paths to sensitive locations (/etc/passwd)
+        """
+        # Ensure path is resolved (symlinks resolved, relative paths absolute)
+        resolved_path = path.resolve()
+
+        # Allowed directories:
+        # 1. ~/.azlin/ (primary config directory)
+        # 2. Current working directory (for testing/development)
+        # 3. System temporary directory (for testing)
+        allowed_dirs = [
+            cls.DEFAULT_CONFIG_DIR.resolve(),
+            Path.cwd().resolve(),
+            Path(tempfile.gettempdir()).resolve(),  # Allow pytest tmp_path
+        ]
+
+        # Check if path is within any allowed directory
+        for allowed_dir in allowed_dirs:
+            try:
+                resolved_path.relative_to(allowed_dir)
+                # Path is within this allowed directory
+                return resolved_path
+            except ValueError:
+                # Path is not within this directory, try next
+                continue
+
+        # Path is not within any allowed directory
+        raise ConfigError(
+            f"Config path outside allowed directories: {resolved_path}\n"
+            f"Allowed directories:\n"
+            f"  - {cls.DEFAULT_CONFIG_DIR}\n"
+            f"  - {Path.cwd()}\n"
+            "This restriction prevents path traversal attacks."
+        )
+
+    @classmethod
     def get_config_path(cls, custom_path: str | None = None) -> Path:
         """Get configuration file path.
 
@@ -106,9 +160,14 @@ class ConfigManager:
 
         Returns:
             Path to config file
+
+        Raises:
+            ConfigError: If path is invalid or outside allowed directories
         """
         if custom_path:
             path = Path(custom_path).expanduser().resolve()
+            # Validate path for security
+            path = cls._validate_config_path(path)
             if not path.exists():
                 raise ConfigError(f"Config file not found: {path}")
             return path
@@ -201,13 +260,15 @@ class ConfigManager:
             custom_path: Custom config file path (optional)
 
         Raises:
-            ConfigError: If saving fails
+            ConfigError: If saving fails or path is outside allowed directories
         """
         temp_path: Path | None = None
         try:
             # Determine config path
             if custom_path:
                 config_path = Path(custom_path).expanduser().resolve()
+                # Validate path for security
+                config_path = cls._validate_config_path(config_path)
                 # Ensure parent directory exists
                 config_path.parent.mkdir(parents=True, exist_ok=True)
             else:

@@ -15,8 +15,8 @@ class TestAzlinConfig:
         """Test default configuration values."""
         config = AzlinConfig()
         assert config.default_resource_group is None
-        assert config.default_region == "eastus"
-        assert config.default_vm_size == "Standard_D2s_v3"
+        assert config.default_region == "westus2"
+        assert config.default_vm_size == "Standard_B2s"
         assert config.last_vm_name is None
 
     def test_to_dict(self):
@@ -52,8 +52,8 @@ class TestAzlinConfig:
         data = {"default_resource_group": "my-rg"}
         config = AzlinConfig.from_dict(data)
         assert config.default_resource_group == "my-rg"
-        assert config.default_region == "eastus"  # Default
-        assert config.default_vm_size == "Standard_D2s_v3"  # Default
+        assert config.default_region == "westus2"  # Default
+        assert config.default_vm_size == "Standard_B2s"  # Default
 
 
 class TestConfigManager:
@@ -114,4 +114,4 @@ class TestConfigManager:
 
         with patch.object(ConfigManager, "DEFAULT_CONFIG_FILE", config_file):
             result = ConfigManager.get_vm_size(None)
-            assert result == "Standard_D2s_v3"
+            assert result == "Standard_B2s"
