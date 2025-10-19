@@ -83,7 +83,7 @@ class TestSymlinkAttackPrevention:
     """Test symlink attack prevention."""
 
     def test_rejects_symlink_to_ssh_keys(self, tmp_path: Any) -> None:
-        """Should reject symlink to ~/.ssh/id_rsa"""
+        """Should reject symlink to ~/.ssh/id_rsa via credential file check"""
         # Create symlink
         link = tmp_path / "innocent_link"
         target = Path.home() / ".ssh" / "id_rsa"
@@ -91,8 +91,9 @@ class TestSymlinkAttackPrevention:
         if target.exists():
             link.symlink_to(target)
 
-            with pytest.raises(SymlinkSecurityError):
-                PathParser.parse_and_validate(str(link))
+            # The credential file check catches this before symlink validation (defense in depth)
+            with pytest.raises(InvalidPathError, match="credential file"):
+                PathParser.parse_and_validate(str(link), allow_absolute=True)
 
     def test_rejects_symlink_outside_home(self):
         """Should reject symlink pointing outside HOME"""
