@@ -225,9 +225,9 @@ class VMProvisioner:
     8. Golang
     9. .NET 10 RC
     10. astral-uv (uv package manager)
-    11. GitHub Copilot CLI (AI coding assistant)
-    12. OpenAI Codex CLI (AI code generation)
-    13. Claude Code CLI (AI coding assistant)
+    11. OpenAI Codex CLI (optional, disabled by default for faster provisioning)
+    12. GitHub Copilot CLI (optional, disabled by default for faster provisioning)
+    13. Claude Code CLI (optional, disabled by default for faster provisioning)
     """
 
     # Valid VM sizes whitelist (2025 current-gen SKUs)
@@ -604,21 +604,21 @@ packages:
 runcmd:
   # Python 3.12+ from deadsnakes PPA
   - add-apt-repository -y ppa:deadsnakes/ppa
+
+  # GitHub CLI repository setup
+  - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+  - chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+
+  # OPTIMIZATION: Single apt update for both deadsnakes and GitHub CLI
   - apt update
-  - apt install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils
+  - apt install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils gh
   - update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
   - update-alternatives --set python3 /usr/bin/python3.12
   - curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
 
   # Azure CLI
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
-
-  # GitHub CLI
-  - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-  - chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-  - apt update
-  - apt install gh -y
 
   # astral-uv (uv package manager)
   - snap install astral-uv --classic
@@ -658,10 +658,11 @@ runcmd:
     EOF
   - chown azureuser:azureuser /home/azureuser/.tmux.conf
 
-  # AI CLI tools (installed as azureuser to use user-local npm config)
-  - su - azureuser -c "npm install -g @github/copilot"
-  - su - azureuser -c "npm install -g @openai/codex"
-  - su - azureuser -c "npm install -g @anthropic-ai/claude-code"
+  # AI CLI tools (optional - can be installed later to speed up provisioning)
+  # Uncomment these lines to install AI assistants during VM creation:
+  # - su - azureuser -c "npm install -g @github/copilot"
+  # - su - azureuser -c "npm install -g @openai/codex"
+  # - su - azureuser -c "npm install -g @anthropic-ai/claude-code"
 
   # Rust
   - su - azureuser -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
