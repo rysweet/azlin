@@ -10,8 +10,8 @@ Security:
 - Sanitized logging
 """
 
+import ipaddress
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -334,34 +334,41 @@ class VMConnector:
     def is_valid_ip(cls, identifier: str) -> bool:
         """Check if string is a valid IP address.
 
+        Uses Python's ipaddress module for robust validation of both IPv4 and IPv6.
+        Rejects malformed IPs, leading zeros (octal ambiguity), and invalid formats.
+
+        Security considerations:
+        - Validates both IPv4 and IPv6 addresses
+        - Rejects leading zeros to prevent octal interpretation
+        - No validation of private/reserved IPs (allow all valid IPs)
+        - Use for format validation only, not security policy
+
         Args:
             identifier: String to check
 
         Returns:
-            True if valid IPv4 address
+            True if valid IPv4 or IPv6 address
 
         Example:
             >>> VMConnector.is_valid_ip("192.168.1.1")
             True
+            >>> VMConnector.is_valid_ip("2001:db8::1")
+            True
             >>> VMConnector.is_valid_ip("my-vm-name")
             False
         """
-        # Simple IPv4 pattern
-        ip_pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
-        if not re.match(ip_pattern, identifier):
+        # Strip whitespace to reject IPs with spaces
+        if identifier != identifier.strip():
             return False
 
-        # Validate octets
-        octets = identifier.split(".")
-        for octet in octets:
-            try:
-                value = int(octet)
-                if value < 0 or value > 255:
-                    return False
-            except ValueError:
-                return False
-
-        return True
+        try:
+            # Use ipaddress module for proper validation
+            # This handles IPv4, IPv6, and all edge cases correctly
+            ipaddress.ip_address(identifier)
+            return True
+        except ValueError:
+            # Not a valid IP address
+            return False
 
 
 __all__ = ["ConnectionInfo", "VMConnector", "VMConnectorError"]
