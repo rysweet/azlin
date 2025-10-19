@@ -14,13 +14,26 @@ from azlin.vm_manager import VMInfo
 class TestVMConnector:
     """Test VMConnector class."""
 
-    def test_is_valid_ip_valid(self):
-        """Test IP validation with valid IPs."""
+    def test_is_valid_ip_valid_ipv4(self):
+        """Test IP validation with valid IPv4 addresses."""
         assert VMConnector.is_valid_ip("192.168.1.1") is True
         assert VMConnector.is_valid_ip("10.0.0.1") is True
         assert VMConnector.is_valid_ip("172.16.0.1") is True
         assert VMConnector.is_valid_ip("20.1.2.3") is True
         assert VMConnector.is_valid_ip("255.255.255.255") is True
+        assert VMConnector.is_valid_ip("0.0.0.0") is True  # noqa: S104 - testing IP validation, not binding
+        assert VMConnector.is_valid_ip("127.0.0.1") is True
+        assert VMConnector.is_valid_ip("8.8.8.8") is True
+
+    def test_is_valid_ip_valid_ipv6(self):
+        """Test IP validation with valid IPv6 addresses."""
+        assert VMConnector.is_valid_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334") is True
+        assert VMConnector.is_valid_ip("2001:db8::1") is True
+        assert VMConnector.is_valid_ip("::1") is True  # localhost
+        assert VMConnector.is_valid_ip("::") is True  # all zeros
+        assert VMConnector.is_valid_ip("::ffff:192.0.2.1") is True  # IPv4-mapped
+        assert VMConnector.is_valid_ip("fe80::1") is True  # link-local
+        assert VMConnector.is_valid_ip("2001:db8:85a3::8a2e:370:7334") is True
 
     def test_is_valid_ip_invalid(self):
         """Test IP validation with invalid IPs."""
@@ -32,6 +45,12 @@ class TestVMConnector:
         assert VMConnector.is_valid_ip("192.168.-1.1") is False
         assert VMConnector.is_valid_ip("") is False
         assert VMConnector.is_valid_ip("invalid") is False
+        assert VMConnector.is_valid_ip("999.999.999.999") is False
+        assert VMConnector.is_valid_ip("192.168.@.1") is False
+        assert VMConnector.is_valid_ip(" ") is False
+        assert VMConnector.is_valid_ip("localhost") is False
+        assert VMConnector.is_valid_ip("1.1.1") is False
+        assert VMConnector.is_valid_ip("gggg::1") is False  # invalid hex
 
     @patch("azlin.vm_connector.VMManager")
     @patch("azlin.vm_connector.ConfigManager")
