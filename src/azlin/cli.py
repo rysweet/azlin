@@ -1170,6 +1170,14 @@ def main(ctx: click.Context) -> None:
     and executes commands remotely.
 
     \b
+    NATURAL LANGUAGE COMMANDS (AI-POWERED):
+        do            Execute commands using natural language
+                      Example: azlin do "create a new vm called Sam"
+                      Example: azlin do "sync all my vms"
+                      Example: azlin do "show me the cost over the last week"
+                      Requires: ANTHROPIC_API_KEY environment variable
+
+    \b
     VM LIFECYCLE COMMANDS:
         new           Provision a new VM (aliases: vm, create)
         clone         Clone a VM with its home directory contents
@@ -1232,6 +1240,12 @@ def main(ctx: click.Context) -> None:
     EXAMPLES:
         # Show help
         $ azlin
+
+        # Natural language commands (AI-powered)
+        $ azlin do "create a new vm called Sam"
+        $ azlin do "sync all my vms"
+        $ azlin do "show me the cost over the last week"
+        $ azlin do "delete vms older than 30 days" --dry-run
 
         # Provision a new VM
         $ azlin new
