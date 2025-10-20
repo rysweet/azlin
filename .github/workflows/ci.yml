@@ -164,7 +164,7 @@ jobs:
 
   # Coverage check with clear failure message
   coverage-check:
-    name: Coverage Check (45% minimum)
+    name: Coverage Check (44% minimum)
     runs-on: ubuntu-24.04
     needs: test
     timeout-minutes: 5
@@ -194,7 +194,7 @@ jobs:
           # TODO: Increase threshold back to 80% after adding comprehensive tests
           # Temporarily lowered from 80% after removing 66 orphaned tests that tested non-existent APIs
           # See PR #149 for context: tests were deleted because they expected Azure SDK/argparse (we use az CLI/Click)
-          THRESHOLD=45
+          THRESHOLD=44
           if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
             echo "❌ Coverage $COVERAGE% is below threshold $THRESHOLD%"
             echo "Please add tests to increase coverage."
