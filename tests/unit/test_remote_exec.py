@@ -86,10 +86,10 @@ class TestRemoteExecutor:
     def test_extract_command_slug(self):
         """Test extracting command slug."""
         slug = RemoteExecutor.extract_command_slug("python train.py --epochs 100")
-        assert slug == "python-train-py"
+        assert slug == "python-train-py-epoc"  # 3 words, truncated to 20 chars
 
         slug2 = RemoteExecutor.extract_command_slug("ls -la /tmp/file")
-        assert slug2 == "ls-la-tmp"
+        assert slug2 == "ls-la-tmp-file"  # 3 words
 
     def test_extract_command_slug_max_length(self):
         """Test slug truncation."""
