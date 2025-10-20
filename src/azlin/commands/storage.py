@@ -317,8 +317,7 @@ def delete_storage(name: str, resource_group: str | None, force: bool):
             # Save updated config if changes were made
             if vms_to_update or name in config_dict.get("storage_accounts", {}):
                 # Update the config object attributes
-                if hasattr(config, "storage_accounts"):
-                    config.storage_accounts = storage_accounts
+                # Note: storage_accounts is not in AzlinConfig dataclass, only vm_storage
                 if hasattr(config, "vm_storage"):
                     config.vm_storage = vm_storage
                 ConfigManager.save_config(config)

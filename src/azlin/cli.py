@@ -5023,12 +5023,12 @@ def snapshot_create(vm_name: str, resource_group: str | None, config: str | None
         snapshot = manager.create_snapshot(vm_name, rg)
 
         # Show cost estimate
-        monthly_cost = manager.get_snapshot_cost_estimate(snapshot.size_gb, 30)
+        size_gb = snapshot.size_gb or 0
+        monthly_cost = manager.get_snapshot_cost_estimate(size_gb, 30)
         click.echo("\n✓ Snapshot created successfully!")
         click.echo(f"  Name:     {snapshot.name}")
-        click.echo(f"  Size:     {snapshot.size_gb} GB")
-        click.echo(f"  Location: {snapshot.location}")
-        click.echo(f"  Created:  {snapshot.created_time}")
+        click.echo(f"  Size:     {size_gb} GB")
+        click.echo(f"  Created:  {snapshot.creation_time}")
         click.echo(f"\nEstimated storage cost: ${monthly_cost:.2f}/month")
 
     except SnapshotError as e:
@@ -5082,18 +5082,18 @@ def snapshot_list(vm_name: str, resource_group: str | None, config: str | None):
 
         # Display snapshots table
         click.echo(f"\nSnapshots for VM: {vm_name}")
-        click.echo("=" * 110)
-        click.echo(f"{'NAME':<50} {'SIZE':<10} {'CREATED':<30} {'STATUS':<20}")
-        click.echo("=" * 110)
+        click.echo("=" * 90)
+        click.echo(f"{'NAME':<50} {'SIZE':<10} {'CREATED':<30}")
+        click.echo("=" * 90)
 
         total_size = 0
         for snap in snapshots:
-            created = snap.created_time[:19].replace("T", " ") if snap.created_time else "N/A"
-            status = snap.provisioning_state or "Unknown"
-            click.echo(f"{snap.name:<50} {snap.size_gb:<10} {created:<30} {status:<20}")
-            total_size += snap.size_gb
+            created = str(snap.creation_time)[:19].replace("T", " ")
+            size_gb = snap.size_gb or 0
+            click.echo(f"{snap.name:<50} {size_gb:<10} {created:<30}")
+            total_size += size_gb
 
-        click.echo("=" * 110)
+        click.echo("=" * 90)
         click.echo(f"\nTotal: {len(snapshots)} snapshots ({total_size} GB)")
 
         # Show cost estimate
