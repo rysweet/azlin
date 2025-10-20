@@ -1949,7 +1949,7 @@ def top(
         ssh_configs: list[SSHConfig] = []
         for vm in running_vms:
             if vm.public_ip:  # Type guard for pyright
-                ssh_configs.append(
+                ssh_configs.append(  # noqa: PERF401 (type guard needed for pyright)
                     SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
                 )
 
