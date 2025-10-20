@@ -85,16 +85,6 @@ from azlin.vm_provisioning import (
     VMProvisioner,
 )
 
-# Agentic mode
-from azlin.agentic import (
-    CommandExecutionError,
-    CommandExecutor,
-    CommandPlanner,
-    IntentParseError,
-    IntentParser,
-    ResultValidator,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -712,8 +702,6 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         """
         if not vm_details.public_ip:
             raise Exception("VM has no public IP address, cannot mount NFS storage")
-
-        public_ip: str = vm_details.public_ip  # Type narrowed by check above
 
         from azlin.modules.nfs_mount_manager import NFSMountManager
         from azlin.modules.storage_manager import StorageManager
@@ -5203,7 +5191,7 @@ def snapshot_create(vm_name: str, resource_group: str | None, config: str | None
         click.echo(f"  Created:  {snapshot.created_time}")
         click.echo(f"\nEstimated storage cost: ${monthly_cost:.2f}/month")
 
-    except SnapshotManagerError as e:
+    except SnapshotError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
@@ -5272,7 +5260,7 @@ def snapshot_list(vm_name: str, resource_group: str | None, config: str | None):
         monthly_cost = manager.get_snapshot_cost_estimate(total_size, 30)
         click.echo(f"Estimated total storage cost: ${monthly_cost:.2f}/month\n")
 
-    except SnapshotManagerError as e:
+    except SnapshotError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
@@ -5346,7 +5334,7 @@ def snapshot_restore(
         click.echo(f"\n✓ VM '{vm_name}' successfully restored from snapshot!")
         click.echo(f"  The VM is now running with the disk from: {snapshot_name}\n")
 
-    except SnapshotManagerError as e:
+    except SnapshotError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
@@ -5406,7 +5394,7 @@ def snapshot_delete(
 
         click.echo(f"\n✓ Snapshot '{snapshot_name}' deleted successfully!\n")
 
-    except SnapshotManagerError as e:
+    except SnapshotError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
