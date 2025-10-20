@@ -23,6 +23,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
+    "anthropic>=0.40.0",
     "click>=8.1.0",
     "pyyaml>=6.0.0",
     "rich>=13.7.0",
