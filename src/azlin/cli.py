@@ -1945,11 +1945,13 @@ def top(
         )
         click.echo("Press Ctrl+C to exit.\n")
 
-        # Build SSH configs
-        ssh_configs = [
-            SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
-            for vm in running_vms
-        ]
+        # Build SSH configs (all running_vms have public_ip due to filter above)
+        ssh_configs: list[SSHConfig] = []
+        for vm in running_vms:
+            if vm.public_ip:  # Type guard for pyright
+                ssh_configs.append(
+                    SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
+                )
 
         # Create and run executor
         executor = DistributedTopExecutor(
@@ -3614,11 +3616,6 @@ def _validate_and_resolve_source_vm(source_vm: str, rg: str, config: str | None)
                 click.echo(f"  - {display_name} ({vm.name})", err=True)
         sys.exit(1)
 
-    return source_vm_info
-
-    click.echo(f"Source VM: {source_vm_info.name} ({source_vm_info.public_ip})")
-    click.echo(f"VM size: {source_vm_info.vm_size}")
-    click.echo(f"Region: {source_vm_info.location}")
     return source_vm_info
 
 
