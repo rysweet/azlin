@@ -87,12 +87,12 @@ class TestIPValidationIntegration:
             name="test",
             public_ip="invalid_ip",  # Invalid
             user="testuser",
-            key_path="/tmp/key",  # noqa: S108 - test file path
+            key_path="/tmp/key",
             resource_group="test-rg",
         )
 
-        source = TransferEndpoint(Path("/tmp/source"), session=None)  # noqa: S108 - test path
-        dest = TransferEndpoint(Path("/tmp/dest"), session=session)  # noqa: S108 - test path
+        source = TransferEndpoint(Path("/tmp/source"), session=None)
+        dest = TransferEndpoint(Path("/tmp/dest"), session=session)
 
         # Should raise TransferError when building command
         with pytest.raises(TransferError, match="Invalid IP"):

@@ -104,7 +104,7 @@ class TestConfigPathSecurity:
         config = AzlinConfig()
 
         with pytest.raises(ConfigError, match="outside allowed directories"):
-            ConfigManager.save_config(config, "/tmp/evil_config.toml")  # noqa: S108 - testing path rejection
+            ConfigManager.save_config(config, "/tmp/evil_config.toml")
 
     def test_save_config_in_allowed_directory(self, tmp_path):
         """Test that saving config in allowed directory succeeds."""
