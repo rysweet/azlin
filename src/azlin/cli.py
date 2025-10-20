@@ -3068,10 +3068,6 @@ def logs(
                 ),
             }
 
-            if log_type not in log_methods:
-                click.echo(f"Error: Unsupported log type: {log_type}", err=True)
-                sys.exit(1)
-
             result = log_methods[log_type]()
 
             if result.success:

@@ -21,6 +21,7 @@ Security:
 
 import logging
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
@@ -304,7 +305,7 @@ class LogViewer:
         ]
 
         # Run SSH command in foreground to stream logs
-        result = subprocess.run(ssh_cmd)
+        result = subprocess.run(ssh_cmd, shell=False)
         return result.returncode
 
     @classmethod
@@ -427,7 +428,7 @@ class LogViewer:
         # Add time filter
         if since:
             validated_since = cls._validate_time_string(since)
-            parts.append(f"--since '{validated_since}'")
+            parts.append(f"--since {shlex.quote(validated_since)}")
 
         return " ".join(parts)
 
@@ -458,7 +459,7 @@ class LogViewer:
         # Add time filter
         if since:
             validated_since = cls._validate_time_string(since)
-            parts.append(f"--since '{validated_since}'")
+            parts.append(f"--since {shlex.quote(validated_since)}")
 
         return " ".join(parts)
 
