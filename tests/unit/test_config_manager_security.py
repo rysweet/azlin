@@ -103,8 +103,9 @@ class TestConfigPathSecurity:
         """Test that saving config to absolute path outside allowed dirs is rejected."""
         config = AzlinConfig()
 
+        # Use /etc/passwd which is never an allowed directory (not /tmp which might be tempdir)
         with pytest.raises(ConfigError, match="outside allowed directories"):
-            ConfigManager.save_config(config, "/tmp/evil_config.toml")
+            ConfigManager.save_config(config, "/etc/passwd")
 
     def test_save_config_in_allowed_directory(self, tmp_path):
         """Test that saving config in allowed directory succeeds."""
