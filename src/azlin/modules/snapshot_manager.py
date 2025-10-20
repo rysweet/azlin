@@ -547,8 +547,7 @@ class SnapshotManager:
                 check=True,
             )
 
-            vm_names = json.loads(result.stdout)
-            return vm_names
+            return json.loads(result.stdout)
 
         except subprocess.CalledProcessError as e:
             raise SnapshotError(f"Failed to list VMs: {e.stderr}") from e

@@ -21,11 +21,12 @@ Security:
 
 import logging
 import re
+import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
 
-from azlin.modules.ssh_connector import SSHConfig, SSHConnector
+from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.remote_exec import RemoteExecError, RemoteExecutor
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
@@ -287,9 +288,24 @@ class LogViewer:
         command = cls._build_follow_command(log_type, since, service)
 
         # Connect with interactive SSH to stream logs
-        return SSHConnector.connect(
-            ssh_config=ssh_config, remote_command=command, tmux_session=None, auto_tmux=False
-        )
+        # Build SSH command to execute remote command
+        ssh_cmd = [
+            "ssh",
+            "-i",
+            str(ssh_config.key_path),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "LogLevel=ERROR",
+            f"{ssh_config.user}@{ssh_config.host}",
+            command,
+        ]
+
+        # Run SSH command in foreground to stream logs
+        result = subprocess.run(ssh_cmd)
+        return result.returncode
 
     @classmethod
     def _prepare_connection(cls, vm_name: str, resource_group: str) -> tuple[VMInfo, SSHConfig]:

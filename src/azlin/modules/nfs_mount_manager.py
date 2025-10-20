@@ -249,6 +249,7 @@ fi
 
             # Extract counts from output
             import re
+
             backed_up_match = re.search(r"Backed up (\d+) files", output)
             if backed_up_match:
                 backed_up_files = int(backed_up_match.group(1))
@@ -257,7 +258,7 @@ fi
             if copied_match:
                 copied_files = int(copied_match.group(1))
 
-            logger.info(f"NFS mount completed successfully via run-command")
+            logger.info("NFS mount completed successfully via run-command")
 
             return MountResult(
                 success=True,
@@ -839,7 +840,7 @@ fi
                     time.sleep(wait_time)
                 else:
                     logger.error(f"SSH command failed after {retries} attempts")
-                    raise last_error
+                    raise last_error from None
 
         # Should never reach here, but satisfy linter
         if last_error:

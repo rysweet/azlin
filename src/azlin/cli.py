@@ -418,7 +418,7 @@ class CLIOrchestrator:
             "cloud-init status check timed out, proceeding anyway", ProgressStage.WARNING
         )
 
-    def _sync_home_directory(self, vm_details: VMDetails, key_path: Path) -> None:
+    def _sync_home_directory(self, vm_details: VMDetails, key_path: Path) -> None:  # noqa: C901
         """Sync home directory to VM.
 
         Args:
@@ -1950,7 +1950,9 @@ def top(
         for vm in running_vms:
             if vm.public_ip:  # Type guard for pyright
                 ssh_configs.append(  # noqa: PERF401 (type guard needed for pyright)
-                    SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
+                    SSHConfig(
+                        host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
+                    )
                 )
 
         # Create and run executor
