@@ -3950,6 +3950,147 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
         sys.exit(1)
 
 
+@main.command()
+@click.argument("request", type=str)
+@click.option("--dry-run", is_flag=True, help="Show execution plan without running commands")
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
+def do(request: str, dry_run: bool, resource_group: str | None, config: str | None, verbose: bool):
+    """Execute natural language azlin commands.
+
+    Uses AI to parse natural language requests into azlin commands
+    and executes them automatically.
+
+    \b
+    Examples:
+        azlin do "create a new vm called Sam"
+        azlin do "sync all my vms"
+        azlin do "show me the cost over the last week"
+        azlin do "provision 3 VMs with GPU support" --dry-run
+        azlin do "list all running vms and their IPs"
+
+    \b
+    Features:
+        - Natural language understanding via Claude AI
+        - Multi-step command planning
+        - Result validation
+        - Dry-run mode to preview actions
+
+    \b
+    Requirements:
+        - ANTHROPIC_API_KEY environment variable must be set
+        - Active Azure authentication
+    """
+    try:
+        # Check for API key
+        import os
+
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            click.echo("Error: ANTHROPIC_API_KEY environment variable is required", err=True)
+            click.echo("\nSet your API key with:", err=True)
+            click.echo("  export ANTHROPIC_API_KEY=your-key-here", err=True)
+            sys.exit(1)
+
+        # Get resource group for context
+        rg = ConfigManager.get_resource_group(resource_group, config)
+
+        # Build context for parser
+        context = {}
+        if rg:
+            context["resource_group"] = rg
+            # Get current VMs for context
+            try:
+                vms = VMManager.list_vms(rg, include_stopped=True)
+                context["current_vms"] = [{"name": v.name, "status": v.power_state, "ip": v.public_ip} for v in vms]
+            except Exception:
+                pass  # Context is optional
+
+        # Parse natural language intent
+        if verbose:
+            click.echo(f"Parsing request: {request}")
+
+        parser = IntentParser()
+        intent = parser.parse(request, context=context if context else None)
+
+        if verbose:
+            click.echo(f"\nParsed Intent:")
+            click.echo(f"  Type: {intent['intent']}")
+            click.echo(f"  Confidence: {intent['confidence']:.1%}")
+            if "explanation" in intent:
+                click.echo(f"  Plan: {intent['explanation']}")
+
+        # Check confidence
+        if intent["confidence"] < 0.7:
+            click.echo(f"\nWarning: Low confidence ({intent['confidence']:.1%}) in understanding your request.", err=True)
+            if not click.confirm("Continue anyway?"):
+                sys.exit(1)
+
+        # Show commands to be executed
+        click.echo(f"\nCommands to execute:")
+        for i, cmd in enumerate(intent["azlin_commands"], 1):
+            cmd_str = f"{cmd['command']} {' '.join(cmd['args'])}"
+            click.echo(f"  {i}. {cmd_str}")
+
+        if dry_run:
+            click.echo("\n[DRY RUN] Would execute the above commands.")
+            sys.exit(0)
+
+        # Confirm execution
+        if not click.confirm("\nExecute these commands?"):
+            click.echo("Cancelled.")
+            sys.exit(0)
+
+        # Execute commands
+        click.echo("\nExecuting commands...\n")
+        executor = CommandExecutor(dry_run=False)
+        results = executor.execute_plan(intent["azlin_commands"])
+
+        # Display results
+        for i, result in enumerate(results, 1):
+            click.echo(f"\nCommand {i}: {result['command']}")
+            if result["success"]:
+                click.echo("  ✓ Success")
+                if verbose and result["stdout"]:
+                    click.echo(f"  Output: {result['stdout'][:200]}")
+            else:
+                click.echo(f"  ✗ Failed: {result['stderr']}")
+                break  # Stop on first failure
+
+        # Validate results
+        validator = ResultValidator()
+        validation = validator.validate(intent, results)
+
+        click.echo("\n" + "=" * 80)
+        if validation["success"]:
+            click.echo("✓ " + validation["message"])
+        else:
+            click.echo("✗ " + validation["message"], err=True)
+            if "issues" in validation:
+                for issue in validation["issues"]:
+                    click.echo(f"  - {issue}", err=True)
+            sys.exit(1)
+
+    except IntentParseError as e:
+        click.echo(f"\nFailed to parse request: {e}", err=True)
+        click.echo("\nTry rephrasing your request or use specific azlin commands.", err=True)
+        sys.exit(1)
+
+    except CommandExecutionError as e:
+        click.echo(f"\nCommand execution failed: {e}", err=True)
+        sys.exit(1)
+
+    except Exception as e:
+        click.echo(f"\nUnexpected error: {e}", err=True)
+        if verbose:
+            logger.exception("Unexpected error in do command")
+        sys.exit(1)
+
+    except KeyboardInterrupt:
+        click.echo("\n\nCancelled by user.")
+        sys.exit(130)
+
+
 @main.group()
 def batch():
     """Batch operations on multiple VMs.
