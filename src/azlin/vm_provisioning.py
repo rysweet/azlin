@@ -623,6 +623,9 @@ runcmd:
   # astral-uv (uv package manager)
   - snap install astral-uv --classic
 
+  # GitHub CLI (via snap for reliability)
+  - snap install gh --classic
+
   # Node.js (via NodeSource)
   - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   - apt install -y nodejs
