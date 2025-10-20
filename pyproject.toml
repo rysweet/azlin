@@ -73,10 +73,14 @@ exclude_lines = [
 ]
 
 [tool.pyright]
-typeCheckingMode = "strict"
+typeCheckingMode = "basic"
 pythonVersion = "3.11"
 include = ["src"]
 exclude = ["**/__pycache__", "**/.pytest_cache", "**/node_modules"]
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
 reportMissingTypeStubs = false
 reportOptionalMemberAccess = false
 

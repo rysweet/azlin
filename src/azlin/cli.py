@@ -55,6 +55,7 @@ from azlin.modules.home_sync import (
     HomeSyncManager,
     RsyncError,
     SecurityValidationError,
+    SyncResult,
 )
 from azlin.modules.notifications import NotificationHandler
 from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
@@ -417,7 +418,7 @@ class CLIOrchestrator:
             "cloud-init status check timed out, proceeding anyway", ProgressStage.WARNING
         )
 
-    def _show_blocked_files_warning(self, blocked_files: list) -> None:
+    def _show_blocked_files_warning(self, blocked_files: list[str]) -> None:
         """Display warning about blocked files before sync."""
         import click
 
@@ -434,7 +435,7 @@ class CLIOrchestrator:
             click.echo(click.style(f"    ... and {len(blocked_files) - 5} more", fg="yellow"))
         click.echo()  # Empty line for spacing
 
-    def _process_sync_result(self, result) -> None:
+    def _process_sync_result(self, result: SyncResult) -> None:
         """Process and display sync result."""
         if result.success:
             if result.files_synced > 0:
@@ -1947,11 +1948,16 @@ def top(
         )
         click.echo("Press Ctrl+C to exit.\n")
 
-        # Build SSH configs
+        # Build SSH configs (filter out VMs without public IPs)
         ssh_configs = [
             SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
             for vm in running_vms
+            if vm.public_ip is not None
         ]
+
+        if not ssh_configs:
+            click.echo("Error: No VMs with public IP addresses found", err=True)
+            sys.exit(1)
 
         # Create and run executor
         executor = DistributedTopExecutor(

@@ -130,8 +130,7 @@ jobs:
             --cov-report=term-missing \
             --cov-report=html \
             --junitxml=junit/test-results-${{ matrix.python-version }}.xml \
-            -v \
-            -m unit
+            -v
         env:
           COVERAGE_FILE: .coverage.${{ matrix.python-version }}
 
