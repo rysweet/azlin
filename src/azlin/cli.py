@@ -2210,6 +2210,13 @@ def _execute_vm_deletion(vm_name: str, rg: str, force: bool) -> None:
             click.echo("\nDeleted resources:")
             for resource in result.resources_deleted:
                 click.echo(f"  - {resource}")
+
+        # Clean up session name mapping if it exists
+        try:
+            if ConfigManager.delete_session_name(vm_name):
+                click.echo(f"Removed session name mapping for '{vm_name}'")
+        except ConfigError:
+            pass  # Config cleanup is non-critical
     else:
         click.echo(f"\nError: {result.message}", err=True)
         sys.exit(1)
@@ -2358,7 +2365,20 @@ def killall(resource_group: str | None, config: str | None, force: bool, prefix:
             resource_group=rg, force=True, vm_prefix=prefix, max_workers=5
         )
 
+        # Clean up session names for successfully deleted VMs
+        cleaned_count = 0
+        for result in summary.results:
+            if result.success:
+                try:
+                    if ConfigManager.delete_session_name(result.vm_name):
+                        cleaned_count += 1
+                except ConfigError:
+                    pass  # Config cleanup is non-critical
+
         _display_killall_results(summary)
+
+        if cleaned_count > 0:
+            click.echo(f"\nRemoved {cleaned_count} session name mapping(s)")
 
         if not summary.all_succeeded:
             sys.exit(1)
