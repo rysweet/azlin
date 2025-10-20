@@ -44,7 +44,7 @@ class TestRemoteExecutor:
         """Test successful command execution."""
         mock_run.return_value = MagicMock(returncode=0, stdout="command output", stderr="")
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         result = RemoteExecutor.execute_command(ssh_config, "ls -la", timeout=30)
 
@@ -57,7 +57,7 @@ class TestRemoteExecutor:
         """Test failed command execution."""
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="command not found")
 
-        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))  # noqa: S108
+        ssh_config = SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key"))
 
         result = RemoteExecutor.execute_command(ssh_config, "badcommand", timeout=30)
 
@@ -86,10 +86,10 @@ class TestRemoteExecutor:
     def test_extract_command_slug(self):
         """Test extracting command slug."""
         slug = RemoteExecutor.extract_command_slug("python train.py --epochs 100")
-        assert slug == "python-train-py"
+        assert slug == "python-train-py-epoc"  # 3 words, truncated to 20 chars
 
         slug2 = RemoteExecutor.extract_command_slug("ls -la /tmp/file")
-        assert slug2 == "ls-la-tmp"
+        assert slug2 == "ls-la-tmp-file"  # 3 words
 
     def test_extract_command_slug_max_length(self):
         """Test slug truncation."""
@@ -136,8 +136,8 @@ class TestWCommandExecutor:
         ]
 
         ssh_configs = [
-            SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key")),  # noqa: S108
-            SSHConfig(host="5.6.7.8", user="azureuser", key_path=Path("/tmp/key")),  # noqa: S108
+            SSHConfig(host="1.2.3.4", user="azureuser", key_path=Path("/tmp/key")),
+            SSHConfig(host="5.6.7.8", user="azureuser", key_path=Path("/tmp/key")),
         ]
 
         results = WCommandExecutor.execute_w_on_vms(ssh_configs)

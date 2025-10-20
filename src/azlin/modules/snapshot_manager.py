@@ -245,6 +245,169 @@ class SnapshotManager:
         return results
 
     @classmethod
+    def create_snapshot(cls, vm_name: str, resource_group: str) -> SnapshotInfo:
+        """Create a snapshot manually (public API for CLI).
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+
+        Returns:
+            SnapshotInfo object
+
+        Raises:
+            SnapshotError: If snapshot creation fails
+        """
+        cls._validate_vm_name(vm_name)
+        cls._validate_resource_group(resource_group)
+
+        snapshot_name = cls._create_snapshot(vm_name, resource_group)
+
+        # Get snapshot info to return
+        snapshots = cls._list_vm_snapshots(vm_name, resource_group)
+        for snapshot in snapshots:
+            if snapshot.name == snapshot_name:
+                return snapshot
+
+        raise SnapshotError(f"Created snapshot {snapshot_name} but failed to retrieve info")
+
+    @classmethod
+    def list_snapshots(cls, vm_name: str, resource_group: str) -> list[SnapshotInfo]:
+        """List snapshots for a VM (public API for CLI).
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+
+        Returns:
+            List of SnapshotInfo objects
+
+        Raises:
+            SnapshotError: If listing fails
+        """
+        cls._validate_vm_name(vm_name)
+        cls._validate_resource_group(resource_group)
+        return cls._list_vm_snapshots(vm_name, resource_group)
+
+    @classmethod
+    def delete_snapshot(cls, snapshot_name: str, resource_group: str) -> None:
+        """Delete a snapshot (public API for CLI).
+
+        Args:
+            snapshot_name: Snapshot name
+            resource_group: Resource group name
+
+        Raises:
+            SnapshotError: If deletion fails
+        """
+        cls._validate_resource_group(resource_group)
+        cls._delete_snapshot(snapshot_name, resource_group)
+
+    @classmethod
+    def get_snapshot_cost_estimate(cls, size_gb: int, days: int = 30) -> float:
+        """Estimate monthly snapshot storage cost (public API for CLI).
+
+        Args:
+            size_gb: Snapshot size in GB
+            days: Number of days to estimate (default: 30)
+
+        Returns:
+            Estimated cost in USD
+        """
+        # Azure snapshot storage pricing: ~$0.05 per GB-month for standard storage
+        # This is an approximation - actual costs vary by region and storage type
+        cost_per_gb_month = 0.05
+        return size_gb * cost_per_gb_month * (days / 30.0)
+
+    @classmethod
+    def restore_snapshot(cls, vm_name: str, snapshot_name: str, resource_group: str) -> None:
+        """Restore a VM from a snapshot (public API for CLI).
+
+        This operation:
+        1. Stops the VM
+        2. Creates a new disk from the snapshot
+        3. Swaps the VM's OS disk with the new disk
+        4. Starts the VM
+
+        Args:
+            vm_name: VM name
+            snapshot_name: Snapshot name to restore from
+            resource_group: Resource group name
+
+        Raises:
+            SnapshotError: If restore fails
+        """
+        cls._validate_vm_name(vm_name)
+        cls._validate_resource_group(resource_group)
+
+        try:
+            # Stop VM
+            stop_cmd = [
+                "az",
+                "vm",
+                "stop",
+                "--name",
+                vm_name,
+                "--resource-group",
+                resource_group,
+            ]
+            subprocess.run(stop_cmd, capture_output=True, text=True, timeout=300, check=True)
+
+            # Create disk from snapshot
+            disk_name = f"{vm_name}-restored-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            create_disk_cmd = [
+                "az",
+                "disk",
+                "create",
+                "--name",
+                disk_name,
+                "--resource-group",
+                resource_group,
+                "--source",
+                snapshot_name,
+                "--output",
+                "json",
+            ]
+            result = subprocess.run(
+                create_disk_cmd, capture_output=True, text=True, timeout=300, check=True
+            )
+            disk_data = json.loads(result.stdout)
+            disk_id = disk_data["id"]
+
+            # Attach new disk as OS disk
+            attach_cmd = [
+                "az",
+                "vm",
+                "update",
+                "--name",
+                vm_name,
+                "--resource-group",
+                resource_group,
+                "--os-disk",
+                disk_id,
+            ]
+            subprocess.run(attach_cmd, capture_output=True, text=True, timeout=300, check=True)
+
+            # Start VM
+            start_cmd = [
+                "az",
+                "vm",
+                "start",
+                "--name",
+                vm_name,
+                "--resource-group",
+                resource_group,
+            ]
+            subprocess.run(start_cmd, capture_output=True, text=True, timeout=300, check=True)
+
+        except subprocess.CalledProcessError as e:
+            raise SnapshotError(f"Failed to restore snapshot: {e.stderr}") from e
+        except subprocess.TimeoutExpired as e:
+            raise SnapshotError("Snapshot restore timed out") from e
+        except json.JSONDecodeError as e:
+            raise SnapshotError(f"Failed to parse restore response: {e}") from e
+
+    @classmethod
     def _needs_snapshot(cls, schedule: SnapshotSchedule) -> bool:
         """Check if a new snapshot is needed based on schedule.
 
@@ -547,8 +710,7 @@ class SnapshotManager:
                 check=True,
             )
 
-            vm_names = json.loads(result.stdout)
-            return vm_names
+            return json.loads(result.stdout)
 
         except subprocess.CalledProcessError as e:
             raise SnapshotError(f"Failed to list VMs: {e.stderr}") from e

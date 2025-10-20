@@ -1,0 +1,282 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # GitGuardian - Scan for secrets and credentials
+  gitguardian:
+    name: GitGuardian Security Scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for secret detection
+
+      - name: GitGuardian scan
+        uses: GitGuardian/ggshield-action@v1.43.0
+        with:
+          args: -v --all-policies
+        env:
+          GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
+          GITHUB_PUSH_BASE_SHA: ${{ github.event.base }}
+          GITHUB_PULL_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
+
+  # Bandit - Python security linter
+  bandit:
+    name: Bandit Security Linter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Bandit
+        run: |
+          pip install bandit[toml]
+
+      - name: Run Bandit
+        run: |
+          bandit -r src/ \
+            -c pyproject.toml \
+            -f json \
+            -o bandit-report.json \
+            --severity-level medium \
+            --confidence-level medium \
+            -x '*/tests/*' \
+            || true
+
+          # Also generate text report for logs
+          bandit -r src/ \
+            -c pyproject.toml \
+            -f txt \
+            --severity-level medium \
+            --confidence-level medium \
+            -x '*/tests/*'
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-security-report
+          path: bandit-report.json
+          retention-days: 90
+
+  # Safety - Check Python dependencies for known vulnerabilities
+  safety:
+    name: Safety Dependency Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.11"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+          uv pip install --system safety
+
+      - name: Run Safety check
+        run: |
+          # Export dependencies
+          uv pip freeze > requirements.txt
+
+          # Run safety check
+          safety check \
+            --file requirements.txt \
+            --json \
+            --output safety-report.json \
+            || true
+
+          # Display results
+          safety check --file requirements.txt || true
+
+      - name: Upload Safety report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: safety-vulnerability-report
+          path: safety-report.json
+          retention-days: 90
+
+  # CodeQL Analysis - Advanced security scanning
+  codeql:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # Trivy - Vulnerability scanner for dependencies and containers
+  trivy:
+    name: Trivy Vulnerability Scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Upload Trivy report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-vulnerability-report
+          path: trivy-results.sarif
+          retention-days: 90
+
+  # OSSF Scorecard - Check project security posture
+  scorecard:
+    name: OSSF Scorecard
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request'  # Only on push to main
+    timeout-minutes: 10
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run OSSF Scorecard
+        uses: ossf/scorecard-action@v2.4.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload OSSF Scorecard results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+  # Summary job - all security checks
+  security-summary:
+    name: Security Checks Summary
+    runs-on: ubuntu-24.04
+    needs: [gitguardian, bandit, safety, codeql, trivy]
+    if: always()
+    steps:
+      - name: Check all security scans
+        run: |
+          echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # GitGuardian
+          if [[ "${{ needs.gitguardian.result }}" == "success" ]]; then
+            echo "✅ GitGuardian: No secrets detected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ GitGuardian: Potential secrets found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Bandit
+          if [[ "${{ needs.bandit.result }}" == "success" ]]; then
+            echo "✅ Bandit: No security issues" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Bandit: Security issues detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Safety
+          if [[ "${{ needs.safety.result }}" == "success" ]]; then
+            echo "✅ Safety: No vulnerable dependencies" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Safety: Vulnerable dependencies found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # CodeQL
+          if [[ "${{ needs.codeql.result }}" == "success" ]]; then
+            echo "✅ CodeQL: No security vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ CodeQL: Security vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Trivy
+          if [[ "${{ needs.trivy.result }}" == "success" ]]; then
+            echo "✅ Trivy: No vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Trivy: Vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "View detailed reports in the Actions artifacts." >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail if critical security issues found
+        run: |
+          # Only fail on GitGuardian (secrets) - other tools may have false positives
+          if [[ "${{ needs.gitguardian.result }}" != "success" ]]; then
+            echo "❌ Critical security issue: Secrets detected by GitGuardian"
+            exit 1
+          fi
+          echo "✅ No critical security issues detected"

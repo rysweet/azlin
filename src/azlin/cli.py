@@ -55,6 +55,7 @@ from azlin.modules.home_sync import (
     HomeSyncManager,
     RsyncError,
     SecurityValidationError,
+    SyncResult,
 )
 from azlin.modules.notifications import NotificationHandler
 from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
@@ -417,6 +418,57 @@ class CLIOrchestrator:
             "cloud-init status check timed out, proceeding anyway", ProgressStage.WARNING
         )
 
+    def _show_blocked_files_warning(self, blocked_files: list[str]) -> None:
+        """Display warning about blocked files before sync."""
+        import click
+
+        click.echo(
+            click.style(
+                f"\n  Security: Skipping {len(blocked_files)} sensitive file(s):",
+                fg="yellow",
+                bold=True,
+            )
+        )
+        for blocked_file in blocked_files[:5]:  # Show first 5
+            click.echo(click.style(f"    • {blocked_file}", fg="yellow"))
+        if len(blocked_files) > 5:
+            click.echo(click.style(f"    ... and {len(blocked_files) - 5} more", fg="yellow"))
+        click.echo()  # Empty line for spacing
+
+    def _process_sync_result(self, result: SyncResult) -> None:
+        """Process and display sync result."""
+        if result.success:
+            if result.files_synced > 0:
+                # Show sync stats with warning count
+                sync_msg = (
+                    f"Synced {result.files_synced} files "
+                    f"({result.bytes_transferred / 1024:.1f} KB) "
+                    f"in {result.duration_seconds:.1f}s"
+                )
+                if result.warnings:
+                    sync_msg += f" ({len(result.warnings)} skipped)"
+                self.progress.update(sync_msg)
+            else:
+                self.progress.update("No files to sync")
+
+            # Display warnings prominently after sync
+            if result.warnings:
+                import click
+
+                for warning in result.warnings[:3]:  # Show first 3 warnings
+                    click.echo(click.style(f"  ⚠  {warning}", fg="yellow"))
+                if len(result.warnings) > 3:
+                    click.echo(
+                        click.style(
+                            f"  ⚠  ... and {len(result.warnings) - 3} more warnings",
+                            fg="yellow",
+                        )
+                    )
+        else:
+            # Log errors but don't fail
+            for error in result.errors:
+                logger.warning(f"Sync error: {error}")
+
     def _sync_home_directory(self, vm_details: VMDetails, key_path: Path) -> None:
         """Sync home directory to VM.
 
@@ -437,30 +489,12 @@ class CLIOrchestrator:
             # Create SSH config
             ssh_config = SSHConfig(host=public_ip, user="azureuser", key_path=key_path)
 
-            # PHASE 1 FIX: Pre-sync validation check with visible warnings
+            # Pre-sync validation check with visible warnings
             sync_dir = HomeSyncManager.get_sync_directory()
             if sync_dir.exists():
                 validation = HomeSyncManager.validate_sync_directory(sync_dir)
                 if validation.blocked_files:
-                    # Show highly visible pre-sync warning
-                    import click
-
-                    click.echo(
-                        click.style(
-                            f"\n  Security: Skipping {len(validation.blocked_files)} sensitive file(s):",
-                            fg="yellow",
-                            bold=True,
-                        )
-                    )
-                    for blocked_file in validation.blocked_files[:5]:  # Show first 5
-                        click.echo(click.style(f"    • {blocked_file}", fg="yellow"))
-                    if len(validation.blocked_files) > 5:
-                        click.echo(
-                            click.style(
-                                f"    ... and {len(validation.blocked_files) - 5} more", fg="yellow"
-                            )
-                        )
-                    click.echo()  # Empty line for spacing
+                    self._show_blocked_files_warning(validation.blocked_files)
 
             # Progress callback
             def progress_callback(msg: str):
@@ -471,37 +505,7 @@ class CLIOrchestrator:
                 ssh_config, dry_run=False, progress_callback=progress_callback
             )
 
-            if result.success:
-                if result.files_synced > 0:
-                    # PHASE 1 FIX: Show sync stats with warning count
-                    sync_msg = (
-                        f"Synced {result.files_synced} files "
-                        f"({result.bytes_transferred / 1024:.1f} KB) "
-                        f"in {result.duration_seconds:.1f}s"
-                    )
-                    if result.warnings:
-                        sync_msg += f" ({len(result.warnings)} skipped)"
-                    self.progress.update(sync_msg)
-                else:
-                    self.progress.update("No files to sync")
-
-                # PHASE 1 FIX: Display warnings prominently after sync
-                if result.warnings:
-                    import click
-
-                    for warning in result.warnings[:3]:  # Show first 3 warnings
-                        click.echo(click.style(f"  ⚠  {warning}", fg="yellow"))
-                    if len(result.warnings) > 3:
-                        click.echo(
-                            click.style(
-                                f"  ⚠  ... and {len(result.warnings) - 3} more warnings",
-                                fg="yellow",
-                            )
-                        )
-            else:
-                # Log errors but don't fail
-                for error in result.errors:
-                    logger.warning(f"Sync error: {error}")
+            self._process_sync_result(result)
 
         except SecurityValidationError as e:
             # Don't fail VM provisioning, just warn
@@ -701,8 +705,6 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         """
         if not vm_details.public_ip:
             raise Exception("VM has no public IP address, cannot mount NFS storage")
-
-        public_ip: str = vm_details.public_ip  # Type narrowed by check above
 
         from azlin.modules.nfs_mount_manager import NFSMountManager
         from azlin.modules.storage_manager import StorageManager
@@ -1946,11 +1948,16 @@ def top(
         )
         click.echo("Press Ctrl+C to exit.\n")
 
-        # Build SSH configs
+        # Build SSH configs (filter out VMs without public IPs)
         ssh_configs = [
             SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
             for vm in running_vms
+            if vm.public_ip is not None
         ]
+
+        if not ssh_configs:
+            click.echo("Error: No VMs with public IP addresses found", err=True)
+            sys.exit(1)
 
         # Create and run executor
         executor = DistributedTopExecutor(
@@ -2203,6 +2210,13 @@ def _execute_vm_deletion(vm_name: str, rg: str, force: bool) -> None:
             click.echo("\nDeleted resources:")
             for resource in result.resources_deleted:
                 click.echo(f"  - {resource}")
+
+        # Clean up session name mapping if it exists
+        try:
+            if ConfigManager.delete_session_name(vm_name):
+                click.echo(f"Removed session name mapping for '{vm_name}'")
+        except ConfigError:
+            pass  # Config cleanup is non-critical
     else:
         click.echo(f"\nError: {result.message}", err=True)
         sys.exit(1)
@@ -2351,7 +2365,20 @@ def killall(resource_group: str | None, config: str | None, force: bool, prefix:
             resource_group=rg, force=True, vm_prefix=prefix, max_workers=5
         )
 
+        # Clean up session names for successfully deleted VMs
+        cleaned_count = 0
+        for result in summary.results:
+            if result.success:
+                try:
+                    if ConfigManager.delete_session_name(result.vm_name):
+                        cleaned_count += 1
+                except ConfigError:
+                    pass  # Config cleanup is non-critical
+
         _display_killall_results(summary)
+
+        if cleaned_count > 0:
+            click.echo(f"\nRemoved {cleaned_count} session name mapping(s)")
 
         if not summary.all_succeeded:
             sys.exit(1)
@@ -4996,15 +5023,15 @@ def snapshot_create(vm_name: str, resource_group: str | None, config: str | None
         snapshot = manager.create_snapshot(vm_name, rg)
 
         # Show cost estimate
-        monthly_cost = manager.get_snapshot_cost_estimate(snapshot.size_gb, 30)
+        size_gb = snapshot.size_gb or 0
+        monthly_cost = manager.get_snapshot_cost_estimate(size_gb, 30)
         click.echo("\n✓ Snapshot created successfully!")
         click.echo(f"  Name:     {snapshot.name}")
-        click.echo(f"  Size:     {snapshot.size_gb} GB")
-        click.echo(f"  Location: {snapshot.location}")
-        click.echo(f"  Created:  {snapshot.created_time}")
+        click.echo(f"  Size:     {size_gb} GB")
+        click.echo(f"  Created:  {snapshot.creation_time}")
         click.echo(f"\nEstimated storage cost: ${monthly_cost:.2f}/month")
 
-    except SnapshotManagerError as e:
+    except SnapshotError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
@@ -5055,25 +5082,25 @@ def snapshot_list(vm_name: str, resource_group: str | None, config: str | None):
 
         # Display snapshots table
         click.echo(f"\nSnapshots for VM: {vm_name}")
-        click.echo("=" * 110)
-        click.echo(f"{'NAME':<50} {'SIZE':<10} {'CREATED':<30} {'STATUS':<20}")
-        click.echo("=" * 110)
+        click.echo("=" * 90)
+        click.echo(f"{'NAME':<50} {'SIZE':<10} {'CREATED':<30}")
+        click.echo("=" * 90)
 
         total_size = 0
         for snap in snapshots:
-            created = snap.created_time[:19].replace("T", " ") if snap.created_time else "N/A"
-            status = snap.provisioning_state or "Unknown"
-            click.echo(f"{snap.name:<50} {snap.size_gb:<10} {created:<30} {status:<20}")
-            total_size += snap.size_gb
+            created = str(snap.creation_time)[:19].replace("T", " ")
+            size_gb = snap.size_gb or 0
+            click.echo(f"{snap.name:<50} {size_gb:<10} {created:<30}")
+            total_size += size_gb
 
-        click.echo("=" * 110)
+        click.echo("=" * 90)
         click.echo(f"\nTotal: {len(snapshots)} snapshots ({total_size} GB)")
 
         # Show cost estimate
         monthly_cost = manager.get_snapshot_cost_estimate(total_size, 30)
         click.echo(f"Estimated total storage cost: ${monthly_cost:.2f}/month\n")
 
-    except SnapshotManagerError as e:
+    except SnapshotError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
@@ -5147,7 +5174,7 @@ def snapshot_restore(
         click.echo(f"\n✓ VM '{vm_name}' successfully restored from snapshot!")
         click.echo(f"  The VM is now running with the disk from: {snapshot_name}\n")
 
-    except SnapshotManagerError as e:
+    except SnapshotError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
@@ -5207,7 +5234,7 @@ def snapshot_delete(
 
         click.echo(f"\n✓ Snapshot '{snapshot_name}' deleted successfully!\n")
 
-    except SnapshotManagerError as e:
+    except SnapshotError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 

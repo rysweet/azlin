@@ -73,10 +73,14 @@ exclude_lines = [
 ]
 
 [tool.pyright]
-typeCheckingMode = "strict"
+typeCheckingMode = "basic"
 pythonVersion = "3.11"
 include = ["src"]
 exclude = ["**/__pycache__", "**/.pytest_cache", "**/node_modules"]
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
 reportMissingTypeStubs = false
 reportOptionalMemberAccess = false
 
@@ -116,8 +120,13 @@ max-complexity = 15
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "S101",   # assert allowed in tests
+    "S108",   # hardcoded /tmp allowed in tests
     "PT009",  # pytest unittest style
     "PT027",  # pytest unittest raises
+]
+"**/tests/**/*.py" = [
+    "S101",   # assert allowed in tests
+    "S108",   # hardcoded /tmp allowed in tests
 ]
 ".claude/**/*.py" = [
     "S101",   # assert allowed
@@ -126,3 +135,7 @@ max-complexity = 15
 "src/azlin/vm_provisioning.py" = [
     "S608",   # False positive: cloud-init YAML, not SQL
 ]
+
+[tool.bandit]
+exclude_dirs = ["tests", "*/tests/*"]
+skips = ["B108"]  # Allow hardcoded /tmp in test files

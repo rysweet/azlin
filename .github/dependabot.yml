@@ -1,0 +1,71 @@
+version: 2
+
+updates:
+  # Python dependencies via pip
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "rysweet"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      # Group pytest-related dependencies together
+      pytest:
+        patterns:
+          - "pytest*"
+      # Group development tools
+      dev-tools:
+        patterns:
+          - "ruff"
+          - "pyright"
+          - "pre-commit"
+      # Group Azure-related dependencies
+      azure:
+        patterns:
+          - "azure-*"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "rysweet"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  # Pre-commit hooks
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "rysweet"
+    labels:
+      - "dependencies"
+      - "pre-commit"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    # Only update pre-commit hooks
+    allow:
+      - dependency-type: "direct"

@@ -288,7 +288,7 @@ class LogViewer:
 
         # Connect with interactive SSH to stream logs
         return SSHConnector.connect(
-            ssh_config=ssh_config, remote_command=command, tmux_session=None, auto_tmux=False
+            config=ssh_config, remote_command=command, tmux_session=None, auto_tmux=False
         )
 
     @classmethod

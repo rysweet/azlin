@@ -331,15 +331,21 @@ class TestSSHKeyRotator:
         assert backup.timestamp is not None
         assert isinstance(backup.timestamp, datetime)
 
+    @patch("azlin.key_rotator.AzureAuthenticator")
     @patch("azlin.key_rotator.SSHKeyManager")
     @patch("azlin.key_rotator.VMManager")
-    def test_rotate_keys_with_backup_disabled(self, mock_vm_manager, mock_key_manager):
+    def test_rotate_keys_with_backup_disabled(self, mock_vm_manager, mock_key_manager, mock_auth):
         """Test rotation without backup when disabled."""
         # Setup
         mock_key_pair = MagicMock()
         mock_key_pair.public_key_content = "new-key"
         mock_key_manager.ensure_key_exists.return_value = mock_key_pair
         mock_vm_manager.list_vms.return_value = []
+
+        # Mock Azure authentication to prevent real az CLI calls
+        mock_auth_instance = MagicMock()
+        mock_auth_instance.get_subscription_id.return_value = "sub-123"
+        mock_auth.return_value = mock_auth_instance
 
         # Execute
         result = SSHKeyRotator.rotate_keys(resource_group="test-rg", create_backup=False)

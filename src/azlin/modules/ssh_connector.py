@@ -53,14 +53,21 @@ class SSHConnector:
     DEFAULT_PORT = 22
 
     @classmethod
-    def connect(cls, config: SSHConfig, tmux_session: str = "azlin", auto_tmux: bool = True) -> int:
+    def connect(
+        cls,
+        config: SSHConfig,
+        tmux_session: str | None = "azlin",
+        auto_tmux: bool = True,
+        remote_command: str | None = None,
+    ) -> int:
         """
         Connect via SSH and optionally start tmux session.
 
         Args:
             config: SSH configuration
-            tmux_session: tmux session name
+            tmux_session: tmux session name (default: "azlin")
             auto_tmux: Automatically start/attach tmux session
+            remote_command: Optional command to run on remote host
 
         Returns:
             int: SSH exit code (0 = success)
@@ -90,9 +97,11 @@ class SSHConnector:
             raise SSHConnectionError(f"SSH connection to {config.host} timed out")
 
         # Build SSH command
-        if auto_tmux:
-            remote_command = cls._build_tmux_command(tmux_session)
+        if remote_command:
             ssh_args = cls.build_ssh_command(config, remote_command)
+        elif auto_tmux and tmux_session:
+            tmux_command = cls._build_tmux_command(tmux_session)
+            ssh_args = cls.build_ssh_command(config, tmux_command)
         else:
             ssh_args = cls.build_ssh_command(config)
 
