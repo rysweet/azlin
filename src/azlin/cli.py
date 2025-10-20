@@ -42,6 +42,7 @@ from azlin.cost_tracker import CostTracker, CostTrackerError
 from azlin.distributed_top import DistributedTopError, DistributedTopExecutor
 from azlin.env_manager import EnvManager, EnvManagerError
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
+from azlin.log_viewer import LogType, LogViewer, LogViewerError
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -82,6 +83,16 @@ from azlin.vm_provisioning import (
     VMConfig,
     VMDetails,
     VMProvisioner,
+)
+
+# Agentic mode
+from azlin.agentic import (
+    CommandExecutionError,
+    CommandExecutor,
+    CommandPlanner,
+    IntentParseError,
+    IntentParser,
+    ResultValidator,
 )
 
 logger = logging.getLogger(__name__)
@@ -2912,6 +2923,194 @@ def connect(
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         logger.exception("Unexpected error in connect command")
+        sys.exit(1)
+
+
+@main.command()
+@click.argument("vm_identifier", type=str)
+@click.option("--resource-group", "--rg", help="Resource group (required for VM name)", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--follow", "-f", is_flag=True, help="Follow logs in real-time (like tail -f)")
+@click.option(
+    "--type",
+    "-t",
+    type=click.Choice(["system", "boot", "kernel", "app"], case_sensitive=False),
+    default="system",
+    help="Type of logs to view (default: system)",
+)
+@click.option("--service", "-s", help="Service name (required for app logs)", type=str)
+@click.option(
+    "--since",
+    help="Show logs since time (e.g., '1 hour ago', 'yesterday', '2024-01-01')",
+    type=str,
+)
+@click.option("--lines", "-n", help="Number of lines to show (default: 100)", type=int, default=100)
+def logs(
+    vm_identifier: str,
+    resource_group: str | None,
+    config: str | None,
+    follow: bool,
+    type: str,
+    service: str | None,
+    since: str | None,
+    lines: int,
+):
+    """View logs from a VM via journalctl over SSH.
+
+    This command allows you to view system, boot, kernel, and application logs
+    from your VMs without needing to SSH in. Logs are retrieved via journalctl
+    over SSH.
+
+    VM_IDENTIFIER can be:
+    - VM name (requires --resource-group or default config)
+    - Session name (will be resolved to VM name)
+
+    \b
+    Log Types:
+        system    - General system logs (journalctl)
+        boot      - Boot logs (journalctl -b)
+        kernel    - Kernel logs (journalctl -k)
+        app       - Application/service logs (journalctl -u <service>)
+
+    \b
+    Examples:
+        # View last 100 lines of system logs
+        azlin logs my-vm
+
+        # Follow system logs in real-time
+        azlin logs my-vm --follow
+
+        # View cloud-init logs (useful during VM provisioning)
+        azlin logs my-vm --type app --service cloud-init
+
+        # Follow cloud-init logs in real-time
+        azlin logs my-vm -f -t app -s cloud-init
+
+        # View boot logs
+        azlin logs my-vm --type boot
+
+        # View logs from last hour
+        azlin logs my-vm --since "1 hour ago"
+
+        # View last 500 lines
+        azlin logs my-vm --lines 500
+
+        # View docker service logs
+        azlin logs my-vm -t app -s docker
+
+        # View VM by session name
+        azlin logs my-project --follow
+    """
+    try:
+        # Resolve session name to VM name
+        vm_name, original_identifier = _resolve_vm_identifier(vm_identifier, config)
+
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+        if not rg:
+            click.echo(
+                "Error: Resource group required for VM name.\n"
+                "Use --resource-group or set default in ~/.azlin/config.toml",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Verify VM exists
+        _verify_vm_exists(vm_name, original_identifier, rg)
+
+        # Convert log type string to LogType enum
+        log_type = LogType[type.upper()]
+
+        # Validate service requirement for app logs
+        if log_type == LogType.APP and not service:
+            click.echo("Error: --service is required for app logs", err=True)
+            click.echo(
+                "Example: azlin logs my-vm --type app --service cloud-init",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Display name for user feedback
+        display_name = original_identifier if original_identifier != vm_name else vm_name
+
+        if follow:
+            # Follow logs in real-time
+            log_desc = f"{log_type.value} logs"
+            if service:
+                log_desc = f"{service} logs"
+            click.echo(f"Following {log_desc} from {display_name} (Ctrl+C to stop)...")
+
+            exit_code = LogViewer.follow_logs(
+                vm_name=vm_name,
+                resource_group=rg,
+                log_type=log_type,
+                since=since,
+                service=service,
+            )
+            sys.exit(exit_code)
+
+        else:
+            # Retrieve logs
+            log_desc = f"{log_type.value} logs"
+            if service:
+                log_desc = f"{service} logs"
+            click.echo(f"Retrieving {log_desc} from {display_name}...")
+
+            # Call appropriate method based on log type
+            log_methods = {
+                LogType.SYSTEM: lambda: LogViewer.get_system_logs(
+                    vm_name=vm_name, resource_group=rg, lines=lines, since=since
+                ),
+                LogType.BOOT: lambda: LogViewer.get_boot_logs(
+                    vm_name=vm_name, resource_group=rg, lines=lines, since=since
+                ),
+                LogType.KERNEL: lambda: LogViewer.get_kernel_logs(
+                    vm_name=vm_name, resource_group=rg, lines=lines, since=since
+                ),
+                LogType.APP: lambda: LogViewer.get_app_logs(
+                    vm_name=vm_name,
+                    resource_group=rg,
+                    service=service,  # type: ignore[arg-type]
+                    lines=lines,
+                    since=since,
+                ),
+            }
+
+            if log_type not in log_methods:
+                click.echo(f"Error: Unsupported log type: {log_type}", err=True)
+                sys.exit(1)
+
+            result = log_methods[log_type]()
+
+            if result.success:
+                # Display logs
+                click.echo()  # Blank line before logs
+                click.echo(result.logs)
+                click.echo()  # Blank line after logs
+                click.echo(f"({result.line_count} lines from {display_name})")
+                sys.exit(0)
+            else:
+                click.echo(
+                    f"Error: {result.error_message or 'Failed to retrieve logs'}",
+                    err=True,
+                )
+                sys.exit(1)
+
+    except LogViewerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        sys.exit(1)
+    except VMManagerError as e:
+        click.echo(f"VM error: {e}", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.exception("Unexpected error in logs command")
         sys.exit(1)
 
 
