@@ -34,17 +34,17 @@ class TestStorageNamePathTraversalProtection:
 
     def test_rejects_absolute_path_unix(self):
         """Should reject Unix absolute paths."""
-        with pytest.raises(ValidationError, match="path traversal|alphanumeric"):
+        with pytest.raises(ValidationError, match=r"path traversal|alphanumeric"):
             StorageManager._validate_name("/etc/passwd")
 
     def test_rejects_absolute_path_windows(self):
         """Should reject Windows absolute paths."""
-        with pytest.raises(ValidationError, match="path traversal|alphanumeric"):
+        with pytest.raises(ValidationError, match=r"path traversal|alphanumeric"):
             StorageManager._validate_name("C:\\Windows")
 
     def test_rejects_complex_traversal(self):
         """Should reject complex traversal patterns."""
-        with pytest.raises(ValidationError, match="path traversal|alphanumeric"):
+        with pytest.raises(ValidationError, match=r"path traversal|alphanumeric"):
             StorageManager._validate_name("foo/../../etc/passwd")
 
     def test_rejects_url_encoded_traversal(self):
@@ -141,7 +141,7 @@ class TestStorageNameEdgeCases:
 
     def test_rejects_whitespace_only(self):
         """Should reject whitespace-only name."""
-        with pytest.raises(ValidationError, match="non-empty string|alphanumeric"):
+        with pytest.raises(ValidationError, match=r"non-empty string|alphanumeric"):
             StorageManager._validate_name("   ")
 
     def test_rejects_newline_in_name(self):

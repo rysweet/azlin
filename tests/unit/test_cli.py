@@ -213,7 +213,10 @@ class TestCLIMainEntryPoint:
         from azlin.cli import main
 
         # Mock sys.argv
-        with patch("sys.argv", ["azlin", "--repo", "https://github.com/user/repo"]), contextlib.suppress(SystemExit):
+        with (
+            patch("sys.argv", ["azlin", "--repo", "https://github.com/user/repo"]),
+            contextlib.suppress(SystemExit),
+        ):
             main()
 
         mock_orchestrator.assert_called_once()

@@ -245,7 +245,9 @@ class TestStorageStatusCommand:
 
     @patch("azlin.commands.storage.StorageManager.get_storage_status")
     @patch("azlin.commands.storage.ConfigManager.load_config")
-    def test_status_shows_region_not_location(self, mock_load_config, mock_get_status, runner, mock_config):
+    def test_status_shows_region_not_location(
+        self, mock_load_config, mock_get_status, runner, mock_config
+    ):
         """Status should show 'Region:', not 'Location:'."""
         mock_load_config.return_value = mock_config
 
@@ -360,7 +362,9 @@ class TestStorageMountCommand:
     @patch("azlin.commands.storage.NFSMountManager.mount_storage")
     @patch("azlin.commands.storage.StorageManager.get_storage")
     @patch("azlin.commands.storage.ConfigManager.load_config")
-    def test_mount_success(self, mock_load_config, mock_get_storage, mock_mount, runner, mock_config):
+    def test_mount_success(
+        self, mock_load_config, mock_get_storage, mock_mount, runner, mock_config
+    ):
         """Mount should call NFSMountManager."""
         mock_load_config.return_value = mock_config
         mock_get_storage.return_value = StorageInfo(

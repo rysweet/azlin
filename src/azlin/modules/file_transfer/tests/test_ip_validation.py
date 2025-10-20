@@ -78,20 +78,21 @@ class TestIPValidationIntegration:
 
     def test_validates_ip_when_building_command(self):
         """Should validate IP address when building rsync command."""
-        from azlin.modules.file_transfer import TransferEndpoint, VMSession
         from pathlib import Path
+
+        from azlin.modules.file_transfer import TransferEndpoint, VMSession
 
         # Create endpoints with invalid IP
         session = VMSession(
             name="test",
             public_ip="invalid_ip",  # Invalid
             user="testuser",
-            key_path="/tmp/key",
+            key_path="/tmp/key",  # noqa: S108 - test file path
             resource_group="test-rg",
         )
 
-        source = TransferEndpoint(Path("/tmp/source"), session=None)
-        dest = TransferEndpoint(Path("/tmp/dest"), session=session)
+        source = TransferEndpoint(Path("/tmp/source"), session=None)  # noqa: S108 - test path
+        dest = TransferEndpoint(Path("/tmp/dest"), session=session)  # noqa: S108 - test path
 
         # Should raise TransferError when building command
         with pytest.raises(TransferError, match="Invalid IP"):
