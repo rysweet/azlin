@@ -27,7 +27,7 @@ jobs:
           fetch-depth: 0  # Full history for secret detection
 
       - name: GitGuardian scan
-        uses: GitGuardian/ggshield-action@v1.33.2
+        uses: GitGuardian/ggshield-action@v1.43.0
         with:
           args: -v --all-policies
         env:
@@ -58,17 +58,21 @@ jobs:
       - name: Run Bandit
         run: |
           bandit -r src/ \
+            -c pyproject.toml \
             -f json \
             -o bandit-report.json \
             --severity-level medium \
             --confidence-level medium \
+            -x '*/tests/*' \
             || true
 
           # Also generate text report for logs
           bandit -r src/ \
+            -c pyproject.toml \
             -f txt \
             --severity-level medium \
-            --confidence-level medium
+            --confidence-level medium \
+            -x '*/tests/*'
 
       - name: Upload Bandit report
         uses: actions/upload-artifact@v4
