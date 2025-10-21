@@ -136,6 +136,9 @@ max-complexity = 15
 "src/azlin/vm_provisioning.py" = [
     "S608",   # False positive: cloud-init YAML, not SQL
 ]
+"src/azlin/agentic/strategies/base_strategy.py" = [
+    "B027",   # Empty method in ABC - intentionally optional to override
+]
 
 [tool.bandit]
 exclude_dirs = ["tests", "*/tests/*"]

@@ -222,7 +222,7 @@ class TestFailureRecoveryIntegration:
 
         manager = StateManager(objectives_dir=temp_objectives_dir)
         recovery_agent = RecoveryAgent(state_manager=manager)
-        selector = StrategySelector()
+        _selector = StrategySelector()
 
         objective = manager.create_objective(
             "Create 100 VMs",  # Will likely hit quota

@@ -98,7 +98,7 @@ class StrategyPlan:
 
     def all_strategies(self) -> list[Strategy]:
         """Get all strategies in order (primary + fallbacks)."""
-        return [self.primary_strategy] + self.fallback_strategies
+        return [self.primary_strategy, *self.fallback_strategies]
 
 
 @dataclass
@@ -280,25 +280,24 @@ class ObjectiveState:
             )
 
         # Parse execution results
-        execution_results = []
-        for er_data in data.get("execution_results", []):
-            execution_results.append(
-                ExecutionResult(
-                    success=er_data["success"],
-                    strategy=Strategy(er_data["strategy"]),
-                    output=er_data.get("output"),
-                    error=er_data.get("error"),
-                    failure_type=FailureType(er_data["failure_type"])
-                    if er_data.get("failure_type")
-                    else None,
-                    resources_created=er_data.get("resources_created", []),
-                    duration_seconds=er_data.get("duration_seconds"),
-                    cost_incurred=Decimal(er_data["cost_incurred"])
-                    if er_data.get("cost_incurred")
-                    else None,
-                    metadata=er_data.get("metadata", {}),
-                )
+        execution_results = [
+            ExecutionResult(
+                success=er_data["success"],
+                strategy=Strategy(er_data["strategy"]),
+                output=er_data.get("output"),
+                error=er_data.get("error"),
+                failure_type=FailureType(er_data["failure_type"])
+                if er_data.get("failure_type")
+                else None,
+                resources_created=er_data.get("resources_created", []),
+                duration_seconds=er_data.get("duration_seconds"),
+                cost_incurred=Decimal(er_data["cost_incurred"])
+                if er_data.get("cost_incurred")
+                else None,
+                metadata=er_data.get("metadata", {}),
             )
+            for er_data in data.get("execution_results", [])
+        ]
 
         return cls(
             id=data["id"],

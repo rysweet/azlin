@@ -88,7 +88,7 @@ class TestMCPClient:
         mock_mcp_server.is_connected.return_value = False
         mock_mcp_server.connect.return_value = True
 
-        result = client.call_tool("azure_vm_list", {})
+        _result = client.call_tool("azure_vm_list", {})
 
         # Should auto-reconnect
         assert mock_mcp_server.connect.called

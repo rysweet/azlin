@@ -22,7 +22,7 @@ class TestAuditLoggerBasics:
         log_file = temp_config_dir / "audit.log"
         assert not log_file.exists()
 
-        logger = AuditLogger(log_file=log_file)
+        _logger = AuditLogger(log_file=log_file)
 
         assert log_file.exists()
 

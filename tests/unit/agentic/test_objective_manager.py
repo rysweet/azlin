@@ -27,7 +27,7 @@ class TestObjectiveManagerBasics:
         objectives_dir = temp_config_dir / "objectives"
         assert not objectives_dir.exists()
 
-        manager = ObjectiveManager(objectives_dir=objectives_dir)
+        _manager = ObjectiveManager(objectives_dir=objectives_dir)
 
         assert objectives_dir.exists()
 
@@ -132,7 +132,7 @@ class TestObjectiveLoading:
         )
 
         # Create objectives with different statuses
-        obj1 = manager.create("Test 1", intent)
+        _obj1 = manager.create("Test 1", intent)
         obj2 = manager.create("Test 2", intent)
         obj3 = manager.create("Test 3", intent)
 
