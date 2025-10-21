@@ -35,15 +35,19 @@ class TestIntentParser:
         """Test parsing 'create a vm called Sam' request."""
         # Mock Claude API response
         mock_response = Mock()
-        mock_response.content = [Mock(text=json.dumps({
-            "intent": "provision_vm",
-            "parameters": {"vm_name": "Sam"},
-            "confidence": 0.95,
-            "azlin_commands": [
-                {"command": "azlin new", "args": ["--name", "Sam"]}
-            ],
-            "explanation": "Provision new VM named Sam"
-        }))]
+        mock_response.content = [
+            Mock(
+                text=json.dumps(
+                    {
+                        "intent": "provision_vm",
+                        "parameters": {"vm_name": "Sam"},
+                        "confidence": 0.95,
+                        "azlin_commands": [{"command": "azlin new", "args": ["--name", "Sam"]}],
+                        "explanation": "Provision new VM named Sam",
+                    }
+                )
+            )
+        ]
 
         mock_client = Mock()
         mock_client.messages.create.return_value = mock_response
@@ -62,14 +66,18 @@ class TestIntentParser:
     def test_parse_with_context(self, mock_anthropic):
         """Test parsing with context information."""
         mock_response = Mock()
-        mock_response.content = [Mock(text=json.dumps({
-            "intent": "list_vms",
-            "parameters": {},
-            "confidence": 0.99,
-            "azlin_commands": [
-                {"command": "azlin list", "args": []}
-            ]
-        }))]
+        mock_response.content = [
+            Mock(
+                text=json.dumps(
+                    {
+                        "intent": "list_vms",
+                        "parameters": {},
+                        "confidence": 0.99,
+                        "azlin_commands": [{"command": "azlin list", "args": []}],
+                    }
+                )
+            )
+        ]
 
         mock_client = Mock()
         mock_client.messages.create.return_value = mock_response
@@ -77,7 +85,7 @@ class TestIntentParser:
 
         parser = IntentParser(api_key="test-key")
         context = {"resource_group": "test-rg", "current_vms": []}
-        result = parser.parse("list all vms", context=context)
+        _ = parser.parse("list all vms", context=context)
 
         # Verify context was passed to Claude
         call_args = mock_client.messages.create.call_args
@@ -87,14 +95,18 @@ class TestIntentParser:
     def test_parse_with_markdown_wrapped_json(self, mock_anthropic):
         """Test parsing when Claude wraps response in markdown code blocks."""
         mock_response = Mock()
-        mock_response.content = [Mock(text="""```json
+        mock_response.content = [
+            Mock(
+                text="""```json
 {
     "intent": "list_vms",
     "parameters": {},
     "confidence": 0.95,
     "azlin_commands": [{"command": "azlin list", "args": []}]
 }
-```""")]
+```"""
+            )
+        ]
 
         mock_client = Mock()
         mock_client.messages.create.return_value = mock_response
@@ -113,6 +125,7 @@ class TestIntentParser:
         # Create a minimal mock request object
         mock_request = Mock()
         from anthropic import APIError
+
         mock_client.messages.create.side_effect = APIError(
             "API Error", request=mock_request, body=None
         )
@@ -142,12 +155,18 @@ class TestIntentParser:
     def test_validate_intent_missing_required_field(self, mock_anthropic):
         """Test validation of intent with missing required fields."""
         mock_response = Mock()
-        mock_response.content = [Mock(text=json.dumps({
-            "intent": "provision_vm",
-            # Missing 'parameters' field
-            "confidence": 0.95,
-            "azlin_commands": []
-        }))]
+        mock_response.content = [
+            Mock(
+                text=json.dumps(
+                    {
+                        "intent": "provision_vm",
+                        # Missing 'parameters' field
+                        "confidence": 0.95,
+                        "azlin_commands": [],
+                    }
+                )
+            )
+        ]
 
         mock_client = Mock()
         mock_client.messages.create.return_value = mock_response
@@ -162,12 +181,18 @@ class TestIntentParser:
     def test_validate_intent_invalid_confidence(self, mock_anthropic):
         """Test validation of intent with invalid confidence value."""
         mock_response = Mock()
-        mock_response.content = [Mock(text=json.dumps({
-            "intent": "provision_vm",
-            "parameters": {},
-            "confidence": 1.5,  # Invalid: > 1.0
-            "azlin_commands": []
-        }))]
+        mock_response.content = [
+            Mock(
+                text=json.dumps(
+                    {
+                        "intent": "provision_vm",
+                        "parameters": {},
+                        "confidence": 1.5,  # Invalid: > 1.0
+                        "azlin_commands": [],
+                    }
+                )
+            )
+        ]
 
         mock_client = Mock()
         mock_client.messages.create.return_value = mock_response
@@ -182,14 +207,18 @@ class TestIntentParser:
     def test_extract_json_from_text_with_prefix(self, mock_anthropic):
         """Test JSON extraction when response has text before JSON."""
         mock_response = Mock()
-        mock_response.content = [Mock(text="""Here's the parsed intent:
+        mock_response.content = [
+            Mock(
+                text="""Here's the parsed intent:
 
 {
     "intent": "list_vms",
     "parameters": {},
     "confidence": 0.95,
     "azlin_commands": []
-}""")]
+}"""
+            )
+        ]
 
         mock_client = Mock()
         mock_client.messages.create.return_value = mock_response
@@ -247,13 +276,17 @@ class TestCommandPlanner:
         from azlin.agentic.intent_parser import CommandPlanner
 
         mock_response = Mock()
-        mock_response.content = [Mock(text=json.dumps({
-            "status": "in_progress",
-            "next_commands": [
-                {"command": "azlin status", "args": ["--vm", "Sam"]}
-            ],
-            "reasoning": "Need to verify VM was created"
-        }))]
+        mock_response.content = [
+            Mock(
+                text=json.dumps(
+                    {
+                        "status": "in_progress",
+                        "next_commands": [{"command": "azlin status", "args": ["--vm", "Sam"]}],
+                        "reasoning": "Need to verify VM was created",
+                    }
+                )
+            )
+        ]
 
         mock_client = Mock()
         mock_client.messages.create.return_value = mock_response
@@ -274,11 +307,17 @@ class TestCommandPlanner:
         from azlin.agentic.intent_parser import CommandPlanner
 
         mock_response = Mock()
-        mock_response.content = [Mock(text=json.dumps({
-            "status": "complete",
-            "next_commands": [],
-            "reasoning": "All tasks completed successfully"
-        }))]
+        mock_response.content = [
+            Mock(
+                text=json.dumps(
+                    {
+                        "status": "complete",
+                        "next_commands": [],
+                        "reasoning": "All tasks completed successfully",
+                    }
+                )
+            )
+        ]
 
         mock_client = Mock()
         mock_client.messages.create.return_value = mock_response
@@ -301,6 +340,7 @@ class TestCommandPlanner:
         mock_client = Mock()
         mock_request = Mock()
         from anthropic import APIError
+
         mock_client.messages.create.side_effect = APIError(
             "API Error", request=mock_request, body=None
         )

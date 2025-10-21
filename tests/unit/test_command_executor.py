@@ -3,9 +3,7 @@
 import subprocess
 from unittest.mock import Mock, patch
 
-import pytest
-
-from azlin.agentic import CommandExecutionError, CommandExecutor, ResultValidator
+from azlin.agentic import CommandExecutor, ResultValidator
 
 
 class TestCommandExecutor:
@@ -37,11 +35,7 @@ class TestCommandExecutor:
     @patch("azlin.agentic.command_executor.subprocess.run")
     def test_execute_success(self, mock_run):
         """Test successful command execution."""
-        mock_run.return_value = Mock(
-            stdout="VM list output",
-            stderr="",
-            returncode=0
-        )
+        mock_run.return_value = Mock(stdout="VM list output", stderr="", returncode=0)
 
         executor = CommandExecutor(dry_run=False)
         command_spec = {"command": "azlin list", "args": []}
@@ -56,11 +50,7 @@ class TestCommandExecutor:
     @patch("azlin.agentic.command_executor.subprocess.run")
     def test_execute_failure(self, mock_run):
         """Test failed command execution."""
-        mock_run.return_value = Mock(
-            stdout="",
-            stderr="Error: VM not found",
-            returncode=1
-        )
+        mock_run.return_value = Mock(stdout="", stderr="Error: VM not found", returncode=1)
 
         executor = CommandExecutor(dry_run=False)
         command_spec = {"command": "azlin status", "args": ["--vm", "nonexistent"]}
@@ -79,7 +69,7 @@ class TestCommandExecutor:
         executor = CommandExecutor(dry_run=False)
         command_spec = {
             "command": "azlin new",
-            "args": ["--name", "test-vm", "--vm-size", "Standard_D2s_v3"]
+            "args": ["--name", "test-vm", "--vm-size", "Standard_D2s_v3"],
         }
 
         result = executor.execute(command_spec)
@@ -227,9 +217,7 @@ class TestResultValidator:
         validator = ResultValidator(api_key=None)
 
         intent = {"intent": "list_vms", "parameters": {}}
-        results = [
-            {"success": True, "command": "azlin list", "stdout": "VM1\nVM2"}
-        ]
+        results = [{"success": True, "command": "azlin list", "stdout": "VM1\nVM2"}]
 
         validation = validator.validate(intent, results)
 
@@ -244,7 +232,7 @@ class TestResultValidator:
         intent = {"intent": "provision_vm", "parameters": {"vm_name": "test"}}
         results = [
             {"success": True, "command": "azlin new", "stdout": "Creating..."},
-            {"success": False, "command": "azlin status", "stderr": "VM not found"}
+            {"success": False, "command": "azlin status", "stderr": "VM not found"},
         ]
 
         validation = validator.validate(intent, results)
@@ -258,11 +246,13 @@ class TestResultValidator:
         import json
 
         mock_response = Mock()
-        mock_response.content = [Mock(text=json.dumps({
-            "success": True,
-            "message": "All VMs listed successfully",
-            "issues": []
-        }))]
+        mock_response.content = [
+            Mock(
+                text=json.dumps(
+                    {"success": True, "message": "All VMs listed successfully", "issues": []}
+                )
+            )
+        ]
 
         mock_client = Mock()
         mock_client.messages.create.return_value = mock_response
@@ -284,11 +274,17 @@ class TestResultValidator:
         import json
 
         mock_response = Mock()
-        mock_response.content = [Mock(text=json.dumps({
-            "success": False,
-            "message": "VM creation failed due to quota limits",
-            "issues": ["Azure quota exceeded", "Try smaller VM size"]
-        }))]
+        mock_response.content = [
+            Mock(
+                text=json.dumps(
+                    {
+                        "success": False,
+                        "message": "VM creation failed due to quota limits",
+                        "issues": ["Azure quota exceeded", "Try smaller VM size"],
+                    }
+                )
+            )
+        ]
 
         mock_client = Mock()
         mock_client.messages.create.return_value = mock_response
@@ -311,6 +307,7 @@ class TestResultValidator:
         mock_client = Mock()
         mock_request = Mock()
         from anthropic import APIError
+
         mock_client.messages.create.side_effect = APIError(
             "API Error", request=mock_request, body=None
         )

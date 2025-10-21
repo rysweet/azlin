@@ -5,9 +5,9 @@ This module uses Claude API to parse natural language into structured azlin comm
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-import anthropic
+import anthropic  # type: ignore[import-untyped]
 
 
 class IntentParseError(Exception):
@@ -17,7 +17,7 @@ class IntentParseError(Exception):
 class IntentParser:
     """Parses natural language into structured azlin command intents."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         """Initialize intent parser.
 
         Args:
@@ -25,13 +25,11 @@ class IntentParser:
         """
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         if not self.api_key:
-            raise ValueError(
-                "ANTHROPIC_API_KEY environment variable or api_key parameter required"
-            )
+            raise ValueError("ANTHROPIC_API_KEY environment variable or api_key parameter required")
 
         self.client = anthropic.Anthropic(api_key=self.api_key)
 
-    def parse(self, natural_language: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def parse(self, natural_language: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         """Parse natural language into structured intent.
 
         Args:
@@ -79,7 +77,7 @@ class IntentParser:
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             raise IntentParseError(f"Failed to parse Claude response: {e}") from e
 
-    def _build_system_prompt(self, context: Optional[Dict[str, Any]]) -> str:
+    def _build_system_prompt(self, context: dict[str, Any] | None) -> str:
         """Build system prompt for Claude."""
         base_prompt = """You are an expert at parsing natural language commands for azlin, an Azure VM management CLI.
 
@@ -135,7 +133,7 @@ CRITICAL:
         """Build user message for Claude."""
         return f"Parse this request: {natural_language}"
 
-    def _extract_json(self, response_text: str) -> Dict[str, Any]:
+    def _extract_json(self, response_text: str) -> dict[str, Any]:
         """Extract JSON from Claude's response."""
         # Claude might wrap JSON in markdown code blocks
         text = response_text.strip()
@@ -161,7 +159,7 @@ CRITICAL:
                 return json.loads(text[start:end])
             raise
 
-    def _validate_intent(self, intent: Dict[str, Any]) -> None:
+    def _validate_intent(self, intent: dict[str, Any]) -> None:
         """Validate parsed intent structure."""
         required_fields = ["intent", "parameters", "confidence", "azlin_commands"]
 
@@ -189,7 +187,7 @@ CRITICAL:
 class CommandPlanner:
     """Plans multi-step execution for complex intents."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         """Initialize command planner."""
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         if not self.api_key:
@@ -197,7 +195,9 @@ class CommandPlanner:
 
         self.client = anthropic.Anthropic(api_key=self.api_key)
 
-    def plan(self, intent: Dict[str, Any], execution_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def plan(
+        self, intent: dict[str, Any], execution_results: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """Create or refine execution plan based on results.
 
         This enables multi-turn execution where the agent can adapt based on

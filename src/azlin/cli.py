@@ -30,6 +30,13 @@ from typing import Any
 import click
 
 from azlin import __version__
+from azlin.agentic import (
+    CommandExecutionError,
+    CommandExecutor,
+    IntentParseError,
+    IntentParser,
+    ResultValidator,
+)
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 
@@ -3970,7 +3977,7 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
-def do(request: str, dry_run: bool, resource_group: str | None, config: str | None, verbose: bool):
+def do(request: str, dry_run: bool, resource_group: str | None, config: str | None, verbose: bool):  # noqa: C901
     """Execute natural language azlin commands.
 
     Uses AI to parse natural language requests into azlin commands
@@ -4016,9 +4023,12 @@ def do(request: str, dry_run: bool, resource_group: str | None, config: str | No
             # Get current VMs for context
             try:
                 vms = VMManager.list_vms(rg, include_stopped=True)
-                context["current_vms"] = [{"name": v.name, "status": v.power_state, "ip": v.public_ip} for v in vms]
+                context["current_vms"] = [
+                    {"name": v.name, "status": v.power_state, "ip": v.public_ip} for v in vms
+                ]
             except Exception:
-                pass  # Context is optional
+                # Context is optional - continue without VM list
+                context["current_vms"] = []
 
         # Parse natural language intent
         if verbose:
@@ -4028,7 +4038,7 @@ def do(request: str, dry_run: bool, resource_group: str | None, config: str | No
         intent = parser.parse(request, context=context if context else None)
 
         if verbose:
-            click.echo(f"\nParsed Intent:")
+            click.echo("\nParsed Intent:")
             click.echo(f"  Type: {intent['intent']}")
             click.echo(f"  Confidence: {intent['confidence']:.1%}")
             if "explanation" in intent:
@@ -4036,12 +4046,15 @@ def do(request: str, dry_run: bool, resource_group: str | None, config: str | No
 
         # Check confidence
         if intent["confidence"] < 0.7:
-            click.echo(f"\nWarning: Low confidence ({intent['confidence']:.1%}) in understanding your request.", err=True)
+            click.echo(
+                f"\nWarning: Low confidence ({intent['confidence']:.1%}) in understanding your request.",
+                err=True,
+            )
             if not click.confirm("Continue anyway?"):
                 sys.exit(1)
 
         # Show commands to be executed
-        click.echo(f"\nCommands to execute:")
+        click.echo("\nCommands to execute:")
         for i, cmd in enumerate(intent["azlin_commands"], 1):
             cmd_str = f"{cmd['command']} {' '.join(cmd['args'])}"
             click.echo(f"  {i}. {cmd_str}")
@@ -4098,6 +4111,173 @@ def do(request: str, dry_run: bool, resource_group: str | None, config: str | No
         click.echo(f"\nUnexpected error: {e}", err=True)
         if verbose:
             logger.exception("Unexpected error in do command")
+        sys.exit(1)
+
+    except KeyboardInterrupt:
+        click.echo("\n\nCancelled by user.")
+        sys.exit(130)
+
+
+@main.command()
+@click.argument("objective", type=str)
+@click.option("--dry-run", is_flag=True, help="Show execution plan without running")
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
+def doit(
+    objective: str,
+    dry_run: bool,
+    resource_group: str | None,
+    config: str | None,
+    verbose: bool,
+):
+    """Enhanced agentic Azure infrastructure management.
+
+    This command provides multi-strategy execution with state persistence
+    and intelligent fallback handling. It enhances the basic 'do' command
+    with objective tracking, cost estimation, and failure recovery.
+
+    \b
+    Examples:
+        azlin doit "provision an AKS cluster with 3 nodes"
+        azlin doit "create a VM optimized for ML workloads" --dry-run
+        azlin doit "set up a complete dev environment" --verbose
+
+    \b
+    Phase 1 Features (Current):
+        - Objective state persistence at ~/.azlin/objectives/<uuid>.json
+        - Audit logging to ~/.azlin/audit.log
+        - Secure file permissions (0600)
+
+    \b
+    Future Phases (Not Yet Implemented):
+        - Multi-strategy execution (CLI, Terraform, MCP, Custom)
+        - Automatic fallback on failures
+        - Cost estimation and optimization
+        - MS Learn documentation research
+        - Intelligent failure recovery
+
+    \b
+    Requirements:
+        - ANTHROPIC_API_KEY environment variable must be set
+        - Active Azure authentication
+    """
+    try:
+        # Check for API key
+        import os
+
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            click.echo("Error: ANTHROPIC_API_KEY environment variable is required", err=True)
+            click.echo("\nSet your API key with:", err=True)
+            click.echo("  export ANTHROPIC_API_KEY=your-key-here", err=True)
+            sys.exit(1)
+
+        # Import azdoit components
+        from azlin.agentic.audit_logger import AuditLogger
+        from azlin.agentic.objective_manager import ObjectiveManager
+        from azlin.agentic.types import Intent
+
+        # Parse natural language intent (using existing parser)
+        if verbose:
+            click.echo(f"Parsing objective: {objective}")
+
+        # Get resource group for context
+        rg = ConfigManager.get_resource_group(resource_group, config)
+        context = {}
+        if rg:
+            context["resource_group"] = rg
+
+        # Parse intent
+        parser = IntentParser()
+        intent_dict = parser.parse(objective, context=context if context else None)
+
+        # Convert to Intent dataclass
+        intent = Intent(
+            intent=intent_dict["intent"],
+            parameters=intent_dict["parameters"],
+            confidence=intent_dict["confidence"],
+            azlin_commands=intent_dict["azlin_commands"],
+            explanation=intent_dict.get("explanation"),
+        )
+
+        if verbose:
+            click.echo("\nParsed Intent:")
+            click.echo(f"  Type: {intent.intent}")
+            click.echo(f"  Confidence: {intent.confidence:.1%}")
+            if intent.explanation:
+                click.echo(f"  Plan: {intent.explanation}")
+
+        # Create objective state
+        manager = ObjectiveManager()
+        state = manager.create(
+            natural_language=objective,
+            intent=intent,
+        )
+
+        # Log creation
+        logger_inst = AuditLogger()
+        logger_inst.log(
+            "OBJECTIVE_CREATED",
+            objective_id=state.id,
+            details={"objective": objective[:100], "confidence": f"{intent.confidence:.2f}"},
+        )
+
+        # Display objective info
+        click.echo("\n" + "=" * 80)
+        click.echo(f"Objective Created: {state.id}")
+        click.echo("=" * 80)
+        click.echo(f"\nObjective: {objective}")
+        click.echo(f"Status: {state.status.value}")
+        click.echo(f"State file: ~/.azlin/objectives/{state.id}.json")
+        click.echo(f"Created at: {state.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        if verbose:
+            click.echo("\nIntent details:")
+            click.echo(f"  Type: {intent.intent}")
+            click.echo(f"  Parameters: {intent.parameters}")
+
+        # Phase 1: Only state tracking implemented
+        click.echo("\n" + "=" * 80)
+        click.echo("Phase 1: Objective state has been saved")
+        click.echo("=" * 80)
+
+        if dry_run:
+            click.echo("\n[DRY RUN] Full multi-strategy execution not yet implemented")
+            click.echo("\nWhen implemented, this would:")
+            click.echo("  1. Select optimal execution strategy")
+            click.echo("  2. Estimate costs")
+            click.echo("  3. Execute with automatic fallback")
+            click.echo("  4. Track resources and handle failures")
+        else:
+            click.echo("\nFull multi-strategy execution: Phase 2-8 (not yet implemented)")
+            click.echo("\nCurrent capabilities:")
+            click.echo("  ✓ Objective state persisted")
+            click.echo("  ✓ Audit log entry created")
+            click.echo("  - Strategy selection: Coming in Phase 2")
+            click.echo("  - Cost estimation: Coming in Phase 3")
+            click.echo("  - Execution orchestration: Coming in Phase 4")
+            click.echo("  - Failure recovery: Coming in Phase 5")
+
+        # Show audit trail
+        click.echo("\nAudit trail:")
+        timeline = logger_inst.get_objective_timeline(state.id)
+        for event in timeline:
+            click.echo(f"  {event['timestamp']}: {event['event']}")
+
+        click.echo("\nTo view objective state:")
+        click.echo(f"  cat ~/.azlin/objectives/{state.id}.json")
+        click.echo("\nTo view audit log:")
+        click.echo("  tail ~/.azlin/audit.log")
+
+    except IntentParseError as e:
+        click.echo(f"\nFailed to parse objective: {e}", err=True)
+        click.echo("\nTry rephrasing your objective or use specific azlin commands.", err=True)
+        sys.exit(1)
+
+    except Exception as e:
+        click.echo(f"\nUnexpected error: {e}", err=True)
+        if verbose:
+            logger.exception("Unexpected error in doit command")
         sys.exit(1)
 
     except KeyboardInterrupt:
