@@ -16,17 +16,24 @@ class TestToolDetection:
     @patch("subprocess.run")
     def test_detect_az_cli_installed_and_authenticated(self, mock_run, mock_which):
         """Azure CLI installed and authenticated."""
-        mock_which.return_value = "/usr/bin/az"
+        # Mock which to return paths only for az
+        mock_which.side_effect = lambda cmd: "/usr/bin/az" if cmd == "az" else None
         mock_run.return_value = Mock(returncode=0)
 
         selector = StrategySelector()
         tools = selector._detect_tools()
 
         assert tools["az_cli"] is True
-        # shutil.which is called for az, terraform, and other tools
+        # shutil.which is called for az, aws, gcloud, terraform, and other tools
         assert mock_which.call_count >= 1
         assert any(call[0][0] == "az" for call in mock_which.call_args_list)
-        mock_run.assert_called_once()
+        # subprocess.run is only called for az since aws/gcloud don't have binaries
+        mock_run.assert_called_once_with(
+            ["az", "account", "show"],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
 
     @patch("shutil.which")
     def test_detect_az_cli_not_installed(self, mock_which):
@@ -82,7 +89,8 @@ class TestToolDetection:
     @patch("subprocess.run")
     def test_tool_detection_caching(self, mock_run, mock_which):
         """Tool detection results are cached."""
-        mock_which.return_value = "/usr/bin/az"
+        # Only mock az as installed
+        mock_which.side_effect = lambda cmd: "/usr/bin/az" if cmd == "az" else None
         mock_run.return_value = Mock(returncode=0)
 
         selector = StrategySelector()
@@ -93,8 +101,13 @@ class TestToolDetection:
         tools2 = selector._detect_tools()
 
         assert tools1 == tools2
-        # Should only call once due to caching
-        mock_run.assert_called_once()
+        # Should only call subprocess once due to caching (only for az)
+        mock_run.assert_called_once_with(
+            ["az", "account", "show"],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
 
 
 class TestIntentClassification:
@@ -347,14 +360,15 @@ class TestPrerequisiteChecking:
         assert "terraform" in error.lower()
 
     def test_prerequisites_terraform_no_azure_cli(self):
-        """Terraform needs Azure CLI."""
+        """Terraform needs at least one cloud CLI (Azure, AWS, or GCP)."""
         selector = StrategySelector()
-        tools = {"az_cli": False, "terraform": True, "mcp_server": False}
+        tools = {"az_cli": False, "aws_cli": False, "gcp_cli": False, "terraform": True, "mcp_server": False}
 
         met, error = selector._check_prerequisites(Strategy.TERRAFORM, tools)
 
         assert met is False
-        assert "azure cli" in error.lower()
+        # Updated message to reflect multi-cloud support
+        assert "at least one cloud cli" in error.lower() or "az/aws/gcloud" in error.lower()
 
     def test_prerequisites_custom_code_always_met(self):
         """Custom code has no prerequisites."""
