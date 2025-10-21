@@ -64,7 +64,7 @@ class IntentParser:
             )
 
             # Extract JSON response from Claude
-            response_text = message.content[0].text
+            response_text = message.content[0].text  # type: ignore[attr-defined]  # TextBlock always has .text
             parsed_intent = self._extract_json(response_text)
 
             # Validate response structure
@@ -236,7 +236,7 @@ Output JSON only:
                 messages=[{"role": "user", "content": json.dumps(user_message)}],
             )
 
-            response_text = message.content[0].text
+            response_text = message.content[0].text  # type: ignore[attr-defined]  # TextBlock always has .text
             # Extract JSON from response
             start = response_text.find("{")
             end = response_text.rfind("}") + 1
