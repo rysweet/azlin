@@ -23,11 +23,9 @@ class TestTerraformGenerator:
 
         generator = TerraformGenerator()
 
-        config = generator.generate_vm(
-            name="test-vm", size="Standard_D2s_v3", region="eastus"
-        )
+        config = generator.generate_vm(name="test-vm", size="Standard_D2s_v3", region="eastus")
 
-        assert "resource \"azurerm_virtual_machine\"" in config
+        assert 'resource "azurerm_virtual_machine"' in config
         assert "Standard_D2s_v3" in config
         assert "eastus" in config
 
@@ -38,11 +36,9 @@ class TestTerraformGenerator:
 
         generator = TerraformGenerator()
 
-        config = generator.generate_aks(
-            name="test-aks", node_count=3, node_size="Standard_D2s_v3"
-        )
+        config = generator.generate_aks(name="test-aks", node_count=3, node_size="Standard_D2s_v3")
 
-        assert "resource \"azurerm_kubernetes_cluster\"" in config
+        assert 'resource "azurerm_kubernetes_cluster"' in config
         assert "node_count = 3" in config
 
     @pytest.mark.skip(reason="Module not implemented yet")
@@ -52,11 +48,9 @@ class TestTerraformGenerator:
 
         generator = TerraformGenerator()
 
-        config = generator.generate_storage(
-            name="teststorage", tier="Standard_LRS", size_gb=1000
-        )
+        config = generator.generate_storage(name="teststorage", tier="Standard_LRS", size_gb=1000)
 
-        assert "resource \"azurerm_storage_account\"" in config
+        assert 'resource "azurerm_storage_account"' in config
         assert "Standard_LRS" in config
 
     @pytest.mark.skip(reason="Module not implemented yet")
@@ -66,10 +60,12 @@ class TestTerraformGenerator:
 
         generator = TerraformGenerator()
 
-        config = generator.generate_with_dependencies([
-            {"type": "resource_group", "name": "rg-test"},
-            {"type": "vm", "name": "test-vm", "depends_on": ["resource_group.rg-test"]},
-        ])
+        config = generator.generate_with_dependencies(
+            [
+                {"type": "resource_group", "name": "rg-test"},
+                {"type": "vm", "name": "test-vm", "depends_on": ["resource_group.rg-test"]},
+            ]
+        )
 
         assert "depends_on = [azurerm_resource_group.rg-test]" in config
 

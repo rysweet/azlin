@@ -61,10 +61,7 @@ class TestMCPClient:
         client = MCPClient()
         client._server = mock_mcp_server
 
-        result = client.call_tool(
-            "azure_vm_create",
-            {"name": "test-vm", "size": "Standard_B2s"}
-        )
+        result = client.call_tool("azure_vm_create", {"name": "test-vm", "size": "Standard_B2s"})
 
         assert result["success"] is True
         assert "resource_id" in result

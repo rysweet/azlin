@@ -123,8 +123,9 @@ class TestRecoveryIntegration:
     @pytest.mark.skip(reason="Module not implemented yet")
     def test_record_failure_in_state(self, temp_objectives_dir):
         """Test recording failure in objective state."""
-        from azlin.agentic.failure_recovery import RecoveryAgent
         from azlin.agentic.state_manager import StateManager
+
+        from azlin.agentic.failure_recovery import RecoveryAgent
 
         manager = StateManager(objectives_dir=temp_objectives_dir)
         agent = RecoveryAgent(state_manager=manager)
@@ -139,8 +140,9 @@ class TestRecoveryIntegration:
     @pytest.mark.skip(reason="Module not implemented yet")
     def test_automatic_retry_tracking(self, temp_objectives_dir):
         """Test automatic retry count tracking."""
-        from azlin.agentic.failure_recovery import RecoveryAgent
         from azlin.agentic.state_manager import StateManager
+
+        from azlin.agentic.failure_recovery import RecoveryAgent
 
         manager = StateManager(objectives_dir=temp_objectives_dir)
         agent = RecoveryAgent(state_manager=manager)

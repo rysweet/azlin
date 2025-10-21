@@ -9,9 +9,9 @@ Tests full strategy execution with real tools (in sandbox):
 Coverage Target: 30% integration tests
 """
 
-import pytest
 import subprocess
 
+import pytest
 
 # Mark all tests as integration tests
 pytestmark = pytest.mark.integration
@@ -142,8 +142,9 @@ class TestObjectiveLifecycle:
     def test_simple_vm_objective_lifecycle(self, temp_objectives_dir):
         """Test complete lifecycle for simple VM objective."""
         from azlin.agentic.state_manager import StateManager
-        from azlin.agentic.strategy_selector import StrategySelector
+
         from azlin.agentic.cost_estimator import CostEstimator
+        from azlin.agentic.strategy_selector import StrategySelector
 
         # Create objective
         manager = StateManager(objectives_dir=temp_objectives_dir)
@@ -183,9 +184,7 @@ class TestCostEstimationIntegration:
 
         estimator = CostEstimator()
 
-        pricing = estimator.fetch_vm_pricing(
-            vm_size="Standard_D2s_v3", region="eastus"
-        )
+        pricing = estimator.fetch_vm_pricing(vm_size="Standard_D2s_v3", region="eastus")
 
         assert pricing["hourly"] > 0
         assert pricing["monthly"] > 0
@@ -193,8 +192,9 @@ class TestCostEstimationIntegration:
     @pytest.mark.skip(reason="Requires Azure Cost Management API")
     def test_track_actual_costs(self):
         """Test tracking actual costs from Azure."""
-        from azlin.agentic.cost_estimator import CostEstimator
         from datetime import datetime, timedelta
+
+        from azlin.agentic.cost_estimator import CostEstimator
 
         estimator = CostEstimator()
 
@@ -216,6 +216,7 @@ class TestFailureRecoveryIntegration:
     def test_recover_from_quota_error(self, temp_objectives_dir):
         """Test recovering from quota exceeded error."""
         from azlin.agentic.state_manager import StateManager
+
         from azlin.agentic.failure_recovery import RecoveryAgent
         from azlin.agentic.strategy_selector import StrategySelector
 

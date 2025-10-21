@@ -12,8 +12,6 @@ Coverage Target: 60% unit tests
 """
 
 import pytest
-from datetime import datetime, timedelta
-
 
 # ============================================================================
 # Cost Estimator Initialization Tests
@@ -213,8 +211,12 @@ class TestAKSCostEstimation:
 
         estimator = CostEstimator(pricing_api=mock_azure_pricing_api)
 
-        regular_cost = estimator.estimate_aks_cost(node_count=3, node_size="Standard_D2s_v3", spot=False)
-        spot_cost = estimator.estimate_aks_cost(node_count=3, node_size="Standard_D2s_v3", spot=True)
+        regular_cost = estimator.estimate_aks_cost(
+            node_count=3, node_size="Standard_D2s_v3", spot=False
+        )
+        spot_cost = estimator.estimate_aks_cost(
+            node_count=3, node_size="Standard_D2s_v3", spot=True
+        )
 
         assert spot_cost["nodes"] < regular_cost["nodes"]
 

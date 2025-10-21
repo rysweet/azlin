@@ -3,10 +3,6 @@
 Tests audit logging with rotation.
 """
 
-import pytest
-from pathlib import Path
-from datetime import datetime
-
 from azlin.agentic.audit_logger import AuditLogger
 
 
@@ -262,6 +258,7 @@ class TestFilePermissions:
 
         # Check file permissions
         import stat
+
         mode = log_file.stat().st_mode
         permissions = stat.S_IMODE(mode)
 

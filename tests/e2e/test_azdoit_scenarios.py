@@ -15,10 +15,10 @@ Note: These tests require:
 - Real Azure resources (costs money!)
 """
 
-import pytest
 import subprocess
 import time
 
+import pytest
 
 # Mark all tests as e2e tests
 pytestmark = [pytest.mark.e2e, pytest.mark.slow]

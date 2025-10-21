@@ -4,17 +4,17 @@ Manages persistent state for objectives at ~/.azlin/objectives/<uuid>.json
 with secure file permissions and atomic updates.
 """
 
+import contextlib
 import json
 import logging
 import os
 import tempfile
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from azlin.agentic.types import (
-    FailureType,
     Intent,
     ObjectiveState,
     ObjectiveStatus,
@@ -50,11 +50,14 @@ class ObjectiveManager:
     DEFAULT_OBJECTIVES_DIR = Path.home() / ".azlin" / "objectives"
 
     # Valid state transitions
-    STATE_TRANSITIONS = {
+    STATE_TRANSITIONS: ClassVar[dict[ObjectiveStatus, list[ObjectiveStatus]]] = {
         ObjectiveStatus.PENDING: [ObjectiveStatus.IN_PROGRESS, ObjectiveStatus.FAILED],
         ObjectiveStatus.IN_PROGRESS: [ObjectiveStatus.COMPLETED, ObjectiveStatus.FAILED],
         ObjectiveStatus.COMPLETED: [],  # Terminal state
-        ObjectiveStatus.FAILED: [ObjectiveStatus.PENDING, ObjectiveStatus.IN_PROGRESS],  # Allow retry
+        ObjectiveStatus.FAILED: [
+            ObjectiveStatus.PENDING,
+            ObjectiveStatus.IN_PROGRESS,
+        ],  # Allow retry
     }
 
     def __init__(self, objectives_dir: Path | None = None):
@@ -65,6 +68,27 @@ class ObjectiveManager:
         """
         self.objectives_dir = objectives_dir or self.DEFAULT_OBJECTIVES_DIR
         self.objectives_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    def _validate_objective_id(self, objective_id: str) -> None:
+        """Validate objective ID format for security.
+
+        Args:
+            objective_id: Objective ID to validate
+
+        Raises:
+            ValueError: If ID is invalid
+        """
+        if not objective_id or not objective_id.strip():
+            raise ValueError("objective_id cannot be empty")
+        if len(objective_id) > 255:
+            raise ValueError(f"objective_id too long ({len(objective_id)} > 255 chars)")
+        if ".." in objective_id or "/" in objective_id or "\\" in objective_id:
+            raise ValueError("objective_id cannot contain path traversal characters")
+        # Additional security: ensure only safe characters (UUID format)
+        if not all(c.isalnum() or c in "-_" for c in objective_id):
+            raise ValueError(
+                "objective_id contains invalid characters (only alphanumeric, dash, underscore allowed)"
+            )
 
     def create(
         self,
@@ -108,7 +132,7 @@ class ObjectiveManager:
         # Generate unique ID
         objective_id = self._generate_id()
 
-        now = datetime.now()
+        now = datetime.now(UTC)
         state = ObjectiveState(
             id=objective_id,
             natural_language=natural_language.strip(),
@@ -137,18 +161,22 @@ class ObjectiveManager:
 
         Raises:
             FileNotFoundError: If objective doesn't exist
+            ValueError: If objective_id is invalid
 
         Example:
             >>> manager = ObjectiveManager()
             >>> state = manager.load("obj_20251020_001")
         """
+        # Validate ID format for security
+        self._validate_objective_id(objective_id)
+
         objective_file = self.objectives_dir / f"{objective_id}.json"
 
         if not objective_file.exists():
             raise FileNotFoundError(f"Objective not found: {objective_id}")
 
         try:
-            with open(objective_file, "r") as f:
+            with open(objective_file) as f:
                 data = json.load(f)
             return ObjectiveState.from_dict(data)
         except json.JSONDecodeError as e:
@@ -199,7 +227,7 @@ class ObjectiveManager:
                 logger.warning(f"Unknown field ignored: {key}")
 
         # Always update timestamp
-        state.updated_at = datetime.now()
+        state.updated_at = datetime.now(UTC)
 
         # Validate and save
         state.validate_schema()
@@ -252,7 +280,7 @@ class ObjectiveManager:
 
         for objective_file in self.objectives_dir.glob("*.json"):
             try:
-                with open(objective_file, "r") as f:
+                with open(objective_file) as f:
                     data = json.load(f)
                 state = ObjectiveState.from_dict(data)
 
@@ -294,7 +322,7 @@ class ObjectiveManager:
             >>> state = manager.append_history(
             ...     "obj_20251020_001",
             ...     {
-            ...         "timestamp": datetime.now().isoformat(),
+            ...         "timestamp": datetime.now(timezone.utc).isoformat(),
             ...         "action": "strategy_selected",
             ...         "details": {"strategy": "azure_cli"},
             ...     }
@@ -302,7 +330,7 @@ class ObjectiveManager:
         """
         state = self.load(objective_id)
         state.execution_history.append(event)
-        state.updated_at = datetime.now()
+        state.updated_at = datetime.now(UTC)
         self._save(state)
         return state
 
@@ -323,7 +351,7 @@ class ObjectiveManager:
         """
         state = self.load(objective_id)
         state.retry_count += 1
-        state.updated_at = datetime.now()
+        state.updated_at = datetime.now(UTC)
         self._save(state)
         logger.info(f"Incremented retry count for {objective_id}: {state.retry_count}")
         return state
@@ -344,7 +372,7 @@ class ObjectiveManager:
         """
         state = self.load(objective_id)
         state.retry_count = 0
-        state.updated_at = datetime.now()
+        state.updated_at = datetime.now(UTC)
         self._save(state)
         return state
 
@@ -377,8 +405,9 @@ class ObjectiveManager:
             >>> for obj in incomplete:
             ...     print(f"Recovering: {obj.id}")
         """
-        return self.list_objectives(status=ObjectiveStatus.IN_PROGRESS) + \
-               self.list_objectives(status=ObjectiveStatus.PENDING)
+        return self.list_objectives(status=ObjectiveStatus.IN_PROGRESS) + self.list_objectives(
+            status=ObjectiveStatus.PENDING
+        )
 
     def get_valid_transitions(self) -> dict[str, list[str]]:
         """Get valid state transitions.
@@ -392,10 +421,7 @@ class ObjectiveManager:
             >>> print(transitions["pending"])
             ['in_progress', 'failed']
         """
-        return {
-            k.value: [v.value for v in values]
-            for k, values in self.STATE_TRANSITIONS.items()
-        }
+        return {k.value: [v.value for v in values] for k, values in self.STATE_TRANSITIONS.items()}
 
     def _generate_id(self) -> str:
         """Generate unique objective ID.
@@ -426,9 +452,7 @@ class ObjectiveManager:
 
         # Use temp file + rename for atomic write
         fd, tmp_path = tempfile.mkstemp(
-            dir=self.objectives_dir,
-            prefix=f".{state.id}.",
-            suffix=".tmp"
+            dir=self.objectives_dir, prefix=f".{state.id}.", suffix=".tmp"
         )
 
         try:
@@ -439,15 +463,13 @@ class ObjectiveManager:
             # Set secure permissions (0600)
             os.chmod(tmp_path, 0o600)
 
-            # Atomic rename
-            os.rename(tmp_path, objective_file)
+            # Atomic replace (guaranteed atomic on POSIX)
+            os.replace(tmp_path, objective_file)
 
         except Exception:
             # Clean up temp file on error
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
             raise
 
     def _is_valid_transition(

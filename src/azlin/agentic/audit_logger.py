@@ -5,9 +5,9 @@ Append-only audit log at ~/.azlin/audit.log with automatic rotation.
 
 import logging
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class AuditLogger:
     ROTATION_COUNT = 5  # Keep 5 old logs
 
     # Standard event types
-    EVENT_TYPES = [
+    EVENT_TYPES: ClassVar[list[str]] = [
         "OBJECTIVE_CREATED",
         "STRATEGY_SELECTED",
         "EXECUTION_STARTED",
@@ -78,7 +78,7 @@ class AuditLogger:
         # Rotate if needed
         self._rotate_if_needed()
 
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.now(UTC).isoformat()
         obj_id = objective_id or "N/A"
 
         # Format details
@@ -127,7 +127,7 @@ class AuditLogger:
         entries = []
 
         try:
-            with open(self.log_file, "r") as f:
+            with open(self.log_file) as f:
                 for line in f:
                     line = line.strip()
                     if not line:

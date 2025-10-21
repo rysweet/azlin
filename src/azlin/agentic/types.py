@@ -80,8 +80,10 @@ class CostEstimate:
         if not isinstance(self.total_hourly, Decimal):
             self.total_hourly = Decimal(str(self.total_hourly))
         # Convert breakdown values to Decimal
-        self.breakdown = {k: Decimal(str(v)) if not isinstance(v, Decimal) else v
-                          for k, v in self.breakdown.items()}
+        self.breakdown = {
+            k: Decimal(str(v)) if not isinstance(v, Decimal) else v
+            for k, v in self.breakdown.items()
+        }
 
 
 @dataclass
@@ -214,13 +216,17 @@ class ObjectiveState:
                 "prerequisites_met": self.strategy_plan.prerequisites_met,
                 "reasoning": self.strategy_plan.reasoning,
                 "estimated_duration_seconds": self.strategy_plan.estimated_duration_seconds,
-            } if self.strategy_plan else None,
+            }
+            if self.strategy_plan
+            else None,
             "cost_estimate": {
                 "total_monthly": str(self.cost_estimate.total_monthly),
                 "total_hourly": str(self.cost_estimate.total_hourly),
                 "breakdown": {k: str(v) for k, v in self.cost_estimate.breakdown.items()},
                 "confidence": self.cost_estimate.confidence,
-            } if self.cost_estimate else None,
+            }
+            if self.cost_estimate
+            else None,
             "execution_results": [r.to_dict() for r in self.execution_results],
             "execution_history": self.execution_history,
             "retry_count": self.retry_count,
@@ -276,17 +282,23 @@ class ObjectiveState:
         # Parse execution results
         execution_results = []
         for er_data in data.get("execution_results", []):
-            execution_results.append(ExecutionResult(
-                success=er_data["success"],
-                strategy=Strategy(er_data["strategy"]),
-                output=er_data.get("output"),
-                error=er_data.get("error"),
-                failure_type=FailureType(er_data["failure_type"]) if er_data.get("failure_type") else None,
-                resources_created=er_data.get("resources_created", []),
-                duration_seconds=er_data.get("duration_seconds"),
-                cost_incurred=Decimal(er_data["cost_incurred"]) if er_data.get("cost_incurred") else None,
-                metadata=er_data.get("metadata", {}),
-            ))
+            execution_results.append(
+                ExecutionResult(
+                    success=er_data["success"],
+                    strategy=Strategy(er_data["strategy"]),
+                    output=er_data.get("output"),
+                    error=er_data.get("error"),
+                    failure_type=FailureType(er_data["failure_type"])
+                    if er_data.get("failure_type")
+                    else None,
+                    resources_created=er_data.get("resources_created", []),
+                    duration_seconds=er_data.get("duration_seconds"),
+                    cost_incurred=Decimal(er_data["cost_incurred"])
+                    if er_data.get("cost_incurred")
+                    else None,
+                    metadata=er_data.get("metadata", {}),
+                )
+            )
 
         return cls(
             id=data["id"],
@@ -295,7 +307,9 @@ class ObjectiveState:
             status=ObjectiveStatus(data["status"]),
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
-            selected_strategy=Strategy(data["selected_strategy"]) if data.get("selected_strategy") else None,
+            selected_strategy=Strategy(data["selected_strategy"])
+            if data.get("selected_strategy")
+            else None,
             strategy_plan=strategy_plan,
             cost_estimate=cost_estimate,
             execution_results=execution_results,

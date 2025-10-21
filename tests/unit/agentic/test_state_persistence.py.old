@@ -29,7 +29,7 @@ class TestObjectiveManagerInitialization:
 
     def test_initialize_with_default_dir(self, temp_objectives_dir):
         """Test initializing state manager with default objectives directory."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -38,7 +38,7 @@ class TestObjectiveManagerInitialization:
 
     def test_create_objectives_dir_if_missing(self, temp_config_dir):
         """Test automatically creating objectives directory if it doesn't exist."""
-        
+
 
         objectives_dir = temp_config_dir / "objectives"
         assert not objectives_dir.exists()
@@ -58,7 +58,7 @@ class TestObjectiveCreation:
 
     def test_create_new_objective(self, temp_objectives_dir):
         """Test creating new objective with generated ID."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -76,7 +76,7 @@ class TestObjectiveCreation:
 
     def test_objective_id_format(self, temp_objectives_dir):
         """Test objective ID format: obj_YYYYMMDD_NNN."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -93,7 +93,7 @@ class TestObjectiveCreation:
 
     def test_save_objective_to_file(self, temp_objectives_dir):
         """Test saving objective state to JSON file."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -120,7 +120,7 @@ class TestStateLoading:
 
     def test_load_objective_by_id(self, temp_objectives_dir, sample_objective_state):
         """Test loading objective by ID."""
-        
+
 
         # Save sample state
         objective_file = temp_objectives_dir / f"{sample_objective_state['id']}.json"
@@ -135,7 +135,7 @@ class TestStateLoading:
 
     def test_load_nonexistent_objective(self, temp_objectives_dir):
         """Test loading nonexistent objective raises error."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -144,7 +144,7 @@ class TestStateLoading:
 
     def test_list_all_objectives(self, temp_objectives_dir, sample_objective_state):
         """Test listing all objectives."""
-        
+
 
         # Create multiple objectives
         for i in range(3):
@@ -159,7 +159,7 @@ class TestStateLoading:
 
     def test_list_objectives_by_status(self, temp_objectives_dir):
         """Test filtering objectives by status."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -183,7 +183,7 @@ class TestStateUpdates:
 
     def test_update_objective_status(self, temp_objectives_dir):
         """Test updating objective status."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -197,7 +197,7 @@ class TestStateUpdates:
 
     def test_append_execution_history(self, temp_objectives_dir):
         """Test appending to execution history."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -218,7 +218,7 @@ class TestStateUpdates:
 
     def test_update_multiple_fields(self, temp_objectives_dir):
         """Test updating multiple fields atomically."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -238,7 +238,7 @@ class TestStateUpdates:
 
     def test_auto_update_timestamp(self, temp_objectives_dir):
         """Test updated_at timestamp is automatically updated."""
-        
+
         import time
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
@@ -263,7 +263,7 @@ class TestStateTransitions:
 
     def test_valid_transition_pending_to_in_progress(self, temp_objectives_dir):
         """Test valid transition: pending → in_progress."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -274,7 +274,7 @@ class TestStateTransitions:
 
     def test_valid_transition_in_progress_to_completed(self, temp_objectives_dir):
         """Test valid transition: in_progress → completed."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -286,7 +286,7 @@ class TestStateTransitions:
 
     def test_invalid_transition_completed_to_pending(self, temp_objectives_dir):
         """Test invalid transition: completed → pending."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -298,7 +298,7 @@ class TestStateTransitions:
 
     def test_state_machine_diagram(self):
         """Test state machine has correct transitions defined."""
-        
+
 
         manager = ObjectiveManager()
 
@@ -320,7 +320,7 @@ class TestRetryTracking:
 
     def test_increment_retry_count(self, temp_objectives_dir):
         """Test incrementing retry count."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -334,7 +334,7 @@ class TestRetryTracking:
 
     def test_max_retries_reached(self, temp_objectives_dir):
         """Test detecting max retries reached."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -347,7 +347,7 @@ class TestRetryTracking:
 
     def test_reset_retry_count(self, temp_objectives_dir):
         """Test resetting retry count after success."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -371,7 +371,7 @@ class TestStateRecovery:
 
     def test_recover_in_progress_objectives(self, temp_objectives_dir):
         """Test recovering in_progress objectives after restart."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -388,7 +388,7 @@ class TestStateRecovery:
 
     def test_mark_crashed_objectives(self, temp_objectives_dir):
         """Test marking objectives that were in progress during crash."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -413,7 +413,7 @@ class TestSerialization:
 
     def test_serialize_datetime_fields(self, temp_objectives_dir):
         """Test datetime fields are serialized to ISO format."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -430,7 +430,7 @@ class TestSerialization:
 
     def test_deserialize_datetime_fields(self, temp_objectives_dir):
         """Test datetime strings are deserialized to datetime objects."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -444,7 +444,7 @@ class TestSerialization:
 
     def test_handle_invalid_json(self, temp_objectives_dir):
         """Test handling corrupted JSON files."""
-        
+
 
         # Create corrupted JSON file
         corrupted_file = temp_objectives_dir / "obj_corrupted.json"
@@ -466,7 +466,7 @@ class TestStatePersistenceBoundaries:
 
     def test_empty_natural_language(self, temp_objectives_dir):
         """Test handling empty natural language input."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -475,7 +475,7 @@ class TestStatePersistenceBoundaries:
 
     def test_missing_intent_field(self, temp_objectives_dir):
         """Test handling missing intent in parsed_intent."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -484,7 +484,7 @@ class TestStatePersistenceBoundaries:
 
     def test_very_long_objective_text(self, temp_objectives_dir):
         """Test handling very long objective text."""
-        
+
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)
 
@@ -495,7 +495,7 @@ class TestStatePersistenceBoundaries:
 
     def test_concurrent_updates(self, temp_objectives_dir):
         """Test handling concurrent updates to same objective."""
-        
+
         import threading
 
         manager = ObjectiveManager(objectives_dir=temp_objectives_dir)

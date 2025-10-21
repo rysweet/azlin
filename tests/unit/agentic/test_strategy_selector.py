@@ -11,7 +11,6 @@ Coverage Target: 60% of overall testing pyramid (unit tests)
 
 import pytest
 
-
 # ============================================================================
 # Strategy Selection Tests
 # ============================================================================
@@ -142,7 +141,10 @@ class TestAzureCLIStrategy:
         strategy = AzureCLIStrategy()
 
         commands = strategy.generate_commands(
-            {"intent": "provision_vm", "parameters": {"vm_name": "test-vm", "size": "Standard_D2s_v3"}}
+            {
+                "intent": "provision_vm",
+                "parameters": {"vm_name": "test-vm", "size": "Standard_D2s_v3"},
+            }
         )
 
         assert len(commands) > 0
@@ -245,7 +247,10 @@ class TestMCPServerStrategy:
         strategy = MCPServerStrategy()
 
         can_handle = strategy.can_handle(
-            {"intent": "get_vm_metrics", "parameters": {"vm_name": "test-vm", "metrics": ["cpu", "memory"]}}
+            {
+                "intent": "get_vm_metrics",
+                "parameters": {"vm_name": "test-vm", "metrics": ["cpu", "memory"]},
+            }
         )
 
         assert can_handle is True
@@ -318,7 +323,9 @@ class TestCustomCodeStrategy:
 
         strategy = CustomCodeStrategy()
 
-        code = strategy.generate_code({"intent": "provision_vm", "parameters": {"vm_name": "test-vm"}})
+        code = strategy.generate_code(
+            {"intent": "provision_vm", "parameters": {"vm_name": "test-vm"}}
+        )
 
         assert "def provision_vm" in code or "vm_name" in code
         assert len(code) > 0

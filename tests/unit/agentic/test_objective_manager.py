@@ -4,12 +4,12 @@ Tests objective state persistence with proper API.
 """
 
 import json
-import pytest
-from pathlib import Path
-from datetime import datetime
 import time
+from datetime import datetime
 
-from azlin.agentic.objective_manager import ObjectiveManager, ObjectiveError
+import pytest
+
+from azlin.agentic.objective_manager import ObjectiveError, ObjectiveManager
 from azlin.agentic.types import Intent, ObjectiveStatus, Strategy
 
 

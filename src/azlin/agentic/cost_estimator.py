@@ -9,8 +9,6 @@ Estimates Azure costs based on:
 - Usage patterns
 """
 
-from decimal import Decimal
-
 from azlin.agentic.types import CostEstimate, Intent
 
 
