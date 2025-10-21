@@ -7,6 +7,14 @@ Available strategies:
 - custom_code: Custom Python/script execution
 """
 
+from .azure_cli import AzureCLIStrategy
 from .base_strategy import ExecutionStrategy
+from .mcp_client_strategy import MCPClientStrategy
+from .terraform_strategy import TerraformStrategy
 
-__all__ = ["ExecutionStrategy"]
+__all__ = [
+    "AzureCLIStrategy",
+    "ExecutionStrategy",
+    "MCPClientStrategy",
+    "TerraformStrategy",
+]

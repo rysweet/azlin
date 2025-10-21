@@ -139,6 +139,9 @@ max-complexity = 15
 "src/azlin/agentic/strategies/base_strategy.py" = [
     "B027",   # Empty method in ABC - intentionally optional to override
 ]
+"src/azlin/cli.py" = [
+    "S602",   # subprocess shell=True needed for diagnostic command piping - input is trusted
+]
 
 [tool.bandit]
 exclude_dirs = ["tests", "*/tests/*"]
