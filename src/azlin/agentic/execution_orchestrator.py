@@ -9,6 +9,8 @@ Orchestrates execution across multiple strategies with:
 - Concurrent execution support
 """
 
+from collections.abc import Callable
+
 from azlin.agentic.types import (
     ExecutionContext,
     ExecutionResult,
@@ -65,7 +67,7 @@ class ExecutionOrchestrator:
         self,
         context: ExecutionContext,
         plan: StrategyPlan,
-        progress_callback: callable | None = None,
+        progress_callback: Callable[[str, int], None] | None = None,
     ) -> ExecutionResult:
         """Execute with progress callbacks.
 
