@@ -14,6 +14,8 @@ class Strategy(str, Enum):
     """Available execution strategies."""
 
     AZURE_CLI = "azure_cli"
+    AWS_CLI = "aws_cli"
+    GCP_CLI = "gcp_cli"
     TERRAFORM = "terraform"
     MCP_CLIENT = "mcp_client"
     CUSTOM_CODE = "custom_code"
@@ -32,12 +34,15 @@ class FailureType(str, Enum):
     """Failure classification for recovery strategies."""
 
     RESOURCE_NOT_FOUND = "resource_not_found"
+    RESOURCE_CONFLICT = "resource_conflict"
     QUOTA_EXCEEDED = "quota_exceeded"
+    INSUFFICIENT_PERMISSIONS = "insufficient_permissions"
     PERMISSION_DENIED = "permission_denied"
     TIMEOUT = "timeout"
     NETWORK_ERROR = "network_error"
     VALIDATION_ERROR = "validation_error"
     DEPENDENCY_FAILED = "dependency_failed"
+    INTERNAL_ERROR = "internal_error"
     UNKNOWN = "unknown"
 
 

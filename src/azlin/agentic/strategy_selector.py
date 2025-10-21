@@ -123,6 +123,8 @@ class StrategySelector:
 
         tools = {
             "az_cli": self._check_az_cli(),
+            "aws_cli": self._check_aws_cli(),
+            "gcp_cli": self._check_gcp_cli(),
             "terraform": self._check_terraform(),
             "mcp_server": self._check_mcp_server(),
         }
@@ -145,6 +147,42 @@ class StrategySelector:
                 check=False,
             )
             return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+
+    def _check_aws_cli(self) -> bool:
+        """Check if AWS CLI is installed and configured."""
+        # Check if aws command exists
+        if not shutil.which("aws"):
+            return False
+
+        # Check configuration (quick check)
+        try:
+            result = subprocess.run(
+                ["aws", "sts", "get-caller-identity"],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+
+    def _check_gcp_cli(self) -> bool:
+        """Check if gcloud CLI is installed and configured."""
+        # Check if gcloud command exists
+        if not shutil.which("gcloud"):
+            return False
+
+        # Check configuration (quick check - has active project)
+        try:
+            result = subprocess.run(
+                ["gcloud", "config", "get-value", "project"],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            return result.returncode == 0 and bool(result.stdout.strip())
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return False
 
@@ -219,6 +257,35 @@ class StrategySelector:
 
         return any(keyword in intent_lower or keyword in params_str for keyword in infra_keywords)
 
+    def _detect_cloud_provider(self, intent: Intent) -> str:
+        """Detect target cloud provider from intent.
+
+        Args:
+            intent: Parsed intent
+
+        Returns:
+            "azure", "aws", "gcp", or "multi-cloud"
+        """
+        intent_lower = intent.intent.lower()
+        params_str = str(intent.parameters).lower()
+        user_request_lower = getattr(intent, "user_request", "").lower()
+
+        # Check for AWS indicators
+        aws_indicators = ["aws", "ec2", "s3", "lambda", "rds", "dynamodb", "cloudformation", "eks"]
+        if any(indicator in intent_lower or indicator in params_str or indicator in user_request_lower
+               for indicator in aws_indicators):
+            return "aws"
+
+        # Check for GCP indicators
+        gcp_indicators = ["gcp", "google cloud", "compute engine", "gce", "cloud storage", "gcs",
+                          "cloud functions", "cloud sql", "gke"]
+        if any(indicator in intent_lower or indicator in params_str or indicator in user_request_lower
+               for indicator in gcp_indicators):
+            return "gcp"
+
+        # Default to Azure (original behavior)
+        return "azure"
+
     def _rank_strategies(
         self,
         intent: Intent,
@@ -244,6 +311,9 @@ class StrategySelector:
             Strategy(f.get("strategy")) for f in previous_failures if f.get("strategy")
         }
 
+        # Detect cloud provider from intent
+        cloud_provider = self._detect_cloud_provider(intent)
+
         # Start with all strategies
         ranking = []
 
@@ -251,7 +321,7 @@ class StrategySelector:
         if available_tools.get("mcp_server") and Strategy.MCP_CLIENT not in failed_strategies:
             ranking.append(Strategy.MCP_CLIENT)
 
-        # For COMPLEX infrastructure, prefer Terraform
+        # For COMPLEX infrastructure, prefer Terraform (cloud-agnostic)
         if (
             is_complex
             and is_infrastructure
@@ -260,9 +330,36 @@ class StrategySelector:
         ):
             ranking.append(Strategy.TERRAFORM)
 
-        # Azure CLI is the default for most operations (especially simple ones)
-        if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
-            ranking.append(Strategy.AZURE_CLI)
+        # Add cloud-specific CLI strategies based on detected provider
+        if cloud_provider == "aws":
+            # AWS-specific ranking
+            if available_tools.get("aws_cli") and Strategy.AWS_CLI not in failed_strategies:
+                ranking.append(Strategy.AWS_CLI)
+            # Fallback to Azure/GCP if multi-cloud
+            if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
+                ranking.append(Strategy.AZURE_CLI)
+            if available_tools.get("gcp_cli") and Strategy.GCP_CLI not in failed_strategies:
+                ranking.append(Strategy.GCP_CLI)
+
+        elif cloud_provider == "gcp":
+            # GCP-specific ranking
+            if available_tools.get("gcp_cli") and Strategy.GCP_CLI not in failed_strategies:
+                ranking.append(Strategy.GCP_CLI)
+            # Fallback to Azure/AWS if multi-cloud
+            if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
+                ranking.append(Strategy.AZURE_CLI)
+            if available_tools.get("aws_cli") and Strategy.AWS_CLI not in failed_strategies:
+                ranking.append(Strategy.AWS_CLI)
+
+        else:
+            # Azure (default) or multi-cloud
+            if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
+                ranking.append(Strategy.AZURE_CLI)
+            # Also add AWS and GCP as fallbacks for multi-cloud support
+            if available_tools.get("aws_cli") and Strategy.AWS_CLI not in failed_strategies:
+                ranking.append(Strategy.AWS_CLI)
+            if available_tools.get("gcp_cli") and Strategy.GCP_CLI not in failed_strategies:
+                ranking.append(Strategy.GCP_CLI)
 
         # Add Terraform if not already added
         if (
@@ -278,8 +375,13 @@ class StrategySelector:
 
         # Ensure we have at least one strategy
         if not ranking:
-            # All strategies failed, try Azure CLI again as last resort
-            ranking.append(Strategy.AZURE_CLI)
+            # All strategies failed, try primary cloud CLI again as last resort
+            if cloud_provider == "aws":
+                ranking.append(Strategy.AWS_CLI)
+            elif cloud_provider == "gcp":
+                ranking.append(Strategy.GCP_CLI)
+            else:
+                ranking.append(Strategy.AZURE_CLI)
 
         return ranking
 
@@ -300,11 +402,22 @@ class StrategySelector:
                 return False, "Azure CLI not installed or not authenticated (run 'az login')"
             return True, None
 
+        if strategy == Strategy.AWS_CLI:
+            if not available_tools.get("aws_cli"):
+                return False, "AWS CLI not installed or not configured (run 'aws configure')"
+            return True, None
+
+        if strategy == Strategy.GCP_CLI:
+            if not available_tools.get("gcp_cli"):
+                return False, "gcloud CLI not installed or not configured (run 'gcloud init')"
+            return True, None
+
         if strategy == Strategy.TERRAFORM:
             if not available_tools.get("terraform"):
                 return False, "Terraform not installed"
-            if not available_tools.get("az_cli"):
-                return False, "Azure CLI required for Terraform (run 'az login')"
+            # Terraform works with any cloud provider that's configured
+            if not (available_tools.get("az_cli") or available_tools.get("aws_cli") or available_tools.get("gcp_cli")):
+                return False, "At least one cloud CLI required for Terraform (az/aws/gcloud)"
             return True, None
 
         if strategy == Strategy.MCP_CLIENT:
