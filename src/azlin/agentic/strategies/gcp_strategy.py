@@ -60,8 +60,8 @@ class GCPStrategy(ExecutionStrategy):
             return False
 
         # Check if intent mentions GCP services
-        intent_text = context.user_request.lower()
         intent_type = context.intent.intent.lower()
+        params_str = str(context.intent.parameters).lower()
 
         # Must be GCP-related
         gcp_indicators = [
@@ -75,7 +75,7 @@ class GCPStrategy(ExecutionStrategy):
             "cloud sql",
             "gke",
         ]
-        if not any(indicator in intent_text or indicator in intent_type for indicator in gcp_indicators):
+        if not any(indicator in params_str or indicator in intent_type for indicator in gcp_indicators):
             return False
 
         # Cannot handle custom code generation
@@ -115,11 +115,12 @@ class GCPStrategy(ExecutionStrategy):
 
             if context.dry_run:
                 # Dry run: just show commands
+                commands_str = "\n".join(commands)
                 return ExecutionResult(
                     success=True,
                     strategy=Strategy.GCP_CLI,
-                    commands_executed=commands,
-                    dry_run=True,
+                    output=f"Dry run - would execute:\n{commands_str}",
+                    metadata={"commands": commands, "dry_run": True},
                 )
 
             # Execute commands
@@ -142,8 +143,8 @@ class GCPStrategy(ExecutionStrategy):
                         success=False,
                         strategy=Strategy.GCP_CLI,
                         error=result.stderr or result.stdout,
-                        commands_executed=[cmd],
                         failure_type=self._classify_failure(result.stderr or result.stdout),
+                        metadata={"command": cmd},
                     )
 
                 # Extract resources from output
@@ -165,9 +166,9 @@ class GCPStrategy(ExecutionStrategy):
                 success=True,
                 strategy=Strategy.GCP_CLI,
                 resources_created=all_resources,
-                commands_executed=commands,
-                outputs=outputs,
-                duration=duration,
+                duration_seconds=duration,
+                output="\n".join(f"{k}: {v}" for k, v in outputs.items()),
+                metadata={"commands": commands, "outputs": outputs},
             )
 
         except subprocess.TimeoutExpired:
