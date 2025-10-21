@@ -3974,10 +3974,11 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
 @main.command()
 @click.argument("request", type=str)
 @click.option("--dry-run", is_flag=True, help="Show execution plan without running commands")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
-def do(request: str, dry_run: bool, resource_group: str | None, config: str | None, verbose: bool):  # noqa: C901
+def do(request: str, dry_run: bool, yes: bool, resource_group: str | None, config: str | None, verbose: bool):  # noqa: C901
     """Execute natural language azlin commands.
 
     Uses AI to parse natural language requests into azlin commands
@@ -4050,7 +4051,7 @@ def do(request: str, dry_run: bool, resource_group: str | None, config: str | No
                 f"\nWarning: Low confidence ({intent['confidence']:.1%}) in understanding your request.",
                 err=True,
             )
-            if not click.confirm("Continue anyway?"):
+            if not yes and not click.confirm("Continue anyway?"):
                 sys.exit(1)
 
         # Show commands to be executed
@@ -4064,7 +4065,7 @@ def do(request: str, dry_run: bool, resource_group: str | None, config: str | No
             sys.exit(0)
 
         # Confirm execution
-        if not click.confirm("\nExecute these commands?"):
+        if not yes and not click.confirm("\nExecute these commands?"):
             click.echo("Cancelled.")
             sys.exit(0)
 

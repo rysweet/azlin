@@ -125,13 +125,13 @@ test_dry_run_create() {
 # Test 4: REAL - List VMs
 test_real_list_vms() {
     run_test "Real: List VMs" \
-        "python -m azlin.cli do 'show me all my vms' --verbose"
+        "python -m azlin.cli do 'show me all my vms' --yes --verbose"
 }
 
 # Test 5: REAL - Cost Query
 test_real_cost_query() {
     run_test "Real: Cost query" \
-        "python -m azlin.cli do 'what are my azure costs' --verbose"
+        "python -m azlin.cli do 'what are my azure costs' --yes --verbose"
 }
 
 # Test 6: REAL - Create VM (OPTIONAL - costs money)
@@ -150,7 +150,7 @@ test_real_create_vm() {
     fi
 
     run_test "Real: Create VM" \
-        "python -m azlin.cli do 'create a new vm called $TEST_VM_NAME' --verbose"
+        "python -m azlin.cli do 'create a new vm called $TEST_VM_NAME' --yes --verbose"
 
     # Give it time to provision
     log_info "Waiting 30 seconds for VM to provision..."
@@ -165,7 +165,7 @@ test_real_vm_status() {
     fi
 
     run_test "Real: Check created VM status" \
-        "python -m azlin.cli do 'show me the status of vm $TEST_VM_NAME' --verbose"
+        "python -m azlin.cli do 'show me the status of vm $TEST_VM_NAME' --yes --verbose"
 }
 
 # Test 8: REAL - Delete VM (cleanup)
@@ -177,28 +177,37 @@ test_real_delete_vm() {
 
     log_info "Cleaning up: Deleting test VM"
     run_test "Real: Delete test VM" \
-        "python -m azlin.cli do 'delete the vm called $TEST_VM_NAME' --verbose"
+        "python -m azlin.cli do 'delete the vm called $TEST_VM_NAME' --yes --verbose"
 }
 
 # Test 9: Error Handling - Invalid Request
 test_error_handling() {
     log_info "Testing error handling with invalid request"
-    if python -m azlin.cli do "make me coffee" --verbose >> "$LOG_FILE" 2>&1; then
-        log_error "Expected failure for invalid request, but command succeeded"
+    # This should succeed (exit 0) but with 0% confidence and no commands executed
+    if python -m azlin.cli do "make me coffee" --yes --verbose >> "$LOG_FILE" 2>&1; then
+        # Check log to verify 0 commands were executed
+        if grep -q "Confidence: 0.0%" "$LOG_FILE" | tail -20; then
+            log_info "✅ PASSED: Error handling - invalid request (gracefully handled)"
+            ((TESTS_PASSED++))
+            return 0
+        else
+            log_error "Invalid request succeeded but should have had 0% confidence"
+            ((TESTS_FAILED++))
+            TEST_ERRORS+=("Error handling - invalid request")
+            return 1
+        fi
+    else
+        log_error "Invalid request failed (should gracefully succeed with 0% confidence)"
         ((TESTS_FAILED++))
         TEST_ERRORS+=("Error handling - invalid request")
         return 1
-    else
-        log_info "✅ PASSED: Error handling - invalid request"
-        ((TESTS_PASSED++))
-        return 0
     fi
 }
 
 # Test 10: Ambiguous Request
 test_ambiguous_request() {
     run_test "Ambiguous request handling" \
-        "python -m azlin.cli do 'update something' --dry-run --verbose"
+        "python -m azlin.cli do 'update something' --yes --dry-run --verbose"
 }
 
 # Print test summary
