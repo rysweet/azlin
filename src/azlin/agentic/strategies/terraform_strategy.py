@@ -697,6 +697,7 @@ resource "azurerm_storage_account" "{storage_name}" {{
         except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
             # Log but don't fail - resource extraction is best-effort
             import logging
+
             logging.debug(f"Resource extraction failed (non-critical): {e}")
 
         return resources

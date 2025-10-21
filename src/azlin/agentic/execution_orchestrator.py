@@ -113,7 +113,7 @@ class ExecutionOrchestrator:
             ...     print(f"All strategies failed: {result.error}")
         """
         # Build strategy chain: primary + fallbacks
-        strategy_chain = [strategy_plan.primary_strategy] + strategy_plan.fallback_strategies
+        strategy_chain = [strategy_plan.primary_strategy, *strategy_plan.fallback_strategies]
 
         logger.info(
             "Starting execution with %d strategies in chain",
@@ -138,9 +138,10 @@ class ExecutionOrchestrator:
             # Failed - check if we should try next strategy
             decision = self._should_retry_or_fallback(result, strategy_chain, strategy_type)
 
-            if decision == RetryDecision.RETRY_FALLBACK and strategy_chain.index(strategy_type) < len(
-                strategy_chain
-            ) - 1:
+            if (
+                decision == RetryDecision.RETRY_FALLBACK
+                and strategy_chain.index(strategy_type) < len(strategy_chain) - 1
+            ):
                 logger.info(
                     "Strategy %s failed, trying fallback",
                     strategy_type.value,
@@ -189,7 +190,9 @@ class ExecutionOrchestrator:
         strategy = self._get_strategy(strategy_type)
 
         for attempt_num in range(1, self.max_retries + 1):
-            logger.debug("Attempt %d/%d with %s", attempt_num, self.max_retries, strategy_type.value)
+            logger.debug(
+                "Attempt %d/%d with %s", attempt_num, self.max_retries, strategy_type.value
+            )
 
             # Update context with attempt number
             context_copy = context
@@ -226,7 +229,7 @@ class ExecutionOrchestrator:
                 return result
 
             # Calculate backoff delay
-            delay = self.retry_delay_base ** attempt_num
+            delay = self.retry_delay_base**attempt_num
             logger.info(
                 "Retriable failure, waiting %.1f seconds before retry %d",
                 delay,
@@ -285,11 +288,7 @@ class ExecutionOrchestrator:
 
         if failure_type in retriable:
             return True
-        if failure_type in non_retriable:
-            return False
-
-        # Unknown failure - retry cautiously
-        return True
+        return failure_type not in non_retriable  # Unknown failure - retry cautiously
 
     def _should_retry_or_fallback(
         self,

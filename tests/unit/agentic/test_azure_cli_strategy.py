@@ -5,7 +5,6 @@ Tests Azure CLI command generation, execution, and error handling.
 
 import json
 import subprocess
-from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import pytest
@@ -208,7 +207,11 @@ class TestExecute:
             # Actual command execution
             Mock(
                 returncode=0,
-                stdout=json.dumps({"id": "/subscriptions/.../resourceGroups/test-rg/providers/Microsoft.Compute/virtualMachines/test-vm"}),
+                stdout=json.dumps(
+                    {
+                        "id": "/subscriptions/.../resourceGroups/test-rg/providers/Microsoft.Compute/virtualMachines/test-vm"
+                    }
+                ),
                 stderr="",
             ),
         ]
@@ -413,9 +416,11 @@ class TestResourceExtraction:
     def test_extract_resources_from_json(self):
         """Extract resource ID from JSON output."""
         strategy = AzureCLIStrategy()
-        output = json.dumps({
-            "id": "/subscriptions/abc/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1"
-        })
+        output = json.dumps(
+            {
+                "id": "/subscriptions/abc/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1"
+            }
+        )
 
         resources = strategy._extract_resources(output, "az vm create")
 

@@ -13,7 +13,6 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 from urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
@@ -130,7 +129,7 @@ class MSLearnClient:
         query_parts.append("Azure troubleshooting")
 
         query = " ".join(query_parts)
-        encoded_query = quote_plus(query)
+        quote_plus(query)
 
         # Simulate search results based on common Azure error patterns
         results = []
@@ -167,73 +166,85 @@ class MSLearnClient:
 
         # Quota errors
         if "quota" in error_code.lower():
-            templates.extend([
-                {
-                    "title": "Resolve errors for resource quotas",
-                    "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/error-resource-quota",
-                    "summary": "Learn how to resolve Azure resource quota errors and request quota increases.",
-                },
-                {
-                    "title": "Azure subscription and service limits",
-                    "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/azure-subscription-service-limits",
-                    "summary": "View default quotas and limits for Azure resources.",
-                },
-            ])
+            templates.extend(
+                [
+                    {
+                        "title": "Resolve errors for resource quotas",
+                        "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/error-resource-quota",
+                        "summary": "Learn how to resolve Azure resource quota errors and request quota increases.",
+                    },
+                    {
+                        "title": "Azure subscription and service limits",
+                        "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/azure-subscription-service-limits",
+                        "summary": "View default quotas and limits for Azure resources.",
+                    },
+                ]
+            )
 
         # Permission errors
         elif "permission" in error_code.lower() or "authorization" in error_code.lower():
-            templates.extend([
-                {
-                    "title": "Troubleshoot Azure RBAC",
-                    "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/troubleshooting",
-                    "summary": "Troubleshoot Azure role-based access control (RBAC) issues.",
-                },
-                {
-                    "title": "Resolve authorization errors",
-                    "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/error-authorization-failed",
-                    "summary": "Learn how to resolve authorization and permission errors in Azure.",
-                },
-            ])
+            templates.extend(
+                [
+                    {
+                        "title": "Troubleshoot Azure RBAC",
+                        "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/troubleshooting",
+                        "summary": "Troubleshoot Azure role-based access control (RBAC) issues.",
+                    },
+                    {
+                        "title": "Resolve authorization errors",
+                        "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/error-authorization-failed",
+                        "summary": "Learn how to resolve authorization and permission errors in Azure.",
+                    },
+                ]
+            )
 
         # Resource not found errors
         elif "notfound" in error_code.lower() or "not found" in error_code.lower():
-            templates.extend([
-                {
-                    "title": "Resolve resource not found errors",
-                    "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/error-not-found",
-                    "summary": "Troubleshoot errors when Azure resources cannot be found.",
-                },
-            ])
+            templates.extend(
+                [
+                    {
+                        "title": "Resolve resource not found errors",
+                        "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/error-not-found",
+                        "summary": "Troubleshoot errors when Azure resources cannot be found.",
+                    },
+                ]
+            )
 
         # Network errors
         elif "network" in error_code.lower() or "timeout" in error_code.lower():
-            templates.extend([
-                {
-                    "title": "Troubleshoot Azure network issues",
-                    "url": "https://learn.microsoft.com/en-us/azure/networking/troubleshoot-network-issues",
-                    "summary": "Diagnose and resolve Azure networking and connectivity issues.",
-                },
-            ])
+            templates.extend(
+                [
+                    {
+                        "title": "Troubleshoot Azure network issues",
+                        "url": "https://learn.microsoft.com/en-us/azure/networking/troubleshoot-network-issues",
+                        "summary": "Diagnose and resolve Azure networking and connectivity issues.",
+                    },
+                ]
+            )
 
         # VM-specific errors
         if resource_type and ("vm" in resource_type.lower() or "virtual" in resource_type.lower()):
-            templates.extend([
-                {
-                    "title": "Troubleshoot Azure VM deployment",
-                    "url": "https://learn.microsoft.com/en-us/azure/virtual-machines/troubleshooting/",
-                    "summary": "Troubleshoot common Azure virtual machine deployment and runtime issues.",
-                },
-            ])
+            templates.extend(
+                [
+                    {
+                        "title": "Troubleshoot Azure VM deployment",
+                        "url": "https://learn.microsoft.com/en-us/azure/virtual-machines/troubleshooting/",
+                        "summary": "Troubleshoot common Azure virtual machine deployment and runtime issues.",
+                    },
+                ]
+            )
 
         # Generic Azure troubleshooting
         if not templates:
-            templates.extend([
-                {
-                    "title": "Azure troubleshooting documentation",
-                    "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/",
-                    "summary": "General Azure troubleshooting guides and error resolution.",
-                },
-            ])
+            templates.extend(
+                [
+                    {
+                        "title": "Azure troubleshooting documentation",
+                        "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/",
+                        "summary": "General Azure troubleshooting guides and error resolution.",
+                    },
+                ]
+            )
 
         return templates
 
@@ -262,7 +273,10 @@ class MSLearnClient:
             url_lower = result.url.lower()
 
             # Check if title or URL contains troubleshooting keywords
-            if any(keyword in title_lower or keyword in url_lower for keyword in troubleshooting_keywords):
+            if any(
+                keyword in title_lower or keyword in url_lower
+                for keyword in troubleshooting_keywords
+            ):
                 filtered.append(result)
 
         return filtered or results  # Return all if none match
@@ -363,7 +377,7 @@ class MSLearnClient:
 
             # Load cache
             data = json.loads(cache_file.read_text())
-            results = [
+            return [
                 SearchResult(
                     title=item["title"],
                     url=item["url"],
@@ -373,7 +387,6 @@ class MSLearnClient:
                 )
                 for item in data
             ]
-            return results
 
         except Exception:
             logger.warning("Failed to load cache for %s", cache_key)

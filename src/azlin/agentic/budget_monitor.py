@@ -46,7 +46,7 @@ class BudgetConfig:
 
     monthly_limit: float
     daily_limit: float | None = None
-    alert_thresholds: list[int] = None
+    alert_thresholds: list[int] | None = None
     resource_group_limits: dict[str, float] | None = None
 
     def __post_init__(self):
@@ -223,7 +223,7 @@ class BudgetMonitor:
 
         try:
             with self.spending_history_path.open() as f:
-                history = json.load(f)
+                json.load(f)
 
             # Filter by period and resource group
             # This is a simplified implementation
@@ -285,7 +285,9 @@ class BudgetMonitor:
 
         # Recommend action based on level
         if level == AlertLevel.EXCEEDED:
-            action = "STOP: Budget would be exceeded. Consider using --dry-run or reducing resources."
+            action = (
+                "STOP: Budget would be exceeded. Consider using --dry-run or reducing resources."
+            )
         elif level == AlertLevel.CRITICAL:
             action = "CAUTION: Very close to budget limit. Review resource requirements carefully."
         else:  # WARNING
@@ -334,7 +336,9 @@ class BudgetMonitor:
         with self.spending_history_path.open("w") as f:
             json.dump(history, f, indent=2)
 
-        logger.info("Recorded spending: $%.2f%s", amount, f" ({resource_group})" if resource_group else "")
+        logger.info(
+            "Recorded spending: $%.2f%s", amount, f" ({resource_group})" if resource_group else ""
+        )
 
     def get_spending_summary(self, period: BudgetPeriod = BudgetPeriod.MONTHLY) -> dict[str, Any]:
         """Get spending summary for period.

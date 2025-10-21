@@ -4295,7 +4295,11 @@ def doit(  # noqa: C901
             click.echo(f"  Parameters: {intent.parameters}")
 
         # Phase 2: Strategy Selection and Execution
-        from azlin.agentic.strategies import AzureCLIStrategy, TerraformStrategy
+        from azlin.agentic.strategies import (
+            AzureCLIStrategy,
+            MCPClientStrategy,
+            TerraformStrategy,
+        )
         from azlin.agentic.strategy_selector import StrategySelector
         from azlin.agentic.types import ExecutionContext, ObjectiveStatus, Strategy
 
@@ -4362,6 +4366,7 @@ def doit(  # noqa: C901
         strategy_map = {
             Strategy.AZURE_CLI: AzureCLIStrategy(),
             Strategy.TERRAFORM: TerraformStrategy(),
+            Strategy.MCP_CLIENT: MCPClientStrategy(),
         }
         strategy = strategy_map.get(strategy_plan.primary_strategy)
 

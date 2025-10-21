@@ -446,9 +446,7 @@ class MCPClientStrategy(ExecutionStrategy):
         """
         return client.call_tool(tool_name, params)
 
-    def _extract_resources_from_result(
-        self, result: dict[str, Any], tool_name: str
-    ) -> list[str]:
+    def _extract_resources_from_result(self, result: dict[str, Any], tool_name: str) -> list[str]:
         """Extract created resource IDs from MCP result.
 
         Args:

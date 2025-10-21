@@ -94,9 +94,7 @@ class MCPClient:
             if self.process.poll() is not None:
                 # Process already terminated
                 stderr = self.process.stderr.read() if self.process.stderr else ""
-                raise MCPConnectionError(
-                    f"MCP server process terminated immediately: {stderr}"
-                )
+                raise MCPConnectionError(f"MCP server process terminated immediately: {stderr}")
 
             # Send initialize request
             response = self._send_request("initialize", {"protocolVersion": "0.1.0"})
@@ -107,7 +105,9 @@ class MCPClient:
             return True
 
         except FileNotFoundError as e:
-            raise MCPConnectionError(f"MCP server command not found: {self.server_command[0]}") from e
+            raise MCPConnectionError(
+                f"MCP server command not found: {self.server_command[0]}"
+            ) from e
         except Exception as e:
             self.disconnect()
             raise MCPConnectionError(f"Failed to connect to MCP server: {e!s}") from e

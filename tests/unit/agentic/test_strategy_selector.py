@@ -3,10 +3,7 @@
 Tests strategy selection logic, prerequisite checking, and tool detection.
 """
 
-import subprocess
-from unittest.mock import MagicMock, Mock, patch
-
-import pytest
+from unittest.mock import Mock, patch
 
 from azlin.agentic.strategy_selector import StrategySelector
 from azlin.agentic.types import Intent, Strategy

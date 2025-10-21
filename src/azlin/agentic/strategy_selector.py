@@ -248,24 +248,29 @@ class StrategySelector:
         ranking = []
 
         # MCP Client is preferred when available (provides standardized tool interface)
-        if available_tools.get("mcp_server"):
-            if Strategy.MCP_CLIENT not in failed_strategies:
-                ranking.append(Strategy.MCP_CLIENT)
+        if available_tools.get("mcp_server") and Strategy.MCP_CLIENT not in failed_strategies:
+            ranking.append(Strategy.MCP_CLIENT)
 
         # For COMPLEX infrastructure, prefer Terraform
-        if is_complex and is_infrastructure and available_tools.get("terraform"):
-            if Strategy.TERRAFORM not in failed_strategies:
-                ranking.append(Strategy.TERRAFORM)
+        if (
+            is_complex
+            and is_infrastructure
+            and available_tools.get("terraform")
+            and Strategy.TERRAFORM not in failed_strategies
+        ):
+            ranking.append(Strategy.TERRAFORM)
 
         # Azure CLI is the default for most operations (especially simple ones)
-        if available_tools.get("az_cli"):
-            if Strategy.AZURE_CLI not in failed_strategies:
-                ranking.append(Strategy.AZURE_CLI)
+        if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
+            ranking.append(Strategy.AZURE_CLI)
 
         # Add Terraform if not already added
-        if Strategy.TERRAFORM not in ranking and available_tools.get("terraform"):
-            if Strategy.TERRAFORM not in failed_strategies:
-                ranking.append(Strategy.TERRAFORM)
+        if (
+            Strategy.TERRAFORM not in ranking
+            and available_tools.get("terraform")
+            and Strategy.TERRAFORM not in failed_strategies
+        ):
+            ranking.append(Strategy.TERRAFORM)
 
         # Custom code as last resort
         if Strategy.CUSTOM_CODE not in failed_strategies:

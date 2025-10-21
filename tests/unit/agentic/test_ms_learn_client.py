@@ -1,8 +1,6 @@
 """Tests for MS Learn client module."""
 
-import json
 import time
-from pathlib import Path
 
 import pytest
 
@@ -128,7 +126,9 @@ class TestMSLearnClient:
 
         # Should prioritize troubleshooting/error docs
         assert len(filtered) >= 2
-        assert any("troubleshoot" in r.title.lower() or "error" in r.title.lower() for r in filtered)
+        assert any(
+            "troubleshoot" in r.title.lower() or "error" in r.title.lower() for r in filtered
+        )
 
     def test_rank_by_relevance(self, temp_cache_dir):
         """Test relevance ranking."""
@@ -137,8 +137,15 @@ class TestMSLearnClient:
         # Create results with varying relevance
         results = [
             SearchResult("General Azure Docs", "https://example.com/general", None, 0.0),
-            SearchResult("QuotaExceeded Error", "https://example.com/quota-error", "Details about quota", 0.0),
-            SearchResult("Troubleshoot Quotas", "https://example.com/troubleshoot-quota", "Quota troubleshooting", 0.0),
+            SearchResult(
+                "QuotaExceeded Error", "https://example.com/quota-error", "Details about quota", 0.0
+            ),
+            SearchResult(
+                "Troubleshoot Quotas",
+                "https://example.com/troubleshoot-quota",
+                "Quota troubleshooting",
+                0.0,
+            ),
         ]
 
         ranked = client._rank_by_relevance(results, "QuotaExceeded", "virtualMachines")
@@ -197,7 +204,8 @@ class TestMSLearnClient:
             assert len(templates) > 0
             # Check that at least one template is relevant
             assert any(
-                expected_keyword in template["title"].lower() or expected_keyword in template["url"].lower()
+                expected_keyword in template["title"].lower()
+                or expected_keyword in template["url"].lower()
                 for template in templates
             )
 
@@ -208,7 +216,10 @@ class TestMSLearnClient:
         templates = client._get_doc_templates("SomeError", "virtualMachines")
 
         # Should include VM-specific docs
-        assert any("vm" in template["title"].lower() or "virtual" in template["title"].lower() for template in templates)
+        assert any(
+            "vm" in template["title"].lower() or "virtual" in template["title"].lower()
+            for template in templates
+        )
 
     def test_fallback_to_generic_docs(self, temp_cache_dir):
         """Test fallback to generic docs for unknown errors."""

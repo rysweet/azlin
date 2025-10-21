@@ -198,10 +198,14 @@ class FailureAnalyzer:
         similar_failures = self.find_similar_failures(error_sig.signature_hash)
 
         # Generate suggestions based on failure type
-        suggested_fixes = self.suggest_fix(result.failure_type or FailureType.UNKNOWN, error_message)
+        suggested_fixes = self.suggest_fix(
+            result.failure_type or FailureType.UNKNOWN, error_message
+        )
 
         # Generate runnable commands
-        runnable_commands = self._generate_commands(result.failure_type or FailureType.UNKNOWN, error_message, resource_type)
+        runnable_commands = self._generate_commands(
+            result.failure_type or FailureType.UNKNOWN, error_message, resource_type
+        )
 
         # Search MS Learn (if client available)
         doc_links: list[DocLink] = []
@@ -224,22 +228,21 @@ class FailureAnalyzer:
 
         return analysis
 
-    def find_similar_failures(self, error_signature: str) -> list[FailureAnalysis]:
+    def find_similar_failures(self, error_signature: str) -> list[dict[str, Any]]:
         """Find similar past failures from history.
 
         Args:
             error_signature: Error signature hash
 
         Returns:
-            List of similar failure analyses
+            List of similar failure analysis dictionaries
         """
         history = self._load_history()
-        similar = [
+        return [
             entry
             for entry in history
             if entry.get("error_signature", {}).get("signature_hash") == error_signature
         ]
-        return similar
 
     def suggest_fix(self, failure_type: FailureType, error_message: str) -> list[str]:
         """Suggest fixes based on failure type.
@@ -254,48 +257,60 @@ class FailureAnalyzer:
         suggestions = []
 
         if failure_type == FailureType.QUOTA_EXCEEDED:
-            suggestions.extend([
-                "Request quota increase in Azure Portal under Subscriptions > Usage + quotas",
-                "Choose a different VM size with available quota",
-                "Try a different Azure region with more capacity",
-                "Delete unused resources to free up quota",
-            ])
+            suggestions.extend(
+                [
+                    "Request quota increase in Azure Portal under Subscriptions > Usage + quotas",
+                    "Choose a different VM size with available quota",
+                    "Try a different Azure region with more capacity",
+                    "Delete unused resources to free up quota",
+                ]
+            )
 
         elif failure_type == FailureType.PERMISSION_DENIED:
-            suggestions.extend([
-                "Verify you have Contributor or Owner role on the subscription/resource group",
-                "Check Azure RBAC permissions: az role assignment list --assignee <your-email>",
-                "Ensure you're logged in: az account show",
-                "Try re-authenticating: az login",
-            ])
+            suggestions.extend(
+                [
+                    "Verify you have Contributor or Owner role on the subscription/resource group",
+                    "Check Azure RBAC permissions: az role assignment list --assignee <your-email>",
+                    "Ensure you're logged in: az account show",
+                    "Try re-authenticating: az login",
+                ]
+            )
 
         elif failure_type == FailureType.RESOURCE_NOT_FOUND:
-            suggestions.extend([
-                "Verify the resource name and resource group are correct",
-                "Check if the resource was deleted or moved",
-                "Ensure you're in the correct subscription: az account set --subscription <name>",
-            ])
+            suggestions.extend(
+                [
+                    "Verify the resource name and resource group are correct",
+                    "Check if the resource was deleted or moved",
+                    "Ensure you're in the correct subscription: az account set --subscription <name>",
+                ]
+            )
 
         elif failure_type == FailureType.NETWORK_ERROR:
-            suggestions.extend([
-                "Check your internet connection",
-                "Verify Azure service status: https://status.azure.com",
-                "Try again after a few minutes (transient issue)",
-                "Check if firewall/proxy is blocking Azure endpoints",
-            ])
+            suggestions.extend(
+                [
+                    "Check your internet connection",
+                    "Verify Azure service status: https://status.azure.com",
+                    "Try again after a few minutes (transient issue)",
+                    "Check if firewall/proxy is blocking Azure endpoints",
+                ]
+            )
 
         elif failure_type == FailureType.TIMEOUT:
-            suggestions.extend([
-                "Retry the operation (may be transient)",
-                "Check Azure service health for the region",
-                "Try a different Azure region",
-                "Reduce operation complexity or size",
-            ])
+            suggestions.extend(
+                [
+                    "Retry the operation (may be transient)",
+                    "Check Azure service health for the region",
+                    "Try a different Azure region",
+                    "Reduce operation complexity or size",
+                ]
+            )
 
         elif failure_type == FailureType.VALIDATION_ERROR:
             # Extract specific validation issues
             if "name" in error_message.lower():
-                suggestions.append("Check resource naming rules (alphanumeric, hyphens, length limits)")
+                suggestions.append(
+                    "Check resource naming rules (alphanumeric, hyphens, length limits)"
+                )
             if "location" in error_message.lower() or "region" in error_message.lower():
                 suggestions.append("Verify the Azure region/location is valid and available")
             if "size" in error_message.lower() or "sku" in error_message.lower():
@@ -304,19 +319,23 @@ class FailureAnalyzer:
             suggestions.append("Review Azure naming conventions and resource requirements")
 
         elif failure_type == FailureType.DEPENDENCY_FAILED:
-            suggestions.extend([
-                "Check if dependent resources exist (VNet, subnet, NSG, etc.)",
-                "Verify dependencies are in the same region/subscription",
-                "Ensure dependency resources are in a healthy state",
-            ])
+            suggestions.extend(
+                [
+                    "Check if dependent resources exist (VNet, subnet, NSG, etc.)",
+                    "Verify dependencies are in the same region/subscription",
+                    "Ensure dependency resources are in a healthy state",
+                ]
+            )
 
         else:  # UNKNOWN
-            suggestions.extend([
-                "Review the full error message for specific details",
-                "Check Azure service health and status",
-                "Try running with --verbose for more details",
-                "Search Azure documentation for the specific error code",
-            ])
+            suggestions.extend(
+                [
+                    "Review the full error message for specific details",
+                    "Check Azure service health and status",
+                    "Try running with --verbose for more details",
+                    "Search Azure documentation for the specific error code",
+                ]
+            )
 
         return suggestions
 
@@ -339,7 +358,9 @@ class FailureAnalyzer:
             logger.exception("Failed to search MS Learn")
             return []
 
-    def _extract_resource_type(self, error_message: str, metadata: dict[str, Any] | None) -> str | None:
+    def _extract_resource_type(
+        self, error_message: str, metadata: dict[str, Any] | None
+    ) -> str | None:
         """Extract Azure resource type from error or metadata.
 
         Args:
@@ -350,9 +371,8 @@ class FailureAnalyzer:
             Resource type or None
         """
         # Try metadata first
-        if metadata:
-            if "resource_type" in metadata:
-                return metadata["resource_type"]
+        if metadata and "resource_type" in metadata:
+            return metadata["resource_type"]
 
         # Parse from error message
         resource_patterns = [
@@ -387,23 +407,29 @@ class FailureAnalyzer:
         commands = []
 
         if failure_type == FailureType.QUOTA_EXCEEDED:
-            commands.extend([
-                "az vm list-usage --location eastus --output table",
-                "az account show --query tenantId --output tsv",
-            ])
+            commands.extend(
+                [
+                    "az vm list-usage --location eastus --output table",
+                    "az account show --query tenantId --output tsv",
+                ]
+            )
 
         elif failure_type == FailureType.PERMISSION_DENIED:
-            commands.extend([
-                "az account show",
-                "az ad signed-in-user show",
-                "az role assignment list --assignee $(az ad signed-in-user show --query id -o tsv)",
-            ])
+            commands.extend(
+                [
+                    "az account show",
+                    "az ad signed-in-user show",
+                    "az role assignment list --assignee $(az ad signed-in-user show --query id -o tsv)",
+                ]
+            )
 
         elif failure_type == FailureType.RESOURCE_NOT_FOUND:
-            commands.extend([
-                "az account list --output table",
-                "az group list --output table",
-            ])
+            commands.extend(
+                [
+                    "az account list --output table",
+                    "az group list --output table",
+                ]
+            )
 
         return commands
 

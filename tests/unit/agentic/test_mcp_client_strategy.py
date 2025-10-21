@@ -3,7 +3,6 @@
 Tests MCP execution strategy, validation, and error handling.
 """
 
-import json
 from unittest.mock import Mock, patch
 
 import pytest
@@ -209,7 +208,7 @@ class TestExecute:
         client_instance.list_tools.return_value = [{"name": "azure_vm_create"}]
         client_instance.call_tool.return_value = {
             "content": [{"text": "VM test-vm created successfully"}],
-            "id": "/subscriptions/abc/resourceGroups/test-rg/providers/Microsoft.Compute/virtualMachines/test-vm"
+            "id": "/subscriptions/abc/resourceGroups/test-rg/providers/Microsoft.Compute/virtualMachines/test-vm",
         }
 
         strategy = MCPClientStrategy()
@@ -241,9 +240,7 @@ class TestExecute:
         mock_client_class.return_value = client_instance
         client_instance.connect.return_value = None
         client_instance.list_tools.return_value = [{"name": "azure_vm_create"}]
-        client_instance.call_tool.return_value = {
-            "error": "QuotaExceeded: Maximum VMs exceeded"
-        }
+        client_instance.call_tool.return_value = {"error": "QuotaExceeded: Maximum VMs exceeded"}
 
         strategy = MCPClientStrategy()
         result = strategy.execute(execution_context)
@@ -446,12 +443,7 @@ class TestResultFormatting:
     def test_format_result_with_content(self):
         """Format result with content array."""
         strategy = MCPClientStrategy()
-        result = {
-            "content": [
-                {"text": "Line 1"},
-                {"text": "Line 2"}
-            ]
-        }
+        result = {"content": [{"text": "Line 1"}, {"text": "Line 2"}]}
 
         output = strategy._format_tool_result(result)
 

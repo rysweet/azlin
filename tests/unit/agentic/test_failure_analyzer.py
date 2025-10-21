@@ -1,8 +1,7 @@
 """Tests for failure analyzer module."""
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -59,7 +58,9 @@ class TestErrorSignature:
     def test_from_error_with_resource_type(self):
         """Test signature with resource type."""
         error_msg = "Permission denied"
-        sig = ErrorSignature.from_error(error_msg, resource_type="Microsoft.Compute/virtualMachines")
+        sig = ErrorSignature.from_error(
+            error_msg, resource_type="Microsoft.Compute/virtualMachines"
+        )
 
         assert sig.resource_type == "Microsoft.Compute/virtualMachines"
         assert sig.signature_hash is not None
@@ -157,7 +158,9 @@ class TestFailureAnalyzer:
         analysis = analyzer.analyze_failure(result)
 
         assert analysis.failure_type == FailureType.PERMISSION_DENIED
-        assert any("permission" in fix.lower() or "rbac" in fix.lower() for fix in analysis.suggested_fixes)
+        assert any(
+            "permission" in fix.lower() or "rbac" in fix.lower() for fix in analysis.suggested_fixes
+        )
 
     def test_analyze_resource_not_found(self, temp_history_file):
         """Test analyzing resource not found failure."""
@@ -189,7 +192,10 @@ class TestFailureAnalyzer:
         analysis = analyzer.analyze_failure(result)
 
         assert analysis.failure_type == FailureType.NETWORK_ERROR
-        assert any("network" in fix.lower() or "connection" in fix.lower() for fix in analysis.suggested_fixes)
+        assert any(
+            "network" in fix.lower() or "connection" in fix.lower()
+            for fix in analysis.suggested_fixes
+        )
 
     def test_analyze_validation_error(self, temp_history_file):
         """Test analyzing validation error."""
@@ -205,7 +211,10 @@ class TestFailureAnalyzer:
         analysis = analyzer.analyze_failure(result)
 
         assert analysis.failure_type == FailureType.VALIDATION_ERROR
-        assert any("naming" in fix.lower() or "validation" in fix.lower() for fix in analysis.suggested_fixes)
+        assert any(
+            "naming" in fix.lower() or "validation" in fix.lower()
+            for fix in analysis.suggested_fixes
+        )
 
     def test_find_similar_failures(self, temp_history_file):
         """Test finding similar past failures."""
@@ -218,7 +227,7 @@ class TestFailureAnalyzer:
             error="QuotaExceeded for Standard_D4s_v3",
             failure_type=FailureType.QUOTA_EXCEEDED,
         )
-        analysis1 = analyzer.analyze_failure(result1)
+        analyzer.analyze_failure(result1)
 
         # Create similar failure
         result2 = ExecutionResult(
@@ -256,7 +265,9 @@ class TestFailureAnalyzer:
         """Test MS Learn search with client."""
         mock_client = Mock()
         mock_client.search.return_value = [
-            Mock(title="Test Doc", url="https://example.com", summary="Summary", relevance_score=0.9)
+            Mock(
+                title="Test Doc", url="https://example.com", summary="Summary", relevance_score=0.9
+            )
         ]
 
         analyzer = FailureAnalyzer(history_file=temp_history_file, ms_learn_client=mock_client)

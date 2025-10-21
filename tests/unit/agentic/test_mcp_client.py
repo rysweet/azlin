@@ -43,7 +43,9 @@ class TestConnection:
         mock_popen.return_value = mock_process
 
         # Mock initialize response
-        init_response = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}})
+        init_response = json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}}
+        )
         mock_process.stdout.readline.return_value = init_response + "\n"
 
         result = mcp_client.connect()
@@ -80,11 +82,9 @@ class TestConnection:
         mock_popen.return_value = mock_process
 
         # Mock error response
-        error_response = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {"code": -32600, "message": "Invalid request"}
-        })
+        error_response = json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "error": {"code": -32600, "message": "Invalid request"}}
+        )
         mock_process.stdout.readline.return_value = error_response + "\n"
 
         with pytest.raises(MCPConnectionError) as exc_info:
@@ -111,7 +111,9 @@ class TestConnection:
         mock_popen.return_value = mock_process
 
         # Mock initialize response
-        init_response = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}})
+        init_response = json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}}
+        )
         mock_process.stdout.readline.return_value = init_response + "\n"
 
         client = MCPClient("mcp-server-test")
@@ -134,16 +136,18 @@ class TestToolDiscovery:
         # Mock initialize and list_tools responses
         responses = [
             json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}}),
-            json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "result": {
-                    "tools": [
-                        {"name": "azure_vm_create", "description": "Create Azure VM"},
-                        {"name": "azure_vm_list", "description": "List Azure VMs"},
-                    ]
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {
+                        "tools": [
+                            {"name": "azure_vm_create", "description": "Create Azure VM"},
+                            {"name": "azure_vm_list", "description": "List Azure VMs"},
+                        ]
+                    },
                 }
-            }),
+            ),
         ]
         mock_process.stdout.readline.side_effect = [r + "\n" for r in responses]
 
@@ -170,11 +174,9 @@ class TestToolDiscovery:
         # Mock responses
         responses = [
             json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}}),
-            json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "error": {"code": -32603, "message": "Internal error"}
-            }),
+            json.dumps(
+                {"jsonrpc": "2.0", "id": 2, "error": {"code": -32603, "message": "Internal error"}}
+            ),
         ]
         mock_process.stdout.readline.side_effect = [r + "\n" for r in responses]
 
@@ -193,19 +195,21 @@ class TestToolDiscovery:
         # Mock responses
         responses = [
             json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}}),
-            json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "result": {
-                    "tools": [
-                        {
-                            "name": "azure_vm_create",
-                            "description": "Create VM",
-                            "inputSchema": {"type": "object"}
-                        }
-                    ]
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "azure_vm_create",
+                                "description": "Create VM",
+                                "inputSchema": {"type": "object"},
+                            }
+                        ]
+                    },
                 }
-            }),
+            ),
         ]
         mock_process.stdout.readline.side_effect = [r + "\n" for r in responses]
 
@@ -249,14 +253,13 @@ class TestToolInvocation:
         # Mock responses
         responses = [
             json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}}),
-            json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "result": {
-                    "content": [{"text": "VM created successfully"}],
-                    "isError": False
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {"content": [{"text": "VM created successfully"}], "isError": False},
                 }
-            }),
+            ),
         ]
         mock_process.stdout.readline.side_effect = [r + "\n" for r in responses]
 
@@ -283,11 +286,13 @@ class TestToolInvocation:
         # Mock responses
         responses = [
             json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}}),
-            json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "error": {"code": -32601, "message": "Method not found"}
-            }),
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "error": {"code": -32601, "message": "Method not found"},
+                }
+            ),
         ]
         mock_process.stdout.readline.side_effect = [r + "\n" for r in responses]
 
@@ -306,13 +311,13 @@ class TestToolInvocation:
         # Mock responses
         responses = [
             json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}}),
-            json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "result": {
-                    "tools": [{"name": "azure_vm_create", "description": "Create VM"}]
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "result": {"tools": [{"name": "azure_vm_create", "description": "Create VM"}]},
                 }
-            }),
+            ),
         ]
         mock_process.stdout.readline.side_effect = [r + "\n" for r in responses]
 
@@ -331,11 +336,13 @@ class TestToolInvocation:
         # Mock responses
         responses = [
             json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "0.1.0"}}),
-            json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "error": {"code": -32000, "message": "Tool execution failed"}
-            }),
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "error": {"code": -32000, "message": "Tool execution failed"},
+                }
+            ),
         ]
         mock_process.stdout.readline.side_effect = [r + "\n" for r in responses]
 

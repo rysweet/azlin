@@ -255,7 +255,7 @@ class TestExecutionOrchestrator:
                 resources_created=["/subscriptions/.../vm/partial"],
             )
 
-            result = orchestrator.execute(sample_context, plan_no_fallback)
+            orchestrator.execute(sample_context, plan_no_fallback)
 
             # Verify cleanup was called
             mock_strategy.cleanup_on_failure.assert_called_once()
@@ -283,7 +283,7 @@ class TestExecutionOrchestrator:
                 resources_created=["/subscriptions/.../vm/partial"],
             )
 
-            result = orchestrator.execute(sample_context, plan_no_fallback)
+            orchestrator.execute(sample_context, plan_no_fallback)
 
             # Verify cleanup was NOT called
             mock_strategy.cleanup_on_failure.assert_not_called()
@@ -374,7 +374,7 @@ class TestExecutionOrchestrator:
                 output="Success",
             )
 
-            result = orchestrator.execute(sample_context, plan)
+            orchestrator.execute(sample_context, plan)
 
             summary = orchestrator.get_execution_summary()
 
@@ -434,7 +434,7 @@ class TestExecutionOrchestrator:
             )
 
             with patch("time.sleep") as mock_sleep:
-                result = orchestrator.execute(sample_context, plan_no_fallback)
+                orchestrator.execute(sample_context, plan_no_fallback)
 
                 # Should sleep with exponential backoff: 2^1=2, 2^2=4
                 assert mock_sleep.call_count == 2
@@ -484,7 +484,7 @@ class TestExecutionOrchestrator:
             )
 
             with patch("time.sleep"):
-                result = orchestrator.execute(sample_context, plan)
+                orchestrator.execute(sample_context, plan)
 
             counts = orchestrator._count_retries_per_strategy()
 

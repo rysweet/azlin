@@ -454,9 +454,9 @@ from azlin.agentic.ms_learn_client import MSLearnClient
 from azlin.agentic.types import ExecutionResult, FailureType, Strategy
 
 result = ExecutionResult(
-    success=False, 
-    strategy=Strategy.AZURE_CLI, 
-    error='QuotaExceeded', 
+    success=False,
+    strategy=Strategy.AZURE_CLI,
+    error='QuotaExceeded',
     failure_type=FailureType.QUOTA_EXCEEDED
 )
 
@@ -484,7 +484,7 @@ rm -rf ~/.azlin/docs_cache/
 
 ---
 
-**Report Generated**: 2025-10-21  
-**Author**: Claude (Anthropic)  
-**Project**: azlin-azdoit Phase 5  
+**Report Generated**: 2025-10-21
+**Author**: Claude (Anthropic)
+**Project**: azlin-azdoit Phase 5
 **Status**: ✅ COMPLETE

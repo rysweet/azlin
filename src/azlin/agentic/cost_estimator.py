@@ -6,7 +6,7 @@ Estimates costs based on resource types, sizes, and Azure pricing.
 import logging
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 from azlin.agentic.types import CostEstimate
 
@@ -43,7 +43,7 @@ class CostEstimator:
 
     # Simplified Azure pricing (USD/hour) - US East region baseline
     # Source: Azure pricing calculator (as of 2024)
-    VM_PRICING = {
+    VM_PRICING: ClassVar[dict[str, float]] = {
         # B-series (Burstable)
         "Standard_B1s": 0.0104,
         "Standard_B1ms": 0.0207,
@@ -70,14 +70,14 @@ class CostEstimator:
     }
 
     # Storage pricing (USD/GB/month)
-    STORAGE_PRICING = {
+    STORAGE_PRICING: ClassVar[dict[str, float]] = {
         "standard_hdd": 0.04,  # Standard HDD
         "standard_ssd": 0.15,  # Standard SSD
         "premium_ssd": 0.20,  # Premium SSD
     }
 
     # Network egress pricing (USD/GB) - first 5GB free
-    NETWORK_EGRESS_PRICING = {
+    NETWORK_EGRESS_PRICING: ClassVar[dict[str, float]] = {
         "first_10tb": 0.087,  # 5GB-10TB
         "next_40tb": 0.083,  # 10TB-50TB
         "next_100tb": 0.07,  # 50TB-150TB
@@ -85,7 +85,7 @@ class CostEstimator:
     }
 
     # Regional multipliers (relative to US East)
-    REGIONAL_MULTIPLIERS = {
+    REGIONAL_MULTIPLIERS: ClassVar[dict[PricingRegion, float]] = {
         PricingRegion.US_EAST: 1.0,
         PricingRegion.US_WEST: 1.0,
         PricingRegion.US_CENTRAL: 0.95,
@@ -177,7 +177,7 @@ class CostEstimator:
         # Add regional pricing note
         if self.regional_multiplier != 1.0:
             notes.append(
-                f"Prices adjusted for {self.region.value} region (×{self.regional_multiplier:.2f})"
+                f"Prices adjusted for {self.region.value} region (x{self.regional_multiplier:.2f})"
             )
 
         # Determine confidence string
@@ -223,7 +223,7 @@ class CostEstimator:
         # Apply regional multiplier
         hourly_cost = base_price * count * self.regional_multiplier
 
-        notes.append(f"{count}× {size} VM(s) at ${base_price:.4f}/hour ({confidence_note})")
+        notes.append(f"{count}x {size} VM(s) at ${base_price:.4f}/hour ({confidence_note})")
 
         return hourly_cost, notes
 
@@ -240,7 +240,9 @@ class CostEstimator:
         notes = []
 
         # Get storage price per GB per month
-        monthly_per_gb = self.STORAGE_PRICING.get(storage_type, self.STORAGE_PRICING["standard_ssd"])
+        monthly_per_gb = self.STORAGE_PRICING.get(
+            storage_type, self.STORAGE_PRICING["standard_ssd"]
+        )
 
         # Convert to hourly equivalent
         hourly_cost = (size_gb * monthly_per_gb * self.regional_multiplier) / 730
@@ -321,6 +323,8 @@ class CostEstimator:
             lines.append("\nBreakdown:")
             for category, monthly_cost in estimate.breakdown.items():
                 hourly = float(monthly_cost) / 730
-                lines.append(f"  {category.title()}: ${float(monthly_cost):.2f}/month (${hourly:.4f}/hour)")
+                lines.append(
+                    f"  {category.title()}: ${float(monthly_cost):.2f}/month (${hourly:.4f}/hour)"
+                )
 
         return "\n".join(lines)

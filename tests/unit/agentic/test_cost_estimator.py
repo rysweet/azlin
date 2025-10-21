@@ -2,8 +2,6 @@
 
 from decimal import Decimal
 
-import pytest
-
 from azlin.agentic.cost_estimator import CostEstimator, PricingRegion
 from azlin.agentic.types import CostEstimate
 
@@ -244,7 +242,7 @@ class TestCostEstimator:
         # 2 VMs at F4s_v2 price
         expected = estimator.VM_PRICING["Standard_F4s_v2"] * 2
         assert cost == expected
-        assert any("2×" in note for note in notes)
+        assert any("2x" in note for note in notes)
         assert any("Standard_F4s_v2" in note for note in notes)
 
     def test_storage_cost_estimation(self):
