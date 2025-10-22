@@ -184,9 +184,8 @@ class WorkspaceManager:
 
         for ws_file in self.storage_dir.glob("*.json"):
             workspace = self.get_workspace(ws_file.stem)
-            if workspace:
-                if team_id is None or workspace.team_id == team_id:
-                    workspaces.append(workspace)
+            if workspace and (team_id is None or workspace.team_id == team_id):
+                workspaces.append(workspace)
 
         return workspaces
 

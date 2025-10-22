@@ -8,11 +8,14 @@ Provides team-based collaboration with:
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class Role(str, Enum):
@@ -334,7 +337,8 @@ class TeamManager:
                 team = self.get_team(team_file.stem)
                 if any(m.user_id == user_id for m in team.members):
                     teams.append(team)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to load team from {team_file}: {e}")
                 continue
         return teams
 

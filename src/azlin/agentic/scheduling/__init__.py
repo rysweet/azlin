@@ -4,6 +4,6 @@ from .scheduler import Schedule, Scheduler, ScheduleType
 
 __all__ = [
     "Schedule",
-    "Scheduler",
     "ScheduleType",
+    "Scheduler",
 ]

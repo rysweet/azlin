@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 
 class TriggerType(str, Enum):
@@ -26,7 +27,7 @@ class Trigger:
     name: str
     trigger_type: TriggerType
     action: str  # Command to execute
-    conditions: dict[str, any] = field(default_factory=dict)
+    conditions: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     last_triggered_at: str | None = None
@@ -54,7 +55,7 @@ class TriggerEngine:
         name: str,
         trigger_type: TriggerType,
         action: str,
-        conditions: dict[str, any] | None = None,
+        conditions: dict[str, Any] | None = None,
     ) -> Trigger:
         """Create a new trigger.
 
@@ -101,7 +102,7 @@ class TriggerEngine:
             trigger_count=data.get("trigger_count", 0),
         )
 
-    def evaluate_trigger(self, trigger_id: str, event_data: dict[str, any]) -> bool:
+    def evaluate_trigger(self, trigger_id: str, event_data: dict[str, Any]) -> bool:
         """Evaluate if trigger conditions are met.
 
         Args:
@@ -151,9 +152,8 @@ class TriggerEngine:
         triggers = []
         for trigger_file in self.storage_dir.glob("*.json"):
             trigger = self.get_trigger(trigger_file.stem)
-            if trigger:
-                if trigger_type is None or trigger.trigger_type == trigger_type:
-                    triggers.append(trigger)
+            if trigger and (trigger_type is None or trigger.trigger_type == trigger_type):
+                triggers.append(trigger)
         return triggers
 
     def _save_trigger(self, trigger: Trigger) -> None:

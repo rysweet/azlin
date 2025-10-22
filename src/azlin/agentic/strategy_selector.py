@@ -272,21 +272,34 @@ class StrategySelector:
 
         # Check for AWS indicators
         aws_indicators = ["aws", "ec2", "s3", "lambda", "rds", "dynamodb", "cloudformation", "eks"]
-        if any(indicator in intent_lower or indicator in params_str or indicator in user_request_lower
-               for indicator in aws_indicators):
+        if any(
+            indicator in intent_lower or indicator in params_str or indicator in user_request_lower
+            for indicator in aws_indicators
+        ):
             return "aws"
 
         # Check for GCP indicators
-        gcp_indicators = ["gcp", "google cloud", "compute engine", "gce", "cloud storage", "gcs",
-                          "cloud functions", "cloud sql", "gke"]
-        if any(indicator in intent_lower or indicator in params_str or indicator in user_request_lower
-               for indicator in gcp_indicators):
+        gcp_indicators = [
+            "gcp",
+            "google cloud",
+            "compute engine",
+            "gce",
+            "cloud storage",
+            "gcs",
+            "cloud functions",
+            "cloud sql",
+            "gke",
+        ]
+        if any(
+            indicator in intent_lower or indicator in params_str or indicator in user_request_lower
+            for indicator in gcp_indicators
+        ):
             return "gcp"
 
         # Default to Azure (original behavior)
         return "azure"
 
-    def _rank_strategies(
+    def _rank_strategies(  # noqa: C901
         self,
         intent: Intent,
         is_complex: bool,
@@ -416,7 +429,11 @@ class StrategySelector:
             if not available_tools.get("terraform"):
                 return False, "Terraform not installed"
             # Terraform works with any cloud provider that's configured
-            if not (available_tools.get("az_cli") or available_tools.get("aws_cli") or available_tools.get("gcp_cli")):
+            if not (
+                available_tools.get("az_cli")
+                or available_tools.get("aws_cli")
+                or available_tools.get("gcp_cli")
+            ):
                 return False, "At least one cloud CLI required for Terraform (az/aws/gcloud)"
             return True, None
 

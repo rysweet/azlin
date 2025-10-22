@@ -362,7 +362,13 @@ class TestPrerequisiteChecking:
     def test_prerequisites_terraform_no_azure_cli(self):
         """Terraform needs at least one cloud CLI (Azure, AWS, or GCP)."""
         selector = StrategySelector()
-        tools = {"az_cli": False, "aws_cli": False, "gcp_cli": False, "terraform": True, "mcp_server": False}
+        tools = {
+            "az_cli": False,
+            "aws_cli": False,
+            "gcp_cli": False,
+            "terraform": True,
+            "mcp_server": False,
+        }
 
         met, error = selector._check_prerequisites(Strategy.TERRAFORM, tools)
 

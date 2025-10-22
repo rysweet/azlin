@@ -2,7 +2,6 @@
 
 import json
 import os
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -196,9 +195,8 @@ class Scheduler:
         schedules = []
         for schedule_file in self.storage_dir.glob("*.json"):
             schedule = self.get_schedule(schedule_file.stem)
-            if schedule:
-                if not enabled_only or schedule.enabled:
-                    schedules.append(schedule)
+            if schedule and (not enabled_only or schedule.enabled):
+                schedules.append(schedule)
         return schedules
 
     def _calculate_next_cron_run(self, cron_expression: str) -> datetime:

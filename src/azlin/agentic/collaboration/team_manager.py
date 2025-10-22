@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
 
 
 class TeamRole(str, Enum):
@@ -139,9 +138,7 @@ class TeamManager:
             description=data.get("description"),
         )
 
-    def add_member(
-        self, team_id: str, user_id: str, role: TeamRole, added_by: str
-    ) -> bool:
+    def add_member(self, team_id: str, user_id: str, role: TeamRole, added_by: str) -> bool:
         """Add member to team.
 
         Args:
@@ -223,9 +220,8 @@ class TeamManager:
 
         for team_file in self.storage_dir.glob("*.json"):
             team = self.get_team(team_file.stem)
-            if team:
-                if user_id is None or team.has_member(user_id):
-                    teams.append(team)
+            if team and (user_id is None or team.has_member(user_id)):
+                teams.append(team)
 
         return teams
 

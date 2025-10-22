@@ -6,7 +6,7 @@ Checks lock flag and blocks stop if continuous work mode is enabled.
 
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Clean import structure
 sys.path.insert(0, str(Path(__file__).parent))
@@ -20,7 +20,7 @@ class StopHook(HookProcessor):
         super().__init__("stop")
         self.lock_flag = self.project_root / ".claude" / "tools" / "amplihack" / ".lock_active"
 
-    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Check lock flag and block stop if active.
 
         Args:

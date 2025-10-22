@@ -8,7 +8,6 @@ import json
 import re
 import subprocess
 import time
-from typing import Any
 
 from azlin.agentic.strategies.base_strategy import ExecutionStrategy
 from azlin.agentic.types import (
@@ -75,7 +74,9 @@ class GCPStrategy(ExecutionStrategy):
             "cloud sql",
             "gke",
         ]
-        if not any(indicator in params_str or indicator in intent_type for indicator in gcp_indicators):
+        if not any(
+            indicator in params_str or indicator in intent_type for indicator in gcp_indicators
+        ):
             return False
 
         # Cannot handle custom code generation
@@ -130,7 +131,7 @@ class GCPStrategy(ExecutionStrategy):
             for cmd in commands:
                 # Execute command
                 result = subprocess.run(
-                    ["gcloud"] + cmd.split()[1:],  # Split "gcloud ..." into parts
+                    ["gcloud", *cmd.split()[1:]],  # Split "gcloud ..." into parts
                     capture_output=True,
                     text=True,
                     timeout=self.timeout,
@@ -205,9 +206,15 @@ class GCPStrategy(ExecutionStrategy):
                 check=False,
             )
             if result.returncode != 0:
-                return False, "gcloud CLI not installed. Install from: https://cloud.google.com/sdk/docs/install"
+                return (
+                    False,
+                    "gcloud CLI not installed. Install from: https://cloud.google.com/sdk/docs/install",
+                )
         except FileNotFoundError:
-            return False, "gcloud CLI not found. Install from: https://cloud.google.com/sdk/docs/install"
+            return (
+                False,
+                "gcloud CLI not found. Install from: https://cloud.google.com/sdk/docs/install",
+            )
         except Exception as e:
             return False, f"Error checking gcloud CLI: {e}"
 
@@ -241,24 +248,24 @@ class GCPStrategy(ExecutionStrategy):
         # Base estimates for common operations
         if "list" in intent_type or "describe" in intent_type or "get" in intent_type:
             return 5.0
-        elif "create" in intent_type or "provision" in intent_type:
+        if "create" in intent_type or "provision" in intent_type:
             if "compute" in intent_type or "instance" in intent_type or "vm" in intent_type:
                 return 90.0  # GCE instances take ~1.5 minutes
-            elif "sql" in intent_type or "database" in intent_type:
+            if "sql" in intent_type or "database" in intent_type:
                 return 300.0  # Cloud SQL takes ~5 minutes
-            elif "function" in intent_type:
+            if "function" in intent_type:
                 return 15.0
-            elif "bucket" in intent_type or "storage" in intent_type:
+            if "bucket" in intent_type or "storage" in intent_type:
                 return 3.0
             return 60.0
-        elif "delete" in intent_type or "terminate" in intent_type:
+        if "delete" in intent_type or "terminate" in intent_type:
             return 30.0
-        elif "update" in intent_type or "modify" in intent_type:
+        if "update" in intent_type or "modify" in intent_type:
             return 45.0
 
         return 30.0  # Default
 
-    def _generate_commands(self, context: ExecutionContext) -> list[str]:
+    def _generate_commands(self, context: ExecutionContext) -> list[str]:  # noqa: C901
         """Generate gcloud CLI commands from intent.
 
         Args:
@@ -288,7 +295,11 @@ class GCPStrategy(ExecutionStrategy):
                 if "boot_disk_size" in params:
                     cmd += f" --boot-disk-size={params['boot_disk_size']}"
                 if "tags" in params:
-                    tags = ",".join(params["tags"]) if isinstance(params["tags"], list) else params["tags"]
+                    tags = (
+                        ",".join(params["tags"])
+                        if isinstance(params["tags"], list)
+                        else params["tags"]
+                    )
                     cmd += f" --tags={tags}"
 
                 commands.append(cmd)
@@ -316,7 +327,9 @@ class GCPStrategy(ExecutionStrategy):
                 instance_name = params.get("name")
                 zone = params.get("zone", "us-central1-a")
                 if instance_name:
-                    commands.append(f"gcloud compute instances delete {instance_name} --zone={zone} --quiet")
+                    commands.append(
+                        f"gcloud compute instances delete {instance_name} --zone={zone} --quiet"
+                    )
 
         # Cloud Storage Bucket operations
         elif "storage" in intent_type or "bucket" in intent_type or "gcs" in intent_type:
@@ -379,7 +392,9 @@ class GCPStrategy(ExecutionStrategy):
                 function_name = params.get("function_name")
                 region = params.get("region", "us-central1")
                 if function_name:
-                    commands.append(f"gcloud functions delete {function_name} --region={region} --quiet")
+                    commands.append(
+                        f"gcloud functions delete {function_name} --region={region} --quiet"
+                    )
 
         # Cloud SQL Database operations
         elif "sql" in intent_type or "database" in intent_type:
@@ -476,15 +491,19 @@ class GCPStrategy(ExecutionStrategy):
 
         if "timeout" in error_lower or "timed out" in error_lower:
             return FailureType.TIMEOUT
-        elif "quota" in error_lower or "rate limit" in error_lower or "limit exceeded" in error_lower:
+        if "quota" in error_lower or "rate limit" in error_lower or "limit exceeded" in error_lower:
             return FailureType.QUOTA_EXCEEDED
-        elif "permission" in error_lower or "unauthorized" in error_lower or "forbidden" in error_lower:
+        if (
+            "permission" in error_lower
+            or "unauthorized" in error_lower
+            or "forbidden" in error_lower
+        ):
             return FailureType.INSUFFICIENT_PERMISSIONS
-        elif "not found" in error_lower or "does not exist" in error_lower:
+        if "not found" in error_lower or "does not exist" in error_lower:
             return FailureType.RESOURCE_NOT_FOUND
-        elif "already exists" in error_lower or "duplicate" in error_lower:
+        if "already exists" in error_lower or "duplicate" in error_lower:
             return FailureType.RESOURCE_CONFLICT
-        elif "invalid" in error_lower or "malformed" in error_lower or "bad request" in error_lower:
+        if "invalid" in error_lower or "malformed" in error_lower or "bad request" in error_lower:
             return FailureType.VALIDATION_ERROR
 
         return FailureType.INTERNAL_ERROR

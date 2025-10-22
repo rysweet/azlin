@@ -147,10 +147,12 @@ class PolicyEngine:
                 # Scale up by 1
                 return ScalingAction.SCALE_UP, current_instances + 1
 
-        elif current_metric_value < policy.scale_down_threshold:
-            if current_instances > policy.min_instances:
-                # Scale down by 1
-                return ScalingAction.SCALE_DOWN, current_instances - 1
+        elif (
+            current_metric_value < policy.scale_down_threshold
+            and current_instances > policy.min_instances
+        ):
+            # Scale down by 1
+            return ScalingAction.SCALE_DOWN, current_instances - 1
 
         return ScalingAction.NO_ACTION, current_instances
 

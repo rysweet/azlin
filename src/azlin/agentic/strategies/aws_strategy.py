@@ -8,7 +8,6 @@ import json
 import re
 import subprocess
 import time
-from typing import Any
 
 from azlin.agentic.strategies.base_strategy import ExecutionStrategy
 from azlin.agentic.types import (
@@ -73,7 +72,9 @@ class AWSStrategy(ExecutionStrategy):
             "cloudformation",
             "eks",
         ]
-        if not any(indicator in params_str or indicator in intent_type for indicator in aws_indicators):
+        if not any(
+            indicator in params_str or indicator in intent_type for indicator in aws_indicators
+        ):
             return False
 
         # Cannot handle custom code generation
@@ -128,7 +129,7 @@ class AWSStrategy(ExecutionStrategy):
             for cmd in commands:
                 # Execute command
                 result = subprocess.run(
-                    ["aws"] + cmd.split()[1:],  # Split "aws ..." into parts
+                    ["aws", *cmd.split()[1:]],  # Split "aws ..." into parts
                     capture_output=True,
                     text=True,
                     timeout=self.timeout,
@@ -239,24 +240,24 @@ class AWSStrategy(ExecutionStrategy):
         # Base estimates for common operations
         if "list" in intent_type or "describe" in intent_type or "get" in intent_type:
             return 5.0
-        elif "create" in intent_type or "provision" in intent_type:
+        if "create" in intent_type or "provision" in intent_type:
             if "ec2" in intent_type or "instance" in intent_type:
                 return 120.0  # EC2 takes ~2 minutes to start
-            elif "rds" in intent_type or "database" in intent_type:
+            if "rds" in intent_type or "database" in intent_type:
                 return 300.0  # RDS takes ~5 minutes
-            elif "lambda" in intent_type or "function" in intent_type:
+            if "lambda" in intent_type or "function" in intent_type:
                 return 10.0
-            elif "s3" in intent_type or "bucket" in intent_type:
+            if "s3" in intent_type or "bucket" in intent_type:
                 return 3.0
             return 60.0
-        elif "delete" in intent_type or "terminate" in intent_type:
+        if "delete" in intent_type or "terminate" in intent_type:
             return 30.0
-        elif "update" in intent_type or "modify" in intent_type:
+        if "update" in intent_type or "modify" in intent_type:
             return 45.0
 
         return 30.0  # Default
 
-    def _generate_commands(self, context: ExecutionContext) -> list[str]:
+    def _generate_commands(self, context: ExecutionContext) -> list[str]:  # noqa: C901
         """Generate AWS CLI commands from intent.
 
         Args:
@@ -274,7 +275,9 @@ class AWSStrategy(ExecutionStrategy):
             if "create" in intent_type or "provision" in intent_type or "launch" in intent_type:
                 # Create EC2 instance
                 instance_type = params.get("instance_type", "t2.micro")
-                ami_id = params.get("ami_id", "ami-0c55b159cbfafe1f0")  # Amazon Linux 2 in us-east-1
+                ami_id = params.get(
+                    "ami_id", "ami-0c55b159cbfafe1f0"
+                )  # Amazon Linux 2 in us-east-1
                 count = params.get("count", 1)
                 name = params.get("name", f"instance-{int(time.time())}")
 
@@ -349,7 +352,9 @@ class AWSStrategy(ExecutionStrategy):
             elif "invoke" in intent_type:
                 function_name = params.get("function_name")
                 if function_name:
-                    commands.append(f"aws lambda invoke --function-name {function_name} response.json")
+                    commands.append(
+                        f"aws lambda invoke --function-name {function_name} response.json"
+                    )
 
             elif "delete" in intent_type:
                 function_name = params.get("function_name")
@@ -368,7 +373,9 @@ class AWSStrategy(ExecutionStrategy):
 
                 cmd = f"aws rds create-db-instance --db-instance-identifier {db_instance_id} "
                 cmd += f"--db-instance-class {db_instance_class} --engine {engine} "
-                cmd += f"--master-username {master_username} --master-user-password {master_password} "
+                cmd += (
+                    f"--master-username {master_username} --master-user-password {master_password} "
+                )
                 cmd += f"--allocated-storage {allocated_storage}"
                 commands.append(cmd)
 
@@ -405,32 +412,39 @@ class AWSStrategy(ExecutionStrategy):
 
             # EC2 instances
             if "Instances" in data:
-                for instance in data.get("Instances", []):
-                    if "InstanceId" in instance:
-                        resources.append(instance["InstanceId"])
+                resources.extend(
+                    instance["InstanceId"]
+                    for instance in data.get("Instances", [])
+                    if "InstanceId" in instance
+                )
 
             # S3 buckets (from mb command output or ls)
             if "Buckets" in data:
-                for bucket in data.get("Buckets", []):
-                    if "Name" in bucket:
-                        resources.append(f"s3://{bucket['Name']}")
+                resources.extend(
+                    f"s3://{bucket['Name']}"
+                    for bucket in data.get("Buckets", [])
+                    if "Name" in bucket
+                )
 
             # Lambda functions
             if "FunctionArn" in data:
                 resources.append(data["FunctionArn"])
             if "Functions" in data:
-                for func in data.get("Functions", []):
-                    if "FunctionArn" in func:
-                        resources.append(func["FunctionArn"])
+                resources.extend(
+                    func["FunctionArn"]
+                    for func in data.get("Functions", [])
+                    if "FunctionArn" in func
+                )
 
             # RDS instances
             if "DBInstances" in data:
-                for db in data.get("DBInstances", []):
-                    if "DBInstanceIdentifier" in db:
-                        resources.append(db["DBInstanceIdentifier"])
-            if "DBInstance" in data:
-                if "DBInstanceIdentifier" in data["DBInstance"]:
-                    resources.append(data["DBInstance"]["DBInstanceIdentifier"])
+                resources.extend(
+                    db["DBInstanceIdentifier"]
+                    for db in data.get("DBInstances", [])
+                    if "DBInstanceIdentifier" in db
+                )
+            if "DBInstance" in data and "DBInstanceIdentifier" in data["DBInstance"]:
+                resources.append(data["DBInstance"]["DBInstanceIdentifier"])
 
         except json.JSONDecodeError:
             # Try regex patterns for common IDs
@@ -458,15 +472,19 @@ class AWSStrategy(ExecutionStrategy):
 
         if "timeout" in error_lower or "timed out" in error_lower:
             return FailureType.TIMEOUT
-        elif "throttling" in error_lower or "rate exceeded" in error_lower:
+        if "throttling" in error_lower or "rate exceeded" in error_lower:
             return FailureType.QUOTA_EXCEEDED
-        elif "access denied" in error_lower or "unauthorized" in error_lower or "forbidden" in error_lower:
+        if (
+            "access denied" in error_lower
+            or "unauthorized" in error_lower
+            or "forbidden" in error_lower
+        ):
             return FailureType.INSUFFICIENT_PERMISSIONS
-        elif "not found" in error_lower or "does not exist" in error_lower:
+        if "not found" in error_lower or "does not exist" in error_lower:
             return FailureType.RESOURCE_NOT_FOUND
-        elif "already exists" in error_lower or "duplicate" in error_lower:
+        if "already exists" in error_lower or "duplicate" in error_lower:
             return FailureType.RESOURCE_CONFLICT
-        elif "invalid" in error_lower or "malformed" in error_lower:
+        if "invalid" in error_lower or "malformed" in error_lower:
             return FailureType.VALIDATION_ERROR
 
         return FailureType.INTERNAL_ERROR

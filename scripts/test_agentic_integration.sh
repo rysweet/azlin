@@ -2,14 +2,24 @@
 #
 # Real Azure Integration Tests for Agentic "azlin do" Command
 #
+# These tests use REAL Azure resources and REAL Anthropic API calls.
+# By default, they run locally (not in CI) to avoid CI costs and credential issues.
+#
 # Prerequisites:
-#   1. ANTHROPIC_API_KEY environment variable set
+#   1. ANTHROPIC_API_KEY in environment OR ~/.claude-msec-k file with API key
 #   2. Azure CLI authenticated (az login)
 #   3. azlin configured with resource group
 #
 # Usage:
+#   # Option 1: Use ~/.claude-msec-k (automatic)
+#   ./scripts/test_agentic_integration.sh
+#
+#   # Option 2: Set environment variable
 #   export ANTHROPIC_API_KEY=your-key-here
 #   ./scripts/test_agentic_integration.sh
+#
+#   # Option 3: Skip VM creation tests (faster, cheaper)
+#   SKIP_VM_CREATION=1 ./scripts/test_agentic_integration.sh
 #
 
 set -euo pipefail
@@ -66,13 +76,20 @@ run_test() {
 preflight_checks() {
     log_info "Running pre-flight checks..."
 
-    # Check ANTHROPIC_API_KEY
+    # Check ANTHROPIC_API_KEY - use ~/.claude-msec-k if available
     if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-        log_error "ANTHROPIC_API_KEY environment variable not set"
-        log_error "Set it with: export ANTHROPIC_API_KEY=your-key-here"
-        exit 1
+        if [ -f "$HOME/.claude-msec-k" ]; then
+            export ANTHROPIC_API_KEY=$(cat "$HOME/.claude-msec-k")
+            log_info "✓ Loaded ANTHROPIC_API_KEY from ~/.claude-msec-k"
+        else
+            log_error "ANTHROPIC_API_KEY not set and ~/.claude-msec-k not found"
+            log_error "Set it with: export ANTHROPIC_API_KEY=your-key-here"
+            log_error "Or create ~/.claude-msec-k with your API key"
+            exit 1
+        fi
+    else
+        log_info "✓ ANTHROPIC_API_KEY is set from environment"
     fi
-    log_info "✓ ANTHROPIC_API_KEY is set"
 
     # Check Azure CLI
     if ! command -v az &> /dev/null; then

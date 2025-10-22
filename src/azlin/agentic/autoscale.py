@@ -10,7 +10,6 @@ Provides metric-based auto-scaling with:
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any
 
 
 class ScaleMetric(str, Enum):
@@ -164,14 +163,16 @@ class AutoScaleEngine:
                     policy.max_instances,
                 )
                 return ScaleAction.SCALE_UP, target
-        elif current_metric_value <= policy.scale_down_threshold:
+        elif (
+            current_metric_value <= policy.scale_down_threshold
+            and current_instances > policy.min_instances
+        ):
             # Scale down if not at min
-            if current_instances > policy.min_instances:
-                target = max(
-                    current_instances - policy.scale_increment,
-                    policy.min_instances,
-                )
-                return ScaleAction.SCALE_DOWN, target
+            target = max(
+                current_instances - policy.scale_increment,
+                policy.min_instances,
+            )
+            return ScaleAction.SCALE_DOWN, target
 
         return ScaleAction.NO_ACTION, current_instances
 

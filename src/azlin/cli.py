@@ -4616,10 +4616,17 @@ def doit(  # noqa: C901
                                     import shlex
 
                                     # Check if command contains pipes or redirects (shell features)
-                                    if any(char in cmd for char in ['|', '>', '<', ';', '&', '`', '$(']):
+                                    if any(
+                                        char in cmd for char in ["|", ">", "<", ";", "&", "`", "$("]
+                                    ):
                                         # For complex shell commands, validate they're safe Az CLI commands
-                                        if not cmd.strip().startswith(('az ', 'terraform ', 'kubectl ')):
-                                            click.echo("  ⚠️  Skipped: Only az/terraform/kubectl commands allowed for shell execution", err=True)
+                                        if not cmd.strip().startswith(
+                                            ("az ", "terraform ", "kubectl ")
+                                        ):
+                                            click.echo(
+                                                "  ⚠️  Skipped: Only az/terraform/kubectl commands allowed for shell execution",
+                                                err=True,
+                                            )
                                             continue
                                         # Execute with shell for piped commands, but limit risk
                                         proc_result = subprocess.run(

@@ -116,9 +116,8 @@ class Scheduler:
         elif schedule_type == ScheduleType.INTERVAL:
             if not interval_seconds or interval_seconds <= 0:
                 raise ValueError("INTERVAL schedule requires positive interval_seconds")
-        elif schedule_type == ScheduleType.CRON:
-            if not cron_expression:
-                raise ValueError("CRON schedule requires cron_expression")
+        elif schedule_type == ScheduleType.CRON and not cron_expression:
+            raise ValueError("CRON schedule requires cron_expression")
 
         schedule = Schedule(
             schedule_id=schedule_id,
@@ -220,9 +219,8 @@ class Scheduler:
         if schedule.schedule_type == ScheduleType.INTERVAL:
             if schedule.last_run:
                 return schedule.last_run + timedelta(seconds=schedule.interval_seconds or 0)
-            else:
-                # First run - schedule immediately or at interval from now
-                return datetime.utcnow()
+            # First run - schedule immediately or at interval from now
+            return datetime.utcnow()
 
         if schedule.schedule_type == ScheduleType.CRON:
             # Simple cron parsing (production would use croniter library)
@@ -252,9 +250,7 @@ class Scheduler:
         now = last_run or datetime.utcnow()
 
         # For simplicity, calculate next hour boundary
-        next_run = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-
-        return next_run
+        return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
     def get_schedule(self, schedule_id: str) -> Schedule:
         """Get schedule by ID.
