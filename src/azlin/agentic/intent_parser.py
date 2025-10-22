@@ -92,7 +92,7 @@ Available azlin commands:
 - azlin start: Start VM (vm_name)
 - azlin stop: Stop VM (vm_name)
 - azlin kill: Delete VM (vm_name)
-- azlin cost: Show cost estimates (--from, --to, --by-vm)
+- azlin cost: Show cost estimates (optional: --by-vm for breakdown). DO NOT use --from/--to parameters
 - azlin storage create: Create NFS storage (name --size)
 - azlin storage list: List storage accounts
 - azlin storage status: Show storage status (name)
