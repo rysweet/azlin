@@ -7,16 +7,19 @@ marked with special comments to avoid interfering with user configuration.
 Security features:
 - Input validation for environment variable names
 - Secret detection warnings
-- Safe shell escaping
+- SSH stdin redirection (eliminates command injection)
 - Isolated bashrc section management
+- Content size limits
 """
 
+import base64
 import logging
 import re
+import subprocess
 from pathlib import Path
 from typing import ClassVar
 
-from azlin.modules.ssh_connector import SSHConfig, SSHConnector
+from azlin.modules.ssh_connector import SSHConfig
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,10 @@ class EnvManager:
     ENV_MARKER_START = "# AZLIN_ENV_START - Do not edit this section manually"
     ENV_MARKER_END = "# AZLIN_ENV_END"
 
+    # Security limits
+    MAX_CONTENT_SIZE = 1024 * 1024  # 1MB max bashrc size
+    MAX_VALUE_SIZE = 32 * 1024  # 32KB max per env var value
+
     # Patterns for secret detection
     SECRET_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         (r"api[_-]?key", "api_key"),
@@ -57,6 +64,53 @@ class EnvManager:
     ]
 
     @classmethod
+    def _validate_content_size(cls, content: str) -> None:
+        """Validate content size to prevent DoS attacks.
+
+        Args:
+            content: Content to validate
+
+        Raises:
+            EnvManagerError: If content exceeds size limit
+        """
+        if len(content) > cls.MAX_CONTENT_SIZE:
+            raise EnvManagerError(
+                f"Content size {len(content)} exceeds maximum {cls.MAX_CONTENT_SIZE} bytes"
+            )
+
+    @classmethod
+    def _validate_value_size(cls, value: str) -> None:
+        """Validate environment variable value size.
+
+        Args:
+            value: Value to validate
+
+        Raises:
+            EnvManagerError: If value exceeds size limit
+        """
+        if len(value) > cls.MAX_VALUE_SIZE:
+            raise EnvManagerError(
+                f"Value size {len(value)} exceeds maximum {cls.MAX_VALUE_SIZE} bytes"
+            )
+
+    @classmethod
+    def _validate_ssh_config(cls, ssh_config: SSHConfig) -> None:
+        """Validate SSH configuration.
+
+        Args:
+            ssh_config: SSH configuration to validate
+
+        Raises:
+            EnvManagerError: If configuration is invalid
+        """
+        if not ssh_config.host or not isinstance(ssh_config.host, str):
+            raise EnvManagerError("Invalid SSH host")
+        if not ssh_config.user or not isinstance(ssh_config.user, str):
+            raise EnvManagerError("Invalid SSH user")
+        if not ssh_config.key_path or not Path(ssh_config.key_path).exists():
+            raise EnvManagerError("Invalid or missing SSH key path")
+
+    @classmethod
     def set_env_var(cls, ssh_config: SSHConfig, key: str, value: str) -> bool:
         """Set an environment variable on remote VM.
 
@@ -71,10 +125,16 @@ class EnvManager:
         Raises:
             EnvManagerError: If operation fails
         """
+        # Validate SSH config
+        cls._validate_ssh_config(ssh_config)
+
         # Validate key
         is_valid, message = cls.validate_env_key(key)
         if not is_valid:
             raise EnvManagerError(f"Invalid environment variable name: {message}")
+
+        # Validate value size
+        cls._validate_value_size(value)
 
         try:
             # Read current bashrc
@@ -317,30 +377,149 @@ class EnvManager:
 
     @classmethod
     def _read_bashrc(cls, ssh_config: SSHConfig) -> str:
-        """Read ~/.bashrc from remote VM."""
+        """Read ~/.bashrc from remote VM using SSH stdin redirection.
+
+        Security: Uses Python script via SSH stdin to eliminate shell command injection.
+        No user input is interpolated into shell commands.
+        """
         try:
-            return SSHConnector.execute_remote_command(
-                ssh_config, "cat ~/.bashrc 2>/dev/null || echo ''", timeout=30
+            # Python script to safely read file
+            python_script = """
+import sys
+from pathlib import Path
+
+try:
+    bashrc_path = Path.home() / '.bashrc'
+    if bashrc_path.exists():
+        content = bashrc_path.read_text()
+        sys.stdout.write(content)
+    else:
+        # Empty file if doesn't exist
+        sys.stdout.write('')
+except Exception as e:
+    sys.stderr.write(f"Error reading bashrc: {e}\\n")
+    sys.exit(1)
+"""
+
+            # Build SSH command with stdin redirection
+            ssh_args = [
+                "ssh",
+                "-i",
+                str(ssh_config.key_path),
+                "-p",
+                str(ssh_config.port),
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=30",
+            ]
+
+            if not ssh_config.strict_host_key_checking:
+                ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
+                ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
+
+            ssh_args.extend([f"{ssh_config.user}@{ssh_config.host}", "python3"])
+
+            # Execute with stdin redirection
+            result = subprocess.run(
+                ssh_args,
+                input=python_script,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
+
+            if result.returncode != 0:
+                raise EnvManagerError(f"SSH command failed: {result.stderr}")
+
+            # Validate content size
+            cls._validate_content_size(result.stdout)
+
+            return result.stdout
+
+        except subprocess.TimeoutExpired as e:
+            raise EnvManagerError("SSH command timed out") from e
         except Exception as e:
             raise EnvManagerError(f"Failed to read ~/.bashrc: {e}") from e
 
     @classmethod
     def _write_bashrc(cls, ssh_config: SSHConfig, content: str) -> None:
-        """Write ~/.bashrc to remote VM."""
-        try:
-            # Escape content for shell
-            # Use printf with %s to avoid interpretation of special characters
-            escaped_content = content.replace("'", "'\\''")
+        """Write ~/.bashrc to remote VM using SSH stdin redirection.
 
-            # Write to temp file then move (atomic operation)
-            commands = [
-                f"printf '%s' '{escaped_content}' > ~/.bashrc.tmp",
-                "mv ~/.bashrc.tmp ~/.bashrc",
+        Security: Uses Python script via SSH stdin to eliminate shell command injection.
+        Content is base64-encoded and passed via stdin, never interpolated into shell.
+        """
+        try:
+            # Validate content size before transmission
+            cls._validate_content_size(content)
+
+            # Base64 encode content to safely transmit
+            encoded_content = base64.b64encode(content.encode("utf-8")).decode("ascii")
+
+            # Python script to safely write file
+            python_script = f"""
+import sys
+import base64
+from pathlib import Path
+
+try:
+    # Decode content
+    encoded_content = "{encoded_content}"
+    content = base64.b64decode(encoded_content).decode('utf-8')
+
+    # Write to temp file then move (atomic operation)
+    home = Path.home()
+    temp_path = home / '.bashrc.tmp'
+    final_path = home / '.bashrc'
+
+    # Write to temp file
+    temp_path.write_text(content)
+
+    # Atomic move
+    temp_path.rename(final_path)
+
+    sys.stdout.write('OK\\n')
+except Exception as e:
+    sys.stderr.write(f"Error writing bashrc: {{e}}\\n")
+    sys.exit(1)
+"""
+
+            # Build SSH command with stdin redirection
+            ssh_args = [
+                "ssh",
+                "-i",
+                str(ssh_config.key_path),
+                "-p",
+                str(ssh_config.port),
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=30",
             ]
 
-            for cmd in commands:
-                SSHConnector.execute_remote_command(ssh_config, cmd, timeout=30)
+            if not ssh_config.strict_host_key_checking:
+                ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
+                ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
+
+            ssh_args.extend([f"{ssh_config.user}@{ssh_config.host}", "python3"])
+
+            # Execute with stdin redirection
+            result = subprocess.run(
+                ssh_args,
+                input=python_script,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode != 0:
+                raise EnvManagerError(f"SSH command failed: {result.stderr}")
+
+            if "OK" not in result.stdout:
+                raise EnvManagerError("Write operation did not complete successfully")
+
+        except subprocess.TimeoutExpired as e:
+            raise EnvManagerError("SSH command timed out") from e
         except Exception as e:
             raise EnvManagerError(f"Failed to write ~/.bashrc: {e}") from e
 

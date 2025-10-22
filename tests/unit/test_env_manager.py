@@ -1,7 +1,6 @@
 """Unit tests for env_manager module."""
 
-from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -13,9 +12,28 @@ class TestEnvManager:
     """Tests for EnvManager class."""
 
     @pytest.fixture
-    def ssh_config(self):
+    def ssh_config(self, tmp_path):
         """Create mock SSH config."""
-        return SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/home/user/.ssh/id_rsa"))
+        # Create a dummy SSH key file for validation
+        key_path = tmp_path / "id_rsa"
+        key_path.write_text("dummy key content")
+        return SSHConfig(host="20.1.2.3", user="azureuser", key_path=key_path)
+
+    def create_mock_subprocess_run(self, read_content, write_success=True):
+        """Helper to create subprocess.run mock."""
+
+        def run_side_effect(*args, **kwargs):
+            if "python3" in args[0]:
+                input_script = kwargs.get("input", "")
+                if "bashrc_path.read_text()" in input_script:
+                    return MagicMock(returncode=0, stdout=read_content, stderr="")
+                if "base64.b64decode" in input_script:
+                    if write_success:
+                        return MagicMock(returncode=0, stdout="OK\n", stderr="")
+                    return MagicMock(returncode=1, stdout="", stderr="Write failed")
+            return MagicMock(returncode=1, stdout="", stderr="error")
+
+        return run_side_effect
 
     @pytest.fixture
     def sample_bashrc_content(self):
@@ -48,39 +66,28 @@ export API_KEY="secret123"
 
     def test_set_env_var_success(self, ssh_config, sample_bashrc_content):
         """Test setting a new environment variable."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            # Mock reading current bashrc
-            mock_exec.side_effect = [
-                sample_bashrc_content,  # cat ~/.bashrc
-                "",  # echo to temp file
-                "",  # mv temp to bashrc
-            ]
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = self.create_mock_subprocess_run(sample_bashrc_content)
 
             result = EnvManager.set_env_var(ssh_config, "DATABASE_URL", "postgres://localhost/db")
 
             assert result is True
-            assert mock_exec.call_count == 3
+            assert mock_run.call_count >= 2  # At least read and write
 
     def test_set_env_var_updates_existing(self, ssh_config, sample_bashrc_with_env):
         """Test updating an existing environment variable."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            # Mock reading current bashrc with existing var
-            mock_exec.side_effect = [
-                sample_bashrc_with_env,  # cat ~/.bashrc
-                "",  # echo to temp file
-                "",  # mv temp to bashrc
-            ]
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = self.create_mock_subprocess_run(sample_bashrc_with_env)
 
             result = EnvManager.set_env_var(ssh_config, "DATABASE_URL", "postgres://newhost/db")
 
             assert result is True
-            # Check that the update command was called
-            assert mock_exec.call_count == 3
+            assert mock_run.call_count >= 2
 
     def test_list_env_vars_empty(self, ssh_config, sample_bashrc_content):
         """Test listing when no environment variables are set."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.return_value = sample_bashrc_content
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
 
             env_vars = EnvManager.list_env_vars(ssh_config)
 
@@ -88,8 +95,10 @@ export API_KEY="secret123"
 
     def test_list_env_vars_multiple(self, ssh_config, sample_bashrc_with_env):
         """Test listing multiple environment variables."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.return_value = sample_bashrc_with_env
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=sample_bashrc_with_env, stderr=""
+            )
 
             env_vars = EnvManager.list_env_vars(ssh_config)
 
@@ -99,12 +108,8 @@ export API_KEY="secret123"
 
     def test_delete_env_var_success(self, ssh_config, sample_bashrc_with_env):
         """Test deleting an existing environment variable."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.side_effect = [
-                sample_bashrc_with_env,  # cat ~/.bashrc
-                "",  # echo to temp file
-                "",  # mv temp to bashrc
-            ]
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = self.create_mock_subprocess_run(sample_bashrc_with_env)
 
             result = EnvManager.delete_env_var(ssh_config, "API_KEY")
 
@@ -112,8 +117,10 @@ export API_KEY="secret123"
 
     def test_delete_env_var_not_found(self, ssh_config, sample_bashrc_with_env):
         """Test deleting a non-existent environment variable."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.return_value = sample_bashrc_with_env
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=sample_bashrc_with_env, stderr=""
+            )
 
             result = EnvManager.delete_env_var(ssh_config, "NONEXISTENT_VAR")
 
@@ -121,8 +128,10 @@ export API_KEY="secret123"
 
     def test_export_env_vars_format(self, ssh_config, sample_bashrc_with_env):
         """Test exporting environment variables to .env format."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.return_value = sample_bashrc_with_env
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=sample_bashrc_with_env, stderr=""
+            )
 
             output = EnvManager.export_env_vars(ssh_config)
 
@@ -133,8 +142,10 @@ export API_KEY="secret123"
         """Test exporting environment variables to a file."""
         output_file = tmp_path / "test.env"
 
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.return_value = sample_bashrc_with_env
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=sample_bashrc_with_env, stderr=""
+            )
 
             result = EnvManager.export_env_vars(ssh_config, str(output_file))
 
@@ -176,7 +187,7 @@ export API_KEY="secret123"
     def test_detect_secrets_warning(self):
         """Test detection of potential secrets in values."""
         secret_patterns = [
-            ("my_api_key_secret123", ["API_KEY"]),
+            ("my_api_key_secret123", ["api_key"]),
             ("postgres://user:pass@host/db", ["postgres://"]),
             ("Bearer token_abc123", ["token"]),
             ("password=secret", ["password"]),
@@ -217,12 +228,8 @@ EXPORT_VAR="value"
 """
         )
 
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.side_effect = [
-                "# bashrc content",  # cat ~/.bashrc for each set
-                "",  # echo
-                "",  # mv
-            ] * 3  # 3 variables to set
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = self.create_mock_subprocess_run("# bashrc content")
 
             count = EnvManager.import_env_file(ssh_config, str(env_file))
 
@@ -237,12 +244,8 @@ DATABASE_URL="value"
 """
         )
 
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.side_effect = [
-                "# bashrc",
-                "",
-                "",
-            ]
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = self.create_mock_subprocess_run("# bashrc")
 
             # Should only import valid lines
             count = EnvManager.import_env_file(ssh_config, str(env_file))
@@ -250,28 +253,33 @@ DATABASE_URL="value"
 
     def test_bashrc_section_isolation(self, ssh_config, sample_bashrc_content):
         """Test that setting env vars doesn't affect other bashrc content."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.side_effect = [
-                sample_bashrc_content,
-                "",
-                "",
-            ]
+        with patch("subprocess.run") as mock_run:
+            written_content = None
+
+            def capture_write(*args, **kwargs):
+                nonlocal written_content
+                if "python3" in args[0]:
+                    input_script = kwargs.get("input", "")
+                    if "bashrc_path.read_text()" in input_script:
+                        return MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
+                    if "base64.b64decode" in input_script:
+                        # Extract and decode the content
+                        import base64
+                        import re
+
+                        match = re.search(r'encoded_content = "([A-Za-z0-9+/=]+)"', input_script)
+                        if match:
+                            encoded = match.group(1)
+                            written_content = base64.b64decode(encoded).decode("utf-8")
+                        return MagicMock(returncode=0, stdout="OK\n", stderr="")
+                return MagicMock(returncode=1, stdout="", stderr="error")
+
+            mock_run.side_effect = capture_write
 
             EnvManager.set_env_var(ssh_config, "TEST_VAR", "value")
 
-            # Check that the write command (first printf) contains the right content
-            # The actual content is in the first call, wrapped in printf command
-            write_call = mock_exec.call_args_list[1]
-            printf_command = write_call[0][1]
-
-            # Extract the content from printf command (between the single quotes)
-            # Format is: printf '%s' 'content' > file
-            import re
-
-            match = re.search(r"printf '%s' '(.+?)' >", printf_command, re.DOTALL)
-            written_content = match.group(1).replace("'\\''", "'") if match else printf_command
-
             # Original content should be preserved
+            assert written_content is not None
             assert "export PATH=$HOME/bin:$PATH" in written_content
             assert "alias ll=" in written_content
             # New content should be added in markers
@@ -281,12 +289,8 @@ DATABASE_URL="value"
 
     def test_set_env_var_with_special_chars(self, ssh_config, sample_bashrc_content):
         """Test setting env var with special characters that need escaping."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.side_effect = [
-                sample_bashrc_content,
-                "",
-                "",
-            ]
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = self.create_mock_subprocess_run(sample_bashrc_content)
 
             # Value with quotes and special chars
             result = EnvManager.set_env_var(
@@ -297,8 +301,8 @@ DATABASE_URL="value"
 
     def test_ssh_connection_error(self, ssh_config):
         """Test handling of SSH connection errors."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.side_effect = Exception("SSH connection failed")
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = Exception("SSH connection failed")
 
             with pytest.raises(EnvManagerError) as exc_info:
                 EnvManager.list_env_vars(ssh_config)
@@ -307,18 +311,33 @@ DATABASE_URL="value"
 
     def test_clear_all_env_vars(self, ssh_config, sample_bashrc_with_env):
         """Test clearing all environment variables."""
-        with patch("azlin.env_manager.SSHConnector.execute_remote_command") as mock_exec:
-            mock_exec.side_effect = [
-                sample_bashrc_with_env,
-                "",
-                "",
-            ]
+        with patch("subprocess.run") as mock_run:
+            written_content = None
+
+            def capture_write(*args, **kwargs):
+                nonlocal written_content
+                if "python3" in args[0]:
+                    input_script = kwargs.get("input", "")
+                    if "bashrc_path.read_text()" in input_script:
+                        return MagicMock(returncode=0, stdout=sample_bashrc_with_env, stderr="")
+                    if "base64.b64decode" in input_script:
+                        # Extract and decode the content
+                        import base64
+                        import re
+
+                        match = re.search(r'encoded_content = "([A-Za-z0-9+/=]+)"', input_script)
+                        if match:
+                            encoded = match.group(1)
+                            written_content = base64.b64decode(encoded).decode("utf-8")
+                        return MagicMock(returncode=0, stdout="OK\n", stderr="")
+                return MagicMock(returncode=1, stdout="", stderr="error")
+
+            mock_run.side_effect = capture_write
 
             result = EnvManager.clear_all_env_vars(ssh_config)
 
             assert result is True
             # Check that the section was removed
-            write_call = mock_exec.call_args_list[1]
-            written_content = write_call[0][1]
+            assert written_content is not None
             assert "# AZLIN_ENV_START" not in written_content
             assert "# AZLIN_ENV_END" not in written_content

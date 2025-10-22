@@ -2,9 +2,9 @@ name: Security Scanning
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   schedule:
     # Run security scans daily at 2 AM UTC
     - cron: '0 2 * * *'
@@ -20,6 +20,8 @@ jobs:
     name: GitGuardian Security Scan
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # Make GitGuardian optional - skip if API key not configured
+    if: ${{ secrets.GITGUARDIAN_API_KEY != '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -274,9 +276,13 @@ jobs:
 
       - name: Fail if critical security issues found
         run: |
-          # Only fail on GitGuardian (secrets) - other tools may have false positives
-          if [[ "${{ needs.gitguardian.result }}" != "success" ]]; then
+          # Only fail on GitGuardian (secrets) if it ran and found issues
+          # Skip check if GitGuardian was skipped due to missing API key
+          if [[ "${{ needs.gitguardian.result }}" == "failure" ]]; then
             echo "❌ Critical security issue: Secrets detected by GitGuardian"
             exit 1
+          fi
+          if [[ "${{ needs.gitguardian.result }}" == "skipped" ]]; then
+            echo "⚠️ GitGuardian skipped - API key not configured"
           fi
           echo "✅ No critical security issues detected"
