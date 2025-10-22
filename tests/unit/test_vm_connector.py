@@ -356,7 +356,9 @@ class TestVMConnector:
     @patch("azlin.vm_connector.TerminalLauncher")
     @patch("azlin.vm_connector.SSHKeyManager")
     @patch("azlin.vm_connector.VMManager")
-    def test_connect_terminal_launch_error(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal, temp_ssh_key):
+    def test_connect_terminal_launch_error(
+        self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal, temp_ssh_key
+    ):
         """Test error when terminal launch fails (with remote command, bypasses reconnect)."""
         # Mock VM info
         vm_info = VMInfo(
@@ -452,7 +454,9 @@ class TestConnectionInfo:
     @patch("azlin.vm_connector.TerminalLauncher")
     @patch("azlin.vm_connector.SSHKeyManager")
     @patch("azlin.vm_connector.VMManager")
-    def test_connect_with_reconnect_disabled(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal, temp_ssh_key):
+    def test_connect_with_reconnect_disabled(
+        self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal, temp_ssh_key
+    ):
         """Test connecting with auto-reconnect disabled."""
         # Mock VM info
         vm_info = VMInfo(
