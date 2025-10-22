@@ -7,12 +7,9 @@ TDD approach: These tests will FAIL until the fix is implemented.
 """
 
 import json
-import subprocess
 from unittest.mock import Mock, patch
 
-import pytest
-
-from azlin.vm_manager import VMInfo, VMManager, VMManagerError
+from azlin.vm_manager import VMInfo, VMManager
 
 
 class TestVMManagerPowerStateFiltering:
