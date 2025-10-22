@@ -88,8 +88,8 @@ class VMManager:
             VMManagerError: If listing fails
         """
         try:
-            # List VMs without show-details first (faster and more reliable)
-            cmd = ["az", "vm", "list", "--resource-group", resource_group, "--output", "json"]
+            # List VMs with show-details to get power state for top/w commands
+            cmd = ["az", "vm", "list", "--resource-group", resource_group, "--show-details", "--output", "json"]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=30, check=True
