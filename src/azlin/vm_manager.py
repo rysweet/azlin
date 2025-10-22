@@ -87,9 +87,19 @@ class VMManager:
         Raises:
             VMManagerError: If listing fails
         """
+        start_time = datetime.now()
         try:
-            # List VMs without show-details first (faster and more reliable)
-            cmd = ["az", "vm", "list", "--resource-group", resource_group, "--output", "json"]
+            # List VMs with show-details to get power state in single call
+            cmd = [
+                "az",
+                "vm",
+                "list",
+                "--resource-group",
+                resource_group,
+                "--show-details",
+                "--output",
+                "json",
+            ]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=30, check=True
@@ -106,19 +116,26 @@ class VMManager:
             for vm_data in vms_data:
                 try:
                     vm_name = vm_data.get("name")
-                    # Match public IP by convention: {vm_name}PublicIP
-                    vm_data["publicIps"] = public_ips.get(f"{vm_name}PublicIP")
+                    # Match public IP by convention: {vm_name}PublicIP (only if not already present)
+                    if not vm_data.get("publicIps"):
+                        vm_data["publicIps"] = public_ips.get(f"{vm_name}PublicIP")
 
                     vm_info = cls._parse_vm_data(vm_data)
 
-                    # Since we don't have power state, we can't filter by stopped status reliably
-                    # Just include all VMs
+                    # Filter by power state if include_stopped is False
+                    if not include_stopped and not vm_info.is_running():
+                        continue
+
                     vms.append(vm_info)
                 except Exception as e:
                     # Log error but continue with other VMs
                     logger.warning(f"Failed to parse VM {vm_data.get('name', 'unknown')}: {e}")
 
-            logger.debug(f"Found {len(vms)} VMs in resource group: {resource_group}")
+            elapsed_time = (datetime.now() - start_time).total_seconds()
+            logger.debug(
+                f"Found {len(vms)} VMs in resource group: {resource_group} "
+                f"(include_stopped={include_stopped}, elapsed={elapsed_time:.2f}s)"
+            )
             return vms
 
         except subprocess.CalledProcessError as e:
