@@ -157,9 +157,7 @@ def _validate_nfs_endpoint(nfs_endpoint: str) -> str:
 
     # Must contain colon separator
     if ":" not in nfs_endpoint:
-        raise ValidationError(
-            f"NFS endpoint must contain ':' separator: {nfs_endpoint}"
-        )
+        raise ValidationError(f"NFS endpoint must contain ':' separator: {nfs_endpoint}")
 
     server, share_path = nfs_endpoint.split(":", 1)
 
@@ -168,7 +166,25 @@ def _validate_nfs_endpoint(nfs_endpoint: str) -> str:
         raise ValidationError(f"NFS server cannot be empty: {nfs_endpoint}")
 
     # Check for shell metacharacters
-    dangerous_chars = [";", "&", "|", "$", "`", "(", ")", "<", ">", "\\", "'", '"', "\n", "\r", "\t", "!", "~"]
+    dangerous_chars = [
+        ";",
+        "&",
+        "|",
+        "$",
+        "`",
+        "(",
+        ")",
+        "<",
+        ">",
+        "\\",
+        "'",
+        '"',
+        "\n",
+        "\r",
+        "\t",
+        "!",
+        "~",
+    ]
 
     for char in dangerous_chars:
         if char in nfs_endpoint:
@@ -182,15 +198,11 @@ def _validate_nfs_endpoint(nfs_endpoint: str) -> str:
 
     # Validate share path: must start with /
     if not share_path.startswith("/"):
-        raise ValidationError(
-            f"NFS share path must start with '/': {share_path}"
-        )
+        raise ValidationError(f"NFS share path must start with '/': {share_path}")
 
     # Validate share path characters
     if not re.match(r"^/[a-zA-Z0-9/_.-]*$", share_path):
-        raise ValidationError(
-            f"NFS share path contains invalid characters: {share_path}"
-        )
+        raise ValidationError(f"NFS share path contains invalid characters: {share_path}")
 
     # Prevent directory traversal
     if ".." in share_path:
@@ -219,13 +231,30 @@ def _validate_mount_options(options: str) -> str:
         raise ValidationError(f"Mount options contain invalid characters: {options}")
 
     # Check for shell metacharacters
-    dangerous_chars = [";", "&", "|", "$", "`", "(", ")", "<", ">", "\\", "'", '"', "\n", "\r", "\t", "!", "~", " "]
+    dangerous_chars = [
+        ";",
+        "&",
+        "|",
+        "$",
+        "`",
+        "(",
+        ")",
+        "<",
+        ">",
+        "\\",
+        "'",
+        '"',
+        "\n",
+        "\r",
+        "\t",
+        "!",
+        "~",
+        " ",
+    ]
 
     for char in dangerous_chars:
         if char in options:
-            raise ValidationError(
-                f"Mount options contain unsafe character '{char}': {options}"
-            )
+            raise ValidationError(f"Mount options contain unsafe character '{char}': {options}")
 
     return options
 
@@ -248,14 +277,10 @@ def _validate_storage_name(name: str) -> str:
         raise ValidationError("Storage name cannot be empty")
 
     if len(name) < 3 or len(name) > 24:
-        raise ValidationError(
-            f"Storage name must be 3-24 characters: {name} ({len(name)} chars)"
-        )
+        raise ValidationError(f"Storage name must be 3-24 characters: {name} ({len(name)} chars)")
 
     if not re.match(r"^[a-z0-9]+$", name):
-        raise ValidationError(
-            f"Storage name must be lowercase alphanumeric only: {name}"
-        )
+        raise ValidationError(f"Storage name must be lowercase alphanumeric only: {name}")
 
     return name
 

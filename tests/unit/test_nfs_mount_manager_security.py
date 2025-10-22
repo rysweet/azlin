@@ -4,16 +4,17 @@ Tests all validation helpers against command injection attacks.
 Based on SEC-003 security analysis.
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from azlin.modules.nfs_mount_manager import (
     NFSMountManager,
     ValidationError,
+    _validate_mount_options,
     _validate_mount_point,
     _validate_nfs_endpoint,
-    _validate_mount_options,
     _validate_storage_name,
 )
 
@@ -366,5 +367,6 @@ class TestValidationHelperExported:
 
     def test_validation_error_importable(self):
         """ValidationError should be importable from public API."""
-        from azlin.modules.nfs_mount_manager import ValidationError as VE
-        assert VE is ValidationError
+        from azlin.modules.nfs_mount_manager import ValidationError as ImportedValidationError
+
+        assert ImportedValidationError is ValidationError
