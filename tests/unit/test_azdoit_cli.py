@@ -27,7 +27,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
 
 # Import modules - individual tests will mock as needed
-# ruff: noqa: E402
 from click.testing import CliRunner
 
 from azlin.cli import main
