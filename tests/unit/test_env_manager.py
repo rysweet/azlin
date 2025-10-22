@@ -21,16 +21,18 @@ class TestEnvManager:
 
     def create_mock_subprocess_run(self, read_content, write_success=True):
         """Helper to create subprocess.run mock."""
+
         def run_side_effect(*args, **kwargs):
-            if 'python3' in args[0]:
-                input_script = kwargs.get('input', '')
-                if 'bashrc_path.read_text()' in input_script:
+            if "python3" in args[0]:
+                input_script = kwargs.get("input", "")
+                if "bashrc_path.read_text()" in input_script:
                     return MagicMock(returncode=0, stdout=read_content, stderr="")
-                if 'base64.b64decode' in input_script:
+                if "base64.b64decode" in input_script:
                     if write_success:
                         return MagicMock(returncode=0, stdout="OK\n", stderr="")
                     return MagicMock(returncode=1, stdout="", stderr="Write failed")
             return MagicMock(returncode=1, stdout="", stderr="error")
+
         return run_side_effect
 
     @pytest.fixture
@@ -94,7 +96,9 @@ export API_KEY="secret123"
     def test_list_env_vars_multiple(self, ssh_config, sample_bashrc_with_env):
         """Test listing multiple environment variables."""
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout=sample_bashrc_with_env, stderr="")
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=sample_bashrc_with_env, stderr=""
+            )
 
             env_vars = EnvManager.list_env_vars(ssh_config)
 
@@ -114,7 +118,9 @@ export API_KEY="secret123"
     def test_delete_env_var_not_found(self, ssh_config, sample_bashrc_with_env):
         """Test deleting a non-existent environment variable."""
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout=sample_bashrc_with_env, stderr="")
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=sample_bashrc_with_env, stderr=""
+            )
 
             result = EnvManager.delete_env_var(ssh_config, "NONEXISTENT_VAR")
 
@@ -123,7 +129,9 @@ export API_KEY="secret123"
     def test_export_env_vars_format(self, ssh_config, sample_bashrc_with_env):
         """Test exporting environment variables to .env format."""
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout=sample_bashrc_with_env, stderr="")
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=sample_bashrc_with_env, stderr=""
+            )
 
             output = EnvManager.export_env_vars(ssh_config)
 
@@ -135,7 +143,9 @@ export API_KEY="secret123"
         output_file = tmp_path / "test.env"
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout=sample_bashrc_with_env, stderr="")
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=sample_bashrc_with_env, stderr=""
+            )
 
             result = EnvManager.export_env_vars(ssh_config, str(output_file))
 
@@ -248,18 +258,19 @@ DATABASE_URL="value"
 
             def capture_write(*args, **kwargs):
                 nonlocal written_content
-                if 'python3' in args[0]:
-                    input_script = kwargs.get('input', '')
-                    if 'bashrc_path.read_text()' in input_script:
+                if "python3" in args[0]:
+                    input_script = kwargs.get("input", "")
+                    if "bashrc_path.read_text()" in input_script:
                         return MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
-                    if 'base64.b64decode' in input_script:
+                    if "base64.b64decode" in input_script:
                         # Extract and decode the content
                         import base64
                         import re
+
                         match = re.search(r'encoded_content = "([A-Za-z0-9+/=]+)"', input_script)
                         if match:
                             encoded = match.group(1)
-                            written_content = base64.b64decode(encoded).decode('utf-8')
+                            written_content = base64.b64decode(encoded).decode("utf-8")
                         return MagicMock(returncode=0, stdout="OK\n", stderr="")
                 return MagicMock(returncode=1, stdout="", stderr="error")
 
@@ -305,18 +316,19 @@ DATABASE_URL="value"
 
             def capture_write(*args, **kwargs):
                 nonlocal written_content
-                if 'python3' in args[0]:
-                    input_script = kwargs.get('input', '')
-                    if 'bashrc_path.read_text()' in input_script:
+                if "python3" in args[0]:
+                    input_script = kwargs.get("input", "")
+                    if "bashrc_path.read_text()" in input_script:
                         return MagicMock(returncode=0, stdout=sample_bashrc_with_env, stderr="")
-                    if 'base64.b64decode' in input_script:
+                    if "base64.b64decode" in input_script:
                         # Extract and decode the content
                         import base64
                         import re
+
                         match = re.search(r'encoded_content = "([A-Za-z0-9+/=]+)"', input_script)
                         if match:
                             encoded = match.group(1)
-                            written_content = base64.b64decode(encoded).decode('utf-8')
+                            written_content = base64.b64decode(encoded).decode("utf-8")
                         return MagicMock(returncode=0, stdout="OK\n", stderr="")
                 return MagicMock(returncode=1, stdout="", stderr="error")
 

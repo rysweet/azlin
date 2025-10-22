@@ -228,9 +228,12 @@ class TestVMLifecycleController:
 
     def test_start_vm_success(self, mock_stopped_vm_info):
         """Test successful VM start operation."""
-        with patch.object(
-            VMLifecycleController, "_get_vm_details", return_value=mock_stopped_vm_info
-        ), patch("subprocess.run") as mock_run:
+        with (
+            patch.object(
+                VMLifecycleController, "_get_vm_details", return_value=mock_stopped_vm_info
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = MagicMock(returncode=0)
 
             result = VMLifecycleController.start_vm("test-vm", "test-rg")
@@ -401,9 +404,7 @@ class TestVMLifecycleController:
         expected_vms = ["vm1", "vm2", "vm3"]
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=json.dumps(expected_vms)
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(expected_vms))
 
             vms = VMLifecycleController._list_vms_in_group("test-rg")
             assert vms == expected_vms
@@ -456,9 +457,7 @@ class TestCostCalculationEdgeCases:
     def test_malformed_cost_impact_string(self):
         """Test handling of malformed cost_impact strings."""
         results = [
-            LifecycleResult(
-                "vm1", True, "Success", "stop", cost_impact="Malformed"
-            ),  # No $ sign
+            LifecycleResult("vm1", True, "Success", "stop", cost_impact="Malformed"),  # No $ sign
             LifecycleResult(
                 "vm2", True, "Success", "stop", cost_impact="Saves ~$0.096/hour"
             ),  # Valid

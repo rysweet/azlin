@@ -296,7 +296,12 @@ class VMLifecycleController:
 
             if not vm_names:
                 return LifecycleSummary(
-                    total=0, succeeded=0, failed=0, results=[], operation="stop", total_cost_savings=0.0
+                    total=0,
+                    succeeded=0,
+                    failed=0,
+                    results=[],
+                    operation="stop",
+                    total_cost_savings=0.0,
                 )
 
             # Filter by pattern if specified
@@ -305,7 +310,12 @@ class VMLifecycleController:
 
             if not vm_names:
                 return LifecycleSummary(
-                    total=0, succeeded=0, failed=0, results=[], operation="stop", total_cost_savings=0.0
+                    total=0,
+                    succeeded=0,
+                    failed=0,
+                    results=[],
+                    operation="stop",
+                    total_cost_savings=0.0,
                 )
 
             operation = "deallocating" if deallocate else "stopping"

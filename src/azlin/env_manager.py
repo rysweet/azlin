@@ -404,20 +404,21 @@ except Exception as e:
             # Build SSH command with stdin redirection
             ssh_args = [
                 "ssh",
-                "-i", str(ssh_config.key_path),
-                "-p", str(ssh_config.port),
-                "-o", "BatchMode=yes",
-                "-o", "ConnectTimeout=30",
+                "-i",
+                str(ssh_config.key_path),
+                "-p",
+                str(ssh_config.port),
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=30",
             ]
 
             if not ssh_config.strict_host_key_checking:
                 ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
                 ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
 
-            ssh_args.extend([
-                f"{ssh_config.user}@{ssh_config.host}",
-                "python3"
-            ])
+            ssh_args.extend([f"{ssh_config.user}@{ssh_config.host}", "python3"])
 
             # Execute with stdin redirection
             result = subprocess.run(
@@ -453,7 +454,7 @@ except Exception as e:
             cls._validate_content_size(content)
 
             # Base64 encode content to safely transmit
-            encoded_content = base64.b64encode(content.encode('utf-8')).decode('ascii')
+            encoded_content = base64.b64encode(content.encode("utf-8")).decode("ascii")
 
             # Python script to safely write file
             python_script = f"""
@@ -486,20 +487,21 @@ except Exception as e:
             # Build SSH command with stdin redirection
             ssh_args = [
                 "ssh",
-                "-i", str(ssh_config.key_path),
-                "-p", str(ssh_config.port),
-                "-o", "BatchMode=yes",
-                "-o", "ConnectTimeout=30",
+                "-i",
+                str(ssh_config.key_path),
+                "-p",
+                str(ssh_config.port),
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=30",
             ]
 
             if not ssh_config.strict_host_key_checking:
                 ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
                 ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
 
-            ssh_args.extend([
-                f"{ssh_config.user}@{ssh_config.host}",
-                "python3"
-            ])
+            ssh_args.extend([f"{ssh_config.user}@{ssh_config.host}", "python3"])
 
             # Execute with stdin redirection
             result = subprocess.run(
