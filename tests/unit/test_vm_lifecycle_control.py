@@ -176,9 +176,11 @@ class TestVMLifecycleController:
 
     def test_stop_vm_success(self, mock_vm_info):
         """Test successful VM stop operation."""
-        with patch.object(VMLifecycleController, "_get_vm_details", return_value=mock_vm_info):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
+        with (
+            patch.object(VMLifecycleController, "_get_vm_details", return_value=mock_vm_info),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
 
                 result = VMLifecycleController.stop_vm("test-vm", "test-rg")
 
@@ -212,9 +214,11 @@ class TestVMLifecycleController:
             "hardwareProfile": {"vmSize": "Unknown_Size"},
             "statuses": [{"code": "PowerState/running"}],
         }
-        with patch.object(VMLifecycleController, "_get_vm_details", return_value=vm_info):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
+        with (
+            patch.object(VMLifecycleController, "_get_vm_details", return_value=vm_info),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
 
                 result = VMLifecycleController.stop_vm("test-vm", "test-rg")
 
@@ -259,12 +263,14 @@ class TestVMLifecycleController:
         """Test that cost calculation is properly stored in summary."""
         vm_names = ["vm1", "vm2", "vm3"]
 
-        with patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names):
-            with patch.object(VMLifecycleController, "_get_vm_details", return_value=mock_vm_info):
-                with patch("subprocess.run") as mock_run:
-                    mock_run.return_value = MagicMock(returncode=0)
+        with (
+            patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names),
+            patch.object(VMLifecycleController, "_get_vm_details", return_value=mock_vm_info),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
 
-                    summary = VMLifecycleController.stop_vms("test-rg", all_vms=True)
+            summary = VMLifecycleController.stop_vms("test-rg", all_vms=True)
 
                     # All 3 VMs succeeded
                     assert summary.total == 3
@@ -295,13 +301,15 @@ class TestVMLifecycleController:
                 cost_impact="Saves ~$0.096/hour",
             )
 
-        with patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names):
-            with patch.object(VMLifecycleController, "stop_vm", side_effect=mock_stop_vm):
-                summary = VMLifecycleController.stop_vms("test-rg", all_vms=True)
+        with (
+            patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names),
+            patch.object(VMLifecycleController, "stop_vm", side_effect=mock_stop_vm),
+        ):
+            summary = VMLifecycleController.stop_vms("test-rg", all_vms=True)
 
-                assert summary.total == 3
-                assert summary.succeeded == 2
-                assert summary.failed == 1
+            assert summary.total == 3
+            assert summary.succeeded == 2
+            assert summary.failed == 1
 
                 # Only 2 successful VMs contribute to cost savings: 2 * $0.096 = $0.192
                 assert summary.total_cost_savings == pytest.approx(0.192, rel=0.01)
@@ -320,42 +328,48 @@ class TestVMLifecycleController:
                 cost_impact="Still incurs compute costs",  # No $ sign
             )
 
-        with patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names):
-            with patch.object(VMLifecycleController, "stop_vm", side_effect=mock_stop_vm):
-                summary = VMLifecycleController.stop_vms("test-rg", all_vms=True, deallocate=False)
+        with (
+            patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names),
+            patch.object(VMLifecycleController, "stop_vm", side_effect=mock_stop_vm),
+        ):
+            summary = VMLifecycleController.stop_vms("test-rg", all_vms=True, deallocate=False)
 
-                assert summary.total == 1
-                assert summary.succeeded == 1
-                # No cost savings because deallocate=False
-                assert summary.total_cost_savings == 0.0
+            assert summary.total == 1
+            assert summary.succeeded == 1
+            # No cost savings because deallocate=False
+            assert summary.total_cost_savings == 0.0
 
     def test_stop_vms_pattern_matching(self):
         """Test VM pattern matching."""
         all_vms = ["azlin-dev-1", "azlin-dev-2", "azlin-prod-1"]
 
-        with patch.object(VMLifecycleController, "_list_vms_in_group", return_value=all_vms):
-            with patch.object(
+        with (
+            patch.object(VMLifecycleController, "_list_vms_in_group", return_value=all_vms),
+            patch.object(
                 VMLifecycleController,
                 "stop_vm",
                 return_value=LifecycleResult("test", True, "Success", "stop"),
-            ):
-                # Should only match dev VMs
-                summary = VMLifecycleController.stop_vms("test-rg", vm_pattern="azlin-dev-*")
+            ),
+        ):
+            # Should only match dev VMs
+            summary = VMLifecycleController.stop_vms("test-rg", vm_pattern="azlin-dev-*")
 
-                assert summary.total == 2
+            assert summary.total == 2
 
     def test_start_vms_success(self, mock_stopped_vm_info):
         """Test starting multiple VMs."""
         vm_names = ["vm1", "vm2"]
 
-        with patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names):
-            with patch.object(
+        with (
+            patch.object(VMLifecycleController, "_list_vms_in_group", return_value=vm_names),
+            patch.object(
                 VMLifecycleController, "_get_vm_details", return_value=mock_stopped_vm_info
-            ):
-                with patch("subprocess.run") as mock_run:
-                    mock_run.return_value = MagicMock(returncode=0)
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
 
-                    summary = VMLifecycleController.start_vms("test-rg", all_vms=True)
+            summary = VMLifecycleController.start_vms("test-rg", all_vms=True)
 
                     assert summary.total == 2
                     assert summary.succeeded == 2
