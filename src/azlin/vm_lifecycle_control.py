@@ -57,6 +57,7 @@ class LifecycleSummary:
     failed: int
     results: list[LifecycleResult]
     operation: str  # 'stop' or 'start'
+    total_cost_savings: float = 0.0  # Total hourly cost savings (for stop operations)
 
     @property
     def all_succeeded(self) -> bool:
@@ -295,7 +296,7 @@ class VMLifecycleController:
 
             if not vm_names:
                 return LifecycleSummary(
-                    total=0, succeeded=0, failed=0, results=[], operation="stop"
+                    total=0, succeeded=0, failed=0, results=[], operation="stop", total_cost_savings=0.0
                 )
 
             # Filter by pattern if specified
@@ -304,7 +305,7 @@ class VMLifecycleController:
 
             if not vm_names:
                 return LifecycleSummary(
-                    total=0, succeeded=0, failed=0, results=[], operation="stop"
+                    total=0, succeeded=0, failed=0, results=[], operation="stop", total_cost_savings=0.0
                 )
 
             operation = "deallocating" if deallocate else "stopping"
@@ -346,7 +347,7 @@ class VMLifecycleController:
             failed = sum(1 for r in results if not r.success)
 
             # Calculate total cost savings
-            sum(
+            total_cost_savings = sum(
                 float(r.cost_impact.split("$")[1].split("/")[0])
                 for r in results
                 if r.success and r.cost_impact and "$" in r.cost_impact
@@ -358,6 +359,7 @@ class VMLifecycleController:
                 failed=failed,
                 results=results,
                 operation="stop",
+                total_cost_savings=total_cost_savings,
             )
 
         except Exception as e:
