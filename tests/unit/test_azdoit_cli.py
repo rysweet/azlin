@@ -524,7 +524,9 @@ class TestPyprojectConfiguration:
         """
         import tomli
 
-        with open("/Users/ryan/src/azlin-worktrees/issue-166-azdoit-cli/pyproject.toml", "rb") as f:
+        # Find pyproject.toml relative to this test file
+        pyproject_path = Path(__file__).parents[2] / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
             config = tomli.load(f)
 
         scripts = config.get("project", {}).get("scripts", {})
@@ -544,7 +546,9 @@ class TestPyprojectConfiguration:
         """
         import tomli
 
-        with open("/Users/ryan/src/azlin-worktrees/issue-166-azdoit-cli/pyproject.toml", "rb") as f:
+        # Find pyproject.toml relative to this test file
+        pyproject_path = Path(__file__).parents[2] / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
             config = tomli.load(f)
 
         scripts = config.get("project", {}).get("scripts", {})
