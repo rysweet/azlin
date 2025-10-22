@@ -14,14 +14,14 @@ from .state_machine import (
 )
 
 __all__ = [
-    "LightweightAnalyzer",
-    "LockData",
-    # Interactive reflection system
-    "ReflectionLock",
-    "ReflectionState",
-    "ReflectionStateData",
-    "ReflectionStateMachine",
     # Existing reflection functions
     "analyze_session_patterns",
     "process_reflection_analysis",
+    # Interactive reflection system
+    "ReflectionLock",
+    "LockData",
+    "ReflectionState",
+    "ReflectionStateData",
+    "ReflectionStateMachine",
+    "LightweightAnalyzer",
 ]

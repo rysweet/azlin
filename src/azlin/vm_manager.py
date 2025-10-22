@@ -457,7 +457,8 @@ class VMManager:
             statuses = data["instanceView"].get("statuses", [])
             for status in statuses:
                 if status.get("code", "").startswith("PowerState/"):
-                    power_state = status["code"].replace("PowerState/", "")
+                    # Add "VM " prefix to match expected format in is_running()/is_stopped()
+                    power_state = "VM " + status["code"].replace("PowerState/", "")
 
         # Parse tags
         tags = data.get("tags", {})

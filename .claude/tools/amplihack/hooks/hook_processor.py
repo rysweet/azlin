@@ -5,12 +5,13 @@ Provides common functionality for all hook scripts.
 """
 
 import json
+import os
 import sys
 import traceback
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Optional
 
 
 class HookProcessor(ABC):
@@ -41,7 +42,7 @@ class HookProcessor(ABC):
         except ImportError:
             # Fallback: try to find project root by looking for .claude marker
             current = Path(__file__).resolve().parent
-            found_root: Path | None = None
+            found_root: Optional[Path] = None
 
             for _ in range(10):  # Max 10 levels up
                 # Check old location (repo root)
@@ -124,7 +125,7 @@ class HookProcessor(ABC):
             # If we can't log, at least try stderr
             print(f"Logging error: {e}", file=sys.stderr)
 
-    def read_input(self) -> dict[str, Any]:
+    def read_input(self) -> Dict[str, Any]:
         """Read and parse JSON input from stdin.
 
         Returns:
@@ -138,15 +139,17 @@ class HookProcessor(ABC):
             return {}
         return json.loads(raw_input)
 
-    def write_output(self, output: dict[str, Any]):
+    def write_output(self, output: Dict[str, Any]):
         """Write JSON output to stdout.
 
         Args:
             output: Dictionary to write as JSON
         """
         json.dump(output, sys.stdout)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
-    def save_metric(self, metric_name: str, value: Any, metadata: dict | None = None):
+    def save_metric(self, metric_name: str, value: Any, metadata: Optional[Dict] = None):
         """Save a metric to the metrics directory.
 
         Args:
@@ -173,7 +176,7 @@ class HookProcessor(ABC):
             self.log(f"Failed to save metric: {e}", "WARNING")
 
     @abstractmethod
-    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
+    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process the hook input and return output.
 
         This method must be implemented by subclasses.
@@ -195,12 +198,16 @@ class HookProcessor(ABC):
         4. Handle any errors gracefully
         """
         try:
-            # Log start
-            self.log(f"{self.hook_name} hook starting")
+            # Log start with version info
+            self.log(f"{self.hook_name} hook starting (Python {sys.version.split()[0]})")
 
             # Read input
             input_data = self.read_input()
             self.log(f"Received input with keys: {list(input_data.keys())}")
+
+            # Log hook event name if available for debugging
+            if "hook_event_name" in input_data:
+                self.log(f"Event type: {input_data['hook_event_name']}")
 
             # Process
             output = self.process(input_data)
@@ -212,6 +219,13 @@ class HookProcessor(ABC):
                 self.log(f"Warning: process() returned non-dict: {type(output)}", "WARNING")
                 output = {"result": output}
 
+            # Log output structure for diagnostics
+            output_keys = list(output.keys())
+            if output_keys:
+                self.log(f"Returning output with keys: {output_keys}")
+            else:
+                self.log("Returning empty output (allows default behavior)")
+
             # Write output
             self.write_output(output)
             self.log(f"{self.hook_name} hook completed successfully")
@@ -219,21 +233,42 @@ class HookProcessor(ABC):
         except json.JSONDecodeError as e:
             self.log(f"Invalid JSON input: {e}", "ERROR")
             self.write_output({"error": "Invalid JSON input"})
+            sys.exit(1)  # Exit with error code so Claude Code can detect failure
 
         except Exception as e:
             # Log full traceback for debugging
-            self.log(f"Error in {self.hook_name}: {e}", "ERROR")
-            self.log(f"Traceback: {traceback.format_exc()}", "ERROR")
+            error_msg = f"Error in {self.hook_name}: {e}"
+            traceback_str = traceback.format_exc()
 
-            # Also log to stderr for visibility
-            print(f"Hook error in {self.hook_name}: {e}", file=sys.stderr)
+            self.log(error_msg, "ERROR")
+            self.log(f"Traceback: {traceback_str}", "ERROR")
 
-            # Return error indicator instead of empty dict
-            error_response = {
-                "error": f"Hook {self.hook_name} encountered an error",
-                "details": str(e)[:200],  # Truncate for safety
-            }
-            self.write_output(error_response)
+            # Enhanced stderr output for visibility
+            print("=" * 60, file=sys.stderr)
+            print(f"HOOK ERROR: {self.hook_name}", file=sys.stderr)
+            print("=" * 60, file=sys.stderr)
+            print(f"Error: {e}", file=sys.stderr)
+
+            # Use relative path to avoid disclosing full system paths
+            try:
+                relative_log_path = self.log_file.relative_to(self.project_root)
+                print(f"\nLog file: {relative_log_path}", file=sys.stderr)
+            except ValueError:
+                # Fallback if path is outside project root
+                print(f"\nLog file: {self.log_file.name}", file=sys.stderr)
+
+            # Only show full stack trace in debug mode for security
+            if os.getenv("AMPLIHACK_DEBUG"):
+                print("\nStack trace:", file=sys.stderr)
+                print(traceback_str, file=sys.stderr)
+            else:
+                print("\nFull error details available in log file", file=sys.stderr)
+            print("=" * 60, file=sys.stderr)
+
+            # Return empty dict and exit with error code
+            # Exit code 1 = non-blocking error (stderr shown to user)
+            self.write_output({})
+            sys.exit(1)  # Exit with error code so Claude Code can detect failure
 
     def get_session_id(self) -> str:
         """Generate or retrieve a session ID.

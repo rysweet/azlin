@@ -17,7 +17,7 @@ import re
 import signal
 import unicodedata
 from datetime import datetime
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 # Use clean import through dedicated paths module
 from paths import get_project_root
@@ -271,7 +271,7 @@ class SecurityValidator:
                 pass  # Windows doesn't support signal.alarm
 
     @staticmethod
-    def safe_split(text: str, pattern: str, max_splits: int = 1000) -> list[str]:
+    def safe_split(text: str, pattern: str, max_splits: int = 1000) -> List[str]:
         """Safely split text with limits to prevent DoS.
 
         Args:
@@ -325,7 +325,7 @@ class ContextPreserver:
     - Comprehensive error handling for malformed input
     """
 
-    def __init__(self, session_id: str | None = None):
+    def __init__(self, session_id: Optional[str] = None):
         """Initialize context preserver.
 
         Args:
@@ -336,7 +336,7 @@ class ContextPreserver:
         self.session_dir = self.project_root / ".claude" / "runtime" / "logs" / self.session_id
         self.session_dir.mkdir(parents=True, exist_ok=True)
 
-    def extract_original_request(self, prompt: str) -> dict[str, Any]:
+    def extract_original_request(self, prompt: str) -> Dict[str, Any]:
         """Extract and structure original user requirements from initial prompt.
 
         Args:
@@ -422,7 +422,7 @@ class ContextPreserver:
 
         return original_request
 
-    def _parse_requirements(self, prompt: str) -> list[str]:
+    def _parse_requirements(self, prompt: str) -> List[str]:
         """Parse explicit requirements from prompt with security protections.
 
         Args:
@@ -456,11 +456,12 @@ class ContextPreserver:
                     len(sentence) > 10
                     and len(sentence) <= 500
                     and any(word in sentence.upper() for word in quantifier_words)
-                ) and (
-                    sentence not in requirements
-                    and len(requirements) < SecurityConfig.MAX_REQUIREMENTS
                 ):
-                    requirements.append(sentence)
+                    if (
+                        sentence not in requirements
+                        and len(requirements) < SecurityConfig.MAX_REQUIREMENTS
+                    ):
+                        requirements.append(sentence)
 
             # Extract bullet points - with safe regex and limits
             bullet_pattern = r"[-\u2022*]\s*([^\n]+)"
@@ -484,7 +485,7 @@ class ContextPreserver:
 
         return requirements[: SecurityConfig.MAX_REQUIREMENTS]
 
-    def _parse_constraints(self, prompt: str) -> list[str]:
+    def _parse_constraints(self, prompt: str) -> List[str]:
         """Parse constraints from prompt with security protections.
 
         Args:
@@ -529,7 +530,7 @@ class ContextPreserver:
 
         return constraints[: SecurityConfig.MAX_CONSTRAINTS]
 
-    def _parse_success_criteria(self, prompt: str) -> list[str]:
+    def _parse_success_criteria(self, prompt: str) -> List[str]:
         """Parse success criteria from prompt with security protections.
 
         Args:
@@ -614,7 +615,7 @@ class ContextPreserver:
 
         return "General development task"
 
-    def _save_original_request(self, original_request: dict[str, Any]):
+    def _save_original_request(self, original_request: Dict[str, Any]):
         """Save original request to session logs with HTML escaping for security."""
         request_file = self.session_dir / "ORIGINAL_REQUEST.md"
 
@@ -676,7 +677,7 @@ All agents should receive this context to ensure user requirements are preserved
         with open(json_file, "w") as f:
             json.dump(original_request, f, indent=2)
 
-    def get_original_request(self, session_id: str | None = None) -> dict[str, Any] | None:
+    def get_original_request(self, session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve original request for a session.
 
         Args:
@@ -704,7 +705,7 @@ All agents should receive this context to ensure user requirements are preserved
         except Exception:
             return None
 
-    def format_agent_context(self, original_request: dict[str, Any] | None = None) -> str:
+    def format_agent_context(self, original_request: Optional[Dict[str, Any]] = None) -> str:
         """Format original request as context for agent injection.
 
         Args:
@@ -760,7 +761,7 @@ All agents should receive this context to ensure user requirements are preserved
 
         return "\n".join(context_parts)
 
-    def export_conversation_transcript(self, conversation_data: list[dict[str, Any]]) -> str:
+    def export_conversation_transcript(self, conversation_data: List[Dict[str, Any]]) -> str:
         """Export complete conversation transcript (Amplifier-style).
 
         Args:
@@ -806,7 +807,7 @@ All agents should receive this context to ensure user requirements are preserved
 
         return str(transcript_file)
 
-    def get_latest_session_id(self) -> str | None:
+    def get_latest_session_id(self) -> Optional[str]:
         """Get the most recent session ID with security protections."""
         try:
             logs_dir = self.project_root / ".claude" / "runtime" / "logs"
@@ -842,7 +843,7 @@ All agents should receive this context to ensure user requirements are preserved
             return None
 
 
-def create_context_preserver(session_id: str | None = None) -> ContextPreserver:
+def create_context_preserver(session_id: Optional[str] = None) -> ContextPreserver:
     """Factory function to create a ContextPreserver instance."""
     return ContextPreserver(session_id)
 
