@@ -44,7 +44,6 @@ dev = [
 
 [project.scripts]
 azlin = "azlin.cli:main"
-azdoit = "azlin.azdoit_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/azlin"]
