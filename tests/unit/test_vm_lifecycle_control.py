@@ -182,13 +182,13 @@ class TestVMLifecycleController:
         ):
             mock_run.return_value = MagicMock(returncode=0)
 
-                result = VMLifecycleController.stop_vm("test-vm", "test-rg")
+            result = VMLifecycleController.stop_vm("test-vm", "test-rg")
 
-                assert result.success is True
-                assert result.vm_name == "test-vm"
-                assert "deallocated" in result.message.lower()
-                assert result.cost_impact is not None
-                assert "$0.096" in result.cost_impact
+            assert result.success is True
+            assert result.vm_name == "test-vm"
+            assert "deallocated" in result.message.lower()
+            assert result.cost_impact is not None
+            assert "$0.096" in result.cost_impact
 
     def test_stop_vm_already_stopped(self, mock_stopped_vm_info):
         """Test stopping an already stopped VM."""
@@ -220,11 +220,11 @@ class TestVMLifecycleController:
         ):
             mock_run.return_value = MagicMock(returncode=0)
 
-                result = VMLifecycleController.stop_vm("test-vm", "test-rg")
+            result = VMLifecycleController.stop_vm("test-vm", "test-rg")
 
-                assert result.success is True
-                # Should use DEFAULT_COST (0.10)
-                assert "$0.100" in result.cost_impact
+            assert result.success is True
+            # Should use DEFAULT_COST (0.10)
+            assert "$0.100" in result.cost_impact
 
     def test_start_vm_success(self, mock_stopped_vm_info):
         """Test successful VM start operation."""
@@ -272,13 +272,13 @@ class TestVMLifecycleController:
 
             summary = VMLifecycleController.stop_vms("test-rg", all_vms=True)
 
-                    # All 3 VMs succeeded
-                    assert summary.total == 3
-                    assert summary.succeeded == 3
-                    assert summary.failed == 0
+            # All 3 VMs succeeded
+            assert summary.total == 3
+            assert summary.succeeded == 3
+            assert summary.failed == 0
 
-                    # Cost calculation: 3 VMs * $0.096/hour = $0.288/hour
-                    assert summary.total_cost_savings == pytest.approx(0.288, rel=0.01)
+            # Cost calculation: 3 VMs * $0.096/hour = $0.288/hour
+            assert summary.total_cost_savings == pytest.approx(0.288, rel=0.01)
 
     def test_stop_vms_mixed_success_cost_calculation(self, mock_vm_info):
         """Test cost calculation with mixed success/failure."""
@@ -311,8 +311,8 @@ class TestVMLifecycleController:
             assert summary.succeeded == 2
             assert summary.failed == 1
 
-                # Only 2 successful VMs contribute to cost savings: 2 * $0.096 = $0.192
-                assert summary.total_cost_savings == pytest.approx(0.192, rel=0.01)
+            # Only 2 successful VMs contribute to cost savings: 2 * $0.096 = $0.192
+            assert summary.total_cost_savings == pytest.approx(0.192, rel=0.01)
 
     def test_stop_vms_no_cost_impact(self):
         """Test cost calculation when VMs have no cost impact string."""
@@ -371,12 +371,12 @@ class TestVMLifecycleController:
 
             summary = VMLifecycleController.start_vms("test-rg", all_vms=True)
 
-                    assert summary.total == 2
-                    assert summary.succeeded == 2
-                    assert summary.failed == 0
-                    assert summary.operation == "start"
-                    # Start operations don't calculate cost savings
-                    assert summary.total_cost_savings == 0.0
+            assert summary.total == 2
+            assert summary.succeeded == 2
+            assert summary.failed == 0
+            assert summary.operation == "start"
+            # Start operations don't calculate cost savings
+            assert summary.total_cost_savings == 0.0
 
     def test_get_vm_details_not_found(self):
         """Test getting details for non-existent VM."""
