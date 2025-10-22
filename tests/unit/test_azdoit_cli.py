@@ -270,6 +270,11 @@ class TestSharedImplementation:
         # Test azdoit
         result1 = runner.invoke(cli.azdoit_main, ["list all my vms", "--yes"])
 
+        # Both should succeed
+        assert result1.exit_code == 0
+        # First command should have called parse
+        assert mock_parser_instance.parse.call_count == 1
+
         # Reset mocks
         mock_parser_instance.reset_mock()
         mock_executor_instance.reset_mock()
@@ -278,12 +283,11 @@ class TestSharedImplementation:
         # Test azlin do
         result2 = runner.invoke(main, ["do", "list all my vms", "--yes"])
 
-        # Both should succeed
-        assert result1.exit_code == 0
+        # Should also succeed
         assert result2.exit_code == 0
 
-        # Both should parse the request
-        assert mock_parser_instance.parse.call_count == 2
+        # Second command should also have called parse
+        assert mock_parser_instance.parse.call_count == 1
 
 
 class TestBackwardCompatibility:
@@ -438,14 +442,12 @@ class TestErrorHandling:
 
         RED PHASE: This will fail - azdoit_main doesn't exist yet.
         """
-        from azlin.agentic.exceptions import IntentParseError
-
         from azlin import cli
 
         mock_getenv.return_value = "test-api-key"
         mock_parser_instance = MagicMock()
         mock_parser.return_value = mock_parser_instance
-        mock_parser_instance.parse.side_effect = IntentParseError("Failed to parse")
+        mock_parser_instance.parse.side_effect = cli.IntentParseError("Failed to parse")
 
         runner = CliRunner()
         result = runner.invoke(cli.azdoit_main, ["invalid gibberish request", "--yes"])
@@ -462,8 +464,6 @@ class TestErrorHandling:
 
         RED PHASE: This will fail - azdoit_main doesn't exist yet.
         """
-        from azlin.agentic.exceptions import CommandExecutionError
-
         from azlin import cli
 
         mock_getenv.return_value = "test-api-key"
@@ -477,7 +477,9 @@ class TestErrorHandling:
 
         mock_executor_instance = MagicMock()
         mock_executor.return_value = mock_executor_instance
-        mock_executor_instance.execute_plan.side_effect = CommandExecutionError("Execution failed")
+        mock_executor_instance.execute_plan.side_effect = cli.CommandExecutionError(
+            "Execution failed"
+        )
 
         runner = CliRunner()
         result = runner.invoke(cli.azdoit_main, ["list my vms", "--yes"])
