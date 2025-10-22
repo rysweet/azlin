@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Dict, List, Optional
 
 try:
     from .display import (
@@ -88,7 +89,7 @@ try:
     )
 except ImportError:
     # Fallback security functions if security module not available
-    def sanitize_messages(messages: list[dict]) -> list[dict]:
+    def sanitize_messages(messages: List[Dict]) -> List[Dict]:
         """Fallback sanitizer."""
         return [
             {
@@ -118,7 +119,7 @@ def is_reflection_enabled() -> bool:
     return os.environ.get("REFLECTION_ENABLED", "true").lower() not in ["false", "0", "no", "off"]
 
 
-def analyze_session_patterns(messages: list[dict]) -> list[dict]:
+def analyze_session_patterns(messages: List[Dict]) -> List[Dict]:
     """Analyze session for improvement patterns with specific error analysis."""
     import time
 
@@ -219,7 +220,7 @@ def analyze_session_patterns(messages: list[dict]) -> list[dict]:
     return patterns
 
 
-def create_github_issue(pattern: dict) -> str | None:
+def create_github_issue(pattern: Dict) -> Optional[str]:
     """Create GitHub issue for improvement pattern with duplicate detection.
 
     Returns issue URL on success, None on failure or skip.
@@ -365,7 +366,7 @@ This improvement was identified by AI analysis. Please review and implement as a
         return None
 
 
-def delegate_to_ultrathink(issue_number: str, pattern: dict) -> bool:
+def delegate_to_ultrathink(issue_number: str, pattern: Dict) -> bool:
     """Delegate issue to UltraThink for automated fix."""
     try:
         task = f"Fix GitHub issue #{issue_number}: {pattern['suggestion']}"
@@ -383,7 +384,7 @@ def delegate_to_ultrathink(issue_number: str, pattern: dict) -> bool:
         return False
 
 
-def process_reflection_analysis(messages: list[dict]) -> str | None:
+def process_reflection_analysis(messages: List[Dict]) -> Optional[str]:
     """Main reflection analysis entry point with user visibility."""
 
     if not is_reflection_enabled():
@@ -403,7 +404,7 @@ def process_reflection_analysis(messages: list[dict]) -> str | None:
         patterns = analyze_session_patterns(messages)
 
         # Show discovered patterns
-        for _i, pattern in enumerate(patterns, 1):
+        for i, pattern in enumerate(patterns, 1):
             show_pattern_found(pattern["type"], pattern["suggestion"], pattern["priority"])
 
         # Create issue for highest priority pattern
