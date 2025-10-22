@@ -3,7 +3,6 @@
 
 import subprocess
 from pathlib import Path
-from typing import List
 
 
 def validate_log_path(log_path: str, base_dir: str = ".claude-trace") -> str:
@@ -50,7 +49,7 @@ def validate_log_path(log_path: str, base_dir: str = ".claude-trace") -> str:
         raise ValueError(f"Invalid log path {log_path}: {e}") from e
 
 
-def find_unprocessed_logs(trace_dir: str) -> List[str]:
+def find_unprocessed_logs(trace_dir: str) -> list[str]:
     """Find unprocessed log files with security validation.
 
     Security: All returned paths are validated to prevent path traversal
@@ -60,7 +59,9 @@ def find_unprocessed_logs(trace_dir: str) -> List[str]:
     if not trace_path.exists():
         return []
 
-    unvalidated = [str(f) for f in trace_path.glob("*.jsonl") if f.parent.name != "already_processed"]
+    unvalidated = [
+        str(f) for f in trace_path.glob("*.jsonl") if f.parent.name != "already_processed"
+    ]
 
     # Security: Validate all paths before returning
     validated = []
@@ -74,7 +75,7 @@ def find_unprocessed_logs(trace_dir: str) -> List[str]:
     return validated
 
 
-def build_analysis_prompt(log_files: List[str]) -> str:
+def build_analysis_prompt(log_files: list[str]) -> str:
     logs_list = "\n".join(log_files)
     return f"""/ultrathink: Please very carefully analyze all of these logs:
 {logs_list}
