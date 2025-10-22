@@ -436,8 +436,8 @@ except Exception as e:
 
             return result.stdout
 
-        except subprocess.TimeoutExpired:
-            raise EnvManagerError("SSH command timed out")
+        except subprocess.TimeoutExpired as e:
+            raise EnvManagerError("SSH command timed out") from e
         except Exception as e:
             raise EnvManagerError(f"Failed to read ~/.bashrc: {e}") from e
 
@@ -516,8 +516,8 @@ except Exception as e:
             if "OK" not in result.stdout:
                 raise EnvManagerError("Write operation did not complete successfully")
 
-        except subprocess.TimeoutExpired:
-            raise EnvManagerError("SSH command timed out")
+        except subprocess.TimeoutExpired as e:
+            raise EnvManagerError("SSH command timed out") from e
         except Exception as e:
             raise EnvManagerError(f"Failed to write ~/.bashrc: {e}") from e
 
