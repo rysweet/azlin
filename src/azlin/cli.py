@@ -3971,14 +3971,7 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
         sys.exit(1)
 
 
-@main.command()
-@click.argument("request", type=str)
-@click.option("--dry-run", is_flag=True, help="Show execution plan without running commands")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
-def do(  # noqa: C901
+def _do_impl(  # noqa: C901
     request: str,
     dry_run: bool,
     yes: bool,
@@ -3986,80 +3979,21 @@ def do(  # noqa: C901
     config: str | None,
     verbose: bool,
 ):
-    """Execute natural language azlin commands using AI.
+    """Shared implementation for natural language command execution.
 
-    The 'do' command understands natural language and automatically translates
-    your requests into the appropriate azlin commands. Just describe what you
-    want in plain English.
+    This function contains the core logic used by both 'azlin do' and 'azdoit'
+    commands to parse and execute natural language requests.
 
-    \b
-    Quick Start:
-        1. Set API key: export ANTHROPIC_API_KEY=your-key-here
-        2. Get key from: https://console.anthropic.com/
-        3. Try: azlin do "list all my vms"
+    Args:
+        request: Natural language request describing desired action
+        dry_run: If True, show execution plan without running commands
+        yes: If True, skip confirmation prompts
+        resource_group: Azure resource group name (optional)
+        config: Path to config file (optional)
+        verbose: If True, show detailed execution information
 
-    \b
-    VM Management Examples:
-        azlin do "create a new vm called Sam"
-        azlin do "show me all my vms"
-        azlin do "what is the status of my vms"
-        azlin do "start my development vm"
-        azlin do "stop all test vms"
-
-    \b
-    Cost & Monitoring:
-        azlin do "what are my azure costs"
-        azlin do "show me costs by vm"
-        azlin do "what's my spending this month"
-
-    \b
-    File Operations:
-        azlin do "sync all my vms"
-        azlin do "sync my home directory to vm Sam"
-        azlin do "copy myproject to the vm"
-
-    \b
-    Resource Cleanup:
-        azlin do "delete vm called test-123" --dry-run  # Preview first
-        azlin do "delete all test vms"                   # Then execute
-        azlin do "stop idle vms to save costs"
-
-    \b
-    Complex Operations:
-        azlin do "create 5 test vms and sync them all"
-        azlin do "set up a new development environment"
-        azlin do "show costs and stop any idle vms"
-
-    \b
-    Options:
-        --dry-run      Preview actions without executing anything
-        --yes, -y      Skip confirmation prompts (for automation)
-        --verbose, -v  Show detailed parsing and confidence scores
-        --rg NAME      Specify Azure resource group
-
-    \b
-    Safety Features:
-        - Shows plan and asks for confirmation (unless --yes)
-        - High accuracy: 95-100% confidence on VM operations
-        - Graceful error handling for invalid requests
-        - Dry-run mode to preview without executing
-
-    \b
-    Error Handling:
-        - Invalid requests (0% confidence): No commands executed
-        - Ambiguous requests (low confidence): Asks for confirmation
-        - Always shows what will be executed before running
-
-    \b
-    Requirements:
-        - ANTHROPIC_API_KEY environment variable (get from console.anthropic.com)
-        - Azure CLI authenticated (az login)
-        - Active Azure subscription
-
-    \b
-    For More Examples:
-        See docs/AZDOIT.md for 50+ examples and comprehensive guide
-        Integration tested: 7/7 tests passing with real Azure resources
+    Raises:
+        SystemExit: On various error conditions with appropriate exit codes
     """
     try:
         # Check for API key
@@ -4174,6 +4108,99 @@ def do(  # noqa: C901
     except KeyboardInterrupt:
         click.echo("\n\nCancelled by user.")
         sys.exit(130)
+
+
+@main.command()
+@click.argument("request", type=str)
+@click.option("--dry-run", is_flag=True, help="Show execution plan without running commands")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
+def do(
+    request: str,
+    dry_run: bool,
+    yes: bool,
+    resource_group: str | None,
+    config: str | None,
+    verbose: bool,
+):
+    """Execute natural language azlin commands using AI.
+
+    The 'do' command understands natural language and automatically translates
+    your requests into the appropriate azlin commands. Just describe what you
+    want in plain English.
+
+    \b
+    Quick Start:
+        1. Set API key: export ANTHROPIC_API_KEY=your-key-here
+        2. Get key from: https://console.anthropic.com/
+        3. Try: azlin do "list all my vms"
+
+    \b
+    VM Management Examples:
+        azlin do "create a new vm called Sam"
+        azlin do "show me all my vms"
+        azlin do "what is the status of my vms"
+        azlin do "start my development vm"
+        azlin do "stop all test vms"
+
+    \b
+    Cost & Monitoring:
+        azlin do "what are my azure costs"
+        azlin do "show me costs by vm"
+        azlin do "what's my spending this month"
+
+    \b
+    File Operations:
+        azlin do "sync all my vms"
+        azlin do "sync my home directory to vm Sam"
+        azlin do "copy myproject to the vm"
+
+    \b
+    Resource Cleanup:
+        azlin do "delete vm called test-123" --dry-run  # Preview first
+        azlin do "delete all test vms"                   # Then execute
+        azlin do "stop idle vms to save costs"
+
+    \b
+    Complex Operations:
+        azlin do "create 5 test vms and sync them all"
+        azlin do "set up a new development environment"
+        azlin do "show costs and stop any idle vms"
+
+    \b
+    Options:
+        --dry-run      Preview actions without executing anything
+        --yes, -y      Skip confirmation prompts (for automation)
+        --verbose, -v  Show detailed parsing and confidence scores
+        --rg NAME      Specify Azure resource group
+
+    \b
+    Safety Features:
+        - Shows plan and asks for confirmation (unless --yes)
+        - High accuracy: 95-100% confidence on VM operations
+        - Graceful error handling for invalid requests
+        - Dry-run mode to preview without executing
+
+    \b
+    Error Handling:
+        - Invalid requests (0% confidence): No commands executed
+        - Ambiguous requests (low confidence): Asks for confirmation
+        - Always shows what will be executed before running
+
+    \b
+    Requirements:
+        - ANTHROPIC_API_KEY environment variable (get from console.anthropic.com)
+        - Azure CLI authenticated (az login)
+        - Active Azure subscription
+
+    \b
+    For More Examples:
+        See docs/AZDOIT.md for 50+ examples and comprehensive guide
+        Integration tested: 7/7 tests passing with real Azure resources
+    """
+    _do_impl(request, dry_run, yes, resource_group, config, verbose)
 
 
 @main.command()
@@ -6333,8 +6360,101 @@ def _get_ssh_config_for_vm(
     return SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
 
 
+@click.command()
+@click.argument("request", type=str)
+@click.option("--dry-run", is_flag=True, help="Show execution plan without running commands")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
+def azdoit_main(
+    request: str,
+    dry_run: bool,
+    yes: bool,
+    resource_group: str | None,
+    config: str | None,
+    verbose: bool,
+):
+    """Execute natural language Azure commands using AI (standalone CLI).
+
+    azdoit is a standalone command that provides the same natural language
+    interface as 'azlin do', allowing you to describe what you want in plain
+    English and have it automatically translated into Azure CLI commands.
+
+    \b
+    Quick Start:
+        1. Set API key: export ANTHROPIC_API_KEY=your-key-here
+        2. Get key from: https://console.anthropic.com/
+        3. Try: azdoit "list all my vms"
+
+    \b
+    VM Management Examples:
+        azdoit "create a new vm called Sam"
+        azdoit "show me all my vms"
+        azdoit "what is the status of my vms"
+        azdoit "start my development vm"
+        azdoit "stop all test vms"
+
+    \b
+    Cost & Monitoring:
+        azdoit "what are my azure costs"
+        azdoit "show me costs by vm"
+        azdoit "what's my spending this month"
+
+    \b
+    File Operations:
+        azdoit "sync all my vms"
+        azdoit "sync my home directory to vm Sam"
+        azdoit "copy myproject to the vm"
+
+    \b
+    Resource Cleanup:
+        azdoit "delete vm called test-123" --dry-run  # Preview first
+        azdoit "delete all test vms"                   # Then execute
+        azdoit "stop idle vms to save costs"
+
+    \b
+    Complex Operations:
+        azdoit "create 5 test vms and sync them all"
+        azdoit "set up a new development environment"
+        azdoit "show costs and stop any idle vms"
+
+    \b
+    Options:
+        --dry-run      Preview actions without executing anything
+        --yes, -y      Skip confirmation prompts (for automation)
+        --verbose, -v  Show detailed parsing and confidence scores
+        --rg NAME      Specify Azure resource group
+
+    \b
+    Safety Features:
+        - Shows plan and asks for confirmation (unless --yes)
+        - High accuracy: 95-100% confidence on VM operations
+        - Graceful error handling for invalid requests
+        - Dry-run mode to preview without executing
+
+    \b
+    Error Handling:
+        - Invalid requests (0% confidence): No commands executed
+        - Ambiguous requests (low confidence): Asks for confirmation
+        - Always shows what will be executed before running
+
+    \b
+    Requirements:
+        - ANTHROPIC_API_KEY environment variable (get from console.anthropic.com)
+        - Azure CLI authenticated (az login)
+        - Active Azure subscription
+
+    \b
+    For More Examples:
+        See docs/AZDOIT.md for 50+ examples and comprehensive guide
+        Integration tested: 7/7 tests passing with real Azure resources
+    """
+    _do_impl(request, dry_run, yes, resource_group, config, verbose)
+
+
 if __name__ == "__main__":
     main()
 
 
-__all__ = ["AzlinError", "CLIOrchestrator", "main"]
+__all__ = ["AzlinError", "CLIOrchestrator", "azdoit_main", "main"]

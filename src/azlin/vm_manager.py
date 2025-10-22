@@ -89,7 +89,16 @@ class VMManager:
         """
         try:
             # List VMs with show-details to get power state for top/w commands
-            cmd = ["az", "vm", "list", "--resource-group", resource_group, "--show-details", "--output", "json"]
+            cmd = [
+                "az",
+                "vm",
+                "list",
+                "--resource-group",
+                resource_group,
+                "--show-details",
+                "--output",
+                "json",
+            ]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=30, check=True
