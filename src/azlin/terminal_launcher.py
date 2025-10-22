@@ -144,9 +144,7 @@ class TerminalConfig:
 
         # Validate key path exists
         if not self.ssh_key_path.exists():
-            raise SecurityValidationError(
-                f"SSH key not found: {self.ssh_key_path}"
-            )
+            raise SecurityValidationError(f"SSH key not found: {self.ssh_key_path}")
 
 
 class TerminalLauncher:
@@ -260,7 +258,7 @@ class TerminalLauncher:
                 # Use argument list - gnome-terminal requires -- before command
                 # Pass ssh command arguments directly
                 subprocess.Popen(
-                    ["gnome-terminal", "--title", title, "--"] + ssh_cmd,
+                    ["gnome-terminal", "--title", title, "--", *ssh_cmd],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
@@ -421,8 +419,8 @@ class TerminalLauncher:
 
 
 __all__ = [
+    "SecurityValidationError",
     "TerminalConfig",
     "TerminalLauncher",
     "TerminalLauncherError",
-    "SecurityValidationError",
 ]

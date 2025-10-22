@@ -4,7 +4,6 @@ Tests for SEC-001: Command Injection Prevention
 Verifies that all subprocess calls use argument lists and input validation.
 """
 
-import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -76,8 +75,10 @@ class TestInputValidation:
                     ssh_user="testuser",
                     ssh_key_path=temp_ssh_key,
                 )
-            assert "dangerous character" in str(exc_info.value).lower() or \
-                   "disallowed characters" in str(exc_info.value).lower()
+            assert (
+                "dangerous character" in str(exc_info.value).lower()
+                or "disallowed characters" in str(exc_info.value).lower()
+            )
 
     def test_invalid_hostname_empty(self, temp_ssh_key):
         """Test that empty hostnames are rejected."""
@@ -283,25 +284,23 @@ class TestSubprocessSafety:
         mock_run.return_value = MagicMock(returncode=0)
 
         # This should fail at validation, before subprocess.run is called
-        with pytest.raises(SecurityValidationError):
-            config = TerminalConfig(
+        with pytest.raises(SecurityValidationError) as exc_info:
+            TerminalConfig(
                 ssh_host="example.com; rm -rf /",
                 ssh_user="testuser",
                 ssh_key_path=temp_ssh_key,
             )
-            TerminalLauncher._fallback_inline_ssh(config)
+
+        # Ensure it failed during hostname validation
+        assert "disallowed characters" in str(exc_info.value).lower()
 
         # Verify subprocess.run was NOT called
         assert not mock_run.called
 
     @patch("subprocess.Popen")
-    def test_launch_linux_gnome_terminal_uses_argument_list(
-        self, mock_popen, temp_ssh_key
-    ):
+    def test_launch_linux_gnome_terminal_uses_argument_list(self, mock_popen, temp_ssh_key):
         """Test that Linux gnome-terminal launch uses argument list."""
-        with patch.object(
-            TerminalLauncher, "_has_command", return_value=True
-        ):
+        with patch.object(TerminalLauncher, "_has_command", return_value=True):
             config = TerminalConfig(
                 ssh_host="example.com",
                 ssh_user="testuser",
