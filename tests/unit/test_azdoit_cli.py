@@ -522,20 +522,25 @@ class TestPyprojectConfiguration:
 
         RED PHASE: This will fail - azdoit not in pyproject.toml yet.
         """
-        # Import real tomli by temporarily removing mock
-        import importlib
+        # Use tomllib (Python 3.11+) or tomli
+        try:
+            import tomllib
+        except ImportError:
+            # Import real tomli by temporarily removing mock
+            import importlib
 
-        mock_tomli = sys.modules.get("tomli")
-        if mock_tomli and isinstance(mock_tomli, MagicMock):
-            del sys.modules["tomli"]
-        tomli = importlib.import_module("tomli")
-        if mock_tomli:
-            sys.modules["tomli"] = mock_tomli
+            mock_tomli = sys.modules.get("tomli")
+            if mock_tomli and isinstance(mock_tomli, MagicMock):
+                del sys.modules["tomli"]
+            tomli = importlib.import_module("tomli")
+            if mock_tomli:
+                sys.modules["tomli"] = mock_tomli
+            tomllib = tomli
 
         # Find pyproject.toml relative to this test file
         pyproject_path = Path(__file__).parents[2] / "pyproject.toml"
         with open(pyproject_path, "rb") as f:
-            config = tomli.load(f)
+            config = tomllib.load(f)
 
         scripts = config.get("project", {}).get("scripts", {})
 
@@ -552,20 +557,25 @@ class TestPyprojectConfiguration:
 
         GREEN PHASE: This should pass - azlin already exists.
         """
-        # Import real tomli by temporarily removing mock
-        import importlib
+        # Use tomllib (Python 3.11+) or tomli
+        try:
+            import tomllib
+        except ImportError:
+            # Import real tomli by temporarily removing mock
+            import importlib
 
-        mock_tomli = sys.modules.get("tomli")
-        if mock_tomli and isinstance(mock_tomli, MagicMock):
-            del sys.modules["tomli"]
-        tomli = importlib.import_module("tomli")
-        if mock_tomli:
-            sys.modules["tomli"] = mock_tomli
+            mock_tomli = sys.modules.get("tomli")
+            if mock_tomli and isinstance(mock_tomli, MagicMock):
+                del sys.modules["tomli"]
+            tomli = importlib.import_module("tomli")
+            if mock_tomli:
+                sys.modules["tomli"] = mock_tomli
+            tomllib = tomli
 
         # Find pyproject.toml relative to this test file
         pyproject_path = Path(__file__).parents[2] / "pyproject.toml"
         with open(pyproject_path, "rb") as f:
-            config = tomli.load(f)
+            config = tomllib.load(f)
 
         scripts = config.get("project", {}).get("scripts", {})
 
