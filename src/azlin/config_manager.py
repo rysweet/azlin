@@ -380,6 +380,53 @@ class ConfigManager:
         return config.default_vm_size
 
     @classmethod
+    def _validate_session_mapping(
+        cls, vm_name: str, session_name: str, existing_mappings: dict[str, str]
+    ) -> None:
+        """Validate session name mapping rules.
+
+        Args:
+            vm_name: VM name
+            session_name: Session name to set
+            existing_mappings: Existing session name mappings (excluding the one being set)
+
+        Raises:
+            ConfigError: If validation fails
+
+        Validation Rules:
+            1. No self-referential mappings (vm_name == session_name)
+            2. No duplicate session names (session_name already maps to different VM)
+            3. Azure naming rules (1-64 chars, alphanumeric + hyphen/underscore)
+        """
+        # Rule 1: No self-referential mappings
+        if vm_name == session_name:
+            raise ConfigError(
+                f"Self-referential session name not allowed: {vm_name} -> {session_name}\n"
+                f"Session name must be different from VM name to avoid connection ambiguity."
+            )
+
+        # Rule 2: No duplicate session names
+        for existing_vm, existing_session in existing_mappings.items():
+            if existing_session == session_name and existing_vm != vm_name:
+                raise ConfigError(
+                    f"Duplicate session name '{session_name}' already maps to VM '{existing_vm}'\n"
+                    f"Cannot map '{vm_name}' -> '{session_name}' because session name must be unique."
+                )
+
+        # Rule 3: Azure naming rules (alphanumeric + hyphen/underscore, 1-64 chars)
+        if not session_name or not re.match(r"^[a-zA-Z0-9_-]{1,64}$", session_name):
+            raise ConfigError(
+                f"Invalid session name format: {session_name}\n"
+                f"Session names must be 1-64 characters: alphanumeric, hyphen, or underscore."
+            )
+
+        if not vm_name or not re.match(r"^[a-zA-Z0-9_-]{1,64}$", vm_name):
+            raise ConfigError(
+                f"Invalid VM name format: {vm_name}\n"
+                f"VM names must be 1-64 characters: alphanumeric, hyphen, or underscore."
+            )
+
+    @classmethod
     def set_session_name(
         cls, vm_name: str, session_name: str, custom_path: str | None = None
     ) -> None:
@@ -391,7 +438,7 @@ class ConfigManager:
             custom_path: Custom config file path (optional)
 
         Raises:
-            ConfigError: If update fails
+            ConfigError: If validation fails or update fails
         """
         try:
             config = cls.load_config(custom_path)
@@ -401,6 +448,12 @@ class ConfigManager:
 
         if config.session_names is None:
             config.session_names = {}
+
+        # Get existing mappings (excluding the one we're about to set)
+        existing_mappings = {k: v for k, v in config.session_names.items() if k != vm_name}
+
+        # Validate before saving
+        cls._validate_session_mapping(vm_name, session_name, existing_mappings)
 
         config.session_names[vm_name] = session_name
         cls.save_config(config, custom_path)
@@ -466,14 +519,39 @@ class ConfigManager:
 
         Returns:
             VM name or None if not found
+
+        Note:
+            Filters out self-referential entries (vm_name == session_name)
+            and warns on duplicate session names pointing to different VMs.
         """
         try:
             config = cls.load_config(custom_path)
             if config.session_names:
+                # Track matches for duplicate detection
+                matches = []
+
                 # Reverse lookup: find VM name for this session name
                 for vm_name, sess_name in config.session_names.items():
+                    # Skip self-referential entries (invalid mappings)
+                    if vm_name == sess_name:
+                        logger.warning(
+                            f"Ignoring invalid self-referential session mapping: {vm_name} -> {sess_name}"
+                        )
+                        continue
+
                     if sess_name == session_name:
-                        return vm_name
+                        matches.append(vm_name)
+
+                # Warn on duplicates
+                if len(matches) > 1:
+                    logger.warning(
+                        f"Duplicate session name '{session_name}' maps to multiple VMs: {matches}\n"
+                        f"Using first match: {matches[0]}"
+                    )
+                    return matches[0]
+                if len(matches) == 1:
+                    return matches[0]
+
         except ConfigError:
             pass
         return None
