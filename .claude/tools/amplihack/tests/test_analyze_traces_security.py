@@ -1,6 +1,5 @@
 """Security-focused tests for analyze_traces.py."""
 
-from pathlib import Path
 from typing import Any
 
 import pytest

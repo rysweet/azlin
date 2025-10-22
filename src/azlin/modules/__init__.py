@@ -12,6 +12,16 @@ Each module is a self-contained component with clear contracts:
 - Notification Handler: Send optional notifications
 """
 
+from . import (
+    github_setup,
+    notifications,
+    npm_config,
+    prerequisites,
+    progress,
+    ssh_connector,
+    ssh_keys,
+)
+
 __all__ = [
     "github_setup",
     "notifications",

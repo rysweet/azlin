@@ -23,6 +23,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
+    "anthropic>=0.40.0",
     "click>=8.1.0",
     "pyyaml>=6.0.0",
     "rich>=13.7.0",
@@ -134,6 +135,12 @@ max-complexity = 15
 ]
 "src/azlin/vm_provisioning.py" = [
     "S608",   # False positive: cloud-init YAML, not SQL
+]
+"src/azlin/agentic/strategies/base_strategy.py" = [
+    "B027",   # Empty method in ABC - intentionally optional to override
+]
+"src/azlin/cli.py" = [
+    "S602",   # subprocess shell=True needed for diagnostic command piping - input is trusted
 ]
 
 [tool.bandit]

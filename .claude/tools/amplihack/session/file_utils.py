@@ -7,10 +7,11 @@ import os
 import shutil
 import tempfile
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -140,11 +141,11 @@ def get_file_checksum(file_path: Path, algorithm: str = "md5") -> str:
 
 @retry_file_operation(max_retries=3, delay=0.1)
 def safe_read_file(
-    file_path: Union[str, Path],
+    file_path: str | Path,
     encoding: str = "utf-8",
     verify_checksum: bool = False,
-    expected_checksum: Optional[str] = None,
-) -> Optional[str]:
+    expected_checksum: str | None = None,
+) -> str | None:
     """Safely read file with error handling and optional integrity check.
 
     Args:
@@ -187,7 +188,7 @@ def safe_read_file(
 
 @retry_file_operation(max_retries=3, delay=0.1)
 def safe_write_file(
-    file_path: Union[str, Path],
+    file_path: str | Path,
     content: str,
     encoding: str = "utf-8",
     mode: str = "w",
@@ -266,7 +267,7 @@ def safe_write_file(
 
 @retry_file_operation(max_retries=3, delay=0.1)
 def safe_read_json(
-    file_path: Union[str, Path], default: Any = None, validate_schema: Optional[Callable] = None
+    file_path: str | Path, default: Any = None, validate_schema: Callable | None = None
 ) -> Any:
     """Safely read JSON file with validation.
 
@@ -306,7 +307,7 @@ def safe_read_json(
 
 @retry_file_operation(max_retries=3, delay=0.1)
 def safe_write_json(
-    file_path: Union[str, Path],
+    file_path: str | Path,
     data: Any,
     indent: int = 2,
     sort_keys: bool = True,
@@ -346,8 +347,8 @@ def safe_write_json(
 
 
 def safe_copy_file(
-    src_path: Union[str, Path],
-    dst_path: Union[str, Path],
+    src_path: str | Path,
+    dst_path: str | Path,
     verify_copy: bool = True,
     preserve_metadata: bool = True,
 ) -> bool:
@@ -395,9 +396,7 @@ def safe_copy_file(
         return False
 
 
-def safe_move_file(
-    src_path: Union[str, Path], dst_path: Union[str, Path], verify_move: bool = True
-) -> bool:
+def safe_move_file(src_path: str | Path, dst_path: str | Path, verify_move: bool = True) -> bool:
     """Safely move file with verification.
 
     Args:
@@ -440,7 +439,7 @@ def safe_move_file(
 
 
 def cleanup_temp_files(
-    temp_dir: Union[str, Path], max_age_hours: float = 24.0, pattern: str = "*.tmp"
+    temp_dir: str | Path, max_age_hours: float = 24.0, pattern: str = "*.tmp"
 ) -> int:
     """Clean up temporary files older than specified age.
 
@@ -486,17 +485,17 @@ class BatchFileOperations:
         Args:
             verify_all: Verify all operations in batch
         """
-        self.operations: List[Dict[str, Any]] = []
+        self.operations: list[dict[str, Any]] = []
         self.verify_all = verify_all
-        self.results: List[bool] = []
+        self.results: list[bool] = []
 
-    def add_write(self, file_path: Union[str, Path], content: str, **kwargs) -> None:
+    def add_write(self, file_path: str | Path, content: str, **kwargs) -> None:
         """Add write operation to batch."""
         self.operations.append(
             {"type": "write", "file_path": Path(file_path), "content": content, "kwargs": kwargs}
         )
 
-    def add_copy(self, src_path: Union[str, Path], dst_path: Union[str, Path], **kwargs) -> None:
+    def add_copy(self, src_path: str | Path, dst_path: str | Path, **kwargs) -> None:
         """Add copy operation to batch."""
         self.operations.append(
             {
@@ -507,7 +506,7 @@ class BatchFileOperations:
             }
         )
 
-    def add_move(self, src_path: Union[str, Path], dst_path: Union[str, Path], **kwargs) -> None:
+    def add_move(self, src_path: str | Path, dst_path: str | Path, **kwargs) -> None:
         """Add move operation to batch."""
         self.operations.append(
             {
@@ -518,7 +517,7 @@ class BatchFileOperations:
             }
         )
 
-    def execute(self) -> List[bool]:
+    def execute(self) -> list[bool]:
         """Execute all operations in batch.
 
         Returns:
