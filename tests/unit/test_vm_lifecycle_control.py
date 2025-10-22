@@ -3,6 +3,7 @@
 Tests cover:
 - Stop/start single VMs
 - Batch stop/start operations
+
 - Cost calculation and tracking
 - Error handling
 - Edge cases
@@ -181,7 +182,6 @@ class TestVMLifecycleController:
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0)
-
             result = VMLifecycleController.stop_vm("test-vm", "test-rg")
 
             assert result.success is True
@@ -219,7 +219,6 @@ class TestVMLifecycleController:
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0)
-
             result = VMLifecycleController.stop_vm("test-vm", "test-rg")
 
             assert result.success is True
@@ -272,7 +271,6 @@ class TestVMLifecycleController:
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0)
-
             summary = VMLifecycleController.stop_vms("test-rg", all_vms=True)
 
             # All 3 VMs succeeded
@@ -309,7 +307,6 @@ class TestVMLifecycleController:
             patch.object(VMLifecycleController, "stop_vm", side_effect=mock_stop_vm),
         ):
             summary = VMLifecycleController.stop_vms("test-rg", all_vms=True)
-
             assert summary.total == 3
             assert summary.succeeded == 2
             assert summary.failed == 1
@@ -336,7 +333,6 @@ class TestVMLifecycleController:
             patch.object(VMLifecycleController, "stop_vm", side_effect=mock_stop_vm),
         ):
             summary = VMLifecycleController.stop_vms("test-rg", all_vms=True, deallocate=False)
-
             assert summary.total == 1
             assert summary.succeeded == 1
             # No cost savings because deallocate=False
