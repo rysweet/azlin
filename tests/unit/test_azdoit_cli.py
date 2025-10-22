@@ -522,7 +522,15 @@ class TestPyprojectConfiguration:
 
         RED PHASE: This will fail - azdoit not in pyproject.toml yet.
         """
-        import tomli
+        # Import real tomli by temporarily removing mock
+        import importlib
+
+        mock_tomli = sys.modules.get("tomli")
+        if mock_tomli and isinstance(mock_tomli, MagicMock):
+            del sys.modules["tomli"]
+        tomli = importlib.import_module("tomli")
+        if mock_tomli:
+            sys.modules["tomli"] = mock_tomli
 
         # Find pyproject.toml relative to this test file
         pyproject_path = Path(__file__).parents[2] / "pyproject.toml"
@@ -544,7 +552,15 @@ class TestPyprojectConfiguration:
 
         GREEN PHASE: This should pass - azlin already exists.
         """
-        import tomli
+        # Import real tomli by temporarily removing mock
+        import importlib
+
+        mock_tomli = sys.modules.get("tomli")
+        if mock_tomli and isinstance(mock_tomli, MagicMock):
+            del sys.modules["tomli"]
+        tomli = importlib.import_module("tomli")
+        if mock_tomli:
+            sys.modules["tomli"] = mock_tomli
 
         # Find pyproject.toml relative to this test file
         pyproject_path = Path(__file__).parents[2] / "pyproject.toml"
