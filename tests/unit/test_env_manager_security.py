@@ -64,7 +64,7 @@ alias ll='ls -la'
                     if 'bashrc_path.read_text()' in input_script:
                         # Read operation
                         return MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
-                    elif 'base64.b64decode' in input_script:
+                    if 'base64.b64decode' in input_script:
                         # Write operation - verify malicious content is base64-encoded
                         # Extract the encoded content from the script
                         assert 'encoded_content = "' in input_script
@@ -93,7 +93,7 @@ alias ll='ls -la'
                     input_script = kwargs.get('input', '')
                     if 'bashrc_path.read_text()' in input_script:
                         return MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
-                    elif 'base64.b64decode' in input_script:
+                    if 'base64.b64decode' in input_script:
                         # Verify the malicious content is safely encoded
                         assert '$(rm -rf' not in args[0]  # Should not be in SSH args
                         return MagicMock(returncode=0, stdout="OK\n", stderr="")
@@ -124,7 +124,7 @@ alias ll='ls -la'
                         input_script = kwargs.get('input', '')
                         if 'bashrc_path.read_text()' in input_script:
                             return MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
-                        elif 'base64.b64decode' in input_script:
+                        if 'base64.b64decode' in input_script:
                             # Verify malicious characters are in base64, not in shell
                             for ssh_arg in args[0]:
                                 # Ensure the malicious value is not in the SSH command itself
@@ -158,7 +158,7 @@ alias ll='ls -la'
                         input_script = kwargs.get('input', '')
                         if 'bashrc_path.read_text()' in input_script:
                             return MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
-                        elif 'base64.b64decode' in input_script:
+                        if 'base64.b64decode' in input_script:
                             # Quotes should be inside base64-encoded content, not breaking out
                             return MagicMock(returncode=0, stdout="OK\n", stderr="")
                     return MagicMock(returncode=1, stdout="", stderr="error")
@@ -189,7 +189,7 @@ alias ll='ls -la'
                         input_script = kwargs.get('input', '')
                         if 'bashrc_path.read_text()' in input_script:
                             return MagicMock(returncode=0, stdout="", stderr="")
-                        elif 'base64.b64decode' in input_script:
+                        if 'base64.b64decode' in input_script:
                             # The script hardcodes the path, so traversal in content is harmless
                             assert 'home = Path.home()' in input_script
                             assert "temp_path = home / '.bashrc.tmp'" in input_script
@@ -288,7 +288,7 @@ alias ll='ls -la'
                     input_script = kwargs.get('input', '')
                     if 'bashrc_path.read_text()' in input_script:
                         return MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
-                    elif 'base64.b64decode' in input_script:
+                    if 'base64.b64decode' in input_script:
                         # Verify base64 encoding is used
                         assert 'encoded_content = "' in input_script
                         assert 'base64.b64decode(encoded_content)' in input_script
@@ -327,7 +327,7 @@ alias ll='ls -la'
                     input_script = kwargs.get('input', '')
                     if 'bashrc_path.read_text()' in input_script:
                         return MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
-                    elif 'base64.b64decode' in input_script:
+                    if 'base64.b64decode' in input_script:
                         return MagicMock(returncode=0, stdout="OK\n", stderr="")
                 return MagicMock(returncode=1, stdout="", stderr="error")
 
@@ -371,7 +371,7 @@ alias ll='ls -la'
                     input_script = kwargs.get('input', '')
                     if 'bashrc_path.read_text()' in input_script:
                         return MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
-                    elif 'base64.b64decode' in input_script:
+                    if 'base64.b64decode' in input_script:
                         return MagicMock(returncode=0, stdout="OK\n", stderr="")
                 return MagicMock(returncode=1, stdout="", stderr="error")
 

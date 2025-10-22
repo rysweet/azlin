@@ -19,7 +19,7 @@ import subprocess
 from pathlib import Path
 from typing import ClassVar
 
-from azlin.modules.ssh_connector import SSHConfig, SSHConnector
+from azlin.modules.ssh_connector import SSHConfig
 
 logger = logging.getLogger(__name__)
 

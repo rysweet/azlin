@@ -1,6 +1,5 @@
 """Unit tests for env_manager module."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,11 +26,10 @@ class TestEnvManager:
                 input_script = kwargs.get('input', '')
                 if 'bashrc_path.read_text()' in input_script:
                     return MagicMock(returncode=0, stdout=read_content, stderr="")
-                elif 'base64.b64decode' in input_script:
+                if 'base64.b64decode' in input_script:
                     if write_success:
                         return MagicMock(returncode=0, stdout="OK\n", stderr="")
-                    else:
-                        return MagicMock(returncode=1, stdout="", stderr="Write failed")
+                    return MagicMock(returncode=1, stdout="", stderr="Write failed")
             return MagicMock(returncode=1, stdout="", stderr="error")
         return run_side_effect
 
@@ -254,7 +252,7 @@ DATABASE_URL="value"
                     input_script = kwargs.get('input', '')
                     if 'bashrc_path.read_text()' in input_script:
                         return MagicMock(returncode=0, stdout=sample_bashrc_content, stderr="")
-                    elif 'base64.b64decode' in input_script:
+                    if 'base64.b64decode' in input_script:
                         # Extract and decode the content
                         import base64
                         import re
@@ -311,7 +309,7 @@ DATABASE_URL="value"
                     input_script = kwargs.get('input', '')
                     if 'bashrc_path.read_text()' in input_script:
                         return MagicMock(returncode=0, stdout=sample_bashrc_with_env, stderr="")
-                    elif 'base64.b64decode' in input_script:
+                    if 'base64.b64decode' in input_script:
                         # Extract and decode the content
                         import base64
                         import re
