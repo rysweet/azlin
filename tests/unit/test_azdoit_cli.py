@@ -19,7 +19,7 @@ Test Coverage:
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -51,10 +51,9 @@ for mod in mock_modules:
         sys.modules[mod] = MagicMock()
 
 # Now we can import - tests will use mocks and patches as needed
+# ruff: noqa: E402
 from click.testing import CliRunner
 
-# Import after mocking to avoid import errors
-import azlin.cli
 from azlin.cli import main
 
 
@@ -79,10 +78,8 @@ class TestAzdoitEntryPoint:
         from azlin import cli
 
         assert hasattr(cli, "azdoit_main")
-        # Click commands have a __click_params__ attribute
-        assert hasattr(
-            cli.azdoit_main, "__click_params__"
-        ), "azdoit_main should be a Click command"
+        # Click commands have a params attribute after @click.command() decoration
+        assert hasattr(cli.azdoit_main, "params"), "azdoit_main should be a Click command"
 
     def test_azdoit_main_accepts_request_argument(self):
         """Test that azdoit_main() accepts REQUEST argument.
@@ -162,8 +159,7 @@ class TestAzdoitCLIBasicUsage:
         assert "Usage:" in result.output or "usage:" in result.output.lower()
         # Should describe natural language capability
         assert (
-            "natural language" in result.output.lower()
-            or "plain english" in result.output.lower()
+            "natural language" in result.output.lower() or "plain english" in result.output.lower()
         )
 
     @patch("os.getenv")
@@ -210,7 +206,7 @@ class TestSharedImplementation:
         mock_do_impl.return_value = None
 
         runner = CliRunner()
-        result = runner.invoke(cli.azdoit_main, ["test request", "--yes", "--dry-run"])
+        _ = runner.invoke(cli.azdoit_main, ["test request", "--yes", "--dry-run"])
 
         # Should delegate to shared implementation
         assert mock_do_impl.called
@@ -228,7 +224,7 @@ class TestSharedImplementation:
         mock_do_impl.return_value = None
 
         runner = CliRunner()
-        result = runner.invoke(main, ["do", "test request", "--yes", "--dry-run"])
+        _ = runner.invoke(main, ["do", "test request", "--yes", "--dry-run"])
 
         # Should delegate to shared implementation
         assert mock_do_impl.called
@@ -442,8 +438,9 @@ class TestErrorHandling:
 
         RED PHASE: This will fail - azdoit_main doesn't exist yet.
         """
-        from azlin import cli
         from azlin.agentic.exceptions import IntentParseError
+
+        from azlin import cli
 
         mock_getenv.return_value = "test-api-key"
         mock_parser_instance = MagicMock()
@@ -465,8 +462,9 @@ class TestErrorHandling:
 
         RED PHASE: This will fail - azdoit_main doesn't exist yet.
         """
-        from azlin import cli
         from azlin.agentic.exceptions import CommandExecutionError
+
+        from azlin import cli
 
         mock_getenv.return_value = "test-api-key"
         mock_parser_instance = MagicMock()
@@ -533,9 +531,9 @@ class TestPyprojectConfiguration:
         assert "azdoit" in scripts, "azdoit script not found in pyproject.toml"
 
         # Check it points to the right entry point
-        assert (
-            scripts["azdoit"] == "azlin.cli:azdoit_main"
-        ), "azdoit should point to azlin.cli:azdoit_main"
+        assert scripts["azdoit"] == "azlin.cli:azdoit_main", (
+            "azdoit should point to azlin.cli:azdoit_main"
+        )
 
     def test_azlin_script_still_exists(self):
         """Test that azlin script still exists in pyproject.toml.
@@ -573,8 +571,7 @@ class TestDocumentation:
         assert "example" in result.output.lower()
         # Should mention natural language
         assert (
-            "natural language" in result.output.lower()
-            or "plain english" in result.output.lower()
+            "natural language" in result.output.lower() or "plain english" in result.output.lower()
         )
 
     @patch("os.getenv")

@@ -17,7 +17,6 @@ Test Coverage:
 """
 
 import ast
-import importlib.util
 from pathlib import Path
 
 import pytest
@@ -47,18 +46,18 @@ class TestAzdoitEntryPointExists:
 
         RED PHASE: This will fail - function doesn't exist yet.
         """
-        assert (
-            "azdoit_main" in function_names
-        ), "azdoit_main() entry point function not found in cli.py"
+        assert "azdoit_main" in function_names, (
+            "azdoit_main() entry point function not found in cli.py"
+        )
 
     def test_do_impl_shared_function_exists(self, function_names):
         """Test that _do_impl() shared function exists in cli.py.
 
         RED PHASE: This will fail - function doesn't exist yet.
         """
-        assert (
-            "_do_impl" in function_names
-        ), "_do_impl() shared implementation function not found in cli.py"
+        assert "_do_impl" in function_names, (
+            "_do_impl() shared implementation function not found in cli.py"
+        )
 
     def test_do_command_still_exists(self, function_names):
         """Test that do() command function still exists (backward compatibility).
@@ -92,9 +91,7 @@ class TestAzdoitFunctionSignatures:
     @pytest.fixture
     def function_definitions(self, cli_ast):
         """Extract function definitions from cli.py."""
-        return {
-            node.name: node for node in ast.walk(cli_ast) if isinstance(node, ast.FunctionDef)
-        }
+        return {node.name: node for node in ast.walk(cli_ast) if isinstance(node, ast.FunctionDef)}
 
     def test_azdoit_main_accepts_request_param(self, function_definitions):
         """Test that azdoit_main() accepts 'request' parameter.
@@ -123,9 +120,9 @@ class TestAzdoitFunctionSignatures:
         # Should have at least some standard parameters
         expected_params = ["request", "dry_run", "yes"]
         for param in expected_params:
-            assert (
-                param in param_names
-            ), f"azdoit_main() should accept '{param}' parameter like azlin do"
+            assert param in param_names, (
+                f"azdoit_main() should accept '{param}' parameter like azlin do"
+            )
 
     def test_do_impl_has_required_params(self, function_definitions):
         """Test that _do_impl() has required parameters for shared logic.
@@ -165,9 +162,9 @@ class TestPyprojectConfiguration:
         content = pyproject_path.read_text()
 
         # Should have azdoit in [project.scripts] section
-        assert (
-            "azdoit = " in content or 'azdoit = "' in content
-        ), "azdoit script entry not found in pyproject.toml"
+        assert "azdoit = " in content or 'azdoit = "' in content, (
+            "azdoit script entry not found in pyproject.toml"
+        )
 
     def test_azdoit_points_to_correct_entry_point(self, pyproject_path):
         """Test that azdoit points to azlin.cli:azdoit_main.
@@ -191,9 +188,9 @@ class TestPyprojectConfiguration:
 
         # azlin entry should still exist
         assert "azlin = " in content, "azlin script entry must remain in pyproject.toml"
-        assert (
-            'azlin = "azlin.cli:main"' in content or "azlin = 'azlin.cli:main'" in content
-        ), "azlin should still point to azlin.cli:main"
+        assert 'azlin = "azlin.cli:main"' in content or "azlin = 'azlin.cli:main'" in content, (
+            "azlin should still point to azlin.cli:main"
+        )
 
 
 class TestFunctionDecorators:
@@ -229,14 +226,14 @@ class TestFunctionDecorators:
         decorators_section = "\n".join(lines[max(0, azdoit_idx - 20) : azdoit_idx])
 
         # Should have click.command or @click.command()
-        assert (
-            "@click.command" in decorators_section or "@main.command" in decorators_section
-        ), "azdoit_main() should be a Click command"
+        assert "@click.command" in decorators_section or "@main.command" in decorators_section, (
+            "azdoit_main() should be a Click command"
+        )
 
         # Should have click.argument for REQUEST
-        assert (
-            "@click.argument" in decorators_section
-        ), "azdoit_main() should have @click.argument decorator for REQUEST"
+        assert "@click.argument" in decorators_section, (
+            "azdoit_main() should have @click.argument decorator for REQUEST"
+        )
 
     def test_azdoit_main_has_same_options_as_do(self, cli_source):
         """Test that azdoit_main() has similar options to do() command.
@@ -270,9 +267,9 @@ class TestFunctionDecorators:
 
         # Both should have --dry-run option
         if "--dry-run" in do_decorators:
-            assert (
-                "--dry-run" in azdoit_decorators
-            ), "azdoit_main() should have --dry-run option like do()"
+            assert "--dry-run" in azdoit_decorators, (
+                "azdoit_main() should have --dry-run option like do()"
+            )
 
         # Both should have --yes/-y option
         if "--yes" in do_decorators:
@@ -310,9 +307,9 @@ class TestCodeStructure:
         # Look for _do_impl call in next 200 lines (approximate function body)
         do_body = "\n".join(lines[do_idx : do_idx + 200])
 
-        assert (
-            "_do_impl(" in do_body
-        ), "do() command should call _do_impl() for shared implementation"
+        assert "_do_impl(" in do_body, (
+            "do() command should call _do_impl() for shared implementation"
+        )
 
     def test_azdoit_main_called_from_azdoit_main(self, cli_source):
         """Test that azdoit_main() calls _do_impl().
@@ -336,9 +333,9 @@ class TestCodeStructure:
         # Look for _do_impl call in next 200 lines
         azdoit_body = "\n".join(lines[azdoit_idx : azdoit_idx + 200])
 
-        assert (
-            "_do_impl(" in azdoit_body
-        ), "azdoit_main() should call _do_impl() for shared implementation"
+        assert "_do_impl(" in azdoit_body, (
+            "azdoit_main() should call _do_impl() for shared implementation"
+        )
 
     def test_code_deduplication(self, cli_source):
         """Test that implementation is not duplicated between do() and azdoit_main().
@@ -381,17 +378,13 @@ class TestCodeStructure:
         # If properly refactored, both should be relatively small (mostly just parameter handling)
         # This is a soft check - functions delegating to _do_impl should be < 30 lines
         if do_length > 0:
-            assert (
-                do_length < 50
-            ), "do() should be small if it delegates to _do_impl() (found {} lines)".format(
-                do_length
+            assert do_length < 50, (
+                f"do() should be small if it delegates to _do_impl() (found {do_length} lines)"
             )
 
         if azdoit_length > 0:
-            assert (
-                azdoit_length < 50
-            ), "azdoit_main() should be small if it delegates to _do_impl() (found {} lines)".format(
-                azdoit_length
+            assert azdoit_length < 50, (
+                f"azdoit_main() should be small if it delegates to _do_impl() (found {azdoit_length} lines)"
             )
 
 
@@ -419,7 +412,9 @@ class TestDocumentation:
             if "def azdoit_main(" in line:
                 # Check next few lines for docstring
                 next_lines = "\n".join(lines[i : i + 10])
-                assert '"""' in next_lines or "'''" in next_lines, "azdoit_main() should have a docstring"
+                assert '"""' in next_lines or "'''" in next_lines, (
+                    "azdoit_main() should have a docstring"
+                )
                 return
 
     def test_do_impl_has_docstring(self, cli_source):
@@ -436,7 +431,7 @@ class TestDocumentation:
             if "def _do_impl(" in line:
                 # Check next few lines for docstring
                 next_lines = "\n".join(lines[i : i + 10])
-                assert (
-                    '"""' in next_lines or "'''" in next_lines
-                ), "_do_impl() should have a docstring"
+                assert '"""' in next_lines or "'''" in next_lines, (
+                    "_do_impl() should have a docstring"
+                )
                 return
