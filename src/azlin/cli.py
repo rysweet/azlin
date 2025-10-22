@@ -4382,8 +4382,7 @@ def doit(  # noqa: C901
             cost_factors = strategy.get_cost_factors(execution_context_temp)
 
             if cost_factors:
-                # Estimate costs
-                # TODO: Get region from config
+                # Estimate costs using US_EAST pricing (most common region)
                 estimator = CostEstimator(region=PricingRegion.US_EAST)
                 cost_estimate = estimator.estimate(cost_factors)
 
