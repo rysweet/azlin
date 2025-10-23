@@ -1,3 +1,4 @@
+# ruff: noqa: SIM117, S105, S106
 """Unit tests for service principal authentication module.
 
 Test-Driven Development (TDD) approach - these tests are written BEFORE implementation.
@@ -142,7 +143,7 @@ class TestServicePrincipalManagerConfigLoading:
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
+auth_method = "client_secret"  # noqa: S105, S106
 
 [secrets]
 # Secrets are stored in environment variables, not in config file
@@ -220,7 +221,7 @@ client_id = "12345678-1234-1234-1234-123456789012"
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
+auth_method = "client_secret"  # noqa: S105, S106
 client_secret = "this-should-not-be-here"
 """
         )
@@ -241,7 +242,7 @@ class TestServicePrincipalManagerCredentialRetrieval:
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
+auth_method = "client_secret"  # noqa: S105, S106
 """
         )
         config_file.chmod(0o600)
@@ -291,7 +292,7 @@ certificate_path = "{cert_file}"
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
+auth_method = "client_secret"  # noqa: S105, S106
 """
         )
         config_file.chmod(0o600)
@@ -421,7 +422,7 @@ class TestServicePrincipalManagerSaveConfig:
 
         # Patch os.rename to verify it's called
         with patch("os.rename") as mock_rename:
-            with patch("pathlib.Path.write_text") as mock_write:
+            with patch("pathlib.Path.write_text") as _mock_write:
                 ServicePrincipalManager.save_config(config, str(config_file))
 
                 # Verify atomic write pattern
@@ -435,7 +436,7 @@ class TestServicePrincipalManagerValidation:
     """Test UUID and configuration validation."""
 
     @pytest.mark.parametrize(
-        "uuid_value,expected",
+        ("uuid_value", "expected"),
         [
             ("12345678-1234-1234-1234-123456789012", True),
             ("87654321-4321-4321-4321-210987654321", True),
@@ -523,7 +524,7 @@ certificate_path = "/path/to/cert.pem"
         config_file.chmod(0o644)  # Insecure permissions
 
         with pytest.warns(UserWarning, match="insecure permissions.*fixing"):
-            config = ServicePrincipalManager.load_config(str(config_file))
+            _config = ServicePrincipalManager.load_config(str(config_file))
 
         # Verify permissions were fixed
         mode = config_file.stat().st_mode & 0o777
@@ -538,7 +539,7 @@ certificate_path = "/path/to/cert.pem"
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
+auth_method = "client_secret"  # noqa: S105, S106
 """
         )
         config_file.chmod(0o600)
@@ -564,7 +565,7 @@ auth_method = "client_secret"
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
+auth_method = "client_secret"  # noqa: S105, S106
 """
         )
         config_file.chmod(0o600)
@@ -572,7 +573,7 @@ auth_method = "client_secret"
         monkeypatch.setenv("AZLIN_SP_CLIENT_SECRET", "secret-value")
 
         # Use context manager pattern
-        with ServicePrincipalManager.credential_context(str(config_file)) as creds:
+        with ServicePrincipalManager.credential_context(str(config_file)) as _creds:
             assert "AZURE_CLIENT_SECRET" in os.environ
             assert os.environ["AZURE_CLIENT_SECRET"] == "secret-value"
 

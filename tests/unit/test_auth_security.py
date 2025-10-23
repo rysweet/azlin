@@ -1,3 +1,4 @@
+# ruff: noqa: SIM117, SIM105
 """Security tests for service principal authentication.
 
 Tests all 10 P0 security controls as defined in the requirements:
@@ -30,7 +31,7 @@ from azlin.service_principal_auth import (
 )
 
 
-class TestSEC001_NoSecretsInConfigFiles:
+class TestSEC001_NoSecretsInConfigFiles:  # noqa: N801
     """SEC-001: No secrets shall be stored in configuration files."""
 
     def test_save_config_strips_client_secret(self, tmp_path):
@@ -40,7 +41,7 @@ class TestSEC001_NoSecretsInConfigFiles:
             tenant_id="87654321-4321-4321-4321-210987654321",
             subscription_id="abcdef00-0000-0000-0000-000000abcdef",
             auth_method="client_secret",
-            client_secret="this-secret-should-not-be-saved",
+            client_secret="this-secret-should-not-be-saved",  # noqa: S106
         )
 
         config_file = tmp_path / "config.toml"
@@ -60,8 +61,8 @@ class TestSEC001_NoSecretsInConfigFiles:
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
-client_secret = "inline-secret-not-allowed"
+auth_method = "client_secret"  # noqa: S105, S106
+client_secret = "inline-secret-not-allowed"  # noqa: S105, S106
 """
         )
 
@@ -78,7 +79,7 @@ client_secret = "inline-secret-not-allowed"
             tenant_id="87654321-4321-4321-4321-210987654321",
             subscription_id="abcdef00-0000-0000-0000-000000abcdef",
             auth_method="client_secret",
-            client_secret="secret",
+            client_secret="secret",  # noqa: S106
         )
 
         config_file = tmp_path / "config.toml"
@@ -95,7 +96,7 @@ client_secret = "inline-secret-not-allowed"
             tenant_id="87654321-4321-4321-4321-210987654321",
             subscription_id="abcdef00-0000-0000-0000-000000abcdef",
             auth_method="client_secret",
-            client_secret="MyP@ssw0rd123!",
+            client_secret="MyP@ssw0rd123!",  # noqa: S106
         )
 
         config_file = tmp_path / "config.toml"
@@ -114,11 +115,11 @@ client_secret = "inline-secret-not-allowed"
             assert pattern not in content or f"# {pattern}" in content
 
 
-class TestSEC002_UUIDValidation:
+class TestSEC002_UUIDValidation:  # noqa: N801
     """SEC-002: UUID validation for tenant_id, client_id, subscription_id."""
 
     @pytest.mark.parametrize(
-        "field_name,valid_uuid",
+        ("field_name", "valid_uuid"),
         [
             ("client_id", "12345678-1234-1234-1234-123456789012"),
             ("tenant_id", "87654321-4321-4321-4321-210987654321"),
@@ -131,7 +132,7 @@ class TestSEC002_UUIDValidation:
         assert result is True
 
     @pytest.mark.parametrize(
-        "field_name,invalid_uuid,reason",
+        ("field_name", "invalid_uuid", "reason"),
         [
             ("client_id", "not-a-uuid", "invalid format"),
             ("client_id", "12345678-1234-1234-1234", "too short"),
@@ -198,7 +199,7 @@ class TestSEC002_UUIDValidation:
             assert result is False, f"Should reject malicious UUID: {malicious}"
 
 
-class TestSEC003_CertificatePermissions:
+class TestSEC003_CertificatePermissions:  # noqa: N801
     """SEC-003: Certificate file permissions must be 0600 or 0400."""
 
     def test_certificate_with_secure_permissions_0600_accepted(self, tmp_path):
@@ -275,7 +276,7 @@ certificate_path = "/path/to/cert.pem"
         assert mode == 0o600
 
 
-class TestSEC004_CertificateExpiration:
+class TestSEC004_CertificateExpiration:  # noqa: N801
     """SEC-004: Certificate expiration warnings (<30 days)."""
 
     def test_certificate_expiring_in_29_days_warns(self, tmp_path):
@@ -349,7 +350,7 @@ class TestSEC004_CertificateExpiration:
                 ServicePrincipalManager.validate_certificate(cert_file)
 
 
-class TestSEC005_LogSanitization:
+class TestSEC005_LogSanitization:  # noqa: N801
     """SEC-005: Log sanitization - mask secrets in all log output."""
 
     def test_log_sanitization_masks_client_secret(self, tmp_path, monkeypatch, caplog):
@@ -361,12 +362,12 @@ class TestSEC005_LogSanitization:
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
+auth_method = "client_secret"  # noqa: S105, S106
 """
         )
         config_file.chmod(0o600)
 
-        secret = "super-secret-value-12345"
+        secret = "super-secret-value-12345"  # noqa: S105
         monkeypatch.setenv("AZLIN_SP_CLIENT_SECRET", secret)
 
         with caplog.at_level(logging.DEBUG):
@@ -400,7 +401,7 @@ certificate_path = "{cert_file}"
         config_file.chmod(0o600)
 
         with caplog.at_level(logging.DEBUG):
-            config = ServicePrincipalManager.load_config(str(config_file))
+            _config = ServicePrincipalManager.load_config(str(config_file))
 
             # Sensitive paths should be sanitized
             for record in caplog.records:
@@ -420,12 +421,12 @@ certificate_path = "{cert_file}"
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
+auth_method = "client_secret"  # noqa: S105, S106
 """
         )
         config_file.chmod(0o600)
 
-        secret = "very-secret-password-123"
+        secret = "very-secret-password-123"  # noqa: S105
         monkeypatch.setenv("AZLIN_SP_CLIENT_SECRET", secret)
 
         # Trigger error scenario
@@ -439,11 +440,11 @@ auth_method = "client_secret"
                 ServicePrincipalManager.get_credentials(config)
             except Exception as e:
                 # Error message should not contain secret
-                assert secret not in str(e)
-                assert "****" in str(e) or "[REDACTED]" in str(e)
+                assert secret not in str(e)  # noqa: PT017
+                assert "****" in str(e) or "[REDACTED]" in str(e)  # noqa: PT017
 
 
-class TestSEC006_NoShellTrue:
+class TestSEC006_NoShellTrue:  # noqa: N801
     """SEC-006: No shell=True in subprocess calls."""
 
     def test_subprocess_calls_use_shell_false(self, tmp_path, monkeypatch):
@@ -470,9 +471,9 @@ certificate_path = "{cert_file}"
 
             # Trigger subprocess operations
             try:
-                config = ServicePrincipalManager.load_config(str(config_file))
+                _config = ServicePrincipalManager.load_config(str(config_file))
                 ServicePrincipalManager.validate_certificate(cert_file)
-            except Exception:
+            except Exception:  # noqa: S110
                 pass  # We're testing subprocess calls, not functionality
 
             # Verify all subprocess calls use shell=False
@@ -491,7 +492,7 @@ certificate_path = "{cert_file}"
 
             try:
                 ServicePrincipalManager._check_certificate_expiration(cert_file)
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
 
             # Verify args are list
@@ -501,7 +502,7 @@ certificate_path = "{cert_file}"
                     assert isinstance(args[0], list), "subprocess args must be list, not string"
 
 
-class TestSEC007_InputValidation:
+class TestSEC007_InputValidation:  # noqa: N801
     """SEC-007: Input validation for all user-provided values."""
 
     @pytest.mark.parametrize(
@@ -557,7 +558,7 @@ class TestSEC007_InputValidation:
             assert result is False, f"Should reject malicious env var name: {malicious_name}"
 
 
-class TestSEC008_ConfigValidationRejectsInlineSecrets:
+class TestSEC008_ConfigValidationRejectsInlineSecrets:  # noqa: N801
     """SEC-008: Config validation must reject inline secrets."""
 
     def test_load_config_with_inline_client_secret_rejected(self, tmp_path):
@@ -569,8 +570,8 @@ class TestSEC008_ConfigValidationRejectsInlineSecrets:
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
-client_secret = "inline-secret"
+auth_method = "client_secret"  # noqa: S105, S106
+client_secret = "inline-secret"  # noqa: S105, S106
 """
         )
 
@@ -584,7 +585,7 @@ client_secret = "inline-secret"
             tenant_id="87654321-4321-4321-4321-210987654321",
             subscription_id="abcdef00-0000-0000-0000-000000abcdef",
             auth_method="client_secret",
-            client_secret="should-not-appear",
+            client_secret="should-not-appear",  # noqa: S106
         )
 
         config_file = tmp_path / "config.toml"
@@ -594,7 +595,7 @@ client_secret = "inline-secret"
         assert "should-not-appear" not in content
 
 
-class TestSEC009_SecureFileOperations:
+class TestSEC009_SecureFileOperations:  # noqa: N801
     """SEC-009: Secure file operations with proper permissions."""
 
     def test_config_directory_created_with_secure_permissions(self, tmp_path, monkeypatch):
@@ -632,7 +633,7 @@ class TestSEC009_SecureFileOperations:
         config_file = tmp_path / "config.toml"
 
         with patch("os.rename") as mock_rename:
-            with patch("pathlib.Path.write_text") as mock_write:
+            with patch("pathlib.Path.write_text") as _mock_write:
                 ServicePrincipalManager.save_config(config, str(config_file))
 
                 # Verify atomic write pattern
@@ -658,7 +659,7 @@ class TestSEC009_SecureFileOperations:
 
             try:
                 ServicePrincipalManager.save_config(config, str(config_file))
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
 
             # Verify no .tmp files left behind
@@ -666,7 +667,7 @@ class TestSEC009_SecureFileOperations:
             assert len(tmp_files) == 0
 
 
-class TestSEC010_ErrorMessagesDontLeakSecrets:
+class TestSEC010_ErrorMessagesDontLeakSecrets:  # noqa: N801
     """SEC-010: Error messages must not leak secrets."""
 
     def test_authentication_error_masks_secret(self, tmp_path, monkeypatch):
@@ -678,12 +679,12 @@ class TestSEC010_ErrorMessagesDontLeakSecrets:
 client_id = "12345678-1234-1234-1234-123456789012"
 tenant_id = "87654321-4321-4321-4321-210987654321"
 subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
+auth_method = "client_secret"  # noqa: S105, S106
 """
         )
         config_file.chmod(0o600)
 
-        secret = "my-super-secret-password"
+        secret = "my-super-secret-password"  # noqa: S105
         monkeypatch.setenv("AZLIN_SP_CLIENT_SECRET", secret)
 
         with patch("subprocess.run") as mock_run:
@@ -694,8 +695,8 @@ auth_method = "client_secret"
                 ServicePrincipalManager.get_credentials(config)
             except ServicePrincipalError as e:
                 # Error message should not contain secret
-                assert secret not in str(e)
-                assert "****" in str(e) or "[REDACTED]" in str(e)
+                assert secret not in str(e)  # noqa: PT017
+                assert "****" in str(e) or "[REDACTED]" in str(e)  # noqa: PT017
 
     @pytest.mark.skip(reason="Requires path masking in error messages - future implementation")
     def test_file_not_found_error_masks_sensitive_paths(self):
@@ -716,14 +717,14 @@ auth_method = "client_secret"
             tenant_id="87654321-4321-4321-4321-210987654321",
             subscription_id="abcdef00-0000-0000-0000-000000abcdef",
             auth_method="client_secret",
-            client_secret="my-secret-password",
+            client_secret="my-secret-password",  # noqa: S106
         )
 
         try:
             ServicePrincipalManager.validate_config(config)
         except ServicePrincipalError as e:
             # Error should not contain the secret
-            assert "my-secret-password" not in str(e)
+            assert "my-secret-password" not in str(e)  # noqa: PT017
 
     @pytest.mark.skip(
         reason="Requires custom __repr__ in ServicePrincipalError - future implementation"
