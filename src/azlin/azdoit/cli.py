@@ -2,7 +2,7 @@
 
 import os
 import sys
-from typing import NoReturn, Optional
+from typing import NoReturn
 
 import click
 
@@ -16,21 +16,10 @@ __version__ = "2.0.0"
 @click.command(name="azdoit")
 @click.argument("request", required=False)
 @click.option(
-    "--max-turns",
-    type=int,
-    default=15,
-    help="Maximum number of auto mode turns (default: 15)"
+    "--max-turns", type=int, default=15, help="Maximum number of auto mode turns (default: 15)"
 )
-@click.option(
-    "--version",
-    is_flag=True,
-    help="Show version and exit"
-)
-def main(
-    request: Optional[str],
-    max_turns: int,
-    version: bool
-) -> NoReturn:
+@click.option("--version", is_flag=True, help="Show version and exit")
+def main(request: str | None, max_turns: int, version: bool) -> NoReturn:
     """azdoit - Simple Azure infrastructure automation via amplihack auto mode.
 
     Delegates to amplihack's autonomous goal-seeking engine to iteratively
@@ -66,7 +55,7 @@ def main(
             "Warning: ANTHROPIC_API_KEY environment variable not set.\n"
             "Auto mode requires a Claude API key to function.\n"
             "Set it with: export ANTHROPIC_API_KEY=your-key-here\n",
-            err=True
+            err=True,
         )
 
     # Check amplihack availability
@@ -75,7 +64,7 @@ def main(
             "Error: amplihack is not installed or not in PATH.\n"
             "Install it with: pip install amplihack\n"
             "Or ensure it is accessible in your PATH.",
-            err=True
+            err=True,
         )
         sys.exit(1)
 

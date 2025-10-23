@@ -1,10 +1,7 @@
 """Unit tests for azdoit executor module."""
 
 import subprocess
-import sys
 from unittest.mock import Mock, patch
-
-import pytest
 
 from azlin.azdoit.executor import check_amplihack_available, execute_auto_mode
 
@@ -20,11 +17,7 @@ class TestCheckAmplihackAvailable:
         result = check_amplihack_available()
 
         assert result is True
-        mock_run.assert_called_once_with(
-            ["amplihack", "--version"],
-            capture_output=True,
-            timeout=5
-        )
+        mock_run.assert_called_once_with(["amplihack", "--version"], capture_output=True, timeout=5)
 
     @patch("azlin.azdoit.executor.subprocess.run")
     def test_amplihack_not_found(self, mock_run):
@@ -47,10 +40,7 @@ class TestCheckAmplihackAvailable:
     @patch("azlin.azdoit.executor.subprocess.run")
     def test_amplihack_timeout(self, mock_run):
         """Test when amplihack version check times out."""
-        mock_run.side_effect = subprocess.TimeoutExpired(
-            cmd=["amplihack", "--version"],
-            timeout=5
-        )
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["amplihack", "--version"], timeout=5)
 
         result = check_amplihack_available()
 
@@ -79,7 +69,7 @@ class TestExecuteAutoMode:
             "20",
             "--",
             "-p",
-            "test prompt"
+            "test prompt",
         ]
         assert mock_run.call_args[1]["check"] is False
 

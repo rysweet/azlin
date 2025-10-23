@@ -1,6 +1,5 @@
 """Prompt templates for azdoit auto mode."""
 
-
 OBJECTIVE_TEMPLATE = """You must pursue this objective step by step, iteratively, until it is achieved.
 
 OBJECTIVE: {user_request}
@@ -37,13 +36,29 @@ EXECUTION STYLE:
 - Document your reasoning"""
 
 
-def format_objective_prompt(user_request: str) -> str:
+def format_objective_prompt(user_request: str, max_length: int = 5000) -> str:
     """Format the objective prompt template with user request.
 
     Args:
         user_request: The user's natural language objective
+        max_length: Maximum length for user request (default 5000 chars)
 
     Returns:
         Formatted prompt string ready for auto mode
+
+    Raises:
+        ValueError: If user_request exceeds max_length
     """
+    if len(user_request) > max_length:
+        msg = f"Request too long ({len(user_request)} chars). Maximum is {max_length} characters."
+        raise ValueError(msg)
+
+    # Basic prompt injection detection
+    dangerous_patterns = ["ignore previous", "ignore instructions", "system:", "assistant:"]
+    lower_request = user_request.lower()
+    for pattern in dangerous_patterns:
+        if pattern in lower_request:
+            msg = f"Request contains potentially unsafe pattern: '{pattern}'"
+            raise ValueError(msg)
+
     return OBJECTIVE_TEMPLATE.format(user_request=user_request)
