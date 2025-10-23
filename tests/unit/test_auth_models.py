@@ -51,13 +51,13 @@ class TestValidateUUID:
             "12345678_1234_1234_1234_123456789012",
         ]
         for uuid in invalid_uuids:
-            with pytest.raises(ValueError, match="Invalid UUID"):
+            with pytest.raises(ValueError, match="must be valid UUID format"):
                 validate_uuid(uuid, "test_field")
 
     def test_sql_injection_protection(self):
         """Test that UUID validation protects against SQL injection."""
         malicious = "12345678-1234-1234-1234-123456789012'; DROP TABLE users; --"
-        with pytest.raises(ValueError, match="Invalid UUID"):
+        with pytest.raises(ValueError, match="must be valid UUID format"):
             validate_uuid(malicious, "test_field")
 
 
@@ -213,7 +213,7 @@ class TestAuthConfig:
             tenant_id="12345678-1234-1234-1234-123456789012",
             client_id="87654321-4321-4321-4321-210987654321",
         )
-        with pytest.raises(ValueError, match="method.*requires"):
+        with pytest.raises(ValueError, match="method should not have"):
             AuthConfig(
                 method=AuthMethod.AZURE_CLI,
                 service_principal=sp_config,
