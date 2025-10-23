@@ -6377,80 +6377,60 @@ def azdoit_main(
 ):
     """Execute natural language Azure commands using AI (standalone CLI).
 
-    azdoit is a standalone command that provides the same natural language
-    interface as 'azlin do', allowing you to describe what you want in plain
-    English and have it automatically translated into Azure CLI commands.
+    azdoit v2.0 uses amplihack's autonomous goal-seeking engine to iteratively
+    pursue Azure infrastructure objectives and generate example scripts.
 
     \b
     Quick Start:
         1. Set API key: export ANTHROPIC_API_KEY=your-key-here
         2. Get key from: https://console.anthropic.com/
-        3. Try: azdoit "list all my vms"
+        3. Try: azdoit "create 3 VMs called test-vm-{1,2,3}"
 
     \b
-    VM Management Examples:
-        azdoit "create a new vm called Sam"
-        azdoit "show me all my vms"
-        azdoit "what is the status of my vms"
-        azdoit "start my development vm"
-        azdoit "stop all test vms"
+    Examples:
+        azdoit "create a VM called dev-box"
+        azdoit "provision an AKS cluster with monitoring"
+        azdoit "set up a storage account with blob containers"
+        azdoit --max-turns 30 "set up a complete dev environment"
 
     \b
-    Cost & Monitoring:
-        azdoit "what are my azure costs"
-        azdoit "show me costs by vm"
-        azdoit "what's my spending this month"
-
-    \b
-    File Operations:
-        azdoit "sync all my vms"
-        azdoit "sync my home directory to vm Sam"
-        azdoit "copy myproject to the vm"
-
-    \b
-    Resource Cleanup:
-        azdoit "delete vm called test-123" --dry-run  # Preview first
-        azdoit "delete all test vms"                   # Then execute
-        azdoit "stop idle vms to save costs"
-
-    \b
-    Complex Operations:
-        azdoit "create 5 test vms and sync them all"
-        azdoit "set up a new development environment"
-        azdoit "show costs and stop any idle vms"
-
-    \b
-    Options:
-        --dry-run      Preview actions without executing anything
-        --yes, -y      Skip confirmation prompts (for automation)
-        --verbose, -v  Show detailed parsing and confidence scores
-        --rg NAME      Specify Azure resource group
-
-    \b
-    Safety Features:
-        - Shows plan and asks for confirmation (unless --yes)
-        - High accuracy: 95-100% confidence on VM operations
-        - Graceful error handling for invalid requests
-        - Dry-run mode to preview without executing
-
-    \b
-    Error Handling:
-        - Invalid requests (0% confidence): No commands executed
-        - Ambiguous requests (low confidence): Asks for confirmation
-        - Always shows what will be executed before running
+    How It Works:
+        - azdoit constructs a prompt template from your request
+        - Delegates to amplihack auto mode for iterative execution
+        - Auto mode researches Azure docs and generates example scripts
+        - Output includes reusable infrastructure-as-code
 
     \b
     Requirements:
         - ANTHROPIC_API_KEY environment variable (get from console.anthropic.com)
+        - amplihack CLI installed (pip install amplihack)
         - Azure CLI authenticated (az login)
-        - Active Azure subscription
 
     \b
-    For More Examples:
-        See docs/AZDOIT.md for 50+ examples and comprehensive guide
-        Integration tested: 7/7 tests passing with real Azure resources
+    For More Information:
+        See docs/AZDOIT_REQUIREMENTS_V2.md for architecture details
     """
-    _do_impl(request, dry_run, yes, resource_group, config, verbose)
+    # Import the new azdoit CLI module
+    from .azdoit.cli import main as azdoit_cli_main
+
+    # Delegate to new implementation
+    # Note: The new implementation does not support --dry-run, --yes, --resource-group
+    # flags. These are handled by auto mode's internal decision making.
+    if dry_run or yes or resource_group or config or verbose:
+        click.echo(
+            "Warning: azdoit v2.0 does not support --dry-run, --yes, --resource-group, "
+            "--config, or --verbose flags.\n"
+            "These options were part of the old architecture.\n"
+            "The new auto mode handles execution iteratively with built-in safety.\n",
+            err=True,
+        )
+
+    # Call the new azdoit CLI with just the request
+    # This will handle everything internally
+    import sys
+
+    sys.argv = ["azdoit", request]
+    azdoit_cli_main()
 
 
 if __name__ == "__main__":
