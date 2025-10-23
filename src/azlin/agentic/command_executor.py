@@ -217,7 +217,7 @@ Output JSON only:
                 validation["details"] = execution_results
                 return validation
 
-        except Exception:  # noqa: S110
+        except Exception:
             # Fallback to simple validation on any error - intentionally silent
             pass
 

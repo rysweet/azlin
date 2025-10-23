@@ -41,7 +41,7 @@ class TestBackwardCompatibilityAzureCLI:
 
             # Should use Azure CLI method
             assert creds.method == "az_cli"
-            assert creds.token == "fake-token"
+            assert creds.token == "fake-token"  # noqa: S105
 
     def test_azure_cli_priority_lower_than_sp_env_vars(self, monkeypatch):
         """Test that SP env vars take priority over Azure CLI."""
@@ -128,7 +128,7 @@ auth_method = "client_secret"
 
         # Should set AZURE_* env vars from config + AZLIN secret
         assert creds["AZURE_CLIENT_ID"] == "12345678-1234-1234-1234-123456789012"
-        assert creds["AZURE_CLIENT_SECRET"] == "azlin-secret"
+        assert creds["AZURE_CLIENT_SECRET"] == "azlin-secret"  # noqa: S105
 
 
 class TestServicePrincipalAuthenticationFlow:
@@ -158,7 +158,7 @@ auth_method = "client_secret"
         # Step 2: Get credentials
         creds = ServicePrincipalManager.get_credentials(config)
         assert creds["AZURE_CLIENT_ID"] == "12345678-1234-1234-1234-123456789012"
-        assert creds["AZURE_CLIENT_SECRET"] == "test-secret"
+        assert creds["AZURE_CLIENT_SECRET"] == "test-secret"  # noqa: S105
 
         # Step 3: Use credentials with Azure auth
         with patch.dict(os.environ, creds, clear=False):

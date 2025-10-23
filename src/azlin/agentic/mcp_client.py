@@ -335,7 +335,7 @@ class MCPClient:
             notification_json = json.dumps(notification)
             self.process.stdin.write(notification_json + "\n")
             self.process.stdin.flush()
-        except Exception:  # noqa: S110
+        except Exception:
             # Ignore errors in notifications (best effort, non-critical)
             pass
 

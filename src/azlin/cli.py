@@ -3982,7 +3982,7 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
         sys.exit(1)
 
 
-def _do_impl(  # noqa: C901
+def _do_impl(
     request: str,
     dry_run: bool,
     yes: bool,
@@ -4220,7 +4220,7 @@ def do(
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
-def doit(  # noqa: C901
+def doit(
     objective: str,
     dry_run: bool,
     resource_group: str | None,

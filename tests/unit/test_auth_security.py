@@ -1,4 +1,4 @@
-# ruff: noqa: SIM117, SIM105
+# ruff: noqa: SIM105
 """Security tests for service principal authentication.
 
 Tests all 10 P0 security controls as defined in the requirements:
@@ -473,7 +473,7 @@ certificate_path = "{cert_file}"
             try:
                 _config = ServicePrincipalManager.load_config(str(config_file))
                 ServicePrincipalManager.validate_certificate(cert_file)
-            except Exception:  # noqa: S110
+            except Exception:
                 pass  # We're testing subprocess calls, not functionality
 
             # Verify all subprocess calls use shell=False
@@ -492,7 +492,7 @@ certificate_path = "{cert_file}"
 
             try:
                 ServicePrincipalManager._check_certificate_expiration(cert_file)
-            except Exception:  # noqa: S110
+            except Exception:
                 pass
 
             # Verify args are list
@@ -659,7 +659,7 @@ class TestSEC009_SecureFileOperations:  # noqa: N801
 
             try:
                 ServicePrincipalManager.save_config(config, str(config_file))
-            except Exception:  # noqa: S110
+            except Exception:
                 pass
 
             # Verify no .tmp files left behind

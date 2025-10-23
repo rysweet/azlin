@@ -1,4 +1,4 @@
-# ruff: noqa: SIM117, S105, S106
+# ruff: noqa: S105, S106
 """Unit tests for service principal authentication module.
 
 Test-Driven Development (TDD) approach - these tests are written BEFORE implementation.

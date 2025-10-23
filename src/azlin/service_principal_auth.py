@@ -17,6 +17,11 @@ from dataclasses import dataclass
 from datetime import UTC
 from pathlib import Path
 
+try:
+    import tomli_w
+except ImportError:
+    tomli_w = None  # type: ignore[assignment]
+
 from azlin.certificate_validator import CertificateValidator
 
 
@@ -110,7 +115,7 @@ class ServicePrincipalManager:
     """
 
     @staticmethod
-    def validate_certificate(cert_path: str | Path, auto_fix: bool = False) -> bool:  # noqa: C901
+    def validate_certificate(cert_path: str | Path, auto_fix: bool = False) -> bool:
         """Validate certificate file for service principal authentication.
 
         This method wraps CertificateValidator to provide ServicePrincipalManager
@@ -187,7 +192,7 @@ class ServicePrincipalManager:
         except ServicePrincipalError:
             # Re-raise expiration errors
             raise
-        except Exception:  # noqa: S110
+        except Exception:
             # If expiration check fails, continue (certificate might be test data)
             pass
 
@@ -360,12 +365,10 @@ class ServicePrincipalManager:
         Raises:
             ServicePrincipalError: If save fails
         """
-        try:
-            import tomli_w
-        except ImportError as e:
+        if tomli_w is None:
             raise ServicePrincipalError(
                 "tomli_w package is required for saving config. Install with: pip install tomli-w"
-            ) from e
+            )
 
         # Determine config file path
         resolved_path: Path
