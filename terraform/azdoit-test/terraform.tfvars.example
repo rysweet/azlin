@@ -1,0 +1,23 @@
+# Azure region for resource deployment
+location = "eastus"
+
+# Resource group name
+resource_group_name = "test-azdoit-rg"
+
+# VM size (Standard_B2s is cost-effective, ~$0.20/day)
+# Other options: Standard_B1s (~$0.10/day, less powerful)
+#                Standard_B2ms (~$0.30/day, more memory)
+vm_size = "Standard_B2s"
+
+# Admin username for VM
+admin_username = "azureuser"
+
+# SSH public key for VM access
+# REQUIRED: Copy your public key here or set via TF_VAR_ssh_public_key
+# Example: ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAB..."
+#
+# To get your public key:
+#   cat ~/.ssh/id_rsa.pub
+# Or generate a new key:
+#   ssh-keygen -t rsa -b 4096 -f ~/.ssh/azdoit_test
+ssh_public_key = ""
