@@ -226,7 +226,7 @@ client_secret = "this-should-not-be-here"
 """
         )
 
-        with pytest.raises(ServicePrincipalError, match="client_secret.*not allowed.*config file"):
+        with pytest.raises(ServicePrincipalError, match=r"client_secret.*not allowed.*config file"):
             ServicePrincipalManager.load_config(str(config_file))
 
 
@@ -302,7 +302,7 @@ auth_method = "client_secret"  # noqa: S105, S106
 
         config = ServicePrincipalManager.load_config(str(config_file))
 
-        with pytest.raises(ServicePrincipalError, match="AZLIN_SP_CLIENT_SECRET.*not set"):
+        with pytest.raises(ServicePrincipalError, match=r"AZLIN_SP_CLIENT_SECRET.*not set"):
             ServicePrincipalManager.get_credentials(config)
 
 
@@ -352,7 +352,7 @@ class TestServicePrincipalManagerCertificateHandling:
 
             mock_expiry.return_value = datetime.now() + timedelta(days=15)
 
-            with pytest.warns(UserWarning, match="expires in.*days"):
+            with pytest.warns(UserWarning, match=r"expires in.*days"):
                 ServicePrincipalManager.validate_certificate(cert_file)
 
     def test_validate_certificate_format(self, tmp_path):
@@ -480,7 +480,7 @@ class TestServicePrincipalManagerValidation:
             certificate_path=Path("/path/to/cert.pem"),
         )
 
-        with pytest.raises(ServicePrincipalError, match="Invalid UUID format.*client_id"):
+        with pytest.raises(ServicePrincipalError, match=r"Invalid UUID format.*client_id"):
             ServicePrincipalManager.validate_config(config)
 
     def test_validate_config_invalid_auth_method_raises_error(self):
@@ -493,7 +493,7 @@ class TestServicePrincipalManagerValidation:
         )
 
         with pytest.raises(
-            ServicePrincipalError, match="Invalid auth_method.*client_secret.*certificate"
+            ServicePrincipalError, match=r"Invalid auth_method.*client_secret.*certificate"
         ):
             ServicePrincipalManager.validate_config(config)
 
@@ -523,7 +523,7 @@ certificate_path = "/path/to/cert.pem"
         )
         config_file.chmod(0o644)  # Insecure permissions
 
-        with pytest.warns(UserWarning, match="insecure permissions.*fixing"):
+        with pytest.warns(UserWarning, match=r"insecure permissions.*fixing"):
             _config = ServicePrincipalManager.load_config(str(config_file))
 
         # Verify permissions were fixed
