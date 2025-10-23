@@ -318,24 +318,21 @@ class TestCertificateValidation:
     def test_valid_certificate_validation(self):
         """Test valid certificate validation result."""
         validation = CertificateValidation(
-            is_valid=True,
-            path="/path/to/cert.pem",
-            permissions_ok=True,
-            exists=True,
+            valid=True,
+            warnings=[],
+            errors=[],
             expiration_status="valid",
         )
-        assert validation.is_valid is True
-        assert validation.permissions_ok is True
+        assert validation.valid is True
+        assert len(validation.errors) == 0
 
     def test_invalid_certificate_validation(self):
         """Test invalid certificate validation result."""
         validation = CertificateValidation(
-            is_valid=False,
-            path="/path/to/cert.pem",
-            permissions_ok=False,
-            exists=True,
-            expiration_status="expired",
+            valid=False,
+            warnings=[],
             errors=["Certificate has expired"],
+            expiration_status="expired",
         )
-        assert validation.is_valid is False
+        assert validation.valid is False
         assert len(validation.errors) > 0

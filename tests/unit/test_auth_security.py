@@ -24,15 +24,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-# These imports will fail until implementation exists - this is expected for TDD
-try:
-    from azlin.service_principal_auth import (
-        ServicePrincipalConfig,
-        ServicePrincipalError,
-        ServicePrincipalManager,
-    )
-except ImportError:
-    pytest.skip("service_principal_auth module not implemented yet", allow_module_level=True)
+from azlin.service_principal_auth import (
+    ServicePrincipalConfig,
+    ServicePrincipalError,
+    ServicePrincipalManager,
+)
 
 
 class TestSEC001_NoSecretsInConfigFiles:
@@ -605,25 +601,6 @@ client_secret = "inline-secret"
 
         content = config_file.read_text()
         assert "should-not-appear" not in content
-
-    def test_update_config_rejects_secret_updates(self, tmp_path):
-        """Test that update_config rejects attempts to add secrets."""
-        config_file = tmp_path / "config.toml"
-        config_file.write_text(
-            """
-[service_principal]
-client_id = "12345678-1234-1234-1234-123456789012"
-tenant_id = "87654321-4321-4321-4321-210987654321"
-subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
-auth_method = "client_secret"
-"""
-        )
-        config_file.chmod(0o600)
-
-        with pytest.raises(ServicePrincipalError, match="Cannot.*secret.*config file"):
-            ServicePrincipalManager.update_config(
-                str(config_file), client_secret="attempting-to-add-secret"
-            )
 
 
 class TestSEC009_SecureFileOperations:

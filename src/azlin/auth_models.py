@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from azlin.certificate_validator import CertificateValidation
+
 
 def validate_uuid(value: str, field_name: str) -> None:
     """Validate UUID format. Raises ValueError if invalid.
@@ -242,23 +244,3 @@ class ChainResult:
     method: AuthMethod | None = None
     credentials: Any | None = None
     error: str | None = None
-
-
-@dataclass(frozen=True)
-class CertificateValidation:
-    """Certificate validation result.
-
-    Complete validation status for a certificate file including:
-    - Existence check
-    - Permission validation (0600/0400)
-    - Format validation
-    - Expiration status
-    """
-
-    is_valid: bool
-    path: str
-    permissions_ok: bool
-    exists: bool
-    expiration_status: str
-    warnings: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)

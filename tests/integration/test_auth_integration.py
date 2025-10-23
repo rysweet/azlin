@@ -17,19 +17,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-# These imports will fail until implementation exists - this is expected for TDD
-try:
-    from azlin.azure_auth import AzureAuthenticator, AzureCredentials
-    from azlin.service_principal_auth import (
-        ServicePrincipalConfig,
-        ServicePrincipalError,
-        ServicePrincipalManager,
-    )
-except ImportError:
-    pytest.skip(
-        "service_principal_auth or azure_auth module not fully implemented yet",
-        allow_module_level=True,
-    )
+from azlin.azure_auth import AzureAuthenticator, AzureCredentials
+from azlin.service_principal_auth import (
+    ServicePrincipalConfig,
+    ServicePrincipalError,
+    ServicePrincipalManager,
+)
 
 
 class TestBackwardCompatibilityAzureCLI:

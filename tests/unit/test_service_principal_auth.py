@@ -17,16 +17,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-# These imports will fail until implementation exists - this is expected for TDD
-try:
-    from azlin.service_principal_auth import (
-        ServicePrincipalConfig,
-        ServicePrincipalError,
-        ServicePrincipalManager,
-    )
-except ImportError:
-    # Allow tests to be discovered even when module doesn't exist yet
-    pytest.skip("service_principal_auth module not implemented yet", allow_module_level=True)
+from azlin.service_principal_auth import (
+    ServicePrincipalConfig,
+    ServicePrincipalError,
+    ServicePrincipalManager,
+)
 
 
 class TestServicePrincipalConfig:

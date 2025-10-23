@@ -546,26 +546,6 @@ class ServicePrincipalManager:
         return not any(char in var_name for char in malicious_chars)
 
     @staticmethod
-    def update_config(config_path: str, **updates) -> None:
-        """Update configuration file.
-
-        Args:
-            config_path: Path to config file
-            **updates: Fields to update
-
-        Raises:
-            ServicePrincipalError: If trying to update secret in config file
-        """
-        if "client_secret" in updates:
-            raise ServicePrincipalError(
-                "Cannot store client_secret in config file. "
-                "Use environment variable AZLIN_SP_CLIENT_SECRET instead."
-            )
-
-        # Placeholder - full implementation in later bricks
-        raise ServicePrincipalError("Config update not yet implemented")
-
-    @staticmethod
     def credential_context(config_path: str):
         """Context manager for temporary credential exposure.
 
