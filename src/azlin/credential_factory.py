@@ -80,39 +80,30 @@ class CredentialFactory:
             if auth_config.method == AuthMethod.AZURE_CLI:
                 return CredentialFactory._create_cli_credential()
 
-            elif auth_config.method == AuthMethod.SERVICE_PRINCIPAL_SECRET:
+            if auth_config.method == AuthMethod.SERVICE_PRINCIPAL_SECRET:
                 if not auth_config.service_principal:
                     raise CredentialFactoryError(
                         "SERVICE_PRINCIPAL_SECRET requires service_principal configuration"
                     )
-                return CredentialFactory._create_sp_secret_credential(
-                    auth_config.service_principal
-                )
+                return CredentialFactory._create_sp_secret_credential(auth_config.service_principal)
 
-            elif auth_config.method == AuthMethod.SERVICE_PRINCIPAL_CERTIFICATE:
+            if auth_config.method == AuthMethod.SERVICE_PRINCIPAL_CERTIFICATE:
                 if not auth_config.service_principal:
                     raise CredentialFactoryError(
                         "SERVICE_PRINCIPAL_CERTIFICATE requires service_principal configuration"
                     )
-                return CredentialFactory._create_sp_cert_credential(
-                    auth_config.service_principal
-                )
+                return CredentialFactory._create_sp_cert_credential(auth_config.service_principal)
 
-            elif auth_config.method == AuthMethod.MANAGED_IDENTITY:
+            if auth_config.method == AuthMethod.MANAGED_IDENTITY:
                 return CredentialFactory._create_managed_identity_credential(
                     auth_config.managed_identity
                 )
 
-            else:
-                raise CredentialFactoryError(
-                    f"Unsupported authentication method: {auth_config.method}"
-                )
+            raise CredentialFactoryError(f"Unsupported authentication method: {auth_config.method}")
 
         except Exception as e:
             # Sanitize error messages to prevent secret leakage
-            safe_error = LogSanitizer.create_safe_error_message(
-                e, "Credential creation failed"
-            )
+            safe_error = LogSanitizer.create_safe_error_message(e, "Credential creation failed")
             raise CredentialFactoryError(safe_error) from e
 
     @staticmethod
@@ -160,9 +151,7 @@ class CredentialFactory:
             CredentialFactoryError: If client secret not found in environment
         """
         # Get client secret from environment (SEC-001: no secret storage)
-        client_secret = os.getenv("AZURE_CLIENT_SECRET") or os.getenv(
-            "AZLIN_SP_CLIENT_SECRET"
-        )
+        client_secret = os.getenv("AZURE_CLIENT_SECRET") or os.getenv("AZLIN_SP_CLIENT_SECRET")
 
         if not client_secret:
             raise CredentialFactoryError(
@@ -215,9 +204,7 @@ class CredentialFactory:
 
         if not validation.valid:
             error_messages = "; ".join(validation.errors)
-            raise CredentialFactoryError(
-                f"Certificate validation failed: {error_messages}"
-            )
+            raise CredentialFactoryError(f"Certificate validation failed: {error_messages}")
 
         # Warn about expiration but don't fail
         if validation.expiration_status == "expiring_soon" and validation.warnings:

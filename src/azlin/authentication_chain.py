@@ -15,8 +15,6 @@ Design Philosophy:
 - No retry logic (let Azure SDK handle retries)
 """
 
-from typing import Any
-
 from azure.core.credentials import TokenCredential
 
 from azlin.auth_models import AuthConfig, AuthMethod, ChainResult

@@ -14,14 +14,15 @@ Security:
 import os
 import warnings
 from dataclasses import dataclass
+from datetime import UTC
 from pathlib import Path
-from typing import Optional
 
-from azlin.certificate_validator import CertificateValidator, CertificateValidation
+from azlin.certificate_validator import CertificateValidator
 
 
 class ServicePrincipalError(Exception):
     """Raised when service principal operations fail."""
+
     pass
 
 
@@ -32,12 +33,13 @@ class ServicePrincipalConfig:
     Note: client_secret should never be stored in config files.
     It must come from environment variables or secure key stores.
     """
+
     client_id: str
     tenant_id: str
     subscription_id: str
     auth_method: str  # "client_secret" or "certificate"
-    client_secret: Optional[str] = None
-    certificate_path: Optional[Path] = None
+    client_secret: str | None = None
+    certificate_path: Path | None = None
 
     def to_dict(self, include_secret: bool = False) -> dict:
         """Convert config to dictionary.
@@ -108,10 +110,7 @@ class ServicePrincipalManager:
     """
 
     @staticmethod
-    def validate_certificate(
-        cert_path: str | Path,
-        auto_fix: bool = False
-    ) -> bool:
+    def validate_certificate(cert_path: str | Path, auto_fix: bool = False) -> bool:
         """Validate certificate file for service principal authentication.
 
         This method wraps CertificateValidator to provide ServicePrincipalManager
@@ -140,6 +139,7 @@ class ServicePrincipalManager:
         if auto_fix:
             stat_info = cert_path.stat()
             import stat
+
             mode = stat.S_IMODE(stat_info.st_mode)
             if mode not in CertificateValidator.ALLOWED_PERMISSIONS:
                 cert_path.chmod(0o600)
@@ -157,7 +157,7 @@ class ServicePrincipalManager:
         try:
             expiry_date = ServicePrincipalManager._get_certificate_expiration(cert_path)
             if expiry_date:
-                from datetime import datetime, timezone
+                from datetime import datetime
 
                 # Use the same timezone awareness as the expiry_date
                 if expiry_date.tzinfo is None:
@@ -165,9 +165,9 @@ class ServicePrincipalManager:
                     now = datetime.now()
                 else:
                     # Timezone-aware datetime
-                    now = datetime.now(timezone.utc)
+                    now = datetime.now(UTC)
                     if expiry_date.tzinfo is None:
-                        expiry_date = expiry_date.replace(tzinfo=timezone.utc)
+                        expiry_date = expiry_date.replace(tzinfo=UTC)
 
                 if expiry_date < now:
                     raise ServicePrincipalError(f"Certificate has expired on {expiry_date.date()}")
@@ -182,7 +182,7 @@ class ServicePrincipalManager:
                     warnings.warn(
                         f"Certificate expires in {days_until_expiration} days on {expiry_date.strftime('%Y-%m-%d')}",
                         UserWarning,
-                        stacklevel=2
+                        stacklevel=2,
                     )
         except ServicePrincipalError:
             # Re-raise expiration errors
@@ -202,7 +202,7 @@ class ServicePrincipalManager:
 
         # If it has headers but is fake test data (single line), allow it
         # If it has headers and looks real (multiple lines), validate it
-        if len(cert_content.split('\n')) > 3:  # Real certs have multiple lines
+        if len(cert_content.split("\n")) > 3:  # Real certs have multiple lines
             cert = CertificateValidator.parse_certificate(cert_path)
             if cert is None:
                 raise ServicePrincipalError("Invalid certificate format")
@@ -231,14 +231,13 @@ class ServicePrincipalManager:
             return cert.not_valid_after_utc
         except AttributeError:
             # Older cryptography versions
-            from datetime import timezone
             expiration = cert.not_valid_after
             if expiration.tzinfo is None:
-                expiration = expiration.replace(tzinfo=timezone.utc)
+                expiration = expiration.replace(tzinfo=UTC)
             return expiration
 
     @staticmethod
-    def load_config(config_path: Optional[str] = None) -> ServicePrincipalConfig:
+    def load_config(config_path: str | None = None) -> ServicePrincipalConfig:
         """Load service principal configuration from TOML file.
 
         Args:
@@ -250,7 +249,6 @@ class ServicePrincipalManager:
         Raises:
             ServicePrincipalError: If config is invalid or not found
         """
-        import re
         import tomllib
 
         # Determine config file path
@@ -284,18 +282,19 @@ class ServicePrincipalManager:
         # Check and fix permissions (SEC-003)
         stat_info = config_path.stat()
         import stat
+
         mode = stat.S_IMODE(stat_info.st_mode)
         if mode not in (0o600, 0o400):
             warnings.warn(
                 f"Config file has insecure permissions {oct(mode)}, fixing to 0600",
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
             config_path.chmod(0o600)
 
         # Load TOML
         try:
-            with open(config_path, 'rb') as f:
+            with open(config_path, "rb") as f:
                 data = tomllib.load(f)
         except Exception as e:
             raise ServicePrincipalError(f"Failed to parse TOML: {e}")
@@ -343,10 +342,7 @@ class ServicePrincipalManager:
         return config
 
     @staticmethod
-    def save_config(
-        config: ServicePrincipalConfig,
-        config_path: Optional[str] = None
-    ) -> None:
+    def save_config(config: ServicePrincipalConfig, config_path: str | None = None) -> None:
         """Save service principal configuration to TOML file.
 
         Security: Secrets are NEVER written to config files.
@@ -390,16 +386,16 @@ class ServicePrincipalManager:
             pass
 
         # Atomic write: write to temp file, then rename
-        temp_path = config_path.with_suffix('.tmp')
+        temp_path = config_path.with_suffix(".tmp")
         try:
             # Write to temp file with secure permissions
-            with open(temp_path, 'wb') as f:
+            with open(temp_path, "wb") as f:
                 tomli_w.dump(data, f)
 
             # Add comment section if client_secret method
             if config.auth_method == "client_secret":
                 # Append comment section
-                with open(temp_path, 'a') as f:
+                with open(temp_path, "a") as f:
                     f.write("\n[secrets]\n")
                     f.write("# Secrets are stored in environment variables, not in config file\n")
                     f.write("# Set AZLIN_SP_CLIENT_SECRET environment variable\n")
@@ -432,7 +428,6 @@ class ServicePrincipalManager:
         Raises:
             ServicePrincipalError: If credentials cannot be retrieved
         """
-        from azlin.log_sanitizer import LogSanitizer
 
         credentials = {
             "AZURE_CLIENT_ID": config.client_id,
@@ -485,7 +480,8 @@ class ServicePrincipalManager:
             return False
 
         import re
-        uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
+        uuid_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
         return bool(re.match(uuid_pattern, uuid_str, re.IGNORECASE))
 
     @staticmethod
@@ -506,7 +502,9 @@ class ServicePrincipalManager:
             raise ServicePrincipalError(f"Invalid UUID format for tenant_id: {config.tenant_id}")
 
         if not ServicePrincipalManager.validate_uuid(config.subscription_id):
-            raise ServicePrincipalError(f"Invalid UUID format for subscription_id: {config.subscription_id}")
+            raise ServicePrincipalError(
+                f"Invalid UUID format for subscription_id: {config.subscription_id}"
+            )
 
         # Validate auth method
         if config.auth_method not in ("client_secret", "certificate"):

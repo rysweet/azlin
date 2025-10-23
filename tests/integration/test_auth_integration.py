@@ -12,14 +12,12 @@ All tests should FAIL initially until integration is complete.
 
 import os
 import subprocess
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
-from azlin.azure_auth import AzureAuthenticator, AzureCredentials
+from azlin.azure_auth import AzureAuthenticator
 from azlin.service_principal_auth import (
-    ServicePrincipalConfig,
     ServicePrincipalError,
     ServicePrincipalManager,
 )
@@ -309,9 +307,7 @@ auth_method = "client_secret"
                 mock_run.return_value = Mock(returncode=0, stdout="OK", stderr="")
 
                 # Test Azure operation
-                result = subprocess.run(
-                    ["az", "account", "show"], capture_output=True, check=False
-                )
+                result = subprocess.run(["az", "account", "show"], capture_output=True, check=False)
                 assert result.returncode == 0
 
     def test_azlin_auth_status_shows_sp_info(self, tmp_path, monkeypatch):

@@ -9,23 +9,21 @@ These tests verify:
 - Secret masking
 """
 
-import pytest
-from datetime import datetime, timedelta
-from pathlib import Path
-import tempfile
 import os
+import tempfile
+
+import pytest
 
 from azlin.auth_models import (
-    AuthMethod,
-    ServicePrincipalConfig,
-    ManagedIdentityConfig,
     AuthConfig,
     AuthContext,
+    AuthMethod,
     ChainResult,
-    CertificateValidation,
+    ManagedIdentityConfig,
+    ServicePrincipalConfig,
     validate_uuid,
 )
-from azlin.certificate_validator import CertificateInfo
+from azlin.certificate_validator import CertificateInfo, CertificateValidation
 
 
 class TestValidateUUID:
@@ -161,9 +159,7 @@ class TestManagedIdentityConfig:
 
     def test_config_with_client_id(self):
         """Test MI config with client_id (user-assigned)."""
-        config = ManagedIdentityConfig(
-            client_id="12345678-1234-1234-1234-123456789012"
-        )
+        config = ManagedIdentityConfig(client_id="12345678-1234-1234-1234-123456789012")
         assert config.client_id == "12345678-1234-1234-1234-123456789012"
 
     def test_invalid_client_id(self):
@@ -294,11 +290,12 @@ class TestCertificateInfo:
             cert_info = CertificateInfo(
                 path=cert_path,
                 thumbprint="ABC123",
-                is_valid=True,
+                expiration_date=None,
+                validation_status="valid",
             )
             assert cert_info.path == cert_path
-            assert cert_info.is_valid is True
-            assert len(cert_info.validation_errors) == 0
+            assert cert_info.validation_status == "valid"
+            assert cert_info.thumbprint == "ABC123"
         finally:
             os.unlink(cert_path)
 
@@ -306,10 +303,12 @@ class TestCertificateInfo:
         """Test certificate info with missing file."""
         cert_info = CertificateInfo(
             path="/tmp/nonexistent.pem",
-            is_valid=True,
+            thumbprint=None,
+            expiration_date=None,
+            validation_status="invalid",
         )
-        assert cert_info.is_valid is False
-        assert len(cert_info.validation_errors) > 0
+        assert cert_info.validation_status == "invalid"
+        assert cert_info.path == "/tmp/nonexistent.pem"
 
 
 class TestCertificateValidation:

@@ -13,7 +13,7 @@ All tests should FAIL initially until the implementation is complete.
 
 import os
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -225,9 +225,7 @@ client_secret = "this-should-not-be-here"
 """
         )
 
-        with pytest.raises(
-            ServicePrincipalError, match="client_secret.*not allowed.*config file"
-        ):
+        with pytest.raises(ServicePrincipalError, match="client_secret.*not allowed.*config file"):
             ServicePrincipalManager.load_config(str(config_file))
 
 

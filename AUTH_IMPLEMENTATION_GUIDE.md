@@ -37,12 +37,12 @@ class ServicePrincipalError(Exception):
 @dataclass
 class ServicePrincipalConfig:
     """Service principal configuration."""
-    
+
     client_id: str
     client_secret: str
     tenant_id: str
     subscription_id: str
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -51,7 +51,7 @@ class ServicePrincipalConfig:
             "tenant_id": self.tenant_id,
             "subscription_id": self.subscription_id,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ServicePrincipalConfig":
         """Create from dictionary."""
@@ -65,57 +65,57 @@ class ServicePrincipalConfig:
 
 class ServicePrincipalManager:
     """Manage service principal credentials securely."""
-    
+
     DEFAULT_SP_CONFIG_DIR = Path.home() / ".azlin"
     DEFAULT_SP_CONFIG_FILE = DEFAULT_SP_CONFIG_DIR / "sp-config.toml"
-    
+
     @classmethod
     def load_sp_config(cls, config_path: str | None = None) -> ServicePrincipalConfig:
         """Load service principal configuration.
-        
+
         Args:
             config_path: Custom SP config path
-            
+
         Returns:
             ServicePrincipalConfig
-            
+
         Raises:
             ServicePrincipalError: If loading fails
         """
         path = Path(config_path) if config_path else cls.DEFAULT_SP_CONFIG_FILE
-        
+
         if not path.exists():
             raise ServicePrincipalError(f"SP config file not found: {path}")
-        
+
         try:
             # Verify file permissions
             stat = path.stat()
             mode = stat.st_mode & 0o777
-            
+
             if mode & 0o077:  # Check if group/other have any permissions
                 logger.warning(f"SP config has insecure permissions: {oct(mode)}. Fixing...")
                 os.chmod(path, 0o600)
-            
+
             # Load TOML
             with open(path, "rb") as f:
                 data = tomli.load(f)
-            
+
             logger.debug(f"Loaded SP config from: {path}")
             return ServicePrincipalConfig.from_dict(data)
-            
+
         except Exception as e:
             raise ServicePrincipalError(f"Failed to load SP config: {e}") from e
-    
+
     @classmethod
     def save_sp_config(
         cls, config: ServicePrincipalConfig, config_path: str | None = None
     ) -> None:
         """Save service principal configuration securely.
-        
+
         Args:
             config: ServicePrincipalConfig to save
             config_path: Custom SP config path
-            
+
         Raises:
             ServicePrincipalError: If saving fails
         """
@@ -123,34 +123,34 @@ class ServicePrincipalManager:
             # Ensure directory exists
             cls.DEFAULT_SP_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             os.chmod(cls.DEFAULT_SP_CONFIG_DIR, 0o700)
-            
+
             # Determine path
             path = Path(config_path) if config_path else cls.DEFAULT_SP_CONFIG_FILE
-            
+
             # Write with atomic operations
             temp_path = path.with_suffix(".tmp")
-            
+
             with open(temp_path, "wb") as f:
                 tomli_w.dump(config.to_dict(), f)
-            
+
             # Set secure permissions before moving
             os.chmod(temp_path, 0o600)
-            
+
             # Atomic rename
             temp_path.replace(path)
-            
+
             logger.debug(f"Saved SP config to: {path}")
-            
+
         except Exception as e:
             # Cleanup temp file on error
             if temp_path.exists():
                 temp_path.unlink()
             raise ServicePrincipalError(f"Failed to save SP config: {e}") from e
-    
+
     @classmethod
     def apply_sp_credentials(cls, config: ServicePrincipalConfig) -> None:
         """Apply SP credentials to environment variables.
-        
+
         Args:
             config: ServicePrincipalConfig to apply
         """
@@ -159,7 +159,7 @@ class ServicePrincipalManager:
         os.environ["AZURE_TENANT_ID"] = config.tenant_id
         os.environ["AZURE_SUBSCRIPTION_ID"] = config.subscription_id
         logger.debug("Applied service principal credentials to environment")
-    
+
     @classmethod
     def clear_sp_credentials(cls) -> None:
         """Clear SP credentials from environment variables."""
@@ -182,13 +182,13 @@ from azlin.service_principal_auth import (
 Modify `AzureAuthenticator.__init__()`:
 ```python
 def __init__(
-    self, 
-    subscription_id: str | None = None, 
+    self,
+    subscription_id: str | None = None,
     use_managed_identity: bool = False,
     service_principal_config: str | None = None,  # NEW
 ):
     """Initialize Azure authenticator.
-    
+
     Args:
         subscription_id: Optional Azure subscription ID
         use_managed_identity: Whether to use managed identity
@@ -204,7 +204,7 @@ Modify `AzureAuthenticator.get_credentials()`:
 ```python
 def get_credentials(self) -> AzureCredentials:
     """Get Azure credentials from available sources.
-    
+
     Priority order:
     0. Service Principal config file (NEW)
     1. Environment variables (AZURE_CLIENT_ID, etc.)
@@ -213,7 +213,7 @@ def get_credentials(self) -> AzureCredentials:
     """
     if self._credentials_cache:
         return self._credentials_cache
-    
+
     # Priority 0: Service Principal config file  # NEW
     if self._service_principal_config:
         try:
@@ -224,11 +224,11 @@ def get_credentials(self) -> AzureCredentials:
             logger.info("Loaded credentials from service principal config")
         except ServicePrincipalError as e:
             logger.warning(f"Failed to load SP config: {e}. Trying other methods...")
-    
+
     # Priority 1: Environment variables
     if self._check_env_credentials():
         # ... existing code ...
-    
+
     # ... rest of priorities unchanged ...
 ```
 
@@ -239,7 +239,7 @@ Modify `AzlinConfig` dataclass:
 @dataclass
 class AzlinConfig:
     """Azlin configuration data."""
-    
+
     default_resource_group: str | None = None
     default_region: str = "westus2"
     default_vm_size: str = "Standard_B2s"
@@ -248,7 +248,7 @@ class AzlinConfig:
     session_names: dict[str, str] | None = None
     vm_storage: dict[str, str] | None = None
     default_nfs_storage: str | None = None
-    
+
     # NEW: Service Principal support
     service_principal_enabled: bool = False
     service_principal_config_path: str | None = None
@@ -258,12 +258,12 @@ Add methods to `ConfigManager`:
 ```python
 @classmethod
 def enable_service_principal(
-    cls, 
+    cls,
     config_path: str | None = None,
     custom_config_path: str | None = None
 ) -> None:
     """Enable service principal authentication.
-    
+
     Args:
         config_path: Path to SP config file
         custom_config_path: Custom azlin config path
@@ -276,7 +276,7 @@ def enable_service_principal(
 @classmethod
 def disable_service_principal(cls, custom_config_path: str | None = None) -> None:
     """Disable service principal authentication.
-    
+
     Args:
         custom_config_path: Custom azlin config path
     """
@@ -288,10 +288,10 @@ def disable_service_principal(cls, custom_config_path: str | None = None) -> Non
 @classmethod
 def get_service_principal_enabled(cls, custom_config_path: str | None = None) -> bool:
     """Check if service principal is enabled.
-    
+
     Args:
         custom_config_path: Custom azlin config path
-        
+
     Returns:
         True if SP is enabled
     """
@@ -307,7 +307,7 @@ Add after main group definition (after line 1168):
 @click.pass_context
 def auth_group(ctx: click.Context) -> None:
     """Manage Azure authentication methods.
-    
+
     \b
     Examples:
         azlin auth status                    # Show current auth method
@@ -323,23 +323,23 @@ def auth_status(ctx: click.Context) -> None:
     """Show current authentication status."""
     try:
         auth = AzureAuthenticator()
-        
+
         # Check which method is active
         try:
             creds = auth.get_credentials()
             click.echo(f"Authentication Method: {creds.method}")
-            
+
             if creds.subscription_id:
                 click.echo(f"Subscription: {creds.subscription_id[:8]}...")
             if creds.tenant_id:
                 click.echo(f"Tenant: {creds.tenant_id[:8]}...")
-            
+
             click.echo("Status: AUTHENTICATED")
-            
+
         except AuthenticationError:
             click.echo("Status: NOT AUTHENTICATED")
             click.echo("Run: az login")
-            
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -361,9 +361,9 @@ def auth_sp_configure(
     """Configure service principal authentication."""
     try:
         from azlin.service_principal_auth import ServicePrincipalConfig, ServicePrincipalManager
-        
+
         click.echo("\nConfiguring service principal...")
-        
+
         # Create config
         sp_config = ServicePrincipalConfig(
             client_id=client_id,
@@ -371,22 +371,22 @@ def auth_sp_configure(
             tenant_id=tenant_id,
             subscription_id=subscription_id,
         )
-        
+
         # Save config
         ServicePrincipalManager.save_sp_config(sp_config)
         click.echo("Service principal config saved to: ~/.azlin/sp-config.toml")
-        
+
         # Enable in main config
         ConfigManager.enable_service_principal()
         click.echo("Service principal authentication ENABLED")
-        
+
         # Test authentication
         auth = AzureAuthenticator(service_principal_config=str(
             ServicePrincipalManager.DEFAULT_SP_CONFIG_FILE
         ))
         auth.validate_credentials()
         click.echo("Service principal authentication verified!")
-        
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -401,7 +401,7 @@ def auth_sp_disable(ctx: click.Context) -> None:
         ConfigManager.disable_service_principal()
         click.echo("Service principal authentication DISABLED")
         click.echo("Falling back to Azure CLI authentication")
-        
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -497,4 +497,3 @@ def auth_sp_disable(ctx: click.Context) -> None:
 3. **Env Var Cleanup**: Credentials cleared after use
 4. **Token Delegation**: Still uses `az` CLI (no direct token storage)
 5. **Path Validation**: SP config path validated like other configs
-

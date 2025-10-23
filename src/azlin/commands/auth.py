@@ -27,7 +27,9 @@ except ImportError:
     try:
         import tomllib as tomli  # type: ignore[import]
     except ImportError as e:
-        raise ImportError("toml library not available. Install with: pip install tomli tomli-w") from e
+        raise ImportError(
+            "toml library not available. Install with: pip install tomli tomli-w"
+        ) from e
 
 try:
     import tomli_w  # type: ignore[import]
@@ -76,10 +78,7 @@ def auth():
 @click.option("--profile", "-p", default="default", help="Profile name")
 @click.option("--tenant-id", help="Azure Tenant ID")
 @click.option("--client-id", help="Azure Client ID / Application ID")
-@click.option(
-    "--subscription-id",
-    help="Azure Subscription ID"
-)
+@click.option("--subscription-id", help="Azure Subscription ID")
 @click.option(
     "--use-certificate",
     is_flag=True,
@@ -144,14 +143,12 @@ def setup(
         # Ask about auth method if not specified
         if not use_certificate and not certificate_path:
             use_certificate = click.confirm(
-                "Use certificate-based authentication? (otherwise client secret)",
-                default=False
+                "Use certificate-based authentication? (otherwise client secret)", default=False
             )
 
         if use_certificate and not certificate_path:
             certificate_path = click.prompt(
-                "Path to certificate file",
-                type=click.Path(exists=True)
+                "Path to certificate file", type=click.Path(exists=True)
             )
 
         # Determine auth method
@@ -190,10 +187,11 @@ def setup(
             azlin_config = ConfigManager.load_config()
         except ConfigError:
             from azlin.config_manager import AzlinConfig
+
             azlin_config = AzlinConfig()
 
         # Add auth profile to config
-        if not hasattr(azlin_config, 'auth_profiles'):
+        if not hasattr(azlin_config, "auth_profiles"):
             # Store in config dict manually since AzlinConfig doesn't have auth_profiles yet
             config_path = ConfigManager.get_config_path()
 
@@ -227,7 +225,7 @@ def setup(
         click.echo("\nNext steps:")
         if auth_method == "client_secret":
             click.echo("1. Set your client secret:")
-            click.echo(f"   export AZLIN_SP_CLIENT_SECRET='your-secret-here'")
+            click.echo("   export AZLIN_SP_CLIENT_SECRET='your-secret-here'")
             click.echo("2. Test authentication:")
             click.echo(f"   azlin auth test --profile {profile}")
         else:
@@ -273,7 +271,9 @@ def test(profile: str, subscription_id: str | None):
         config_path = ConfigManager.get_config_path()
 
         if not config_path.exists():
-            click.echo(click.style(f"Error: No profiles found. Run 'azlin auth setup' first.", fg="red"))
+            click.echo(
+                click.style("Error: No profiles found. Run 'azlin auth setup' first.", fg="red")
+            )
             sys.exit(1)
 
         # Load TOML
@@ -282,7 +282,9 @@ def test(profile: str, subscription_id: str | None):
 
         # Check if auth section exists
         if "auth" not in data or "profiles" not in data["auth"]:
-            click.echo(click.style(f"Error: No profiles found. Run 'azlin auth setup' first.", fg="red"))
+            click.echo(
+                click.style("Error: No profiles found. Run 'azlin auth setup' first.", fg="red")
+            )
             sys.exit(1)
 
         profiles = data["auth"]["profiles"]
@@ -296,7 +298,7 @@ def test(profile: str, subscription_id: str | None):
         # Create config
         sp_config = ServicePrincipalConfig.from_dict(profile_data)
 
-        click.echo(f"\nProfile details:")
+        click.echo("\nProfile details:")
         click.echo(f"  Client ID: {sp_config.client_id}")
         click.echo(f"  Tenant ID: {sp_config.tenant_id}")
         click.echo(f"  Subscription ID: {sp_config.subscription_id}")
@@ -319,6 +321,7 @@ def test(profile: str, subscription_id: str | None):
 
         # Set credentials in environment temporarily
         import subprocess
+
         env = os.environ.copy()
         env.update(creds)
 
@@ -330,14 +333,15 @@ def test(profile: str, subscription_id: str | None):
                 text=True,
                 timeout=30,
                 env=env,
-                check=False
+                check=False,
             )
 
             if result.returncode == 0:
                 import json
+
                 account_info = json.loads(result.stdout)
                 click.echo(click.style("✓ Authentication successful!", fg="green"))
-                click.echo(f"\n  Authenticated as:")
+                click.echo("\n  Authenticated as:")
                 click.echo(f"    Tenant: {account_info.get('tenantId', 'N/A')}")
                 click.echo(f"    Subscription: {account_info.get('name', 'N/A')}")
                 click.echo(f"    ID: {account_info.get('id', 'N/A')}")
@@ -352,7 +356,9 @@ def test(profile: str, subscription_id: str | None):
             sys.exit(1)
         except FileNotFoundError:
             click.echo(click.style("✗ Azure CLI not found", fg="red"))
-            click.echo("Please install Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli")
+            click.echo(
+                "Please install Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+            )
             sys.exit(1)
 
     except (ServicePrincipalError, ConfigError) as e:
@@ -438,7 +444,7 @@ def show(profile: str):
         config_path = ConfigManager.get_config_path()
 
         if not config_path.exists():
-            click.echo(click.style(f"Error: No profiles found.", fg="red"))
+            click.echo(click.style("Error: No profiles found.", fg="red"))
             sys.exit(1)
 
         # Load TOML
@@ -447,7 +453,7 @@ def show(profile: str):
 
         # Check if auth section exists
         if "auth" not in data or "profiles" not in data["auth"]:
-            click.echo(click.style(f"Error: No profiles found.", fg="red"))
+            click.echo(click.style("Error: No profiles found.", fg="red"))
             sys.exit(1)
 
         profiles = data["auth"]["profiles"]
@@ -504,7 +510,7 @@ def remove(profile: str, yes: bool):
         config_path = ConfigManager.get_config_path()
 
         if not config_path.exists():
-            click.echo(click.style(f"Error: No profiles found.", fg="red"))
+            click.echo(click.style("Error: No profiles found.", fg="red"))
             sys.exit(1)
 
         # Load TOML
@@ -514,7 +520,7 @@ def remove(profile: str, yes: bool):
 
         # Check if auth section exists
         if "auth" not in data or "profiles" not in data["auth"]:
-            click.echo(click.style(f"Error: No profiles found.", fg="red"))
+            click.echo(click.style("Error: No profiles found.", fg="red"))
             sys.exit(1)
 
         profiles = data["auth"]["profiles"]
@@ -526,7 +532,9 @@ def remove(profile: str, yes: bool):
         # Confirm deletion
         if not yes:
             click.echo(f"\nProfile '{profile}' will be removed.")
-            click.echo("This will delete the profile configuration (not the Azure service principal).")
+            click.echo(
+                "This will delete the profile configuration (not the Azure service principal)."
+            )
 
             if not click.confirm("\nAre you sure?", default=False):
                 click.echo("Cancelled.")

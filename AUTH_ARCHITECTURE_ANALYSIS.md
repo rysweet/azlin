@@ -230,11 +230,11 @@ def get_credentials(self) -> AzureCredentials:
     # Priority 1: Environment variables
     if self._check_env_credentials():
         # AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID
-    
+
     # Priority 2: Azure CLI
     if self.check_az_cli_available():
         # az account get-access-token
-    
+
     # Priority 3: Managed identity
     if self._use_managed_identity:
         # Azure metadata service
@@ -248,7 +248,7 @@ def get_credentials(self) -> AzureCredentials:
 **Pattern:**
 ```python
 # In AzureAuthenticator.__init__():
-def __init__(self, 
+def __init__(self,
     subscription_id: str | None = None,
     use_managed_identity: bool = False,
     service_principal_config: str | None = None):  # NEW
@@ -259,7 +259,7 @@ def get_credentials(self) -> AzureCredentials:
     # Priority 0: Load and apply Service Principal config
     if self._service_principal_config:
         self._load_service_principal_credentials()
-    
+
     # Then existing priorities continue...
 ```
 
@@ -502,17 +502,17 @@ ConfigManager.save_config(config)
 def _authenticate_azure(self) -> str:
     """Authenticate with Azure and get subscription ID."""
     self.progress.update("Checking Azure CLI authentication...")
-    
+
     # Verify az CLI is available
     if not self.auth.check_az_cli_available():
         raise AuthenticationError("Azure CLI not available. Please install az CLI.")
-    
+
     # Get credentials (triggers az login if needed)
     self.auth.get_credentials()
-    
+
     # Get subscription ID
     subscription_id = self.auth.get_subscription_id()
-    
+
     return subscription_id
 ```
 
@@ -537,7 +537,7 @@ def get_resource_group(
     """Get resource group with CLI override."""
     if cli_value:  # CLI args take precedence
         return cli_value
-    
+
     config = cls.load_config(custom_path)
     return config.default_resource_group
 ```
@@ -548,17 +548,17 @@ def get_resource_group(
 # From tests/unit/test_config_manager.py
 class TestConfigManager:
     """Tests for ConfigManager class."""
-    
+
     def test_get_config_path_custom(self, tmp_path):
         """Test custom config path."""
         custom_path = tmp_path / "custom.toml"
         custom_path.touch()
         path = ConfigManager.get_config_path(str(custom_path))
         assert path == custom_path
-    
+
     def test_load_config_not_exists(self, tmp_path):
         """Test loading config when file doesn't exist."""
-        with patch.object(ConfigManager, "get_config_path", 
+        with patch.object(ConfigManager, "get_config_path",
                          return_value=tmp_path / "missing.toml"):
             config = ConfigManager.load_config()
             assert isinstance(config, AzlinConfig)
@@ -571,10 +571,10 @@ class TestConfigManager:
 # From tests/mocks/azure_mock.py
 class MockAzureCredential:
     """Mock Azure DefaultAzureCredential."""
-    
+
     def __init__(self, token: str = "fake-token-12345"):
         self.token = token
-    
+
     def get_token(self, *scopes):
         """Return a fake token."""
         return Mock(token=self.token, expires_on=9999999999)
@@ -631,18 +631,18 @@ import pytest
 
 class Test[ClassName]:
     """Tests for [ClassName]."""
-    
+
     def test_[method_name]_[scenario](self):
         """Test [method] in [scenario]."""
         # Arrange
         setup_data = ...
-        
+
         # Act
         result = function_under_test(setup_data)
-        
+
         # Assert
         assert result == expected_value
-    
+
     @patch("module.subprocess.run")
     def test_[method]_[scenario]_with_mock(self, mock_run):
         """Test with mocked subprocess."""
@@ -667,11 +667,11 @@ def test_az_cli_auth(self, mock_which, mock_run):
             "tenant": "tenant-id"
         })
     )
-    
+
     # Test
     auth = AzureAuthenticator()
     creds = auth.get_credentials()
-    
+
     # Verify
     assert creds.method == "az_cli"
     assert creds.subscription_id == "sub-id"
@@ -687,15 +687,15 @@ def test_config_load_save_roundtrip(self, tmp_path):
         default_resource_group="test-rg",
         default_region="eastus"
     )
-    
+
     # Save
     config_path = tmp_path / "config.toml"
     with patch.object(ConfigManager, "DEFAULT_CONFIG_FILE", config_path):
         ConfigManager.save_config(config)
-    
+
     # Load
     loaded = ConfigManager.load_config()
-    
+
     # Verify
     assert loaded.default_resource_group == "test-rg"
     assert loaded.default_region == "eastus"
@@ -744,4 +744,3 @@ def test_config_load_save_roundtrip(self, tmp_path):
 1. Update README with SP auth guide
 2. Add CLI help text
 3. Create migration guide
-

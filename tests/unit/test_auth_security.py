@@ -16,8 +16,7 @@ All tests should FAIL initially until security controls are implemented.
 """
 
 import logging
-import os
-import subprocess
+import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -230,17 +229,13 @@ class TestSEC003_CertificatePermissions:
             0o604,  # Other readable
         ],
     )
-    def test_certificate_with_insecure_permissions_raises_error(
-        self, tmp_path, insecure_mode
-    ):
+    def test_certificate_with_insecure_permissions_raises_error(self, tmp_path, insecure_mode):
         """Test that certificate with insecure permissions raises error."""
         cert_file = tmp_path / "insecure-cert.pem"
         cert_file.write_text("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----")
         cert_file.chmod(insecure_mode)
 
-        with pytest.raises(
-            ServicePrincipalError, match="insecure permissions.*0600.*0400"
-        ):
+        with pytest.raises(ServicePrincipalError, match="insecure permissions.*0600.*0400"):
             ServicePrincipalManager.validate_certificate(cert_file)
 
     def test_certificate_permissions_auto_fix_option(self, tmp_path):
@@ -312,8 +307,9 @@ class TestSEC004_CertificateExpiration:
         ) as mock_expiry:
             mock_expiry.return_value = expiry_date
 
-            # Should not warn
-            with pytest.warns(None) as warning_list:
+            # Should not warn - use warnings.catch_warnings instead of pytest.warns(None)
+            with warnings.catch_warnings(record=True) as warning_list:
+                warnings.simplefilter("always")
                 ServicePrincipalManager.validate_certificate(cert_file)
 
             # Filter for our specific warnings
@@ -349,9 +345,7 @@ class TestSEC004_CertificateExpiration:
         ) as mock_expiry:
             mock_expiry.return_value = expiry_date
 
-            with pytest.warns(
-                UserWarning, match=f"expires.*{expiry_date.strftime('%Y-%m-%d')}"
-            ):
+            with pytest.warns(UserWarning, match=f"expires.*{expiry_date.strftime('%Y-%m-%d')}"):
                 ServicePrincipalManager.validate_certificate(cert_file)
 
 
@@ -386,9 +380,7 @@ auth_method = "client_secret"
                 if "secret" in record.message.lower() or "credential" in record.message.lower():
                     assert "****" in record.message or "[REDACTED]" in record.message
 
-    def test_log_sanitization_masks_certificate_paths_with_sensitive_names(
-        self, tmp_path, caplog
-    ):
+    def test_log_sanitization_masks_certificate_paths_with_sensitive_names(self, tmp_path, caplog):
         """Test that sensitive certificate paths are sanitized."""
         cert_file = tmp_path / "production-secret-key.pem"
         cert_file.write_text("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----")
@@ -505,9 +497,7 @@ certificate_path = "{cert_file}"
             for call in mock_run.call_args_list:
                 args = call[0]
                 if args:
-                    assert isinstance(
-                        args[0], list
-                    ), "subprocess args must be list, not string"
+                    assert isinstance(args[0], list), "subprocess args must be list, not string"
 
 
 class TestSEC007_InputValidation:

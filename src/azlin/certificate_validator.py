@@ -14,15 +14,20 @@ Security:
 """
 
 import stat
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cryptography import x509
 
 try:
-    from cryptography import x509
+    from cryptography import x509 as _x509
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives import hashes
+
+    x509 = _x509
 except ImportError:
     x509 = None  # Handle gracefully if cryptography not installed
 
@@ -30,19 +35,21 @@ except ImportError:
 @dataclass
 class CertificateValidation:
     """Certificate validation result."""
+
     valid: bool
     warnings: list[str]
     errors: list[str]
     expiration_status: str  # "valid", "expiring_soon", "expired", "unknown"
-    expiration_date: Optional[datetime] = None
+    expiration_date: datetime | None = None
 
 
 @dataclass
 class CertificateInfo:
     """Certificate metadata information."""
+
     path: str
-    thumbprint: Optional[str]
-    expiration_date: Optional[datetime]
+    thumbprint: str | None
+    expiration_date: datetime | None
     validation_status: str
 
 
@@ -86,10 +93,7 @@ class CertificateValidator:
         if not cert_path.exists():
             errors.append(f"Certificate file not found: {cert_path}")
             return CertificateValidation(
-                valid=False,
-                warnings=warnings,
-                errors=errors,
-                expiration_status="unknown"
+                valid=False, warnings=warnings, errors=errors, expiration_status="unknown"
             )
 
         # Check permissions
@@ -99,21 +103,15 @@ class CertificateValidator:
 
         if not perms_valid:
             return CertificateValidation(
-                valid=False,
-                warnings=warnings,
-                errors=errors,
-                expiration_status="unknown"
+                valid=False, warnings=warnings, errors=errors, expiration_status="unknown"
             )
 
         # Parse certificate and validate format
         cert = CertificateValidator.parse_certificate(cert_path)
         if cert is None:
-            errors.append(f"Invalid certificate format. Expected PEM format.")
+            errors.append("Invalid certificate format. Expected PEM format.")
             return CertificateValidation(
-                valid=False,
-                warnings=warnings,
-                errors=errors,
-                expiration_status="unknown"
+                valid=False, warnings=warnings, errors=errors, expiration_status="unknown"
             )
 
         # Check expiration
@@ -129,7 +127,7 @@ class CertificateValidator:
                 # Older cryptography versions use not_valid_after
                 expiration_date = cert.not_valid_after
                 if expiration_date.tzinfo is None:
-                    expiration_date = expiration_date.replace(tzinfo=timezone.utc)
+                    expiration_date = expiration_date.replace(tzinfo=UTC)
 
         # Determine overall validity
         is_valid = len(errors) == 0 and expiration_status != "expired"
@@ -139,7 +137,7 @@ class CertificateValidator:
             warnings=warnings,
             errors=errors,
             expiration_status=expiration_status,
-            expiration_date=expiration_date
+            expiration_date=expiration_date,
         )
 
     @staticmethod
@@ -207,9 +205,9 @@ class CertificateValidator:
                 expiration = cert.not_valid_after
                 # Ensure timezone aware
                 if expiration.tzinfo is None:
-                    expiration = expiration.replace(tzinfo=timezone.utc)
+                    expiration = expiration.replace(tzinfo=UTC)
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
 
             # Check if expired
             if expiration < now:
@@ -225,26 +223,26 @@ class CertificateValidator:
 
             return "valid", warnings
 
-        except Exception as e:
+        except Exception:
             # If we can't determine expiration, return unknown
             return "unknown", warnings
 
     @staticmethod
-    def parse_certificate(cert_path: Path) -> Optional[x509.Certificate]:
+    def parse_certificate(cert_path: Path) -> Any:
         """Parse PEM certificate file.
 
         Args:
             cert_path: Path to certificate file
 
         Returns:
-            Certificate object or None if parsing fails
+            Certificate object or None if parsing fails (x509.Certificate | None)
         """
         if x509 is None:
             # cryptography library not available
             return None
 
         try:
-            with open(cert_path, 'rb') as f:
+            with open(cert_path, "rb") as f:
                 cert_data = f.read()
 
             # Try to parse as PEM
@@ -287,7 +285,7 @@ class CertificateValidator:
                 except AttributeError:
                     expiration_date = cert.not_valid_after
                     if expiration_date.tzinfo is None:
-                        expiration_date = expiration_date.replace(tzinfo=timezone.utc)
+                        expiration_date = expiration_date.replace(tzinfo=UTC)
 
                 # Determine validation status
                 validation = CertificateValidator.validate_certificate(cert_path)
@@ -307,5 +305,5 @@ class CertificateValidator:
             path=str(cert_path),
             thumbprint=thumbprint,
             expiration_date=expiration_date,
-            validation_status=validation_status
+            validation_status=validation_status,
         )

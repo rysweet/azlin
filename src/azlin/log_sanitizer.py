@@ -21,7 +21,8 @@ Design Philosophy:
 """
 
 import re
-from typing import Any, Dict, Pattern
+from re import Pattern
+from typing import Any
 
 
 class LogSanitizer:
@@ -39,7 +40,7 @@ class LogSanitizer:
 
     # Secret patterns - comprehensive coverage for all sensitive data types
     # Order matters: more specific patterns should come first
-    SECRET_PATTERNS: Dict[str, Pattern] = {
+    SECRET_PATTERNS: dict[str, Pattern] = {
         # Client secret patterns (various formats)
         "client_secret_assignment": re.compile(
             r'(client[_-]?secret["\']?\s*[:=]\s*["\']?)([^\s"\'&,\)]+)',
@@ -50,13 +51,9 @@ class LogSanitizer:
             re.IGNORECASE,
         ),
         # Password patterns
-        "password": re.compile(
-            r'(password["\']?\s*[:=]\s*["\']?)([^\s"\'&,\)]+)', re.IGNORECASE
-        ),
+        "password": re.compile(r'(password["\']?\s*[:=]\s*["\']?)([^\s"\'&,\)]+)', re.IGNORECASE),
         # Authorization headers
-        "authorization_bearer": re.compile(
-            r"(Authorization:\s*Bearer\s+)([^\s]+)", re.IGNORECASE
-        ),
+        "authorization_bearer": re.compile(r"(Authorization:\s*Bearer\s+)([^\s]+)", re.IGNORECASE),
         # Access token patterns
         "access_token": re.compile(
             r'(access[_-]?token["\']?\s*[:=]\s*["\']?)([^\s"\'&,\)]+)',
@@ -78,7 +75,7 @@ class LogSanitizer:
 
     # Sensitive file name patterns (for certificate paths)
     # Matches both absolute paths (/path/to/secret.pem) and relative filenames (secret.pem)
-    SENSITIVE_PATH_PATTERNS: Dict[str, Pattern] = {
+    SENSITIVE_PATH_PATTERNS: dict[str, Pattern] = {
         "secret_in_filename": re.compile(
             r"((?:[/\\][\w\-]*)?[\w\-]*secret[\w\-]*\.(pem|pfx|key|crt|cer))", re.IGNORECASE
         ),
@@ -197,7 +194,7 @@ class LogSanitizer:
         return result
 
     @classmethod
-    def sanitize_env_vars(cls, env_dict: Dict[str, str]) -> Dict[str, str]:
+    def sanitize_env_vars(cls, env_dict: dict[str, str]) -> dict[str, str]:
         """Sanitize environment variables dictionary.
 
         Creates a new dictionary with sensitive values redacted.
@@ -274,7 +271,7 @@ class LogSanitizer:
         return sanitized_msg
 
     @classmethod
-    def sanitize_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+    def sanitize_dict(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Sanitize dictionary values recursively.
 
         Creates a new dictionary with sensitive values redacted.
@@ -322,8 +319,10 @@ class LogSanitizer:
             elif isinstance(value, (list, tuple)):
                 # Sanitize list/tuple elements
                 result[key] = type(value)(
-                    cls.sanitize_dict(item) if isinstance(item, dict)
-                    else cls.sanitize(str(item)) if isinstance(item, str)
+                    cls.sanitize_dict(item)
+                    if isinstance(item, dict)
+                    else cls.sanitize(str(item))
+                    if isinstance(item, str)
                     else item
                     for item in value
                 )

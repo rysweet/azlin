@@ -13,15 +13,11 @@ Security features:
 - No plain text secret storage
 """
 
-import re
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
 from uuid import UUID
-
-from azlin.certificate_validator import CertificateValidation
 
 
 def validate_uuid(value: str, field_name: str) -> None:
@@ -63,7 +59,7 @@ class AuthMethod(str, Enum):
         """Check if this method is a service principal method."""
         return self in (
             AuthMethod.SERVICE_PRINCIPAL_SECRET,
-            AuthMethod.SERVICE_PRINCIPAL_CERTIFICATE
+            AuthMethod.SERVICE_PRINCIPAL_CERTIFICATE,
         )
 
     @property
@@ -161,23 +157,17 @@ class AuthConfig:
         # Service principal methods require SP config
         if self.method.is_service_principal:
             if not self.service_principal:
-                raise ValueError(
-                    f"{self.method.value} requires service_principal configuration"
-                )
+                raise ValueError(f"{self.method.value} requires service_principal configuration")
 
             # Certificate method requires certificate path
             if self.method == AuthMethod.SERVICE_PRINCIPAL_CERTIFICATE:
                 if not self.service_principal.use_certificate:
-                    raise ValueError(
-                        "SERVICE_PRINCIPAL_CERTIFICATE requires use_certificate=True"
-                    )
+                    raise ValueError("SERVICE_PRINCIPAL_CERTIFICATE requires use_certificate=True")
 
         # Managed identity requires MI config
         if self.method == AuthMethod.MANAGED_IDENTITY:
             if not self.managed_identity:
-                raise ValueError(
-                    f"{self.method.value} requires managed_identity configuration"
-                )
+                raise ValueError(f"{self.method.value} requires managed_identity configuration")
 
         # Azure CLI should not have SP or MI config
         if self.method == AuthMethod.AZURE_CLI:
