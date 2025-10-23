@@ -50,7 +50,7 @@ class AuthMethod(str, Enum):
     """
 
     AZURE_CLI = "azure_cli"
-    SERVICE_PRINCIPAL_SECRET = "sp_secret"
+    SERVICE_PRINCIPAL_SECRET = "sp_secret"  # noqa: S105 - Enum value, not a password
     SERVICE_PRINCIPAL_CERTIFICATE = "sp_cert"
     MANAGED_IDENTITY = "managed_identity"
 
@@ -160,22 +160,24 @@ class AuthConfig:
                 raise ValueError(f"{self.method.value} requires service_principal configuration")
 
             # Certificate method requires certificate path
-            if self.method == AuthMethod.SERVICE_PRINCIPAL_CERTIFICATE:
-                if not self.service_principal.use_certificate:
-                    raise ValueError("SERVICE_PRINCIPAL_CERTIFICATE requires use_certificate=True")
+            if (
+                self.method == AuthMethod.SERVICE_PRINCIPAL_CERTIFICATE
+                and not self.service_principal.use_certificate
+            ):
+                raise ValueError("SERVICE_PRINCIPAL_CERTIFICATE requires use_certificate=True")
 
         # Managed identity requires MI config
-        if self.method == AuthMethod.MANAGED_IDENTITY:
-            if not self.managed_identity:
-                raise ValueError(f"{self.method.value} requires managed_identity configuration")
+        if self.method == AuthMethod.MANAGED_IDENTITY and not self.managed_identity:
+            raise ValueError(f"{self.method.value} requires managed_identity configuration")
 
         # Azure CLI should not have SP or MI config
-        if self.method == AuthMethod.AZURE_CLI:
-            if self.service_principal or self.managed_identity:
-                raise ValueError(
-                    "AZURE_CLI method should not have service_principal or "
-                    "managed_identity configuration"
-                )
+        if self.method == AuthMethod.AZURE_CLI and (
+            self.service_principal or self.managed_identity
+        ):
+            raise ValueError(
+                "AZURE_CLI method should not have service_principal or "
+                "managed_identity configuration"
+            )
 
 
 @dataclass
