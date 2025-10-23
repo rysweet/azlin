@@ -511,13 +511,18 @@ class ConfigManager:
 
     @classmethod
     def get_vm_name_by_session(
-        cls, session_name: str, custom_path: str | None = None
+        cls, session_name: str, custom_path: str | None = None, resource_group: str | None = None
     ) -> str | None:
-        """Get VM name by session name.
+        """Get VM name by session name using hybrid resolution.
+
+        Resolution priority:
+        1. Azure VM tags (source of truth) - checks managed-by=azlin VMs
+        2. Local config file (backward compatibility fallback)
 
         Args:
             session_name: Session name to look up
             custom_path: Custom config file path (optional)
+            resource_group: Optional RG to limit tag search (None = all RGs)
 
         Returns:
             VM name or None if not found
@@ -526,6 +531,18 @@ class ConfigManager:
             Filters out self-referential entries (vm_name == session_name)
             and warns on duplicate session names pointing to different VMs.
         """
+        # Priority 1: Check Azure tags first
+        try:
+            from azlin.tag_manager import TagManager
+
+            vm_info = TagManager.get_vm_by_session(session_name, resource_group)
+            if vm_info:
+                logger.debug(f"Resolved session '{session_name}' to VM '{vm_info.name}' via Azure tags")
+                return vm_info.name
+        except Exception as e:
+            logger.debug(f"Failed to resolve session via tags, falling back to config: {e}")
+
+        # Priority 2: Fall back to local config file
         try:
             config = cls.load_config(custom_path)
             if config.session_names:
@@ -552,6 +569,7 @@ class ConfigManager:
                     )
                     return matches[0]
                 if len(matches) == 1:
+                    logger.debug(f"Resolved session '{session_name}' to VM '{matches[0]}' via local config")
                     return matches[0]
 
         except ConfigError:

@@ -40,6 +40,7 @@ class VMConfig:
     ssh_public_key: str | None = None
     admin_username: str = "azureuser"
     disable_password_auth: bool = True
+    session_name: str | None = None  # Optional session name for tag management
 
 
 @dataclass
@@ -514,6 +515,26 @@ class VMProvisioner:
             state="Running",
             id=vm_data.get("id"),
         )
+
+        # Set azlin management tags on newly created VM
+        report_progress("Setting azlin management tags...")
+        try:
+            import os
+
+            from azlin.tag_manager import TagManager
+
+            owner = os.getenv("USER") or "unknown"
+            TagManager.set_managed_tags(
+                vm_name=config.name,
+                resource_group=config.resource_group,
+                owner=owner,
+                session_name=config.session_name if hasattr(config, "session_name") else None,
+            )
+            report_progress("Management tags set successfully")
+        except Exception as e:
+            # Tag setting is non-critical, don't fail provisioning
+            logger.warning(f"Failed to set management tags: {e}")
+            report_progress(f"Warning: Failed to set management tags: {e}")
 
         report_progress(f"VM provisioned successfully: {vm_details.public_ip}")
         return vm_details

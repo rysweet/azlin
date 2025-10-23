@@ -1717,34 +1717,47 @@ def create_command(ctx: click.Context, **kwargs: Any) -> Any:
 @click.option("--all", "show_all", help="Show all VMs (including stopped)", is_flag=True)
 @click.option("--tag", help="Filter VMs by tag (format: key or key=value)", type=str)
 def list_command(resource_group: str | None, config: str | None, show_all: bool, tag: str | None):
-    """List VMs in resource group.
+    """List VMs in resource group or across all resource groups.
+
+    By default, lists all azlin-managed VMs (those with managed-by=azlin tag) across all resource groups.
+    Use --rg to limit to a specific resource group.
 
     Shows VM name, status, IP address, region, and size.
 
     \b
     Examples:
-        azlin list
-        azlin list --rg my-resource-group
-        azlin list --all
-        azlin list --tag env=dev
-        azlin list --tag team
+        azlin list                    # All azlin VMs across all RGs
+        azlin list --rg my-rg         # VMs in specific RG
+        azlin list --all              # Include stopped VMs
+        azlin list --tag env=dev      # Filter by tag
     """
     try:
         # Get resource group from config or CLI
         rg = ConfigManager.get_resource_group(resource_group, config)
 
+        # Cross-RG discovery: if no RG specified, list all managed VMs
         if not rg:
-            click.echo("Error: No resource group specified and no default configured.", err=True)
-            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
-            sys.exit(1)
-
-        click.echo(f"Listing VMs in resource group: {rg}\n")
-
-        # List VMs
-        vms = VMManager.list_vms(rg, include_stopped=show_all)
-
-        # Filter to azlin VMs
-        vms = VMManager.filter_by_prefix(vms, "azlin")
+            click.echo("Listing all azlin-managed VMs across resource groups...\n")
+            try:
+                vms = TagManager.list_managed_vms(resource_group=None)
+                if not show_all:
+                    vms = [vm for vm in vms if vm.is_running()]
+            except Exception as e:
+                click.echo(
+                    f"Warning: Tag-based discovery failed ({e}).\n"
+                    "Falling back to default resource group.\n",
+                    err=True,
+                )
+                # Fall back to requiring RG
+                click.echo("Error: No resource group specified and no default configured.", err=True)
+                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+                sys.exit(1)
+        else:
+            # Single RG listing
+            click.echo(f"Listing VMs in resource group: {rg}\n")
+            vms = VMManager.list_vms(rg, include_stopped=show_all)
+            # Filter to azlin VMs
+            vms = VMManager.filter_by_prefix(vms, "azlin")
 
         # Filter by tag if specified
         if tag:
@@ -1756,9 +1769,15 @@ def list_command(resource_group: str | None, config: str | None, show_all: bool,
 
         vms = VMManager.sort_by_created_time(vms)
 
-        # Populate session names from config
+        # Populate session names from tags (hybrid resolution: tags first, config fallback)
         for vm in vms:
-            vm.session_name = ConfigManager.get_session_name(vm.name, config)
+            # Try to get from tags first
+            session_from_tag = TagManager.get_session_name(vm.name, vm.resource_group)
+            if session_from_tag:
+                vm.session_name = session_from_tag
+            else:
+                # Fall back to config file
+                vm.session_name = ConfigManager.get_session_name(vm.name, config)
 
         if not vms:
             click.echo("No VMs found.")
@@ -1843,25 +1862,76 @@ def session_command(
 
         # Clear session name
         if clear:
-            if ConfigManager.delete_session_name(vm_name, config):
-                click.echo(f"Cleared session name for VM '{vm_name}'")
+            cleared_tag = False
+            cleared_config = False
+
+            # Clear from tags
+            try:
+                cleared_tag = TagManager.delete_session_name(vm_name, rg)
+            except Exception as e:
+                logger.warning(f"Failed to clear session from tags: {e}")
+
+            # Clear from config
+            cleared_config = ConfigManager.delete_session_name(vm_name, config)
+
+            if cleared_tag or cleared_config:
+                locations = []
+                if cleared_tag:
+                    locations.append("VM tags")
+                if cleared_config:
+                    locations.append("local config")
+                click.echo(f"Cleared session name for VM '{vm_name}' from {' and '.join(locations)}")
             else:
                 click.echo(f"No session name set for VM '{vm_name}'")
             return
 
-        # View current session name
+        # View current session name (hybrid: tags first, config fallback)
         if not session_name:
-            current_name = ConfigManager.get_session_name(vm_name, config)
+            # Try tags first
+            current_name = TagManager.get_session_name(vm_name, rg)
+            source = "VM tags" if current_name else None
+
+            # Fall back to config
+            if not current_name:
+                current_name = ConfigManager.get_session_name(vm_name, config)
+                source = "local config" if current_name else None
+
             if current_name:
-                click.echo(f"Session name for '{vm_name}': {current_name}")
+                click.echo(f"Session name for '{vm_name}': {current_name} (from {source})")
             else:
                 click.echo(f"No session name set for VM '{vm_name}'")
                 click.echo(f"\nSet one with: azlin session {vm_name} <session_name>")
             return
 
-        # Set session name
-        ConfigManager.set_session_name(vm_name, session_name, config)
-        click.echo(f"Set session name for '{vm_name}' to '{session_name}'")
+        # Set session name (write to both tags and config)
+        success_tag = False
+        success_config = False
+
+        # Set in tags (primary)
+        try:
+            TagManager.set_session_name(vm_name, rg, session_name)
+            success_tag = True
+        except Exception as e:
+            logger.warning(f"Failed to set session in tags: {e}")
+            click.echo(f"Warning: Could not set session name in VM tags: {e}", err=True)
+
+        # Set in config (backward compatibility)
+        try:
+            ConfigManager.set_session_name(vm_name, session_name, config)
+            success_config = True
+        except Exception as e:
+            logger.warning(f"Failed to set session in config: {e}")
+
+        if success_tag or success_config:
+            locations = []
+            if success_tag:
+                locations.append("VM tags")
+            if success_config:
+                locations.append("local config")
+            click.echo(f"Set session name for '{vm_name}' to '{session_name}' in {' and '.join(locations)}")
+        else:
+            click.echo("Error: Failed to set session name", err=True)
+            sys.exit(1)
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
