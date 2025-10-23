@@ -46,7 +46,9 @@ class AzlinConfig:
 
     default_resource_group: str | None = None
     default_region: str = "westus2"  # westus2 has better capacity than eastus
-    default_vm_size: str = "Standard_B2s"  # Widely available, affordable burstable VM
+    default_vm_size: str = (
+        "Standard_E16as_v5"  # Memory-optimized: 128GB RAM, 16 vCPU, 12.5 Gbps network
+    )
     last_vm_name: str | None = None
     notification_command: str = "imessR"
     session_names: dict[str, str] | None = None  # vm_name -> session_name mapping
@@ -80,7 +82,7 @@ class AzlinConfig:
         return cls(
             default_resource_group=data.get("default_resource_group"),
             default_region=data.get("default_region", "westus2"),
-            default_vm_size=data.get("default_vm_size", "Standard_B2s"),
+            default_vm_size=data.get("default_vm_size", "Standard_E16as_v5"),
             last_vm_name=data.get("last_vm_name"),
             notification_command=data.get("notification_command", "imessR"),
             session_names=data.get("session_names", {}),
@@ -371,7 +373,7 @@ class ConfigManager:
             custom_path: Custom config file path (optional)
 
         Returns:
-            VM size (defaults to Standard_D2s_v3)
+            VM size (defaults to Standard_E16as_v5)
         """
         if cli_value:
             return cli_value

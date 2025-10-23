@@ -129,8 +129,14 @@ azlin new --repo https://github.com/microsoft/vscode
 # Provision with shared NFS storage
 azlin new --nfs-storage team-shared --name worker-1
 
-# Specify VM size and region
-azlin new --vm-size Standard_D4s_v3 --region westus2
+# Specify VM size tier (s=8GB, m=64GB, l=128GB, xl=256GB)
+azlin new --size s      # Small: 8GB RAM (original default)
+azlin new --size m      # Medium: 64GB RAM
+azlin new --size l      # Large: 128GB RAM (NEW DEFAULT)
+azlin new --size xl     # Extra-large: 256GB RAM
+
+# Or specify exact Azure VM size
+azlin new --vm-size Standard_E8as_v5 --region westus2
 
 # Provision without auto-connecting
 azlin new --no-auto-connect
@@ -149,8 +155,9 @@ azlin new --name gpu-trainer --vm-size Standard_NC6
 - `--name NAME` - VM name/session name
 - `--repo URL` - Clone GitHub repository
 - `--nfs-storage NAME` - Mount shared NFS storage
-- `--vm-size SIZE` - Azure VM size (default: Standard_D2s_v3)
-- `--region REGION` - Azure region (default: eastus)
+- `--size TIER` - VM size tier: s (8GB), m (64GB), l (128GB), xl (256GB) - default: l
+- `--vm-size SIZE` - Exact Azure VM size (overrides --size) - default: Standard_E16as_v5
+- `--region REGION` - Azure region (default: westus2)
 - `--resource-group RG` - Resource group name
 - `--pool N` - Create N VMs in parallel
 - `--no-auto-connect` - Don't connect after creation
@@ -161,6 +168,17 @@ azlin new --name gpu-trainer --vm-size Standard_NC6
 - Node.js, Python 3.12+, Rust, Golang, .NET 10
 - GitHub Copilot CLI, OpenAI Codex CLI, Claude Code CLI
 - tmux, vim, and essential utilities
+
+**Default VM**: Size 'l' = Standard_E16as_v5 (128GB RAM, 16 vCPU, 12.5 Gbps network)
+- Memory-optimized for development workloads
+- Prevents swap thrashing and I/O bottlenecks
+- Cost: ~$417/month pay-as-you-go, ~$209/month with 1-year Reserved Instance
+
+**VM Size Tiers**:
+- `--size s`: Small - 8GB RAM, 2 vCPU (~$70/month) - Original default
+- `--size m`: Medium - 64GB RAM, 8 vCPU (~$363/month) - Good for most dev
+- `--size l`: Large - 128GB RAM, 16 vCPU (~$417/month) - **NEW DEFAULT**
+- `--size xl`: Extra-Large - 256GB RAM, 32 vCPU (~$1,144/month) - Heavy workloads
 
 **Time**: 4-7 minutes
 

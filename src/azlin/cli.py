@@ -91,6 +91,7 @@ from azlin.vm_provisioning import (
     VMDetails,
     VMProvisioner,
 )
+from azlin.vm_size_tiers import VMSizeTierError, VMSizeTiers
 
 logger = logging.getLogger(__name__)
 
@@ -1398,23 +1399,39 @@ def _load_config_and_template(
 def _resolve_vm_settings(
     resource_group: str | None,
     region: str | None,
+    size_tier: str | None,
     vm_size: str | None,
     azlin_config: AzlinConfig,
     template_config: VMTemplateConfig | None,
 ) -> tuple[str | None, str, str]:
     """Resolve VM settings with precedence: CLI > config > template > defaults.
 
+    Args:
+        resource_group: Resource group from CLI
+        region: Region from CLI
+        size_tier: Size tier (s/m/l/xl) from CLI
+        vm_size: Explicit VM size from CLI
+        azlin_config: Loaded config
+        template_config: Template config if provided
+
     Returns:
         Tuple of (final_rg, final_region, final_vm_size)
     """
+    # Resolve VM size from tier or explicit size
+    try:
+        resolved_vm_size = VMSizeTiers.resolve_vm_size(size_tier, vm_size)
+    except VMSizeTierError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
     if template_config:
         final_rg = resource_group or azlin_config.default_resource_group
         final_region = region or template_config.region
-        final_vm_size = vm_size or template_config.vm_size
+        final_vm_size = resolved_vm_size or template_config.vm_size
     else:
         final_rg = resource_group or azlin_config.default_resource_group
         final_region = region or azlin_config.default_region
-        final_vm_size = vm_size or azlin_config.default_vm_size
+        final_vm_size = resolved_vm_size or azlin_config.default_vm_size
 
     return final_rg, final_region, final_vm_size
 
@@ -1546,7 +1563,12 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
 @main.command(name="new")
 @click.pass_context
 @click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
+@click.option(
+    "--size",
+    help="VM size tier: s(mall), m(edium), l(arge), xl (default: l)",
+    type=click.Choice(["s", "m", "l", "xl"], case_sensitive=False),
+)
+@click.option("--vm-size", help="Azure VM size (overrides --size)", type=str)
 @click.option("--region", help="Azure region", type=str)
 @click.option("--resource-group", "--rg", help="Azure resource group", type=str)
 @click.option("--name", help="Custom VM name", type=str)
@@ -1558,6 +1580,7 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
 def new_command(
     ctx: click.Context,
     repo: str | None,
+    size: str | None,
     vm_size: str | None,
     region: str | None,
     resource_group: str | None,
@@ -1575,17 +1598,25 @@ def new_command(
 
     \b
     EXAMPLES:
-        # Provision basic VM
+        # Provision basic VM (uses size 'l' = 128GB RAM)
         $ azlin new
 
+        # Provision with size tier (s=8GB, m=64GB, l=128GB, xl=256GB)
+        $ azlin new --size m     # Medium: 64GB RAM
+        $ azlin new --size s     # Small: 8GB RAM (original default)
+        $ azlin new --size xl    # Extra-large: 256GB RAM
+
+        # Provision with exact VM size (overrides --size)
+        $ azlin new --vm-size Standard_E8as_v5
+
         # Provision with custom name
-        $ azlin new --name my-dev-vm
+        $ azlin new --name my-dev-vm --size m
 
         # Provision and clone repository
         $ azlin new --repo https://github.com/owner/repo
 
         # Provision 5 VMs in parallel
-        $ azlin new --pool 5
+        $ azlin new --pool 5 --size l
 
         # Provision from template
         $ azlin new --template dev-vm
@@ -1594,7 +1625,7 @@ def new_command(
         $ azlin new --nfs-storage myteam-shared --name worker-1
 
         # Provision and execute command
-        $ azlin new -- python train.py
+        $ azlin new --size xl -- python train.py
     """
     # Check for passthrough command
     command = None
@@ -1608,7 +1639,7 @@ def new_command(
 
     # Resolve VM settings
     final_rg, final_region, final_vm_size = _resolve_vm_settings(
-        resource_group, region, vm_size, azlin_config, template_config
+        resource_group, region, size, vm_size, azlin_config, template_config
     )
 
     # Generate VM name
