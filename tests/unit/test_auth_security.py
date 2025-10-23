@@ -725,7 +725,9 @@ auth_method = "client_secret"
             # Error should not contain the secret
             assert "my-secret-password" not in str(e)
 
-    @pytest.mark.skip(reason="Requires custom __repr__ in ServicePrincipalError - future implementation")
+    @pytest.mark.skip(
+        reason="Requires custom __repr__ in ServicePrincipalError - future implementation"
+    )
     def test_exception_repr_masks_secrets(self):
         """Test that exception __repr__ masks secrets."""
         error = ServicePrincipalError("Authentication failed with secret: super-secret-123")

@@ -404,7 +404,7 @@ class TestServicePrincipalManagerSaveConfig:
         content = config_file.read_text()
         assert "should-not-be-saved" not in content  # Secret value must not be saved
         # It's OK for "client_secret" to appear in auth_method or comments, just not as a key with value
-        assert 'client_secret = ' not in content  # No client_secret key-value pair
+        assert "client_secret = " not in content  # No client_secret key-value pair
         assert "AZLIN_SP_CLIENT_SECRET" in content  # Should have instructions
 
     def test_save_config_atomic_write(self, tmp_path):
