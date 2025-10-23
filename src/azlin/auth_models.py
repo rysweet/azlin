@@ -73,31 +73,6 @@ class AuthMethod(str, Enum):
 
 
 @dataclass(frozen=True)
-class CertificateInfo:
-    """Certificate file information and validation status.
-
-    Immutable container for certificate metadata.
-    Does not store certificate data, only references.
-    """
-
-    path: str
-    thumbprint: str | None = None
-    expiration_date: datetime | None = None
-    is_valid: bool = True
-    validation_errors: list[str] = field(default_factory=list)
-
-    def __post_init__(self):
-        """Validate certificate path exists."""
-        cert_path = Path(self.path)
-        if not cert_path.exists():
-            # Use object.__setattr__ to modify frozen dataclass during init
-            errors = list(self.validation_errors)
-            errors.append(f"Certificate file not found: {self.path}")
-            object.__setattr__(self, 'validation_errors', errors)
-            object.__setattr__(self, 'is_valid', False)
-
-
-@dataclass(frozen=True)
 class ServicePrincipalConfig:
     """Service principal authentication configuration.
 

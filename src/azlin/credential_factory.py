@@ -213,7 +213,7 @@ class CredentialFactory:
         # Validate certificate (SEC-003, SEC-004)
         validation = CertificateValidator.validate_certificate(cert_path)
 
-        if not validation.is_valid:
+        if not validation.valid:
             error_messages = "; ".join(validation.errors)
             raise CredentialFactoryError(
                 f"Certificate validation failed: {error_messages}"

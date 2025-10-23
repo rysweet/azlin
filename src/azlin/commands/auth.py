@@ -29,6 +29,11 @@ except ImportError:
     except ImportError as e:
         raise ImportError("toml library not available. Install with: pip install tomli tomli-w") from e
 
+try:
+    import tomli_w  # type: ignore[import]
+except ImportError as e:
+    raise ImportError("tomli-w library not available. Install with: pip install tomli-w") from e
+
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.service_principal_auth import (
     ServicePrincipalConfig,

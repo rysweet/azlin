@@ -22,10 +22,10 @@ from azlin.auth_models import (
     AuthConfig,
     AuthContext,
     ChainResult,
-    CertificateInfo,
     CertificateValidation,
     validate_uuid,
 )
+from azlin.certificate_validator import CertificateInfo
 
 
 class TestValidateUUID:

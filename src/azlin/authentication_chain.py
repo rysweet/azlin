@@ -43,13 +43,6 @@ class AuthenticationChain:
     - Fail-fast on configuration errors
     """
 
-    def __init__(self):
-        """Initialize authentication chain.
-
-        The chain is stateless - each authenticate() call is independent.
-        """
-        pass
-
     @staticmethod
     def authenticate(auth_config: AuthConfig) -> ChainResult:
         """Execute authentication chain with fallback.
