@@ -1821,6 +1821,11 @@ def session_command(
         azlin session azlin-vm-12345 --clear
     """
     try:
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            vm_name = resolved_vm_name
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -2111,6 +2116,11 @@ def kill(vm_name: str, resource_group: str | None, config: str | None, force: bo
         azlin kill my-vm --force
     """
     try:
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            vm_name = resolved_vm_name
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -2154,6 +2164,13 @@ def kill(vm_name: str, resource_group: str | None, config: str | None, force: bo
                 click.echo("\nDeleted resources:")
                 for resource in result.resources_deleted:
                     click.echo(f"  - {resource}")
+
+            # Clean up session name mapping
+            try:
+                if ConfigManager.delete_session_name(vm_name, config):
+                    click.echo("\nRemoved session name mapping")
+            except ConfigError:
+                pass  # Config cleanup is non-critical
         else:
             click.echo(f"\nError: {result.message}", err=True)
             sys.exit(1)
@@ -2306,6 +2323,11 @@ def destroy(
         azlin destroy my-vm --rg my-resource-group
     """
     try:
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            vm_name = resolved_vm_name
+
         rg = ConfigManager.get_resource_group(resource_group, config)
 
         if not rg:
@@ -3148,6 +3170,11 @@ def stop(vm_name: str, resource_group: str | None, config: str | None, deallocat
         azlin stop my-vm --no-deallocate
     """
     try:
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            vm_name = resolved_vm_name
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -3190,6 +3217,11 @@ def start(vm_name: str, resource_group: str | None, config: str | None):
         azlin start my-vm --rg my-resource-group
     """
     try:
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            vm_name = resolved_vm_name
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -3328,6 +3360,12 @@ def sync(vm_name: str | None, dry_run: bool, resource_group: str | None, config:
             click.echo("Error: Resource group required for VM name.", err=True)
             click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
             sys.exit(1)
+
+        # Resolve session name to VM name if applicable
+        if vm_name:
+            resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+            if resolved_vm_name:
+                vm_name = resolved_vm_name
 
         # Get VM
         if vm_name:
@@ -6346,7 +6384,7 @@ def _get_ssh_config_for_vm(
     """Helper to get SSH config for VM identifier.
 
     Args:
-        vm_identifier: VM name or IP address
+        vm_identifier: VM name, session name, or IP address
         resource_group: Resource group (required for VM name)
         config: Config file path
 
@@ -6363,6 +6401,11 @@ def _get_ssh_config_for_vm(
     if VMConnector.is_valid_ip(vm_identifier):
         # Direct IP connection
         return SSHConfig(host=vm_identifier, user="azureuser", key_path=ssh_key_pair.private_path)
+
+    # Resolve session name to VM name if applicable
+    resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_identifier, config)
+    if resolved_vm_name:
+        vm_identifier = resolved_vm_name
 
     # VM name - need resource group
     rg = ConfigManager.get_resource_group(resource_group, config)
