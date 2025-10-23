@@ -39,6 +39,7 @@ from azlin.agentic import (
 )
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
+from azlin.commands.auth import auth_group
 
 # Storage commands
 from azlin.commands.storage import storage_group
@@ -1214,7 +1215,14 @@ def main(ctx: click.Context) -> None:
         snapshot delete <snapshot>        Delete a snapshot
 
     \b
-    STORAGE COMMANDS:
+    AUTH COMMANDS:
+        auth setup    Interactive setup for authentication profiles
+        auth test     Test authentication with profile or current config
+        auth list     List all configured authentication profiles
+        auth show     Show profile details (secrets redacted)
+        auth delete   Delete an authentication profile
+
+    \b    STORAGE COMMANDS:
         storage create    Create NFS storage for shared home directories
         storage list      List NFS storage accounts
         storage status    Show storage usage and connected VMs
@@ -6027,6 +6035,9 @@ def snapshot_delete(
 
 # Register storage commands
 main.add_command(storage_group)
+
+# Register auth commands
+main.add_command(auth_group)
 
 
 @main.group()

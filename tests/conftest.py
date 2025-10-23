@@ -72,7 +72,7 @@ def mock_azure_credentials():
     with patch("azure.identity.DefaultAzureCredential") as mock:
         mock_cred = Mock()
         mock_cred.get_token.return_value = Mock(
-            token="fake-azure-token-12345",  # noqa: S106 - test fixture, not a real credential
+            token="fake-azure-token-12345",
             expires_on=9999999999,
         )
         mock.return_value = mock_cred

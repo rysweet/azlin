@@ -24,7 +24,9 @@ classifiers = [
 ]
 dependencies = [
     "anthropic>=0.40.0",
+    "azure-identity>=1.15.0",
     "click>=8.1.0",
+    "cryptography>=41.0.0",
     "pyyaml>=6.0.0",
     "rich>=13.7.0",
     "tomli>=2.0.0; python_version < '3.11'",
@@ -122,9 +124,13 @@ max-complexity = 15
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "S101",   # assert allowed in tests
+    "S105",   # hardcoded password strings allowed in tests
+    "S106",   # hardcoded password function args allowed in tests
     "S108",   # hardcoded /tmp allowed in tests
+    "SIM117", # nested with statements allowed in tests
     "PT009",  # pytest unittest style
     "PT027",  # pytest unittest raises
+    "RUF043", # regex metacharacters in pytest.raises match patterns
 ]
 "**/tests/**/*.py" = [
     "S101",   # assert allowed in tests

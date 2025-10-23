@@ -163,6 +163,118 @@ azlin cp myfile.txt vm1:~/
 azlin cp vm1:~/data.txt ./
 ```
 
+## Authentication
+
+azlin supports multiple Azure authentication methods to suit different use cases from local development to production automation.
+
+### Authentication Methods
+
+| Method | Use Case | Setup Complexity |
+|--------|----------|------------------|
+| **Azure CLI** (default) | Local development | None (just `az login`) |
+| **Service Principal + Secret** | CI/CD, automation | Low |
+| **Service Principal + Certificate** | Production, high-security | Medium |
+| **Managed Identity** | Azure VMs/containers | Low |
+
+### Quick Start: Azure CLI (Default)
+
+The simplest method - uses your existing Azure CLI credentials:
+
+```bash
+# Login once
+az login
+
+# Use azlin normally
+azlin list
+azlin new
+```
+
+No additional configuration needed! azlin automatically uses your Azure CLI credentials.
+
+### Service Principal Authentication
+
+For automation, CI/CD pipelines, or production environments, use service principal authentication:
+
+#### 1. Create Service Principal
+
+```bash
+# Create service principal with Contributor role
+az ad sp create-for-rbac \
+  --name azlin-automation \
+  --role Contributor \
+  --scopes /subscriptions/<subscription-id>
+
+# Output includes:
+# - appId (client ID)
+# - password (client secret)
+# - tenant (tenant ID)
+```
+
+#### 2. Set Environment Variable
+
+```bash
+# Set client secret (NEVER commit this to git!)
+export AZURE_CLIENT_SECRET="<password-from-step-1>"
+
+# Make it permanent
+echo 'export AZURE_CLIENT_SECRET="your-secret"' >> ~/.bashrc
+```
+
+#### 3. Create Authentication Profile
+
+```bash
+azlin auth setup --profile production
+```
+
+Follow the interactive prompts:
+- Choose authentication method (Service principal with client secret)
+- Enter tenant ID, client ID
+- Enter subscription ID
+
+#### 4. Use the Profile
+
+```bash
+# Test authentication
+azlin auth test --profile production
+
+# Use with azlin commands
+export AZLIN_PROFILE=production
+azlin list
+azlin new
+```
+
+### Profile Management
+
+Manage multiple authentication profiles for different environments:
+
+```bash
+# Create profile
+azlin auth setup
+
+# List all profiles
+azlin auth list
+
+# Test profile
+azlin auth test --profile production
+
+# Show profile details
+azlin auth show --profile production
+
+# Delete profile
+azlin auth delete old-profile
+```
+
+### Authentication Security
+
+azlin implements strict security controls:
+
+- **NO secrets in config files** - All secrets must be in environment variables
+- **Certificate permissions enforced** - Only 0600/0400 permissions allowed
+- **UUID validation** - All Azure IDs validated to prevent injection
+- **Log sanitization** - Secrets automatically redacted from logs
+
+For detailed setup instructions, see [SERVICE_PRINCIPAL_SETUP.md](docs/SERVICE_PRINCIPAL_SETUP.md).
+
 ### Home Directory Sync
 
 Automatically sync your configuration files from `~/.azlin/home/` to all VMs:
@@ -350,12 +462,97 @@ See [docs/AZDOIT.md](docs/AZDOIT.md) for comprehensive documentation with 50+ ex
 ## Command Categories
 
 - [🆕 Natural Language Commands](#-natural-language-commands-ai-powered) - Use plain English with AI
+- [Authentication](#authentication-commands) - Manage Azure authentication
 - [VM Lifecycle](#vm-lifecycle) - Create, manage, and delete VMs
 - [VM Maintenance](#vm-maintenance) - Update tools and packages
 - [Connection](#connection) - Connect to VMs
 - [Monitoring](#monitoring) - Monitor VM status and processes
 - [File Operations](#file-operations) - Transfer and sync files
 - [Cost Management](#cost-management) - Track spending
+
+---
+
+## Authentication Commands
+
+Manage Azure authentication profiles for different environments and authentication methods.
+
+### `azlin auth setup` - Create authentication profile
+
+Create a new authentication profile with interactive prompts.
+
+```bash
+# Create profile with interactive setup
+azlin auth setup
+
+# Create named profile
+azlin auth setup --profile production
+```
+
+**Authentication methods**:
+1. Azure CLI (default) - Uses `az login` credentials
+2. Service Principal with Client Secret - For automation/CI-CD
+3. Service Principal with Certificate - For production/high-security
+4. Managed Identity - For Azure VMs/containers
+
+**Security**:
+- Profile files stored at `~/.azlin/profiles/<name>.toml`
+- File permissions set to 0600 (owner-only access)
+- Secrets NEVER stored in files (environment variables only)
+
+### `azlin auth test` - Test authentication
+
+Test authentication with a profile to verify it works correctly.
+
+```bash
+# Test default profile
+azlin auth test
+
+# Test specific profile
+azlin auth test --profile production
+```
+
+**Output**: Shows authentication method, tenant ID, subscription ID, and success/failure.
+
+### `azlin auth list` - List profiles
+
+List all configured authentication profiles with their metadata.
+
+```bash
+azlin auth list
+```
+
+**Output**: Shows profile name, method, tenant/client IDs, created date, last used date.
+
+### `azlin auth show` - Show profile details
+
+Display configuration details for a specific profile (secrets redacted).
+
+```bash
+# Show default profile
+azlin auth show
+
+# Show specific profile
+azlin auth show --profile production
+```
+
+**Output**: Shows authentication method, configuration fields, security notes.
+
+### `azlin auth delete` - Delete profile
+
+Delete an authentication profile.
+
+```bash
+# Delete with confirmation prompt
+azlin auth delete old-profile
+
+# Delete without confirmation
+azlin auth delete old-profile --force
+```
+
+**Use cases**:
+- Remove old/unused profiles
+- Clean up after testing
+- Decommission environment profiles
 
 ---
 
@@ -1138,6 +1335,9 @@ azlin ps  # Check for resource-heavy processes
 | `azlin cp` | Copy files | `azlin cp file vm:~/` |
 | `azlin sync` | Sync dotfiles | `azlin sync` |
 | `azlin cost` | Track spending | `azlin cost --by-vm` |
+| `azlin auth setup` | Create auth profile | `azlin auth setup --profile prod` |
+| `azlin auth test` | Test authentication | `azlin auth test --profile prod` |
+| `azlin auth list` | List profiles | `azlin auth list` |
 
 ---
 
