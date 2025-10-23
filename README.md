@@ -198,6 +198,79 @@ azlin cp vm1:~/results.tar.gz ./
 # Preview transfer
 azlin cp --dry-run large-dataset.zip vm1:~/
 ```
+
+## Authentication
+
+azlin supports multiple authentication methods for Azure, automatically detecting and using the best available method.
+
+### Authentication Methods (Priority Order)
+
+1. **Azure CLI** (Default) - Uses your existing `az login` session
+2. **Service Principal with Client Secret** - For automation and CI/CD
+3. **Service Principal with Certificate** - Enhanced security option
+4. **Managed Identity** - Automatic authentication on Azure-hosted resources
+
+### Quick Start: Azure CLI (Default)
+
+Most users can start immediately with Azure CLI authentication:
+
+```bash
+# Login to Azure (one-time setup)
+az login
+
+# Use azlin (authentication automatic)
+azlin list
+```
+
+### Service Principal Authentication
+
+For CI/CD pipelines and automation, set up service principal authentication:
+
+```bash
+# Interactive setup
+azlin auth setup
+
+# Test authentication
+azlin auth test
+
+# Use with profile
+azlin --auth-profile prod list
+```
+
+### Environment Variables
+
+Service principal authentication via environment variables:
+
+```bash
+export AZURE_TENANT_ID="your-tenant-id"
+export AZURE_CLIENT_ID="your-client-id"
+export AZURE_CLIENT_SECRET="your-client-secret"
+
+azlin list
+```
+
+### Documentation
+
+- **Architecture**: See [AUTH_ARCHITECTURE_DESIGN.md](docs/AUTH_ARCHITECTURE_DESIGN.md) for authentication architecture
+- **Implementation**: See [AUTH_IMPLEMENTATION_GUIDE.md](AUTH_IMPLEMENTATION_GUIDE.md) for setup and implementation details
+
+### Profile Management
+
+Manage multiple authentication profiles for different environments:
+
+```bash
+# List profiles
+azlin auth list
+
+# Show profile details
+azlin auth show prod
+
+# Remove profile
+azlin auth remove dev
+```
+
+For detailed authentication setup and troubleshooting, see the [Authentication Implementation Guide](AUTH_IMPLEMENTATION_GUIDE.md).
+
 # Comprehensive Command Reference
 
 This section provides detailed examples of all azlin commands with practical use cases.

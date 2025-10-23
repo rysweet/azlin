@@ -40,6 +40,9 @@ from azlin.agentic import (
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 
+# Auth commands
+from azlin.commands.auth import auth
+
 # Storage commands
 from azlin.commands.storage import storage_group
 
@@ -1242,6 +1245,14 @@ def main(ctx: click.Context) -> None:
         keys list     List VMs and their SSH keys
         keys export   Export public key to file
         keys backup   Backup current SSH keys
+
+    \b
+    AUTHENTICATION:
+        auth setup    Set up service principal authentication profile
+        auth test     Test authentication with a profile
+        auth list     List available authentication profiles
+        auth show     Show profile details
+        auth remove   Remove authentication profile
 
     \b
     EXAMPLES:
@@ -6024,6 +6035,9 @@ def snapshot_delete(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
+
+# Register auth commands
+main.add_command(auth)
 
 # Register storage commands
 main.add_command(storage_group)
