@@ -140,6 +140,11 @@ def setup(
         if not subscription_id:
             subscription_id = click.prompt("Azure Subscription ID", type=str)
 
+        # At this point all IDs are guaranteed to be str (type checker needs help)
+        assert tenant_id is not None
+        assert client_id is not None
+        assert subscription_id is not None
+
         # Ask about auth method if not specified
         if not use_certificate and not certificate_path:
             use_certificate = click.confirm(
