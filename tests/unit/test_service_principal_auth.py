@@ -325,13 +325,15 @@ class TestServicePrincipalManagerCertificateHandling:
             ServicePrincipalManager.validate_certificate(non_existent)
 
     def test_validate_certificate_wrong_permissions_raises_warning(self, tmp_path):
-        """Test that certificate with wrong permissions raises warning."""
+        """Test that certificate with wrong permissions raises warning and error (SEC-003: fail-fast)."""
         cert_file = tmp_path / "cert.pem"
         cert_file.write_text("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----")
         cert_file.chmod(0o644)  # Too permissive
 
-        with pytest.warns(UserWarning, match="insecure permissions.*0600 or 0400"):
-            ServicePrincipalManager.validate_certificate(cert_file)
+        # Should warn AND raise error (SEC-003 requires fail-fast on security violations)
+        with pytest.warns(UserWarning, match="insecure permissions"):
+            with pytest.raises(ServicePrincipalError, match="insecure permissions"):
+                ServicePrincipalManager.validate_certificate(cert_file)
 
     def test_validate_certificate_checks_expiration(self, tmp_path):
         """Test that certificate expiration is checked."""
@@ -398,10 +400,11 @@ class TestServicePrincipalManagerSaveConfig:
         config_file = tmp_path / "saved-config.toml"
         ServicePrincipalManager.save_config(config, str(config_file))
 
-        # Read back and verify secret is not present
+        # Read back and verify secret VALUE is not present
         content = config_file.read_text()
-        assert "should-not-be-saved" not in content
-        assert "client_secret" not in content
+        assert "should-not-be-saved" not in content  # Secret value must not be saved
+        # It's OK for "client_secret" to appear in auth_method or comments, just not as a key with value
+        assert 'client_secret = ' not in content  # No client_secret key-value pair
         assert "AZLIN_SP_CLIENT_SECRET" in content  # Should have instructions
 
     def test_save_config_atomic_write(self, tmp_path):

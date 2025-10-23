@@ -252,35 +252,41 @@ class ServicePrincipalManager:
         import tomllib
 
         # Determine config file path
+        resolved_path: Path
         if config_path is None:
             home = Path.home()
-            config_path = home / ".azlin" / "sp-config.toml"
+            resolved_path = home / ".azlin" / "sp-config.toml"
         else:
-            config_path = Path(config_path)
+            resolved_path = Path(config_path)
 
-        # Security: Validate path doesn't contain malicious patterns (SEC-002)
-        path_str = str(config_path)
+        # Security: Validate path doesn't contain malicious patterns (SEC-002, SEC-007)
+        path_str = str(resolved_path)
 
         # Check for path traversal attempts BEFORE resolving
         if ".." in path_str:
             raise ServicePrincipalError(f"Invalid config path: {path_str}")
 
-        if path_str.startswith("~"):
-            # Resolve to absolute path first
-            config_path = config_path.expanduser().resolve()
-            path_str = str(config_path)
-
-        # Check for shell metacharacters
-        malicious_patterns = [";", "|", "$", "`", "&&", "||"]
+        # Check for shell metacharacters and HTML/script injection
+        malicious_patterns = [";", "|", "$", "`", "&&", "||", "<", ">", "(", ")"]
         if any(pattern in path_str for pattern in malicious_patterns):
             raise ServicePrincipalError(f"Invalid config path: {path_str}")
 
+        # Reject absolute paths to sensitive system directories
+        sensitive_dirs = ["/etc/", "/sys/", "/proc/", "/dev/", "/boot/", "/root/"]
+        if any(path_str.startswith(dir_path) for dir_path in sensitive_dirs):
+            raise ServicePrincipalError(f"Invalid config path: {path_str}")
+
+        if path_str.startswith("~"):
+            # Resolve to absolute path first
+            resolved_path = resolved_path.expanduser().resolve()
+            path_str = str(resolved_path)
+
         # Check file exists
-        if not config_path.exists():
-            raise ServicePrincipalError(f"Config file not found: {config_path}")
+        if not resolved_path.exists():
+            raise ServicePrincipalError(f"Config file not found: {resolved_path}")
 
         # Check and fix permissions (SEC-003)
-        stat_info = config_path.stat()
+        stat_info = resolved_path.stat()
         import stat
 
         mode = stat.S_IMODE(stat_info.st_mode)
@@ -290,11 +296,11 @@ class ServicePrincipalManager:
                 UserWarning,
                 stacklevel=2,
             )
-            config_path.chmod(0o600)
+            resolved_path.chmod(0o600)
 
         # Load TOML
         try:
-            with open(config_path, "rb") as f:
+            with open(resolved_path, "rb") as f:
                 data = tomllib.load(f)
         except Exception as e:
             raise ServicePrincipalError(f"Failed to parse TOML: {e}")
@@ -354,16 +360,20 @@ class ServicePrincipalManager:
         Raises:
             ServicePrincipalError: If save fails
         """
-        import tomli_w
+        try:
+            import tomli_w
+        except ImportError:
+            raise ServicePrincipalError("tomli_w package is required for saving config. Install with: pip install tomli-w")
 
         # Determine config file path
+        resolved_path: Path
         if config_path is None:
             home = Path.home()
             azlin_dir = home / ".azlin"
             azlin_dir.mkdir(exist_ok=True, mode=0o700)
-            config_path = azlin_dir / "sp-config.toml"
+            resolved_path = azlin_dir / "sp-config.toml"
         else:
-            config_path = Path(config_path)
+            resolved_path = Path(config_path)
 
         # Create TOML data structure (without secrets)
         data = {
@@ -386,7 +396,7 @@ class ServicePrincipalManager:
             pass
 
         # Atomic write: write to temp file, then rename
-        temp_path = config_path.with_suffix(".tmp")
+        temp_path = resolved_path.with_suffix(".tmp")
         try:
             # Write to temp file with secure permissions
             with open(temp_path, "wb") as f:
@@ -404,7 +414,7 @@ class ServicePrincipalManager:
             temp_path.chmod(0o600)
 
             # Atomic rename
-            os.rename(temp_path, config_path)
+            os.rename(temp_path, resolved_path)
 
         except Exception as e:
             # Clean up temp file on error
@@ -518,12 +528,20 @@ class ServicePrincipalManager:
             if not config.certificate_path:
                 raise ServicePrincipalError("Certificate auth requires certificate_path")
 
-            # Validate certificate path doesn't contain malicious patterns
+            # Validate certificate path doesn't contain malicious patterns (SEC-007)
             cert_path_str = str(config.certificate_path)
-            malicious_patterns = [";", "|", "$", "`", "&&", "||"]
+
+            # Check for path traversal
+            if ".." in cert_path_str:
+                raise ServicePrincipalError(
+                    f"Invalid certificate path: {cert_path_str}"
+                )
+
+            # Check for shell metacharacters and HTML/script injection
+            malicious_patterns = [";", "|", "$", "`", "&&", "||", "<", ">", "(", ")"]
             if any(pattern in cert_path_str for pattern in malicious_patterns):
                 raise ServicePrincipalError(
-                    f"Invalid certificate path contains shell metacharacters: {cert_path_str}"
+                    f"Invalid certificate path: {cert_path_str}"
                 )
 
     @staticmethod
