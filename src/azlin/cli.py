@@ -91,7 +91,7 @@ from azlin.vm_provisioning import (
     VMDetails,
     VMProvisioner,
 )
-from azlin.vm_size_tiers import VMSizeTiers, VMSizeTierError
+from azlin.vm_size_tiers import VMSizeTierError, VMSizeTiers
 
 logger = logging.getLogger(__name__)
 
@@ -1563,7 +1563,11 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
 @main.command(name="new")
 @click.pass_context
 @click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--size", help="VM size tier: s(mall), m(edium), l(arge), xl (default: l)", type=click.Choice(["s", "m", "l", "xl"], case_sensitive=False))
+@click.option(
+    "--size",
+    help="VM size tier: s(mall), m(edium), l(arge), xl (default: l)",
+    type=click.Choice(["s", "m", "l", "xl"], case_sensitive=False),
+)
 @click.option("--vm-size", help="Azure VM size (overrides --size)", type=str)
 @click.option("--region", help="Azure region", type=str)
 @click.option("--resource-group", "--rg", help="Azure resource group", type=str)

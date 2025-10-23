@@ -46,7 +46,9 @@ class AzlinConfig:
 
     default_resource_group: str | None = None
     default_region: str = "westus2"  # westus2 has better capacity than eastus
-    default_vm_size: str = "Standard_E16as_v5"  # Memory-optimized: 128GB RAM, 16 vCPU, 12.5 Gbps network
+    default_vm_size: str = (
+        "Standard_E16as_v5"  # Memory-optimized: 128GB RAM, 16 vCPU, 12.5 Gbps network
+    )
     last_vm_name: str | None = None
     notification_command: str = "imessR"
     session_names: dict[str, str] | None = None  # vm_name -> session_name mapping

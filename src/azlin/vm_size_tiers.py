@@ -166,8 +166,7 @@ class VMSizeTiers:
         # If both provided, error (ambiguous)
         if size_tier and vm_size:
             raise VMSizeTierError(
-                "Cannot specify both --size (tier) and --vm-size (explicit). "
-                "Use one or the other."
+                "Cannot specify both --size (tier) and --vm-size (explicit). Use one or the other."
             )
 
         # If tier provided, resolve to VM size
@@ -182,4 +181,4 @@ class VMSizeTiers:
         return cls.get_default_vm_size()
 
 
-__all__ = ["VMSizeTiers", "VMSizeTierError"]
+__all__ = ["VMSizeTierError", "VMSizeTiers"]
