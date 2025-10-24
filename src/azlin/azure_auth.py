@@ -44,31 +44,42 @@ class AzureAuthenticator:
     This class handles Azure authentication by delegating to the Azure CLI.
     It never stores credentials directly - all tokens are managed by az CLI.
 
+    Now supports service principal authentication via auth profiles.
+
     Security:
     - No credential storage in code
     - Delegates to az CLI for token management
     - Validates subscription ID format
     - Caches credential objects (not tokens)
+    - Service principal secrets from environment only
     """
 
-    def __init__(self, subscription_id: str | None = None, use_managed_identity: bool = False):
+    def __init__(
+        self,
+        subscription_id: str | None = None,
+        use_managed_identity: bool = False,
+        auth_profile: str | None = None,
+    ):
         """Initialize Azure authenticator.
 
         Args:
             subscription_id: Optional Azure subscription ID
             use_managed_identity: Whether to use managed identity
+            auth_profile: Service principal authentication profile name
         """
         self._subscription_id = subscription_id
         self._use_managed_identity = use_managed_identity
+        self._auth_profile = auth_profile
         self._credentials_cache: AzureCredentials | None = None
 
     def get_credentials(self) -> AzureCredentials:
         """Get Azure credentials from available sources.
 
         Priority order:
-        1. Environment variables (AZURE_CLIENT_ID, etc.)
-        2. Azure CLI (az account show)
-        3. Managed identity (if use_managed_identity=True)
+        1. Service principal profile (if auth_profile specified)
+        2. Environment variables (AZURE_CLIENT_ID, etc.)
+        3. Azure CLI (az account show)
+        4. Managed identity (if use_managed_identity=True)
 
         Returns:
             AzureCredentials object
@@ -80,6 +91,48 @@ class AzureAuthenticator:
         """
         if self._credentials_cache:
             return self._credentials_cache
+
+        # Priority 0: Service principal profile (if specified)
+        if self._auth_profile:
+            try:
+                from azlin.config_manager import ConfigManager
+                from azlin.service_principal_auth import (
+                    ServicePrincipalConfig,
+                    ServicePrincipalManager,
+                )
+
+                # Load profile
+                profile_data = ConfigManager.get_auth_profile(self._auth_profile)
+                if not profile_data:
+                    raise AuthenticationError(
+                        f"Authentication profile '{self._auth_profile}' not found. "
+                        f"Run: azlin auth setup --profile {self._auth_profile}"
+                    )
+
+                # Create config
+                sp_config = ServicePrincipalConfig.from_dict(profile_data)
+
+                # Get credentials and set in environment
+                sp_creds = ServicePrincipalManager.get_credentials(sp_config)
+
+                # Set in environment for Azure SDK
+                for key, value in sp_creds.items():
+                    os.environ[key] = value
+
+                # Return credentials object
+                creds = AzureCredentials(
+                    method="service_principal",
+                    subscription_id=sp_config.subscription_id,
+                    tenant_id=sp_config.tenant_id,
+                )
+                self._credentials_cache = creds
+                logger.info(f"Using service principal from profile: {self._auth_profile}")
+                return creds
+
+            except Exception as e:
+                logger.error(f"Failed to use service principal profile: {e}")
+                # Fall through to other auth methods
+                pass
 
         # Priority 1: Environment variables
         if self._check_env_credentials():
@@ -125,9 +178,19 @@ class AzureAuthenticator:
         raise AuthenticationError("No Azure credentials available. Please run: az login")
 
     def _check_env_credentials(self) -> bool:
-        """Check if environment variables have credentials."""
-        required = ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"]
-        return all(os.environ.get(var) for var in required)
+        """Check if environment variables have credentials.
+
+        Supports both client secret and certificate-based authentication.
+        """
+        # Check base required fields
+        if not os.environ.get("AZURE_CLIENT_ID") or not os.environ.get("AZURE_TENANT_ID"):
+            return False
+
+        # Check for either client secret OR certificate
+        has_secret = bool(os.environ.get("AZURE_CLIENT_SECRET"))
+        has_cert = bool(os.environ.get("AZURE_CLIENT_CERTIFICATE_PATH"))
+
+        return has_secret or has_cert
 
     def _check_managed_identity(self) -> bool:
         """Check if running on Azure with managed identity."""

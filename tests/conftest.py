@@ -667,3 +667,255 @@ def mock_auto_mode_hooks():
     mock.on_execution_complete.return_value = None
     mock.on_failure.return_value = None
     return mock
+
+
+# ============================================================================
+# SERVICE PRINCIPAL AUTHENTICATION FIXTURES (Issue #177)
+# ============================================================================
+
+
+@pytest.fixture
+def sample_sp_config_dict():
+    """Sample service principal configuration dictionary."""
+    return {
+        "client_id": "12345678-1234-1234-1234-123456789012",
+        "tenant_id": "87654321-4321-4321-4321-210987654321",
+        "subscription_id": "abcdef00-0000-0000-0000-000000abcdef",
+        "auth_method": "client_secret",
+    }
+
+
+@pytest.fixture
+def sample_sp_config_with_certificate_dict(tmp_path):
+    """Sample service principal configuration with certificate."""
+    cert_file = tmp_path / "test-cert.pem"
+    cert_file.write_text(
+        "-----BEGIN CERTIFICATE-----\nfake-cert-content\n-----END CERTIFICATE-----"
+    )
+    cert_file.chmod(0o600)
+
+    return {
+        "client_id": "12345678-1234-1234-1234-123456789012",
+        "tenant_id": "87654321-4321-4321-4321-210987654321",
+        "subscription_id": "abcdef00-0000-0000-0000-000000abcdef",
+        "auth_method": "certificate",
+        "certificate_path": str(cert_file),
+    }
+
+
+@pytest.fixture
+def temp_sp_config_file(tmp_path):
+    """Create temporary service principal config file."""
+    config_file = tmp_path / "sp-config.toml"
+    config_file.write_text(
+        """
+[service_principal]
+client_id = "12345678-1234-1234-1234-123456789012"
+tenant_id = "87654321-4321-4321-4321-210987654321"
+subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
+auth_method = "client_secret"
+
+# Secrets should be stored in environment variables
+# Set AZLIN_SP_CLIENT_SECRET environment variable
+"""
+    )
+    config_file.chmod(0o600)
+    return config_file
+
+
+@pytest.fixture
+def temp_sp_config_with_cert(tmp_path):
+    """Create temporary SP config file with certificate."""
+    # Create certificate file
+    cert_file = tmp_path / "cert.pem"
+    cert_file.write_text("-----BEGIN CERTIFICATE-----\nfake-cert\n-----END CERTIFICATE-----")
+    cert_file.chmod(0o600)
+
+    # Create config file
+    config_file = tmp_path / "sp-config-cert.toml"
+    config_file.write_text(
+        f"""
+[service_principal]
+client_id = "12345678-1234-1234-1234-123456789012"
+tenant_id = "87654321-4321-4321-4321-210987654321"
+subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
+auth_method = "certificate"
+certificate_path = "{cert_file}"
+"""
+    )
+    config_file.chmod(0o600)
+
+    return {"config_file": config_file, "cert_file": cert_file}
+
+
+@pytest.fixture
+def mock_sp_credentials():
+    """Mock service principal credentials dictionary."""
+    return {
+        "AZURE_CLIENT_ID": "12345678-1234-1234-1234-123456789012",
+        "AZURE_CLIENT_SECRET": "mock-secret-value",
+        "AZURE_TENANT_ID": "87654321-4321-4321-4321-210987654321",
+        "AZURE_SUBSCRIPTION_ID": "abcdef00-0000-0000-0000-000000abcdef",
+    }
+
+
+@pytest.fixture
+def mock_sp_certificate_credentials(tmp_path):
+    """Mock service principal credentials with certificate."""
+    cert_file = tmp_path / "mock-cert.pem"
+    cert_file.write_text("-----BEGIN CERTIFICATE-----\nmock\n-----END CERTIFICATE-----")
+    cert_file.chmod(0o600)
+
+    return {
+        "AZURE_CLIENT_ID": "12345678-1234-1234-1234-123456789012",
+        "AZURE_CLIENT_CERTIFICATE_PATH": str(cert_file),
+        "AZURE_TENANT_ID": "87654321-4321-4321-4321-210987654321",
+        "AZURE_SUBSCRIPTION_ID": "abcdef00-0000-0000-0000-000000abcdef",
+    }
+
+
+@pytest.fixture
+def mock_sp_env_vars(monkeypatch):
+    """Mock service principal environment variables."""
+    monkeypatch.setenv("AZURE_CLIENT_ID", "12345678-1234-1234-1234-123456789012")
+    monkeypatch.setenv("AZURE_CLIENT_SECRET", "test-secret-value")
+    monkeypatch.setenv("AZURE_TENANT_ID", "87654321-4321-4321-4321-210987654321")
+    monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "abcdef00-0000-0000-0000-000000abcdef")
+
+
+@pytest.fixture
+def mock_azlin_sp_secret_env_var(monkeypatch):
+    """Mock AZLIN_SP_CLIENT_SECRET environment variable."""
+    monkeypatch.setenv("AZLIN_SP_CLIENT_SECRET", "azlin-test-secret")
+
+
+@pytest.fixture
+def clean_sp_environment(monkeypatch):
+    """Clean service principal environment variables."""
+    sp_env_vars = [
+        "AZURE_CLIENT_ID",
+        "AZURE_CLIENT_SECRET",
+        "AZURE_TENANT_ID",
+        "AZURE_SUBSCRIPTION_ID",
+        "AZURE_CLIENT_CERTIFICATE_PATH",
+        "AZLIN_SP_CLIENT_SECRET",
+    ]
+    for var in sp_env_vars:
+        monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture
+def mock_certificate_file(tmp_path):
+    """Create mock certificate file with proper formatting."""
+    cert_file = tmp_path / "test-cert.pem"
+    cert_content = """-----BEGIN CERTIFICATE-----
+MIIDXTCCAkWgAwIBAgIJAKL0UG+mRKKzMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV
+BAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRlcm5ldCBX
+aWRnaXRzIFB0eSBMdGQwHhcNMTkwNzA4MDAwMDAwWhcNMjkwNzA1MDAwMDAwWjBF
+MQswCQYDVQQGEwJBVTETMBEGA1UECAwKU29tZS1TdGF0ZTEhMB8GA1UECgwYSW50
+ZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB
+-----END CERTIFICATE-----"""
+    cert_file.write_text(cert_content)
+    cert_file.chmod(0o600)
+    return cert_file
+
+
+@pytest.fixture
+def mock_expired_certificate_file(tmp_path):
+    """Create mock expired certificate file."""
+    cert_file = tmp_path / "expired-cert.pem"
+    cert_file.write_text("-----BEGIN CERTIFICATE-----\nexpired\n-----END CERTIFICATE-----")
+    cert_file.chmod(0o600)
+    return cert_file
+
+
+@pytest.fixture
+def mock_insecure_certificate_file(tmp_path):
+    """Create certificate file with insecure permissions."""
+    cert_file = tmp_path / "insecure-cert.pem"
+    cert_file.write_text("-----BEGIN CERTIFICATE-----\ninsecure\n-----END CERTIFICATE-----")
+    cert_file.chmod(0o644)  # Insecure permissions
+    return cert_file
+
+
+@pytest.fixture
+def mock_certificate_expiration_check():
+    """Mock certificate expiration checking."""
+    from datetime import datetime, timedelta
+
+    with patch(
+        "azlin.service_principal_auth.ServicePrincipalManager._get_certificate_expiration"
+    ) as mock:
+        # Default: certificate expires in 90 days (safe)
+        mock.return_value = datetime.now() + timedelta(days=90)
+        yield mock
+
+
+@pytest.fixture
+def sample_sp_config_toml_content():
+    """Sample TOML content for SP configuration."""
+    return """
+[service_principal]
+client_id = "12345678-1234-1234-1234-123456789012"
+tenant_id = "87654321-4321-4321-4321-210987654321"
+subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
+auth_method = "client_secret"
+
+# Security: Client secret must be stored in environment variable
+# Set AZLIN_SP_CLIENT_SECRET before running azlin commands
+# Example: export AZLIN_SP_CLIENT_SECRET="your-secret-here"
+"""
+
+
+@pytest.fixture
+def sample_sp_config_cert_toml_content(tmp_path):
+    """Sample TOML content for SP configuration with certificate."""
+    cert_file = tmp_path / "cert.pem"
+    cert_file.write_text("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----")
+    cert_file.chmod(0o600)
+
+    return f"""
+[service_principal]
+client_id = "12345678-1234-1234-1234-123456789012"
+tenant_id = "87654321-4321-4321-4321-210987654321"
+subscription_id = "abcdef00-0000-0000-0000-000000abcdef"
+auth_method = "certificate"
+certificate_path = "{cert_file}"
+"""
+
+
+@pytest.fixture
+def mock_azure_sp_authentication():
+    """Mock Azure service principal authentication flow."""
+    with patch("subprocess.run") as mock_run:
+        # Mock successful az login with service principal
+        def sp_auth_side_effect(cmd, *args, **kwargs):
+            if "az" in cmd and "login" in cmd and "--service-principal" in cmd:
+                return Mock(returncode=0, stdout="Login successful", stderr="")
+            if "az" in cmd and "account" in cmd and "show" in cmd:
+                return Mock(
+                    returncode=0,
+                    stdout='{"id": "abcdef00-0000-0000-0000-000000abcdef", "tenantId": "87654321-4321-4321-4321-210987654321"}',
+                    stderr="",
+                )
+            return Mock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = sp_auth_side_effect
+        yield mock_run
+
+
+@pytest.fixture
+def mock_sp_credential_validation():
+    """Mock service principal credential validation."""
+    with patch("azlin.service_principal_auth.ServicePrincipalManager.validate_config") as mock:
+        mock.return_value = True
+        yield mock
+
+
+@pytest.fixture
+def capture_sp_logs(caplog):
+    """Capture service principal related logs."""
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    return caplog

@@ -558,5 +558,162 @@ class ConfigManager:
             pass
         return None
 
+    @classmethod
+    def get_auth_profile(
+        cls, profile_name: str = "default", custom_path: str | None = None
+    ) -> dict[str, Any] | None:
+        """Get authentication profile configuration.
+
+        Args:
+            profile_name: Profile name to retrieve
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            Profile configuration dict or None if not found
+        """
+        try:
+            config_path = cls.get_config_path(custom_path)
+            if not config_path.exists():
+                return None
+
+            # Load TOML
+            with open(config_path, "rb") as f:
+                data = tomli.load(f)  # type: ignore[attr-defined]
+
+            auth_config = data.get("auth", {})
+            profiles = auth_config.get("profiles", {})
+            return profiles.get(profile_name)
+
+        except Exception:
+            return None
+
+    @classmethod
+    def set_auth_profile(
+        cls, profile_name: str, config: dict[str, Any], custom_path: str | None = None
+    ) -> None:
+        """Save authentication profile configuration.
+
+        Args:
+            profile_name: Profile name
+            config: Profile configuration dict
+            custom_path: Custom config file path (optional)
+
+        Raises:
+            ConfigError: If save fails
+        """
+        try:
+            config_path = (
+                cls.get_config_path(custom_path) if custom_path else cls.DEFAULT_CONFIG_FILE
+            )
+
+            # Load existing config or create new
+            if config_path.exists():
+                with open(config_path, "rb") as f:
+                    data = tomli.load(f)  # type: ignore[attr-defined]
+            else:
+                data = {}
+
+            # Ensure auth section exists
+            if "auth" not in data:
+                data["auth"] = {}
+            if "profiles" not in data["auth"]:
+                data["auth"]["profiles"] = {}
+
+            # Set profile
+            data["auth"]["profiles"][profile_name] = config
+
+            # Save
+            cls.ensure_config_dir()
+            temp_path = config_path.with_suffix(".tmp")
+            with open(temp_path, "wb") as f:
+                tomli_w.dump(data, f)
+
+            # Set secure permissions
+            os.chmod(temp_path, 0o600)
+
+            # Atomic rename
+            temp_path.replace(config_path)
+
+        except Exception as e:
+            raise ConfigError(f"Failed to save auth profile: {e}") from e
+
+    @classmethod
+    def delete_auth_profile(cls, profile_name: str, custom_path: str | None = None) -> bool:
+        """Delete authentication profile.
+
+        Args:
+            profile_name: Profile name to delete
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            True if profile was deleted, False if not found
+
+        Raises:
+            ConfigError: If delete fails
+        """
+        try:
+            config_path = (
+                cls.get_config_path(custom_path) if custom_path else cls.DEFAULT_CONFIG_FILE
+            )
+
+            if not config_path.exists():
+                return False
+
+            # Load config
+            with open(config_path, "rb") as f:
+                data = tomli.load(f)  # type: ignore[attr-defined]
+
+            auth_config = data.get("auth", {})
+            profiles = auth_config.get("profiles", {})
+
+            if profile_name not in profiles:
+                return False
+
+            # Delete profile
+            del profiles[profile_name]
+
+            # Save
+            temp_path = config_path.with_suffix(".tmp")
+            with open(temp_path, "wb") as f:
+                tomli_w.dump(data, f)
+
+            os.chmod(temp_path, 0o600)
+            temp_path.replace(config_path)
+
+            return True
+
+        except Exception as e:
+            raise ConfigError(f"Failed to delete auth profile: {e}") from e
+
+    @classmethod
+    def list_auth_profiles(cls, custom_path: str | None = None) -> list[str]:
+        """List all authentication profile names.
+
+        Args:
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            List of profile names
+        """
+        try:
+            config_path = (
+                cls.get_config_path(custom_path) if custom_path else cls.DEFAULT_CONFIG_FILE
+            )
+
+            if not config_path.exists():
+                return []
+
+            # Load config
+            with open(config_path, "rb") as f:
+                data = tomli.load(f)  # type: ignore[attr-defined]
+
+            auth_config = data.get("auth", {})
+            profiles = auth_config.get("profiles", {})
+
+            return list(profiles.keys())
+
+        except Exception:
+            return []
+
 
 __all__ = ["AzlinConfig", "ConfigError", "ConfigManager"]

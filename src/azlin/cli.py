@@ -40,6 +40,9 @@ from azlin.agentic import (
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 
+# Auth commands
+from azlin.commands.auth import auth
+
 # Storage commands
 from azlin.commands.storage import storage_group
 
@@ -1243,6 +1246,14 @@ def main(ctx: click.Context) -> None:
         keys list     List VMs and their SSH keys
         keys export   Export public key to file
         keys backup   Backup current SSH keys
+
+    \b
+    AUTHENTICATION:
+        auth setup    Set up service principal authentication profile
+        auth test     Test authentication with a profile
+        auth list     List available authentication profiles
+        auth show     Show profile details
+        auth remove   Remove authentication profile
 
     \b
     EXAMPLES:
@@ -4002,7 +4013,7 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
         sys.exit(1)
 
 
-def _do_impl(  # noqa: C901
+def _do_impl(
     request: str,
     dry_run: bool,
     yes: bool,
@@ -4240,7 +4251,7 @@ def do(
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
-def doit(  # noqa: C901
+def doit(
     objective: str,
     dry_run: bool,
     resource_group: str | None,
@@ -6055,6 +6066,9 @@ def snapshot_delete(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
+
+# Register auth commands
+main.add_command(auth)
 
 # Register storage commands
 main.add_command(storage_group)
