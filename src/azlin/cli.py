@@ -1356,10 +1356,6 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
     # Set up logging
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    # Store auth_profile in context for subcommands to access
-    ctx.ensure_object(dict)
-    ctx.obj["auth_profile"] = auth_profile
-
     # If auth profile specified, set up authentication environment
     if auth_profile:
         try:
