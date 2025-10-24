@@ -224,20 +224,41 @@ azlin list
 
 ### Service Principal Authentication
 
-For CI/CD pipelines and automation, set up service principal authentication:
+**New in v2.1**: Use service principal authentication alongside Azure tags for team collaboration and CI/CD automation.
+
+#### Why Service Principal + Azure Tags?
+
+Service principal authentication enables azlin to use **separate Azure credentials** from your personal Azure CLI login, perfect for:
+- Team VM management (shared service principal, shared session names)
+- CI/CD pipelines (automated VM provisioning without user login)
+- Multi-subscription management (different SP per subscription)
+
+#### Quick Setup
 
 ```bash
-# Interactive setup
-azlin auth setup
+# 1. Create and configure service principal profile
+azlin auth setup --profile team-vms
 
-# Test authentication
-azlin auth test
+# 2. Set client secret in environment (not stored in config)
+export AZURE_CLIENT_SECRET="your-sp-secret"
 
-# Use with profile
-azlin --auth-profile prod list
+# 3. Use azlin with service principal (your az CLI login untouched)
+azlin --auth-profile team-vms list
+
+# 4. Cross-resource-group discovery (finds all azlin VMs in subscription)
+azlin --auth-profile team-vms list
+# Shows VMs from ALL resource groups with managed-by=azlin tag
+
+# 5. Set session names (stored in Azure tags, shared with team)
+azlin --auth-profile team-vms session vm1 production
+
+# 6. Everyone on team sees the same session names
+azlin --auth-profile team-vms list
+# SESSION NAME    VM NAME          STATUS    IP              REGION
+# production      azlin-vm-123     Running   20.9.184.101    westus2
 ```
 
-### Environment Variables
+#### Environment Variables (Alternative)
 
 Service principal authentication via environment variables:
 
@@ -246,15 +267,16 @@ export AZURE_TENANT_ID="your-tenant-id"
 export AZURE_CLIENT_ID="your-client-id"
 export AZURE_CLIENT_SECRET="your-client-secret"
 
-azlin list
+azlin list  # Automatically uses service principal
 ```
 
-### Documentation
+#### Documentation
 
-- **Architecture**: See [AUTH_ARCHITECTURE_DESIGN.md](docs/AUTH_ARCHITECTURE_DESIGN.md) for authentication architecture
-- **Implementation**: See [AUTH_IMPLEMENTATION_GUIDE.md](AUTH_IMPLEMENTATION_GUIDE.md) for setup and implementation details
+- **Complete Setup Guide**: [SERVICE_PRINCIPAL_SETUP.md](docs/SERVICE_PRINCIPAL_SETUP.md) - Comprehensive guide with Azure tags integration
+- **Architecture**: [AUTH_ARCHITECTURE_DESIGN.md](docs/AUTH_ARCHITECTURE_DESIGN.md) - Authentication architecture
+- **Implementation**: [AUTH_IMPLEMENTATION_GUIDE.md](AUTH_IMPLEMENTATION_GUIDE.md) - Setup and implementation details
 
-### Profile Management
+#### Profile Management
 
 Manage multiple authentication profiles for different environments:
 
@@ -267,9 +289,20 @@ azlin auth show prod
 
 # Remove profile
 azlin auth remove dev
+
+# Test authentication
+azlin auth test --profile prod
 ```
 
-For detailed authentication setup and troubleshooting, see the [Authentication Implementation Guide](AUTH_IMPLEMENTATION_GUIDE.md).
+#### Key Benefits
+
+✅ **Separate auth contexts** - azlin uses service principal, your `az` CLI uses personal login
+✅ **Team collaboration** - Share service principal, share session names via Azure tags
+✅ **Cross-RG discovery** - Find all team VMs across entire subscription
+✅ **CI/CD ready** - Fully automated VM management without user interaction
+✅ **Multi-subscription** - Different SP profiles for dev/staging/prod subscriptions
+
+For detailed authentication setup, troubleshooting, and CI/CD examples, see the [Service Principal Setup Guide](docs/SERVICE_PRINCIPAL_SETUP.md).
 
 # Comprehensive Command Reference
 
@@ -520,23 +553,49 @@ azlin clone my-vm --vm-size Standard_D4s_v3 --region westus2
 
 #### `azlin list` - List all VMs
 
+**New in v2.1**: Cross-resource-group discovery! List all azlin-managed VMs across your entire subscription.
+
 ```bash
-# List VMs in default resource group
+# List ALL azlin VMs across ALL resource groups (uses managed-by=azlin tag)
 azlin list
 
-# List VMs in specific resource group
+# List VMs in specific resource group (classic mode)
 azlin list --resource-group my-custom-rg
+
+# List with service principal (finds all VMs across subscription)
+azlin --auth-profile team-vms list
+
+# Filter by tag
+azlin list --tag env=production
+azlin list --tag team=backend
+
+# Include stopped VMs
+azlin list --all
 ```
+
+**How cross-RG discovery works**:
+- Queries Azure for all VMs with `managed-by=azlin` tag
+- Works across all resource groups in your subscription
+- Session names read from Azure tags (not just local config)
+- Perfect for team environments with VMs in multiple resource groups
 
 **Output example**:
 ```
-VMs in resource group 'azlin-rg-1234567890':
+Listing all azlin-managed VMs across resource groups...
+
 SESSION NAME         VM NAME                             STATUS          IP              REGION     SIZE
-my-project           azlin-vm-001                        Running         20.12.34.56     eastus     Standard_D2s_v3
--                    azlin-vm-002                        Stopped         N/A             westus2    Standard_B2s
+amplihack-dev        azlin-vm-1761056536                 Running         20.9.184.101    westus2    Standard_D2s_v3
+simserv              azlin-vm-1760983759                 Running         4.246.117.21    westus2    Standard_D2s_v3
+atg                  azlin-vm-1760928027                 Running         4.155.31.150    eastus     Standard_D2s_v3
+
+Total: 3 VMs
 ```
 
+**Session names from Azure tags**: The SESSION NAME column shows values from Azure VM tags, synchronized across all users who have access to the VMs (especially useful with service principal authentication).
+
 #### `azlin session` - Manage session names
+
+**New in v2.1**: Session names are now stored in **Azure VM tags** for multi-machine sync and team collaboration!
 
 Session names are custom labels you can assign to VMs to help identify what you're working on. They appear in the `azlin list` output and make it easier to track multiple projects. You can also use session names to connect to VMs.
 
@@ -547,17 +606,34 @@ azlin new --name my-project
 # Set a session name for an existing VM
 azlin session azlin-vm-12345 my-project
 
-# View current session name
+# View current session name (shows source: VM tags or local config)
 azlin session azlin-vm-12345
 
-# Clear session name
+# Clear session name (clears from both tags and config)
 azlin session azlin-vm-12345 --clear
 
 # Connect using session name
 azlin connect my-project
+
+# With service principal - session names shared across team
+azlin --auth-profile team session worker-1 alice-dev
 ```
 
-Session names are stored locally in `~/.azlin/config.toml` and don't affect the actual VM name in Azure.
+**Where session names are stored**:
+- **Primary**: Azure VM tags (`azlin-session` tag) - Source of truth, synced across machines
+- **Fallback**: Local config `~/.azlin/config.toml` - For backward compatibility
+
+**Benefits of tag-based sessions**:
+- ✅ Session names sync across your machines automatically
+- ✅ Team members using same service principal see same sessions
+- ✅ No config file to lose or manage
+- ✅ Works with cross-resource-group discovery
+
+**Tag schema**:
+- `managed-by: azlin` - Identifies azlin-managed VMs
+- `azlin-session: <name>` - Your session name
+- `azlin-created: <timestamp>` - When VM was created
+- `azlin-owner: <username>` - Who created it
 
 #### `azlin status` - Detailed VM status
 

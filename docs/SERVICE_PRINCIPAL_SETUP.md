@@ -1663,6 +1663,208 @@ azlin --verbose auth test --profile prod
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** 2025-10-23
+## Integration with Azure Tags Feature
+
+**New in v2.1**: Service principal authentication now works seamlessly with Azure VM tags for session management and cross-resource-group discovery.
+
+### How It Works Together
+
+When you use `--auth-profile`, azlin:
+1. Authenticates with the specified service principal
+2. Sets Azure environment variables (AZURE_CLIENT_ID, etc.)
+3. All Azure CLI commands inherit these credentials
+4. TagManager operations automatically use the service principal
+5. Your personal Azure CLI login remains unchanged
+
+### Cross-Resource-Group Discovery with Service Principal
+
+**Scenario**: Discover all azlin-managed VMs across your entire subscription using a service principal
+
+```bash
+# Setup service principal profile (one-time)
+azlin auth setup --profile team-vms
+export AZURE_CLIENT_SECRET="your-sp-secret"
+
+# List ALL azlin VMs across ALL resource groups
+azlin --auth-profile team-vms list
+
+# Output shows VMs from multiple resource groups:
+# SESSION NAME              VM NAME                             STATUS    IP              REGION     SIZE
+# amplihack-dev             azlin-vm-1761056536                 Running   20.9.184.101    westus2    Standard_D2s_v3
+# simserv                   azlin-vm-1760983759                 Running   4.246.117.21    westus2    Standard_D2s_v3
+# atg                       azlin-vm-1760928027                 Running   4.155.31.150    eastus     Standard_D2s_v3
+```
+
+### Tag-Based Session Management with Service Principal
+
+**Session names are stored in Azure VM tags**, which means:
+- The service principal needs `Microsoft.Compute/virtualMachines/write` permission
+- Session names are shared across all users of the service principal
+- Perfect for team environments
+
+```bash
+# Set session name using service principal
+azlin --auth-profile team-vms session azlin-vm-123 production
+
+# This writes to Azure VM tags:
+# - managed-by: azlin
+# - azlin-session: production
+# - azlin-created: 2025-10-24T...
+# - azlin-owner: team-vms
+
+# Anyone using the same service principal sees the session
+azlin --auth-profile team-vms list
+# Shows "production" in SESSION NAME column
+```
+
+### Multi-Subscription Management
+
+Manage VMs across different subscriptions with different service principals:
+
+```bash
+# Development subscription
+azlin --auth-profile dev-sub list
+azlin --auth-profile dev-sub new --name dev-vm --session testing
+
+# Production subscription
+azlin --auth-profile prod-sub list
+azlin --auth-profile prod-sub session prod-vm-1 api-server
+
+# Your personal Azure work (different auth context)
+az vm list --subscription my-personal-sub
+```
+
+### Team Collaboration Example
+
+**Setup (Team Lead)**:
+```bash
+# Create service principal for team
+az ad sp create-for-rbac --name "team-azlin-sp" --role Contributor
+
+# Share credentials with team (secure channel)
+# Store in team password manager or Azure Key Vault
+```
+
+**Usage (Team Members)**:
+```bash
+# Each team member configures same profile
+azlin auth setup --profile team
+export AZURE_CLIENT_SECRET="team-shared-secret"
+
+# Everyone sees the same VMs and session names
+azlin --auth-profile team list
+
+# Session names are shared (stored in Azure tags)
+azlin --auth-profile team session worker-1 alice-dev
+azlin --auth-profile team session worker-2 bob-dev
+```
+
+### CI/CD Automation Example
+
+**GitHub Actions with Azure Tags**:
+```yaml
+name: Manage Azure VMs
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  vm-management:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup azlin
+        run: pip install azlin
+
+      - name: Configure service principal
+        env:
+          AZURE_CLIENT_SECRET: ${{ secrets.AZLIN_SP_SECRET }}
+        run: |
+          azlin auth setup --profile ci \
+            --client-id ${{ secrets.AZLIN_CLIENT_ID }} \
+            --tenant-id ${{ secrets.AZLIN_TENANT_ID }} \
+            --subscription-id ${{ secrets.AZLIN_SUBSCRIPTION_ID }}
+
+      - name: List all VMs (cross-RG discovery)
+        env:
+          AZURE_CLIENT_SECRET: ${{ secrets.AZLIN_SP_SECRET }}
+        run: azlin --auth-profile ci list
+
+      - name: Create test VM with session tag
+        env:
+          AZURE_CLIENT_SECRET: ${{ secrets.AZLIN_SP_SECRET }}
+        run: |
+          azlin --auth-profile ci new --name "ci-vm-${{ github.run_number }}" \
+            --session "ci-test-${{ github.run_number }}"
+
+      - name: Clean up
+        env:
+          AZURE_CLIENT_SECRET: ${{ secrets.AZLIN_SP_SECRET }}
+        run: azlin --auth-profile ci kill "ci-test-${{ github.run_number }}"
+```
+
+### Required Service Principal Permissions
+
+For full Azure tags functionality, your service principal needs:
+
+```bash
+az role assignment create \
+  --assignee "YOUR_SP_CLIENT_ID" \
+  --role "Virtual Machine Contributor" \
+  --scope "/subscriptions/YOUR_SUBSCRIPTION_ID"
+```
+
+This role includes:
+- `Microsoft.Compute/virtualMachines/read` - List VMs and read tags
+- `Microsoft.Compute/virtualMachines/write` - Create VMs and write tags
+- `Microsoft.Compute/virtualMachines/delete` - Delete VMs
+- Plus network and resource group operations
+
+### Benefits of Tags + Service Principal
+
+✅ **Separate authentication contexts** - azlin uses SP, you use personal login
+✅ **Cross-resource-group discovery** - Find all team VMs with one command
+✅ **Shared session names** - Everyone on team sees same labels
+✅ **Multi-machine sync** - Session names in Azure, not local config
+✅ **Audit trail** - SP operations tracked separately in Azure logs
+✅ **Team collaboration** - Multiple users share same VM pool
+✅ **CI/CD automation** - Fully automated VM lifecycle management
+
+### Troubleshooting
+
+**Problem**: "Authentication failed" when using --auth-profile
+```bash
+# Verify profile exists
+azlin auth list
+
+# Test authentication
+azlin auth test --profile your-profile
+
+# Check environment variable is set
+echo $AZURE_CLIENT_SECRET
+```
+
+**Problem**: "Failed to set session name in VM tags"
+```bash
+# Verify SP has write permissions
+az role assignment list --assignee YOUR_SP_CLIENT_ID --output table
+
+# Should show "Virtual Machine Contributor" or "Contributor" role
+```
+
+**Problem**: "No VMs found" with cross-RG list
+```bash
+# Verify VMs have managed-by=azlin tag
+az vm show --name VM_NAME --resource-group RG --query tags
+
+# Tag new VMs manually if needed
+azlin --auth-profile team session old-vm my-session
+```
+
+---
+
+**Document Version:** 2.0
+**Last Updated:** 2025-10-24
 **Feedback:** Open an issue at https://github.com/rysweet/azlin/issues
