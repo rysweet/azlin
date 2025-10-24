@@ -335,9 +335,7 @@ class TagManager:
             return None
 
     @classmethod
-    def set_session_name(
-        cls, vm_name: str, resource_group: str, session_name: str
-    ) -> bool:
+    def set_session_name(cls, vm_name: str, resource_group: str, session_name: str) -> bool:
         """Set session name in VM tags.
 
         Args:
@@ -435,9 +433,7 @@ class TagManager:
                 ]
             )
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
 
             vms_data = json.loads(result.stdout)
 
