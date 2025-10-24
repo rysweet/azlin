@@ -13,7 +13,7 @@ Use this mode when you want Claude to work autonomously through a complex task w
 
 ## Custom Continuation Prompts
 
-You can customize the message Claude sees when trying to stop by creating a continuation prompt file at `.claude/tools/amplihack/.continuation_prompt`. This allows you to:
+You can customize the message Claude sees when trying to stop by creating a continuation prompt file at `.claude/runtime/locks/.continuation_prompt`. This allows you to:
 
 - Provide task-specific guidance
 - Add context about what to prioritize
@@ -36,7 +36,7 @@ If the file is empty or doesn't exist, the default continuation prompt is used.
 
 Execute the following to enable lock:
 
-Create the lock flag file at `.claude/tools/amplihack/.lock_active`:
+Create the lock flag file at `.claude/runtime/locks/.lock_active`:
 
 ```python
 import os

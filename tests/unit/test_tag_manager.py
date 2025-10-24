@@ -321,3 +321,79 @@ class TestTagManager:
         with pytest.raises(TagManagerError) as exc_info:
             TagManager.parse_tag_assignment("key=")
         assert "Invalid tag format" in str(exc_info.value)
+
+    # Session management tests
+
+    @patch("azlin.tag_manager.subprocess.run")
+    def test_get_session_name_success(self, mock_run):
+        """Test getting session name from VM tags."""
+        vm_data = {"name": "test-vm", "tags": {"azlin-session": "my-project"}}
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(vm_data), stderr="")
+
+        session = TagManager.get_session_name("test-vm", "test-rg")
+        assert session == "my-project"
+
+    @patch("azlin.tag_manager.subprocess.run")
+    def test_get_session_name_not_set(self, mock_run):
+        """Test getting session name when not set."""
+        vm_data = {"name": "test-vm", "tags": {}}
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(vm_data), stderr="")
+
+        session = TagManager.get_session_name("test-vm", "test-rg")
+        assert session is None
+
+    @patch("azlin.tag_manager.subprocess.run")
+    def test_set_session_name_success(self, mock_run):
+        """Test setting session name in VM tags."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
+
+        result = TagManager.set_session_name("test-vm", "test-rg", "my-session")
+        assert result is True
+
+    @patch("azlin.tag_manager.subprocess.run")
+    def test_set_session_name_invalid(self, mock_run):
+        """Test setting invalid session name raises error."""
+        with pytest.raises(ValueError, match="Invalid session name"):
+            TagManager.set_session_name("test-vm", "test-rg", "invalid name!")
+
+    @patch("azlin.tag_manager.subprocess.run")
+    def test_delete_session_name_success(self, mock_run):
+        """Test deleting session name from VM tags."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
+
+        result = TagManager.delete_session_name("test-vm", "test-rg")
+        assert result is True
+
+    def test_validate_session_name_valid(self):
+        """Test validating valid session names."""
+        assert TagManager.validate_session_name("my-project") is True
+        assert TagManager.validate_session_name("dev_session") is True
+        assert TagManager.validate_session_name("session123") is True
+
+    def test_validate_session_name_invalid(self):
+        """Test validating invalid session names."""
+        assert TagManager.validate_session_name("") is False
+        assert TagManager.validate_session_name("my session") is False  # spaces
+        assert TagManager.validate_session_name("my@session") is False  # @ not allowed
+        assert TagManager.validate_session_name("a" * 100) is False  # too long
+
+    @patch("azlin.tag_manager.subprocess.run")
+    def test_set_managed_tags_basic(self, mock_run):
+        """Test setting basic managed tags."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
+
+        result = TagManager.set_managed_tags("test-vm", "test-rg")
+        assert result is True
+
+        # Verify tags were set
+        cmd = mock_run.call_args[0][0]
+        assert "managed-by=azlin" in " ".join(cmd)
+        assert "azlin-created" in " ".join(cmd)
+
+    @patch("azlin.tag_manager.subprocess.run")
+    def test_set_managed_tags_with_session(self, mock_run):
+        """Test setting managed tags with session name."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
+
+        result = TagManager.set_managed_tags("test-vm", "test-rg", session_name="my-session")
+        assert result is True
