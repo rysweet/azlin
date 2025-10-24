@@ -12,7 +12,7 @@ All tests should FAIL initially until integration is complete.
 
 import os
 import subprocess
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -606,7 +606,7 @@ class TestAuthProfileCLIIntegration:
         config_dir = tmp_path / ".azlin"
         config_dir.mkdir()
         config_file = config_dir / "config.toml"
-        config_file.write_text('[auth_profiles]\n')
+        config_file.write_text("[auth_profiles]\n")
 
         env = os.environ.copy()
         env["HOME"] = str(tmp_path)
