@@ -537,7 +537,9 @@ class ConfigManager:
 
             vm_info = TagManager.get_vm_by_session(session_name, resource_group)
             if vm_info:
-                logger.debug(f"Resolved session '{session_name}' to VM '{vm_info.name}' via Azure tags")
+                logger.debug(
+                    f"Resolved session '{session_name}' to VM '{vm_info.name}' via Azure tags"
+                )
                 return vm_info.name
         except Exception as e:
             logger.debug(f"Failed to resolve session via tags, falling back to config: {e}")
@@ -569,7 +571,9 @@ class ConfigManager:
                     )
                     return matches[0]
                 if len(matches) == 1:
-                    logger.debug(f"Resolved session '{session_name}' to VM '{matches[0]}' via local config")
+                    logger.debug(
+                        f"Resolved session '{session_name}' to VM '{matches[0]}' via local config"
+                    )
                     return matches[0]
 
         except ConfigError:

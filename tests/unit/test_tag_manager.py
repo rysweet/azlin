@@ -345,7 +345,7 @@ class TestTagManager:
     @patch("azlin.tag_manager.subprocess.run")
     def test_set_session_name_success(self, mock_run):
         """Test setting session name in VM tags."""
-        mock_run.return_value = MagicMock(returncode=0, stdout='{}', stderr="")
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
 
         result = TagManager.set_session_name("test-vm", "test-rg", "my-session")
         assert result is True
@@ -353,14 +353,13 @@ class TestTagManager:
     @patch("azlin.tag_manager.subprocess.run")
     def test_set_session_name_invalid(self, mock_run):
         """Test setting invalid session name raises error."""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Invalid session name"):
             TagManager.set_session_name("test-vm", "test-rg", "invalid name!")
-        assert "Invalid session name" in str(exc_info.value)
 
     @patch("azlin.tag_manager.subprocess.run")
     def test_delete_session_name_success(self, mock_run):
         """Test deleting session name from VM tags."""
-        mock_run.return_value = MagicMock(returncode=0, stdout='{}', stderr="")
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
 
         result = TagManager.delete_session_name("test-vm", "test-rg")
         assert result is True
@@ -381,11 +380,11 @@ class TestTagManager:
     @patch("azlin.tag_manager.subprocess.run")
     def test_set_managed_tags_basic(self, mock_run):
         """Test setting basic managed tags."""
-        mock_run.return_value = MagicMock(returncode=0, stdout='{}', stderr="")
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
 
         result = TagManager.set_managed_tags("test-vm", "test-rg")
         assert result is True
-        
+
         # Verify tags were set
         cmd = mock_run.call_args[0][0]
         assert "managed-by=azlin" in " ".join(cmd)
@@ -394,8 +393,7 @@ class TestTagManager:
     @patch("azlin.tag_manager.subprocess.run")
     def test_set_managed_tags_with_session(self, mock_run):
         """Test setting managed tags with session name."""
-        mock_run.return_value = MagicMock(returncode=0, stdout='{}', stderr="")
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
 
         result = TagManager.set_managed_tags("test-vm", "test-rg", session_name="my-session")
         assert result is True
-

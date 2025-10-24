@@ -1749,7 +1749,9 @@ def list_command(resource_group: str | None, config: str | None, show_all: bool,
                     err=True,
                 )
                 # Fall back to requiring RG
-                click.echo("Error: No resource group specified and no default configured.", err=True)
+                click.echo(
+                    "Error: No resource group specified and no default configured.", err=True
+                )
                 click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
                 sys.exit(1)
         else:
@@ -1880,7 +1882,9 @@ def session_command(
                     locations.append("VM tags")
                 if cleared_config:
                     locations.append("local config")
-                click.echo(f"Cleared session name for VM '{vm_name}' from {' and '.join(locations)}")
+                click.echo(
+                    f"Cleared session name for VM '{vm_name}' from {' and '.join(locations)}"
+                )
             else:
                 click.echo(f"No session name set for VM '{vm_name}'")
             return
@@ -1928,7 +1932,9 @@ def session_command(
                 locations.append("VM tags")
             if success_config:
                 locations.append("local config")
-            click.echo(f"Set session name for '{vm_name}' to '{session_name}' in {' and '.join(locations)}")
+            click.echo(
+                f"Set session name for '{vm_name}' to '{session_name}' in {' and '.join(locations)}"
+            )
         else:
             click.echo("Error: Failed to set session name", err=True)
             sys.exit(1)
