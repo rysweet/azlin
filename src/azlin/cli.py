@@ -45,6 +45,7 @@ from azlin.commands.auth import auth
 
 # Storage commands
 from azlin.commands.storage import storage_group
+from azlin.commands.tag import tag_group
 
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
@@ -6186,6 +6187,7 @@ main.add_command(auth)
 
 # Register storage commands
 main.add_command(storage_group)
+main.add_command(tag_group)
 
 
 @main.group()

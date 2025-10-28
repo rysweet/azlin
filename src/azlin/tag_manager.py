@@ -90,7 +90,7 @@ class TagManager:
             logger.debug(f"Adding tags to VM {vm_name}: {tags}")
 
             _result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True
+                cmd, capture_output=True, text=True, timeout=120, check=True
             )
 
             logger.info(f"Successfully added tags to VM {vm_name}")
@@ -136,7 +136,7 @@ class TagManager:
             logger.debug(f"Removing tags from VM {vm_name}: {tag_keys}")
 
             _result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True
+                cmd, capture_output=True, text=True, timeout=120, check=True
             )
 
             logger.info(f"Successfully removed tags from VM {vm_name}")
@@ -177,7 +177,7 @@ class TagManager:
             ]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True
+                cmd, capture_output=True, text=True, timeout=120, check=True
             )
 
             vm_data: dict[str, Any] = json.loads(result.stdout)
