@@ -31,6 +31,16 @@ uvx --from git+https://github.com/rysweet/azlin azlin new --name amplifier-dev -
 uvx --from git+https://github.com/rysweet/azlin azlin new --vm-size Standard_D4s_v3 --repo https://github.com/microsoft/amplifier
 ```
 
+**Or install as a tool without alias:**
+
+```bash
+# Set up as a local tool
+uv tool install git+https://github.com/rysweet/azlin
+
+# Now use azlin as normal!
+azlin new --repo https://github.com/microsoft/amplifier
+```
+
 ### If you have azlin installed
 
 ```bash
