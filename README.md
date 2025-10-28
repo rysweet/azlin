@@ -1,5 +1,8 @@
 # azlin - Azure Ubuntu VM Provisioning CLI
 
+**Version:** 2.0.0
+**Last Updated:** 2025-10-27
+
 **One command to create a fully-equipped development VM on Azure**
 
 ```bash
@@ -12,7 +15,7 @@ azlin new
 # Create VM and clone GitHub repo
 azlin new --repo https://github.com/owner/repo
 
-# 🆕 Or use natural language (AI-powered)
+# Or use natural language (AI-powered)
 azlin do "create a new vm called Sam"
 uvx --from git+https://github.com/rysweet/azlin azlin do "show me all my vms"
 azlin do "sync all my vms"
@@ -275,7 +278,7 @@ For detailed authentication setup and troubleshooting, see the [Authentication I
 
 This section provides detailed examples of all azlin commands with practical use cases.
 
-## 🆕 Natural Language Commands (AI-Powered)
+## Natural Language Commands (AI-Powered)
 
 **New in v2.1**: Use natural language to control azlin with Claude AI
 
@@ -418,11 +421,43 @@ All examples above come from real integration tests with actual Azure resources:
 
 See [docs/AZDOIT.md](docs/AZDOIT.md) for comprehensive documentation with 50+ examples.
 
+### Natural Language Commands Comparison
+
+| Feature | `do` | `doit` |
+|---------|------|--------|
+| Natural language parsing | ✓ | ✓ |
+| Command execution | ✓ | ✓ |
+| State persistence | ✗ | ✓ |
+| Objective tracking | ✗ | ✓ |
+| Audit logging | ✗ | ✓ |
+| Multi-strategy (future) | ✗ | ✓ |
+| Cost estimation (future) | ✗ | ✓ |
+
+**When to use:**
+- `do` - Quick, simple natural language commands
+- `doit` - Complex objectives requiring state tracking
+
+### Natural Language Commands Comparison
+
+| Feature | `do` | `doit` |
+|---------|------|--------|
+| Natural language parsing | ✓ | ✓ |
+| Command execution | ✓ | ✓ |
+| State persistence | ✗ | ✓ |
+| Objective tracking | ✗ | ✓ |
+| Audit logging | ✗ | ✓ |
+| Multi-strategy (future) | ✗ | ✓ |
+| Cost estimation (future) | ✗ | ✓ |
+
+**When to use:**
+- `do` - Quick, simple natural language commands
+- `doit` - Complex objectives requiring state tracking
+
 ---
 
 ## Command Categories
 
-- [🆕 Natural Language Commands](#-natural-language-commands-ai-powered) - Use plain English with AI
+- [Natural Language Commands](#natural-language-commands-ai-powered) - Use plain English with AI
 - [VM Lifecycle](#vm-lifecycle) - Create, manage, and delete VMs
 - [VM Maintenance](#vm-maintenance) - Update tools and packages
 - [Connection](#connection) - Connect to VMs
@@ -457,6 +492,9 @@ azlin new --nfs-storage team-shared --name worker-1
 
 # Specify VM size and region
 azlin new --vm-size Standard_D4s_v3 --region westus2
+
+# Provision from saved template
+azlin new --template dev-vm --name my-instance
 
 # Provision without auto-connecting
 azlin new --no-auto-connect
@@ -524,9 +562,32 @@ azlin clone my-vm --vm-size Standard_D4s_v3 --region westus2
 # List VMs in default resource group
 azlin list
 
-# List VMs in specific resource group
+# Show ALL VMs (including stopped)
+azlin list --all
+
+# Filter by tag
+azlin list --tag env=dev
+
+# Filter by tag key only
+azlin list --tag team
+
+# Specific resource group
 azlin list --resource-group my-custom-rg
 ```
+
+**Output columns:**
+- SESSION NAME - Custom label (if set)
+- VM NAME - Azure VM name
+- STATUS - Running/Stopped/Deallocated
+- IP - Public IP address
+- REGION - Azure region
+- SIZE - VM size (e.g., Standard_D2s_v3)
+
+**Filtering:**
+- Default: Shows only running VMs
+- `--all`: Shows stopped/deallocated VMs
+- `--tag KEY=VALUE`: Filter by specific tag value
+- `--tag KEY`: Filter by tag key existence
 
 **Output example**:
 ```
@@ -559,11 +620,47 @@ azlin connect my-project
 
 Session names are stored locally in `~/.azlin/config.toml` and don't affect the actual VM name in Azure.
 
+### `azlin tag` - Manage VM tags
+
+Organize VMs using tags for filtering and batch operations.
+
+```bash
+# Add tag
+azlin tag my-vm --add env=dev
+
+# Add multiple tags
+azlin tag my-vm --add env=dev --add team=backend
+
+# List VM tags
+azlin tag my-vm --list
+
+# Remove tag
+azlin tag my-vm --remove env
+
+# Remove all tags
+azlin tag my-vm --clear
+```
+
+**Tag Format:** `key=value` or `key` (for boolean flags)
+
+**Use with:**
+- `azlin list --tag env=dev` - Filter VMs
+- `azlin batch stop --tag env=test` - Batch operations
+
+**Use cases:**
+- Organize VMs by environment (dev/staging/prod)
+- Track VM ownership (team=backend, owner=alice)
+- Mark VM purpose (temporary, permanent)
+- Enable batch operations by criteria
+
 #### `azlin status` - Detailed VM status
 
 ```bash
 # Show detailed status of all VMs
 azlin status
+
+# Show status for specific VM only
+azlin status --vm my-vm
 
 # Status for specific resource group
 azlin status --resource-group my-rg
@@ -592,14 +689,28 @@ azlin start my-vm --resource-group my-rg
 #### `azlin stop` - Stop/deallocate a VM
 
 ```bash
-# Stop a VM to save costs
+# Stop VM (stops compute billing)
 azlin stop my-vm
 
-# Stop with resource group
+# By default, VM is DEALLOCATED (compute fully released)
+# Storage charges still apply
+
+# Stop without deallocating (keeps resources allocated)
+azlin stop my-vm --no-deallocate
+
+# Specific resource group
 azlin stop my-vm --resource-group my-rg
 ```
 
-**💰 Cost saving**: Stopped VMs only incur storage costs, not compute costs.
+**Cost Impact:**
+- `azlin stop` (default deallocate) → Compute billing STOPS, storage continues
+- `azlin stop --no-deallocate` → Full billing continues
+
+**Important:** Always use default (deallocate) for cost savings unless you need guaranteed resource availability.
+
+**Defaults:**
+- `--deallocate`: yes (fully release compute)
+- `--timeout`: 300 seconds
 
 #### `azlin kill` - Delete a VM and its resources
 
@@ -639,6 +750,22 @@ azlin destroy my-vm --delete-rg --force
 - Complete cleanup including resource group
 - Scripted deletion workflows
 
+### Deletion Commands Comparison
+
+| Feature | `kill` | `destroy` | `killall` |
+|---------|--------|-----------|-----------|
+| Delete single VM | ✓ | ✓ | ✗ |
+| Delete multiple VMs | ✗ | ✗ | ✓ |
+| Dry-run mode | ✗ | ✓ | ✗ |
+| Delete resource group | ✗ | ✓ | ✗ |
+| Confirmation | ✓ | ✓ | ✓ |
+| Force flag | ✓ | ✓ | ✓ |
+
+**When to use:**
+- `kill` - Simple, quick VM deletion
+- `destroy` - Advanced with dry-run and RG deletion
+- `killall` - Bulk cleanup of multiple VMs
+
 #### `azlin killall` - Delete all VMs in resource group
 
 ```bash
@@ -652,7 +779,104 @@ azlin killall --resource-group my-rg
 azlin killall --force
 ```
 
-⚠️ **Warning**: This deletes ALL VMs in the resource group!
+**Warning**: This deletes ALL VMs in the resource group!
+
+**Defaults:**
+- `--prefix`: "azlin" (only deletes azlin-created VMs)
+
+### Deletion Commands Comparison
+
+| Feature | `kill` | `destroy` | `killall` |
+|---------|--------|-----------|-----------|
+| Delete single VM | ✓ | ✓ | ✗ |
+| Delete multiple VMs | ✗ | ✗ | ✓ |
+| Dry-run mode | ✗ | ✓ | ✗ |
+| Delete resource group | ✗ | ✓ | ✗ |
+| Confirmation | ✓ | ✓ | ✓ |
+| Force flag | ✓ | ✓ | ✓ |
+
+**When to use:**
+- `kill` - Simple, quick VM deletion
+- `destroy` - Advanced with dry-run and RG deletion
+- `killall` - Bulk cleanup of multiple VMs
+
+### `azlin prune` - Automated VM cleanup
+
+Intelligently identify and delete idle or unused VMs based on age and activity.
+
+```bash
+# Preview what would be deleted (SAFE)
+azlin prune --dry-run
+
+# Delete VMs idle for 1+ days (default)
+azlin prune
+
+# Custom thresholds: 7+ days old, 3+ days idle
+azlin prune --age-days 7 --idle-days 3
+
+# Include running VMs in cleanup
+azlin prune --include-running
+
+# Include named sessions (normally protected)
+azlin prune --include-named
+
+# Skip confirmation prompt
+azlin prune --force
+```
+
+**Safety Features:**
+- Default excludes running VMs
+- Default excludes VMs with session names
+- Requires confirmation unless `--force`
+- Dry-run mode shows exactly what will be deleted
+
+**Criteria for Deletion:**
+- VM older than `--age-days` (default: 1)
+- VM idle for `--idle-days` (default: 1)
+- VM stopped or deallocated
+- VM has no session name (unless `--include-named`)
+
+**Defaults:**
+- `--age-days`: 1 day
+- `--idle-days`: 1 day
+- Excludes running VMs
+- Excludes named sessions
+
+**Use cases:**
+- Automated cost reduction
+- Remove forgotten test VMs
+- Scheduled cleanup in CI/CD
+- Prevent resource sprawl
+
+### `azlin cleanup` - Remove orphaned resources
+
+Find and delete orphaned Azure resources (NICs, disks, IPs) left behind from incomplete VM deletions.
+
+```bash
+# Preview orphaned resources
+azlin cleanup --dry-run
+
+# Remove orphaned resources
+azlin cleanup
+
+# Specific resource group
+azlin cleanup --rg my-rg
+
+# Skip confirmation
+azlin cleanup --force
+```
+
+**What it removes:**
+- Network interfaces not attached to VMs
+- Public IP addresses not in use
+- Disks not attached to VMs
+- Orphaned security groups
+
+**Use cases:**
+- Clean up after failed deletions
+- Reduce clutter in resource groups
+- Eliminate unnecessary costs
+- Maintain tidy Azure resources
 
 ---
 
@@ -660,7 +884,7 @@ azlin killall --force
 
 ### `azlin update` - Update development tools on a VM
 
-Update all programming tools and AI CLI tools that were installed during VM provisioning.
+Update all programming tools and AI CLI tools that were installed during VM provisioning. **Default timeout: 300 seconds per tool.**
 
 ```bash
 # Update tools on a VM by session name
@@ -724,6 +948,58 @@ azlin os-update my-vm --timeout 600
 
 ## Connection
 
+### Understanding VM Identifiers
+
+Many azlin commands accept a **VM identifier** in three formats:
+
+1. **VM Name:** Full Azure VM name (e.g., `azlin-vm-12345`)
+   - Requires: `--resource-group` or default config
+   - Example: `azlin connect azlin-vm-12345 --rg my-rg`
+
+2. **Session Name:** Custom label you assigned (e.g., `my-project`)
+   - Automatically resolves to VM name
+   - Example: `azlin connect my-project`
+
+3. **IP Address:** Direct connection (e.g., `20.1.2.3`)
+   - No resource group needed
+   - Example: `azlin connect 20.1.2.3`
+
+**Commands that accept VM identifiers:**
+- `connect`, `update`, `os-update`, `stop`, `start`, `kill`, `destroy`
+
+**Tip:** Use session names for easy access:
+```bash
+azlin session azlin-vm-12345 myproject
+azlin connect myproject  # Much easier!
+```
+
+
+
+### Understanding VM Identifiers
+
+Many azlin commands accept a **VM identifier** in three formats:
+
+1. **VM Name:** Full Azure VM name (e.g., `azlin-vm-12345`)
+   - Requires: `--resource-group` or default config
+   - Example: `azlin connect azlin-vm-12345 --rg my-rg`
+
+2. **Session Name:** Custom label you assigned (e.g., `my-project`)
+   - Automatically resolves to VM name
+   - Example: `azlin connect my-project`
+
+3. **IP Address:** Direct connection (e.g., `20.1.2.3`)
+   - No resource group needed
+   - Example: `azlin connect 20.1.2.3`
+
+**Commands that accept VM identifiers:**
+- `connect`, `update`, `os-update`, `stop`, `start`, `kill`, `destroy`
+
+**Tip:** Use session names for easy access:
+```bash
+azlin session azlin-vm-12345 myproject
+azlin connect myproject  # Much easier!
+```
+
 ### `azlin connect` - SSH into a VM
 
 Connect to a VM with automatic tmux session management and **auto-reconnect on disconnect** ✨.
@@ -747,6 +1023,9 @@ azlin connect my-vm --no-tmux
 # Specify SSH user
 azlin connect my-vm --ssh-user azureuser
 
+# Connect with custom SSH user
+azlin connect my-vm --user myusername
+
 # Connect with custom key
 azlin connect my-vm --ssh-key ~/.ssh/custom_key
 
@@ -754,7 +1033,7 @@ azlin connect my-vm --ssh-key ~/.ssh/custom_key
 azlin connect my-vm --no-reconnect
 ```
 
-**New Feature: Auto-Reconnect** 🔄
+**New Feature: Auto-Reconnect**
 
 If your SSH session disconnects (network issue, accidental disconnect), azlin will automatically prompt you to reconnect:
 
@@ -778,6 +1057,62 @@ Attempting to reconnect to my-vm...
 ---
 
 ## Monitoring
+
+### `azlin logs` - View VM logs without SSH
+
+Access VM system logs remotely without SSH connection.
+
+```bash
+# View system logs
+azlin logs my-vm
+
+# View boot logs
+azlin logs my-vm --boot
+
+# Follow logs in real-time
+azlin logs my-vm --follow
+
+# View logs for specific service
+azlin logs my-vm --service sshd
+```
+
+**Use cases:**
+- Debug VM issues remotely
+- Monitor system startup
+- Track service status
+- Troubleshoot without SSH access
+
+### `azlin top` - Distributed real-time monitoring
+
+Monitor CPU, memory, and processes across all VMs in a unified dashboard.
+
+```bash
+# Default: 10 second refresh
+azlin top
+
+# 5 second refresh
+azlin top -i 5
+
+# Specific resource group
+azlin top --rg my-rg
+
+# Custom timeout
+azlin top -i 15 -t 10
+```
+
+**Output:** Real-time dashboard showing:
+- CPU usage per VM
+- Memory utilization
+- System load averages
+- Top processes
+
+**Use cases:**
+- Monitor distributed workloads
+- Identify resource bottlenecks
+- Track performance across fleet
+- Real-time capacity planning
+
+Press Ctrl+C to exit.
 
 ### `azlin w` - Show who's logged in
 
@@ -956,8 +1291,11 @@ azlin storage mount myteam-shared --vm my-dev-vm
 # Unmount storage (restores local home)
 azlin storage unmount --vm my-dev-vm
 
-# Delete storage
+# Delete storage (fails if VMs connected)
 azlin storage delete myteam-shared
+
+# Force delete even if VMs connected
+azlin storage delete myteam-shared --force
 ```
 
 ### Use Cases
@@ -1008,6 +1346,12 @@ azlin cost --from 2025-01-01 --to 2025-01-31
 # Combine options
 azlin cost --by-vm --from 2025-01-01 --to 2025-01-31
 
+# Show monthly cost estimate for all VMs
+azlin cost --estimate
+
+# Per-VM monthly estimates
+azlin cost --by-vm --estimate
+
 # Specific resource group
 azlin cost --resource-group my-rg
 ```
@@ -1022,10 +1366,451 @@ Cost Summary (2025-01-01 to 2025-01-31):
     azlin-vm-002 (Standard_B2s):     $105.50
 ```
 
-**💡 Tip**: Use `azlin stop` when not using VMs to minimize costs!
+**Tip**: Use `azlin stop` when not using VMs to minimize costs!
 
 ---
 
+## Batch Operations
+
+Execute operations on multiple VMs simultaneously using tags, patterns, or select all.
+
+### Selection Methods
+
+1. **By Tag:** `--tag env=dev`
+2. **By Pattern:** `--vm-pattern 'test-*'`
+3. **All VMs:** `--all`
+
+### `azlin batch stop` - Stop multiple VMs
+
+```bash
+# Stop all dev VMs
+azlin batch stop --tag env=dev
+
+# Stop VMs matching pattern
+azlin batch stop --vm-pattern 'test-*'
+
+# Stop all VMs
+azlin batch stop --all
+
+# Preview before stopping
+azlin batch stop --tag env=dev --dry-run
+
+# Skip confirmation
+azlin batch stop --all --yes
+```
+
+### `azlin batch start` - Start multiple VMs
+
+```bash
+# Start all staging VMs
+azlin batch start --tag env=staging
+
+# Start specific pattern
+azlin batch start --vm-pattern 'worker-*'
+```
+
+### `azlin batch sync` - Sync files to multiple VMs
+
+```bash
+# Sync dotfiles to all dev VMs
+azlin batch sync --tag env=dev
+
+# Sync to all VMs
+azlin batch sync --all
+```
+
+### `azlin batch command` - Execute command on multiple VMs
+
+```bash
+# Update all test VMs
+azlin batch command 'git pull' --tag env=test
+
+# Restart service on all VMs
+azlin batch command 'sudo systemctl restart myapp' --all
+
+# Run with timeout
+azlin batch command 'long-task.sh' --all --timeout 600
+```
+
+**Options:**
+- `--tag KEY=VALUE` - Select by tag
+- `--vm-pattern PATTERN` - Select by name pattern
+- `--all` - Select all VMs
+- `--dry-run` - Preview selection
+- `--yes` - Skip confirmation
+- `--timeout SECONDS` - Command timeout
+
+**Use cases:**
+- Nightly shutdown of dev environments
+- Deploy updates across fleet
+- Restart services on multiple VMs
+- Synchronized configuration updates
+
+---
+
+## Authentication
+
+Manage service principal authentication for automated Azure operations without interactive login.
+
+### `azlin auth setup` - Create authentication profile
+
+Interactive setup for service principal credentials.
+
+```bash
+# Create new profile
+azlin auth setup --profile production
+
+# Follow prompts to enter:
+# - Subscription ID
+# - Tenant ID
+# - Client ID
+# - Client Secret
+```
+
+**What it does:**
+- Securely stores credentials in `~/.azlin/auth/<profile>.json`
+- Sets file permissions to 0600 (owner read/write only)
+- Validates credentials with test API call
+
+### `azlin auth list` - List profiles
+
+```bash
+# Show all configured profiles
+azlin auth list
+```
+
+**Output:**
+```
+Available authentication profiles:
+  - production (Subscription: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+  - staging (Subscription: yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy)
+  - development (Subscription: zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz)
+```
+
+### `azlin auth show` - Show profile details
+
+```bash
+# View profile configuration
+azlin auth show production
+```
+
+### `azlin auth test` - Test authentication
+
+```bash
+# Verify credentials work
+azlin auth test --profile production
+```
+
+### `azlin auth remove` - Delete profile
+
+```bash
+# Remove authentication profile
+azlin auth remove production
+```
+
+**Security:**
+- Credentials stored locally in `~/.azlin/auth/`
+- File permissions: 0600 (readable only by owner)
+- Never logged or transmitted except to Azure
+- Use Azure Key Vault in production environments
+
+**Use cases:**
+- CI/CD pipeline automation
+- Scheduled VM operations
+- Multi-tenant management
+- Service account authentication
+
+**Creating Service Principal:**
+```bash
+# Azure CLI method
+az ad sp create-for-rbac --name azlin-automation --role Contributor --scopes /subscriptions/{subscription-id}
+
+# Save output values for auth setup
+```
+
+---
+
+## SSH Key Management
+
+Rotate and manage SSH keys across all VMs for enhanced security.
+
+### `azlin keys rotate` - Rotate SSH keys
+
+Generate new SSH keys and update all VMs in resource group.
+
+```bash
+# Rotate keys for all VMs
+azlin keys rotate
+
+# Specific resource group
+azlin keys rotate --rg production
+
+# Backup old keys
+azlin keys rotate --backup
+```
+
+**What happens:**
+1. Generates new SSH key pair
+2. Backs up existing keys (if `--backup`)
+3. Updates all VMs with new public key
+4. Verifies SSH access with new keys
+5. Removes old keys from VMs
+
+**Safety:** Old keys backed up to `~/.azlin/keys-backup-<timestamp>/`
+
+### `azlin keys list` - List VM SSH keys
+
+```bash
+# Show SSH keys for all VMs
+azlin keys list
+
+# Show all keys (not just azlin VMs)
+azlin keys list --all
+
+# Filter by prefix
+azlin keys list --vm-prefix production
+```
+
+### `azlin keys export` - Export public key
+
+```bash
+# Export to file
+azlin keys export --output my-key.pub
+```
+
+### `azlin keys backup` - Backup current keys
+
+```bash
+# Backup to default location
+azlin keys backup
+
+# Backup to custom location
+azlin keys backup --destination /secure/backup/
+```
+
+**Best Practices:**
+- Rotate keys every 90 days
+- Backup before rotation
+- Test access after rotation
+- Store backups securely
+
+---
+
+## VM Templates
+
+Save and reuse VM configurations for consistent provisioning.
+
+### `azlin template create` - Create template
+
+Interactive wizard to create a VM configuration template.
+
+```bash
+# Create new template
+azlin template create dev-vm
+
+# Follow prompts for:
+# - VM size
+# - Region
+# - Disk size
+# - Network configuration
+```
+
+**Templates stored at:** `~/.azlin/templates/<name>.yaml`
+
+### `azlin template list` - List templates
+
+```bash
+# Show all templates
+azlin template list
+```
+
+### `azlin template delete` - Delete template
+
+```bash
+# Remove template
+azlin template delete dev-vm
+
+# Force delete without confirmation
+azlin template delete dev-vm --force
+```
+
+### Using Templates
+
+```bash
+# Provision VM from template
+azlin new --template dev-vm --name my-instance
+
+# Template settings override defaults
+# CLI flags override template settings
+```
+
+### `azlin template export` - Export template
+
+```bash
+# Export to file
+azlin template export dev-vm my-template.yaml
+```
+
+### `azlin template import` - Import template
+
+```bash
+# Import from file
+azlin template import my-template.yaml
+```
+
+**Use cases:**
+- Standardize VM configurations
+- Share configs across team
+- Environment-specific templates (dev/staging/prod)
+- Consistent onboarding
+
+---
+
+
+
+
+
+## Environment Variable Management
+
+Manage environment variables stored in `~/.bashrc` on remote VMs.
+
+### `azlin env set` - Set variable
+
+```bash
+# Set environment variable
+azlin env set my-vm DATABASE_URL="postgres://localhost/db"
+
+# Set multiple variables
+azlin env set my-vm API_KEY="secret123" ENVIRONMENT="production"
+```
+
+Variables are added to `~/.bashrc` with comment:
+```bash
+# Managed by azlin
+export DATABASE_URL="postgres://localhost/db"
+```
+
+### `azlin env list` - List variables
+
+```bash
+# List all azlin-managed variables
+azlin env list my-vm
+
+# Show values (default hides)
+azlin env list my-vm --show-values
+```
+
+### `azlin env delete` - Delete variable
+
+```bash
+# Remove specific variable
+azlin env delete my-vm API_KEY
+```
+
+### `azlin env export` - Export to file
+
+```bash
+# Export to .env format
+azlin env export my-vm prod.env
+
+# Contents:
+# DATABASE_URL=postgres://localhost/db
+# API_KEY=secret123
+```
+
+### `azlin env import` - Import from file
+
+```bash
+# Import variables from .env file
+azlin env import my-vm prod.env
+```
+
+### `azlin env clear` - Clear all variables
+
+```bash
+# Remove all azlin-managed variables
+azlin env clear my-vm
+
+# Skip confirmation
+azlin env clear my-vm --force
+```
+
+**Security:**
+- Variables only in `~/.bashrc` (not system-wide)
+- Plaintext storage (use Azure Key Vault for secrets)
+- No variables logged by azlin
+
+**Use cases:**
+- Configure applications
+- Share team configuration
+- Environment-specific settings
+- Quick deployment configuration
+
+---
+## Snapshot Management
+
+Create point-in-time backups of VM disks and restore VMs to previous states.
+
+### Manual Snapshots
+
+```bash
+# Create snapshot manually
+azlin snapshot create my-vm
+
+# List snapshots for VM
+azlin snapshot list my-vm
+
+# Restore VM from snapshot
+azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
+
+# Delete snapshot
+azlin snapshot delete my-vm-snapshot-20251015-053000
+```
+
+### Automated Snapshot Schedules
+
+```bash
+# Enable scheduled snapshots (every 24 hours, keep 2)
+azlin snapshot enable my-vm --every 24 --keep 2
+
+# Custom schedule (every 12 hours, keep 5)
+azlin snapshot enable my-vm --every 12 --keep 5
+
+# View snapshot schedule
+azlin snapshot status my-vm
+
+# Trigger snapshot sync now
+azlin snapshot sync
+
+# Sync specific VM
+azlin snapshot sync --vm my-vm
+
+# Disable scheduled snapshots
+azlin snapshot disable my-vm
+```
+
+**Snapshot Naming:** Automatic format `<vm-name>-snapshot-<timestamp>`
+
+**Schedule Management:**
+- Schedules stored in `~/.azlin/config.toml`
+- `snapshot sync` checks all VMs with schedules
+- Run `sync` in cron for automation
+
+**Retention:**
+- Old snapshots automatically deleted when limit reached
+- `--keep N` maintains last N snapshots
+
+**Defaults:**
+- `--every`: 24 hours
+- `--keep`: 2 snapshots
+
+**Use cases:**
+- Disaster recovery
+- Pre-update backups
+- Experimental changes (restore if needed)
+- Compliance/archival requirements
+
+---
 ## Advanced Usage
 
 ### Command Passthrough (Execute on VM)
@@ -1149,28 +1934,28 @@ azlin destroy experiment-1 --delete-rg
 
 ## Tips & Best Practices
 
-### 💰 Cost Optimization
+### Cost Optimization
 
 1. **Stop VMs when not in use**: `azlin stop vm-name`
 2. **Use B-series for dev**: `--vm-size Standard_B2s` (burstable, cheaper)
 3. **Delete unused VMs**: `azlin destroy vm-name --delete-rg`
 4. **Track spending**: `azlin cost --by-vm`
 
-### 🔒 Security
+### Security
 
 1. **Never commit VM keys**: azlin stores keys in `~/.ssh/`
 2. **Use ssh-agent**: Keys are managed securely
 3. **Rotate keys regularly**: Delete and recreate VMs periodically
 4. **Review `.azlin/home/`**: Don't sync secrets
 
-### 🚀 Productivity
+### Productivity
 
 1. **Set aliases**: `alias azdev='azlin connect my-dev-vm'`
 2. **Use tmux sessions**: Work persists across disconnects
 3. **Sync dotfiles**: Consistent environment everywhere
 4. **Use pools**: Parallel testing across multiple VMs
 
-### 🔧 Troubleshooting
+### Troubleshooting
 
 **Can't connect?**
 ```bash
@@ -1206,6 +1991,15 @@ azlin ps  # Check for resource-heavy processes
 | `azlin update` | Update dev tools | `azlin update my-vm` |
 | `azlin os-update` | Update Ubuntu packages | `azlin os-update my-vm` |
 | `azlin status` | Detailed status | `azlin status` |
+| `azlin logs` | View logs | `azlin logs my-vm --follow` |
+| `azlin tag` | Manage tags | `azlin tag my-vm --add env=dev` |
+| `azlin top` | Real-time monitor | `azlin top` |
+| `azlin prune` | Auto cleanup | `azlin prune --dry-run` |
+| `azlin cleanup` | Remove orphans | `azlin cleanup` |
+| `azlin batch` | Batch operations | `azlin batch stop --tag env=test` |
+| `azlin auth` | Authentication | `azlin auth setup --profile prod` |
+| `azlin keys` | SSH key mgmt | `azlin keys rotate` |
+| `azlin template` | VM templates | `azlin template create dev-vm` |
 | `azlin w` | Who's logged in | `azlin w` |
 | `azlin ps` | Show processes | `azlin ps` |
 | `azlin cp` | Copy files | `azlin cp file vm:~/` |

@@ -24,7 +24,7 @@ The TagManager implementation uses the CORRECT Azure CLI approach, but:
 # Add tags
 az vm update --name {vm_name} --resource-group {rg} --set tags.{key}={value}
 
-# Remove tags  
+# Remove tags
 az vm update --name {vm_name} --resource-group {rg} --remove tags.{key}
 
 # Get tags
@@ -112,7 +112,7 @@ RESOURCE TAGS (alternative):
 
 **Total Test Count**: 24 tests
 - 3 add_tags tests
-- 3 remove_tags tests  
+- 3 remove_tags tests
 - 4 get_tags tests
 - 8 filter_vms tests
 - 3 parse_tag tests
@@ -127,11 +127,11 @@ Every single test mocks `subprocess.run`:
 @patch("azlin.tag_manager.subprocess.run")
 def test_add_tags_single(self, mock_run):
     mock_run.return_value = MagicMock(
-        returncode=0, 
-        stdout='{"tags": {"env": "dev"}}', 
+        returncode=0,
+        stdout='{"tags": {"env": "dev"}}',
         stderr=""
     )
-    
+
     TagManager.add_tags("test-vm", "test-rg", {"env": "dev"})
 ```
 
@@ -181,7 +181,7 @@ grep -r "add_tags\|remove_tags\|get_tags" src/ tests/ --include="*.py" | grep -v
 
 **Output**: NO RESULTS (except test calls)
 
-**Conclusion**: 
+**Conclusion**:
 - `TagManager.add_tags()` - NEVER CALLED ANYWHERE
 - `TagManager.remove_tags()` - NEVER CALLED ANYWHERE
 - `TagManager.get_tags()` - NEVER CALLED ANYWHERE
@@ -240,7 +240,7 @@ except subprocess.CalledProcessError as e:
 ```
 
 **Status**: Error message logged to stderr
-**Issue**: What if stderr is empty? 
+**Issue**: What if stderr is empty?
 **Risk Level**: LOW - Azure CLI errors are usually in stderr
 
 ### Issue 5: Non-Existent Tag Removal
@@ -388,10 +388,10 @@ class TestTagManagerRealAzure:
         # Requires real VM
         # Actually calls TagManager.add_tags()
         # Verifies with az vm show
-        
+
     def test_remove_tags_live(self):
         """Test actual tag removal"""
-        
+
     def test_special_characters(self):
         """Test edge cases"""
 ```
@@ -466,4 +466,3 @@ We cannot claim it actually works.
 ### File: `/Users/ryan/src/azlin/src/azlin/cli.py`
 - Line 81: TagManager import
 - Line 1721: Only actual usage - filter_vms_by_tag()
-

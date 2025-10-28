@@ -8,12 +8,12 @@
 @classmethod
 def add_tags(cls, vm_name: str, resource_group: str, tags: dict[str, str]) -> None:
     """Add tags to a VM.
-    
+
     Args:
         vm_name: VM name
         resource_group: Resource group name
         tags: Dictionary of tag key-value pairs to add
-    
+
     Raises:
         TagManagerError: If adding tags fails
     """
@@ -24,7 +24,7 @@ def add_tags(cls, vm_name: str, resource_group: str, tags: dict[str, str]) -> No
                 raise TagManagerError(f"Invalid tag key: {key}")
             if not cls.validate_tag_value(value):
                 raise TagManagerError(f"Invalid tag value: {value}")
-        
+
         # Build command with --set for each tag
         cmd = [
             "az",
@@ -37,19 +37,19 @@ def add_tags(cls, vm_name: str, resource_group: str, tags: dict[str, str]) -> No
             "--output",
             "json",
         ]
-        
+
         # Add each tag as a separate --set argument
         for key, value in tags.items():
             cmd.extend(["--set", f"tags.{key}={value}"])
-        
+
         logger.debug(f"Adding tags to VM {vm_name}: {tags}")
-        
+
         _result: subprocess.CompletedProcess[str] = subprocess.run(
             cmd, capture_output=True, text=True, timeout=30, check=True
         )
-        
+
         logger.info(f"Successfully added tags to VM {vm_name}")
-        
+
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to add tags to VM {vm_name}: {e.stderr}")
         raise TagManagerError(f"Failed to add tags: {e.stderr}") from e
@@ -71,7 +71,7 @@ def add_tags(cls, vm_name: str, resource_group: str, tags: dict[str, str]) -> No
 
 3. **Example for tags={"env":"dev", "team":"backend"}:**
    ```
-   ["az", "vm", "update", "--name", "myvm", 
+   ["az", "vm", "update", "--name", "myvm",
     "--resource-group", "myrg", "--output", "json",
     "--set", "tags.env=dev",
     "--set", "tags.team=backend"]
@@ -127,12 +127,12 @@ tags = {"url": "http://example.com?q=1"}
 @classmethod
 def remove_tags(cls, vm_name: str, resource_group: str, tag_keys: list[str]) -> None:
     """Remove tags from a VM.
-    
+
     Args:
         vm_name: VM name
         resource_group: Resource group name
         tag_keys: List of tag keys to remove
-    
+
     Raises:
         TagManagerError: If removing tags fails
     """
@@ -149,19 +149,19 @@ def remove_tags(cls, vm_name: str, resource_group: str, tag_keys: list[str]) -> 
             "--output",
             "json",
         ]
-        
+
         # Add each tag key as a separate --remove argument
         for key in tag_keys:
             cmd.extend(["--remove", f"tags.{key}"])
-        
+
         logger.debug(f"Removing tags from VM {vm_name}: {tag_keys}")
-        
+
         _result: subprocess.CompletedProcess[str] = subprocess.run(
             cmd, capture_output=True, text=True, timeout=30, check=True
         )
-        
+
         logger.info(f"Successfully removed tags from VM {vm_name}")
-        
+
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to remove tags from VM {vm_name}: {e.stderr}")
         raise TagManagerError(f"Failed to remove tags: {e.stderr}") from e
@@ -213,14 +213,14 @@ def remove_tags(cls, vm_name: str, resource_group: str, tag_keys: list[str]) -> 
 @classmethod
 def get_tags(cls, vm_name: str, resource_group: str) -> dict[str, str]:
     """Get tags from a VM.
-    
+
     Args:
         vm_name: VM name
         resource_group: Resource group name
-    
+
     Returns:
         Dictionary of tag key-value pairs
-    
+
     Raises:
         TagManagerError: If getting tags fails
     """
@@ -236,20 +236,20 @@ def get_tags(cls, vm_name: str, resource_group: str) -> dict[str, str]:
             "--output",
             "json",
         ]
-        
+
         result: subprocess.CompletedProcess[str] = subprocess.run(
             cmd, capture_output=True, text=True, timeout=30, check=True
         )
-        
+
         vm_data: dict[str, Any] = json.loads(result.stdout)
         tags: dict[str, str] | None = vm_data.get("tags", {})
-        
+
         # Handle null tags
         if tags is None:
             tags = {}
-        
+
         return tags
-        
+
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to get tags from VM {vm_name}: {e.stderr}")
         raise TagManagerError(f"Failed to get tags: {e.stderr}") from e
@@ -290,26 +290,26 @@ This one looks solid. It's used in filter_vms_by_tag() and should work.
 @classmethod
 def filter_vms_by_tag(cls, vms: list[VMInfo], tag_filter: str) -> list[VMInfo]:
     """Filter VMs by tag.
-    
+
     Args:
         vms: List of VMInfo objects
         tag_filter: Tag filter in format "key" or "key=value"
-    
+
     Returns:
         Filtered list of VMInfo objects
     """
     key, value = cls.parse_tag_filter(tag_filter)
-    
+
     filtered_vms: list[VMInfo] = []
     for vm in vms:
         # Skip VMs with no tags
         if not vm.tags:
             continue
-        
+
         # Check if tag key exists
         if key not in vm.tags:
             continue
-        
+
         # If value specified, check exact match
         if value is not None:
             if vm.tags[key] == value:
@@ -317,7 +317,7 @@ def filter_vms_by_tag(cls, vms: list[VMInfo], tag_filter: str) -> list[VMInfo]:
         else:
             # Key only - any value matches
             filtered_vms.append(vm)
-    
+
     return filtered_vms
 ```
 
@@ -340,13 +340,13 @@ def filter_vms_by_tag(cls, vms: list[VMInfo], tag_filter: str) -> list[VMInfo]:
 def test_add_tags_single(self, mock_run):
     """Test adding a single tag to a VM."""
     mock_run.return_value = MagicMock(
-        returncode=0, 
-        stdout='{"tags": {"env": "dev"}}', 
+        returncode=0,
+        stdout='{"tags": {"env": "dev"}}',
         stderr=""
     )
-    
+
     TagManager.add_tags("test-vm", "test-rg", {"env": "dev"})
-    
+
     # Verify the correct command was called
     mock_run.assert_called_once()
     cmd = mock_run.call_args[0][0]
@@ -401,7 +401,7 @@ Would call:
   TagManager.add_tags("myvm", "myrg", {"env": "prod", "team": "backend"})
 
 Which constructs:
-  ["az", "vm", "update", 
+  ["az", "vm", "update",
    "--name", "myvm",
    "--resource-group", "myrg",
    "--output", "json",
@@ -431,7 +431,7 @@ TAG_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
 @classmethod
 def validate_tag_key(cls, key: str) -> bool:
     """Validate tag key.
-    
+
     Tag keys must be alphanumeric with underscore, hyphen, or period.
     """
     if not key:
@@ -442,7 +442,7 @@ def validate_tag_key(cls, key: str) -> bool:
 **Valid keys**: `env`, `my-tag`, `my_tag`, `my.tag`, `MyTag123`
 **Invalid keys**: ` ` (empty), `my tag` (space), `my@tag` (@), `my/tag` (/)
 
-**Azure limits**: 
+**Azure limits**:
 - Keys must be <= 512 characters (not checked)
 - Case-insensitive in Azure (not enforced)
 
@@ -452,9 +452,9 @@ def validate_tag_key(cls, key: str) -> bool:
 @classmethod
 def validate_tag_value(cls, value: str) -> bool:
     """Validate tag value.
-    
+
     Tag values can contain most characters including spaces.
-    
+
     Tag values can contain most characters including spaces.
     Type annotation already guarantees it's a string.
     Returns: True if valid, False otherwise
@@ -464,7 +464,7 @@ def validate_tag_value(cls, value: str) -> bool:
     return True
 ```
 
-**Status**: Always returns True! 
+**Status**: Always returns True!
 
 This means:
 - ✗ No length validation
@@ -538,15 +538,15 @@ az vm show --resource-group myResourceGroup --name myVM --output json
 
 ```python
 # Add tags - MATCHES DOCS (method 2)
-cmd = ["az", "vm", "update", "--name", "myVM", "--resource-group", "myResourceGroup", 
+cmd = ["az", "vm", "update", "--name", "myVM", "--resource-group", "myResourceGroup",
        "--output", "json", "--set", "tags.environment=production", "--set", "tags.team=backend"]
 
 # Remove tags - MATCHES DOCS
-cmd = ["az", "vm", "update", "--name", "myVM", "--resource-group", "myResourceGroup", 
+cmd = ["az", "vm", "update", "--name", "myVM", "--resource-group", "myResourceGroup",
        "--remove", "tags.environment"]
 
 # Get tags - MATCHES DOCS
-cmd = ["az", "vm", "show", "--name", "myVM", "--resource-group", "myResourceGroup", 
+cmd = ["az", "vm", "show", "--name", "myVM", "--resource-group", "myResourceGroup",
        "--output", "json"]
 ```
 
@@ -568,4 +568,3 @@ cmd = ["az", "vm", "show", "--name", "myVM", "--resource-group", "myResourceGrou
 | **Test Coverage** | ✓ GOOD (24 tests) | But all mocked - no integration tests |
 | **Production Usage** | ✗ NONE | Dead code - never called |
 | **Azure Verification** | ✗ UNKNOWN | Never tested live |
-

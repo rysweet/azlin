@@ -132,7 +132,7 @@ _result = subprocess.run(cmd, capture_output=True, ...)
 @patch("azlin.tag_manager.subprocess.run")
 def test_add_tags_single(self, mock_run):
     mock_run.return_value = MagicMock(
-        returncode=0, 
+        returncode=0,
         stdout='{"tags": {"env": "dev"}}',
         stderr=""
     )
@@ -151,7 +151,7 @@ def test_add_tags_single(self, mock_run):
 
 ### The Mechanism:
 - Syntax: ✓ CORRECT
-- Approach: ✓ CORRECT  
+- Approach: ✓ CORRECT
 - Implementation: ✓ GOOD
 - Tests: ✗ ONLY MOCKED
 - Usage: ✗ NEVER CALLED
@@ -203,4 +203,3 @@ TagManager uses the CORRECT Azure CLI approach, but it's untested code that nobo
 **Status**: Ready in theory, untested in practice.
 
 Before claiming it works, run the verification tests above.
-
