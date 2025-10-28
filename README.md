@@ -620,39 +620,6 @@ azlin connect my-project
 
 Session names are stored locally in `~/.azlin/config.toml` and don't affect the actual VM name in Azure.
 
-### `azlin tag` - Manage VM tags
-
-Organize VMs using tags for filtering and batch operations.
-
-```bash
-# Add tag
-azlin tag my-vm --add env=dev
-
-# Add multiple tags
-azlin tag my-vm --add env=dev --add team=backend
-
-# List VM tags
-azlin tag my-vm --list
-
-# Remove tag
-azlin tag my-vm --remove env
-
-# Remove all tags
-azlin tag my-vm --clear
-```
-
-**Tag Format:** `key=value` or `key` (for boolean flags)
-
-**Use with:**
-- `azlin list --tag env=dev` - Filter VMs
-- `azlin batch stop --tag env=test` - Batch operations
-
-**Use cases:**
-- Organize VMs by environment (dev/staging/prod)
-- Track VM ownership (team=backend, owner=alice)
-- Mark VM purpose (temporary, permanent)
-- Enable batch operations by criteria
-
 #### `azlin status` - Detailed VM status
 
 ```bash
@@ -1335,11 +1302,8 @@ azlin batch stop --vm-pattern 'test-*'
 # Stop all VMs
 azlin batch stop --all
 
-# Preview before stopping
-azlin batch stop --tag env=dev --dry-run
-
 # Skip confirmation
-azlin batch stop --all --yes
+azlin batch stop --all --confirm
 ```
 
 ### `azlin batch start` - Start multiple VMs
@@ -1379,9 +1343,8 @@ azlin batch command 'long-task.sh' --all --timeout 600
 - `--tag KEY=VALUE` - Select by tag
 - `--vm-pattern PATTERN` - Select by name pattern
 - `--all` - Select all VMs
-- `--dry-run` - Preview selection
-- `--yes` - Skip confirmation
-- `--timeout SECONDS` - Command timeout
+- `--confirm` - Skip confirmation
+- `--timeout SECONDS` - Command timeout (for batch command only)
 
 **Use cases:**
 - Nightly shutdown of dev environments
@@ -1400,24 +1363,24 @@ Rotate and manage SSH keys across all VMs for enhanced security.
 Generate new SSH keys and update all VMs in resource group.
 
 ```bash
-# Rotate keys for all VMs
+# Rotate keys for all VMs (automatically backs up old keys)
 azlin keys rotate
 
 # Specific resource group
 azlin keys rotate --rg production
 
-# Backup old keys
-azlin keys rotate --backup
+# Skip backup (not recommended)
+azlin keys rotate --no-backup
 ```
 
 **What happens:**
 1. Generates new SSH key pair
-2. Backs up existing keys (if `--backup`)
+2. Backs up existing keys (unless `--no-backup`)
 3. Updates all VMs with new public key
 4. Verifies SSH access with new keys
 5. Removes old keys from VMs
 
-**Safety:** Old keys backed up to `~/.azlin/keys-backup-<timestamp>/`
+**Safety:** Old keys automatically backed up to `~/.azlin/keys-backup-<timestamp>/` (use `--no-backup` to skip)
 
 ### `azlin keys list` - List VM SSH keys
 
@@ -1426,7 +1389,7 @@ azlin keys rotate --backup
 azlin keys list
 
 # Show all keys (not just azlin VMs)
-azlin keys list --all
+azlin keys list --all-vms
 
 # Filter by prefix
 azlin keys list --vm-prefix production
@@ -1852,7 +1815,6 @@ azlin ps  # Check for resource-heavy processes
 | `azlin update` | Update dev tools | `azlin update my-vm` |
 | `azlin os-update` | Update Ubuntu packages | `azlin os-update my-vm` |
 | `azlin status` | Detailed status | `azlin status` |
-| `azlin tag` | Manage tags | `azlin tag my-vm --add env=dev` |
 | `azlin top` | Real-time monitor | `azlin top` |
 | `azlin prune` | Auto cleanup | `azlin prune --dry-run` |
 | `azlin batch` | Batch operations | `azlin batch stop --tag env=test` |
