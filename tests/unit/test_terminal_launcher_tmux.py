@@ -65,9 +65,7 @@ class TestTmuxReconnection:
         assert "attach-session" in remote_cmd, (
             "TMux command should include 'attach-session' to reconnect to existing sessions"
         )
-        assert "new-session" in remote_cmd, (
-            "TMux command should include 'new-session' as fallback"
-        )
+        assert "new-session" in remote_cmd, "TMux command should include 'new-session' as fallback"
 
         # Verify attach comes before new (proper ordering)
         attach_pos = remote_cmd.index("attach-session")
