@@ -62,6 +62,28 @@ class VMInfo:
         """Get display name (session name if set, otherwise VM name)."""
         return self.session_name if self.session_name else self.name
 
+    def has_public_ip(self) -> bool:
+        """Check if VM has a public IP address.
+
+        Returns:
+            True if VM has public IP, False otherwise
+        """
+        return self.public_ip is not None and self.public_ip != ""
+
+    def get_resource_id(self, subscription_id: str) -> str:
+        """Get full Azure resource ID for VM.
+
+        Args:
+            subscription_id: Azure subscription ID
+
+        Returns:
+            Full resource ID string
+        """
+        return (
+            f"/subscriptions/{subscription_id}/resourceGroups/{self.resource_group}/"
+            f"providers/Microsoft.Compute/virtualMachines/{self.name}"
+        )
+
 
 class VMManager:
     """Manage Azure VMs.
@@ -255,6 +277,63 @@ class VMManager:
             raise VMManagerError("Failed to parse resource groups response") from e
         except subprocess.TimeoutExpired as e:
             raise VMManagerError("Resource group list timed out") from e
+
+    @classmethod
+    def get_subscription_id(cls) -> str | None:
+        """Get current Azure subscription ID.
+
+        Returns:
+            Subscription ID or None if not available
+
+        Raises:
+            VMManagerError: If query fails
+        """
+        try:
+            cmd = [
+                "az",
+                "account",
+                "show",
+                "--query",
+                "id",
+                "--output",
+                "tsv",
+            ]
+
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=10, check=True
+            )
+
+            subscription_id = result.stdout.strip()
+            return subscription_id if subscription_id else None
+
+        except subprocess.CalledProcessError as e:
+            logger.debug(f"Failed to get subscription ID: {e.stderr}")
+            return None
+        except subprocess.TimeoutExpired as e:
+            raise VMManagerError("Subscription ID query timed out") from e
+
+    @classmethod
+    def get_vm_resource_id(cls, vm_name: str, resource_group: str) -> str | None:
+        """Get full Azure resource ID for a VM.
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+
+        Returns:
+            Full resource ID string or None if subscription unavailable
+
+        Raises:
+            VMManagerError: If query fails
+        """
+        subscription_id = cls.get_subscription_id()
+        if not subscription_id:
+            return None
+
+        return (
+            f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}/"
+            f"providers/Microsoft.Compute/virtualMachines/{vm_name}"
+        )
 
     @classmethod
     def get_vm_ip(cls, vm_name: str, resource_group: str) -> str | None:
