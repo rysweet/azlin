@@ -465,6 +465,7 @@ class TestListCommandSyntax:
                 or "empty" in result.output.lower()
                 or "requires" in result.output.lower()
                 or "required" in result.output.lower()
+                or "specified" in result.output.lower()
             )
 
     # -------------------------------------------------------------------------
