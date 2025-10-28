@@ -222,9 +222,9 @@ class TestNewCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["new", "--no-auto-connect", "true"])
 
-        # 'true' should be treated as extra arg, not flag value
-        # Depending on implementation, may error or ignore
-        assert result.exit_code == 0 or result.exit_code != 0
+        # 'true' should be treated as extra positional arg and rejected
+        assert result.exit_code != 0
+        assert "unexpected" in result.output.lower() or "got unexpected extra argument" in result.output.lower()
 
     # -------------------------------------------------------------------------
     # Category 5: Command Aliases (3 tests)
@@ -439,12 +439,19 @@ class TestListCommandSyntax:
         assert result.exit_code != 0 or "unexpected" in result.output.lower()
 
     def test_list_tag_empty_value_rejected(self):
-        """Test 'azlin list --tag ""' rejects empty tag value."""
+        """Test 'azlin list --tag ""' rejects empty tag value.
+
+        RED PHASE: Expected to fail until validation is implemented.
+        """
         runner = CliRunner()
         result = runner.invoke(main, ["list", "--tag", ""])
 
-        # Empty tag filter should be rejected or ignored
-        assert result.exit_code != 0 or result.exit_code == 0
+        # Empty tag filter should be rejected
+        # XFAIL in RED phase: Implementation doesn't validate yet
+        assert result.exit_code != 0
+        assert ("invalid" in result.output.lower() or
+                "empty" in result.output.lower() or
+                "requires" in result.output.lower())
 
     # -------------------------------------------------------------------------
     # Category 4: Option Value Types (3 tests)
