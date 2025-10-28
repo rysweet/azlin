@@ -11,14 +11,14 @@ These tests follow TDD approach - they will FAIL until implementation is complet
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
-from azlin.modules.bastion_config import BastionConfig, BastionMapping
+from azlin.modules.bastion_config import BastionConfig
 from azlin.modules.bastion_manager import BastionTunnel
 from azlin.modules.ssh_keys import SSHKeyPair
-from azlin.vm_connector import ConnectionInfo, VMConnector, VMConnectorError
+from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_manager import VMInfo
 
 
@@ -52,7 +52,9 @@ class TestBastionAutoDetection:
     @patch("azlin.vm_connector.BastionDetector.detect_bastion_for_vm")
     @patch("azlin.vm_connector.SSHKeyManager.ensure_key_exists")
     @patch("azlin.vm_connector.VMManager.get_vm")
-    def test_auto_detect_no_bastion(self, mock_get_vm, mock_ensure_keys, mock_detect, vm_info, ssh_keys):
+    def test_auto_detect_no_bastion(
+        self, mock_get_vm, mock_ensure_keys, mock_detect, vm_info, ssh_keys
+    ):
         """Test connection when no Bastion is detected."""
         # Arrange
         mock_get_vm.return_value = vm_info
@@ -127,7 +129,9 @@ class TestBastionAutoDetection:
     @patch("azlin.vm_connector.BastionConfig.load")
     @patch("azlin.vm_connector.SSHKeyManager.ensure_key_exists")
     @patch("azlin.vm_connector.VMManager.get_vm")
-    def test_auto_detect_disabled_in_config(self, mock_get_vm, mock_ensure_keys, mock_load_config, vm_info, ssh_keys):
+    def test_auto_detect_disabled_in_config(
+        self, mock_get_vm, mock_ensure_keys, mock_load_config, vm_info, ssh_keys
+    ):
         """Test auto-detection respects config setting."""
         # Arrange
         mock_get_vm.return_value = vm_info
@@ -280,7 +284,7 @@ class TestBastionConnectionRouting:
         with patch("azlin.vm_connector.SSHReconnectHandler") as mock_reconnect:
             mock_reconnect.return_value.connect_with_reconnect.side_effect = Exception("SSH failed")
 
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="SSH failed"):
                 VMConnector.connect(vm_identifier="test-vm", resource_group="test-rg")
 
         # Assert - tunnel should be closed
@@ -321,7 +325,9 @@ class TestBastionConnectionRouting:
     @patch("azlin.vm_connector.BastionConfig.load")
     @patch("azlin.vm_connector.SSHKeyManager.ensure_key_exists")
     @patch("azlin.vm_connector.VMManager.get_vm")
-    def test_force_direct_connection(self, mock_get_vm, mock_ensure_keys, mock_load_config, vm_info, ssh_keys):
+    def test_force_direct_connection(
+        self, mock_get_vm, mock_ensure_keys, mock_load_config, vm_info, ssh_keys
+    ):
         """Test forcing direct connection (bypass Bastion)."""
         # Arrange
         mock_get_vm.return_value = vm_info
@@ -437,7 +443,9 @@ class TestBastionErrorHandling:
     @patch("azlin.vm_connector.BastionConfig.load")
     @patch("azlin.vm_connector.SSHKeyManager.ensure_key_exists")
     @patch("azlin.vm_connector.VMManager.get_vm")
-    def test_missing_bastion_in_force_mode(self, mock_get_vm, mock_ensure_keys, mock_load_config, vm_info, ssh_keys):
+    def test_missing_bastion_in_force_mode(
+        self, mock_get_vm, mock_ensure_keys, mock_load_config, vm_info, ssh_keys
+    ):
         """Test error when forcing Bastion but not specifying which one."""
         # Arrange
         mock_get_vm.return_value = vm_info
@@ -480,7 +488,9 @@ class TestBastionFileTransfer:
         mock_get_vm.return_value = vm_info
         key_file = Path("/tmp/test_key")
         ssh_keys = SSHKeyPair(
-            private_path=key_file, public_path=Path("/tmp/test_key.pub"), public_key_content="ssh-ed25519 AAAA..."
+            private_path=key_file,
+            public_path=Path("/tmp/test_key.pub"),
+            public_key_content="ssh-ed25519 AAAA...",
         )
         mock_ensure_keys.return_value = ssh_keys
 
@@ -504,7 +514,10 @@ class TestBastionFileTransfer:
             from azlin.modules.file_transfer import FileTransfer
 
             FileTransfer.upload_file(
-                vm_name="test-vm", resource_group="test-rg", local_path="/tmp/test.txt", remote_path="/home/user/test.txt"
+                vm_name="test-vm",
+                resource_group="test-rg",
+                local_path="/tmp/test.txt",
+                remote_path="/home/user/test.txt",
             )
 
         # Assert - should use localhost:50022
@@ -546,7 +559,14 @@ class TestBastionPreferences:
     @patch("azlin.vm_connector.SSHKeyManager.ensure_key_exists")
     @patch("azlin.vm_connector.VMManager.get_vm")
     def test_prefer_bastion_setting(
-        self, mock_get_vm, mock_ensure_keys, mock_load_config, mock_bastion_mgr, mock_detect, vm_info, ssh_keys
+        self,
+        mock_get_vm,
+        mock_ensure_keys,
+        mock_load_config,
+        mock_bastion_mgr,
+        mock_detect,
+        vm_info,
+        ssh_keys,
     ):
         """Test prefer_bastion setting auto-uses Bastion without prompting."""
         # Arrange
