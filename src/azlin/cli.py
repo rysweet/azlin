@@ -1178,13 +1178,22 @@ class AzlinGroup(click.Group):
         "help_option_names": ["--help", "-h"],
     },
 )
+@click.option(
+    "--auth-profile",
+    help="Service principal authentication profile to use",
+    type=str,
+    default=None,
+)
 @click.pass_context
 @click.version_option(version=__version__)
-def main(ctx: click.Context) -> None:
+def main(ctx: click.Context, auth_profile: str | None) -> None:
     """azlin - Azure Ubuntu VM provisioning and management.
 
     Provisions Azure Ubuntu VMs with development tools, manages existing VMs,
     and executes commands remotely.
+
+    Use --auth-profile to specify a service principal authentication profile
+    (configured via 'azlin auth setup').
 
     \b
     NATURAL LANGUAGE COMMANDS (AI-POWERED):
@@ -1352,6 +1361,16 @@ def main(ctx: click.Context) -> None:
     """
     # Set up logging
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    # If auth profile specified, set up authentication environment
+    if auth_profile:
+        try:
+            auth = AzureAuthenticator(auth_profile=auth_profile)
+            auth.get_credentials()  # This sets environment variables for Azure CLI
+            logger.debug(f"Initialized authentication with profile: {auth_profile}")
+        except AuthenticationError as e:
+            click.echo(f"Error: Authentication failed: {e}", err=True)
+            ctx.exit(1)
 
     # If no subcommand provided, show help
     if ctx.invoked_subcommand is None:
