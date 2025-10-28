@@ -107,7 +107,9 @@ class TestTagAddCommand:
         result = runner.invoke(cli, ["tag", "add", "myvm", "description=Production Web Server"])
 
         assert result.exit_code == 0, f"Command failed: {result.output}"
-        mock_add_tags.assert_called_once_with("myvm", "test-rg", {"description": "Production Web Server"})
+        mock_add_tags.assert_called_once_with(
+            "myvm", "test-rg", {"description": "Production Web Server"}
+        )
 
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
@@ -259,7 +261,9 @@ class TestTagRemoveCommand:
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.remove_tags")
-    def test_tag_remove_multiple_keys_success(self, mock_remove_tags, mock_config_load, mock_get_vm):
+    def test_tag_remove_multiple_keys_success(
+        self, mock_remove_tags, mock_config_load, mock_get_vm
+    ):
         """Test removing multiple tags from a VM.
 
         Expected command: azlin tag remove myvm env team version
@@ -283,7 +287,9 @@ class TestTagRemoveCommand:
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.remove_tags")
-    def test_tag_remove_with_resource_group_flag(self, mock_remove_tags, mock_config_load, mock_get_vm):
+    def test_tag_remove_with_resource_group_flag(
+        self, mock_remove_tags, mock_config_load, mock_get_vm
+    ):
         """Test removing tags with explicit --resource-group flag.
 
         Expected command: azlin tag remove myvm env --resource-group custom-rg
@@ -508,4 +514,6 @@ class TestTagCommandEdgeCases:
         result = runner.invoke(cli, ["tag", "add", "myvm", "url=https://example.com?foo=bar"])
 
         assert result.exit_code == 0, f"Command failed: {result.output}"
-        mock_add_tags.assert_called_once_with("myvm", "test-rg", {"url": "https://example.com?foo=bar"})
+        mock_add_tags.assert_called_once_with(
+            "myvm", "test-rg", {"url": "https://example.com?foo=bar"}
+        )
