@@ -4132,7 +4132,6 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
         sys.exit(1)
 
 
-<<<<<<< HEAD
 @main.group()
 def ip():
     """IP diagnostics and network troubleshooting commands.
