@@ -22,6 +22,15 @@ import pytest
 from click.testing import CliRunner
 
 from azlin.cli import main
+from tests.conftest import (
+    assert_command_fails,
+    assert_command_succeeds,
+    assert_invalid_value_error,
+    assert_missing_argument_error,
+    assert_option_accepted,
+    assert_option_rejected,
+    assert_unexpected_argument_error,
+)
 
 # =============================================================================
 # TEST CLASS: azlin keys (14 tests)
@@ -81,7 +90,7 @@ class TestKeysCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["keys", "rotate", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_keys_rotate_help(self):
         """Test 'azlin keys rotate --help' displays help."""
@@ -98,7 +107,7 @@ class TestKeysCommandSyntax:
             main, ["keys", "rotate", "--rg", "my-rg", "--config", "/tmp/config.toml"]
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: keys list Subcommand (2 tests)
@@ -116,7 +125,7 @@ class TestKeysCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["keys", "list", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: keys export Subcommand (3 tests)
@@ -135,7 +144,7 @@ class TestKeysCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["keys", "export", "--output", "keys.tar.gz"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_keys_export_help(self):
         """Test 'azlin keys export --help' displays help."""
@@ -165,10 +174,12 @@ class TestKeysCommandSyntax:
         result = runner.invoke(main, ["keys", "backup", "--output", "/tmp/backup"])
 
         # XFAIL: --output not yet implemented
-        # When implemented, this should pass
-        # assert "no such option" not in result.output.lower()
-        # For now, we just check that command runs (may fail due to missing option)
-        assert result.exit_code in [0, 1, 2]  # Accept various outcomes
+        # When implemented, this should pass with exit_code 0
+        # For now, accept either success (0) or bad parameter (2)
+        assert result.exit_code in [0, 2], (
+            f"Expected exit code 0 (success) or 2 (bad parameter), "
+            f"got {result.exit_code}: {result.output}"
+        )
 
 
 # =============================================================================
@@ -193,7 +204,7 @@ class TestCostCommandSyntax:
 
         # Should attempt to use config or error about missing RG
         assert "missing argument" not in result.output.lower()
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cost_help_displays_usage(self):
         """Test 'azlin cost --help' displays help text."""
@@ -209,7 +220,7 @@ class TestCostCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["cost", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 2: Boolean Flags (3 tests)
@@ -220,21 +231,21 @@ class TestCostCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["cost", "--by-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cost_estimate_flag(self):
         """Test 'azlin cost --estimate' accepts estimate flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["cost", "--estimate"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cost_combined_flags(self):
         """Test 'azlin cost --by-vm --estimate' combines flags."""
         runner = CliRunner()
         result = runner.invoke(main, ["cost", "--by-vm", "--estimate"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Date Range Options (4 tests)
@@ -245,21 +256,21 @@ class TestCostCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["cost", "--from", "2025-01-01"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cost_to_date_option(self):
         """Test 'azlin cost --to 2025-01-31' accepts to date."""
         runner = CliRunner()
         result = runner.invoke(main, ["cost", "--to", "2025-01-31"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cost_date_range(self):
         """Test 'azlin cost --from 2025-01-01 --to 2025-01-31' accepts date range."""
         runner = CliRunner()
         result = runner.invoke(main, ["cost", "--from", "2025-01-01", "--to", "2025-01-31"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cost_invalid_date_format(self):
         """Test 'azlin cost --from invalid' rejects invalid date format.
@@ -270,7 +281,7 @@ class TestCostCommandSyntax:
         result = runner.invoke(main, ["cost", "--from", "invalid-date"])
 
         # Syntax is OK, semantic validation happens later
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: Combined Options (2 tests)
@@ -294,14 +305,14 @@ class TestCostCommandSyntax:
             ],
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cost_config_option(self):
         """Test 'azlin cost --config /path' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["cost", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -333,7 +344,7 @@ class TestUpdateCommandSyntax:
         result = runner.invoke(main, ["update", "my-vm"])
 
         # Should not show syntax error
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
         assert "missing argument" not in result.output.lower()
 
     def test_update_help_displays_usage(self):
@@ -354,21 +365,21 @@ class TestUpdateCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["update", "my-vm", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_update_config_option_accepts_path(self):
         """Test 'azlin update my-vm --config /path' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["update", "my-vm", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_update_timeout_option_accepts_integer(self):
         """Test 'azlin update my-vm --timeout 600' accepts timeout value."""
         runner = CliRunner()
         result = runner.invoke(main, ["update", "my-vm", "--timeout", "600"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_update_timeout_rejects_non_integer(self):
         """Test 'azlin update my-vm --timeout abc' rejects non-integer."""
@@ -387,21 +398,21 @@ class TestUpdateCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["update", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_update_with_ip_address(self):
         """Test 'azlin update 20.1.2.3' accepts IP address."""
         runner = CliRunner()
         result = runner.invoke(main, ["update", "20.1.2.3"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_update_with_session_name(self):
         """Test 'azlin update my-session' accepts session name."""
         runner = CliRunner()
         result = runner.invoke(main, ["update", "my-session"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -426,7 +437,7 @@ class TestPruneCommandSyntax:
 
         # Should use default age/idle days
         assert "missing argument" not in result.output.lower()
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_prune_help_displays_usage(self):
         """Test 'azlin prune --help' displays help text."""
@@ -442,7 +453,7 @@ class TestPruneCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["prune", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 2: Age and Idle Day Options (4 tests)
@@ -453,14 +464,14 @@ class TestPruneCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["prune", "--age-days", "7"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_prune_idle_days_option(self):
         """Test 'azlin prune --idle-days 3' accepts idle threshold."""
         runner = CliRunner()
         result = runner.invoke(main, ["prune", "--idle-days", "3"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_prune_age_days_rejects_zero(self):
         """Test 'azlin prune --age-days 0' rejects zero value.
@@ -478,7 +489,7 @@ class TestPruneCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["prune", "--age-days", "7", "--idle-days", "3"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Boolean Flags (4 tests)
@@ -489,28 +500,28 @@ class TestPruneCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["prune", "--dry-run"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_prune_force_flag(self):
         """Test 'azlin prune --force' accepts force flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["prune", "--force"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_prune_include_running_flag(self):
         """Test 'azlin prune --include-running' accepts include-running flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["prune", "--include-running"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_prune_include_named_flag(self):
         """Test 'azlin prune --include-named' accepts include-named flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["prune", "--include-named"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: Combined Options (3 tests)
@@ -523,7 +534,7 @@ class TestPruneCommandSyntax:
             main, ["prune", "--dry-run", "--force", "--include-running", "--include-named"]
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_prune_all_options_combined(self):
         """Test all prune options combined."""
@@ -545,14 +556,14 @@ class TestPruneCommandSyntax:
             ],
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_prune_config_option(self):
         """Test 'azlin prune --config /path' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["prune", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -584,7 +595,7 @@ class TestDoCommandSyntax:
         result = runner.invoke(main, ["do", "list all vms"])
 
         # Should not show syntax error (may error on missing API key)
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
         assert "missing argument" not in result.output.lower()
 
     def test_do_help_displays_usage(self):
@@ -605,28 +616,28 @@ class TestDoCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["do", "list vms", "--dry-run"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_do_yes_flag(self):
         """Test 'azlin do "list vms" --yes' accepts yes flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["do", "list vms", "--yes"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_do_yes_short_form(self):
         """Test 'azlin do "list vms" -y' accepts -y short form."""
         runner = CliRunner()
         result = runner.invoke(main, ["do", "list vms", "-y"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_do_verbose_flag(self):
         """Test 'azlin do "list vms" --verbose' accepts verbose flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["do", "list vms", "--verbose"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Combined Options (3 tests)
@@ -637,7 +648,7 @@ class TestDoCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["do", "list vms", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_do_all_options_combined(self):
         """Test 'azlin do "list" --dry-run --yes --verbose --rg rg' combines all options."""
@@ -646,14 +657,14 @@ class TestDoCommandSyntax:
             main, ["do", "list vms", "--dry-run", "--yes", "--verbose", "--rg", "my-rg"]
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_do_quoted_request_with_spaces(self):
         """Test 'azlin do "list all my vms in production"' handles multi-word request."""
         runner = CliRunner()
         result = runner.invoke(main, ["do", "list all my vms in production"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -685,7 +696,7 @@ class TestDoitCommandSyntax:
         result = runner.invoke(main, ["doit", "create a dev vm"])
 
         # Should not show syntax error
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
         assert "missing argument" not in result.output.lower()
 
     def test_doit_help_displays_usage(self):
@@ -706,21 +717,21 @@ class TestDoitCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["doit", "create vm", "--dry-run"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_doit_verbose_flag(self):
         """Test 'azlin doit "create vm" --verbose' accepts verbose flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["doit", "create vm", "--verbose"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_doit_verbose_short_form(self):
         """Test 'azlin doit "create vm" -v' accepts -v short form."""
         runner = CliRunner()
         result = runner.invoke(main, ["doit", "create vm", "-v"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Resource Group and Config Options (4 tests)
@@ -731,14 +742,14 @@ class TestDoitCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["doit", "create vm", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_doit_with_config_option(self):
         """Test 'azlin doit "create vm" --config /path' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["doit", "create vm", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_doit_all_options_combined(self):
         """Test 'azlin doit "create" --dry-run --verbose --rg rg --config cfg' combines all."""
@@ -757,14 +768,14 @@ class TestDoitCommandSyntax:
             ],
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_doit_complex_objective(self):
         """Test 'azlin doit "provision AKS cluster with 3 nodes"' handles complex objective."""
         runner = CliRunner()
         result = runner.invoke(main, ["doit", "provision AKS cluster with 3 nodes"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================

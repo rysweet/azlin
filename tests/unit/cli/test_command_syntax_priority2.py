@@ -17,6 +17,15 @@ import pytest
 from click.testing import CliRunner
 
 from azlin.cli import main
+from tests.conftest import (
+    assert_command_fails,
+    assert_command_succeeds,
+    assert_invalid_value_error,
+    assert_missing_argument_error,
+    assert_option_accepted,
+    assert_option_rejected,
+    assert_unexpected_argument_error,
+)
 
 # =============================================================================
 # TEST CLASS: azlin start (10 tests)
@@ -43,8 +52,7 @@ class TestStartCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["start"])
 
-        assert result.exit_code != 0
-        assert "missing argument" in result.output.lower() or "usage:" in result.output.lower()
+        assert_missing_argument_error(result)
 
     def test_start_with_vm_name(self):
         """Test 'azlin start my-vm' accepts VM name."""
@@ -52,7 +60,7 @@ class TestStartCommandSyntax:
         result = runner.invoke(main, ["start", "my-vm"])
 
         # Should not show syntax error (auth error is OK)
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
         assert "missing argument" not in result.output.lower()
 
     def test_start_help_displays_usage(self):
@@ -73,21 +81,21 @@ class TestStartCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["start", "my-vm", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_start_resource_group_long_form(self):
         """Test 'azlin start my-vm --resource-group my-rg' accepts long form."""
         runner = CliRunner()
         result = runner.invoke(main, ["start", "my-vm", "--resource-group", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_start_config_option_accepts_path(self):
         """Test 'azlin start my-vm --config /path/to/config' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["start", "my-vm", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Invalid Options (2 tests)
@@ -130,7 +138,7 @@ class TestStartCommandSyntax:
             main, ["start", "my-vm", "--rg", "my-rg", "--config", "/tmp/config.toml"]
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -157,8 +165,7 @@ class TestStopCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["stop"])
 
-        assert result.exit_code != 0
-        assert "missing argument" in result.output.lower() or "usage:" in result.output.lower()
+        assert_missing_argument_error(result)
 
     def test_stop_with_vm_name(self):
         """Test 'azlin stop my-vm' accepts VM name."""
@@ -166,7 +173,7 @@ class TestStopCommandSyntax:
         result = runner.invoke(main, ["stop", "my-vm"])
 
         # Should not show syntax error
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
         assert "missing argument" not in result.output.lower()
 
     def test_stop_help_displays_usage(self):
@@ -187,14 +194,14 @@ class TestStopCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["stop", "my-vm", "--deallocate"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_stop_no_deallocate_flag(self):
         """Test 'azlin stop my-vm --no-deallocate' accepts no-deallocate flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["stop", "my-vm", "--no-deallocate"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_stop_deallocate_is_default(self):
         """Test 'azlin stop my-vm' uses deallocate by default."""
@@ -222,7 +229,7 @@ class TestStopCommandSyntax:
         result = runner.invoke(main, ["stop", "my-vm", "--deallocate", "--no-deallocate"])
 
         # Should not error on syntax (last flag wins in Click)
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Option Flags (3 tests)
@@ -233,21 +240,21 @@ class TestStopCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["stop", "my-vm", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_stop_resource_group_long_form(self):
         """Test 'azlin stop my-vm --resource-group my-rg' accepts long form."""
         runner = CliRunner()
         result = runner.invoke(main, ["stop", "my-vm", "--resource-group", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_stop_config_option_accepts_path(self):
         """Test 'azlin stop my-vm --config /path/to/config' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["stop", "my-vm", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: Invalid Options (3 tests)
@@ -273,7 +280,7 @@ class TestStopCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["stop", "my-vm", "--rg", "my-rg", "--no-deallocate"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -302,7 +309,7 @@ class TestStatusCommandSyntax:
 
         # Should attempt to use config or error about missing RG
         assert "missing argument" not in result.output.lower()
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_status_help_displays_usage(self):
         """Test 'azlin status --help' displays help text."""
@@ -318,7 +325,7 @@ class TestStatusCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["status", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 2: VM Filter Option (4 tests)
@@ -329,7 +336,7 @@ class TestStatusCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["status", "--vm", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_status_vm_requires_value(self):
         """Test 'azlin status --vm' without value fails."""
@@ -353,7 +360,7 @@ class TestStatusCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["status", "--rg", "my-rg", "--vm", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Resource Group Options (2 tests)
@@ -364,14 +371,14 @@ class TestStatusCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["status", "--resource-group", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_status_config_option_accepts_path(self):
         """Test 'azlin status --config /path/to/config' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["status", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: Invalid Options (3 tests)
@@ -400,7 +407,7 @@ class TestStatusCommandSyntax:
             main, ["status", "--rg", "my-rg", "--vm", "my-vm", "--config", "/tmp/config.toml"]
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -445,7 +452,7 @@ class TestCpCommandSyntax:
         result = runner.invoke(main, ["cp", "myfile.txt", "dest.txt"])
 
         # Should not show syntax error
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
         assert "missing argument" not in result.output.lower()
 
     def test_cp_help_displays_usage(self):
@@ -473,14 +480,14 @@ class TestCpCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["cp", "myfile.txt", "vm1:~/"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cp_remote_to_local_syntax(self):
         """Test 'azlin cp vm1:~/data.txt ./' accepts remote to local."""
         runner = CliRunner()
         result = runner.invoke(main, ["cp", "vm1:~/data.txt", "./"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cp_session_colon_path_format(self):
         """Test 'azlin cp vm1:/path/file vm2:/path/file' accepts session:path format."""
@@ -488,28 +495,28 @@ class TestCpCommandSyntax:
         result = runner.invoke(main, ["cp", "vm1:/path/file", "vm2:/path/file"])
 
         # Should accept syntax (remote-to-remote may not be supported, but syntax is OK)
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cp_absolute_path_in_remote(self):
         """Test 'azlin cp file vm1:/home/user/dest' accepts absolute remote path."""
         runner = CliRunner()
         result = runner.invoke(main, ["cp", "file", "vm1:/home/user/dest"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cp_relative_path_in_remote(self):
         """Test 'azlin cp file vm1:relative/path' accepts relative remote path."""
         runner = CliRunner()
         result = runner.invoke(main, ["cp", "file", "vm1:relative/path"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cp_tilde_expansion_in_remote(self):
         """Test 'azlin cp file vm1:~/dest' accepts ~ expansion."""
         runner = CliRunner()
         result = runner.invoke(main, ["cp", "file", "vm1:~/dest"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Option Flags (4 tests)
@@ -520,21 +527,21 @@ class TestCpCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["cp", "src", "dest", "--dry-run"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cp_rg_option_accepts_value(self):
         """Test 'azlin cp src vm1:dest --rg my-rg' accepts resource group."""
         runner = CliRunner()
         result = runner.invoke(main, ["cp", "src", "vm1:dest", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cp_config_option_accepts_path(self):
         """Test 'azlin cp src dest --config /path' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["cp", "src", "dest", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_cp_all_options_combined(self):
         """Test 'azlin cp src vm1:dest --dry-run --rg rg --config cfg' combines options."""
@@ -544,7 +551,7 @@ class TestCpCommandSyntax:
             ["cp", "src", "vm1:dest", "--dry-run", "--rg", "my-rg", "--config", "/tmp/config.toml"],
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: Invalid Options (3 tests)
@@ -602,7 +609,7 @@ class TestSyncCommandSyntax:
 
         # Should not show syntax error (may error on missing config)
         assert "missing argument" not in result.output.lower()
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_sync_help_displays_usage(self):
         """Test 'azlin sync --help' displays help text."""
@@ -630,7 +637,7 @@ class TestSyncCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["sync", "--vm-name", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_sync_vm_name_requires_value(self):
         """Test 'azlin sync --vm-name' without value fails."""
@@ -646,14 +653,14 @@ class TestSyncCommandSyntax:
         result = runner.invoke(main, ["sync", "--vm-name", ""])
 
         # Syntax is OK, semantic validation happens later
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_sync_vm_name_with_rg(self):
         """Test 'azlin sync --vm-name my-vm --rg my-rg' combines options."""
         runner = CliRunner()
         result = runner.invoke(main, ["sync", "--vm-name", "my-vm", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Boolean Flags (3 tests)
@@ -664,14 +671,14 @@ class TestSyncCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["sync", "--dry-run"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_sync_dry_run_with_vm_name(self):
         """Test 'azlin sync --vm-name my-vm --dry-run' combines options."""
         runner = CliRunner()
         result = runner.invoke(main, ["sync", "--vm-name", "my-vm", "--dry-run"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_sync_dry_run_rejects_value(self):
         """Test 'azlin sync --dry-run true' treats 'true' as extra arg."""
@@ -690,21 +697,21 @@ class TestSyncCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["sync", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_sync_resource_group_long_form(self):
         """Test 'azlin sync --resource-group my-rg' accepts long form."""
         runner = CliRunner()
         result = runner.invoke(main, ["sync", "--resource-group", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_sync_config_option_accepts_path(self):
         """Test 'azlin sync --config /path/to/config' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["sync", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_sync_unknown_option_fails(self):
         """Test 'azlin sync --invalid' fails with clear error."""
@@ -749,7 +756,7 @@ class TestSessionCommandSyntax:
         result = runner.invoke(main, ["session", "my-vm"])
 
         # Should not show syntax error
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
         assert "missing argument" not in result.output.lower()
 
     def test_session_with_vm_and_session_name(self):
@@ -757,7 +764,7 @@ class TestSessionCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["session", "my-vm", "my-session"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_session_help_displays_usage(self):
         """Test 'azlin session --help' displays help text."""
@@ -777,7 +784,7 @@ class TestSessionCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["session", "my-vm", "--clear"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_session_clear_with_session_name_conflict(self):
         """Test 'azlin session my-vm name --clear' handles potential conflict.
@@ -788,7 +795,7 @@ class TestSessionCommandSyntax:
         result = runner.invoke(main, ["session", "my-vm", "name", "--clear"])
 
         # Syntax is OK, semantic validation is implementation-specific
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_session_clear_rejects_value(self):
         """Test 'azlin session my-vm --clear true' treats 'true' as session name."""
@@ -797,7 +804,7 @@ class TestSessionCommandSyntax:
 
         # Boolean flag shouldn't take value, but 'true' becomes session name arg
         # This is tricky - depends on arg order parsing
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_session_clear_flag_position(self):
         """Test 'azlin session --clear my-vm' handles flag before VM name."""
@@ -816,21 +823,21 @@ class TestSessionCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["session", "my-vm", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_session_resource_group_long_form(self):
         """Test 'azlin session my-vm --resource-group my-rg' accepts long form."""
         runner = CliRunner()
         result = runner.invoke(main, ["session", "my-vm", "--resource-group", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_session_config_option_accepts_path(self):
         """Test 'azlin session my-vm --config /path' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["session", "my-vm", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_session_all_options_combined(self):
         """Test 'azlin session my-vm name --rg rg --config cfg' combines all."""
@@ -839,7 +846,7 @@ class TestSessionCommandSyntax:
             main, ["session", "my-vm", "name", "--rg", "my-rg", "--config", "/tmp/config.toml"]
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: Invalid Options (4 tests)
@@ -878,7 +885,7 @@ class TestSessionCommandSyntax:
         result = runner.invoke(main, ["session", "my-vm", ""])
 
         # Syntax OK, semantic handling by implementation
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -909,7 +916,7 @@ class TestKillallCommandSyntax:
 
         # Should not show syntax error (may error on missing config)
         assert "missing argument" not in result.output.lower()
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_killall_help_displays_usage(self):
         """Test 'azlin killall --help' displays help text."""
@@ -937,7 +944,7 @@ class TestKillallCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["killall", "--force"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_killall_force_rejects_value(self):
         """Test 'azlin killall --force true' treats 'true' as extra arg."""
@@ -963,7 +970,7 @@ class TestKillallCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["killall", "--force", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Prefix Option (5 tests)
@@ -974,7 +981,7 @@ class TestKillallCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["killall", "--prefix", "test-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_killall_prefix_default_is_azlin(self):
         """Test 'azlin killall --help' shows default prefix is 'azlin'."""
@@ -1003,14 +1010,14 @@ class TestKillallCommandSyntax:
         result = runner.invoke(main, ["killall", "--prefix", ""])
 
         # Syntax OK, semantic validation later
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_killall_prefix_with_force(self):
         """Test 'azlin killall --prefix my- --force' combines options."""
         runner = CliRunner()
         result = runner.invoke(main, ["killall", "--prefix", "my-", "--force"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: Resource Group and Config (4 tests)
@@ -1021,21 +1028,21 @@ class TestKillallCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["killall", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_killall_resource_group_long_form(self):
         """Test 'azlin killall --resource-group my-rg' accepts long form."""
         runner = CliRunner()
         result = runner.invoke(main, ["killall", "--resource-group", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_killall_config_option_accepts_path(self):
         """Test 'azlin killall --config /path' accepts config path."""
         runner = CliRunner()
         result = runner.invoke(main, ["killall", "--config", "/tmp/config.toml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_killall_all_options_combined(self):
         """Test 'azlin killall --rg rg --force --prefix test- --config cfg' combines all."""
@@ -1054,7 +1061,7 @@ class TestKillallCommandSyntax:
             ],
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================

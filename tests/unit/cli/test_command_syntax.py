@@ -23,6 +23,15 @@ import pytest
 from click.testing import CliRunner
 
 from azlin.cli import main
+from tests.conftest import (
+    assert_command_fails,
+    assert_command_succeeds,
+    assert_invalid_value_error,
+    assert_missing_argument_error,
+    assert_option_accepted,
+    assert_option_rejected,
+    assert_unexpected_argument_error,
+)
 
 # =============================================================================
 # TEST CLASS: azlin new (25 tests)
@@ -86,8 +95,7 @@ class TestNewCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["new", "--invalid-option"])
 
-        assert result.exit_code != 0
-        assert "no such option" in result.output.lower() or "error" in result.output.lower()
+        assert_option_rejected(result, "--invalid-option")
 
     def test_new_extra_positional_args_rejected(self):
         """Test 'azlin new extra_arg' rejects unexpected positional arguments.
@@ -97,7 +105,7 @@ class TestNewCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["new", "unexpected_arg"])
 
-        assert result.exit_code != 0 or "unexpected" in result.output.lower()
+        assert_unexpected_argument_error(result)
 
     # -------------------------------------------------------------------------
     # Category 2: Option Flags - Valid Usage (7 tests)
@@ -106,52 +114,52 @@ class TestNewCommandSyntax:
     def test_new_repo_option_accepts_url(self):
         """Test 'azlin new --repo https://github.com/user/repo' accepts valid URL."""
         runner = CliRunner()
-        result = runner.invoke(main, ["new", "--repo", "https://github.com/user/repo", "--help"])
+        result = runner.invoke(main, ["new", "--repo", "https://github.com/user/repo"])
 
-        # Should not error on --repo option itself
-        assert result.exit_code == 0
+        # Should not error on --repo option itself (may fail at runtime, but syntax OK)
+        assert_option_accepted(result)
 
     def test_new_vm_size_option_accepts_value(self):
         """Test 'azlin new --vm-size Standard_D2s_v3' accepts VM size."""
         runner = CliRunner()
-        result = runner.invoke(main, ["new", "--vm-size", "Standard_D2s_v3", "--help"])
+        result = runner.invoke(main, ["new", "--vm-size", "Standard_D2s_v3"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_new_region_option_accepts_value(self):
         """Test 'azlin new --region eastus' accepts region."""
         runner = CliRunner()
-        result = runner.invoke(main, ["new", "--region", "eastus", "--help"])
+        result = runner.invoke(main, ["new", "--region", "eastus"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_new_resource_group_option_accepts_value(self):
         """Test 'azlin new --resource-group my-rg' accepts resource group."""
         runner = CliRunner()
-        result = runner.invoke(main, ["new", "--resource-group", "my-rg", "--help"])
+        result = runner.invoke(main, ["new", "--resource-group", "my-rg"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_new_resource_group_short_alias(self):
         """Test 'azlin new --rg my-rg' accepts short form '--rg'."""
         runner = CliRunner()
-        result = runner.invoke(main, ["new", "--rg", "my-rg", "--help"])
+        result = runner.invoke(main, ["new", "--rg", "my-rg"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_new_name_option_accepts_value(self):
         """Test 'azlin new --name my-vm' accepts custom name."""
         runner = CliRunner()
-        result = runner.invoke(main, ["new", "--name", "my-custom-vm", "--help"])
+        result = runner.invoke(main, ["new", "--name", "my-custom-vm"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_new_pool_option_accepts_integer(self):
         """Test 'azlin new --pool 5' accepts integer pool size."""
         runner = CliRunner()
-        result = runner.invoke(main, ["new", "--pool", "5", "--help"])
+        result = runner.invoke(main, ["new", "--pool", "5"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Option Validation - Invalid Values (5 tests)
@@ -162,43 +170,39 @@ class TestNewCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["new", "--pool", "abc"])
 
-        assert result.exit_code != 0
-        assert "invalid" in result.output.lower() or "integer" in result.output.lower()
+        assert_invalid_value_error(result, "integer")
 
     def test_new_pool_rejects_negative(self):
         """Test 'azlin new --pool -1' rejects negative pool size."""
         runner = CliRunner()
         result = runner.invoke(main, ["new", "--pool", "-1"])
 
-        assert result.exit_code != 0
         # Should validate pool > 0
-        assert "invalid" in result.output.lower() or result.exit_code != 0
+        assert_invalid_value_error(result)
 
     def test_new_pool_rejects_zero(self):
         """Test 'azlin new --pool 0' rejects zero pool size."""
         runner = CliRunner()
         result = runner.invoke(main, ["new", "--pool", "0"])
 
-        assert result.exit_code != 0
         # Pool must be >= 1
+        assert_command_fails(result)
 
     def test_new_config_path_validation(self):
         """Test 'azlin new --config /nonexistent/path' validates path.
 
-        RED PHASE: May not validate path existence until runtime.
+        RED PHASE: Config path is optional, so command may proceed with defaults.
         """
         runner = CliRunner()
         result = runner.invoke(main, ["new", "--config", "/nonexistent/path/config.toml"])
 
-        # Should either validate path or fail gracefully
-        # Not a hard requirement but good UX
-        assert result.exit_code in [
-            0,
-            1,
-            2,
-            3,
-            4,
-        ]  # Accept various error codes (3 = Click usage, 4 = config error)
+        # Config file not found is not a fatal error - command uses defaults
+        # Exit code 0 = success with defaults, 2 = Click parameter error
+        # We accept both since config is optional
+        assert result.exit_code in [0, 2], (
+            f"Expected exit code 0 (success with defaults) or 2 (parameter error), "
+            f"got {result.exit_code}"
+        )
 
     def test_new_repo_empty_string_rejected(self):
         """Test 'azlin new --repo ""' rejects empty repo URL."""
@@ -206,7 +210,7 @@ class TestNewCommandSyntax:
         result = runner.invoke(main, ["new", "--repo", ""])
 
         # Empty string should be rejected
-        assert result.exit_code != 0 or "--repo" not in result.output
+        assert_command_fails(result)
 
     # -------------------------------------------------------------------------
     # Category 4: Boolean Flags (2 tests)
@@ -215,9 +219,9 @@ class TestNewCommandSyntax:
     def test_new_no_auto_connect_flag(self):
         """Test 'azlin new --no-auto-connect' accepts boolean flag."""
         runner = CliRunner()
-        result = runner.invoke(main, ["new", "--no-auto-connect", "--help"])
+        result = runner.invoke(main, ["new", "--no-auto-connect"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_new_no_auto_connect_no_value_required(self):
         """Test 'azlin new --no-auto-connect value' rejects value after flag.
@@ -229,10 +233,8 @@ class TestNewCommandSyntax:
 
         # 'true' should be treated as extra positional arg and rejected
         assert result.exit_code != 0
-        assert (
-            "unexpected" in result.output.lower()
-            or "got unexpected extra argument" in result.output.lower()
-        )
+        # More specific: verify actual error message about unexpected argument
+        assert "got unexpected extra argument" in result.output.lower()
 
     # -------------------------------------------------------------------------
     # Category 5: Command Aliases (3 tests)
@@ -265,16 +267,16 @@ class TestNewCommandSyntax:
 
         # Test --repo on all three
         result_new = runner.invoke(
-            main, ["new", "--repo", "https://github.com/test/repo", "--help"]
+            main, ["new", "--repo", "https://github.com/test/repo"]
         )
-        result_vm = runner.invoke(main, ["vm", "--repo", "https://github.com/test/repo", "--help"])
+        result_vm = runner.invoke(main, ["vm", "--repo", "https://github.com/test/repo"])
         result_create = runner.invoke(
-            main, ["create", "--repo", "https://github.com/test/repo", "--help"]
+            main, ["create", "--repo", "https://github.com/test/repo"]
         )
 
-        assert result_new.exit_code == 0
-        assert result_vm.exit_code == 0
-        assert result_create.exit_code == 0
+        assert_option_accepted(result_new)
+        assert_option_accepted(result_vm)
+        assert_option_accepted(result_create)
 
     # -------------------------------------------------------------------------
     # Category 6: Option Combinations (3 tests)
@@ -295,11 +297,10 @@ class TestNewCommandSyntax:
                 "westus",
                 "--rg",
                 "my-rg",
-                "--help",
             ],
         )
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_new_template_and_size_both_accepted(self):
         """Test 'azlin new --template dev-vm --vm-size Standard_D2s_v3'.
@@ -308,10 +309,10 @@ class TestNewCommandSyntax:
         """
         runner = CliRunner()
         result = runner.invoke(
-            main, ["new", "--template", "dev-vm", "--vm-size", "Standard_D2s_v3", "--help"]
+            main, ["new", "--template", "dev-vm", "--vm-size", "Standard_D2s_v3"]
         )
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_new_pool_and_name_interaction(self):
         """Test 'azlin new --pool 5 --name my-vm'.
@@ -319,9 +320,9 @@ class TestNewCommandSyntax:
         Name with pool should create my-vm-1, my-vm-2, etc.
         """
         runner = CliRunner()
-        result = runner.invoke(main, ["new", "--pool", "5", "--name", "my-vm", "--help"])
+        result = runner.invoke(main, ["new", "--pool", "5", "--name", "my-vm"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -363,14 +364,14 @@ class TestListCommandSyntax:
         result = runner.invoke(main, ["list", "--rg", "my-rg"])
 
         # Should execute or show auth error, not syntax error
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_list_with_resource_group_long_form(self):
         """Test 'azlin list --resource-group my-rg' accepts long form."""
         runner = CliRunner()
         result = runner.invoke(main, ["list", "--resource-group", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_list_help_displays_usage(self):
         """Test 'azlin list --help' displays help text."""
@@ -388,39 +389,39 @@ class TestListCommandSyntax:
     def test_list_all_flag(self):
         """Test 'azlin list --all' includes stopped VMs."""
         runner = CliRunner()
-        result = runner.invoke(main, ["list", "--all", "--help"])
+        result = runner.invoke(main, ["list", "--all"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_list_tag_filter_key_only(self):
         """Test 'azlin list --tag environment' filters by tag key."""
         runner = CliRunner()
-        result = runner.invoke(main, ["list", "--tag", "environment", "--help"])
+        result = runner.invoke(main, ["list", "--tag", "environment"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_list_tag_filter_key_value(self):
         """Test 'azlin list --tag env=prod' filters by key=value."""
         runner = CliRunner()
-        result = runner.invoke(main, ["list", "--tag", "env=prod", "--help"])
+        result = runner.invoke(main, ["list", "--tag", "env=prod"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_list_config_option(self):
         """Test 'azlin list --config /path/to/config' accepts config path."""
         runner = CliRunner()
-        result = runner.invoke(main, ["list", "--config", "/tmp/config.toml", "--help"])
+        result = runner.invoke(main, ["list", "--config", "/tmp/config.toml"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_list_combined_filters(self):
         """Test 'azlin list --all --tag env=dev --rg my-rg' combines filters."""
         runner = CliRunner()
         result = runner.invoke(
-            main, ["list", "--all", "--tag", "env=dev", "--rg", "my-rg", "--help"]
+            main, ["list", "--all", "--tag", "env=dev", "--rg", "my-rg"]
         )
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Invalid Options (3 tests)
@@ -442,8 +443,9 @@ class TestListCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["list", "vm-name"])
 
-        # Should reject or warn about unexpected argument
-        assert result.exit_code != 0 or "unexpected" in result.output.lower()
+        # Should reject unexpected argument
+        assert result.exit_code != 0
+        assert "got unexpected extra argument" in result.output.lower() or "unexpected" in result.output.lower()
 
     def test_list_tag_empty_value_rejected(self):
         """Test 'azlin list --tag ""' rejects empty tag value.
@@ -536,17 +538,17 @@ class TestConnectCommandSyntax:
     def test_connect_with_vm_identifier(self):
         """Test 'azlin connect my-vm' accepts VM identifier."""
         runner = CliRunner()
-        result = runner.invoke(main, ["connect", "my-vm", "--help"])
+        result = runner.invoke(main, ["connect", "my-vm"])
 
-        # Should accept VM name as positional arg
-        assert result.exit_code == 0
+        # Should accept VM name as positional arg (may fail at runtime)
+        assert_option_accepted(result)
 
     def test_connect_with_ip_address(self):
         """Test 'azlin connect 20.1.2.3' accepts IP address."""
         runner = CliRunner()
-        result = runner.invoke(main, ["connect", "20.1.2.3", "--help"])
+        result = runner.invoke(main, ["connect", "20.1.2.3"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_connect_help_displays_usage(self):
         """Test 'azlin connect --help' displays help text."""
@@ -564,23 +566,23 @@ class TestConnectCommandSyntax:
     def test_connect_no_tmux_flag(self):
         """Test 'azlin connect my-vm --no-tmux' skips tmux."""
         runner = CliRunner()
-        result = runner.invoke(main, ["connect", "my-vm", "--no-tmux", "--help"])
+        result = runner.invoke(main, ["connect", "my-vm", "--no-tmux"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_connect_tmux_session_option(self):
         """Test 'azlin connect my-vm --tmux-session dev' sets session name."""
         runner = CliRunner()
-        result = runner.invoke(main, ["connect", "my-vm", "--tmux-session", "dev", "--help"])
+        result = runner.invoke(main, ["connect", "my-vm", "--tmux-session", "dev"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_connect_user_option(self):
         """Test 'azlin connect my-vm --user myuser' sets SSH user."""
         runner = CliRunner()
-        result = runner.invoke(main, ["connect", "my-vm", "--user", "myuser", "--help"])
+        result = runner.invoke(main, ["connect", "my-vm", "--user", "myuser"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_connect_key_option_path_exists(self):
         """Test 'azlin connect my-vm --key ~/.ssh/id_rsa' validates key path.
@@ -597,9 +599,9 @@ class TestConnectCommandSyntax:
     def test_connect_resource_group_option(self):
         """Test 'azlin connect my-vm --rg my-rg' specifies resource group."""
         runner = CliRunner()
-        result = runner.invoke(main, ["connect", "my-vm", "--rg", "my-rg", "--help"])
+        result = runner.invoke(main, ["connect", "my-vm", "--rg", "my-rg"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: Reconnection Options (3 tests)
@@ -608,16 +610,16 @@ class TestConnectCommandSyntax:
     def test_connect_no_reconnect_flag(self):
         """Test 'azlin connect my-vm --no-reconnect' disables auto-reconnect."""
         runner = CliRunner()
-        result = runner.invoke(main, ["connect", "my-vm", "--no-reconnect", "--help"])
+        result = runner.invoke(main, ["connect", "my-vm", "--no-reconnect"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_connect_max_retries_accepts_integer(self):
         """Test 'azlin connect my-vm --max-retries 5' accepts integer."""
         runner = CliRunner()
-        result = runner.invoke(main, ["connect", "my-vm", "--max-retries", "5", "--help"])
+        result = runner.invoke(main, ["connect", "my-vm", "--max-retries", "5"])
 
-        assert result.exit_code == 0
+        assert_option_accepted(result)
 
     def test_connect_max_retries_rejects_non_integer(self):
         """Test 'azlin connect my-vm --max-retries abc' rejects non-integer."""
@@ -651,7 +653,7 @@ class TestConnectCommandSyntax:
         )
 
         # Should not error on syntax, only on execution
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_connect_without_separator_no_remote_command(self):
         """Test 'azlin connect my-vm ls' without -- treats 'ls' as error.
@@ -662,7 +664,8 @@ class TestConnectCommandSyntax:
         result = runner.invoke(main, ["connect", "my-vm", "ls"])
 
         # Should reject 'ls' as unexpected positional arg
-        assert result.exit_code != 0 or "unexpected" in result.output.lower()
+        assert result.exit_code != 0
+        assert "got unexpected extra argument" in result.output.lower() or "unexpected" in result.output.lower()
 
 
 # =============================================================================

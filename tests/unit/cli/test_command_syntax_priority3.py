@@ -21,6 +21,15 @@ import pytest
 from click.testing import CliRunner
 
 from azlin.cli import main
+from tests.conftest import (
+    assert_command_fails,
+    assert_command_succeeds,
+    assert_invalid_value_error,
+    assert_missing_argument_error,
+    assert_option_accepted,
+    assert_option_rejected,
+    assert_unexpected_argument_error,
+)
 
 # =============================================================================
 # TEST CLASS: azlin batch (18 tests)
@@ -81,28 +90,28 @@ class TestBatchCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["batch", "stop", "--tag", "env=dev"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_batch_stop_with_pattern(self):
         """Test 'azlin batch stop --vm-pattern test-*' accepts pattern."""
         runner = CliRunner()
         result = runner.invoke(main, ["batch", "stop", "--vm-pattern", "test-*"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_batch_stop_with_all_flag(self):
         """Test 'azlin batch stop --all' accepts all flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["batch", "stop", "--all"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_batch_stop_deallocate_flags(self):
         """Test 'azlin batch stop --no-deallocate' accepts deallocate flags."""
         runner = CliRunner()
         result = runner.invoke(main, ["batch", "stop", "--no-deallocate"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 3: batch start Subcommand (3 tests)
@@ -121,14 +130,14 @@ class TestBatchCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["batch", "start", "--tag", "env=dev"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_batch_start_combined_options(self):
         """Test 'azlin batch start --tag env=dev --rg my-rg' combines options."""
         runner = CliRunner()
         result = runner.invoke(main, ["batch", "start", "--tag", "env=dev", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: batch command Subcommand (4 tests)
@@ -147,7 +156,7 @@ class TestBatchCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["batch", "command", "git pull"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_batch_command_help(self):
         """Test 'azlin batch command --help' displays help."""
@@ -162,7 +171,7 @@ class TestBatchCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["batch", "command", "ls", "--tag", "env=dev"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 5: batch sync Subcommand (3 tests)
@@ -181,14 +190,14 @@ class TestBatchCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["batch", "sync", "--tag", "env=dev"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_batch_sync_combined_options(self):
         """Test 'azlin batch sync --tag env=dev --rg my-rg' combines options."""
         runner = CliRunner()
         result = runner.invoke(main, ["batch", "sync", "--tag", "env=dev", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -257,14 +266,14 @@ class TestEnvCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["env", "set", "my-vm", "KEY=value"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_env_set_force_flag(self):
         """Test 'azlin env set my-vm KEY=secret --force' accepts force flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["env", "set", "my-vm", "KEY=secret", "--force"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_env_set_help(self):
         """Test 'azlin env set --help' displays help."""
@@ -291,14 +300,14 @@ class TestEnvCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["env", "list", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_env_list_show_values_flag(self):
         """Test 'azlin env list my-vm --show-values' accepts show-values flag."""
         runner = CliRunner()
         result = runner.invoke(main, ["env", "list", "my-vm", "--show-values"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: env delete Subcommand (2 tests)
@@ -317,7 +326,7 @@ class TestEnvCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["env", "delete", "my-vm", "MY_KEY"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 5: env export/import/clear Subcommands (5 tests)
@@ -341,7 +350,7 @@ class TestEnvCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["env", "export", "my-vm", "prod.env"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_env_import_requires_vm_and_file(self):
         """Test 'azlin env import my-vm' without file fails."""
@@ -357,14 +366,14 @@ class TestEnvCommandSyntax:
         result = runner.invoke(main, ["env", "import", "my-vm", "prod.env"])
 
         # May fail on file existence check, but syntax is OK
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_env_clear_with_vm_identifier(self):
         """Test 'azlin env clear my-vm' accepts VM identifier."""
         runner = CliRunner()
         result = runner.invoke(main, ["env", "clear", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -424,21 +433,21 @@ class TestStorageCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["storage", "create", "mystore"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_storage_create_size_option(self):
         """Test 'azlin storage create mystore --size 100' accepts size."""
         runner = CliRunner()
         result = runner.invoke(main, ["storage", "create", "mystore", "--size", "100"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_storage_create_tier_option(self):
         """Test 'azlin storage create mystore --tier Premium' accepts tier."""
         runner = CliRunner()
         result = runner.invoke(main, ["storage", "create", "mystore", "--tier", "Premium"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_storage_create_tier_choice_validation(self):
         """Test 'azlin storage create mystore --tier Invalid' rejects invalid tier."""
@@ -476,7 +485,7 @@ class TestStorageCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["storage", "list", "--rg", "my-rg"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: storage status Subcommand (2 tests)
@@ -495,7 +504,7 @@ class TestStorageCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["storage", "status", "mystore"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 5: storage delete Subcommand (2 tests)
@@ -514,7 +523,7 @@ class TestStorageCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["storage", "delete", "mystore"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 6: storage mount Subcommand (3 tests)
@@ -541,7 +550,7 @@ class TestStorageCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["storage", "mount", "mystore", "--vm", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 7: storage unmount Subcommand (2 tests)
@@ -561,7 +570,7 @@ class TestStorageCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["storage", "unmount", "--vm", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -629,7 +638,7 @@ class TestSnapshotCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["snapshot", "enable", "my-vm", "--every", "24"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_snapshot_enable_keep_option(self):
         """Test 'azlin snapshot enable my-vm --every 24 --keep 5' accepts keep count."""
@@ -638,7 +647,7 @@ class TestSnapshotCommandSyntax:
             main, ["snapshot", "enable", "my-vm", "--every", "24", "--keep", "5"]
         )
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_snapshot_enable_help(self):
         """Test 'azlin snapshot enable --help' displays help."""
@@ -665,7 +674,7 @@ class TestSnapshotCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["snapshot", "disable", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 4: snapshot sync Subcommand (3 tests)
@@ -683,7 +692,7 @@ class TestSnapshotCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["snapshot", "sync", "--vm", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_snapshot_sync_help(self):
         """Test 'azlin snapshot sync --help' displays help."""
@@ -710,7 +719,7 @@ class TestSnapshotCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["snapshot", "status", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 6: snapshot create/list/restore/delete Subcommands (7 tests)
@@ -729,7 +738,7 @@ class TestSnapshotCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["snapshot", "create", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_snapshot_list_requires_vm_name(self):
         """Test 'azlin snapshot list' without VM name fails."""
@@ -744,7 +753,7 @@ class TestSnapshotCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["snapshot", "list", "my-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_snapshot_restore_requires_vm_name(self):
         """Test 'azlin snapshot restore' without VM name fails."""
@@ -767,7 +776,7 @@ class TestSnapshotCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["snapshot", "delete", "snap-123"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
@@ -827,7 +836,7 @@ class TestTemplateCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["template", "create", "dev-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_template_create_help(self):
         """Test 'azlin template create --help' displays help."""
@@ -880,7 +889,7 @@ class TestTemplateCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["template", "delete", "dev-vm"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     # -------------------------------------------------------------------------
     # Category 5: template export/import Subcommands (5 tests)
@@ -907,7 +916,7 @@ class TestTemplateCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["template", "export", "dev-vm", "template.yaml"])
 
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
     def test_template_import_requires_file(self):
         """Test 'azlin template import' without file fails."""
@@ -923,7 +932,7 @@ class TestTemplateCommandSyntax:
         result = runner.invoke(main, ["template", "import", "template.yaml"])
 
         # May fail on file existence check, but syntax is OK
-        assert "no such option" not in result.output.lower()
+        assert_option_accepted(result)
 
 
 # =============================================================================
