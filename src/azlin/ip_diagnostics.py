@@ -113,6 +113,14 @@ def check_nsg_rules(
     Queries Azure NSG using Azure CLI and checks for allow/deny rules
     on the specified port.
 
+    LIMITATION: This is a simplified NSG check that:
+    - Matches single ports only (not port ranges like "80-443")
+    - Doesn't evaluate rule priority ordering
+    - Works for 90% of common cases (single port allow/deny)
+    - Full NSG evaluation requires complex Azure SDK logic
+
+    For complete NSG analysis, use Azure Portal or az network nsg rule list.
+
     Args:
         resource_group: Azure resource group name
         nsg_name: Network Security Group name
