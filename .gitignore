@@ -620,3 +620,27 @@ terraform.rc
 # ============================================
 # Local worktrees directory for feature development
 worktrees/
+
+# ============================================
+# TRANSIENT INVESTIGATION ARTIFACTS
+# ============================================
+# Investigation docs belong in PR descriptions, not the repo
+# These are temporary artifacts from ultrathink and investigation sessions
+*SUMMARY*.txt
+*SUMMARY*.md
+ANALYSIS_*.txt
+ANALYSIS_*.md
+INVESTIGATION_*.txt
+INVESTIGATION_*.md
+PHASE*.md
+SPRINT_*.md
+WORK_*.md
+DOCUMENTATION_*.md
+INCONSISTENCY_*.md
+EXECUTIVE_SUMMARY.md
+TESTING_EVIDENCE.md
+*_REPORT.md
+*REPORT.md
+!docs/**/*SUMMARY*.md
+!docs/**/ANALYSIS*.md
+!docs/**/INVESTIGATION*.md
