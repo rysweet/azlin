@@ -25,8 +25,8 @@ from azlin.tag_manager import TagManagerError
 class TestTagAddCommand:
     """Test 'azlin tag add' command - Issue #185."""
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.add_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.add_tags")
     def test_tag_add_single_tag_success(self, mock_add_tags, mock_config_load):
         """Test adding a single tag to a VM successfully.
 
@@ -56,8 +56,8 @@ class TestTagAddCommand:
             vm_name="myvm", resource_group="test-rg", tags={"environment": "production"}
         )
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.add_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.add_tags")
     def test_tag_add_multiple_tags_success(self, mock_add_tags, mock_config_load):
         """Test adding multiple tags to a VM in a single command.
 
@@ -89,8 +89,8 @@ class TestTagAddCommand:
             tags={"env": "prod", "team": "backend", "version": "1.0"},
         )
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.add_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.add_tags")
     def test_tag_add_with_spaces_in_value(self, mock_add_tags, mock_config_load):
         """Test adding tag with spaces in value.
 
@@ -113,8 +113,8 @@ class TestTagAddCommand:
             tags={"description": "Production Web Server"},
         )
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.add_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.add_tags")
     def test_tag_add_with_resource_group_flag(self, mock_add_tags, mock_config_load):
         """Test adding tags with explicit --resource-group flag.
 
@@ -141,7 +141,7 @@ class TestTagAddCommand:
             vm_name="myvm", resource_group="custom-rg", tags={"env": "prod"}
         )
 
-    @patch("azlin.cli.ConfigManager.load_config")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
     def test_tag_add_invalid_format_no_equals(self, mock_config_load):
         """Test adding tag with invalid format (missing =).
 
@@ -163,7 +163,7 @@ class TestTagAddCommand:
         assert result.exit_code != 0, "Should fail with invalid tag format"
         assert "key=value" in result.output.lower() or "invalid" in result.output.lower()
 
-    @patch("azlin.cli.ConfigManager.load_config")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
     def test_tag_add_empty_key(self, mock_config_load):
         """Test adding tag with empty key.
 
@@ -181,8 +181,8 @@ class TestTagAddCommand:
         assert result.exit_code != 0, "Should fail with empty key"
         assert "invalid" in result.output.lower() or "empty" in result.output.lower()
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.add_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.add_tags")
     def test_tag_add_tagmanager_error(self, mock_add_tags, mock_config_load):
         """Test handling TagManager errors during tag add.
 
@@ -202,7 +202,7 @@ class TestTagAddCommand:
         assert result.exit_code != 0, "Should fail when TagManager raises error"
         assert "error" in result.output.lower() or "failed" in result.output.lower()
 
-    @patch("azlin.cli.ConfigManager.load_config")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
     def test_tag_add_no_resource_group_in_config(self, mock_config_load):
         """Test tag add fails gracefully when no resource group configured.
 
@@ -227,8 +227,8 @@ class TestTagAddCommand:
 class TestTagRemoveCommand:
     """Test 'azlin tag remove' command - Issue #185."""
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.remove_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.remove_tags")
     def test_tag_remove_single_key_success(self, mock_remove_tags, mock_config_load):
         """Test removing a single tag from a VM.
 
@@ -255,8 +255,8 @@ class TestTagRemoveCommand:
             vm_name="myvm", resource_group="test-rg", tag_keys=["environment"]
         )
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.remove_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.remove_tags")
     def test_tag_remove_multiple_keys_success(self, mock_remove_tags, mock_config_load):
         """Test removing multiple tags from a VM.
 
@@ -279,8 +279,8 @@ class TestTagRemoveCommand:
             vm_name="myvm", resource_group="test-rg", tag_keys=["env", "team", "version"]
         )
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.remove_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.remove_tags")
     def test_tag_remove_with_resource_group_flag(self, mock_remove_tags, mock_config_load):
         """Test removing tags with explicit --resource-group flag.
 
@@ -303,8 +303,8 @@ class TestTagRemoveCommand:
             vm_name="myvm", resource_group="custom-rg", tag_keys=["env"]
         )
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.remove_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.remove_tags")
     def test_tag_remove_tagmanager_error(self, mock_remove_tags, mock_config_load):
         """Test handling TagManager errors during tag remove.
 
@@ -323,8 +323,8 @@ class TestTagRemoveCommand:
 class TestTagListCommand:
     """Test 'azlin tag list' command - Issue #185."""
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.get_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.get_tags")
     def test_tag_list_success_with_tags(self, mock_get_tags, mock_config_load):
         """Test listing tags from a VM with tags.
 
@@ -360,8 +360,8 @@ class TestTagListCommand:
         # Verify get_tags was called correctly
         mock_get_tags.assert_called_once_with(vm_name="myvm", resource_group="test-rg")
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.get_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.get_tags")
     def test_tag_list_vm_with_no_tags(self, mock_get_tags, mock_config_load):
         """Test listing tags from a VM with no tags.
 
@@ -384,8 +384,8 @@ class TestTagListCommand:
             or "empty" in result.output.lower()
         )
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.get_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.get_tags")
     def test_tag_list_with_resource_group_flag(self, mock_get_tags, mock_config_load):
         """Test listing tags with explicit --resource-group flag.
 
@@ -404,8 +404,8 @@ class TestTagListCommand:
         # Verify custom resource group was used
         mock_get_tags.assert_called_once_with(vm_name="myvm", resource_group="custom-rg")
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.get_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.get_tags")
     def test_tag_list_tagmanager_error(self, mock_get_tags, mock_config_load):
         """Test handling TagManager errors during tag list.
 
@@ -424,7 +424,7 @@ class TestTagListCommand:
 class TestTagCommandEdgeCases:
     """Test edge cases and boundary conditions for tag commands."""
 
-    @patch("azlin.cli.ConfigManager.load_config")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
     def test_tag_group_without_subcommand_shows_help(self, mock_config_load):
         """Test 'azlin tag' without subcommand shows help.
 
@@ -444,7 +444,7 @@ class TestTagCommandEdgeCases:
         assert "remove" in result.output.lower()
         assert "list" in result.output.lower()
 
-    @patch("azlin.cli.ConfigManager.load_config")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
     def test_tag_add_with_no_tags_provided(self, mock_config_load):
         """Test 'azlin tag add' with no tags fails appropriately.
 
@@ -460,7 +460,7 @@ class TestTagCommandEdgeCases:
         # Should fail - need at least one tag
         assert result.exit_code != 0, "Should fail when no tags provided"
 
-    @patch("azlin.cli.ConfigManager.load_config")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
     def test_tag_remove_with_no_keys_provided(self, mock_config_load):
         """Test 'azlin tag remove' with no keys fails appropriately.
 
@@ -476,8 +476,8 @@ class TestTagCommandEdgeCases:
         # Should fail - need at least one key
         assert result.exit_code != 0, "Should fail when no keys provided"
 
-    @patch("azlin.cli.ConfigManager.load_config")
-    @patch("azlin.cli.TagManager.add_tags")
+    @patch("azlin.commands.tag.ConfigManager.load_config")
+    @patch("azlin.commands.tag.TagManager.add_tags")
     def test_tag_add_with_equals_in_value(self, mock_add_tags, mock_config_load):
         """Test adding tag with '=' character in the value.
 
