@@ -10,7 +10,7 @@ Stop Hook Protocol (https://docs.claude.com/en/docs/claude-code/hooks):
 
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Clean import structure
 sys.path.insert(0, str(Path(__file__).parent))
@@ -24,7 +24,7 @@ class StopHook(HookProcessor):
         super().__init__("stop")
         self.lock_flag = self.project_root / ".claude" / "runtime" / "locks" / ".lock_active"
 
-    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Check lock flag and block stop if active.
         Also trigger reflection analysis if enabled.
 

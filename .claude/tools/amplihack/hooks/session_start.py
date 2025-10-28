@@ -6,9 +6,8 @@ Uses unified HookProcessor for common functionality.
 
 # Import the base processor
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Clean import structure
 sys.path.insert(0, str(Path(__file__).parent))
@@ -17,10 +16,9 @@ from hook_processor import HookProcessor
 # Clean imports through package structure
 sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
+    from amplihack.utils.paths import FrameworkPathResolver
     from context_preservation import ContextPreserver
     from paths import get_project_root
-
-    from amplihack.utils.paths import FrameworkPathResolver
 except ImportError:
     # Fallback imports for standalone execution
     get_project_root = None
@@ -34,7 +32,7 @@ class SessionStartHook(HookProcessor):
     def __init__(self):
         super().__init__("session_start")
 
-    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Process session start event.
 
         Args:
@@ -139,7 +137,9 @@ class SessionStartHook(HookProcessor):
 
                 # Inject FULL preferences content with MANDATORY enforcement
                 context_parts.append("\n## 🎯 USER PREFERENCES (MANDATORY - MUST FOLLOW)")
-                context_parts.append("\nThe following preferences are REQUIRED and CANNOT be ignored:\n")
+                context_parts.append(
+                    "\nThe following preferences are REQUIRED and CANNOT be ignored:\n"
+                )
                 context_parts.append(full_prefs_content)
 
                 self.log("Injected full USER_PREFERENCES.md content into session")

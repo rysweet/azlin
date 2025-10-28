@@ -11,7 +11,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Add project src to path for imports
 project_root = Path(__file__).parents[4]
@@ -36,7 +36,7 @@ def log_security_event(event_type: str, data: dict) -> None:
         pass
 
 
-def analyze_command_output(command: str, output: str, error: str) -> Dict[str, Any]:
+def analyze_command_output(command: str, output: str, error: str) -> dict[str, Any]:
     """
     Analyze command output for security indicators
 
@@ -111,8 +111,8 @@ def analyze_command_output(command: str, output: str, error: str) -> Dict[str, A
 
 
 def process_tool_result(
-    tool_name: str, parameters: Dict[str, Any], result: Dict[str, Any]
-) -> Dict[str, Any]:
+    tool_name: str, parameters: dict[str, Any], result: dict[str, Any]
+) -> dict[str, Any]:
     """Process post-tool-use monitoring"""
     try:
         # Only analyze Bash tool results for now
