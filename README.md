@@ -1137,6 +1137,8 @@ cp ~/.bashrc ~/.vimrc ~/.gitconfig ~/.azlin/home/
 
 Share home directories across multiple VMs using Azure Files NFS.
 
+### `azlin storage` - NFS storage management
+
 ### Quick Start
 
 ```bash
@@ -1324,6 +1326,8 @@ Execute operations on multiple VMs simultaneously using tags, patterns, or selec
 2. **By Pattern:** `--vm-pattern 'test-*'`
 3. **All VMs:** `--all`
 
+### `azlin batch` - Batch VM operations
+
 ### `azlin batch stop` - Stop multiple VMs
 
 ```bash
@@ -1392,6 +1396,8 @@ azlin batch command 'long-task.sh' --all --timeout 600
 
 Rotate and manage SSH keys across all VMs for enhanced security.
 
+### `azlin keys` - SSH key management
+
 ### `azlin keys rotate` - Rotate SSH keys
 
 Generate new SSH keys and update all VMs in resource group.
@@ -1457,6 +1463,8 @@ azlin keys backup --destination /secure/backup/
 ## VM Templates
 
 Save and reuse VM configurations for consistent provisioning.
+
+### `azlin template` - VM template management
 
 ### `azlin template create` - Create template
 
@@ -1531,6 +1539,8 @@ azlin template import my-template.yaml
 ## Environment Variable Management
 
 Manage environment variables stored in `~/.bashrc` on remote VMs.
+
+### `azlin env` - Environment variable management
 
 ### `azlin env set` - Set variable
 
@@ -1608,6 +1618,8 @@ azlin env clear my-vm --force
 ## Snapshot Management
 
 Create point-in-time backups of VM disks and restore VMs to previous states.
+
+### `azlin snapshot` - VM snapshot management
 
 ### `azlin snapshot enable` - Enable automated snapshots
 
