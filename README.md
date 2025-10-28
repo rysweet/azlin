@@ -421,21 +421,13 @@ All examples above come from real integration tests with actual Azure resources:
 
 See [docs/AZDOIT.md](docs/AZDOIT.md) for comprehensive documentation with 50+ examples.
 
-### Natural Language Commands Comparison
+### `azlin do` - Natural language command execution
 
-| Feature | `do` | `doit` |
-|---------|------|--------|
-| Natural language parsing | ✓ | ✓ |
-| Command execution | ✓ | ✓ |
-| State persistence | ✗ | ✓ |
-| Objective tracking | ✗ | ✓ |
-| Audit logging | ✗ | ✓ |
-| Multi-strategy (future) | ✗ | ✓ |
-| Cost estimation (future) | ✗ | ✓ |
+Quick, stateless natural language commands powered by Claude AI.
 
-**When to use:**
-- `do` - Quick, simple natural language commands
-- `doit` - Complex objectives requiring state tracking
+### `azlin doit` - Alternative to azlin do
+
+Advanced natural language execution with state persistence and objective tracking.
 
 ### Natural Language Commands Comparison
 
@@ -1183,24 +1175,66 @@ When you use `--nfs-storage`, the VM's home directory is automatically mounted f
 - Files are shared immediately
 - Your `~/.azlin/home` contents (if any) are copied to the shared storage on first mount
 
-### Commands
+### `azlin storage create` - Create NFS storage
+
+Create a new Azure Files NFS share for shared storage across VMs.
 
 ```bash
-# Create storage (100GB Premium = ~$15/month)
+# Create storage with default size (100GB) and tier (Premium)
+azlin storage create myteam-shared
+
+# Specify custom size and tier
 azlin storage create myteam-shared --size 100 --tier Premium
 
-# List storage accounts
-azlin storage list
+# Create standard tier storage (lower cost)
+azlin storage create myteam-shared --size 500 --tier Standard
+```
 
+**Note**: 100GB Premium costs approximately $15/month.
+
+### `azlin storage list` - List storage accounts
+
+Display all storage accounts in your resource group.
+
+```bash
+# List all storage accounts
+azlin storage list
+```
+
+### `azlin storage status` - Show storage status
+
+Check usage statistics and see which VMs are connected to a storage account.
+
+```bash
 # Check usage and connected VMs
 azlin storage status myteam-shared
+```
 
-# Mount storage on existing VM (replaces home directory)
+### `azlin storage mount` - Mount storage on VM
+
+Mount shared storage on an existing VM, replacing its home directory with the shared NFS mount.
+
+```bash
+# Mount storage on existing VM
 azlin storage mount myteam-shared --vm my-dev-vm
+```
 
-# Unmount storage (restores local home)
+**Important**: Your existing home directory is backed up before mounting. Files from `~/.azlin/home` (if present) are copied to shared storage on first mount.
+
+### `azlin storage unmount` - Unmount storage
+
+Unmount shared storage from a VM and restore its local home directory from backup.
+
+```bash
+# Unmount storage and restore local home
 azlin storage unmount --vm my-dev-vm
+```
 
+### `azlin storage delete` - Delete storage account
+
+Delete a storage account. Fails by default if VMs are still connected.
+
+```bash
 # Delete storage (fails if VMs connected)
 azlin storage delete myteam-shared
 
@@ -1575,23 +1609,9 @@ azlin env clear my-vm --force
 
 Create point-in-time backups of VM disks and restore VMs to previous states.
 
-### Manual Snapshots
+### `azlin snapshot enable` - Enable automated snapshots
 
-```bash
-# Create snapshot manually
-azlin snapshot create my-vm
-
-# List snapshots for VM
-azlin snapshot list my-vm
-
-# Restore VM from snapshot
-azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
-
-# Delete snapshot
-azlin snapshot delete my-vm-snapshot-20251015-053000
-```
-
-### Automated Snapshot Schedules
+Enable scheduled snapshot creation for a VM.
 
 ```bash
 # Enable scheduled snapshots (every 24 hours, keep 2)
@@ -1599,18 +1619,72 @@ azlin snapshot enable my-vm --every 24 --keep 2
 
 # Custom schedule (every 12 hours, keep 5)
 azlin snapshot enable my-vm --every 12 --keep 5
+```
 
+### `azlin snapshot disable` - Disable automated snapshots
+
+Disable scheduled snapshot creation for a VM.
+
+```bash
+# Disable scheduled snapshots
+azlin snapshot disable my-vm
+```
+
+### `azlin snapshot create` - Create a snapshot
+
+Manually create a snapshot of a VM disk.
+
+```bash
+# Create snapshot manually
+azlin snapshot create my-vm
+```
+
+### `azlin snapshot delete` - Delete a snapshot
+
+Remove an existing snapshot.
+
+```bash
+# Delete snapshot
+azlin snapshot delete my-vm-snapshot-20251015-053000
+```
+
+### `azlin snapshot list` - List snapshots
+
+Show all snapshots for a VM.
+
+```bash
+# List snapshots for VM
+azlin snapshot list my-vm
+```
+
+### `azlin snapshot restore` - Restore from snapshot
+
+Restore a VM from a previous snapshot.
+
+```bash
+# Restore VM from snapshot
+azlin snapshot restore my-vm my-vm-snapshot-20251015-053000
+```
+
+### `azlin snapshot status` - View snapshot schedule
+
+Check the snapshot schedule for a VM.
+
+```bash
 # View snapshot schedule
 azlin snapshot status my-vm
+```
 
+### `azlin snapshot sync` - Trigger snapshot sync
+
+Manually trigger snapshot sync across all scheduled VMs.
+
+```bash
 # Trigger snapshot sync now
 azlin snapshot sync
 
 # Sync specific VM
 azlin snapshot sync --vm my-vm
-
-# Disable scheduled snapshots
-azlin snapshot disable my-vm
 ```
 
 **Snapshot Naming:** Automatic format `<vm-name>-snapshot-<timestamp>`
