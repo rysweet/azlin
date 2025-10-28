@@ -4262,10 +4262,7 @@ def ip_check(
         sys.exit(1)
 
 
-def _do_impl(  # noqa: C901
-=======
 def _do_impl(
->>>>>>> origin/main
     request: str,
     dry_run: bool,
     yes: bool,

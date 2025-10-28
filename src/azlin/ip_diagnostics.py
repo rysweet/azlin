@@ -47,8 +47,8 @@ def classify_ip_address(ip: Optional[str]) -> Optional[str]:
     # Validate IP format
     try:
         ip_obj = ipaddress.ip_address(ip)
-    except ValueError:
-        raise ValueError(f"Invalid IP address: {ip}")
+    except ValueError as e:
+        raise ValueError(f"Invalid IP address: {ip}") from e
 
     # CRITICAL: Check Azure public IP range FIRST (172.171.0.0/16)
     # This MUST come before private IP checks!
@@ -164,10 +164,10 @@ def check_nsg_rules(
 
         nsg_data = json.loads(result.stdout)
 
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("NSG query timed out after 30 seconds")
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("NSG query timed out after 30 seconds") from e
     except json.JSONDecodeError as e:
-        raise RuntimeError(f"Failed to parse NSG data: {e}")
+        raise RuntimeError(f"Failed to parse NSG data: {e}") from e
 
     # Check security rules for matching port
     security_rules = nsg_data.get("securityRules", [])

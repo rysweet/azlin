@@ -398,7 +398,7 @@ class TestIPDiagnosticsIntegration:
 
 
 @pytest.mark.parametrize(
-    "ip,expected_classification",
+    ("ip", "expected_classification"),
     [
         # Azure public IPs
         ("172.171.0.0", "Public-Azure"),
