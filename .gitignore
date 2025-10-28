@@ -614,3 +614,9 @@ override.tf.json
 .terraformrc
 terraform.rc
 .venv/
+
+# ============================================
+# GIT WORKTREES
+# ============================================
+# Local worktrees directory for feature development
+worktrees/
