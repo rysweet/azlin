@@ -79,21 +79,54 @@ class CostTracker:
     """
 
     # VM hourly pricing (approximate, in USD)
-    # Based on Azure Pay-As-You-Go pricing for Linux VMs in East US
+    # Based on Azure Pay-As-You-Go pricing for Linux VMs in US regions
     VM_PRICING: ClassVar[dict[str, Decimal]] = {
+        # B-series (burstable)
         "Standard_B1s": Decimal("0.0104"),
         "Standard_B1ms": Decimal("0.0207"),
         "Standard_B2s": Decimal("0.0416"),
         "Standard_B2ms": Decimal("0.0832"),
         "Standard_B4ms": Decimal("0.166"),
+        # D-series v3 (general purpose, older gen)
         "Standard_D2s_v3": Decimal("0.096"),
         "Standard_D4s_v3": Decimal("0.192"),
         "Standard_D8s_v3": Decimal("0.384"),
         "Standard_D16s_v3": Decimal("0.768"),
         "Standard_D32s_v3": Decimal("1.536"),
+        # D-series v5 Intel (general purpose, current gen)
+        "Standard_D2s_v5": Decimal("0.096"),
+        "Standard_D4s_v5": Decimal("0.192"),
+        "Standard_D8s_v5": Decimal("0.384"),
+        "Standard_D16s_v5": Decimal("0.768"),
+        # D-series v5 AMD (general purpose, cost-optimized)
+        "Standard_D2as_v5": Decimal("0.086"),
+        "Standard_D4as_v5": Decimal("0.172"),
+        "Standard_D8as_v5": Decimal("0.344"),
+        "Standard_D16as_v5": Decimal("0.688"),
+        # E-series v3 (memory-optimized, older gen)
         "Standard_E2s_v3": Decimal("0.126"),
         "Standard_E4s_v3": Decimal("0.252"),
         "Standard_E8s_v3": Decimal("0.504"),
+        # E-series v5 Intel (memory-optimized, current gen)
+        "Standard_E2s_v5": Decimal("0.126"),
+        "Standard_E4s_v5": Decimal("0.252"),
+        "Standard_E8s_v5": Decimal("0.504"),
+        "Standard_E16s_v5": Decimal("1.008"),
+        "Standard_E20s_v5": Decimal("1.260"),
+        "Standard_E32s_v5": Decimal("2.016"),
+        # E-series v5 AMD (memory-optimized, cost-effective, RECOMMENDED)
+        "Standard_E2as_v5": Decimal("0.126"),
+        "Standard_E4as_v5": Decimal("0.252"),
+        "Standard_E8as_v5": Decimal("0.498"),  # 64GB RAM
+        "Standard_E16as_v5": Decimal("0.572"),  # 128GB RAM - NEW DEFAULT
+        "Standard_E20as_v5": Decimal("0.715"),
+        "Standard_E32as_v5": Decimal("1.144"),
+        # E-series v5 AMD with local storage
+        "Standard_E2ads_v5": Decimal("0.126"),
+        "Standard_E4ads_v5": Decimal("0.252"),
+        "Standard_E8ads_v5": Decimal("0.498"),
+        "Standard_E16ads_v5": Decimal("0.572"),
+        # F-series (compute-optimized)
         "Standard_F2s_v2": Decimal("0.085"),
         "Standard_F4s_v2": Decimal("0.169"),
         "Standard_F8s_v2": Decimal("0.338"),

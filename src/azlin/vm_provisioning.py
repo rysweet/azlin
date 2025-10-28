@@ -35,11 +35,12 @@ class VMConfig:
     name: str
     resource_group: str
     location: str = "westus2"  # Better capacity than eastus
-    size: str = "Standard_B2s"  # Widely available, affordable burstable VM
+    size: str = "Standard_E16as_v5"  # Memory-optimized: 128GB RAM, 16 vCPU, 12.5 Gbps network
     image: str = "Ubuntu2204"
     ssh_public_key: str | None = None
     admin_username: str = "azureuser"
     disable_password_auth: bool = True
+    session_name: str | None = None  # Optional session name for tag management
 
 
 @dataclass
@@ -251,20 +252,47 @@ class VMProvisioner:
         "Standard_D2s_v4",
         "Standard_D4s_v4",
         "Standard_D8s_v4",
-        # D-series v5 (current gen, recommended)
+        # D-series v5 (current gen)
         "Standard_D2s_v5",
         "Standard_D4s_v5",
         "Standard_D8s_v5",
-        # E-series
+        "Standard_D16s_v5",
+        # D-series v5 AMD (cost-optimized)
+        "Standard_D2as_v5",
+        "Standard_D4as_v5",
+        "Standard_D8as_v5",
+        "Standard_D16as_v5",
+        # E-series v3 (memory-optimized, older gen)
         "Standard_E2s_v3",
         "Standard_E4s_v3",
+        "Standard_E8s_v3",
+        # E-series v4 (memory-optimized, previous gen)
         "Standard_E2s_v4",
         "Standard_E4s_v4",
+        "Standard_E8s_v4",
+        # E-series v5 Intel (memory-optimized, current gen)
         "Standard_E2s_v5",
         "Standard_E4s_v5",
-        # F-series
+        "Standard_E8s_v5",
+        "Standard_E16s_v5",
+        "Standard_E20s_v5",
+        "Standard_E32s_v5",
+        # E-series v5 AMD (memory-optimized, cost-effective, recommended for 64GB+)
+        "Standard_E2as_v5",
+        "Standard_E4as_v5",
+        "Standard_E8as_v5",
+        "Standard_E16as_v5",  # NEW DEFAULT: 128GB RAM
+        "Standard_E20as_v5",
+        "Standard_E32as_v5",
+        # E-series v5 AMD with local storage
+        "Standard_E2ads_v5",
+        "Standard_E4ads_v5",
+        "Standard_E8ads_v5",
+        "Standard_E16ads_v5",
+        # F-series (compute-optimized)
         "Standard_F2s_v2",
         "Standard_F4s_v2",
+        "Standard_F8s_v2",
     }
 
     # Valid Azure regions whitelist
@@ -325,8 +353,8 @@ class VMProvisioner:
         self,
         name: str,
         resource_group: str,
-        location: str = "eastus",
-        size: str = "Standard_D2s_v3",
+        location: str = "westus2",
+        size: str = "Standard_E16as_v5",
         ssh_public_key: str | None = None,
     ) -> VMConfig:
         """Create VM configuration with validation.
@@ -487,6 +515,26 @@ class VMProvisioner:
             state="Running",
             id=vm_data.get("id"),
         )
+
+        # Set azlin management tags on newly created VM
+        report_progress("Setting azlin management tags...")
+        try:
+            import os
+
+            from azlin.tag_manager import TagManager
+
+            owner = os.getenv("USER") or "unknown"
+            TagManager.set_managed_tags(
+                vm_name=config.name,
+                resource_group=config.resource_group,
+                owner=owner,
+                session_name=config.session_name if hasattr(config, "session_name") else None,
+            )
+            report_progress("Management tags set successfully")
+        except Exception as e:
+            # Tag setting is non-critical, don't fail provisioning
+            logger.warning(f"Failed to set management tags: {e}")
+            report_progress(f"Warning: Failed to set management tags: {e}")
 
         report_progress(f"VM provisioned successfully: {vm_details.public_ip}")
         return vm_details

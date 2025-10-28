@@ -265,7 +265,7 @@ class GCPStrategy(ExecutionStrategy):
 
         return 30.0  # Default
 
-    def _generate_commands(self, context: ExecutionContext) -> list[str]:  # noqa: C901
+    def _generate_commands(self, context: ExecutionContext) -> list[str]:
         """Generate gcloud CLI commands from intent.
 
         Args:

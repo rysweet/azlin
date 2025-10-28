@@ -46,7 +46,9 @@ class AzlinConfig:
 
     default_resource_group: str | None = None
     default_region: str = "westus2"  # westus2 has better capacity than eastus
-    default_vm_size: str = "Standard_B2s"  # Widely available, affordable burstable VM
+    default_vm_size: str = (
+        "Standard_E16as_v5"  # Memory-optimized: 128GB RAM, 16 vCPU, 12.5 Gbps network
+    )
     last_vm_name: str | None = None
     notification_command: str = "imessR"
     session_names: dict[str, str] | None = None  # vm_name -> session_name mapping
@@ -80,7 +82,7 @@ class AzlinConfig:
         return cls(
             default_resource_group=data.get("default_resource_group"),
             default_region=data.get("default_region", "westus2"),
-            default_vm_size=data.get("default_vm_size", "Standard_B2s"),
+            default_vm_size=data.get("default_vm_size", "Standard_E16as_v5"),
             last_vm_name=data.get("last_vm_name"),
             notification_command=data.get("notification_command", "imessR"),
             session_names=data.get("session_names", {}),
@@ -371,7 +373,7 @@ class ConfigManager:
             custom_path: Custom config file path (optional)
 
         Returns:
-            VM size (defaults to Standard_D2s_v3)
+            VM size (defaults to Standard_E16as_v5)
         """
         if cli_value:
             return cli_value
@@ -509,13 +511,18 @@ class ConfigManager:
 
     @classmethod
     def get_vm_name_by_session(
-        cls, session_name: str, custom_path: str | None = None
+        cls, session_name: str, custom_path: str | None = None, resource_group: str | None = None
     ) -> str | None:
-        """Get VM name by session name.
+        """Get VM name by session name using hybrid resolution.
+
+        Resolution priority:
+        1. Azure VM tags (source of truth) - checks managed-by=azlin VMs
+        2. Local config file (backward compatibility fallback)
 
         Args:
             session_name: Session name to look up
             custom_path: Custom config file path (optional)
+            resource_group: Optional RG to limit tag search (None = all RGs)
 
         Returns:
             VM name or None if not found
@@ -524,6 +531,20 @@ class ConfigManager:
             Filters out self-referential entries (vm_name == session_name)
             and warns on duplicate session names pointing to different VMs.
         """
+        # Priority 1: Check Azure tags first
+        try:
+            from azlin.tag_manager import TagManager
+
+            vm_info = TagManager.get_vm_by_session(session_name, resource_group)
+            if vm_info:
+                logger.debug(
+                    f"Resolved session '{session_name}' to VM '{vm_info.name}' via Azure tags"
+                )
+                return vm_info.name
+        except Exception as e:
+            logger.debug(f"Failed to resolve session via tags, falling back to config: {e}")
+
+        # Priority 2: Fall back to local config file
         try:
             config = cls.load_config(custom_path)
             if config.session_names:
@@ -550,11 +571,171 @@ class ConfigManager:
                     )
                     return matches[0]
                 if len(matches) == 1:
+                    logger.debug(
+                        f"Resolved session '{session_name}' to VM '{matches[0]}' via local config"
+                    )
                     return matches[0]
 
         except ConfigError:
             pass
         return None
+
+    @classmethod
+    def get_auth_profile(
+        cls, profile_name: str = "default", custom_path: str | None = None
+    ) -> dict[str, Any] | None:
+        """Get authentication profile configuration.
+
+        Args:
+            profile_name: Profile name to retrieve
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            Profile configuration dict or None if not found
+        """
+        try:
+            config_path = cls.get_config_path(custom_path)
+            if not config_path.exists():
+                return None
+
+            # Load TOML
+            with open(config_path, "rb") as f:
+                data = tomli.load(f)  # type: ignore[attr-defined]
+
+            auth_config = data.get("auth", {})
+            profiles = auth_config.get("profiles", {})
+            return profiles.get(profile_name)
+
+        except Exception:
+            return None
+
+    @classmethod
+    def set_auth_profile(
+        cls, profile_name: str, config: dict[str, Any], custom_path: str | None = None
+    ) -> None:
+        """Save authentication profile configuration.
+
+        Args:
+            profile_name: Profile name
+            config: Profile configuration dict
+            custom_path: Custom config file path (optional)
+
+        Raises:
+            ConfigError: If save fails
+        """
+        try:
+            config_path = (
+                cls.get_config_path(custom_path) if custom_path else cls.DEFAULT_CONFIG_FILE
+            )
+
+            # Load existing config or create new
+            if config_path.exists():
+                with open(config_path, "rb") as f:
+                    data = tomli.load(f)  # type: ignore[attr-defined]
+            else:
+                data = {}
+
+            # Ensure auth section exists
+            if "auth" not in data:
+                data["auth"] = {}
+            if "profiles" not in data["auth"]:
+                data["auth"]["profiles"] = {}
+
+            # Set profile
+            data["auth"]["profiles"][profile_name] = config
+
+            # Save
+            cls.ensure_config_dir()
+            temp_path = config_path.with_suffix(".tmp")
+            with open(temp_path, "wb") as f:
+                tomli_w.dump(data, f)
+
+            # Set secure permissions
+            os.chmod(temp_path, 0o600)
+
+            # Atomic rename
+            temp_path.replace(config_path)
+
+        except Exception as e:
+            raise ConfigError(f"Failed to save auth profile: {e}") from e
+
+    @classmethod
+    def delete_auth_profile(cls, profile_name: str, custom_path: str | None = None) -> bool:
+        """Delete authentication profile.
+
+        Args:
+            profile_name: Profile name to delete
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            True if profile was deleted, False if not found
+
+        Raises:
+            ConfigError: If delete fails
+        """
+        try:
+            config_path = (
+                cls.get_config_path(custom_path) if custom_path else cls.DEFAULT_CONFIG_FILE
+            )
+
+            if not config_path.exists():
+                return False
+
+            # Load config
+            with open(config_path, "rb") as f:
+                data = tomli.load(f)  # type: ignore[attr-defined]
+
+            auth_config = data.get("auth", {})
+            profiles = auth_config.get("profiles", {})
+
+            if profile_name not in profiles:
+                return False
+
+            # Delete profile
+            del profiles[profile_name]
+
+            # Save
+            temp_path = config_path.with_suffix(".tmp")
+            with open(temp_path, "wb") as f:
+                tomli_w.dump(data, f)
+
+            os.chmod(temp_path, 0o600)
+            temp_path.replace(config_path)
+
+            return True
+
+        except Exception as e:
+            raise ConfigError(f"Failed to delete auth profile: {e}") from e
+
+    @classmethod
+    def list_auth_profiles(cls, custom_path: str | None = None) -> list[str]:
+        """List all authentication profile names.
+
+        Args:
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            List of profile names
+        """
+        try:
+            config_path = (
+                cls.get_config_path(custom_path) if custom_path else cls.DEFAULT_CONFIG_FILE
+            )
+
+            if not config_path.exists():
+                return []
+
+            # Load config
+            with open(config_path, "rb") as f:
+                data = tomli.load(f)  # type: ignore[attr-defined]
+
+            auth_config = data.get("auth", {})
+            profiles = auth_config.get("profiles", {})
+
+            return list(profiles.keys())
+
+        except Exception:
+            return []
 
 
 __all__ = ["AzlinConfig", "ConfigError", "ConfigManager"]

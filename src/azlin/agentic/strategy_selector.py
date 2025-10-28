@@ -299,7 +299,7 @@ class StrategySelector:
         # Default to Azure (original behavior)
         return "azure"
 
-    def _rank_strategies(  # noqa: C901
+    def _rank_strategies(
         self,
         intent: Intent,
         is_complex: bool,

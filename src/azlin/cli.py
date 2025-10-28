@@ -40,6 +40,9 @@ from azlin.agentic import (
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 
+# Auth commands
+from azlin.commands.auth import auth
+
 # Storage commands
 from azlin.commands.storage import storage_group
 
@@ -96,6 +99,7 @@ from azlin.vm_provisioning import (
     VMDetails,
     VMProvisioner,
 )
+from azlin.vm_size_tiers import VMSizeTierError, VMSizeTiers
 
 logger = logging.getLogger(__name__)
 
@@ -1249,6 +1253,14 @@ def main(ctx: click.Context) -> None:
         keys backup   Backup current SSH keys
 
     \b
+    AUTHENTICATION:
+        auth setup    Set up service principal authentication profile
+        auth test     Test authentication with a profile
+        auth list     List available authentication profiles
+        auth show     Show profile details
+        auth remove   Remove authentication profile
+
+    \b
     EXAMPLES:
         # Show help
         $ azlin
@@ -1403,23 +1415,39 @@ def _load_config_and_template(
 def _resolve_vm_settings(
     resource_group: str | None,
     region: str | None,
+    size_tier: str | None,
     vm_size: str | None,
     azlin_config: AzlinConfig,
     template_config: VMTemplateConfig | None,
 ) -> tuple[str | None, str, str]:
     """Resolve VM settings with precedence: CLI > config > template > defaults.
 
+    Args:
+        resource_group: Resource group from CLI
+        region: Region from CLI
+        size_tier: Size tier (s/m/l/xl) from CLI
+        vm_size: Explicit VM size from CLI
+        azlin_config: Loaded config
+        template_config: Template config if provided
+
     Returns:
         Tuple of (final_rg, final_region, final_vm_size)
     """
+    # Resolve VM size from tier or explicit size
+    try:
+        resolved_vm_size = VMSizeTiers.resolve_vm_size(size_tier, vm_size)
+    except VMSizeTierError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
     if template_config:
         final_rg = resource_group or azlin_config.default_resource_group
         final_region = region or template_config.region
-        final_vm_size = vm_size or template_config.vm_size
+        final_vm_size = resolved_vm_size or template_config.vm_size
     else:
         final_rg = resource_group or azlin_config.default_resource_group
         final_region = region or azlin_config.default_region
-        final_vm_size = vm_size or azlin_config.default_vm_size
+        final_vm_size = resolved_vm_size or azlin_config.default_vm_size
 
     return final_rg, final_region, final_vm_size
 
@@ -1551,7 +1579,12 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
 @main.command(name="new")
 @click.pass_context
 @click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
+@click.option(
+    "--size",
+    help="VM size tier: s(mall), m(edium), l(arge), xl (default: l)",
+    type=click.Choice(["s", "m", "l", "xl"], case_sensitive=False),
+)
+@click.option("--vm-size", help="Azure VM size (overrides --size)", type=str)
 @click.option("--region", help="Azure region", type=str)
 @click.option("--resource-group", "--rg", help="Azure resource group", type=str)
 @click.option("--name", help="Custom VM name", type=str)
@@ -1563,6 +1596,7 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
 def new_command(
     ctx: click.Context,
     repo: str | None,
+    size: str | None,
     vm_size: str | None,
     region: str | None,
     resource_group: str | None,
@@ -1580,17 +1614,25 @@ def new_command(
 
     \b
     EXAMPLES:
-        # Provision basic VM
+        # Provision basic VM (uses size 'l' = 128GB RAM)
         $ azlin new
 
+        # Provision with size tier (s=8GB, m=64GB, l=128GB, xl=256GB)
+        $ azlin new --size m     # Medium: 64GB RAM
+        $ azlin new --size s     # Small: 8GB RAM (original default)
+        $ azlin new --size xl    # Extra-large: 256GB RAM
+
+        # Provision with exact VM size (overrides --size)
+        $ azlin new --vm-size Standard_E8as_v5
+
         # Provision with custom name
-        $ azlin new --name my-dev-vm
+        $ azlin new --name my-dev-vm --size m
 
         # Provision and clone repository
         $ azlin new --repo https://github.com/owner/repo
 
         # Provision 5 VMs in parallel
-        $ azlin new --pool 5
+        $ azlin new --pool 5 --size l
 
         # Provision from template
         $ azlin new --template dev-vm
@@ -1599,7 +1641,7 @@ def new_command(
         $ azlin new --nfs-storage myteam-shared --name worker-1
 
         # Provision and execute command
-        $ azlin new -- python train.py
+        $ azlin new --size xl -- python train.py
     """
     # Check for passthrough command
     command = None
@@ -1613,7 +1655,7 @@ def new_command(
 
     # Resolve VM settings
     final_rg, final_region, final_vm_size = _resolve_vm_settings(
-        resource_group, region, vm_size, azlin_config, template_config
+        resource_group, region, size, vm_size, azlin_config, template_config
     )
 
     # Generate VM name
@@ -1691,34 +1733,49 @@ def create_command(ctx: click.Context, **kwargs: Any) -> Any:
 @click.option("--all", "show_all", help="Show all VMs (including stopped)", is_flag=True)
 @click.option("--tag", help="Filter VMs by tag (format: key or key=value)", type=str)
 def list_command(resource_group: str | None, config: str | None, show_all: bool, tag: str | None):
-    """List VMs in resource group.
+    """List VMs in resource group or across all resource groups.
+
+    By default, lists all azlin-managed VMs (those with managed-by=azlin tag) across all resource groups.
+    Use --rg to limit to a specific resource group.
 
     Shows VM name, status, IP address, region, and size.
 
     \b
     Examples:
-        azlin list
-        azlin list --rg my-resource-group
-        azlin list --all
-        azlin list --tag env=dev
-        azlin list --tag team
+        azlin list                    # All azlin VMs across all RGs
+        azlin list --rg my-rg         # VMs in specific RG
+        azlin list --all              # Include stopped VMs
+        azlin list --tag env=dev      # Filter by tag
     """
     try:
         # Get resource group from config or CLI
         rg = ConfigManager.get_resource_group(resource_group, config)
 
+        # Cross-RG discovery: if no RG specified, list all managed VMs
         if not rg:
-            click.echo("Error: No resource group specified and no default configured.", err=True)
-            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
-            sys.exit(1)
-
-        click.echo(f"Listing VMs in resource group: {rg}\n")
-
-        # List VMs
-        vms = VMManager.list_vms(rg, include_stopped=show_all)
-
-        # Filter to azlin VMs
-        vms = VMManager.filter_by_prefix(vms, "azlin")
+            click.echo("Listing all azlin-managed VMs across resource groups...\n")
+            try:
+                vms = TagManager.list_managed_vms(resource_group=None)
+                if not show_all:
+                    vms = [vm for vm in vms if vm.is_running()]
+            except Exception as e:
+                click.echo(
+                    f"Warning: Tag-based discovery failed ({e}).\n"
+                    "Falling back to default resource group.\n",
+                    err=True,
+                )
+                # Fall back to requiring RG
+                click.echo(
+                    "Error: No resource group specified and no default configured.", err=True
+                )
+                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+                sys.exit(1)
+        else:
+            # Single RG listing
+            click.echo(f"Listing VMs in resource group: {rg}\n")
+            vms = VMManager.list_vms(rg, include_stopped=show_all)
+            # Filter to azlin VMs
+            vms = VMManager.filter_by_prefix(vms, "azlin")
 
         # Filter by tag if specified
         if tag:
@@ -1730,9 +1787,15 @@ def list_command(resource_group: str | None, config: str | None, show_all: bool,
 
         vms = VMManager.sort_by_created_time(vms)
 
-        # Populate session names from config
+        # Populate session names from tags (hybrid resolution: tags first, config fallback)
         for vm in vms:
-            vm.session_name = ConfigManager.get_session_name(vm.name, config)
+            # Try to get from tags first
+            session_from_tag = TagManager.get_session_name(vm.name, vm.resource_group)
+            if session_from_tag:
+                vm.session_name = session_from_tag
+            else:
+                # Fall back to config file
+                vm.session_name = ConfigManager.get_session_name(vm.name, config)
 
         if not vms:
             click.echo("No VMs found.")
@@ -1795,6 +1858,11 @@ def session_command(
         azlin session azlin-vm-12345 --clear
     """
     try:
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            vm_name = resolved_vm_name
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -1812,25 +1880,80 @@ def session_command(
 
         # Clear session name
         if clear:
-            if ConfigManager.delete_session_name(vm_name, config):
-                click.echo(f"Cleared session name for VM '{vm_name}'")
+            cleared_tag = False
+            cleared_config = False
+
+            # Clear from tags
+            try:
+                cleared_tag = TagManager.delete_session_name(vm_name, rg)
+            except Exception as e:
+                logger.warning(f"Failed to clear session from tags: {e}")
+
+            # Clear from config
+            cleared_config = ConfigManager.delete_session_name(vm_name, config)
+
+            if cleared_tag or cleared_config:
+                locations = []
+                if cleared_tag:
+                    locations.append("VM tags")
+                if cleared_config:
+                    locations.append("local config")
+                click.echo(
+                    f"Cleared session name for VM '{vm_name}' from {' and '.join(locations)}"
+                )
             else:
                 click.echo(f"No session name set for VM '{vm_name}'")
             return
 
-        # View current session name
+        # View current session name (hybrid: tags first, config fallback)
         if not session_name:
-            current_name = ConfigManager.get_session_name(vm_name, config)
+            # Try tags first
+            current_name = TagManager.get_session_name(vm_name, rg)
+            source = "VM tags" if current_name else None
+
+            # Fall back to config
+            if not current_name:
+                current_name = ConfigManager.get_session_name(vm_name, config)
+                source = "local config" if current_name else None
+
             if current_name:
-                click.echo(f"Session name for '{vm_name}': {current_name}")
+                click.echo(f"Session name for '{vm_name}': {current_name} (from {source})")
             else:
                 click.echo(f"No session name set for VM '{vm_name}'")
                 click.echo(f"\nSet one with: azlin session {vm_name} <session_name>")
             return
 
-        # Set session name
-        ConfigManager.set_session_name(vm_name, session_name, config)
-        click.echo(f"Set session name for '{vm_name}' to '{session_name}'")
+        # Set session name (write to both tags and config)
+        success_tag = False
+        success_config = False
+
+        # Set in tags (primary)
+        try:
+            TagManager.set_session_name(vm_name, rg, session_name)
+            success_tag = True
+        except Exception as e:
+            logger.warning(f"Failed to set session in tags: {e}")
+            click.echo(f"Warning: Could not set session name in VM tags: {e}", err=True)
+
+        # Set in config (backward compatibility)
+        try:
+            ConfigManager.set_session_name(vm_name, session_name, config)
+            success_config = True
+        except Exception as e:
+            logger.warning(f"Failed to set session in config: {e}")
+
+        if success_tag or success_config:
+            locations = []
+            if success_tag:
+                locations.append("VM tags")
+            if success_config:
+                locations.append("local config")
+            click.echo(
+                f"Set session name for '{vm_name}' to '{session_name}' in {' and '.join(locations)}"
+            )
+        else:
+            click.echo("Error: Failed to set session name", err=True)
+            sys.exit(1)
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
@@ -2085,6 +2208,11 @@ def kill(vm_name: str, resource_group: str | None, config: str | None, force: bo
         azlin kill my-vm --force
     """
     try:
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            vm_name = resolved_vm_name
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -2128,6 +2256,13 @@ def kill(vm_name: str, resource_group: str | None, config: str | None, force: bo
                 click.echo("\nDeleted resources:")
                 for resource in result.resources_deleted:
                     click.echo(f"  - {resource}")
+
+            # Clean up session name mapping
+            try:
+                if ConfigManager.delete_session_name(vm_name, config):
+                    click.echo("\nRemoved session name mapping")
+            except ConfigError:
+                pass  # Config cleanup is non-critical
         else:
             click.echo(f"\nError: {result.message}", err=True)
             sys.exit(1)
@@ -2280,6 +2415,11 @@ def destroy(
         azlin destroy my-vm --rg my-resource-group
     """
     try:
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            vm_name = resolved_vm_name
+
         rg = ConfigManager.get_resource_group(resource_group, config)
 
         if not rg:
@@ -3122,6 +3262,11 @@ def stop(vm_name: str, resource_group: str | None, config: str | None, deallocat
         azlin stop my-vm --no-deallocate
     """
     try:
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            vm_name = resolved_vm_name
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -3164,6 +3309,11 @@ def start(vm_name: str, resource_group: str | None, config: str | None):
         azlin start my-vm --rg my-resource-group
     """
     try:
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            vm_name = resolved_vm_name
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -3302,6 +3452,12 @@ def sync(vm_name: str | None, dry_run: bool, resource_group: str | None, config:
             click.echo("Error: Resource group required for VM name.", err=True)
             click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
             sys.exit(1)
+
+        # Resolve session name to VM name if applicable
+        if vm_name:
+            resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+            if resolved_vm_name:
+                vm_name = resolved_vm_name
 
         # Get VM
         if vm_name:
@@ -3976,6 +4132,7 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
         sys.exit(1)
 
 
+<<<<<<< HEAD
 @main.group()
 def ip():
     """IP diagnostics and network troubleshooting commands.
@@ -4106,6 +4263,9 @@ def ip_check(
 
 
 def _do_impl(  # noqa: C901
+=======
+def _do_impl(
+>>>>>>> origin/main
     request: str,
     dry_run: bool,
     yes: bool,
@@ -4343,7 +4503,7 @@ def do(
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
-def doit(  # noqa: C901
+def doit(
     objective: str,
     dry_run: bool,
     resource_group: str | None,
@@ -6159,6 +6319,9 @@ def snapshot_delete(
         sys.exit(1)
 
 
+# Register auth commands
+main.add_command(auth)
+
 # Register storage commands
 main.add_command(storage_group)
 
@@ -6449,7 +6612,7 @@ def _get_ssh_config_for_vm(
     """Helper to get SSH config for VM identifier.
 
     Args:
-        vm_identifier: VM name or IP address
+        vm_identifier: VM name, session name, or IP address
         resource_group: Resource group (required for VM name)
         config: Config file path
 
@@ -6466,6 +6629,11 @@ def _get_ssh_config_for_vm(
     if VMConnector.is_valid_ip(vm_identifier):
         # Direct IP connection
         return SSHConfig(host=vm_identifier, user="azureuser", key_path=ssh_key_pair.private_path)
+
+    # Resolve session name to VM name if applicable
+    resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_identifier, config)
+    if resolved_vm_name:
+        vm_identifier = resolved_vm_name
 
     # VM name - need resource group
     rg = ConfigManager.get_resource_group(resource_group, config)

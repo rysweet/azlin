@@ -34,7 +34,18 @@ class TagManager:
     - Removing tags from VMs
     - Getting tags from VMs
     - Filtering VMs by tags
+    - Session name management via tags (azlin-session)
+    - Cross-resource-group VM discovery (managed-by=azlin)
     """
+
+    # Standard azlin tag keys
+    TAG_MANAGED_BY = "managed-by"
+    TAG_SESSION = "azlin-session"
+    TAG_CREATED = "azlin-created"
+    TAG_OWNER = "azlin-owner"
+
+    # Tag values
+    MANAGED_BY_VALUE = "azlin"
 
     # Tag key validation: alphanumeric, underscore, hyphen, period
     TAG_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
@@ -302,3 +313,224 @@ class TagManager:
         # Azure allows most characters in tag values, including empty strings
         # Type annotation already guarantees it's a string
         return True
+
+    # Session management methods
+
+    @classmethod
+    def get_session_name(cls, vm_name: str, resource_group: str) -> str | None:
+        """Get session name from VM tags.
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+
+        Returns:
+            Session name or None if not set
+        """
+        try:
+            tags = cls.get_tags(vm_name, resource_group)
+            return tags.get(cls.TAG_SESSION)
+        except TagManagerError:
+            logger.debug(f"Failed to get session name for {vm_name}")
+            return None
+
+    @classmethod
+    def set_session_name(cls, vm_name: str, resource_group: str, session_name: str) -> bool:
+        """Set session name in VM tags.
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+            session_name: Session name to set
+
+        Returns:
+            True if successful
+
+        Raises:
+            TagManagerError: If tag update fails
+            ValueError: If session name invalid
+        """
+        if not cls.validate_session_name(session_name):
+            msg = f"Invalid session name: {session_name}. Must match [a-zA-Z0-9_-]+"
+            raise ValueError(msg)
+
+        # Update session tag
+        cls.add_tags(vm_name, resource_group, {cls.TAG_SESSION: session_name})
+        return True
+
+    @classmethod
+    def delete_session_name(cls, vm_name: str, resource_group: str) -> bool:
+        """Remove session name from VM tags.
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+
+        Returns:
+            True if session name was removed
+        """
+        try:
+            cls.remove_tags(vm_name, resource_group, [cls.TAG_SESSION])
+            return True
+        except TagManagerError:
+            logger.debug(f"Failed to delete session name for {vm_name}")
+            return False
+
+    @classmethod
+    def get_vm_by_session(
+        cls, session_name: str, resource_group: str | None = None
+    ) -> VMInfo | None:
+        """Find VM by session name.
+
+        Args:
+            session_name: Session name to search for
+            resource_group: Optional RG to limit search (None = search all RGs)
+
+        Returns:
+            VMInfo if found, None otherwise
+        """
+        try:
+            vms = cls.list_managed_vms(resource_group)
+
+            # Find VM with matching session tag
+            for vm in vms:
+                vm_session = cls.get_session_name(vm.name, vm.resource_group)
+                if vm_session == session_name:
+                    return vm
+
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to find VM by session '{session_name}': {e}")
+            return None
+
+    @classmethod
+    def list_managed_vms(cls, resource_group: str | None = None) -> list[VMInfo]:
+        """List all azlin-managed VMs.
+
+        Args:
+            resource_group: Optional RG to filter (None = all RGs)
+
+        Returns:
+            List of VMInfo objects for managed VMs
+
+        Raises:
+            TagManagerError: If list operation fails
+        """
+        from azlin.vm_manager import VMManager
+
+        try:
+            # Build Azure CLI command
+            cmd = ["az", "vm", "list", "--output", "json"]
+
+            if resource_group:
+                cmd.extend(["--resource-group", resource_group])
+
+            # Query for VMs with managed-by=azlin tag
+            cmd.extend(
+                [
+                    "--query",
+                    f"[?tags.\"{cls.TAG_MANAGED_BY}\"=='{cls.MANAGED_BY_VALUE}']",
+                ]
+            )
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+
+            vms_data = json.loads(result.stdout)
+
+            # Convert to VMInfo objects using VMManager's parser
+            vms = []
+            for vm_data in vms_data:
+                try:
+                    # Extract resource group from VM ID
+                    vm_id = vm_data.get("id", "")
+                    rg_parts = vm_id.split("/")
+                    rg = None
+                    for i, part in enumerate(rg_parts):
+                        if part == "resourceGroups" and i + 1 < len(rg_parts):
+                            rg = rg_parts[i + 1]
+                            break
+
+                    if not rg:
+                        rg = vm_data.get("resourceGroup")
+
+                    if rg:
+                        # Use VMManager to get full VM info
+                        vm_info = VMManager.get_vm(vm_data["name"], rg)
+                        if vm_info:
+                            vms.append(vm_info)
+                except Exception as e:
+                    logger.warning(f"Failed to parse VM data: {e}")
+                    continue
+
+            return vms
+
+        except subprocess.TimeoutExpired as e:
+            msg = "Azure CLI timeout while listing VMs"
+            raise TagManagerError(msg) from e
+        except subprocess.CalledProcessError as e:
+            msg = f"Failed to list VMs: {e.stderr}"
+            raise TagManagerError(msg) from e
+        except json.JSONDecodeError as e:
+            msg = f"Failed to parse VM list response: {e}"
+            raise TagManagerError(msg) from e
+
+    @classmethod
+    def set_managed_tags(
+        cls,
+        vm_name: str,
+        resource_group: str,
+        owner: str | None = None,
+        session_name: str | None = None,
+    ) -> bool:
+        """Set standard azlin management tags on VM.
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+            owner: Optional owner username
+            session_name: Optional session name
+
+        Returns:
+            True if successful
+
+        Raises:
+            TagManagerError: If tag update fails
+        """
+        from datetime import UTC, datetime
+
+        tags = {
+            cls.TAG_MANAGED_BY: cls.MANAGED_BY_VALUE,
+            cls.TAG_CREATED: datetime.now(UTC).isoformat(),
+        }
+
+        if owner:
+            tags[cls.TAG_OWNER] = owner
+
+        if session_name:
+            if not cls.validate_session_name(session_name):
+                msg = f"Invalid session name: {session_name}"
+                raise ValueError(msg)
+            tags[cls.TAG_SESSION] = session_name
+
+        cls.add_tags(vm_name, resource_group, tags)
+        return True
+
+    @classmethod
+    def validate_session_name(cls, session_name: str) -> bool:
+        """Validate session name format.
+
+        Args:
+            session_name: Session name to validate
+
+        Returns:
+            True if valid
+        """
+        if not session_name:
+            return False
+
+        if len(session_name) > 64:  # Reasonable limit
+            return False
+
+        # Must match: letters, numbers, hyphens, underscores
+        pattern = r"^[a-zA-Z0-9_-]+$"
+        return bool(re.match(pattern, session_name))
