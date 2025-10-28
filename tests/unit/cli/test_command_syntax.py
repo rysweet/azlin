@@ -192,7 +192,13 @@ class TestNewCommandSyntax:
 
         # Should either validate path or fail gracefully
         # Not a hard requirement but good UX
-        assert result.exit_code in [0, 1, 2, 3, 4]  # Accept various error codes (3 = Click usage, 4 = config error)
+        assert result.exit_code in [
+            0,
+            1,
+            2,
+            3,
+            4,
+        ]  # Accept various error codes (3 = Click usage, 4 = config error)
 
     def test_new_repo_empty_string_rejected(self):
         """Test 'azlin new --repo ""' rejects empty repo URL."""
