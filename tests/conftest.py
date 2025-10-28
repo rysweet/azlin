@@ -386,8 +386,7 @@ def assert_option_rejected(result, option_name: str):
         f"but got exit_code={result.exit_code}"
     )
     assert "no such option" in result.output.lower(), (
-        f"Expected 'no such option' error for {option_name}, "
-        f"but got: {result.output}"
+        f"Expected 'no such option' error for {option_name}, but got: {result.output}"
     )
 
 
@@ -403,7 +402,7 @@ def assert_command_succeeds(result):
     )
 
 
-def assert_command_fails(result, expected_error: str = None):
+def assert_command_fails(result, expected_error: str | None = None):
     """Assert that a command failed with non-zero exit code.
 
     Args:
@@ -411,14 +410,12 @@ def assert_command_fails(result, expected_error: str = None):
         expected_error: Optional substring to look for in error output
     """
     assert result.exit_code != 0, (
-        f"Expected command to fail (non-zero exit code), "
-        f"but got exit_code=0: {result.output}"
+        f"Expected command to fail (non-zero exit code), but got exit_code=0: {result.output}"
     )
 
     if expected_error:
         assert expected_error.lower() in result.output.lower(), (
-            f"Expected error containing '{expected_error}', "
-            f"but got: {result.output}"
+            f"Expected error containing '{expected_error}', but got: {result.output}"
         )
 
 
@@ -429,8 +426,7 @@ def assert_missing_argument_error(result):
         result: Click CliRunner result object
     """
     assert result.exit_code != 0, (
-        f"Expected non-zero exit code for missing argument, "
-        f"but got exit_code={result.exit_code}"
+        f"Expected non-zero exit code for missing argument, but got exit_code={result.exit_code}"
     )
     assert "missing argument" in result.output.lower() or "usage:" in result.output.lower(), (
         f"Expected 'missing argument' or 'usage' error, but got: {result.output}"
@@ -444,8 +440,7 @@ def assert_unexpected_argument_error(result):
         result: Click CliRunner result object
     """
     assert result.exit_code != 0, (
-        f"Expected non-zero exit code for unexpected argument, "
-        f"but got exit_code={result.exit_code}"
+        f"Expected non-zero exit code for unexpected argument, but got exit_code={result.exit_code}"
     )
     assert (
         "got unexpected extra argument" in result.output.lower()
@@ -453,7 +448,7 @@ def assert_unexpected_argument_error(result):
     ), f"Expected 'unexpected argument' error, but got: {result.output}"
 
 
-def assert_invalid_value_error(result, value_type: str = None):
+def assert_invalid_value_error(result, value_type: str | None = None):
     """Assert that command failed due to invalid option value.
 
     Args:
@@ -461,8 +456,7 @@ def assert_invalid_value_error(result, value_type: str = None):
         value_type: Optional type description (e.g., 'integer')
     """
     assert result.exit_code != 0, (
-        f"Expected non-zero exit code for invalid value, "
-        f"but got exit_code={result.exit_code}"
+        f"Expected non-zero exit code for invalid value, but got exit_code={result.exit_code}"
     )
 
     error_indicators = ["invalid", "error"]
@@ -470,9 +464,7 @@ def assert_invalid_value_error(result, value_type: str = None):
         error_indicators.append(value_type.lower())
 
     has_error = any(indicator in result.output.lower() for indicator in error_indicators)
-    assert has_error, (
-        f"Expected error containing {error_indicators}, but got: {result.output}"
-    )
+    assert has_error, f"Expected error containing {error_indicators}, but got: {result.output}"
 
 
 # ============================================================================

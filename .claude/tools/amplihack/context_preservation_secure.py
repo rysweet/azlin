@@ -456,12 +456,11 @@ class ContextPreserver:
                     len(sentence) > 10
                     and len(sentence) <= 500
                     and any(word in sentence.upper() for word in quantifier_words)
+                ) and (
+                    sentence not in requirements
+                    and len(requirements) < SecurityConfig.MAX_REQUIREMENTS
                 ):
-                    if (
-                        sentence not in requirements
-                        and len(requirements) < SecurityConfig.MAX_REQUIREMENTS
-                    ):
-                        requirements.append(sentence)
+                    requirements.append(sentence)
 
             # Extract bullet points - with safe regex and limits
             bullet_pattern = r"[-\u2022*]\s*([^\n]+)"
