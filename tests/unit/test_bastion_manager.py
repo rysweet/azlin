@@ -26,13 +26,16 @@ class TestBastionTunnel:
 
     def test_tunnel_creation(self):
         """Test creating BastionTunnel object."""
+        mock_process = Mock()
+        mock_process.poll.return_value = None  # Process still running
+
         tunnel = BastionTunnel(
             bastion_name="my-bastion",
             resource_group="my-rg",
             target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
             local_port=50022,
             remote_port=22,
-            process=Mock(),
+            process=mock_process,
         )
 
         assert tunnel.bastion_name == "my-bastion"
@@ -92,14 +95,16 @@ class TestBastionManager:
         # Arrange
         manager = BastionManager()
 
-        # Act
-        tunnel = manager.create_tunnel(
-            bastion_name="my-bastion",
-            resource_group="my-rg",
-            target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
-            local_port=50022,
-            remote_port=22,
-        )
+        # Mock the tunnel readiness check
+        with patch.object(manager, "_wait_for_tunnel_ready"):
+            # Act
+            tunnel = manager.create_tunnel(
+                bastion_name="my-bastion",
+                resource_group="my-rg",
+                target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
+                local_port=50022,
+                remote_port=22,
+            )
 
         # Assert
         assert tunnel is not None
@@ -123,14 +128,16 @@ class TestBastionManager:
         # Arrange
         manager = BastionManager()
 
-        # Act
-        tunnel = manager.create_tunnel(
-            bastion_name="my-bastion",
-            resource_group="my-rg",
-            target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
-            local_port=50080,
-            remote_port=80,
-        )
+        # Mock the tunnel readiness check
+        with patch.object(manager, "_wait_for_tunnel_ready"):
+            # Act
+            tunnel = manager.create_tunnel(
+                bastion_name="my-bastion",
+                resource_group="my-rg",
+                target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
+                local_port=50080,
+                remote_port=80,
+            )
 
         # Assert
         assert tunnel.local_port == 50080
@@ -190,13 +197,16 @@ class TestBastionManager:
         """Test closing tunnel successfully."""
         # Arrange
         manager = BastionManager()
-        tunnel = manager.create_tunnel(
-            bastion_name="my-bastion",
-            resource_group="my-rg",
-            target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
-            local_port=50022,
-            remote_port=22,
-        )
+
+        # Mock the tunnel readiness check
+        with patch.object(manager, "_wait_for_tunnel_ready"):
+            tunnel = manager.create_tunnel(
+                bastion_name="my-bastion",
+                resource_group="my-rg",
+                target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
+                local_port=50022,
+                remote_port=22,
+            )
 
         # Act
         manager.close_tunnel(tunnel)
@@ -209,13 +219,16 @@ class TestBastionManager:
         """Test force killing tunnel when terminate fails."""
         # Arrange
         manager = BastionManager()
-        tunnel = manager.create_tunnel(
-            bastion_name="my-bastion",
-            resource_group="my-rg",
-            target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
-            local_port=50022,
-            remote_port=22,
-        )
+
+        # Mock the tunnel readiness check
+        with patch.object(manager, "_wait_for_tunnel_ready"):
+            tunnel = manager.create_tunnel(
+                bastion_name="my-bastion",
+                resource_group="my-rg",
+                target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
+                local_port=50022,
+                remote_port=22,
+            )
 
         # Mock terminate timeout
         tunnel.process.wait.side_effect = subprocess.TimeoutExpired(cmd="az", timeout=5)
@@ -253,40 +266,53 @@ class TestBastionManager:
         """Test closing all active tunnels."""
         # Arrange
         manager = BastionManager()
-        tunnel1 = manager.create_tunnel(
-            bastion_name="bastion1",
-            resource_group="rg1",
-            target_vm_id="/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1",
-            local_port=50022,
-            remote_port=22,
-        )
-        tunnel2 = manager.create_tunnel(
-            bastion_name="bastion2",
-            resource_group="rg2",
-            target_vm_id="/subscriptions/sub/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/vm2",
-            local_port=50023,
-            remote_port=22,
-        )
+
+        # Create separate mock processes for each tunnel
+        mock_process1 = Mock()
+        mock_process1.poll.return_value = None
+        mock_process2 = Mock()
+        mock_process2.poll.return_value = None
+        mock_subprocess.side_effect = [mock_process1, mock_process2]
+
+        # Mock the tunnel readiness check
+        with patch.object(manager, "_wait_for_tunnel_ready"):
+            tunnel1 = manager.create_tunnel(
+                bastion_name="bastion1",
+                resource_group="rg1",
+                target_vm_id="/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1",
+                local_port=50022,
+                remote_port=22,
+            )
+            tunnel2 = manager.create_tunnel(
+                bastion_name="bastion2",
+                resource_group="rg2",
+                target_vm_id="/subscriptions/sub/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/vm2",
+                local_port=50023,
+                remote_port=22,
+            )
 
         # Act
         manager.close_all_tunnels()
 
         # Assert
-        tunnel1.process.terminate.assert_called_once()
-        tunnel2.process.terminate.assert_called_once()
+        mock_process1.terminate.assert_called_once()
+        mock_process2.terminate.assert_called_once()
         assert len(manager.active_tunnels) == 0
 
     def test_get_tunnel_by_port(self, mock_subprocess):
         """Test finding tunnel by local port."""
         # Arrange
         manager = BastionManager()
-        tunnel = manager.create_tunnel(
-            bastion_name="my-bastion",
-            resource_group="my-rg",
-            target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
-            local_port=50022,
-            remote_port=22,
-        )
+
+        # Mock the tunnel readiness check
+        with patch.object(manager, "_wait_for_tunnel_ready"):
+            tunnel = manager.create_tunnel(
+                bastion_name="my-bastion",
+                resource_group="my-rg",
+                target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
+                local_port=50022,
+                remote_port=22,
+            )
 
         # Act
         found_tunnel = manager.get_tunnel_by_port(50022)
@@ -336,20 +362,23 @@ class TestBastionManager:
         """Test listing all active tunnels."""
         # Arrange
         manager = BastionManager()
-        tunnel1 = manager.create_tunnel(
-            bastion_name="bastion1",
-            resource_group="rg1",
-            target_vm_id="/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1",
-            local_port=50022,
-            remote_port=22,
-        )
-        tunnel2 = manager.create_tunnel(
-            bastion_name="bastion2",
-            resource_group="rg2",
-            target_vm_id="/subscriptions/sub/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/vm2",
-            local_port=50023,
-            remote_port=22,
-        )
+
+        # Mock the tunnel readiness check
+        with patch.object(manager, "_wait_for_tunnel_ready"):
+            tunnel1 = manager.create_tunnel(
+                bastion_name="bastion1",
+                resource_group="rg1",
+                target_vm_id="/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1",
+                local_port=50022,
+                remote_port=22,
+            )
+            tunnel2 = manager.create_tunnel(
+                bastion_name="bastion2",
+                resource_group="rg2",
+                target_vm_id="/subscriptions/sub/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/vm2",
+                local_port=50023,
+                remote_port=22,
+            )
 
         # Act
         tunnels = manager.list_active_tunnels()
@@ -387,16 +416,23 @@ class TestBastionManager:
         """Test checking tunnel health."""
         # Arrange
         manager = BastionManager()
-        tunnel = manager.create_tunnel(
-            bastion_name="my-bastion",
-            resource_group="my-rg",
-            target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
-            local_port=50022,
-            remote_port=22,
-        )
 
-        # Act
-        is_healthy = manager.check_tunnel_health(tunnel)
+        # Mock the tunnel readiness check
+        with patch.object(manager, "_wait_for_tunnel_ready"):
+            tunnel = manager.create_tunnel(
+                bastion_name="my-bastion",
+                resource_group="my-rg",
+                target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
+                local_port=50022,
+                remote_port=22,
+            )
+
+        # Mock socket connection for health check
+        with patch("socket.socket") as mock_socket:
+            mock_socket.return_value.__enter__.return_value.connect.return_value = None
+
+            # Act
+            is_healthy = manager.check_tunnel_health(tunnel)
 
         # Assert
         assert is_healthy is True
@@ -542,13 +578,15 @@ class TestBastionManagerEdgeCases:
         with patch("subprocess.Popen") as mock_popen:
             mock_popen.return_value.poll.return_value = None
 
-            manager.create_tunnel(
-                bastion_name="my-bastion",
-                resource_group="my-rg",
-                target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
-                local_port=80,
-                remote_port=22,
-            )
+            # Mock the tunnel readiness check
+            with patch.object(manager, "_wait_for_tunnel_ready"):
+                manager.create_tunnel(
+                    bastion_name="my-bastion",
+                    resource_group="my-rg",
+                    target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
+                    local_port=80,
+                    remote_port=22,
+                )
 
             # Check warning was logged
             assert "privileged port" in caplog.text.lower()
@@ -563,13 +601,15 @@ class TestBastionManagerEdgeCases:
 
             # Act
             with BastionManager() as manager:
-                tunnel = manager.create_tunnel(
-                    bastion_name="my-bastion",
-                    resource_group="my-rg",
-                    target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
-                    local_port=50022,
-                    remote_port=22,
-                )
+                # Mock the tunnel readiness check
+                with patch.object(manager, "_wait_for_tunnel_ready"):
+                    tunnel = manager.create_tunnel(
+                        bastion_name="my-bastion",
+                        resource_group="my-rg",
+                        target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
+                        local_port=50022,
+                        remote_port=22,
+                    )
 
             # Assert - tunnel should be closed on context exit
             mock_process.terminate.assert_called_once()
@@ -586,21 +626,23 @@ class TestBastionManagerEdgeCases:
             mock_process2.poll.return_value = None
             mock_popen.side_effect = [mock_process1, mock_process2]
 
-            # Act
-            tunnel1 = manager.create_tunnel(
-                bastion_name="bastion1",
-                resource_group="rg1",
-                target_vm_id="/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1",
-                local_port=50022,
-                remote_port=22,
-            )
-            tunnel2 = manager.create_tunnel(
-                bastion_name="bastion2",
-                resource_group="rg2",
-                target_vm_id="/subscriptions/sub/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/vm2",
-                local_port=50023,
-                remote_port=22,
-            )
+            # Mock the tunnel readiness check
+            with patch.object(manager, "_wait_for_tunnel_ready"):
+                # Act
+                tunnel1 = manager.create_tunnel(
+                    bastion_name="bastion1",
+                    resource_group="rg1",
+                    target_vm_id="/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1",
+                    local_port=50022,
+                    remote_port=22,
+                )
+                tunnel2 = manager.create_tunnel(
+                    bastion_name="bastion2",
+                    resource_group="rg2",
+                    target_vm_id="/subscriptions/sub/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/vm2",
+                    local_port=50023,
+                    remote_port=22,
+                )
 
             # Assert
             assert tunnel1.local_port != tunnel2.local_port
