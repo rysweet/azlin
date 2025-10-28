@@ -77,6 +77,31 @@ class BastionManager:
     # Tunnel readiness timeout
     DEFAULT_TUNNEL_TIMEOUT = 30
 
+    @staticmethod
+    def _sanitize_tunnel_error(stderr: str) -> str:
+        """Sanitize tunnel process error output to prevent information leakage.
+
+        Args:
+            stderr: Raw stderr from az network bastion tunnel
+
+        Returns:
+            Sanitized error message safe for user display
+        """
+        # Check for known safe error patterns
+        if "ResourceNotFound" in stderr:
+            return "Bastion or VM resource not found"
+        if "AuthenticationFailed" in stderr or "Unauthorized" in stderr:
+            return "Authentication failed"
+        if "AuthorizationFailed" in stderr or "Forbidden" in stderr:
+            return "Insufficient permissions"
+        if "NetworkNotReachable" in stderr or "timeout" in stderr.lower():
+            return "Network connectivity issue"
+        if "PortInUse" in stderr or "Address already in use" in stderr:
+            return "Local port already in use"
+        # Generic message for unknown errors - log full details for debugging
+        logger.debug(f"Tunnel error details: {stderr}")
+        return "Tunnel creation failed"
+
     def __init__(self):
         """Initialize BastionManager.
 
@@ -324,7 +349,8 @@ class BastionManager:
                         f"Bastion host not found: {tunnel.bastion_name} in {tunnel.resource_group}"
                     )
 
-                raise BastionManagerError(f"Tunnel process exited unexpectedly: {stderr}")
+                safe_error = self._sanitize_tunnel_error(stderr)
+                raise BastionManagerError(f"Tunnel process failed: {safe_error}")
 
             # Try to connect to local port
             try:

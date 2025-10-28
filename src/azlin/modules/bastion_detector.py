@@ -38,6 +38,31 @@ class BastionDetector:
     All Azure operations delegate to Azure CLI.
     """
 
+    @staticmethod
+    def _sanitize_azure_error(stderr: str) -> str:
+        """Sanitize Azure CLI error output to prevent information leakage.
+
+        Args:
+            stderr: Raw stderr from Azure CLI
+
+        Returns:
+            Sanitized error message safe for user display
+        """
+        # Check for known safe error patterns
+        if "ResourceNotFound" in stderr:
+            return "Resource not found"
+        if "InvalidAuthenticationToken" in stderr or "AuthenticationFailed" in stderr:
+            return "Authentication failed"
+        if "AuthorizationFailed" in stderr or "Forbidden" in stderr:
+            return "Insufficient permissions"
+        if "SubscriptionNotFound" in stderr:
+            return "Subscription not accessible"
+        if "NetworkNotFound" in stderr:
+            return "Network resource not found"
+        # Generic message for unknown errors - log full details for debugging
+        logger.debug(f"Azure CLI error details: {stderr}")
+        return "Azure operation failed"
+
     @classmethod
     def detect_bastion_for_vm(cls, vm_name: str, resource_group: str) -> dict[str, str] | None:
         """Detect if a Bastion host is available for VM.
@@ -112,8 +137,9 @@ class BastionDetector:
             return bastions
 
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to list Bastion hosts: {e.stderr}")
-            raise BastionDetectorError(f"Failed to list Bastion hosts: {e.stderr}") from e
+            safe_error = cls._sanitize_azure_error(e.stderr)
+            logger.error(f"Failed to list Bastion hosts: {safe_error}")
+            raise BastionDetectorError(f"Failed to list Bastion hosts: {safe_error}") from e
         except json.JSONDecodeError as e:
             raise BastionDetectorError(f"Failed to parse Bastion list: {e}") from e
         except Exception as e:
@@ -158,8 +184,9 @@ class BastionDetector:
                 if "ResourceNotFound" in result.stderr:
                     logger.debug(f"Bastion not found: {bastion_name} in {resource_group}")
                     return None
-                logger.error(f"Failed to get Bastion: {result.stderr}")
-                raise BastionDetectorError(f"Failed to get Bastion: {result.stderr}")
+                safe_error = cls._sanitize_azure_error(result.stderr)
+                logger.error(f"Failed to get Bastion: {safe_error}")
+                raise BastionDetectorError(f"Failed to get Bastion: {safe_error}")
 
             bastion = json.loads(result.stdout)
             logger.debug(f"Found Bastion: {bastion_name}")
