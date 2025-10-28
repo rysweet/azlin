@@ -252,7 +252,7 @@ azlin list
 ### Documentation
 
 - **Architecture**: See [AUTH_ARCHITECTURE_DESIGN.md](docs/AUTH_ARCHITECTURE_DESIGN.md) for authentication architecture
-- **Implementation**: See [AUTH_IMPLEMENTATION_GUIDE.md](AUTH_IMPLEMENTATION_GUIDE.md) for setup and implementation details
+- **Implementation**: See [AUTH_IMPLEMENTATION_GUIDE.md](docs/AUTH_IMPLEMENTATION_GUIDE.md) for setup and implementation details
 
 ### Profile Management
 
@@ -269,7 +269,7 @@ azlin auth show prod
 azlin auth remove dev
 ```
 
-For detailed authentication setup and troubleshooting, see the [Authentication Implementation Guide](AUTH_IMPLEMENTATION_GUIDE.md).
+For detailed authentication setup and troubleshooting, see the [Authentication Implementation Guide](docs/AUTH_IMPLEMENTATION_GUIDE.md).
 
 # Comprehensive Command Reference
 
