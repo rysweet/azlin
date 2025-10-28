@@ -1391,88 +1391,6 @@ azlin batch command 'long-task.sh' --all --timeout 600
 
 ---
 
-## Authentication
-
-Manage service principal authentication for automated Azure operations without interactive login.
-
-### `azlin auth setup` - Create authentication profile
-
-Interactive setup for service principal credentials.
-
-```bash
-# Create new profile
-azlin auth setup --profile production
-
-# Follow prompts to enter:
-# - Subscription ID
-# - Tenant ID
-# - Client ID
-# - Client Secret
-```
-
-**What it does:**
-- Securely stores credentials in `~/.azlin/auth/<profile>.json`
-- Sets file permissions to 0600 (owner read/write only)
-- Validates credentials with test API call
-
-### `azlin auth list` - List profiles
-
-```bash
-# Show all configured profiles
-azlin auth list
-```
-
-**Output:**
-```
-Available authentication profiles:
-  - production (Subscription: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
-  - staging (Subscription: yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy)
-  - development (Subscription: zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz)
-```
-
-### `azlin auth show` - Show profile details
-
-```bash
-# View profile configuration
-azlin auth show production
-```
-
-### `azlin auth test` - Test authentication
-
-```bash
-# Verify credentials work
-azlin auth test --profile production
-```
-
-### `azlin auth remove` - Delete profile
-
-```bash
-# Remove authentication profile
-azlin auth remove production
-```
-
-**Security:**
-- Credentials stored locally in `~/.azlin/auth/`
-- File permissions: 0600 (readable only by owner)
-- Never logged or transmitted except to Azure
-- Use Azure Key Vault in production environments
-
-**Use cases:**
-- CI/CD pipeline automation
-- Scheduled VM operations
-- Multi-tenant management
-- Service account authentication
-
-**Creating Service Principal:**
-```bash
-# Azure CLI method
-az ad sp create-for-rbac --name azlin-automation --role Contributor --scopes /subscriptions/{subscription-id}
-
-# Save output values for auth setup
-```
-
----
-
 ## SSH Key Management
 
 Rotate and manage SSH keys across all VMs for enhanced security.
@@ -1938,7 +1856,6 @@ azlin ps  # Check for resource-heavy processes
 | `azlin top` | Real-time monitor | `azlin top` |
 | `azlin prune` | Auto cleanup | `azlin prune --dry-run` |
 | `azlin batch` | Batch operations | `azlin batch stop --tag env=test` |
-| `azlin auth` | Authentication | `azlin auth setup --profile prod` |
 | `azlin keys` | SSH key mgmt | `azlin keys rotate` |
 | `azlin template` | VM templates | `azlin template create dev-vm` |
 | `azlin w` | Who's logged in | `azlin w` |
