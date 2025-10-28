@@ -278,6 +278,24 @@ For detailed authentication setup and troubleshooting, see the [Authentication I
 
 This section provides detailed examples of all azlin commands with practical use cases.
 
+## Common Options
+
+Most azlin commands support these standard options:
+
+- **`--resource-group, --rg TEXT`** - Specify the Azure resource group to use. If not provided, uses the default resource group from your config file (`~/.azlin/config.toml`) or prompts for selection.
+- **`--config PATH`** - Path to a custom config file (overrides the default `~/.azlin/config.toml`)
+
+These options are available on nearly all commands that interact with Azure resources, including:
+- VM management: `new`, `list`, `start`, `stop`, `kill`, `destroy`, `status`
+- Maintenance: `update`, `os-update`, `prune`
+- Monitoring: `w`, `ps`, `top`, `cost`
+- File operations: `sync`, `cp`
+- Storage: `storage list`, `storage create`, `storage mount`, etc.
+- Snapshots: `snapshot create`, `snapshot list`, `snapshot restore`, etc.
+- Environment: `env set`, `env list`, `env import`, etc.
+- SSH keys: `keys rotate`, `keys list`
+- Sessions: `session`, `killall`
+
 ## Natural Language Commands (AI-Powered)
 
 **New in v2.1**: Use natural language to control azlin with Claude AI
@@ -992,15 +1010,24 @@ Monitor CPU, memory, and processes across all VMs in a unified dashboard.
 # Default: 10 second refresh
 azlin top
 
-# 5 second refresh
+# Custom refresh rate (5 second refresh)
+azlin top --interval 5
 azlin top -i 5
+
+# Custom SSH timeout per VM (default 5s)
+azlin top --timeout 10
+azlin top -t 10
 
 # Specific resource group
 azlin top --rg my-rg
 
-# Custom timeout
+# Combine options: 15s refresh, 10s timeout
 azlin top -i 15 -t 10
 ```
+
+**Options:**
+- `--interval, -i SECONDS` - Refresh rate (default: 10 seconds)
+- `--timeout, -t SECONDS` - SSH timeout per VM (default: 5 seconds)
 
 **Output:** Real-time dashboard showing:
 - CPU usage per VM
@@ -1400,23 +1427,37 @@ Rotate and manage SSH keys across all VMs for enhanced security.
 
 ### `azlin keys rotate` - Rotate SSH keys
 
-Generate new SSH keys and update all VMs in resource group.
+Generate new SSH keys and update VMs in resource group.
 
 ```bash
-# Rotate keys for all VMs (automatically backs up old keys)
+# Rotate keys for azlin VMs only (default: VMs with "azlin" prefix)
 azlin keys rotate
+
+# Rotate keys for ALL VMs in resource group
+azlin keys rotate --all-vms
+
+# Rotate keys for VMs with specific prefix
+azlin keys rotate --vm-prefix production
 
 # Specific resource group
 azlin keys rotate --rg production
 
 # Skip backup (not recommended)
 azlin keys rotate --no-backup
+
+# Combine options
+azlin keys rotate --all-vms --rg production --no-backup
 ```
+
+**Options:**
+- `--all-vms` - Rotate keys for ALL VMs (not just those with --vm-prefix)
+- `--vm-prefix PREFIX` - Only rotate keys for VMs with this prefix (default: "azlin")
+- `--no-backup` - Skip backing up old keys (not recommended)
 
 **What happens:**
 1. Generates new SSH key pair
 2. Backs up existing keys (unless `--no-backup`)
-3. Updates all VMs with new public key
+3. Updates matching VMs with new public key
 4. Verifies SSH access with new keys
 5. Removes old keys from VMs
 
@@ -1468,18 +1509,34 @@ Save and reuse VM configurations for consistent provisioning.
 
 ### `azlin template create` - Create template
 
-Interactive wizard to create a VM configuration template.
+Create a VM configuration template with optional parameters.
 
 ```bash
-# Create new template
+# Create template with all defaults (uses config file values)
 azlin template create dev-vm
 
-# Follow prompts for:
-# - VM size
-# - Region
-# - Disk size
-# - Network configuration
+# Create template with specific VM size and region
+azlin template create dev-vm --vm-size Standard_B2s --region westus2
+
+# Create template with description
+azlin template create prod-vm --description "Production configuration"
+
+# Create template with cloud-init script
+azlin template create custom-vm --cloud-init ~/my-cloud-init.yaml
+
+# Combine all options
+azlin template create ml-vm \
+  --vm-size Standard_NC6 \
+  --region eastus \
+  --description "GPU-enabled ML training VM" \
+  --cloud-init ~/ml-setup.yaml
 ```
+
+**Options:**
+- `--vm-size SIZE` - VM size (default: from config or Standard_D2s_v3)
+- `--region REGION` - Azure region (default: from config or eastus)
+- `--description TEXT` - Template description
+- `--cloud-init PATH` - Path to cloud-init YAML file for custom VM setup
 
 **Templates stored at:** `~/.azlin/templates/<name>.yaml`
 
@@ -1550,7 +1607,13 @@ azlin env set my-vm DATABASE_URL="postgres://localhost/db"
 
 # Set multiple variables
 azlin env set my-vm API_KEY="secret123" ENVIRONMENT="production"
+
+# Set variable containing secrets (skip warning)
+azlin env set my-vm API_KEY="secret123" --force
 ```
+
+**Options:**
+- `--force` - Skip warnings when setting variables that may contain secrets
 
 Variables are added to `~/.bashrc` with comment:
 ```bash
@@ -1656,9 +1719,15 @@ azlin snapshot create my-vm
 Remove an existing snapshot.
 
 ```bash
-# Delete snapshot
+# Delete snapshot (with confirmation)
 azlin snapshot delete my-vm-snapshot-20251015-053000
+
+# Delete without confirmation
+azlin snapshot delete my-vm-snapshot-20251015-053000 --force
 ```
+
+**Options:**
+- `--force` - Skip confirmation prompt
 
 ### `azlin snapshot list` - List snapshots
 
