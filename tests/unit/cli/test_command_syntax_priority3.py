@@ -22,7 +22,6 @@ from click.testing import CliRunner
 
 from azlin.cli import main
 
-
 # =============================================================================
 # TEST CLASS: azlin batch (18 tests)
 # =============================================================================
@@ -626,7 +625,9 @@ class TestSnapshotCommandSyntax:
     def test_snapshot_enable_keep_option(self):
         """Test 'azlin snapshot enable my-vm --every 24 --keep 5' accepts keep count."""
         runner = CliRunner()
-        result = runner.invoke(main, ["snapshot", "enable", "my-vm", "--every", "24", "--keep", "5"])
+        result = runner.invoke(
+            main, ["snapshot", "enable", "my-vm", "--every", "24", "--keep", "5"]
+        )
 
         assert "no such option" not in result.output.lower()
 

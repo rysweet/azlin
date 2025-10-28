@@ -24,7 +24,6 @@ from click.testing import CliRunner
 
 from azlin.cli import main
 
-
 # =============================================================================
 # TEST CLASS: azlin new (25 tests)
 # =============================================================================
@@ -224,7 +223,10 @@ class TestNewCommandSyntax:
 
         # 'true' should be treated as extra positional arg and rejected
         assert result.exit_code != 0
-        assert "unexpected" in result.output.lower() or "got unexpected extra argument" in result.output.lower()
+        assert (
+            "unexpected" in result.output.lower()
+            or "got unexpected extra argument" in result.output.lower()
+        )
 
     # -------------------------------------------------------------------------
     # Category 5: Command Aliases (3 tests)
@@ -256,9 +258,13 @@ class TestNewCommandSyntax:
         runner = CliRunner()
 
         # Test --repo on all three
-        result_new = runner.invoke(main, ["new", "--repo", "https://github.com/test/repo", "--help"])
+        result_new = runner.invoke(
+            main, ["new", "--repo", "https://github.com/test/repo", "--help"]
+        )
         result_vm = runner.invoke(main, ["vm", "--repo", "https://github.com/test/repo", "--help"])
-        result_create = runner.invoke(main, ["create", "--repo", "https://github.com/test/repo", "--help"])
+        result_create = runner.invoke(
+            main, ["create", "--repo", "https://github.com/test/repo", "--help"]
+        )
 
         assert result_new.exit_code == 0
         assert result_vm.exit_code == 0
@@ -271,14 +277,21 @@ class TestNewCommandSyntax:
     def test_new_multiple_options_combined(self):
         """Test 'azlin new' with multiple options combined."""
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "new",
-            "--name", "test-vm",
-            "--vm-size", "Standard_B2s",
-            "--region", "westus",
-            "--rg", "my-rg",
-            "--help"
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "new",
+                "--name",
+                "test-vm",
+                "--vm-size",
+                "Standard_B2s",
+                "--region",
+                "westus",
+                "--rg",
+                "my-rg",
+                "--help",
+            ],
+        )
 
         assert result.exit_code == 0
 
@@ -288,12 +301,9 @@ class TestNewCommandSyntax:
         Template and explicit options can coexist (explicit wins).
         """
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "new",
-            "--template", "dev-vm",
-            "--vm-size", "Standard_D2s_v3",
-            "--help"
-        ])
+        result = runner.invoke(
+            main, ["new", "--template", "dev-vm", "--vm-size", "Standard_D2s_v3", "--help"]
+        )
 
         assert result.exit_code == 0
 
@@ -303,12 +313,7 @@ class TestNewCommandSyntax:
         Name with pool should create my-vm-1, my-vm-2, etc.
         """
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "new",
-            "--pool", "5",
-            "--name", "my-vm",
-            "--help"
-        ])
+        result = runner.invoke(main, ["new", "--pool", "5", "--name", "my-vm", "--help"])
 
         assert result.exit_code == 0
 
@@ -405,13 +410,9 @@ class TestListCommandSyntax:
     def test_list_combined_filters(self):
         """Test 'azlin list --all --tag env=dev --rg my-rg' combines filters."""
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "list",
-            "--all",
-            "--tag", "env=dev",
-            "--rg", "my-rg",
-            "--help"
-        ])
+        result = runner.invoke(
+            main, ["list", "--all", "--tag", "env=dev", "--rg", "my-rg", "--help"]
+        )
 
         assert result.exit_code == 0
 
@@ -449,9 +450,11 @@ class TestListCommandSyntax:
         # Empty tag filter should be rejected
         # XFAIL in RED phase: Implementation doesn't validate yet
         assert result.exit_code != 0
-        assert ("invalid" in result.output.lower() or
-                "empty" in result.output.lower() or
-                "requires" in result.output.lower())
+        assert (
+            "invalid" in result.output.lower()
+            or "empty" in result.output.lower()
+            or "requires" in result.output.lower()
+        )
 
     # -------------------------------------------------------------------------
     # Category 4: Option Value Types (3 tests)
@@ -463,7 +466,9 @@ class TestListCommandSyntax:
         result = runner.invoke(main, ["list", "--rg"])
 
         assert result.exit_code != 0
-        assert "requires an argument" in result.output.lower() or "expected" in result.output.lower()
+        assert (
+            "requires an argument" in result.output.lower() or "expected" in result.output.lower()
+        )
 
     def test_list_tag_requires_value(self):
         """Test 'azlin list --tag' without value fails."""
@@ -629,10 +634,9 @@ class TestConnectCommandSyntax:
     def test_connect_remote_command_multiple_args(self):
         """Test 'azlin connect my-vm -- python script.py --arg value' passes all args."""
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "connect", "my-vm",
-            "--", "python", "script.py", "--arg", "value"
-        ])
+        result = runner.invoke(
+            main, ["connect", "my-vm", "--", "python", "script.py", "--arg", "value"]
+        )
 
         # Should not error on syntax, only on execution
         assert "no such option" not in result.output.lower()

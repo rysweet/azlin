@@ -18,7 +18,6 @@ from click.testing import CliRunner
 
 from azlin.cli import main
 
-
 # =============================================================================
 # TEST CLASS: azlin start (10 tests)
 # =============================================================================
@@ -120,12 +119,16 @@ class TestStartCommandSyntax:
         result = runner.invoke(main, ["start", "my-vm", "--rg"])
 
         assert result.exit_code != 0
-        assert "requires an argument" in result.output.lower() or "expected" in result.output.lower()
+        assert (
+            "requires an argument" in result.output.lower() or "expected" in result.output.lower()
+        )
 
     def test_start_combined_options(self):
         """Test 'azlin start my-vm --rg my-rg --config config.toml' combines options."""
         runner = CliRunner()
-        result = runner.invoke(main, ["start", "my-vm", "--rg", "my-rg", "--config", "/tmp/config.toml"])
+        result = runner.invoke(
+            main, ["start", "my-vm", "--rg", "my-rg", "--config", "/tmp/config.toml"]
+        )
 
         assert "no such option" not in result.output.lower()
 
@@ -393,7 +396,9 @@ class TestStatusCommandSyntax:
     def test_status_all_options_combined(self):
         """Test 'azlin status --rg my-rg --vm my-vm --config config.toml' combines all."""
         runner = CliRunner()
-        result = runner.invoke(main, ["status", "--rg", "my-rg", "--vm", "my-vm", "--config", "/tmp/config.toml"])
+        result = runner.invoke(
+            main, ["status", "--rg", "my-rg", "--vm", "my-vm", "--config", "/tmp/config.toml"]
+        )
 
         assert "no such option" not in result.output.lower()
 
@@ -534,7 +539,10 @@ class TestCpCommandSyntax:
     def test_cp_all_options_combined(self):
         """Test 'azlin cp src vm1:dest --dry-run --rg rg --config cfg' combines options."""
         runner = CliRunner()
-        result = runner.invoke(main, ["cp", "src", "vm1:dest", "--dry-run", "--rg", "my-rg", "--config", "/tmp/config.toml"])
+        result = runner.invoke(
+            main,
+            ["cp", "src", "vm1:dest", "--dry-run", "--rg", "my-rg", "--config", "/tmp/config.toml"],
+        )
 
         assert "no such option" not in result.output.lower()
 
@@ -827,7 +835,9 @@ class TestSessionCommandSyntax:
     def test_session_all_options_combined(self):
         """Test 'azlin session my-vm name --rg rg --config cfg' combines all."""
         runner = CliRunner()
-        result = runner.invoke(main, ["session", "my-vm", "name", "--rg", "my-rg", "--config", "/tmp/config.toml"])
+        result = runner.invoke(
+            main, ["session", "my-vm", "name", "--rg", "my-rg", "--config", "/tmp/config.toml"]
+        )
 
         assert "no such option" not in result.output.lower()
 
@@ -1030,13 +1040,19 @@ class TestKillallCommandSyntax:
     def test_killall_all_options_combined(self):
         """Test 'azlin killall --rg rg --force --prefix test- --config cfg' combines all."""
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "killall",
-            "--rg", "my-rg",
-            "--force",
-            "--prefix", "test-",
-            "--config", "/tmp/config.toml"
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "killall",
+                "--rg",
+                "my-rg",
+                "--force",
+                "--prefix",
+                "test-",
+                "--config",
+                "/tmp/config.toml",
+            ],
+        )
 
         assert "no such option" not in result.output.lower()
 

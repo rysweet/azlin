@@ -23,7 +23,6 @@ from click.testing import CliRunner
 
 from azlin.cli import main
 
-
 # =============================================================================
 # TEST CLASS: azlin keys (14 tests)
 # =============================================================================
@@ -95,7 +94,9 @@ class TestKeysCommandSyntax:
     def test_keys_rotate_combined_options(self):
         """Test 'azlin keys rotate --rg my-rg --config cfg' combines options."""
         runner = CliRunner()
-        result = runner.invoke(main, ["keys", "rotate", "--rg", "my-rg", "--config", "/tmp/config.toml"])
+        result = runner.invoke(
+            main, ["keys", "rotate", "--rg", "my-rg", "--config", "/tmp/config.toml"]
+        )
 
         assert "no such option" not in result.output.lower()
 
@@ -271,14 +272,20 @@ class TestCostCommandSyntax:
     def test_cost_all_options_combined(self):
         """Test 'azlin cost --rg rg --by-vm --from 2025-01-01 --to 2025-01-31 --estimate' combines all."""
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "cost",
-            "--rg", "my-rg",
-            "--by-vm",
-            "--from", "2025-01-01",
-            "--to", "2025-01-31",
-            "--estimate"
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "cost",
+                "--rg",
+                "my-rg",
+                "--by-vm",
+                "--from",
+                "2025-01-01",
+                "--to",
+                "2025-01-31",
+                "--estimate",
+            ],
+        )
 
         assert "no such option" not in result.output.lower()
 
@@ -505,28 +512,31 @@ class TestPruneCommandSyntax:
     def test_prune_all_flags_combined(self):
         """Test 'azlin prune --dry-run --force --include-running --include-named' combines all flags."""
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "prune",
-            "--dry-run",
-            "--force",
-            "--include-running",
-            "--include-named"
-        ])
+        result = runner.invoke(
+            main, ["prune", "--dry-run", "--force", "--include-running", "--include-named"]
+        )
 
         assert "no such option" not in result.output.lower()
 
     def test_prune_all_options_combined(self):
         """Test all prune options combined."""
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "prune",
-            "--rg", "my-rg",
-            "--age-days", "7",
-            "--idle-days", "3",
-            "--dry-run",
-            "--force",
-            "--config", "/tmp/config.toml"
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "prune",
+                "--rg",
+                "my-rg",
+                "--age-days",
+                "7",
+                "--idle-days",
+                "3",
+                "--dry-run",
+                "--force",
+                "--config",
+                "/tmp/config.toml",
+            ],
+        )
 
         assert "no such option" not in result.output.lower()
 
@@ -625,13 +635,9 @@ class TestDoCommandSyntax:
     def test_do_all_options_combined(self):
         """Test 'azlin do "list" --dry-run --yes --verbose --rg rg' combines all options."""
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "do", "list vms",
-            "--dry-run",
-            "--yes",
-            "--verbose",
-            "--rg", "my-rg"
-        ])
+        result = runner.invoke(
+            main, ["do", "list vms", "--dry-run", "--yes", "--verbose", "--rg", "my-rg"]
+        )
 
         assert "no such option" not in result.output.lower()
 
@@ -730,13 +736,19 @@ class TestDoitCommandSyntax:
     def test_doit_all_options_combined(self):
         """Test 'azlin doit "create" --dry-run --verbose --rg rg --config cfg' combines all."""
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "doit", "create vm",
-            "--dry-run",
-            "--verbose",
-            "--rg", "my-rg",
-            "--config", "/tmp/config.toml"
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "doit",
+                "create vm",
+                "--dry-run",
+                "--verbose",
+                "--rg",
+                "my-rg",
+                "--config",
+                "/tmp/config.toml",
+            ],
+        )
 
         assert "no such option" not in result.output.lower()
 
