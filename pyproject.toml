@@ -57,6 +57,11 @@ markers = [
     "unit: Unit tests (fast)",
     "integration: Integration tests (medium)",
     "e2e: End-to-end tests (slow, expensive)",
+    "tdd_red: Tests expected to fail in TDD RED phase (pre-implementation)",
+    "syntax: Syntax validation tests",
+    "command_new: Tests for 'azlin new' command",
+    "command_list: Tests for 'azlin list' command",
+    "command_connect: Tests for 'azlin connect' command",
 ]
 addopts = "-ra -q"
 
