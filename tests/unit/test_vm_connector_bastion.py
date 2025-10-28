@@ -418,7 +418,9 @@ class TestBastionErrorHandling:
         mock_bastion_mgr.return_value.create_tunnel.side_effect = Exception("Bastion not found")
 
         # Act & Assert
-        with pytest.raises(VMConnectorError, match="(Failed to create Bastion tunnel|Bastion not found)"):
+        with pytest.raises(
+            VMConnectorError, match="(Failed to create Bastion tunnel|Bastion not found)"
+        ):
             VMConnector.connect(vm_identifier="test-vm", resource_group="test-rg")
 
     @patch("azlin.vm_connector.BastionManager")
