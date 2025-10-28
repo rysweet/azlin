@@ -12,10 +12,8 @@ Test Coverage:
 - TagManager integration
 """
 
-import json
 from unittest.mock import Mock, patch
 
-import pytest
 from click.testing import CliRunner
 
 from azlin.cli import main as cli
@@ -25,9 +23,10 @@ from azlin.tag_manager import TagManagerError
 class TestTagAddCommand:
     """Test 'azlin tag add' command - Issue #185."""
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_single_tag_success(self, mock_add_tags, mock_config_load):
+    def test_tag_add_single_tag_success(self, mock_add_tags, mock_config_load, mock_get_vm):
         """Test adding a single tag to a VM successfully.
 
         Expected command: azlin tag add myvm environment=production
@@ -41,7 +40,8 @@ class TestTagAddCommand:
         Expected to FAIL until command is implemented.
         """
         # Mock config to return resource group
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_add_tags.return_value = None
 
         runner = CliRunner()
@@ -49,16 +49,15 @@ class TestTagAddCommand:
 
         # Verify command succeeded
         assert result.exit_code == 0, f"Command failed: {result.output}"
-        assert "Successfully added tags" in result.output or "Added tags" in result.output
+        assert "Successfully added" in result.output
 
         # Verify TagManager.add_tags was called correctly
-        mock_add_tags.assert_called_once_with(
-            vm_name="myvm", resource_group="test-rg", tags={"environment": "production"}
-        )
+        mock_add_tags.assert_called_once_with("myvm", "test-rg", {"environment": "production"})
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_multiple_tags_success(self, mock_add_tags, mock_config_load):
+    def test_tag_add_multiple_tags_success(self, mock_add_tags, mock_config_load, mock_get_vm):
         """Test adding multiple tags to a VM in a single command.
 
         Expected command: azlin tag add myvm env=prod team=backend version=1.0
@@ -71,7 +70,8 @@ class TestTagAddCommand:
         Expected to FAIL until command is implemented.
         """
         # Mock config to return resource group
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_add_tags.return_value = None
 
         runner = CliRunner()
@@ -84,14 +84,13 @@ class TestTagAddCommand:
 
         # Verify all tags were passed
         mock_add_tags.assert_called_once_with(
-            vm_name="myvm",
-            resource_group="test-rg",
-            tags={"env": "prod", "team": "backend", "version": "1.0"},
+            "myvm", "test-rg", {"env": "prod", "team": "backend", "version": "1.0"}
         )
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_with_spaces_in_value(self, mock_add_tags, mock_config_load):
+    def test_tag_add_with_spaces_in_value(self, mock_add_tags, mock_config_load, mock_get_vm):
         """Test adding tag with spaces in value.
 
         Expected command: azlin tag add myvm "description=Production Web Server"
@@ -100,22 +99,20 @@ class TestTagAddCommand:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_add_tags.return_value = None
 
         runner = CliRunner()
         result = runner.invoke(cli, ["tag", "add", "myvm", "description=Production Web Server"])
 
         assert result.exit_code == 0, f"Command failed: {result.output}"
-        mock_add_tags.assert_called_once_with(
-            vm_name="myvm",
-            resource_group="test-rg",
-            tags={"description": "Production Web Server"},
-        )
+        mock_add_tags.assert_called_once_with("myvm", "test-rg", {"description": "Production Web Server"})
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_with_resource_group_flag(self, mock_add_tags, mock_config_load):
+    def test_tag_add_with_resource_group_flag(self, mock_add_tags, mock_config_load, mock_get_vm):
         """Test adding tags with explicit --resource-group flag.
 
         Expected command: azlin tag add myvm env=prod --resource-group custom-rg
@@ -126,7 +123,8 @@ class TestTagAddCommand:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="default-rg")
+        mock_config_load.return_value = Mock(default_resource_group="default-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_add_tags.return_value = None
 
         runner = CliRunner()
@@ -137,12 +135,11 @@ class TestTagAddCommand:
         assert result.exit_code == 0, f"Command failed: {result.output}"
 
         # Verify custom resource group was used
-        mock_add_tags.assert_called_once_with(
-            vm_name="myvm", resource_group="custom-rg", tags={"env": "prod"}
-        )
+        mock_add_tags.assert_called_once_with("myvm", "custom-rg", {"env": "prod"})
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
-    def test_tag_add_invalid_format_no_equals(self, mock_config_load):
+    def test_tag_add_invalid_format_no_equals(self, mock_config_load, mock_get_vm):
         """Test adding tag with invalid format (missing =).
 
         Expected command: azlin tag add myvm invalid_tag
@@ -154,7 +151,8 @@ class TestTagAddCommand:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
 
         runner = CliRunner()
         result = runner.invoke(cli, ["tag", "add", "myvm", "invalid_tag"])
@@ -163,8 +161,9 @@ class TestTagAddCommand:
         assert result.exit_code != 0, "Should fail with invalid tag format"
         assert "key=value" in result.output.lower() or "invalid" in result.output.lower()
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
-    def test_tag_add_empty_key(self, mock_config_load):
+    def test_tag_add_empty_key(self, mock_config_load, mock_get_vm):
         """Test adding tag with empty key.
 
         Expected command: azlin tag add myvm =value
@@ -173,7 +172,8 @@ class TestTagAddCommand:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
 
         runner = CliRunner()
         result = runner.invoke(cli, ["tag", "add", "myvm", "=value"])
@@ -181,9 +181,10 @@ class TestTagAddCommand:
         assert result.exit_code != 0, "Should fail with empty key"
         assert "invalid" in result.output.lower() or "empty" in result.output.lower()
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_tagmanager_error(self, mock_add_tags, mock_config_load):
+    def test_tag_add_tagmanager_error(self, mock_add_tags, mock_config_load, mock_get_vm):
         """Test handling TagManager errors during tag add.
 
         This test verifies:
@@ -193,7 +194,8 @@ class TestTagAddCommand:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="nonexistent-vm")
         mock_add_tags.side_effect = TagManagerError("VM not found")
 
         runner = CliRunner()
@@ -212,24 +214,24 @@ class TestTagAddCommand:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group=None)
+        mock_config_load.return_value = Mock(default_resource_group=None)
 
         runner = CliRunner()
         result = runner.invoke(cli, ["tag", "add", "myvm", "env=prod"])
 
         assert result.exit_code != 0, "Should fail without resource group"
         assert (
-            "resource group" in result.output.lower()
-            or "resource-group" in result.output.lower()
+            "resource group" in result.output.lower() or "resource-group" in result.output.lower()
         )
 
 
 class TestTagRemoveCommand:
     """Test 'azlin tag remove' command - Issue #185."""
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.remove_tags")
-    def test_tag_remove_single_key_success(self, mock_remove_tags, mock_config_load):
+    def test_tag_remove_single_key_success(self, mock_remove_tags, mock_config_load, mock_get_vm):
         """Test removing a single tag from a VM.
 
         Expected command: azlin tag remove myvm environment
@@ -241,7 +243,8 @@ class TestTagRemoveCommand:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_remove_tags.return_value = None
 
         runner = CliRunner()
@@ -251,13 +254,12 @@ class TestTagRemoveCommand:
         assert "removed" in result.output.lower() or "success" in result.output.lower()
 
         # Verify TagManager.remove_tags called with correct parameters
-        mock_remove_tags.assert_called_once_with(
-            vm_name="myvm", resource_group="test-rg", tag_keys=["environment"]
-        )
+        mock_remove_tags.assert_called_once_with("myvm", "test-rg", ["environment"])
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.remove_tags")
-    def test_tag_remove_multiple_keys_success(self, mock_remove_tags, mock_config_load):
+    def test_tag_remove_multiple_keys_success(self, mock_remove_tags, mock_config_load, mock_get_vm):
         """Test removing multiple tags from a VM.
 
         Expected command: azlin tag remove myvm env team version
@@ -266,7 +268,8 @@ class TestTagRemoveCommand:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_remove_tags.return_value = None
 
         runner = CliRunner()
@@ -275,20 +278,20 @@ class TestTagRemoveCommand:
         assert result.exit_code == 0, f"Command failed: {result.output}"
 
         # Verify all keys were passed
-        mock_remove_tags.assert_called_once_with(
-            vm_name="myvm", resource_group="test-rg", tag_keys=["env", "team", "version"]
-        )
+        mock_remove_tags.assert_called_once_with("myvm", "test-rg", ["env", "team", "version"])
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.remove_tags")
-    def test_tag_remove_with_resource_group_flag(self, mock_remove_tags, mock_config_load):
+    def test_tag_remove_with_resource_group_flag(self, mock_remove_tags, mock_config_load, mock_get_vm):
         """Test removing tags with explicit --resource-group flag.
 
         Expected command: azlin tag remove myvm env --resource-group custom-rg
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="default-rg")
+        mock_config_load.return_value = Mock(default_resource_group="default-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_remove_tags.return_value = None
 
         runner = CliRunner()
@@ -299,18 +302,18 @@ class TestTagRemoveCommand:
         assert result.exit_code == 0, f"Command failed: {result.output}"
 
         # Verify custom resource group was used
-        mock_remove_tags.assert_called_once_with(
-            vm_name="myvm", resource_group="custom-rg", tag_keys=["env"]
-        )
+        mock_remove_tags.assert_called_once_with("myvm", "custom-rg", ["env"])
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.remove_tags")
-    def test_tag_remove_tagmanager_error(self, mock_remove_tags, mock_config_load):
+    def test_tag_remove_tagmanager_error(self, mock_remove_tags, mock_config_load, mock_get_vm):
         """Test handling TagManager errors during tag remove.
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_remove_tags.side_effect = TagManagerError("Tag key not found")
 
         runner = CliRunner()
@@ -323,9 +326,10 @@ class TestTagRemoveCommand:
 class TestTagListCommand:
     """Test 'azlin tag list' command - Issue #185."""
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.get_tags")
-    def test_tag_list_success_with_tags(self, mock_get_tags, mock_config_load):
+    def test_tag_list_success_with_tags(self, mock_get_tags, mock_config_load, mock_get_vm):
         """Test listing tags from a VM with tags.
 
         Expected command: azlin tag list myvm
@@ -337,7 +341,8 @@ class TestTagListCommand:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_get_tags.return_value = {
             "environment": "production",
             "team": "backend",
@@ -358,11 +363,12 @@ class TestTagListCommand:
         assert "1.0" in result.output
 
         # Verify get_tags was called correctly
-        mock_get_tags.assert_called_once_with(vm_name="myvm", resource_group="test-rg")
+        mock_get_tags.assert_called_once_with("myvm", "test-rg")
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.get_tags")
-    def test_tag_list_vm_with_no_tags(self, mock_get_tags, mock_config_load):
+    def test_tag_list_vm_with_no_tags(self, mock_get_tags, mock_config_load, mock_get_vm):
         """Test listing tags from a VM with no tags.
 
         This test verifies:
@@ -371,7 +377,8 @@ class TestTagListCommand:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_get_tags.return_value = {}
 
         runner = CliRunner()
@@ -384,16 +391,18 @@ class TestTagListCommand:
             or "empty" in result.output.lower()
         )
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.get_tags")
-    def test_tag_list_with_resource_group_flag(self, mock_get_tags, mock_config_load):
+    def test_tag_list_with_resource_group_flag(self, mock_get_tags, mock_config_load, mock_get_vm):
         """Test listing tags with explicit --resource-group flag.
 
         Expected command: azlin tag list myvm --resource-group custom-rg
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="default-rg")
+        mock_config_load.return_value = Mock(default_resource_group="default-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_get_tags.return_value = {"env": "prod"}
 
         runner = CliRunner()
@@ -402,16 +411,18 @@ class TestTagListCommand:
         assert result.exit_code == 0, f"Command failed: {result.output}"
 
         # Verify custom resource group was used
-        mock_get_tags.assert_called_once_with(vm_name="myvm", resource_group="custom-rg")
+        mock_get_tags.assert_called_once_with("myvm", "custom-rg")
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.get_tags")
-    def test_tag_list_tagmanager_error(self, mock_get_tags, mock_config_load):
+    def test_tag_list_tagmanager_error(self, mock_get_tags, mock_config_load, mock_get_vm):
         """Test handling TagManager errors during tag list.
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="nonexistent-vm")
         mock_get_tags.side_effect = TagManagerError("VM not found")
 
         runner = CliRunner()
@@ -452,7 +463,7 @@ class TestTagCommandEdgeCases:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
 
         runner = CliRunner()
         result = runner.invoke(cli, ["tag", "add", "myvm"])
@@ -468,7 +479,7 @@ class TestTagCommandEdgeCases:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
 
         runner = CliRunner()
         result = runner.invoke(cli, ["tag", "remove", "myvm"])
@@ -476,9 +487,10 @@ class TestTagCommandEdgeCases:
         # Should fail - need at least one key
         assert result.exit_code != 0, "Should fail when no keys provided"
 
+    @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_with_equals_in_value(self, mock_add_tags, mock_config_load):
+    def test_tag_add_with_equals_in_value(self, mock_add_tags, mock_config_load, mock_get_vm):
         """Test adding tag with '=' character in the value.
 
         Expected command: azlin tag add myvm "url=https://example.com?foo=bar"
@@ -488,15 +500,12 @@ class TestTagCommandEdgeCases:
 
         Expected to FAIL until command is implemented.
         """
-        mock_config_load.return_value = Mock(resource_group="test-rg")
+        mock_config_load.return_value = Mock(default_resource_group="test-rg")
+        mock_get_vm.return_value = Mock(name="myvm")
         mock_add_tags.return_value = None
 
         runner = CliRunner()
         result = runner.invoke(cli, ["tag", "add", "myvm", "url=https://example.com?foo=bar"])
 
         assert result.exit_code == 0, f"Command failed: {result.output}"
-        mock_add_tags.assert_called_once_with(
-            vm_name="myvm",
-            resource_group="test-rg",
-            tags={"url": "https://example.com?foo=bar"},
-        )
+        mock_add_tags.assert_called_once_with("myvm", "test-rg", {"url": "https://example.com?foo=bar"})

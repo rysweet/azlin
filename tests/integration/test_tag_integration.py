@@ -47,7 +47,9 @@ class TestTagAddCommand:
     @patch("azlin.commands.tag.TagManager.add_tags")
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
-    def test_add_single_tag(self, mock_load_config, mock_get_vm, mock_add_tags, runner, mock_config, mock_vm):
+    def test_add_single_tag(
+        self, mock_load_config, mock_get_vm, mock_add_tags, runner, mock_config, mock_vm
+    ):
         """Adding a single tag should succeed."""
         mock_load_config.return_value = mock_config
         mock_get_vm.return_value = mock_vm
@@ -62,7 +64,9 @@ class TestTagAddCommand:
     @patch("azlin.commands.tag.TagManager.add_tags")
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
-    def test_add_multiple_tags(self, mock_load_config, mock_get_vm, mock_add_tags, runner, mock_config, mock_vm):
+    def test_add_multiple_tags(
+        self, mock_load_config, mock_get_vm, mock_add_tags, runner, mock_config, mock_vm
+    ):
         """Adding multiple tags should succeed."""
         mock_load_config.return_value = mock_config
         mock_get_vm.return_value = mock_vm
@@ -89,7 +93,9 @@ class TestTagAddCommand:
 
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
-    def test_add_invalid_tag_format(self, mock_load_config, mock_get_vm, runner, mock_config, mock_vm):
+    def test_add_invalid_tag_format(
+        self, mock_load_config, mock_get_vm, runner, mock_config, mock_vm
+    ):
         """Adding tag without '=' should fail."""
         mock_load_config.return_value = mock_config
         mock_get_vm.return_value = mock_vm
@@ -204,7 +210,9 @@ class TestTagListCommand:
     @patch("azlin.commands.tag.TagManager.get_tags")
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
-    def test_list_tags(self, mock_load_config, mock_get_vm, mock_get_tags, runner, mock_config, mock_vm):
+    def test_list_tags(
+        self, mock_load_config, mock_get_vm, mock_get_tags, runner, mock_config, mock_vm
+    ):
         """Listing tags should display all tags."""
         mock_load_config.return_value = mock_config
         mock_get_vm.return_value = mock_vm
@@ -221,7 +229,9 @@ class TestTagListCommand:
     @patch("azlin.commands.tag.TagManager.get_tags")
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
-    def test_list_no_tags(self, mock_load_config, mock_get_vm, mock_get_tags, runner, mock_config, mock_vm):
+    def test_list_no_tags(
+        self, mock_load_config, mock_get_vm, mock_get_tags, runner, mock_config, mock_vm
+    ):
         """Listing tags on VM with no tags should show message."""
         mock_load_config.return_value = mock_config
         mock_get_vm.return_value = mock_vm

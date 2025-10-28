@@ -9,10 +9,10 @@ import os
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
-def find_claude_trace_logs(session_dir: Path, project_root: Path) -> List[Path]:
+def find_claude_trace_logs(session_dir: Path, project_root: Path) -> list[Path]:
     """Find claude-trace logs for a session.
 
     Args:
@@ -77,7 +77,7 @@ class SessionReflector:
         # Prevent loops via environment variable
         self.enabled = os.environ.get("CLAUDE_REFLECTION_MODE") != "1"
 
-    def _analyze_trace_logs(self, trace_logs: List[Path]) -> Optional[Dict]:
+    def _analyze_trace_logs(self, trace_logs: list[Path]) -> dict | None:
         """Analyze claude-trace logs for additional patterns.
 
         Args:
@@ -155,8 +155,8 @@ class SessionReflector:
         return findings if has_findings else None
 
     def analyze_session(
-        self, messages: List[Dict], trace_logs: Optional[List[Path]] = None
-    ) -> Dict[str, Any]:
+        self, messages: list[dict], trace_logs: list[Path] | None = None
+    ) -> dict[str, Any]:
         """Extract patterns from session messages"""
         if not self.enabled:
             return {"skipped": True, "reason": "reflection_loop_prevention"}
@@ -256,7 +256,7 @@ class SessionReflector:
 
         return findings
 
-    def _extract_tool_uses(self, messages: List[Dict]) -> List[str]:
+    def _extract_tool_uses(self, messages: list[dict]) -> list[str]:
         """Extract tool use patterns from messages"""
         tools = []
         for msg in messages:
@@ -284,7 +284,7 @@ class SessionReflector:
 
         return tools
 
-    def _find_repetitions(self, items: List[str]) -> Dict[str, int]:
+    def _find_repetitions(self, items: list[str]) -> dict[str, int]:
         """Find items repeated more than threshold times"""
         if not items:
             return {}
@@ -294,7 +294,7 @@ class SessionReflector:
         repeated = {k: v for k, v in counts.items() if v >= threshold}
         return repeated
 
-    def _find_error_patterns(self, messages: List[Dict]) -> Optional[Dict]:
+    def _find_error_patterns(self, messages: list[dict]) -> dict | None:
         """Detect error-related patterns"""
         error_count = 0
         error_samples = []
@@ -314,7 +314,7 @@ class SessionReflector:
             return {"count": error_count, "samples": error_samples}
         return None
 
-    def _find_frustration_patterns(self, messages: List[Dict]) -> Optional[Dict]:
+    def _find_frustration_patterns(self, messages: list[dict]) -> dict | None:
         """Detect user frustration indicators"""
         frustration_count = 0
         keywords = self.PATTERNS["frustration"]["keywords"]
@@ -329,7 +329,7 @@ class SessionReflector:
             return {"count": frustration_count}
         return None
 
-    def _extract_metrics(self, messages: List[Dict]) -> Dict:
+    def _extract_metrics(self, messages: list[dict]) -> dict:
         """Basic session metrics"""
         tool_count = 0
         for msg in messages:
@@ -345,7 +345,7 @@ class SessionReflector:
             "tool_uses": tool_count,
         }
 
-    def _generate_suggestions(self, patterns: List[Dict]) -> List[str]:
+    def _generate_suggestions(self, patterns: list[dict]) -> list[str]:
         """Generate actionable suggestions from patterns"""
         suggestions = []
 
@@ -383,7 +383,7 @@ class SessionReflector:
         return suggestions
 
 
-def save_reflection_summary(analysis: Dict, output_dir: Path) -> Optional[Path]:
+def save_reflection_summary(analysis: dict, output_dir: Path) -> Path | None:
     """Save reflection analysis to a summary file"""
     if analysis.get("skipped"):
         return None

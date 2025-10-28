@@ -86,7 +86,9 @@ def add_tags(vm_name: str, tags: tuple[str, ...], resource_group: str | None):
             sys.exit(1)
 
         if not rg:
-            click.echo("Error: Resource group required. Use --resource-group or set in config.", err=True)
+            click.echo(
+                "Error: Resource group required. Use --resource-group or set in config.", err=True
+            )
             sys.exit(1)
 
         # Verify VM exists
@@ -157,7 +159,9 @@ def remove_tags(vm_name: str, tag_keys: tuple[str, ...], resource_group: str | N
             sys.exit(1)
 
         if not rg:
-            click.echo("Error: Resource group required. Use --resource-group or set in config.", err=True)
+            click.echo(
+                "Error: Resource group required. Use --resource-group or set in config.", err=True
+            )
             sys.exit(1)
 
         # Verify VM exists
@@ -217,7 +221,9 @@ def list_tags(vm_name: str, resource_group: str | None):
             sys.exit(1)
 
         if not rg:
-            click.echo("Error: Resource group required. Use --resource-group or set in config.", err=True)
+            click.echo(
+                "Error: Resource group required. Use --resource-group or set in config.", err=True
+            )
             sys.exit(1)
 
         # Verify VM exists
