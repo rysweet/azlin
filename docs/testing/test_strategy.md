@@ -405,7 +405,7 @@ Host azlin-dev
 """
 
 SAMPLE_SSH_KEY_PUBLIC = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC... azureuser@azlin"
-SAMPLE_SSH_KEY_PRIVATE = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA..."
+# Note: For testing, generate keys dynamically rather than including sample private keys
 ```
 
 ## TDD Approach

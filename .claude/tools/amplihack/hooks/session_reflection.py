@@ -9,7 +9,7 @@ and GitHub issue creation for improvement opportunities.
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Clean import structure
 sys.path.insert(0, str(Path(__file__).parent))
@@ -31,7 +31,7 @@ except ImportError:
 class ReflectionOrchestrator:
     """Orchestrates session reflection analysis and GitHub issue creation."""
 
-    def __init__(self, project_root: Optional[Path] = None):
+    def __init__(self, project_root: Path | None = None):
         """Initialize orchestrator with project root.
 
         Args:
@@ -63,7 +63,7 @@ class ReflectionOrchestrator:
 
         raise ValueError("Could not find project root with .claude directory")
 
-    def analyze_session(self, session_id: str) -> Dict[str, Any]:
+    def analyze_session(self, session_id: str) -> dict[str, Any]:
         """Analyze a session using SessionReflector.
 
         Args:
@@ -121,7 +121,7 @@ class ReflectionOrchestrator:
         # Return the expected path even if it doesn't exist yet
         return session_dir
 
-    def _load_session_messages(self, session_dir: Path) -> List[Dict]:
+    def _load_session_messages(self, session_dir: Path) -> list[dict]:
         """Load session messages from various possible formats.
 
         Args:
@@ -171,7 +171,7 @@ class ReflectionOrchestrator:
 
         return messages
 
-    def present_findings(self, findings: Dict[str, Any]) -> None:
+    def present_findings(self, findings: dict[str, Any]) -> None:
         """Present findings to user in a clear, formatted way.
 
         Args:
@@ -230,7 +230,7 @@ class ReflectionOrchestrator:
 
         print("\n" + "=" * 70 + "\n")
 
-    def get_user_approval(self, suggestions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def get_user_approval(self, suggestions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Get user approval for creating GitHub issues.
 
         Args:
@@ -275,7 +275,7 @@ class ReflectionOrchestrator:
             print("\n\nInterrupted. Skipping issue creation.")
             return []
 
-    def create_github_issues(self, approved: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def create_github_issues(self, approved: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Create GitHub issues for approved suggestions.
 
         Args:
@@ -318,7 +318,7 @@ class ReflectionOrchestrator:
 
         return created_issues
 
-    def save_reflection_summary(self, session_id: str, results: Dict[str, Any]) -> Path:
+    def save_reflection_summary(self, session_id: str, results: dict[str, Any]) -> Path:
         """Save reflection summary to session log directory.
 
         Args:
@@ -340,7 +340,7 @@ class ReflectionOrchestrator:
 
         return summary_file
 
-    def run_reflection(self, session_id: str, auto_create_issues: bool = False) -> Dict[str, Any]:
+    def run_reflection(self, session_id: str, auto_create_issues: bool = False) -> dict[str, Any]:
         """Run complete reflection workflow.
 
         Args:

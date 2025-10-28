@@ -314,15 +314,15 @@ class TerminalLauncher:
         if config.command:
             # If command includes tmux, wrap it
             if config.tmux_session:
-                # Build tmux command with the user command
-                remote_cmd = f"tmux new-session -A -s {config.tmux_session} {config.command}"
+                # Try to attach to existing session, create new one if it doesn't exist
+                remote_cmd = f"tmux attach-session -t {config.tmux_session} || tmux new-session -s {config.tmux_session} {config.command}"
             else:
                 remote_cmd = config.command
 
             cmd.append(remote_cmd)
         elif config.tmux_session:
             # Just tmux session, no command
-            remote_cmd = f"tmux new-session -A -s {config.tmux_session}"
+            remote_cmd = f"tmux attach-session -t {config.tmux_session} || tmux new-session -s {config.tmux_session}"
             cmd.append(remote_cmd)
 
         return cmd

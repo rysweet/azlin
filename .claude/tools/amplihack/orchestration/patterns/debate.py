@@ -7,11 +7,10 @@ Based on: .claude/workflow/DEBATE_WORKFLOW.md
 """
 
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 from ..execution import run_parallel
 from ..session import OrchestratorSession
-
 
 # Standard perspective profiles
 DEFAULT_PERSPECTIVES = [
@@ -45,12 +44,12 @@ DEFAULT_PERSPECTIVES = [
 
 def run_debate(
     decision_question: str,
-    perspectives: Optional[List[str]] = None,
+    perspectives: list[str] | None = None,
     rounds: int = 3,
-    model: Optional[str] = None,
-    working_dir: Optional[Path] = None,
-    timeout: Optional[int] = None,
-) -> Dict[str, Any]:
+    model: str | None = None,
+    working_dir: Path | None = None,
+    timeout: int | None = None,
+) -> dict[str, Any]:
     """Execute multi-agent debate pattern.
 
     Conducts a structured debate with multiple perspectives to reach consensus
@@ -181,7 +180,7 @@ Format your response as:
 
     # Store Round 1 results
     round1_data = {}
-    for (perspective_name, _), result in zip(processes, round1_results):
+    for (perspective_name, _), result in zip(processes, round1_results, strict=False):
         debate_history[perspective_name].append(result.output)
         round1_data[perspective_name] = result
 
@@ -278,7 +277,7 @@ Format your response as:
 
         # Store results
         round_data = {}
-        for (perspective_name, _), result in zip(processes, round_results_raw):
+        for (perspective_name, _), result in zip(processes, round_results_raw, strict=False):
             debate_history[perspective_name].append(result.output)
             round_data[perspective_name] = result
 

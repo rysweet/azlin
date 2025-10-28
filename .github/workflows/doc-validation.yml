@@ -1,0 +1,89 @@
+name: Documentation Validation
+
+on:
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'docs/*.md'
+      - 'docs/**/*.md'
+      - 'src/azlin/cli.py'
+      - 'src/azlin/commands/*.py'
+      - 'scripts/validate_documentation.py'
+      - '.github/workflows/doc-validation.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'README.md'
+      - 'docs/*.md'
+      - 'docs/**/*.md'
+      - 'src/azlin/cli.py'
+      - 'src/azlin/commands/*.py'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  validate-documentation:
+    name: Validate Documentation Consistency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # Shallow clone for speed
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-doc-validation-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            pip-doc-validation-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          # Install Click which is required for the validation script
+          # Note: anthropic and other heavy dependencies are optional
+          # The script will work without them (with limited validation)
+          pip install --quiet click
+
+      - name: Validate documentation consistency
+        run: |
+          python scripts/validate_documentation.py
+        env:
+          # Ensure colored output is disabled for CI
+          NO_COLOR: "1"
+
+      - name: Report validation results
+        if: failure()
+        run: |
+          echo "❌ Documentation validation failed!"
+          echo ""
+          echo "Documentation is inconsistent with CLI implementation."
+          echo "Please review the validation errors above and update documentation accordingly."
+          echo ""
+          echo "Common issues:"
+          echo "  - CLI commands not documented in README.md"
+          echo "  - Documentation mentions removed or renamed commands"
+          echo "  - Command options missing from documentation"
+          echo "  - Inconsistent command names between docs and CLI"
+          echo ""
+          echo "See DOCUMENTATION_FIX_PLAN.md for guidance on fixing documentation."
+          exit 1
+
+      - name: Success message
+        if: success()
+        run: |
+          echo "✅ Documentation validation passed!"
+          echo "All CLI commands are properly documented and consistent."

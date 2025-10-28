@@ -1,15 +1,21 @@
-# azlin v2.0 - Quick Reference Guide
+# azlin - Quick Reference Guide
 
 **Version:** 2.0.0
-**Working Directory:** /Users/ryan/src/azlin-feat-1
+**Last Updated:** 2025-10-27
 
 ---
 
 ## Installation
 
 ```bash
-cd /Users/ryan/src/azlin-feat-1
-pip install -e .
+# Install azlin using uv (recommended)
+uv tool install azlin
+
+# Or install from GitHub
+uv tool install git+https://github.com/rysweet/azlin
+
+# Or use pip
+pip install azlin
 ```
 
 ---
@@ -42,7 +48,7 @@ azlin --name my-vm
 
 ### Main Command
 ```bash
-azlin [OPTIONS]                    # Provision VM or show interactive menu
+azlin [OPTIONS]                    # Show help (or no args for help)
 ```
 
 ### Subcommands
@@ -248,8 +254,8 @@ azlin --pool 5 --vm-size Standard_D4s_v3 --rg batch-jobs
 
 **Warning for large pools (>10):**
 ```
-WARNING: Creating 15 VMs
-Estimated cost: ~$1.50/hour
+WARNING: Creating 11 VMs
+Estimated cost: ~$1.10/hour
 Continue? [y/N]:
 ```
 
@@ -570,7 +576,9 @@ az group list --output table
 
 **Config:** `~/.azlin/config.toml`
 **SSH Keys:** `~/.ssh/azlin-key` and `~/.ssh/azlin-key.pub`
-**Source Code:** `/Users/ryan/src/azlin-feat-1`
+**Dotfiles:** `~/.azlin/home/`
+**Templates:** `~/.azlin/templates/`
+**Auth Profiles:** `~/.azlin/auth/`
 
 ---
 
@@ -596,22 +604,42 @@ azlin <command> --help
 ## Version Information
 
 **Current Version:** 2.0.0
-**Release Date:** 2024-10-09
+**Last Updated:** 2025-10-27
 **Status:** Production Ready
 
-**What's New in v2.0:**
-- Config storage
-- VM listing
+**Key Features:**
+- Natural language commands with AI
+- Config storage and defaults
+- VM listing and filtering
 - Interactive selection
 - Custom VM names
 - Remote command execution
 - Pool provisioning
-- Enhanced help
-- Process monitoring (ps)
-- VM deletion (kill/killall)
-- 20+ future features documented
+- Process monitoring
+- VM deletion and cleanup
+- Shared NFS storage
+- Snapshot management
+- Authentication profiles
+- SSH key management
+- VM templates
 
 ---
 
-**Quick Reference Version:** 1.0
-**Last Updated:** 2024-10-09
+## Performance Reference
+
+| Operation | Typical Time |
+|-----------|--------------|
+| `azlin list` | 2-3 seconds |
+| `azlin status` | 3-5 seconds |
+| `azlin cost` | 5-10 seconds |
+| `azlin new` | 4-7 minutes |
+| `azlin clone` | 10-15 minutes |
+| `azlin update` | 2-5 minutes |
+| `azlin sync` | 30s - 5 minutes |
+| `azlin do` | +2s parsing overhead |
+
+**Optimization Tips:**
+- Use native commands for frequent operations
+- `azlin do` adds 2-3 seconds parsing time
+- Batch operations run in parallel
+- Pool provisioning parallelized (4-7 min regardless of size)
