@@ -848,36 +848,6 @@ azlin prune --force
 - Scheduled cleanup in CI/CD
 - Prevent resource sprawl
 
-### `azlin cleanup` - Remove orphaned resources
-
-Find and delete orphaned Azure resources (NICs, disks, IPs) left behind from incomplete VM deletions.
-
-```bash
-# Preview orphaned resources
-azlin cleanup --dry-run
-
-# Remove orphaned resources
-azlin cleanup
-
-# Specific resource group
-azlin cleanup --rg my-rg
-
-# Skip confirmation
-azlin cleanup --force
-```
-
-**What it removes:**
-- Network interfaces not attached to VMs
-- Public IP addresses not in use
-- Disks not attached to VMs
-- Orphaned security groups
-
-**Use cases:**
-- Clean up after failed deletions
-- Reduce clutter in resource groups
-- Eliminate unnecessary costs
-- Maintain tidy Azure resources
-
 ---
 
 ## VM Maintenance
@@ -1020,14 +990,11 @@ azlin connect my-vm --tmux-session work
 # Connect without tmux
 azlin connect my-vm --no-tmux
 
-# Specify SSH user
-azlin connect my-vm --ssh-user azureuser
-
 # Connect with custom SSH user
 azlin connect my-vm --user myusername
 
 # Connect with custom key
-azlin connect my-vm --ssh-key ~/.ssh/custom_key
+azlin connect my-vm --key ~/.ssh/custom_key
 
 # Disable auto-reconnect
 azlin connect my-vm --no-reconnect
@@ -1057,30 +1024,6 @@ Attempting to reconnect to my-vm...
 ---
 
 ## Monitoring
-
-### `azlin logs` - View VM logs without SSH
-
-Access VM system logs remotely without SSH connection.
-
-```bash
-# View system logs
-azlin logs my-vm
-
-# View boot logs
-azlin logs my-vm --boot
-
-# Follow logs in real-time
-azlin logs my-vm --follow
-
-# View logs for specific service
-azlin logs my-vm --service sshd
-```
-
-**Use cases:**
-- Debug VM issues remotely
-- Monitor system startup
-- Track service status
-- Troubleshoot without SSH access
 
 ### `azlin top` - Distributed real-time monitoring
 
@@ -1991,11 +1934,9 @@ azlin ps  # Check for resource-heavy processes
 | `azlin update` | Update dev tools | `azlin update my-vm` |
 | `azlin os-update` | Update Ubuntu packages | `azlin os-update my-vm` |
 | `azlin status` | Detailed status | `azlin status` |
-| `azlin logs` | View logs | `azlin logs my-vm --follow` |
 | `azlin tag` | Manage tags | `azlin tag my-vm --add env=dev` |
 | `azlin top` | Real-time monitor | `azlin top` |
 | `azlin prune` | Auto cleanup | `azlin prune --dry-run` |
-| `azlin cleanup` | Remove orphans | `azlin cleanup` |
 | `azlin batch` | Batch operations | `azlin batch stop --tag env=test` |
 | `azlin auth` | Authentication | `azlin auth setup --profile prod` |
 | `azlin keys` | SSH key mgmt | `azlin keys rotate` |
