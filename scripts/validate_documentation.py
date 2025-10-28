@@ -13,39 +13,39 @@ Exit codes:
     1 - Inconsistencies found
 """
 
-import ast
-import importlib.util
-import os
 import re
-import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
 
 # Add src to path for imports
 REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
+
 
 # Check if we're in a venv or have uv
 def ensure_dependencies():
     """Ensure Click is available."""
     try:
         import click
+
         return True
     except ImportError:
         print("Error: Click not installed. Please run: uv pip install click")
         return False
+
 
 if not ensure_dependencies():
     sys.exit(1)
 
 import click
 
+
 # Lazy load CLI to avoid heavy dependencies
 def load_cli_main():
     """Lazy load CLI main to avoid import errors from heavy dependencies."""
     try:
         from azlin.cli import main as cli_main
+
         return cli_main
     except ImportError as e:
         print(f"Warning: Could not import full CLI: {e}")
@@ -67,11 +67,11 @@ class Colors:
 class CommandInfo:
     """Information about a CLI command."""
 
-    def __init__(self, name: str, options: Set[str], is_group: bool = False):
+    def __init__(self, name: str, options: set[str], is_group: bool = False):
         self.name = name
         self.options = options
         self.is_group = is_group
-        self.subcommands: Dict[str, "CommandInfo"] = {}
+        self.subcommands: dict[str, CommandInfo] = {}
 
     def __repr__(self):
         return f"CommandInfo(name={self.name}, options={self.options}, is_group={self.is_group})"
@@ -80,7 +80,7 @@ class CommandInfo:
 class CLIExtractor:
     """Extract commands from Click CLI."""
 
-    def extract_commands(self, cli_group: click.Group, prefix: str = "") -> Dict[str, CommandInfo]:
+    def extract_commands(self, cli_group: click.Group, prefix: str = "") -> dict[str, CommandInfo]:
         """Recursively extract all commands from a Click group."""
         commands = {}
 
@@ -120,7 +120,7 @@ class MarkdownParser:
         self.readme_path = readme_path
         self.content = readme_path.read_text()
 
-    def extract_documented_commands(self) -> Dict[str, Set[str]]:
+    def extract_documented_commands(self) -> dict[str, set[str]]:
         """Extract all documented commands and their options from README."""
         commands = {}
 
@@ -146,7 +146,7 @@ class MarkdownParser:
 
         return commands
 
-    def _extract_options_from_section(self, section: str) -> Set[str]:
+    def _extract_options_from_section(self, section: str) -> set[str]:
         """Extract option flags from a documentation section."""
         options = set()
 
@@ -160,7 +160,7 @@ class MarkdownParser:
 
         return options
 
-    def extract_command_examples(self) -> Dict[str, List[str]]:
+    def extract_command_examples(self) -> dict[str, list[str]]:
         """Extract all code examples for validation."""
         examples = {}
 
@@ -201,10 +201,10 @@ class MarkdownParser:
 class ExampleValidator:
     """Validate that examples in documentation are syntactically correct."""
 
-    def __init__(self, cli_commands: Dict[str, CommandInfo]):
+    def __init__(self, cli_commands: dict[str, CommandInfo]):
         self.cli_commands = cli_commands
 
-    def validate_examples(self, examples: Dict[str, List[str]]) -> List[str]:
+    def validate_examples(self, examples: dict[str, list[str]]) -> list[str]:
         """Validate all examples and return list of errors."""
         errors = []
 
@@ -263,8 +263,8 @@ class DocumentationValidator:
         self.readme_path = readme_path
         self.extractor = CLIExtractor()
         self.parser = MarkdownParser(readme_path)
-        self.errors: List[str] = []
-        self.warnings: List[str] = []
+        self.errors: list[str] = []
+        self.warnings: list[str] = []
 
     def validate(self) -> bool:
         """Run all validations. Returns True if consistent, False otherwise."""
@@ -274,8 +274,12 @@ class DocumentationValidator:
         print(f"{Colors.BLUE}[1/4] Extracting commands from CLI...{Colors.RESET}")
         cli_main = load_cli_main()
         if cli_main is None:
-            print(f"{Colors.YELLOW}      Warning: Cannot extract CLI commands directly{Colors.RESET}")
-            print(f"{Colors.YELLOW}      Skipping CLI comparison, validating examples only{Colors.RESET}")
+            print(
+                f"{Colors.YELLOW}      Warning: Cannot extract CLI commands directly{Colors.RESET}"
+            )
+            print(
+                f"{Colors.YELLOW}      Skipping CLI comparison, validating examples only{Colors.RESET}"
+            )
             cli_commands = {}
         else:
             cli_commands = self.extractor.extract_commands(cli_main)
@@ -291,7 +295,9 @@ class DocumentationValidator:
             print(f"{Colors.BLUE}[3/4] Comparing commands...{Colors.RESET}")
             self._compare_commands(cli_commands, doc_commands)
         else:
-            print(f"{Colors.YELLOW}[3/4] Skipping command comparison (CLI not available){Colors.RESET}")
+            print(
+                f"{Colors.YELLOW}[3/4] Skipping command comparison (CLI not available){Colors.RESET}"
+            )
 
         # Validate examples (only basic syntax if CLI not available)
         print(f"{Colors.BLUE}[4/4] Validating examples...{Colors.RESET}")
@@ -318,14 +324,13 @@ class DocumentationValidator:
             print()
             print(f"{Colors.RED}{Colors.BOLD}Documentation validation FAILED{Colors.RESET}")
             return False
-        else:
-            print(f"{Colors.GREEN}✓ Documentation is consistent with CLI!{Colors.RESET}")
-            if self.warnings:
-                print(f"{Colors.YELLOW}  (with {len(self.warnings)} warnings){Colors.RESET}")
-            return True
+        print(f"{Colors.GREEN}✓ Documentation is consistent with CLI!{Colors.RESET}")
+        if self.warnings:
+            print(f"{Colors.YELLOW}  (with {len(self.warnings)} warnings){Colors.RESET}")
+        return True
 
     def _compare_commands(
-        self, cli_commands: Dict[str, CommandInfo], doc_commands: Dict[str, Set[str]]
+        self, cli_commands: dict[str, CommandInfo], doc_commands: dict[str, set[str]]
     ) -> None:
         """Compare CLI commands with documented commands."""
         cli_command_names = set(cli_commands.keys())
@@ -396,13 +401,15 @@ class DocumentationValidator:
             # Also check for aliases (e.g., --rg vs --resource-group)
             false_positives = set()
             for opt in non_existent_opts:
-                if any([
-                    opt.startswith("--from"),
-                    opt.startswith("--to"),
-                    opt.startswith("--by"),
-                    len(opt) < 3,  # Very short options might be typos
-                    opt == "--rg" and "--resource-group" in cli_opts,  # Alias check
-                ]):
+                if any(
+                    [
+                        opt.startswith("--from"),
+                        opt.startswith("--to"),
+                        opt.startswith("--by"),
+                        len(opt) < 3,  # Very short options might be typos
+                        opt == "--rg" and "--resource-group" in cli_opts,  # Alias check
+                    ]
+                ):
                     false_positives.add(opt)
 
             non_existent_opts -= false_positives

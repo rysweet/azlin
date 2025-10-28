@@ -173,4 +173,3 @@ The script will skip CLI comparison and only validate examples. This is fine for
 
 **Too many warnings:**
 Warnings are informational. Only errors will cause CI to fail.
-
