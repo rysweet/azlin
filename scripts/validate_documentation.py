@@ -26,7 +26,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 def ensure_dependencies():
     """Ensure Click is available."""
     try:
-        import click
+        import click  # noqa: F401
 
         return True
     except ImportError:
@@ -37,7 +37,7 @@ def ensure_dependencies():
 if not ensure_dependencies():
     sys.exit(1)
 
-import click
+import click  # noqa: E402
 
 
 # Lazy load CLI to avoid heavy dependencies
@@ -241,10 +241,9 @@ class ExampleValidator:
             # Try two-word commands (e.g., "env set")
             if len(parts) > 1:
                 two_word_cmd = f"{parts[0]} {parts[1]}"
-                if two_word_cmd not in self.cli_commands:
-                    # Also check for aliases
-                    if cmd_name not in ["create", "vm"]:  # Known aliases
-                        return f"Command '{cmd_name}' not found in CLI"
+                # Also check for aliases - combine conditions
+                if two_word_cmd not in self.cli_commands and cmd_name not in ["create", "vm"]:
+                    return f"Command '{cmd_name}' not found in CLI"
             else:
                 if cmd_name not in ["create", "vm"]:  # Known aliases
                     return f"Command '{cmd_name}' not found in CLI"
