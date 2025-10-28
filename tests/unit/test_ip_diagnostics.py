@@ -7,7 +7,7 @@ TDD approach: These tests will FAIL until the implementation is created.
 """
 
 import json
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -212,9 +212,7 @@ class TestNSGRuleChecking:
             ]
         }
 
-        mock_run.return_value = Mock(
-            returncode=0, stdout=json.dumps(nsg_data), stderr=""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=json.dumps(nsg_data), stderr="")
 
         result = check_nsg_rules("test-rg", "test-nsg", port=22)
 
@@ -239,9 +237,7 @@ class TestNSGRuleChecking:
             ]
         }
 
-        mock_run.return_value = Mock(
-            returncode=0, stdout=json.dumps(nsg_data), stderr=""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=json.dumps(nsg_data), stderr="")
 
         result = check_nsg_rules("test-rg", "test-nsg", port=22)
 
@@ -265,9 +261,7 @@ class TestNSGRuleChecking:
             ]
         }
 
-        mock_run.return_value = Mock(
-            returncode=0, stdout=json.dumps(nsg_data), stderr=""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=json.dumps(nsg_data), stderr="")
 
         result = check_nsg_rules("test-rg", "test-nsg", port=22)
 
@@ -360,9 +354,7 @@ class TestIPDiagnosticsIntegration:
                 }
             ]
         }
-        mock_run.return_value = Mock(
-            returncode=0, stdout=json.dumps(nsg_data), stderr=""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=json.dumps(nsg_data), stderr="")
 
         # Mock connectivity
         mock_connectivity.return_value = True

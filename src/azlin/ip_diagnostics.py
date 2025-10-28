@@ -10,10 +10,10 @@ that appear private but are actually Azure's public IP allocation.
 import ipaddress
 import json
 import subprocess
-from typing import Any, Dict, Optional
+from typing import Any
 
 
-def classify_ip_address(ip: Optional[str]) -> Optional[str]:
+def classify_ip_address(ip: str | None) -> str | None:
     """Classify an IP address as Private, Public, or Public-Azure.
 
     CRITICAL: Azure uses 172.171.0.0/16 for public IPs, which looks like
@@ -64,7 +64,7 @@ def classify_ip_address(ip: Optional[str]) -> Optional[str]:
     return "Public"
 
 
-def check_connectivity(ip: Optional[str], port: int = 22, timeout: int = 3) -> bool:
+def check_connectivity(ip: str | None, port: int = 22, timeout: int = 3) -> bool:
     """Test connectivity to an IP address using ping.
 
     Uses subprocess to run ping command for basic connectivity testing.
@@ -105,9 +105,7 @@ def check_connectivity(ip: Optional[str], port: int = 22, timeout: int = 3) -> b
         return False
 
 
-def check_nsg_rules(
-    resource_group: str, nsg_name: str, port: int = 22
-) -> Dict[str, Any]:
+def check_nsg_rules(resource_group: str, nsg_name: str, port: int = 22) -> dict[str, Any]:
     """Check NSG rules to determine if a port is allowed.
 
     Queries Azure NSG using Azure CLI and checks for allow/deny rules
@@ -153,14 +151,10 @@ def check_nsg_rules(
     ]
 
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=False, timeout=30
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
 
         if result.returncode != 0:
-            raise RuntimeError(
-                f"Failed to query NSG: {result.stderr or 'Unknown error'}"
-            )
+            raise RuntimeError(f"Failed to query NSG: {result.stderr or 'Unknown error'}")
 
         nsg_data = json.loads(result.stdout)
 
@@ -194,7 +188,7 @@ def check_nsg_rules(
     }
 
 
-def format_diagnostic_report(diagnostic_data: Dict[str, Any]) -> str:
+def format_diagnostic_report(diagnostic_data: dict[str, Any]) -> str:
     """Format diagnostic data into a user-friendly report.
 
     Creates educational output explaining IP classification and connectivity status.
@@ -255,11 +249,11 @@ def format_diagnostic_report(diagnostic_data: Dict[str, Any]) -> str:
         lines.append("")
         lines.append("NSG Rule Check:")
         if nsg_check.get("allowed"):
-            lines.append(f"  Status: Allowed")
+            lines.append("  Status: Allowed")
             if nsg_check.get("rule_name"):
                 lines.append(f"  Rule: {nsg_check['rule_name']}")
         else:
-            lines.append(f"  Status: Denied or No matching rule")
+            lines.append("  Status: Denied or No matching rule")
             if nsg_check.get("rule_name"):
                 lines.append(f"  Rule: {nsg_check['rule_name']}")
 
@@ -269,10 +263,10 @@ def format_diagnostic_report(diagnostic_data: Dict[str, Any]) -> str:
 
 def run_ip_diagnostic(
     ip: str,
-    resource_group: Optional[str] = None,
-    nsg_name: Optional[str] = None,
+    resource_group: str | None = None,
+    nsg_name: str | None = None,
     check_port: int = 22,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run complete IP diagnostic flow.
 
     Orchestrates IP classification, connectivity testing, and NSG rule checking.
