@@ -564,9 +564,10 @@ class TestBastionConfigEdgeCases:
                 bastion_resource_group="bastion-rg",
             )
 
-    def test_config_file_permissions(self, temp_config_file):
+    def test_config_file_permissions(self, tmp_path):
         """Test config file has secure permissions."""
         # Arrange
+        config_file = tmp_path / "bastion_config.toml"
         config = BastionConfig()
         config.add_mapping(
             vm_name="my-vm",
@@ -576,10 +577,10 @@ class TestBastionConfigEdgeCases:
         )
 
         # Act
-        config.save(temp_config_file)
+        config.save(config_file)
 
         # Assert
-        mode = temp_config_file.stat().st_mode & 0o777
+        mode = config_file.stat().st_mode & 0o777
         assert mode == 0o600  # Owner read/write only
 
     def test_save_to_readonly_directory(self, tmp_path):
@@ -595,16 +596,17 @@ class TestBastionConfigEdgeCases:
         with pytest.raises(BastionConfigError, match="Permission denied"):
             config.save(config_file)
 
-    def test_load_from_insecure_file(self, temp_config_file):
+    def test_load_from_insecure_file(self, tmp_path):
         """Test warning when loading from insecure file."""
         # Arrange
+        config_file = tmp_path / "bastion_config.toml"
         config = BastionConfig()
-        config.save(temp_config_file)
-        temp_config_file.chmod(0o644)  # Insecure permissions
+        config.save(config_file)
+        config_file.chmod(0o644)  # Insecure permissions
 
         # Act
         with pytest.warns(UserWarning, match="insecure permissions"):
-            BastionConfig.load(temp_config_file)
+            BastionConfig.load(config_file)
 
     def test_special_characters_in_names(self):
         """Test handling special characters in names."""
@@ -651,9 +653,10 @@ class TestBastionConfigEdgeCases:
                 bastion_resource_group="bastion-rg",
             )
 
-    def test_concurrent_config_access(self, temp_config_file):
+    def test_concurrent_config_access(self, tmp_path):
         """Test thread-safe config access."""
         # Arrange
+        config_file = tmp_path / "bastion_config.toml"
         config = BastionConfig()
         config.add_mapping(
             vm_name="my-vm",
@@ -666,10 +669,10 @@ class TestBastionConfigEdgeCases:
         import threading
 
         def save_config():
-            config.save(temp_config_file)
+            config.save(config_file)
 
         def load_config():
-            BastionConfig.load(temp_config_file)
+            BastionConfig.load(config_file)
 
         threads = [threading.Thread(target=save_config), threading.Thread(target=load_config)]
 
@@ -679,4 +682,4 @@ class TestBastionConfigEdgeCases:
             t.join()
 
         # Assert - no errors occurred
-        assert temp_config_file.exists()
+        assert config_file.exists()
