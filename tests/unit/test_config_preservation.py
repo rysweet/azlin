@@ -6,9 +6,6 @@ when updating other fields like default_resource_group.
 Regression test for: User config being overwritten and losing default_nfs_storage.
 """
 
-import pytest
-from pathlib import Path
-
 from azlin.config_manager import AzlinConfig, ConfigManager
 
 
@@ -33,9 +30,7 @@ class TestConfigPreservation:
 
         # Update only resource_group (simulating 'azlin new' behavior)
         ConfigManager.update_config(
-            str(config_file),
-            default_resource_group="updated-rg",
-            last_vm_name="new-vm"
+            str(config_file), default_resource_group="updated-rg", last_vm_name="new-vm"
         )
 
         # Load and verify ALL fields preserved
