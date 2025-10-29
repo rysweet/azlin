@@ -8,6 +8,8 @@ This module provides common fixtures used across all test types:
 - Progress display mocks
 """
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -402,7 +404,7 @@ def assert_command_succeeds(result):
     )
 
 
-def assert_command_fails(result, expected_error: str = None):
+def assert_command_fails(result, expected_error: str | None = None):
     """Assert that a command failed with non-zero exit code.
 
     Args:
@@ -448,7 +450,7 @@ def assert_unexpected_argument_error(result):
     ), f"Expected 'unexpected argument' error, but got: {result.output}"
 
 
-def assert_invalid_value_error(result, value_type: str = None):
+def assert_invalid_value_error(result, value_type: str | None = None):
     """Assert that command failed due to invalid option value.
 
     Args:
@@ -1050,3 +1052,36 @@ def capture_sp_logs(caplog):
 
     caplog.set_level(logging.DEBUG)
     return caplog
+
+
+# ============================================================================
+# AZURE AUTHENTICATION DETECTION
+# ============================================================================
+
+
+def is_azure_authenticated() -> bool:
+    """Check if Azure CLI is authenticated.
+
+    Returns:
+        True if 'az account show' succeeds, False otherwise
+    """
+    # Skip in CI unless explicitly enabled
+    if os.getenv("CI") and not os.getenv("AZLIN_ENABLE_AZURE_TESTS"):
+        return False
+
+    try:
+        result = subprocess.run(
+            ["az", "account", "show"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+# Pytest marker for tests requiring Azure authentication
+requires_azure_auth = pytest.mark.skipif(
+    not is_azure_authenticated(),
+    reason="Requires Azure CLI authentication (skip in CI unless AZLIN_ENABLE_AZURE_TESTS=1)",
+)

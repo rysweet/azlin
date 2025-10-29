@@ -29,6 +29,7 @@ from tests.conftest import (
     assert_option_accepted,
     assert_option_rejected,
     assert_unexpected_argument_error,
+    requires_azure_auth,
 )
 
 # =============================================================================
@@ -170,6 +171,7 @@ class TestNewCommandSyntax:
 
         assert_invalid_value_error(result, "integer")
 
+    @requires_azure_auth
     def test_new_pool_rejects_negative(self):
         """Test 'azlin new --pool -1' rejects negative pool size."""
         runner = CliRunner()
@@ -186,6 +188,7 @@ class TestNewCommandSyntax:
         # Pool must be >= 1
         assert_command_fails(result)
 
+    @requires_azure_auth
     def test_new_config_path_validation(self):
         """Test 'azlin new --config /nonexistent/path' validates path.
 
@@ -442,6 +445,7 @@ class TestListCommandSyntax:
             or "unexpected" in result.output.lower()
         )
 
+    @requires_azure_auth
     def test_list_tag_empty_value_rejected(self):
         """Test 'azlin list --tag ""' rejects empty tag value.
 
@@ -650,6 +654,7 @@ class TestConnectCommandSyntax:
         # Should not error on syntax, only on execution
         assert_option_accepted(result)
 
+    @requires_azure_auth
     def test_connect_without_separator_no_remote_command(self):
         """Test 'azlin connect my-vm ls' without -- treats 'ls' as error.
 

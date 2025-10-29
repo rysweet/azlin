@@ -44,6 +44,7 @@ from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult,
 from azlin.commands.auth import auth
 
 # Storage commands
+from azlin.commands.bastion import bastion_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
@@ -6337,6 +6338,9 @@ def snapshot_delete(
 
 # Register auth commands
 main.add_command(auth)
+
+# Register bastion commands
+main.add_command(bastion_group)
 
 # Register storage commands
 main.add_command(storage_group)

@@ -23,6 +23,7 @@ from click.testing import CliRunner
 from azlin.cli import main
 from tests.conftest import (
     assert_option_accepted,
+    requires_azure_auth,
 )
 
 # =============================================================================
@@ -326,6 +327,7 @@ class TestEnvCommandSyntax:
     # Category 5: env export/import/clear Subcommands (5 tests)
     # -------------------------------------------------------------------------
 
+    @requires_azure_auth
     def test_env_export_requires_vm_and_output(self):
         """Test 'azlin env export my-vm' without output path fails."""
         runner = CliRunner()

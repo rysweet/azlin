@@ -54,11 +54,11 @@ from .session import OrchestratorSession
 __all__ = [
     # Core classes
     "ClaudeProcess",
-    "ProcessResult",
     "OrchestratorSession",
+    "ProcessResult",
+    "run_batched",
     # Execution helpers
     "run_parallel",
     "run_sequential",
     "run_with_fallback",
-    "run_batched",
 ]
