@@ -12,10 +12,13 @@ Security:
 import logging
 import os
 import re
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+import click
 
 try:
     import tomli  # type: ignore[import]
@@ -32,6 +35,18 @@ except ImportError:
         ) from e
 
 logger = logging.getLogger(__name__)
+
+# Common Azure regions for first-run wizard
+COMMON_REGIONS = [
+    "eastus",
+    "eastus2",
+    "westus2",
+    "westus3",
+    "centralus",
+    "northcentralus",
+    "southcentralus",
+    "westcentralus",
+]
 
 
 class ConfigError(Exception):
@@ -736,6 +751,778 @@ class ConfigManager:
 
         except Exception:
             return []
+
+    # ============================================================================
+    # FIRST-RUN CONFIGURATION WIZARD (Issue #197)
+    # ============================================================================
+
+    @classmethod
+    def validate_resource_group_name(cls, name: str) -> bool:
+        """Validate resource group name format.
+
+        Azure resource group naming rules:
+        - 1-90 characters
+        - Alphanumeric, underscore, hyphen, period, parentheses
+        - Cannot end with period
+
+        Args:
+            name: Resource group name to validate
+
+        Returns:
+            True if valid
+
+        Raises:
+            ConfigError: If name is invalid
+
+        Security:
+            - Uses regex whitelist validation
+            - Prevents command injection
+            - Prevents path traversal
+        """
+        if not name:
+            raise ConfigError("Resource group name cannot be empty")
+
+        if len(name) > 90:
+            raise ConfigError(f"Resource group name too long: {len(name)} characters (max 90)")
+
+        # Azure resource group naming rules: alphanumeric, underscore, hyphen, period, parentheses
+        # Must not end with period
+        if not re.match(r"^[a-zA-Z0-9_\-\.\(\)]+$", name):
+            raise ConfigError(
+                f"Invalid resource group name: {name}\n"
+                "Resource group names must contain only:\n"
+                "  - Letters (a-z, A-Z)\n"
+                "  - Numbers (0-9)\n"
+                "  - Underscores (_)\n"
+                "  - Hyphens (-)\n"
+                "  - Periods (.)\n"
+                "  - Parentheses ()"
+            )
+
+        if name.endswith("."):
+            raise ConfigError("Resource group name cannot end with a period")
+
+        return True
+
+    @classmethod
+    def needs_configuration(cls, custom_path: str | None = None) -> bool:
+        """Check if first-run configuration is needed.
+
+        Configuration is needed if:
+        - Config file doesn't exist
+        - Config file is empty
+        - default_resource_group is missing or None
+
+        Args:
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            True if wizard should run, False if config is complete
+        """
+        try:
+            if custom_path:
+                config_path = Path(custom_path).expanduser().resolve()
+                # Allow checking non-existent paths without validation error
+                if not config_path.exists():
+                    return True
+                config_path = cls._validate_config_path(config_path)
+            else:
+                config_path = cls.DEFAULT_CONFIG_FILE
+
+            # Config file doesn't exist
+            if not config_path.exists():
+                logger.debug("Config file does not exist, wizard needed")
+                return True
+
+            # Try to load config
+            config = cls.load_config(custom_path)
+
+            # Check if resource group is set
+            if not config.default_resource_group:
+                logger.debug("Resource group not configured, wizard needed")
+                return True
+
+            logger.debug("Configuration complete, wizard not needed")
+            return False
+
+        except ConfigError as e:
+            logger.debug(f"Config error, wizard needed: {e}")
+            return True
+
+    @classmethod
+    def needs_first_run_setup(cls, custom_path: str | None = None) -> bool:
+        """Alias for needs_configuration() for backward compatibility.
+
+        Args:
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            True if wizard should run, False if config is complete
+        """
+        return cls.needs_configuration(custom_path)
+
+    @classmethod
+    def create_resource_group(cls, name: str, region: str) -> None:
+        """Create Azure resource group.
+
+        Args:
+            name: Resource group name
+            region: Azure region
+
+        Raises:
+            ConfigError: If creation fails
+
+        Security:
+            - Validates inputs before subprocess call
+            - Uses list-based subprocess args (no shell=True)
+            - Sanitizes error messages
+        """
+        # Validate inputs
+        cls.validate_resource_group_name(name)
+
+        if region not in COMMON_REGIONS:
+            # Allow any region but log warning
+            logger.warning(f"Region '{region}' not in common regions list")
+
+        try:
+            logger.debug(f"Creating resource group: {name} in {region}")
+
+            # Use list-based args for security (no shell=True)
+            result = subprocess.run(
+                [
+                    "az",
+                    "group",
+                    "create",
+                    "--name",
+                    name,
+                    "--location",
+                    region,
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=60,
+            )
+
+            logger.debug(f"Resource group created successfully: {name}")
+
+        except subprocess.CalledProcessError as e:
+            # Sanitize error message (don't expose full command)
+            error_msg = e.stderr.strip() if e.stderr else "Unknown error"
+            raise ConfigError(f"Failed to create resource group '{name}': {error_msg}") from e
+        except subprocess.TimeoutExpired as e:
+            raise ConfigError(f"Timeout creating resource group '{name}' (>60s)") from e
+
+    @classmethod
+    def prompt_region_selection(cls, current_default: str) -> str:
+        """Prompt user to select Azure region.
+
+        Args:
+            current_default: Current default region
+
+        Returns:
+            Selected region name
+
+        Security:
+            - Uses whitelist validation (COMMON_REGIONS)
+            - Prevents arbitrary input
+        """
+        click.echo()
+        click.echo(click.style("Configure Default Region", fg="cyan", bold=True))
+        click.echo()
+        click.echo("Common Azure regions:")
+
+        # Display regions with numbers
+        for i, region in enumerate(COMMON_REGIONS, 1):
+            default_marker = " [DEFAULT]" if region == current_default else ""
+            click.echo(f"  {i}. {region}{default_marker}")
+
+        click.echo()
+        click.echo("Enter region name or number from list above")
+
+        while True:
+            region_input = click.prompt(
+                "Region",
+                default=current_default,
+                show_default=True,
+            )
+
+            # Check if input is a number
+            try:
+                idx = int(region_input)
+                if 1 <= idx <= len(COMMON_REGIONS):
+                    selected_region = COMMON_REGIONS[idx - 1]
+                    logger.debug(f"Selected region by number: {selected_region}")
+                    return selected_region
+                click.echo(
+                    click.style(
+                        f"Invalid number. Please enter 1-{len(COMMON_REGIONS)}",
+                        fg="red",
+                    )
+                )
+                continue
+            except ValueError:
+                # Not a number, treat as region name
+                pass
+
+            # Validate region name
+            region_lower = region_input.lower().strip()
+
+            # Check if it's in common regions
+            if region_lower in COMMON_REGIONS:
+                logger.debug(f"Selected region by name: {region_lower}")
+                return region_lower
+
+            # Allow any valid-looking region name (alphanumeric only)
+            if re.match(r"^[a-z0-9]+$", region_lower):
+                click.echo(
+                    click.style(
+                        f"Warning: '{region_lower}' not in common regions list",
+                        fg="yellow",
+                    )
+                )
+                if click.confirm("Use this region anyway?", default=False):
+                    logger.debug(f"Selected custom region: {region_lower}")
+                    return region_lower
+            else:
+                click.echo(
+                    click.style(
+                        f"Invalid region format: {region_input}\n"
+                        "Region names must be alphanumeric (e.g., 'eastus', 'westus2')",
+                        fg="red",
+                    )
+                )
+
+    @classmethod
+    def prompt_vm_size_selection(cls, current_default: str) -> str:
+        """Prompt user to select VM size using tiers.
+
+        Args:
+            current_default: Current default VM size
+
+        Returns:
+            Selected VM size
+
+        Security:
+            - Uses VMSizeTiers whitelist
+            - Validates VM size format
+        """
+        from azlin.vm_size_tiers import VMSizeTiers
+
+        click.echo()
+        click.echo(click.style("Configure Default VM Size", fg="cyan", bold=True))
+        click.echo()
+        click.echo("Select VM size tier:")
+        click.echo()
+
+        # Display tier information
+        tiers = ["s", "m", "l", "xl"]
+        for tier in tiers:
+            tier_info = VMSizeTiers.get_tier_info(tier)
+            default_marker = ""
+            if str(tier_info["size"]) == current_default:
+                default_marker = " [CURRENT]"
+            elif tier == VMSizeTiers.get_default_tier():
+                default_marker = " [DEFAULT]"
+
+            click.echo(f"  {tier}{default_marker}:")
+            click.echo(f"    {tier_info['description']}")
+            click.echo(f"    Cost: ~${tier_info['monthly_cost']}/month")
+            click.echo()
+
+        while True:
+            tier_input = click.prompt(
+                "VM Size Tier (s/m/l/xl)",
+                default=VMSizeTiers.get_default_tier(),
+                show_default=True,
+            )
+
+            tier_lower = tier_input.lower().strip()
+
+            try:
+                vm_size = VMSizeTiers.get_vm_size_from_tier(tier_lower)
+                logger.debug(f"Selected VM size: {vm_size} (tier: {tier_lower})")
+                return vm_size
+            except Exception as e:
+                click.echo(click.style(f"Invalid tier: {e}", fg="red"))
+                click.echo()
+
+    @classmethod
+    def prompt_resource_group_selection(cls, available_groups: list[str]) -> str | None:
+        """Prompt user to select or create resource group.
+
+        Args:
+            available_groups: List of existing resource group names
+
+        Returns:
+            Resource group name or None if user wants to create new
+
+        Raises:
+            ConfigError: If validation fails
+        """
+        click.echo()
+        click.echo(click.style("Configure Default Resource Group", fg="cyan", bold=True))
+        click.echo()
+
+        if available_groups:
+            click.echo("Existing resource groups:")
+            for i, rg in enumerate(available_groups[:10], 1):  # Show max 10
+                click.echo(f"  {i}. {rg}")
+
+            if len(available_groups) > 10:
+                click.echo(f"  ... and {len(available_groups) - 10} more")
+
+            click.echo()
+            click.echo("Options:")
+            click.echo("  - Enter a number to select existing resource group")
+            click.echo("  - Enter a name to create new resource group")
+            click.echo()
+
+            choice = click.prompt("Resource Group", type=str)
+
+            # Check if it's a number (selecting existing)
+            try:
+                idx = int(choice)
+                if 1 <= idx <= len(available_groups):
+                    selected_rg = available_groups[idx - 1]
+                    logger.debug(f"Selected existing resource group: {selected_rg}")
+                    return selected_rg
+                click.echo(
+                    click.style(
+                        f"Invalid number. Please enter 1-{len(available_groups)}",
+                        fg="red",
+                    )
+                )
+                return cls.prompt_resource_group_selection(available_groups)
+            except ValueError:
+                # Not a number, treat as new resource group name
+                pass
+
+            # Validate new resource group name
+            try:
+                cls.validate_resource_group_name(choice)
+                logger.debug(f"Will create new resource group: {choice}")
+                return choice
+            except ConfigError as e:
+                click.echo(click.style(f"Invalid name: {e}", fg="red"))
+                return cls.prompt_resource_group_selection(available_groups)
+        else:
+            # No existing groups, prompt for new name
+            click.echo("No existing resource groups found.")
+            click.echo("Please enter a name for new resource group:")
+            click.echo()
+
+            while True:
+                rg_name = click.prompt("Resource Group Name", type=str)
+
+                try:
+                    cls.validate_resource_group_name(rg_name)
+                    logger.debug(f"Will create new resource group: {rg_name}")
+                    return rg_name
+                except ConfigError as e:
+                    click.echo(click.style(f"Invalid name: {e}", fg="red"))
+                    click.echo()
+
+    @classmethod
+    def prompt_configuration_summary(
+        cls, resource_group: str | None, region: str, vm_size: str
+    ) -> bool:
+        """Display configuration summary and request confirmation.
+
+        Args:
+            resource_group: Resource group name (None if will be created per-VM)
+            region: Azure region
+            vm_size: VM size
+
+        Returns:
+            True if user confirms, False otherwise
+        """
+        click.echo()
+        click.echo(click.style("=" * 60, fg="cyan"))
+        click.echo(click.style("Configuration Summary", fg="cyan", bold=True))
+        click.echo(click.style("=" * 60, fg="cyan"))
+        click.echo()
+        click.echo(
+            f"  Resource Group: {click.style(resource_group or 'None', fg='green', bold=True)}"
+        )
+        click.echo(f"  Region:         {click.style(region, fg='green', bold=True)}")
+        click.echo(f"  VM Size:        {click.style(vm_size, fg='green', bold=True)}")
+        click.echo()
+
+        # Show what this config will be used for
+        click.echo("This configuration will be saved to:")
+        click.echo(f"  {cls.DEFAULT_CONFIG_FILE}")
+        click.echo()
+        click.echo("It will be used as defaults for all azlin commands.")
+        click.echo()
+
+        return click.confirm("Save this configuration?", default=True)
+
+    @classmethod
+    def save_wizard_config(
+        cls, config_data: dict[str, Any], custom_path: str | None = None
+    ) -> None:
+        """Save wizard configuration data to file.
+
+        Helper method used by tests to save configuration directly.
+
+        Args:
+            config_data: Configuration dictionary
+            custom_path: Custom config file path (optional)
+
+        Raises:
+            ConfigError: If save fails
+        """
+        config = AzlinConfig.from_dict(config_data)
+        cls.save_config(config, custom_path)
+
+    @classmethod
+    def format_config_summary(cls, config_data: dict[str, Any]) -> str:
+        """Format configuration summary as string.
+
+        Helper method used by tests to format configuration.
+
+        Args:
+            config_data: Configuration dictionary
+
+        Returns:
+            Formatted summary string
+        """
+        resource_group = config_data.get("resource_group") or config_data.get(
+            "default_resource_group"
+        )
+        region = config_data.get("region") or config_data.get("default_region")
+        vm_size = config_data.get("vm_size") or config_data.get("default_vm_size")
+
+        return f"""Configuration Summary:
+  Resource Group: {resource_group}
+  Region: {region}
+  VM Size: {vm_size}
+"""
+
+    @classmethod
+    def prompt_confirmation(cls, config_data: dict[str, Any]) -> bool:
+        """Prompt user to confirm configuration.
+
+        Helper method used by tests for confirmation prompts.
+
+        Args:
+            config_data: Configuration dictionary to confirm
+
+        Returns:
+            True if confirmed, False otherwise
+        """
+        summary = cls.format_config_summary(config_data)
+        click.echo()
+        click.echo(summary)
+        return click.confirm("Save this configuration?", default=True)
+
+    @classmethod
+    def validate_region(cls, region: str) -> bool:
+        """Validate region format.
+
+        Args:
+            region: Region name to validate
+
+        Returns:
+            True if valid
+
+        Raises:
+            ConfigError: If region is invalid
+
+        Security:
+            - Validates alphanumeric format
+            - Prevents injection attacks
+        """
+        if not region:
+            raise ConfigError("Region cannot be empty")
+
+        # Azure regions are lowercase alphanumeric
+        if not re.match(r"^[a-z0-9]+$", region.lower()):
+            raise ConfigError(
+                f"Invalid Azure region format: {region}\n"
+                "Region names must be alphanumeric (e.g., 'eastus', 'westus2')"
+            )
+
+        return True
+
+    @classmethod
+    def validate_vm_size(cls, vm_size: str) -> bool:
+        """Validate VM size format.
+
+        Args:
+            vm_size: VM size to validate
+
+        Returns:
+            True if valid
+
+        Raises:
+            ConfigError: If VM size is invalid
+        """
+        if not vm_size:
+            raise ConfigError("VM size cannot be empty")
+
+        # Azure VM sizes follow pattern: Standard_X##[a-z]*_v#
+        if not re.match(r"^Standard_[A-Z]\d+[a-z]*_v\d+$", vm_size):
+            raise ConfigError(
+                f"Invalid VM size format: {vm_size}\n"
+                "VM size must match Azure format (e.g., 'Standard_E16as_v5')"
+            )
+
+        return True
+
+    @classmethod
+    def prompt_resource_group_setup(cls, custom_path: str | None = None) -> dict[str, Any]:
+        """Prompt for resource group setup.
+
+        Helper method used by tests for resource group prompts.
+
+        Args:
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            Dictionary with action and resource_group_name keys
+        """
+        # Try to list existing resource groups
+        available_groups: list[str] = []
+        try:
+            result = subprocess.run(
+                ["az", "group", "list", "--query", "[].name", "-o", "tsv"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30,
+            )
+            available_groups = [
+                line.strip() for line in result.stdout.strip().split("\n") if line.strip()
+            ]
+        except Exception:
+            pass
+
+        resource_group = cls.prompt_resource_group_selection(available_groups)
+
+        # Determine action
+        if resource_group in available_groups:
+            return {"action": "use_existing", "resource_group_name": resource_group}
+        return {"action": "create_new", "resource_group_name": resource_group}
+
+    @classmethod
+    def prompt_region_setup(cls, custom_path: str | None = None) -> dict[str, Any]:
+        """Prompt for region setup.
+
+        Helper method used by tests for region prompts.
+
+        Args:
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            Dictionary with region and available_regions keys
+        """
+        try:
+            config = cls.load_config(custom_path)
+            current_default = config.default_region
+        except ConfigError:
+            current_default = "westus2"
+
+        region = cls.prompt_region_selection(current_default)
+
+        return {"region": region, "available_regions": COMMON_REGIONS}
+
+    @classmethod
+    def prompt_vm_size_setup(cls, custom_path: str | None = None) -> dict[str, Any]:
+        """Prompt for VM size setup.
+
+        Helper method used by tests for VM size prompts.
+
+        Args:
+            custom_path: Custom config file path (optional)
+
+        Returns:
+            Dictionary with tier, vm_size, and pricing_info keys
+        """
+        from azlin.vm_size_tiers import VMSizeTiers
+
+        try:
+            config = cls.load_config(custom_path)
+            current_default = config.default_vm_size
+        except ConfigError:
+            current_default = "Standard_E16as_v5"
+
+        vm_size = cls.prompt_vm_size_selection(current_default)
+
+        # Determine tier from vm_size
+        tier = "l"  # Default
+        for tier_key, tier_info in VMSizeTiers.TIER_MAP.items():
+            if tier_info["size"] == vm_size:
+                tier = tier_key
+                break
+
+        # Get pricing info
+        try:
+            tier_info = VMSizeTiers.get_tier_info(tier)
+            pricing_info = {"hourly": float(tier_info["monthly_cost"]) / 730}
+        except Exception:
+            pricing_info = {"hourly": 0.0}
+
+        return {"tier": tier, "vm_size": vm_size, "pricing_info": pricing_info}
+
+    @classmethod
+    def run_first_run_wizard(
+        cls, custom_path: str | None = None, return_dict: bool = False
+    ) -> dict[str, Any] | AzlinConfig:
+        """Run first-run configuration wizard.
+
+        Interactive wizard that prompts for:
+        1. Resource group (select existing or create new)
+        2. Default region
+        3. Default VM size (tier-based)
+        4. Summary and confirmation
+
+        Args:
+            custom_path: Custom config file path (optional)
+            return_dict: If True, return dict format (for tests), else return AzlinConfig
+
+        Returns:
+            Dictionary with success/config/cancelled keys (if return_dict=True)
+            or AzlinConfig object (if return_dict=False)
+
+        Raises:
+            ConfigError: If wizard fails or user cancels
+            KeyboardInterrupt: If user presses Ctrl+C
+
+        Security:
+            - All inputs validated before use
+            - No shell=True in subprocess calls
+            - Config file created with 0600 permissions
+        """
+        try:
+            # Display welcome message
+            click.echo()
+            click.echo(click.style("=" * 60, fg="cyan", bold=True))
+            click.echo(click.style("Welcome to azlin - First-Run Setup", fg="cyan", bold=True))
+            click.echo(click.style("=" * 60, fg="cyan", bold=True))
+            click.echo()
+            click.echo("Let's configure your default settings for VM provisioning.")
+            click.echo()
+
+            # Load existing config or create new
+            try:
+                config = cls.load_config(custom_path)
+                click.echo(click.style("Found existing config, updating...", fg="yellow"))
+            except ConfigError:
+                config = AzlinConfig()
+                click.echo(click.style("Creating new configuration...", fg="green"))
+
+            # STEP 1: Resource Group Selection
+            available_groups: list[str] = []
+            try:
+                # Try to list existing resource groups
+                result = subprocess.run(
+                    ["az", "group", "list", "--query", "[].name", "-o", "tsv"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=30,
+                )
+                available_groups = [
+                    line.strip() for line in result.stdout.strip().split("\n") if line.strip()
+                ]
+                logger.debug(f"Found {len(available_groups)} existing resource groups")
+            except Exception as e:
+                logger.debug(f"Could not list resource groups: {e}")
+                click.echo(
+                    click.style(
+                        "Note: Could not list existing resource groups. You can create a new one.",
+                        fg="yellow",
+                    )
+                )
+
+            resource_group = cls.prompt_resource_group_selection(available_groups)
+
+            # Check if user provided a resource group
+            if resource_group is None:
+                raise ConfigError("Resource group is required for azlin configuration")
+
+            # Check if resource group exists, if not create it
+            if resource_group not in available_groups:
+                # Need to select region first to create resource group
+                temp_region = cls.prompt_region_selection(config.default_region)
+
+                click.echo()
+                click.echo(f"Resource group '{resource_group}' does not exist. Creating...")
+
+                try:
+                    cls.create_resource_group(resource_group, temp_region)
+                    click.echo(
+                        click.style(
+                            f"Resource group '{resource_group}' created successfully!",
+                            fg="green",
+                        )
+                    )
+                    # Use the region we just created the RG in
+                    region = temp_region
+                except ConfigError as e:
+                    click.echo(click.style(f"Error: {e}", fg="red"))
+                    raise ConfigError(f"Failed to create resource group: {e}") from e
+            else:
+                # Resource group exists, prompt for region
+                region = cls.prompt_region_selection(config.default_region)
+
+            # STEP 2: VM Size Selection
+            vm_size = cls.prompt_vm_size_selection(config.default_vm_size)
+
+            # STEP 3: Summary and Confirmation
+            confirmed = cls.prompt_configuration_summary(resource_group, region, vm_size)
+
+            if not confirmed:
+                click.echo()
+                click.echo(click.style("Configuration cancelled.", fg="yellow"))
+                raise ConfigError("User cancelled configuration")
+
+            # STEP 4: Save Configuration
+            config.default_resource_group = resource_group
+            config.default_region = region
+            config.default_vm_size = vm_size
+
+            try:
+                cls.save_config(config, custom_path)
+            except Exception as e:
+                logger.error(f"Failed to save configuration: {e}")
+                raise ConfigError(f"Failed to save configuration: {e}") from e
+
+            click.echo()
+            click.echo(click.style("Configuration saved successfully!", fg="green", bold=True))
+            click.echo()
+            click.echo(f"Config file: {custom_path if custom_path else cls.DEFAULT_CONFIG_FILE}")
+            click.echo()
+            click.echo("You can now use azlin commands with these defaults.")
+            click.echo("Run 'azlin new' to create your first VM!")
+            click.echo()
+
+            # Return format depends on caller
+            if return_dict:
+                return {
+                    "success": True,
+                    "config": {
+                        "default_resource_group": resource_group,
+                        "default_region": region,
+                        "default_vm_size": vm_size,
+                    },
+                }
+            return config
+
+        except KeyboardInterrupt:
+            click.echo()
+            click.echo()
+            click.echo(click.style("Configuration cancelled by user.", fg="yellow"))
+            if return_dict:
+                return {"success": False, "cancelled": True}
+            raise ConfigError("User cancelled configuration") from None
+        except ConfigError as e:
+            # If user cancelled, return appropriate format
+            if "cancelled" in str(e).lower() and return_dict:
+                return {"success": False, "cancelled": True}
+            raise
 
 
 __all__ = ["AzlinConfig", "ConfigError", "ConfigManager"]
