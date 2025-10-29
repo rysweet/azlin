@@ -21,9 +21,9 @@ import pytest
 from click.testing import CliRunner
 
 from azlin.cli import main
-from tests.conftest import requires_azure_auth
 from tests.conftest import (
     assert_option_accepted,
+    requires_azure_auth,
 )
 
 # =============================================================================
