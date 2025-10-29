@@ -18,13 +18,8 @@ from click.testing import CliRunner
 
 from azlin.cli import main
 from tests.conftest import (
-    assert_command_fails,
-    assert_command_succeeds,
-    assert_invalid_value_error,
     assert_missing_argument_error,
     assert_option_accepted,
-    assert_option_rejected,
-    assert_unexpected_argument_error,
 )
 
 # =============================================================================

@@ -10,7 +10,7 @@ repos:
         args: ['--maxkb=1000']
       - id: check-merge-conflict
       - id: detect-private-key
-        exclude: ^(tests/.*|docs/TEST_STRATEGY\.md|docs/AUTH_ARCHITECTURE_DESIGN\.md)$
+        exclude: ^(tests/.*|docs/TEST_STRATEGY\.md|docs/AUTH_ARCHITECTURE_DESIGN\.md|docs/testing/test_strategy\.md)$
 
   # Python formatting and linting
   - repo: https://github.com/astral-sh/ruff-pre-commit
