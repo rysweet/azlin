@@ -6,10 +6,10 @@ Generates well-formatted GitHub issue titles, bodies, and labels
 for different types of improvement patterns detected during reflection.
 """
 
-from typing import Any
+from typing import Any, Dict
 
 
-def generate_issue(pattern: dict[str, Any], session_id: str = "") -> dict[str, str]:
+def generate_issue(pattern: Dict[str, Any], session_id: str = "") -> Dict[str, str]:
     """Generate GitHub issue content from a reflection pattern.
 
     Args:
@@ -51,7 +51,7 @@ def _get_generator_for_type(pattern_type: str):
     return generators.get(pattern_type, _generate_generic_issue)
 
 
-def _generate_repeated_tool_issue(pattern: dict, session_id: str) -> dict:
+def _generate_repeated_tool_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate issue for repeated tool usage pattern."""
     tool = pattern.get("tool", "unknown")
     count = pattern.get("count", 0)
@@ -92,7 +92,7 @@ This issue was automatically generated from session reflection analysis.
     return {"title": title, "body": body, "labels": labels}
 
 
-def _generate_error_pattern_issue(pattern: dict, session_id: str) -> dict:
+def _generate_error_pattern_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate issue for error pattern detection."""
     count = pattern.get("count", 0)
     samples = pattern.get("samples", [])
@@ -140,7 +140,7 @@ High - Errors impact user experience and system reliability.
     return {"title": title, "body": body, "labels": labels}
 
 
-def _generate_long_session_issue(pattern: dict, session_id: str) -> dict:
+def _generate_long_session_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate issue for long session pattern."""
     message_count = pattern.get("message_count", 0)
 
@@ -184,7 +184,7 @@ Medium - Improves workflow efficiency and reduces cognitive load.
     return {"title": title, "body": body, "labels": labels}
 
 
-def _generate_frustration_issue(pattern: dict, session_id: str) -> dict:
+def _generate_frustration_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate issue for user frustration pattern."""
     indicators = pattern.get("indicators", 0)
 
@@ -226,7 +226,7 @@ This issue should be prioritized for immediate investigation to prevent similar 
     return {"title": title, "body": body, "labels": labels}
 
 
-def _generate_repeated_commands_issue(pattern: dict, session_id: str) -> dict:
+def _generate_repeated_commands_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate issue for repeated commands pattern."""
     title = "Create automation for repeated commands"
 
@@ -261,7 +261,7 @@ Medium - Reduces repetitive work and improves consistency.
     return {"title": title, "body": body, "labels": labels}
 
 
-def _generate_error_retry_issue(pattern: dict, session_id: str) -> dict:
+def _generate_error_retry_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate issue for error retry pattern."""
     title = "Improve error handling and retry logic"
 
@@ -297,7 +297,7 @@ High - Better error handling improves reliability and user experience.
     return {"title": title, "body": body, "labels": labels}
 
 
-def _generate_repeated_reads_issue(pattern: dict, session_id: str) -> dict:
+def _generate_repeated_reads_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate issue for repeated file reads pattern."""
     title = "Optimize repeated file read operations"
 
@@ -338,7 +338,7 @@ Medium - Performance optimization.
     return {"title": title, "body": body, "labels": labels}
 
 
-def _generate_automation_issue(pattern: dict, session_id: str) -> dict:
+def _generate_automation_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate issue for automation opportunity."""
     title = "Automation opportunity for frequent tool combinations"
 
@@ -373,7 +373,7 @@ Medium - Improves workflow efficiency.
     return {"title": title, "body": body, "labels": labels}
 
 
-def _generate_workflow_issue(pattern: dict, session_id: str) -> dict:
+def _generate_workflow_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate issue for workflow improvement."""
     title = "Streamline workflow to reduce repetitive actions"
 
@@ -408,7 +408,7 @@ Medium - Improves productivity and reduces frustration.
     return {"title": title, "body": body, "labels": labels}
 
 
-def _generate_error_handling_issue(pattern: dict, session_id: str) -> dict:
+def _generate_error_handling_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate issue for error handling improvement."""
     title = "Improve error handling based on session failures"
 
@@ -443,7 +443,7 @@ High - Better error handling improves reliability.
     return {"title": title, "body": body, "labels": labels}
 
 
-def _generate_generic_issue(pattern: dict, session_id: str) -> dict:
+def _generate_generic_issue(pattern: Dict, session_id: str) -> Dict:
     """Generate generic issue for unknown pattern types."""
     pattern_type = pattern.get("type", "unknown")
     title = f"Reflection: {pattern_type.replace('_', ' ').title()}"

@@ -3540,7 +3540,7 @@ This API reference covers all public APIs in the azlin project organized by func
 For usage examples and more details, see:
 - [README.md](../README.md) - User guide and CLI documentation
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture and design
-- [TEST_STRATEGY.md](TEST_STRATEGY.md) - Testing approach and coverage
+- [testing/test_strategy.md](testing/test_strategy.md) - Testing approach and coverage
 
 ---
 

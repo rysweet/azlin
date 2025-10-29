@@ -14,6 +14,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional, List
 
 
 @dataclass
@@ -63,9 +64,9 @@ class ClaudeProcess:
         process_id: str,
         working_dir: Path,
         log_dir: Path,
-        model: str | None = None,
+        model: Optional[str] = None,
         stream_output: bool = True,
-        timeout: int | None = None,
+        timeout: Optional[int] = None,
     ):
         """Initialize Claude process.
 
@@ -87,11 +88,11 @@ class ClaudeProcess:
         self.timeout = timeout
 
         # Runtime state
-        self._process: subprocess.Popen | None = None
-        self._master_fd: int | None = None
+        self._process: Optional[subprocess.Popen] = None
+        self._master_fd: Optional[int] = None
         self._start_time: float = 0
-        self._stdout_lines: list[str] = []
-        self._stderr_lines: list[str] = []
+        self._stdout_lines: List[str] = []
+        self._stderr_lines: List[str] = []
 
         # Ensure log directory exists
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -199,7 +200,7 @@ class ClaudeProcess:
             except Exception as e:
                 self.log(f"Error during termination: {e}", level="ERROR")
 
-    def _build_command(self) -> list[str]:
+    def _build_command(self) -> List[str]:
         """Build the Claude CLI command.
 
         Returns:
@@ -212,7 +213,7 @@ class ClaudeProcess:
 
         return cmd
 
-    def _spawn_process(self, cmd: list[str], slave_fd: int) -> subprocess.Popen:
+    def _spawn_process(self, cmd: List[str], slave_fd: int) -> subprocess.Popen:
         """Spawn the subprocess with PTY stdin.
 
         Args:
@@ -231,7 +232,7 @@ class ClaudeProcess:
             cwd=self.working_dir,
         )
 
-    def _start_threads(self) -> list[threading.Thread]:
+    def _start_threads(self) -> List[threading.Thread]:
         """Start output capture and stdin feeding threads.
 
         Returns:
@@ -256,7 +257,7 @@ class ClaudeProcess:
 
         return [stdout_thread, stderr_thread, stdin_thread]
 
-    def _read_stream(self, stream, output_list: list[str], mirror_stream):
+    def _read_stream(self, stream, output_list: List[str], mirror_stream):
         """Read from stream and mirror to output.
 
         Args:

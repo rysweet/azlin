@@ -146,13 +146,12 @@ All documentation that references commands or syntax:
 - `/Users/ryan/src/azlin/docs/AI_AGENT_GUIDE.md`
 - `/Users/ryan/src/azlin/docs/AZLIN.md`
 - `/Users/ryan/src/azlin/docs/ARCHITECTURE.md`
-- `/Users/ryan/src/azlin/docs/ARCHITECTURE_SUMMARY.md`
 
 **Tests**:
 - `/Users/ryan/src/azlin/tests/README.md`
 - `/Users/ryan/src/azlin/tests/README_AZDOIT.md`
 
-**Total Documentation Files**: 12 files
+**Total Documentation Files**: 11 files
 
 ### 3.3 Help Text Sources
 
@@ -778,7 +777,7 @@ Implementation is complete when:
 ## 14. Related Documents
 
 - **Architecture**: `/Users/ryan/src/azlin/docs/ARCHITECTURE.md`
-- **Test Strategy**: `/Users/ryan/src/azlin/docs/TEST_STRATEGY.md`
+- **Test Strategy**: `/Users/ryan/src/azlin/docs/testing/test_strategy.md`
 - **Existing Tests**: `/Users/ryan/src/azlin/tests/`
 - **User Feedback**: GitHub issues (when available)
 

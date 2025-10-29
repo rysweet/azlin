@@ -7,7 +7,7 @@ Uses unified HookProcessor for common functionality.
 # Import the base processor
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 # Clean import structure
 sys.path.insert(0, str(Path(__file__).parent))
@@ -16,9 +16,10 @@ from hook_processor import HookProcessor
 # Clean imports through package structure
 sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
-    from amplihack.utils.paths import FrameworkPathResolver
     from context_preservation import ContextPreserver
     from paths import get_project_root
+
+    from amplihack.utils.paths import FrameworkPathResolver
 except ImportError:
     # Fallback imports for standalone execution
     get_project_root = None
@@ -32,7 +33,7 @@ class SessionStartHook(HookProcessor):
     def __init__(self):
         super().__init__("session_start")
 
-    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
+    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process session start event.
 
         Args:

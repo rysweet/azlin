@@ -569,3 +569,56 @@ auth_method = "client_secret"
 
             with pytest.raises(ServicePrincipalError, match="expired"):
                 ServicePrincipalManager.validate_certificate(cert_file)
+
+
+class TestAuthProfileCLIIntegration:
+    """Test --auth-profile CLI integration."""
+
+    def test_auth_profile_option_in_help(self):
+        """Test that --auth-profile appears in main help."""
+        result = subprocess.run(
+            ["python", "-m", "azlin", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        assert "--auth-profile" in result.stdout
+        assert "Service principal authentication profile" in result.stdout
+
+    def test_auth_profile_with_nonexistent_profile_shows_error(self):
+        """Test that using nonexistent profile shows clear error message."""
+        # Run with profile that doesn't exist
+        result = subprocess.run(
+            ["python", "-m", "azlin", "--auth-profile", "nonexistent-profile-xyz", "auth", "list"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        # Should fail with clear error message
+        assert result.returncode != 0
+        output = result.stdout + result.stderr
+        assert "not found" in output.lower() or "authentication" in output.lower()
+
+    def test_auth_profile_missing_profile_fails(self, tmp_path):
+        """Test that missing profile shows clear error."""
+        # Create empty config
+        config_dir = tmp_path / ".azlin"
+        config_dir.mkdir()
+        config_file = config_dir / "config.toml"
+        config_file.write_text("[auth_profiles]\n")
+
+        env = os.environ.copy()
+        env["HOME"] = str(tmp_path)
+
+        result = subprocess.run(
+            ["python", "-m", "azlin", "--auth-profile", "nonexistent", "auth", "list"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=env,
+        )
+
+        assert result.returncode != 0
+        assert "not found" in result.stderr or "not found" in result.stdout
+        assert "auth setup" in result.stderr or "auth setup" in result.stdout

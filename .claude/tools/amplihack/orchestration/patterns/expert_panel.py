@@ -9,11 +9,11 @@ Based on: Specs/expert-panel-pattern.md
 """
 
 import re
-from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import List, Optional, Dict, Any
+from datetime import datetime
 
 from ..execution import run_parallel
 from ..session import OrchestratorSession
@@ -37,11 +37,11 @@ class ExpertReview:
 
     # Analysis
     analysis: str
-    strengths: list[str]
-    weaknesses: list[str]
+    strengths: List[str]
+    weaknesses: List[str]
 
     # Scoring (domain-specific)
-    domain_scores: dict[str, float]
+    domain_scores: Dict[str, float]
 
     # Vote
     vote: VoteChoice
@@ -72,7 +72,7 @@ class AggregatedDecision:
     agreement_percentage: float
 
     # Dissent handling
-    dissenting_opinions: list[ExpertReview]
+    dissenting_opinions: List[ExpertReview]
 
     # Metadata
     aggregation_method: str
@@ -86,10 +86,10 @@ class DissentReport:
     decision: VoteChoice
     majority_count: int
     dissent_count: int
-    majority_experts: list[str]
-    dissent_experts: list[str]
-    dissent_rationales: list[str]
-    concerns_raised: list[str]
+    majority_experts: List[str]
+    dissent_experts: List[str]
+    dissent_rationales: List[str]
+    concerns_raised: List[str]
 
 
 # Default expert profiles
@@ -109,7 +109,7 @@ DEFAULT_EXPERTS = [
 ]
 
 
-def aggregate_simple_majority(reviews: list[ExpertReview], quorum: int = 3) -> AggregatedDecision:
+def aggregate_simple_majority(reviews: List[ExpertReview], quorum: int = 3) -> AggregatedDecision:
     """Aggregate votes using simple majority.
 
     Args:
@@ -186,7 +186,7 @@ def aggregate_simple_majority(reviews: list[ExpertReview], quorum: int = 3) -> A
     )
 
 
-def aggregate_weighted(reviews: list[ExpertReview], quorum: int = 3) -> AggregatedDecision:
+def aggregate_weighted(reviews: List[ExpertReview], quorum: int = 3) -> AggregatedDecision:
     """Aggregate votes weighted by confidence.
 
     Args:
@@ -257,7 +257,7 @@ def aggregate_weighted(reviews: list[ExpertReview], quorum: int = 3) -> Aggregat
     )
 
 
-def aggregate_unanimous(reviews: list[ExpertReview], quorum: int = 3) -> AggregatedDecision:
+def aggregate_unanimous(reviews: List[ExpertReview], quorum: int = 3) -> AggregatedDecision:
     """Aggregate votes requiring unanimous agreement.
 
     Args:
@@ -324,7 +324,7 @@ def aggregate_unanimous(reviews: list[ExpertReview], quorum: int = 3) -> Aggrega
     )
 
 
-def generate_dissent_report(decision: AggregatedDecision) -> DissentReport | None:
+def generate_dissent_report(decision: AggregatedDecision) -> Optional[DissentReport]:
     """Generate formatted dissent report.
 
     Args:
@@ -370,13 +370,13 @@ def generate_dissent_report(decision: AggregatedDecision) -> DissentReport | Non
 
 def run_expert_panel(
     solution: str,
-    experts: list[dict[str, str]] | None = None,
+    experts: Optional[List[Dict[str, str]]] = None,
     aggregation_method: str = "simple_majority",
     quorum: int = 3,
-    model: str | None = None,
-    working_dir: Path | None = None,
-    timeout: int | None = None,
-) -> dict[str, Any]:
+    model: Optional[str] = None,
+    working_dir: Optional[Path] = None,
+    timeout: Optional[int] = None,
+) -> Dict[str, Any]:
     """Execute Expert Panel Review pattern.
 
     Multiple expert agents independently review a solution, each casting a vote
@@ -540,7 +540,7 @@ FORMAT YOUR RESPONSE EXACTLY AS:
     session.log("Step 3: Parsing expert reviews and votes")
 
     expert_reviews = []
-    for (domain, expert_def, _), result in zip(processes, review_results, strict=False):
+    for (domain, expert_def, _), result in zip(processes, review_results):
         if result.exit_code != 0:
             session.log(f"WARNING: Expert {domain} review failed", level="WARNING")
             continue
@@ -664,7 +664,7 @@ def _extract_section(text: str, section_name: str) -> str:
     return ""
 
 
-def _extract_list_items(text: str, section_name: str) -> list[str]:
+def _extract_list_items(text: str, section_name: str) -> List[str]:
     """Extract bullet list items from a section."""
     section_text = _extract_section(text, section_name)
     if not section_text:
@@ -674,7 +674,7 @@ def _extract_list_items(text: str, section_name: str) -> list[str]:
     return [item.strip() for item in items]
 
 
-def _extract_scores(text: str, section_name: str) -> dict[str, float]:
+def _extract_scores(text: str, section_name: str) -> Dict[str, float]:
     """Extract domain scores from a section."""
     section_text = _extract_section(text, section_name)
     if not section_text:
