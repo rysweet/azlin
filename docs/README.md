@@ -14,7 +14,7 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 
 - **[AI_AGENT_GUIDE.md](AI_AGENT_GUIDE.md)** - **START HERE for AI agents** - Comprehensive guide to azlin development
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete architecture specification
-- **[TEST_STRATEGY.md](TEST_STRATEGY.md)** - Testing approach and strategy
+- **[testing/test_strategy.md](testing/test_strategy.md)** - Testing approach and strategy
 
 ### For AI Agents
 
@@ -50,7 +50,7 @@ cat docs/QUICK_REFERENCE.md
 
 **Development Workflow**
 1. Review [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design
-2. Follow [TEST_STRATEGY.md](TEST_STRATEGY.md) for testing approach
+2. Follow [testing/test_strategy.md](testing/test_strategy.md) for testing approach
 
 **Using uv**
 - See [UV_USAGE.md](UV_USAGE.md) for fast uv-based workflows
@@ -64,7 +64,8 @@ docs/
 ├── QUICK_REFERENCE.md           # Command reference for daily use
 ├── UV_USAGE.md                  # uv package manager workflows
 ├── ARCHITECTURE.md              # Complete architecture spec
-└── TEST_STRATEGY.md             # Testing strategy
+└── testing/
+    └── test_strategy.md         # Testing strategy
 ```
 
 ## Contributing
@@ -77,4 +78,4 @@ See the main [README.md](../README.md) for contribution guidelines and developme
 [Main README](../README.md) |
 [Quick Reference](QUICK_REFERENCE.md) |
 [Architecture](ARCHITECTURE.md) |
-[Testing](TEST_STRATEGY.md)
+[Testing](testing/test_strategy.md)

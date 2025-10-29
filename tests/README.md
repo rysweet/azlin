@@ -528,7 +528,7 @@ Tests run automatically on:
 
 ## Documentation
 
-- **TEST_STRATEGY.md** - Overall test strategy and planning
+- **docs/testing/test_strategy.md** - Overall test strategy and planning
 - **MOCKING_STRATEGY.md** - Detailed mocking approach
 - **TEST_IMPLEMENTATION_SUMMARY.md** - Implementation summary
 - **tests/README.md** - This file
@@ -537,7 +537,7 @@ Tests run automatically on:
 
 For questions or issues with the test suite:
 1. Check this README
-2. Review TEST_STRATEGY.md
+2. Review docs/testing/test_strategy.md
 3. Check MOCKING_STRATEGY.md
 4. Review test examples in existing tests
 5. Check PATTERNS.md for testing patterns

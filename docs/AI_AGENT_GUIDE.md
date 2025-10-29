@@ -11,7 +11,7 @@
 ### Essential Reading Order
 1. **This document** - Overview and architecture
 2. **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete system design
-3. **[TEST_STRATEGY.md](TEST_STRATEGY.md)** - Testing approach
+3. **[testing/test_strategy.md](testing/test_strategy.md)** - Testing approach
 4. **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command reference
 
 ### Development Workflow
@@ -96,7 +96,7 @@ azlin/
 │
 ├── docs/
 │   ├── ARCHITECTURE.md           # Complete system design
-│   ├── TEST_STRATEGY.md          # Testing approach
+│   ├── testing/test_strategy.md          # Testing approach
 │   ├── QUICK_REFERENCE.md        # Command reference
 │   └── AI_AGENT_GUIDE.md         # This file
 │
@@ -430,7 +430,7 @@ az account set --subscription "subscription-id"
 
 ### Internal Documentation
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete system design
-- **[TEST_STRATEGY.md](TEST_STRATEGY.md)** - Testing guidelines
+- **[testing/test_strategy.md](testing/test_strategy.md)** - Testing guidelines
 - **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command reference
 - **[UV_USAGE.md](UV_USAGE.md)** - uv package manager guide
 

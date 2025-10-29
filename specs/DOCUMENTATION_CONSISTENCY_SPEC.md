@@ -777,7 +777,7 @@ Implementation is complete when:
 ## 14. Related Documents
 
 - **Architecture**: `/Users/ryan/src/azlin/docs/ARCHITECTURE.md`
-- **Test Strategy**: `/Users/ryan/src/azlin/docs/TEST_STRATEGY.md`
+- **Test Strategy**: `/Users/ryan/src/azlin/docs/testing/test_strategy.md`
 - **Existing Tests**: `/Users/ryan/src/azlin/tests/`
 - **User Feedback**: GitHub issues (when available)
 
