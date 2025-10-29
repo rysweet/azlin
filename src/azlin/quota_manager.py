@@ -195,8 +195,8 @@ class QuotaManager:
                     quota_info = QuotaInfo(
                         region=region,
                         quota_name=quota_name,
-                        current_usage=quota_data["currentValue"],
-                        limit=quota_data["limit"],
+                        current_usage=int(quota_data["currentValue"]),
+                        limit=int(quota_data["limit"]),
                     )
 
                     quotas.append(quota_info)
