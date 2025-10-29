@@ -1951,10 +1951,9 @@ def list_command(
 
         # Populate session names from tags (hybrid resolution: tags first, config fallback)
         for vm in vms:
-            # Try to get from tags first
-            session_from_tag = TagManager.get_session_name(vm.name, vm.resource_group)
-            if session_from_tag:
-                vm.session_name = session_from_tag
+            # Use tags already in memory instead of making N API calls (fixes Issue #219)
+            if vm.tags and TagManager.TAG_SESSION in vm.tags:
+                vm.session_name = vm.tags[TagManager.TAG_SESSION]
             else:
                 # Fall back to config file
                 vm.session_name = ConfigManager.get_session_name(vm.name, config)
