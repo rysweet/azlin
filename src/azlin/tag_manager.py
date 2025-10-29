@@ -534,4 +534,3 @@ class TagManager:
         # Must match: letters, numbers, hyphens, underscores
         pattern = r"^[a-zA-Z0-9_-]+$"
         return bool(re.match(pattern, session_name))
-

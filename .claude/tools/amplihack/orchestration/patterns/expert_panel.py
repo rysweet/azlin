@@ -227,7 +227,10 @@ def aggregate_weighted(reviews: List[ExpertReview], quorum: int = 3) -> Aggregat
 
     # Calculate agreement percentage based on weight
     total_weight = approve_weight + reject_weight
-    agreement_percentage = majority_weight / total_weight * 100 if total_weight > 0 else 0.0
+    if total_weight > 0:
+        agreement_percentage = (majority_weight / total_weight) * 100
+    else:
+        agreement_percentage = 0.0
 
     # Determine consensus type
     if agreement_percentage == 100:

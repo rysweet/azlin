@@ -190,7 +190,6 @@ class VMManager:
         except subprocess.TimeoutExpired as e:
             raise VMManagerError("VM list operation timed out") from e
 
-
     @classmethod
     def _get_all_public_ips(cls, resource_group: str) -> dict[str, str]:
         """Get all public IPs in the resource group in a single batch call.

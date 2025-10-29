@@ -176,7 +176,10 @@ class MemoryBackend:
 
             try:
                 # Serialize value based on type
-                serialized_value = json.dumps(value) if memory_type == "json" else str(value)
+                if memory_type == "json":
+                    serialized_value = json.dumps(value)
+                else:
+                    serialized_value = str(value)
 
                 # Store with conflict resolution
                 conn.execute(
