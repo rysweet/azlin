@@ -1479,13 +1479,28 @@ def _update_config_state(
             logger.debug(f"Failed to update config: {e}")
 
 
-def _execute_command_mode(orchestrator: CLIOrchestrator, command: str) -> None:
+def _execute_command_mode(
+    orchestrator: CLIOrchestrator,
+    command: str,
+    session_name: str | None = None,
+    config: str | None = None,
+) -> None:
     """Execute VM provisioning and command execution."""
     click.echo(f"\nCommand to execute: {command}")
     click.echo("Provisioning VM first...\n")
 
     orchestrator.auto_connect = False
     exit_code = orchestrator.run()
+
+    # Save session name mapping if provided
+    if session_name and orchestrator.vm_details:
+        try:
+            ConfigManager.set_session_name(orchestrator.vm_details.name, session_name, config)
+            logger.debug(
+                f"Saved session name mapping: {orchestrator.vm_details.name} -> {session_name}"
+            )
+        except ConfigError as e:
+            logger.warning(f"Failed to save session name: {e}")
 
     if exit_code == 0 and orchestrator.vm_details:
         vm_info = VMInfo(
@@ -1513,6 +1528,8 @@ def _provision_pool(
     final_rg: str | None,
     final_region: str,
     final_vm_size: str,
+    session_name: str | None = None,
+    config: str | None = None,
 ) -> None:
     """Provision pool of VMs in parallel."""
     click.echo(f"\nProvisioning pool of {pool} VMs in parallel...")
@@ -1522,14 +1539,14 @@ def _provision_pool(
     configs: list[VMConfig] = []
     for i in range(pool):
         vm_name_pool = f"{vm_name}-{i + 1:02d}"
-        config = orchestrator.provisioner.create_vm_config(
+        config_item = orchestrator.provisioner.create_vm_config(
             name=vm_name_pool,
             resource_group=final_rg or f"azlin-rg-{int(time.time())}",
             location=final_region,
             size=final_vm_size,
             ssh_public_key=ssh_key_pair.public_key_content,
         )
-        configs.append(config)
+        configs.append(config_item)
 
     try:
         result = orchestrator.provisioner.provision_vm_pool(
@@ -1537,6 +1554,17 @@ def _provision_pool(
             progress_callback=lambda msg: click.echo(f"  {msg}"),
             max_workers=min(10, pool),
         )
+
+        # Save session names for successfully provisioned VMs in pool
+        if session_name and result.successful:
+            for i, vm_details in enumerate(result.successful, 1):
+                pool_session_name = f"{session_name}-{i:02d}"
+                try:
+                    ConfigManager.set_session_name(vm_details.name, pool_session_name, config)
+                    logger.debug(f"Saved session name: {vm_details.name} -> {pool_session_name}")
+                except ConfigError as e:
+                    logger.warning(f"Failed to save session name for {vm_details.name}: {e}")
+
         _display_pool_results(result)
         sys.exit(0 if result.any_succeeded else 1)
     except ProvisioningError as e:
@@ -1653,8 +1681,8 @@ def new_command(
         resource_group, region, size, vm_size, azlin_config, template_config
     )
 
-    # Generate VM name
-    vm_name = generate_vm_name(name, command)
+    # Generate VM name (don't use custom name for Azure VM resource name)
+    vm_name = generate_vm_name(None, command)
 
     # Validate inputs
     _validate_inputs(pool, repo)
@@ -1670,19 +1698,35 @@ def new_command(
         nfs_storage=nfs_storage,
     )
 
-    # Update config state
-    _update_config_state(config, final_rg, vm_name, name)
+    # Update config state (resource group only, session name saved after VM creation)
+    if final_rg:
+        try:
+            ConfigManager.update_config(config, default_resource_group=final_rg)
+        except ConfigError as e:
+            logger.debug(f"Failed to update config: {e}")
 
     # Handle command execution mode
     if command and not pool:
-        _execute_command_mode(orchestrator, command)
+        _execute_command_mode(orchestrator, command, name, config)
 
     # Handle pool provisioning
     if pool and pool > 1:
-        _provision_pool(orchestrator, pool, vm_name, final_rg, final_region, final_vm_size)
+        _provision_pool(
+            orchestrator, pool, vm_name, final_rg, final_region, final_vm_size, name, config
+        )
 
     # Standard single VM provisioning
     exit_code = orchestrator.run()
+
+    # Save session name mapping AFTER VM creation (now we have actual VM name)
+    if name and orchestrator.vm_details:
+        try:
+            actual_vm_name = orchestrator.vm_details.name
+            ConfigManager.set_session_name(actual_vm_name, name, config)
+            logger.debug(f"Saved session name mapping: {actual_vm_name} -> {name}")
+        except ConfigError as e:
+            logger.warning(f"Failed to save session name: {e}")
+
     sys.exit(exit_code)
 
 
