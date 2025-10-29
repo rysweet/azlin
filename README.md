@@ -566,23 +566,27 @@ azlin clone my-vm --vm-size Standard_D4s_v3 --region westus2
 - Home directories copy in parallel (1-10 minutes depending on size)
 - Total time: ~4-15 minutes
 
-#### `azlin list` - List all VMs
+#### `azlin list` - List VMs
 
 ```bash
 # List VMs in default resource group
 azlin list
 
+# List VMs in specific resource group
+azlin list --resource-group my-custom-rg
+
 # Show ALL VMs (including stopped)
 azlin list --all
+
+# List ALL VMs across all resource groups (expensive operation)
+azlin list --show-all-vms
+azlin list -a  # Short form
 
 # Filter by tag
 azlin list --tag env=dev
 
 # Filter by tag key only
 azlin list --tag team
-
-# Specific resource group
-azlin list --resource-group my-custom-rg
 ```
 
 **Output columns:**
