@@ -2140,13 +2140,14 @@ def list_command(
 
         console.print(f"\n[bold]{' | '.join(summary_parts)}[/bold]")
 
-        # Show notification if there are unmanaged VMs (only when not using --show-all-vms)
+        # Show notification about additional VMs (only when not using --show-all-vms)
         if not show_all_vms and all_vms_for_notification:
-            unmanaged_count = len([vm for vm in all_vms_for_notification if not vm.is_managed()])
-            if unmanaged_count > 0:
-                click.echo(
-                    f"\n{unmanaged_count} additional vms not currently managed by azlin detected. "
-                    "Run with --show-all-vms to show them."
+            total_vms_in_subscription = len(all_vms_for_notification)
+            additional_vms = total_vms_in_subscription - len(vms)
+            if additional_vms > 0:
+                console.print(
+                    f"\n💡 [dim]{additional_vms} additional VMs found in subscription. "
+                    f"Use --show-all-vms to see all {total_vms_in_subscription} VMs.[/dim]"
                 )
 
     except VMManagerError as e:
