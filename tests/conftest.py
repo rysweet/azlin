@@ -8,6 +8,8 @@ This module provides common fixtures used across all test types:
 - Progress display mocks
 """
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -1050,3 +1052,36 @@ def capture_sp_logs(caplog):
 
     caplog.set_level(logging.DEBUG)
     return caplog
+
+
+# ============================================================================
+# AZURE AUTHENTICATION DETECTION
+# ============================================================================
+
+
+def is_azure_authenticated() -> bool:
+    """Check if Azure CLI is authenticated.
+
+    Returns:
+        True if 'az account show' succeeds, False otherwise
+    """
+    # Skip in CI unless explicitly enabled
+    if os.getenv("CI") and not os.getenv("AZLIN_ENABLE_AZURE_TESTS"):
+        return False
+
+    try:
+        result = subprocess.run(
+            ["az", "account", "show"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+# Pytest marker for tests requiring Azure authentication
+requires_azure_auth = pytest.mark.skipif(
+    not is_azure_authenticated(),
+    reason="Requires Azure CLI authentication (skip in CI unless AZLIN_ENABLE_AZURE_TESTS=1)",
+)
