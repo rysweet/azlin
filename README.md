@@ -1000,6 +1000,134 @@ Attempting to reconnect to my-vm...
 
 ---
 
+## Azure Bastion (Secure VM Access)
+
+Azure Bastion provides secure SSH access to VMs without public IPs, enhancing security by eliminating internet-facing access.
+
+### Why Use Bastion?
+
+**Security Benefits:**
+- No public IPs needed on VMs (reduces attack surface)
+- Centralized access control through Azure RBAC
+- Audit logging of all connections
+- Compliance with security policies requiring private-only VMs
+
+**Cost Consideration:**
+- Bastion: ~$140/month per host
+- Saves: ~$3/month per VM (no public IP needed)
+- Break-even: ~47 VMs per Bastion host
+
+### Bastion Commands
+
+#### `azlin bastion list` - List Bastion hosts
+
+```bash
+# List all Bastion hosts in subscription
+azlin bastion list
+
+# List Bastions in specific resource group
+azlin bastion list --resource-group my-rg
+```
+
+**Output:**
+```
+Found 3 Bastion host(s):
+
+  my-bastion
+    Resource Group: my-rg
+    Location: westus2
+    SKU: Standard
+    State: Succeeded
+```
+
+#### `azlin bastion status` - Show Bastion details
+
+```bash
+# Get status of specific Bastion
+azlin bastion status my-bastion --resource-group my-rg
+```
+
+**Output:**
+```
+Bastion Host: my-bastion
+Resource Group: my-rg
+Location: westus2
+SKU: Standard
+Provisioning State: Succeeded
+DNS Name: bst-xxx.bastion.azure.com
+
+IP Configurations: 1
+  [1] Subnet: AzureBastionSubnet
+      Public IP: my-bastion-ip
+```
+
+#### `azlin bastion configure` - Configure VM to use Bastion
+
+```bash
+# Configure VM to connect through Bastion
+azlin bastion configure my-vm --bastion-name my-bastion --resource-group my-rg
+```
+
+Stores VM-to-Bastion mapping in `~/.azlin/bastion_config.toml` for automatic use.
+
+### Connecting Through Bastion
+
+#### `azlin connect` with Bastion
+
+```bash
+# Auto-detect Bastion (prompts if found)
+azlin connect my-private-vm --resource-group my-rg
+# Output: Found Bastion host 'my-bastion'. Use it? (y/N)
+
+# Force Bastion connection
+azlin connect my-vm --use-bastion --resource-group my-rg
+
+# Use specific Bastion
+azlin connect my-vm --use-bastion --bastion-name my-bastion
+```
+
+**How It Works:**
+1. Creates localhost tunnel: `127.0.0.1:random-port`
+2. Routes SSH through tunnel to VM's private IP
+3. Automatic cleanup on disconnect
+
+**Performance:**
+- Direct SSH: 3-5s connection time
+- Through Bastion: 5-10s connection time (slight overhead)
+
+### Bastion Configuration
+
+Configuration stored in `~/.azlin/bastion_config.toml`:
+
+```toml
+# VM-to-Bastion mappings
+[mappings.my-vm]
+vm_name = "my-vm"
+vm_resource_group = "my-rg"
+bastion_name = "my-bastion"
+bastion_resource_group = "network-rg"
+enabled = true
+
+# Auto-detection preferences
+auto_detect = true
+prefer_bastion = false  # Prefer direct connection when both available
+```
+
+### Security Features
+
+- **Localhost-only tunnels**: Binds to 127.0.0.1 (not network-accessible)
+- **Random ephemeral ports**: 50000-60000 range
+- **Automatic cleanup**: Tunnels closed on disconnect
+- **No credential storage**: Uses existing Azure authentication
+- **Fail-secure**: Denies connection if Bastion unavailable for private-only VMs
+
+### Documentation
+
+- **Security Requirements**: See [BASTION_SECURITY_REQUIREMENTS.md](docs/BASTION_SECURITY_REQUIREMENTS.md)
+- **Security Testing**: See [BASTION_SECURITY_TESTING.md](docs/BASTION_SECURITY_TESTING.md)
+
+---
+
 ## Monitoring
 
 ### `azlin top` - Distributed real-time monitoring
@@ -1980,6 +2108,9 @@ azlin ps  # Check for resource-heavy processes
 | `azlin cp` | Copy files | `azlin cp file vm:~/` |
 | `azlin sync` | Sync dotfiles | `azlin sync` |
 | `azlin cost` | Track spending | `azlin cost --by-vm` |
+| `azlin bastion list` | List Bastion hosts | `azlin bastion list --rg my-rg` |
+| `azlin bastion status` | Bastion details | `azlin bastion status my-bastion` |
+| `azlin bastion configure` | Configure VM for Bastion | `azlin bastion configure my-vm` |
 
 ---
 
