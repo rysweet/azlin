@@ -1963,6 +1963,15 @@ def list_command(
         # Display results
         if not vms:
             click.echo("No VMs found.")
+
+            # Show notification if there are unmanaged VMs (only when not using --show-all-vms)
+            if not show_all_vms and all_vms_for_notification:
+                unmanaged_count = len([vm for vm in all_vms_for_notification if not vm.is_managed()])
+                if unmanaged_count > 0:
+                    click.echo(
+                        f"\n{unmanaged_count} additional vms not currently managed by azlin detected. "
+                        "Run with --show-all-vms to show them."
+                    )
             return
 
         # Collect quota information if enabled
