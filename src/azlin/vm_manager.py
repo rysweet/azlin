@@ -50,6 +50,20 @@ class VMInfo:
         """Check if VM is stopped."""
         return self.power_state in ["VM stopped", "VM deallocated"]
 
+    def is_managed(self) -> bool:
+        """Check if VM is managed by azlin.
+
+        A VM is considered managed if:
+        1. Has managed-by=azlin tag, OR
+        2. Name starts with 'azlin' prefix
+
+        Returns:
+            True if managed, False otherwise
+        """
+        if self.tags and self.tags.get("managed-by") == "azlin":
+            return True
+        return self.name.startswith("azlin")
+
     def get_status_display(self) -> str:
         """Get formatted status display."""
         if self.is_running():
@@ -127,6 +141,11 @@ class VMManager:
                 cmd, capture_output=True, text=True, timeout=30, check=True
             )
 
+            # Handle empty stdout (e.g., resource group not found but didn't raise error)
+            if not result.stdout or result.stdout.strip() == "":
+                logger.debug(f"No VMs found in resource group: {resource_group}")
+                return []
+
             vms_data: list[dict[str, Any]] = json.loads(result.stdout)
 
             # Fetch all public IPs in a single batch call
@@ -170,6 +189,27 @@ class VMManager:
             raise VMManagerError("Failed to parse VM list response") from e
         except subprocess.TimeoutExpired as e:
             raise VMManagerError("VM list operation timed out") from e
+
+    @classmethod
+    def list_all_user_vms(cls, resource_group: str, include_stopped: bool = True) -> list[VMInfo]:
+        """List all user VMs in a resource group (managed and unmanaged).
+
+        This method returns ALL VMs in the resource group, not just azlin-managed ones.
+        Use this when you need to show both managed and unmanaged VMs.
+
+        This is simply an alias for list_vms with clearer intent.
+
+        Args:
+            resource_group: Resource group name
+            include_stopped: Include stopped/deallocated VMs
+
+        Returns:
+            List of VMInfo objects for all VMs
+
+        Raises:
+            VMManagerError: If listing fails
+        """
+        return cls.list_vms(resource_group, include_stopped)
 
     @classmethod
     def _get_all_public_ips(cls, resource_group: str) -> dict[str, str]:
