@@ -8,6 +8,8 @@ This module provides common fixtures used across all test types:
 - Progress display mocks
 """
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -354,8 +356,139 @@ def mock_imessr_client():
 
 
 # ============================================================================
+# CLI TEST HELPERS (PR #191 Feedback)
+# ============================================================================
+
+
+def assert_option_accepted(result):
+    """Assert that a CLI option was accepted (no syntax error).
+
+    This helper replaces repeated assertions like:
+        assert "no such option" not in result.output.lower()
+
+    Args:
+        result: Click CliRunner result object
+    """
+    assert "no such option" not in result.output.lower(), (
+        f"Option should be accepted, but got error: {result.output}"
+    )
+
+
+def assert_option_rejected(result, option_name: str):
+    """Assert that a CLI option was rejected with clear error.
+
+    This helper validates both exit code and error message.
+
+    Args:
+        result: Click CliRunner result object
+        option_name: The option that should be rejected (e.g., '--invalid')
+    """
+    assert result.exit_code != 0, (
+        f"Expected non-zero exit code for invalid option {option_name}, "
+        f"but got exit_code={result.exit_code}"
+    )
+    assert "no such option" in result.output.lower(), (
+        f"Expected 'no such option' error for {option_name}, but got: {result.output}"
+    )
+
+
+def assert_command_succeeds(result):
+    """Assert that a command executed successfully (exit code 0).
+
+    Args:
+        result: Click CliRunner result object
+    """
+    assert result.exit_code == 0, (
+        f"Expected successful execution (exit_code=0), "
+        f"but got exit_code={result.exit_code}: {result.output}"
+    )
+
+
+def assert_command_fails(result, expected_error: str | None = None):
+    """Assert that a command failed with non-zero exit code.
+
+    Args:
+        result: Click CliRunner result object
+        expected_error: Optional substring to look for in error output
+    """
+    assert result.exit_code != 0, (
+        f"Expected command to fail (non-zero exit code), but got exit_code=0: {result.output}"
+    )
+
+    if expected_error:
+        assert expected_error.lower() in result.output.lower(), (
+            f"Expected error containing '{expected_error}', but got: {result.output}"
+        )
+
+
+def assert_missing_argument_error(result):
+    """Assert that command failed due to missing required argument.
+
+    Args:
+        result: Click CliRunner result object
+    """
+    assert result.exit_code != 0, (
+        f"Expected non-zero exit code for missing argument, but got exit_code={result.exit_code}"
+    )
+    assert "missing argument" in result.output.lower() or "usage:" in result.output.lower(), (
+        f"Expected 'missing argument' or 'usage' error, but got: {result.output}"
+    )
+
+
+def assert_unexpected_argument_error(result):
+    """Assert that command failed due to unexpected positional argument.
+
+    Args:
+        result: Click CliRunner result object
+    """
+    assert result.exit_code != 0, (
+        f"Expected non-zero exit code for unexpected argument, but got exit_code={result.exit_code}"
+    )
+    assert (
+        "got unexpected extra argument" in result.output.lower()
+        or "unexpected" in result.output.lower()
+    ), f"Expected 'unexpected argument' error, but got: {result.output}"
+
+
+def assert_invalid_value_error(result, value_type: str | None = None):
+    """Assert that command failed due to invalid option value.
+
+    Args:
+        result: Click CliRunner result object
+        value_type: Optional type description (e.g., 'integer')
+    """
+    assert result.exit_code != 0, (
+        f"Expected non-zero exit code for invalid value, but got exit_code={result.exit_code}"
+    )
+
+    error_indicators = ["invalid", "error"]
+    if value_type:
+        error_indicators.append(value_type.lower())
+
+    has_error = any(indicator in result.output.lower() for indicator in error_indicators)
+    assert has_error, f"Expected error containing {error_indicators}, but got: {result.output}"
+
+
+# ============================================================================
 # UTILITY FIXTURES
 # ============================================================================
+
+
+@pytest.fixture
+def cli_runner():
+    """Provide a Click CliRunner for testing CLI commands.
+
+    Returns:
+        CliRunner: Configured Click test runner
+
+    Usage:
+        def test_command(cli_runner):
+            result = cli_runner.invoke(main, ["command", "args"])
+            assert_command_succeeds(result)
+    """
+    from click.testing import CliRunner
+
+    return CliRunner()
 
 
 @pytest.fixture
@@ -919,3 +1052,36 @@ def capture_sp_logs(caplog):
 
     caplog.set_level(logging.DEBUG)
     return caplog
+
+
+# ============================================================================
+# AZURE AUTHENTICATION DETECTION
+# ============================================================================
+
+
+def is_azure_authenticated() -> bool:
+    """Check if Azure CLI is authenticated.
+
+    Returns:
+        True if 'az account show' succeeds, False otherwise
+    """
+    # Skip in CI unless explicitly enabled
+    if os.getenv("CI") and not os.getenv("AZLIN_ENABLE_AZURE_TESTS"):
+        return False
+
+    try:
+        result = subprocess.run(
+            ["az", "account", "show"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+# Pytest marker for tests requiring Azure authentication
+requires_azure_auth = pytest.mark.skipif(
+    not is_azure_authenticated(),
+    reason="Requires Azure CLI authentication (skip in CI unless AZLIN_ENABLE_AZURE_TESTS=1)",
+)

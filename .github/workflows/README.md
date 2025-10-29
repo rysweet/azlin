@@ -55,7 +55,41 @@ All security scan reports are uploaded as artifacts with 90-day retention.
 - GitGuardian failures block PRs (secrets detected)
 - Other security tools provide warnings but don't block
 
-### 3. Dependabot (`dependabot.yml`)
+### 3. Documentation Validation (`doc-validation.yml`)
+
+Runs on:
+- Pull requests that modify documentation or CLI code
+- Push to `main` or `develop` branches
+- Manual trigger via workflow_dispatch
+
+**Jobs:**
+- **Validate Documentation** - Checks consistency between CLI and documentation
+
+**What it validates:**
+- All CLI commands are documented in README.md
+- No documentation for non-existent commands
+- Command options match between CLI and docs
+- Examples use correct command syntax
+
+**Performance:**
+- Fast execution: < 30 seconds
+- Minimal dependencies (only Click required)
+- Shallow git clone for speed
+- Caches pip packages
+
+**Failure Conditions:**
+- CLI commands missing from documentation
+- Documentation references removed commands
+- Invalid command examples in docs
+
+**When triggered:**
+Automatically runs when PRs touch:
+- `README.md`
+- `docs/**/*.md`
+- `src/azlin/cli.py`
+- `src/azlin/commands/*.py`
+
+### 4. Dependabot (`dependabot.yml`)
 
 Automated dependency updates:
 
@@ -104,6 +138,9 @@ act pull_request -W .github/workflows/ci.yml
 
 # Run security workflow
 act pull_request -W .github/workflows/security.yml
+
+# Run documentation validation
+act pull_request -W .github/workflows/doc-validation.yml
 ```
 
 ## Best Practices
@@ -148,6 +185,17 @@ pytest tests/unit --cov=src/azlin --cov-report=term-missing
 # Generate coverage report
 pytest tests/unit --cov=src/azlin --cov-report=html
 open htmlcov/index.html  # View uncovered lines
+```
+
+**Documentation validation fails:**
+```bash
+# Run validation locally
+python scripts/validate_documentation.py
+
+# Check what commands are in CLI
+python -c "from azlin.cli import cli; print([n for n in cli.commands.keys()])"
+
+# See DOCUMENTATION_FIX_PLAN.md for guidance
 ```
 
 ### Security Scan Failing

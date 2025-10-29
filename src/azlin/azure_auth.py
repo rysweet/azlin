@@ -129,10 +129,14 @@ class AzureAuthenticator:
                 logger.info(f"Using service principal from profile: {self._auth_profile}")
                 return creds
 
+            except AuthenticationError:
+                # Re-raise authentication errors (strict auth when profile explicitly specified)
+                raise
             except Exception as e:
-                logger.error(f"Failed to use service principal profile: {e}")
-                # Fall through to other auth methods
-                pass
+                # Unexpected errors - re-raise with context
+                raise AuthenticationError(
+                    f"Failed to authenticate with profile '{self._auth_profile}': {e}"
+                ) from e
 
         # Priority 1: Environment variables
         if self._check_env_credentials():

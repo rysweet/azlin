@@ -81,6 +81,23 @@ pip install -e .
 
 ## Basic Usage
 
+### Natural Language Flexibility
+
+The AI understands multiple phrasings. All of these work:
+
+**VM Creation:**
+- "create a vm called test"
+- "provision a new vm named test"
+- "make me a vm called test"
+- "set up a Standard_D4s_v3 vm"
+
+**Listing:**
+- "show me all my vms"
+- "list my vms"
+- "what vms do I have"
+
+**Be as natural as you'd speak - the AI adapts to your style.**
+
 ### The Two Commands
 
 **`azlin do`** - Simple natural language execution
