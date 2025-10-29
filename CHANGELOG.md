@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - CI/CD pipeline with comprehensive testing and security scanning
 - Dependabot automation for dependency management
+- `--show-all-vms` / `-a` flag for cross-resource-group VM scanning ([#209](https://github.com/rysweet/azlin/pull/209))
+- Regression test for config field preservation during updates ([#209](https://github.com/rysweet/azlin/pull/209))
+- Helpful error messages when no resource group configured ([#209](https://github.com/rysweet/azlin/pull/209))
+- Reminder message about --show-all-vms option in list output ([#209](https://github.com/rysweet/azlin/pull/209))
+
+### Fixed
+- Config corruption bug in test_auth_integration.py writing to real ~/.azlin/config.toml ([#209](https://github.com/rysweet/azlin/pull/209))
+- NFS configuration being lost during config updates ([#209](https://github.com/rysweet/azlin/pull/209))
+- Expensive cross-RG scanning running by default (now requires explicit flag) ([#209](https://github.com/rysweet/azlin/pull/209))
+
+### Changed
+- `azlin list` default behavior: now uses configured resource group instead of scanning all RGs ([#209](https://github.com/rysweet/azlin/pull/209))
+- `--show-all-vms` flag meaning simplified: cross-RG scan instead of showing unmanaged VMs ([#209](https://github.com/rysweet/azlin/pull/209))
+
+### Removed
+- Expensive notification queries from default list path ([#209](https://github.com/rysweet/azlin/pull/209))
+- VMManager.list_all_user_vms() method (unused) ([#209](https://github.com/rysweet/azlin/pull/209))
+- TagManager.list_all_vms_cross_rg() method (expensive, unused) ([#209](https://github.com/rysweet/azlin/pull/209))
+- 4,100 lines of unnecessary code, tests, and planning documents ([#209](https://github.com/rysweet/azlin/pull/209))
 
 ## [2.1.0] - 2025-10-19
 
