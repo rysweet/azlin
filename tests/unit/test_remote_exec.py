@@ -10,8 +10,8 @@ from azlin.modules.ssh_connector import SSHConfig
 from azlin.remote_exec import (
     RemoteExecutor,
     RemoteResult,
+    TmuxSession,
     TmuxSessionExecutor,
-    TmuxSessionInfo,
     WCommandExecutor,
 )
 
@@ -171,11 +171,11 @@ class TestWCommandExecutor:
 
 @pytest.mark.unit
 class TestTmuxSessionInfo:
-    """Tests for TmuxSessionInfo dataclass."""
+    """Tests for TmuxSession dataclass."""
 
     def test_tmux_session_info_creation(self):
-        """Test creating TmuxSessionInfo with all fields."""
-        session = TmuxSessionInfo(
+        """Test creating TmuxSession with all fields."""
+        session = TmuxSession(
             vm_name="test-vm",
             session_name="dev",
             windows=3,
@@ -188,24 +188,26 @@ class TestTmuxSessionInfo:
         assert session.created_time == "Thu Oct 10 10:00:00 2024"
 
     def test_tmux_session_info_minimal(self):
-        """Test creating TmuxSessionInfo with minimal fields."""
-        session = TmuxSessionInfo(
+        """Test creating TmuxSession with minimal fields."""
+        session = TmuxSession(
             vm_name="test-vm",
             session_name="dev",
             windows=1,
+            created_time="",  # Required field
         )
 
         assert session.vm_name == "test-vm"
         assert session.session_name == "dev"
         assert session.windows == 1
-        assert session.created_time is None
+        assert session.created_time == ""
 
     def test_tmux_session_info_zero_windows(self):
         """Test handling zero windows (edge case)."""
-        session = TmuxSessionInfo(
+        session = TmuxSession(
             vm_name="test-vm",
             session_name="dev",
             windows=0,
+            created_time="",  # Required field
         )
 
         assert session.windows == 0
@@ -549,13 +551,13 @@ class TestTmuxSessionExecutorFormatting:
     def test_format_sessions_display_single_vm(self):
         """Test formatting sessions for single VM."""
         sessions = [
-            TmuxSessionInfo(
+            TmuxSession(
                 vm_name="test-vm",
                 session_name="dev",
                 windows=3,
                 created_time="Thu Oct 10 10:00:00 2024",
             ),
-            TmuxSessionInfo(
+            TmuxSession(
                 vm_name="test-vm",
                 session_name="prod",
                 windows=1,
@@ -574,9 +576,9 @@ class TestTmuxSessionExecutorFormatting:
     def test_format_sessions_display_multiple_vms(self):
         """Test formatting sessions across multiple VMs."""
         sessions = [
-            TmuxSessionInfo(vm_name="vm-1", session_name="dev", windows=2),
-            TmuxSessionInfo(vm_name="vm-2", session_name="prod", windows=1),
-            TmuxSessionInfo(vm_name="vm-3", session_name="test", windows=5),
+            TmuxSession(vm_name="vm-1", session_name="dev", windows=2, created_time=""),
+            TmuxSession(vm_name="vm-2", session_name="prod", windows=1, created_time=""),
+            TmuxSession(vm_name="vm-3", session_name="test", windows=5, created_time=""),
         ]
 
         display = TmuxSessionExecutor.format_sessions_display(sessions)
@@ -594,7 +596,7 @@ class TestTmuxSessionExecutorFormatting:
     def test_format_sessions_display_no_created_time(self):
         """Test formatting sessions without created time."""
         sessions = [
-            TmuxSessionInfo(vm_name="test-vm", session_name="dev", windows=1),
+            TmuxSession(vm_name="test-vm", session_name="dev", windows=1, created_time=""),
         ]
 
         display = TmuxSessionExecutor.format_sessions_display(sessions)
