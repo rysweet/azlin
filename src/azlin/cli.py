@@ -1899,15 +1899,23 @@ def list_command(
         azlin list --no-tmux             # Skip tmux session info
     """
     try:
-        # Get resource group from config or CLI
-        rg = ConfigManager.get_resource_group(resource_group, config)
+        # If --show-all-vms is used without explicit --rg, force cross-RG discovery
+        # (ignore default RG from config to show ALL VMs across ALL resource groups)
+        if show_all_vms and not resource_group:
+            rg = None
+        else:
+            # Get resource group from config or CLI
+            rg = ConfigManager.get_resource_group(resource_group, config)
 
         # Track all VMs for notification (only when not showing all)
         all_vms_for_notification = []
 
         # Cross-RG discovery: if no RG specified, list all managed VMs
         if not rg:
-            click.echo("Listing all azlin-managed VMs across resource groups...\n")
+            if show_all_vms:
+                click.echo("Listing ALL VMs across all resource groups...\n")
+            else:
+                click.echo("Listing all azlin-managed VMs across resource groups...\n")
             try:
                 if show_all_vms:
                     # Show ALL VMs (managed + unmanaged) across all RGs
@@ -1980,7 +1988,9 @@ def list_command(
 
             # Show notification if there are unmanaged VMs (only when not using --show-all-vms)
             if not show_all_vms and all_vms_for_notification:
-                unmanaged_count = len([vm for vm in all_vms_for_notification if not vm.is_managed()])
+                unmanaged_count = len(
+                    [vm for vm in all_vms_for_notification if not vm.is_managed()]
+                )
                 if unmanaged_count > 0:
                     click.echo(
                         f"\n{unmanaged_count} additional vms not currently managed by azlin detected. "
