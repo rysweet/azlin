@@ -72,7 +72,7 @@ class VMConnector:
             vm_identifier: VM name or IP address
             resource_group: Resource group (required for VM name, optional for IP)
             use_tmux: Launch tmux session (default: True)
-            tmux_session: Tmux session name (default: vm_identifier)
+            tmux_session: Tmux session name (default: azlin)
             remote_command: Command to run on VM (optional)
             ssh_user: SSH username (default: azureuser)
             ssh_key_path: Path to SSH private key (default: ~/.ssh/azlin_key)

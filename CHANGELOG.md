@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI/CD pipeline with comprehensive testing and security scanning
 - Dependabot automation for dependency management
 
+### Fixed
+- Session name incorrectly used as tmux session name ([#212](https://github.com/rysweet/azlin/issues/212), [#213](https://github.com/rysweet/azlin/pull/213))
+  - Default tmux session name is now "azlin" instead of VM/session name
+  - Session names are still used for VM identification but not for tmux sessions
+  - Use `--tmux-session` to explicitly specify a different tmux session name
+
 ## [2.1.0] - 2025-10-19
 
 ### Added
