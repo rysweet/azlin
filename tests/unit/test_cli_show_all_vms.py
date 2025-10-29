@@ -17,7 +17,7 @@ Test Coverage:
 - Edge cases
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from click.testing import CliRunner
 
@@ -34,9 +34,7 @@ class TestListCommandShowAllVMs:
 
     @patch("azlin.cli.VMManager.list_vms")
     @patch("azlin.cli.ConfigManager.get_resource_group")
-    def test_list_command_default_shows_only_managed_vms(
-        self, mock_get_rg, mock_list_vms
-    ):
+    def test_list_command_default_shows_only_managed_vms(self, mock_get_rg, mock_list_vms):
         """Test that default 'azlin list' shows only managed VMs.
 
         Without --show-all-vms flag, only azlin-managed VMs should be shown.
@@ -286,9 +284,7 @@ class TestListCommandShowAllVMs:
 
     @patch("azlin.cli.VMManager.list_all_user_vms")
     @patch("azlin.cli.ConfigManager.get_resource_group")
-    def test_list_command_show_all_vms_no_notification(
-        self, mock_get_rg, mock_list_all
-    ):
+    def test_list_command_show_all_vms_no_notification(self, mock_get_rg, mock_list_all):
         """Test that --show-all-vms does NOT show notification.
 
         When showing all VMs, no notification about unmanaged VMs is needed.
@@ -328,9 +324,7 @@ class TestListCommandShowAllVMs:
 
     @patch("azlin.cli.VMManager.list_all_user_vms")
     @patch("azlin.cli.ConfigManager.get_resource_group")
-    def test_list_command_show_all_vms_with_all_flag(
-        self, mock_get_rg, mock_list_all
-    ):
+    def test_list_command_show_all_vms_with_all_flag(self, mock_get_rg, mock_list_all):
         """Test --show-all-vms with --all flag (include stopped VMs).
 
         Expected to FAIL until implementation is complete.
@@ -372,9 +366,7 @@ class TestListCommandShowAllVMs:
         mock_list_all.return_value = all_vms
 
         runner = CliRunner()
-        result = runner.invoke(
-            main, ["list", "--rg", "test-rg", "--show-all-vms", "--all"]
-        )
+        result = runner.invoke(main, ["list", "--rg", "test-rg", "--show-all-vms", "--all"])
 
         # Should show all VMs including stopped
         assert result.exit_code == 0
@@ -424,9 +416,7 @@ class TestListCommandShowAllVMs:
             ),
         ]
 
-        filtered_vms = [
-            vm for vm in all_vms if vm.tags and vm.tags.get("env") == "dev"
-        ]
+        filtered_vms = [vm for vm in all_vms if vm.tags and vm.tags.get("env") == "dev"]
 
         mock_list_all.return_value = all_vms
         mock_filter_by_tag.return_value = filtered_vms
@@ -483,9 +473,7 @@ class TestListCommandShowAllVMs:
     @patch("azlin.cli.VMManager.list_all_user_vms")
     @patch("azlin.cli.VMManager.list_vms")
     @patch("azlin.cli.ConfigManager.get_resource_group")
-    def test_list_command_no_vms_default_behavior(
-        self, mock_get_rg, mock_list_vms, mock_list_all
-    ):
+    def test_list_command_no_vms_default_behavior(self, mock_get_rg, mock_list_vms, mock_list_all):
         """Test default behavior when no VMs exist.
 
         Expected to FAIL until implementation is complete.
@@ -520,9 +508,7 @@ class TestListCommandShowAllVMs:
     @patch("azlin.cli.VMManager.list_all_user_vms")
     @patch("azlin.cli.VMManager.list_vms")
     @patch("azlin.cli.ConfigManager.get_resource_group")
-    def test_list_command_only_unmanaged_vms_exist(
-        self, mock_get_rg, mock_list_vms, mock_list_all
-    ):
+    def test_list_command_only_unmanaged_vms_exist(self, mock_get_rg, mock_list_vms, mock_list_all):
         """Test default behavior when only unmanaged VMs exist.
 
         Expected to FAIL until implementation is complete.
@@ -595,7 +581,8 @@ class TestListCommandShowAllVMs:
         ]
 
         # 2 unmanaged running, 1 unmanaged stopped
-        all_vms_running_only = managed_vms + [
+        all_vms_running_only = [
+            *managed_vms,
             VMInfo(
                 name="user-vm-1",
                 resource_group="test-rg",
@@ -619,10 +606,7 @@ class TestListCommandShowAllVMs:
         result = runner.invoke(main, ["list", "--rg", "test-rg"])
 
         # Should show notification for 2 running unmanaged VMs
-        assert (
-            "2 additional vms not currently managed by azlin detected."
-            in result.output
-        )
+        assert "2 additional vms not currently managed by azlin detected." in result.output
 
     @patch("azlin.cli.VMManager.list_all_user_vms")
     @patch("azlin.cli.VMManager.list_vms")
@@ -650,7 +634,8 @@ class TestListCommandShowAllVMs:
         ]
 
         # 2 unmanaged running, 1 unmanaged stopped
-        all_vms = managed_vms + [
+        all_vms = [
+            *managed_vms,
             VMInfo(
                 name="user-vm-1",
                 resource_group="test-rg",
@@ -681,10 +666,7 @@ class TestListCommandShowAllVMs:
         result = runner.invoke(main, ["list", "--rg", "test-rg", "--all"])
 
         # Should show notification for 3 unmanaged VMs (including stopped)
-        assert (
-            "3 additional vms not currently managed by azlin detected."
-            in result.output
-        )
+        assert "3 additional vms not currently managed by azlin detected." in result.output
 
 
 class TestShowAllVMsFlagDefinition:

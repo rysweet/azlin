@@ -201,9 +201,7 @@ class TestListAllUserVMs:
 
         # Check tags are preserved so we can identify managed VMs
         managed_vms = [vm for vm in result if vm.tags and vm.tags.get("managed-by") == "azlin"]
-        unmanaged_vms = [
-            vm for vm in result if not vm.tags or vm.tags.get("managed-by") != "azlin"
-        ]
+        unmanaged_vms = [vm for vm in result if not vm.tags or vm.tags.get("managed-by") != "azlin"]
 
         assert len(managed_vms) == 1
         assert managed_vms[0].name == "azlin-vm-1"
