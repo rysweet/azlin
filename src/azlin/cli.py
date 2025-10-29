@@ -1959,8 +1959,16 @@ def list_command(
                 # Filter to azlin VMs
                 vms = VMManager.filter_by_prefix(vms, "azlin")
 
-                # Get all VMs for notification
-                all_vms_for_notification = VMManager.list_all_user_vms(rg, include_stopped=show_all)
+                # Get all VMs across ALL RGs for notification (not just current RG)
+                try:
+                    all_vms_for_notification = TagManager.list_all_vms_cross_rg()
+                    if not show_all:
+                        all_vms_for_notification = [
+                            vm for vm in all_vms_for_notification if vm.is_running()
+                        ]
+                except Exception:
+                    # If cross-RG query fails, fall back to current RG only
+                    all_vms_for_notification = VMManager.list_all_user_vms(rg, include_stopped=show_all)
 
         # Filter by tag if specified
         if tag:
