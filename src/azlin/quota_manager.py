@@ -299,7 +299,7 @@ class QuotaManager:
         return regional_quotas
 
     @classmethod
-    def clear_cache(cls):
+    def clear_cache(cls) -> None:
         """Clear the quota cache."""
         cls._quota_cache.clear()
         logger.debug("Quota cache cleared")
