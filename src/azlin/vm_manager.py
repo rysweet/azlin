@@ -190,26 +190,6 @@ class VMManager:
         except subprocess.TimeoutExpired as e:
             raise VMManagerError("VM list operation timed out") from e
 
-    @classmethod
-    def list_all_user_vms(cls, resource_group: str, include_stopped: bool = True) -> list[VMInfo]:
-        """List all user VMs in a resource group (managed and unmanaged).
-
-        This method returns ALL VMs in the resource group, not just azlin-managed ones.
-        Use this when you need to show both managed and unmanaged VMs.
-
-        This is simply an alias for list_vms with clearer intent.
-
-        Args:
-            resource_group: Resource group name
-            include_stopped: Include stopped/deallocated VMs
-
-        Returns:
-            List of VMInfo objects for all VMs
-
-        Raises:
-            VMManagerError: If listing fails
-        """
-        return cls.list_vms(resource_group, include_stopped)
 
     @classmethod
     def _get_all_public_ips(cls, resource_group: str) -> dict[str, str]:

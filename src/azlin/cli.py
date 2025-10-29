@@ -1869,7 +1869,13 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
 @click.option("--tag", help="Filter VMs by tag (format: key or key=value)", type=str)
 @click.option("--show-quota/--no-quota", default=True, help="Show Azure vCPU quota information")
 @click.option("--show-tmux/--no-tmux", default=True, help="Show active tmux sessions")
-@click.option("--show-all-vms", help="Show all VMs (including unmanaged)", is_flag=True)
+@click.option(
+    "--show-all-vms",
+    "-a",
+    "show_all_vms",
+    help="List all VMs across all resource groups (expensive operation)",
+    is_flag=True,
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -1879,98 +1885,59 @@ def list_command(
     show_tmux: bool,
     show_all_vms: bool,
 ):
-    """List VMs in resource group or across all resource groups.
+    """List VMs in a resource group.
 
-    By default, lists all azlin-managed VMs (those with managed-by=azlin tag) across all resource groups.
-    Use --rg to limit to a specific resource group.
-    Use --show-all-vms to include unmanaged VMs in the output.
+    By default, lists azlin-managed VMs in the configured resource group.
+    Use --show-all-vms (-a) to scan all VMs across all resource groups (expensive).
 
     Shows VM name, status, IP address, region, size, vCPUs, and optionally quota/tmux info.
 
     \b
     Examples:
-        azlin list                       # All azlin VMs across all RGs with quota & tmux
-        azlin list --rg my-rg            # VMs in specific RG
-        azlin list --all                 # Include stopped VMs
-        azlin list --tag env=dev         # Filter by tag
-        azlin list --show-all-vms        # Include unmanaged VMs
-        azlin list --show-all-vms --all  # All VMs including stopped
-        azlin list --no-quota            # Skip quota information
-        azlin list --no-tmux             # Skip tmux session info
+        azlin list                    # VMs in default RG with quota & tmux
+        azlin list --rg my-rg         # VMs in specific RG
+        azlin list --all              # Include stopped VMs
+        azlin list --tag env=dev      # Filter by tag
+        azlin list --show-all-vms     # All VMs across all RGs (expensive)
+        azlin list -a                 # Same as --show-all-vms
+        azlin list --no-quota         # Skip quota information
+        azlin list --no-tmux          # Skip tmux session info
     """
     try:
-        # If --show-all-vms is used without explicit --rg, force cross-RG discovery
-        # (ignore default RG from config to show ALL VMs across ALL resource groups)
-        if show_all_vms and not resource_group:
-            rg = None
-        else:
-            # Get resource group from config or CLI
-            rg = ConfigManager.get_resource_group(resource_group, config)
+        # Get resource group from config or CLI
+        rg = ConfigManager.get_resource_group(resource_group, config)
 
-        # Track all VMs for notification (only when not showing all)
-        all_vms_for_notification = []
-
-        # Cross-RG discovery: if no RG specified, list all managed VMs
-        if not rg:
-            if show_all_vms:
-                click.echo("Listing ALL VMs across all resource groups...\n")
-            else:
-                click.echo("Listing all azlin-managed VMs across resource groups...\n")
+        # Cross-RG discovery: ONLY if --show-all-vms flag is set
+        if not rg and show_all_vms:
+            click.echo("Listing all azlin-managed VMs across resource groups...\n")
             try:
-                if show_all_vms:
-                    # Show ALL VMs (managed + unmanaged) across all RGs
-                    vms = TagManager.list_all_vms_cross_rg()
-                    if not show_all:
-                        vms = [vm for vm in vms if vm.is_running()]
-                else:
-                    # Default behavior: show only managed VMs
-                    vms = TagManager.list_managed_vms(resource_group=None)
-                    if not show_all:
-                        vms = [vm for vm in vms if vm.is_running()]
-
-                    # Get all VMs for notification (if not showing all)
-                    all_vms_for_notification = TagManager.list_all_vms_cross_rg()
-                    if not show_all:
-                        all_vms_for_notification = [
-                            vm for vm in all_vms_for_notification if vm.is_running()
-                        ]
+                vms = TagManager.list_managed_vms(resource_group=None)
+                if not show_all:
+                    vms = [vm for vm in vms if vm.is_running()]
             except Exception as e:
                 click.echo(
-                    f"Warning: Tag-based discovery failed ({e}).\n"
-                    "Falling back to default resource group.\n",
+                    f"Error: Failed to list VMs across resource groups: {e}\n"
+                    "Use --resource-group or set default in ~/.azlin/config.toml",
                     err=True,
                 )
-                # Fall back to requiring RG
-                click.echo(
-                    "Error: No resource group specified and no default configured.", err=True
-                )
-                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
                 sys.exit(1)
+        elif not rg and not show_all_vms:
+            # No RG and no --show-all-vms flag: require RG or show help
+            click.echo("Error: No resource group specified and no default configured.", err=True)
+            click.echo("Use --resource-group or set default in ~/.azlin/config.toml\n", err=True)
+            click.echo(
+                "To show all VMs accessible by this subscription, run:\n"
+                "  azlin list --show-all-vms\n"
+                "  (or use the short form: azlin list -a)"
+            )
+            sys.exit(1)
         else:
-            # Single RG listing
+            # Single RG listing (rg is guaranteed to be str here)
+            assert rg is not None, "Resource group must be set in this branch"
             click.echo(f"Listing VMs in resource group: {rg}\n")
-
-            if show_all_vms:
-                # Show ALL VMs (managed + unmanaged)
-                vms = VMManager.list_all_user_vms(rg, include_stopped=show_all)
-            else:
-                # Default behavior: show only managed VMs
-                vms = VMManager.list_vms(rg, include_stopped=show_all)
-                # Filter to azlin VMs
-                vms = VMManager.filter_by_prefix(vms, "azlin")
-
-                # Get all VMs across ALL RGs for notification (not just current RG)
-                try:
-                    all_vms_for_notification = TagManager.list_all_vms_cross_rg()
-                    if not show_all:
-                        all_vms_for_notification = [
-                            vm for vm in all_vms_for_notification if vm.is_running()
-                        ]
-                except Exception:
-                    # If cross-RG query fails, fall back to current RG only
-                    all_vms_for_notification = VMManager.list_all_user_vms(
-                        rg, include_stopped=show_all
-                    )
+            vms = VMManager.list_vms(rg, include_stopped=show_all)
+            # Filter to azlin VMs
+            vms = VMManager.filter_by_prefix(vms, "azlin")
 
         # Filter by tag if specified
         if tag:
@@ -2150,15 +2117,12 @@ def list_command(
 
         console.print(f"\n[bold]{' | '.join(summary_parts)}[/bold]")
 
-        # Show notification about additional VMs (only when not using --show-all-vms)
-        if not show_all_vms and all_vms_for_notification:
-            total_vms_in_subscription = len(all_vms_for_notification)
-            additional_vms = total_vms_in_subscription - len(vms)
-            if additional_vms > 0:
-                console.print(
-                    f"\n{additional_vms} additional vms not currently managed by azlin detected. "
-                    f"Run with --show-all-vms to show them."
-                )
+        # Show helpful message if not already showing all VMs
+        if not show_all_vms:
+            console.print(
+                "\n[dim]To show all VMs accessible by this subscription, run:[/dim]\n"
+                "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])"
+            )
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
