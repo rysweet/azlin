@@ -25,9 +25,7 @@ from click.testing import CliRunner
 from azlin.cli import main
 from tests.conftest import (
     assert_command_fails,
-    assert_command_succeeds,
     assert_invalid_value_error,
-    assert_missing_argument_error,
     assert_option_accepted,
     assert_option_rejected,
     assert_unexpected_argument_error,
@@ -266,13 +264,9 @@ class TestNewCommandSyntax:
         runner = CliRunner()
 
         # Test --repo on all three
-        result_new = runner.invoke(
-            main, ["new", "--repo", "https://github.com/test/repo"]
-        )
+        result_new = runner.invoke(main, ["new", "--repo", "https://github.com/test/repo"])
         result_vm = runner.invoke(main, ["vm", "--repo", "https://github.com/test/repo"])
-        result_create = runner.invoke(
-            main, ["create", "--repo", "https://github.com/test/repo"]
-        )
+        result_create = runner.invoke(main, ["create", "--repo", "https://github.com/test/repo"])
 
         assert_option_accepted(result_new)
         assert_option_accepted(result_vm)
@@ -417,9 +411,7 @@ class TestListCommandSyntax:
     def test_list_combined_filters(self):
         """Test 'azlin list --all --tag env=dev --rg my-rg' combines filters."""
         runner = CliRunner()
-        result = runner.invoke(
-            main, ["list", "--all", "--tag", "env=dev", "--rg", "my-rg"]
-        )
+        result = runner.invoke(main, ["list", "--all", "--tag", "env=dev", "--rg", "my-rg"])
 
         assert_option_accepted(result)
 
@@ -445,7 +437,10 @@ class TestListCommandSyntax:
 
         # Should reject unexpected argument
         assert result.exit_code != 0
-        assert "got unexpected extra argument" in result.output.lower() or "unexpected" in result.output.lower()
+        assert (
+            "got unexpected extra argument" in result.output.lower()
+            or "unexpected" in result.output.lower()
+        )
 
     def test_list_tag_empty_value_rejected(self):
         """Test 'azlin list --tag ""' rejects empty tag value.
@@ -665,7 +660,10 @@ class TestConnectCommandSyntax:
 
         # Should reject 'ls' as unexpected positional arg
         assert result.exit_code != 0
-        assert "got unexpected extra argument" in result.output.lower() or "unexpected" in result.output.lower()
+        assert (
+            "got unexpected extra argument" in result.output.lower()
+            or "unexpected" in result.output.lower()
+        )
 
 
 # =============================================================================
