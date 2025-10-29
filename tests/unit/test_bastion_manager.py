@@ -385,8 +385,8 @@ class TestBastionManager:
 
         # Assert
         assert len(tunnels) == 2
-        assert tunnel1 in tunnels
-        assert tunnel2 in tunnels
+        assert _tunnel1 in tunnels
+        assert _tunnel2 in tunnels
 
     def test_cleanup_inactive_tunnels(self, mock_subprocess):
         """Test cleanup of inactive tunnels."""
@@ -645,5 +645,5 @@ class TestBastionManagerEdgeCases:
                 )
 
             # Assert
-            assert tunnel1.local_port != tunnel2.local_port
+            assert _tunnel1.local_port != _tunnel2.local_port
             assert len(manager.active_tunnels) == 2
