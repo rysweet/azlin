@@ -1102,7 +1102,6 @@ azlin = "azlin.cli:main"
 
 - **README.md**: User guide and quick start
 - **ARCHITECTURE.md**: Complete system design
-- **ARCHITECTURE_SUMMARY.md**: Module specifications
 - **TEST_STRATEGY.md**: Testing approach
 - **SECURITY_REVIEW_REPORT.md**: Security audit
 

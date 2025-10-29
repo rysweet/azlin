@@ -96,7 +96,6 @@ azlin/
 │
 ├── docs/
 │   ├── ARCHITECTURE.md           # Complete system design
-│   ├── ARCHITECTURE_SUMMARY.md  # Quick reference
 │   ├── TEST_STRATEGY.md          # Testing approach
 │   ├── QUICK_REFERENCE.md        # Command reference
 │   └── AI_AGENT_GUIDE.md         # This file
