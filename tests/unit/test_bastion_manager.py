@@ -276,14 +276,14 @@ class TestBastionManager:
 
         # Mock the tunnel readiness check
         with patch.object(manager, "_wait_for_tunnel_ready"):
-            tunnel1 = manager.create_tunnel(
+            _tunnel1 = manager.create_tunnel(
                 bastion_name="bastion1",
                 resource_group="rg1",
                 target_vm_id="/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1",
                 local_port=50022,
                 remote_port=22,
             )
-            tunnel2 = manager.create_tunnel(
+            _tunnel2 = manager.create_tunnel(
                 bastion_name="bastion2",
                 resource_group="rg2",
                 target_vm_id="/subscriptions/sub/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/vm2",
@@ -365,14 +365,14 @@ class TestBastionManager:
 
         # Mock the tunnel readiness check
         with patch.object(manager, "_wait_for_tunnel_ready"):
-            tunnel1 = manager.create_tunnel(
+            _tunnel1 = manager.create_tunnel(
                 bastion_name="bastion1",
                 resource_group="rg1",
                 target_vm_id="/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1",
                 local_port=50022,
                 remote_port=22,
             )
-            tunnel2 = manager.create_tunnel(
+            _tunnel2 = manager.create_tunnel(
                 bastion_name="bastion2",
                 resource_group="rg2",
                 target_vm_id="/subscriptions/sub/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/vm2",
@@ -603,7 +603,7 @@ class TestBastionManagerEdgeCases:
             with BastionManager() as manager:
                 # Mock the tunnel readiness check
                 with patch.object(manager, "_wait_for_tunnel_ready"):
-                    tunnel = manager.create_tunnel(
+                    _tunnel = manager.create_tunnel(
                         bastion_name="my-bastion",
                         resource_group="my-rg",
                         target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
@@ -629,14 +629,14 @@ class TestBastionManagerEdgeCases:
             # Mock the tunnel readiness check
             with patch.object(manager, "_wait_for_tunnel_ready"):
                 # Act
-                tunnel1 = manager.create_tunnel(
+                _tunnel1 = manager.create_tunnel(
                     bastion_name="bastion1",
                     resource_group="rg1",
                     target_vm_id="/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1",
                     local_port=50022,
                     remote_port=22,
                 )
-                tunnel2 = manager.create_tunnel(
+                _tunnel2 = manager.create_tunnel(
                     bastion_name="bastion2",
                     resource_group="rg2",
                     target_vm_id="/subscriptions/sub/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/vm2",
