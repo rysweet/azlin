@@ -1968,7 +1968,9 @@ def list_command(
                         ]
                 except Exception:
                     # If cross-RG query fails, fall back to current RG only
-                    all_vms_for_notification = VMManager.list_all_user_vms(rg, include_stopped=show_all)
+                    all_vms_for_notification = VMManager.list_all_user_vms(
+                        rg, include_stopped=show_all
+                    )
 
         # Filter by tag if specified
         if tag:
