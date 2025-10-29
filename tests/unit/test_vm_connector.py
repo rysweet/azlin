@@ -250,7 +250,8 @@ class TestVMConnector:
         # Verify reconnect was called with correct params
         call_args = mock_handler_instance.connect_with_reconnect.call_args
         assert call_args.kwargs["vm_name"] == "my-vm"
-        assert call_args.kwargs["tmux_session"] == "my-vm"
+        # Should use default "azlin" session name, not VM name
+        assert call_args.kwargs["tmux_session"] == "azlin"
         assert call_args.kwargs["auto_tmux"] is True
 
     @patch("azlin.vm_connector.TerminalLauncher")

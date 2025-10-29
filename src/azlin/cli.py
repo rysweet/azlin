@@ -3218,27 +3218,14 @@ def _verify_vm_exists(vm_identifier: str, original_identifier: str, rg: str) -> 
 def _resolve_tmux_session(
     identifier: str, tmux_session: str | None, no_tmux: bool, config: str | None
 ) -> str | None:
-    """Resolve tmux session name from identifier.
+    """Resolve tmux session name from provided value.
 
-    The tmux session name should match what the user typed (whether session name or VM name),
-    unless explicitly overridden with --tmux-session flag.
+    Only returns a tmux session name if explicitly provided via --tmux-session.
+    Otherwise returns None to use the default behavior (connect to existing session).
 
-    Args:
-        identifier: Original user input (session name or VM name)
-        tmux_session: Explicit tmux session override from --tmux-session flag
-        no_tmux: Whether to disable tmux
-        config: Config file path (unused but kept for API compatibility)
-
-    Returns:
-        Tmux session name or None (if no_tmux or explicit override)
+    Note: Session name (from config) is used to identify the VM, NOT as the tmux session name.
     """
-    if tmux_session:
-        return tmux_session
-    if no_tmux:
-        return None
-    # Use the identifier itself as the tmux session name
-    # This ensures tmux session matches what the user typed
-    return identifier
+    return tmux_session
 
 
 @main.command()
@@ -3246,7 +3233,7 @@ def _resolve_tmux_session(
 @click.option("--resource-group", "--rg", help="Resource group (required for VM name)", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--no-tmux", is_flag=True, help="Skip tmux session")
-@click.option("--tmux-session", help="Tmux session name (default: vm_identifier)", type=str)
+@click.option("--tmux-session", help="Tmux session name (default: azlin)", type=str)
 @click.option("--user", default="azureuser", help="SSH username (default: azureuser)", type=str)
 @click.option("--key", help="SSH private key path", type=click.Path(exists=True))
 @click.option("--no-reconnect", is_flag=True, help="Disable auto-reconnect on disconnect")
