@@ -4,13 +4,13 @@ Claude Code hook for stop events.
 Checks lock flag and blocks stop if continuous work mode is enabled.
 
 Stop Hook Protocol (https://docs.claude.com/en/docs/claude-code/hooks):
-- Return {} to allow normal stop (undefined decision = default behavior)
+- Return {"decision": "approve"} to allow normal stop
 - Return {"decision": "block", "reason": "..."} to prevent stop and continue working
 """
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 # Clean import structure
 sys.path.insert(0, str(Path(__file__).parent))
@@ -24,7 +24,7 @@ class StopHook(HookProcessor):
         super().__init__("stop")
         self.lock_flag = self.project_root / ".claude" / "runtime" / "locks" / ".lock_active"
 
-    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
+    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Check lock flag and block stop if active.
         Also trigger reflection analysis if enabled.
 
@@ -38,8 +38,8 @@ class StopHook(HookProcessor):
             lock_exists = self.lock_flag.exists()
         except (PermissionError, OSError) as e:
             self.log(f"Cannot access lock file: {e}", "WARNING")
-            # Fail-safe: allow stop if we can't read lock (return empty dict for default behavior)
-            return {}
+            # Fail-safe: allow stop if we can't read lock
+            return {"decision": "approve"}
 
         if lock_exists:
             # Lock is active - block stop and continue working
@@ -53,9 +53,9 @@ class StopHook(HookProcessor):
         # Not locked - check if reflection should be triggered
         self._trigger_reflection_if_enabled()
 
-        # Allow stop (return empty dict to let Claude Code proceed with default behavior)
+        # Allow stop - explicitly approve to proceed
         self.log("No lock active - allowing stop")
-        return {}
+        return {"decision": "approve"}
 
     def _trigger_reflection_if_enabled(self):
         """Trigger reflection analysis if enabled and not already running."""

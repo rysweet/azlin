@@ -6,6 +6,7 @@ and factory methods for creating ClaudeProcess instances.
 
 import time
 from pathlib import Path
+from typing import Optional
 
 from .claude_process import ClaudeProcess
 
@@ -33,9 +34,9 @@ class OrchestratorSession:
     def __init__(
         self,
         pattern_name: str,
-        working_dir: Path | None = None,
-        base_log_dir: Path | None = None,
-        model: str | None = None,
+        working_dir: Optional[Path] = None,
+        base_log_dir: Optional[Path] = None,
+        model: Optional[str] = None,
     ):
         """Initialize orchestrator session.
 
@@ -69,10 +70,10 @@ class OrchestratorSession:
     def create_process(
         self,
         prompt: str,
-        process_id: str | None = None,
-        model: str | None = None,
+        process_id: Optional[str] = None,
+        model: Optional[str] = None,
         stream_output: bool = True,
-        timeout: int | None = None,
+        timeout: Optional[int] = None,
     ) -> ClaudeProcess:
         """Create a ClaudeProcess with session context.
 

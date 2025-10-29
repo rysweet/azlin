@@ -7,6 +7,7 @@ import json
 import sqlite3
 import threading
 from pathlib import Path
+from typing import List, Optional, Union
 
 
 class MemoryBackend:
@@ -100,7 +101,7 @@ class MemoryBackend:
         self._connection.executescript(schema_sql)
         self._connection.commit()
 
-    def _get_connection(self) -> sqlite3.Connection | None:
+    def _get_connection(self) -> Optional[sqlite3.Connection]:
         """Get database connection with error handling."""
         if self._connection is None:
             return None
@@ -151,7 +152,7 @@ class MemoryBackend:
                 return False
 
     def store(
-        self, session_id: str, key: str, value: str | dict, memory_type: str = "markdown"
+        self, session_id: str, key: str, value: Union[str, dict], memory_type: str = "markdown"
     ) -> bool:
         """
         Store memory with key-value pair.
@@ -208,7 +209,7 @@ class MemoryBackend:
                 print(f"Warning: Memory store failed: {e}")
                 return False
 
-    def retrieve(self, session_id: str, key: str) -> str | dict | None:
+    def retrieve(self, session_id: str, key: str) -> Optional[Union[str, dict]]:
         """
         Retrieve memory by key.
 
@@ -260,7 +261,7 @@ class MemoryBackend:
                 print(f"Warning: Memory retrieve failed: {e}")
                 return None
 
-    def list_keys(self, session_id: str, pattern: str | None = None) -> list[str]:
+    def list_keys(self, session_id: str, pattern: Optional[str] = None) -> List[str]:
         """
         List memory keys for session.
 
