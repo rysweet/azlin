@@ -262,6 +262,141 @@ class RemoteExecutor:
         return slug if slug else "cmd"
 
 
+@dataclass
+class TmuxSession:
+    """Information about a tmux session."""
+
+    vm_name: str
+    session_name: str
+    windows: int
+    created_time: str
+    attached: bool = False
+
+
+@dataclass
+class TmuxSessionInfo:
+    """Tmux session information for a VM."""
+
+    vm_name: str
+    sessions: list[TmuxSession]
+    reachable: bool
+    error: str | None = None
+
+
+class TmuxSessionExecutor:
+    """Query tmux sessions on remote VMs.
+
+    This class provides:
+    - Parallel session queries across multiple VMs
+    - Parsing of tmux list-sessions output
+    """
+
+    @classmethod
+    def get_sessions_parallel(
+        cls, ssh_configs: list[SSHConfig], timeout: int = 5, max_workers: int = 10
+    ) -> list[TmuxSession]:
+        """Get tmux sessions from multiple VMs in parallel.
+
+        Args:
+            ssh_configs: List of SSH configurations
+            timeout: Timeout per VM in seconds
+            max_workers: Maximum parallel workers
+
+        Returns:
+            List of TmuxSession objects from all VMs
+        """
+        if not ssh_configs:
+            return []
+
+        # Command to list tmux sessions
+        command = "tmux list-sessions 2>/dev/null || echo 'No sessions'"
+
+        # Execute in parallel
+        results = RemoteExecutor.execute_parallel(
+            ssh_configs, command, timeout=timeout, max_workers=max_workers
+        )
+
+        # Parse results
+        all_sessions: list[TmuxSession] = []
+
+        for result in results:
+            if result.success and result.stdout and "No sessions" not in result.stdout:
+                sessions = cls.parse_tmux_output(result.stdout, result.vm_name)
+                all_sessions.extend(sessions)
+
+        return all_sessions
+
+    @classmethod
+    def parse_tmux_output(cls, output: str, vm_name: str) -> list[TmuxSession]:
+        """Parse tmux list-sessions output.
+
+        Args:
+            output: Raw output from tmux list-sessions
+            vm_name: VM name for identification
+
+        Returns:
+            List of TmuxSession objects
+
+        Example output format:
+            dev: 3 windows (created Thu Oct 10 10:00:00 2024)
+            prod: 1 window (created Thu Oct 10 11:00:00 2024) (attached)
+        """
+        sessions: list[TmuxSession] = []
+
+        for line in output.strip().splitlines():
+            if not line or not line.strip():
+                continue
+
+            try:
+                # Parse session line: "name: X windows (created date) [attached]"
+                parts = line.split(":", 1)
+                if len(parts) != 2:
+                    continue
+
+                session_name = parts[0].strip()
+                rest = parts[1].strip()
+
+                # Check if attached
+                attached = "(attached)" in rest
+
+                # Extract window count
+                windows = 1  # Default
+                if "window" in rest:
+                    # Extract number before "window(s)"
+                    window_parts = rest.split()
+                    for i, part in enumerate(window_parts):
+                        if "window" in part and i > 0:
+                            try:
+                                windows = int(window_parts[i - 1])
+                            except (ValueError, IndexError):
+                                windows = 1
+                            break
+
+                # Extract created time
+                created_time = ""
+                if "(created" in rest:
+                    start_idx = rest.index("(created") + len("(created")
+                    end_idx = rest.find(")", start_idx)
+                    if end_idx > start_idx:
+                        created_time = rest[start_idx:end_idx].strip()
+
+                sessions.append(
+                    TmuxSession(
+                        vm_name=vm_name,
+                        session_name=session_name,
+                        windows=windows,
+                        created_time=created_time,
+                        attached=attached,
+                    )
+                )
+
+            except Exception as e:
+                logger.warning(f"Failed to parse tmux session line: {line} - {e}")
+                continue
+
+        return sessions
+
+
 class WCommandExecutor:
     """Execute 'w' command across VMs for system monitoring.
 
@@ -499,5 +634,8 @@ __all__ = [
     "RemoteExecError",
     "RemoteExecutor",
     "RemoteResult",
+    "TmuxSession",
+    "TmuxSessionExecutor",
+    "TmuxSessionInfo",
     "WCommandExecutor",
 ]

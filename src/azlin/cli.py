@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Any
 
 import click
+from rich.console import Console
+from rich.table import Table
 
 from azlin import __version__
 from azlin.agentic import (
@@ -74,11 +76,14 @@ from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
 from azlin.prune import PruneManager
+from azlin.quota_manager import QuotaInfo, QuotaManager
 from azlin.remote_exec import (
     OSUpdateExecutor,
     PSCommandExecutor,
     RemoteExecError,
     RemoteExecutor,
+    TmuxSession,
+    TmuxSessionExecutor,
     WCommandExecutor,
 )
 from azlin.tag_manager import TagManager
@@ -1766,25 +1771,83 @@ def create_command(ctx: click.Context, **kwargs: Any) -> Any:
     return ctx.invoke(new_command, **kwargs)
 
 
+def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
+    """Collect tmux sessions from running VMs.
+
+    Args:
+        vms: List of VMInfo objects
+
+    Returns:
+        Dictionary mapping VM name to list of tmux sessions
+    """
+    tmux_by_vm: dict[str, list[TmuxSession]] = {}
+
+    try:
+        # Build SSH configs for running VMs only
+        ssh_configs = []
+        vm_name_map = {}  # Map IP to VM name for result matching
+        ssh_key_path = Path.home() / ".ssh" / "azlin_key"
+
+        if not ssh_key_path.exists():
+            return tmux_by_vm
+
+        for vm in vms:
+            if vm.is_running() and vm.public_ip:
+                ssh_config = SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_path)
+                ssh_configs.append(ssh_config)
+                vm_name_map[vm.public_ip] = vm.name
+
+        # Query tmux sessions in parallel
+        if ssh_configs:
+            tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
+                ssh_configs, timeout=5, max_workers=10
+            )
+
+            # Map sessions to VM names
+            for session in tmux_sessions:
+                # Map from IP back to VM name
+                if session.vm_name in vm_name_map:
+                    vm_name = vm_name_map[session.vm_name]
+                    if vm_name not in tmux_by_vm:
+                        tmux_by_vm[vm_name] = []
+                    tmux_by_vm[vm_name].append(session)
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch tmux sessions: {e}")
+
+    return tmux_by_vm
+
+
 @main.command(name="list")
 @click.option("--resource-group", "--rg", help="Resource group to list VMs from", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--all", "show_all", help="Show all VMs (including stopped)", is_flag=True)
 @click.option("--tag", help="Filter VMs by tag (format: key or key=value)", type=str)
-def list_command(resource_group: str | None, config: str | None, show_all: bool, tag: str | None):
+@click.option("--show-quota/--no-quota", default=True, help="Show Azure vCPU quota information")
+@click.option("--show-tmux/--no-tmux", default=True, help="Show active tmux sessions")
+def list_command(
+    resource_group: str | None,
+    config: str | None,
+    show_all: bool,
+    tag: str | None,
+    show_quota: bool,
+    show_tmux: bool,
+):
     """List VMs in resource group or across all resource groups.
 
     By default, lists all azlin-managed VMs (those with managed-by=azlin tag) across all resource groups.
     Use --rg to limit to a specific resource group.
 
-    Shows VM name, status, IP address, region, and size.
+    Shows VM name, status, IP address, region, size, vCPUs, and optionally quota/tmux info.
 
     \b
     Examples:
-        azlin list                    # All azlin VMs across all RGs
+        azlin list                    # All azlin VMs across all RGs with quota & tmux
         azlin list --rg my-rg         # VMs in specific RG
         azlin list --all              # Include stopped VMs
         azlin list --tag env=dev      # Filter by tag
+        azlin list --no-quota         # Skip quota information
+        azlin list --no-tmux          # Skip tmux session info
     """
     try:
         # Get resource group from config or CLI
@@ -1840,24 +1903,147 @@ def list_command(resource_group: str | None, config: str | None, show_all: bool,
             click.echo("No VMs found.")
             return
 
-        # Display table with session names
-        click.echo("=" * 110)
-        click.echo(
-            f"{'SESSION NAME':<25} {'VM NAME':<35} {'STATUS':<15} {'IP':<15} {'REGION':<10} {'SIZE':<10}"
-        )
-        click.echo("=" * 110)
+        # Collect quota information if enabled
+        quota_by_region: dict[str, list[QuotaInfo]] = {}
+        if show_quota:
+            try:
+                # Get unique regions from VMs
+                regions = list({vm.location for vm in vms if vm.location})
+                if regions:
+                    # Fetch quota for all regions in parallel
+                    regional_quotas = QuotaManager.get_regional_quotas(regions)
 
+                    # Filter to relevant quota types (cores and VM families)
+                    for region, quotas in regional_quotas.items():
+                        relevant_quotas = [
+                            q
+                            for q in quotas
+                            if "cores" in q.quota_name.lower() or "family" in q.quota_name.lower()
+                        ]
+                        if relevant_quotas:
+                            quota_by_region[region] = relevant_quotas
+            except Exception as e:
+                click.echo(f"Warning: Failed to fetch quota information: {e}", err=True)
+
+        # Collect tmux session information if enabled
+        tmux_by_vm: dict[str, list[TmuxSession]] = {}
+        if show_tmux:
+            tmux_by_vm = _collect_tmux_sessions(vms)
+
+        # Display quota summary header if enabled
+        if show_quota and quota_by_region:
+            console = Console()
+            quota_table = Table(
+                title="Azure vCPU Quota Summary", show_header=True, header_style="bold"
+            )
+            quota_table.add_column("Region", style="cyan")
+            quota_table.add_column("Quota Type", style="white")
+            quota_table.add_column("Used / Total", justify="right")
+            quota_table.add_column("Available", justify="right", style="green")
+            quota_table.add_column("Usage %", justify="right")
+
+            for region in sorted(quota_by_region.keys()):
+                quotas = quota_by_region[region]
+                # Show only the most relevant quotas (total cores and specific families in use)
+                for quota in quotas:
+                    if quota.quota_name.lower() == "cores" or quota.current_usage > 0:
+                        usage_pct = quota.usage_percentage()
+                        usage_style = (
+                            "red" if usage_pct > 80 else "yellow" if usage_pct > 60 else "green"
+                        )
+
+                        quota_table.add_row(
+                            region,
+                            quota.quota_name,
+                            f"{quota.current_usage} / {quota.limit if quota.limit >= 0 else '∞'}",
+                            str(quota.available()) if quota.limit >= 0 else "∞",
+                            f"[{usage_style}]{usage_pct:.0f}%[/{usage_style}]"
+                            if quota.limit > 0
+                            else "N/A",
+                        )
+
+            console.print(quota_table)
+            console.print()  # Add spacing
+
+        # Create Rich table for VMs
+        console = Console()
+        table = Table(title="Azure VMs", show_header=True, header_style="bold")
+
+        # Add columns
+        table.add_column("Session Name", style="cyan", width=20)
+        table.add_column("VM Name", style="white", width=30)
+        table.add_column("Status", width=10)
+        table.add_column("IP", style="yellow", width=15)
+        table.add_column("Region", width=10)
+        table.add_column("Size", width=15)
+        table.add_column("vCPUs", justify="right", width=6)
+
+        if show_tmux:
+            table.add_column("Tmux Sessions", style="magenta", width=30)
+
+        # Add rows
         for vm in vms:
             session_display = vm.session_name if vm.session_name else "-"
             status = vm.get_status_display()
+
+            # Color code status
+            if vm.is_running():
+                status_display = f"[green]{status}[/green]"
+            elif vm.is_stopped():
+                status_display = f"[red]{status}[/red]"
+            else:
+                status_display = f"[yellow]{status}[/yellow]"
+
             ip = vm.public_ip or "N/A"
             size = vm.vm_size or "N/A"
-            click.echo(
-                f"{session_display:<25} {vm.name:<35} {status:<15} {ip:<15} {vm.location:<10} {size:<10}"
-            )
 
-        click.echo("=" * 110)
-        click.echo(f"\nTotal: {len(vms)} VMs")
+            # Get vCPU count for the VM
+            vcpus = QuotaManager.get_vm_size_vcpus(size) if size != "N/A" else 0
+            vcpu_display = str(vcpus) if vcpus > 0 else "-"
+
+            # Build row data
+            row_data = [
+                session_display,
+                vm.name,
+                status_display,
+                ip,
+                vm.location,
+                size,
+                vcpu_display,
+            ]
+
+            # Add tmux sessions if enabled
+            if show_tmux:
+                if vm.name in tmux_by_vm:
+                    sessions = tmux_by_vm[vm.name]
+                    session_names = ", ".join(s.session_name for s in sessions[:3])  # Show max 3
+                    if len(sessions) > 3:
+                        session_names += f" (+{len(sessions) - 3} more)"
+                    row_data.append(session_names)
+                elif vm.is_running():
+                    row_data.append("[dim]No sessions[/dim]")
+                else:
+                    row_data.append("-")
+
+            table.add_row(*row_data)
+
+        # Display the table
+        console.print(table)
+
+        # Summary
+        total_vcpus = sum(
+            QuotaManager.get_vm_size_vcpus(vm.vm_size)
+            for vm in vms
+            if vm.vm_size and vm.is_running()
+        )
+
+        summary_parts = [f"Total: {len(vms)} VMs"]
+        if show_quota:
+            running_vms = sum(1 for vm in vms if vm.is_running())
+            summary_parts.append(f"{running_vms} running")
+            summary_parts.append(f"{total_vcpus} vCPUs in use")
+
+        console.print(f"\n[bold]{' | '.join(summary_parts)}[/bold]")
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
