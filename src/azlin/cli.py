@@ -1347,6 +1347,24 @@ def main(ctx: click.Context) -> None:
     # Set up logging
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
+    # Check if first-run wizard is needed
+    try:
+        if ConfigManager.needs_configuration():
+            try:
+                ConfigManager.run_first_run_wizard()
+            except ConfigError as e:
+                click.echo(click.style(f"Configuration error: {e}", fg="red"), err=True)
+                ctx.exit(1)
+            except KeyboardInterrupt:
+                click.echo()
+                click.echo(
+                    click.style("Setup cancelled. Run 'azlin' again to configure.", fg="yellow")
+                )
+                ctx.exit(130)  # Standard exit code for SIGINT
+    except Exception as e:
+        # If wizard check fails, log but continue (allow commands to work)
+        logger.debug(f"Could not check configuration status: {e}")
+
     # If no subcommand provided, show help
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
