@@ -2986,15 +2986,29 @@ def _verify_vm_exists(vm_identifier: str, original_identifier: str, rg: str) -> 
 
 
 def _resolve_tmux_session(
-    vm_identifier: str, tmux_session: str | None, no_tmux: bool, config: str | None
+    identifier: str, tmux_session: str | None, no_tmux: bool, config: str | None
 ) -> str | None:
-    """Resolve tmux session name from config or provided value."""
-    if not tmux_session and not no_tmux:
-        session_name = ConfigManager.get_session_name(vm_identifier, config)
-        if session_name:
-            click.echo(f"Using session name '{session_name}' for tmux")
-            return session_name
-    return tmux_session
+    """Resolve tmux session name from identifier.
+
+    The tmux session name should match what the user typed (whether session name or VM name),
+    unless explicitly overridden with --tmux-session flag.
+
+    Args:
+        identifier: Original user input (session name or VM name)
+        tmux_session: Explicit tmux session override from --tmux-session flag
+        no_tmux: Whether to disable tmux
+        config: Config file path (unused but kept for API compatibility)
+
+    Returns:
+        Tmux session name or None (if no_tmux or explicit override)
+    """
+    if tmux_session:
+        return tmux_session
+    if no_tmux:
+        return None
+    # Use the identifier itself as the tmux session name
+    # This ensures tmux session matches what the user typed
+    return identifier
 
 
 @main.command()
@@ -3109,8 +3123,8 @@ def connect(
         else:
             rg = resource_group
 
-        # Resolve tmux session name
-        tmux_session = _resolve_tmux_session(vm_identifier, tmux_session, no_tmux, config)
+        # Resolve tmux session name (use original_identifier so tmux session matches user input)
+        tmux_session = _resolve_tmux_session(original_identifier, tmux_session, no_tmux, config)
 
         # Connect to VM
         display_name = (
