@@ -88,14 +88,12 @@ class QuotaManager:
         "Standard_B2ms": 2,
         "Standard_B4ms": 4,
         "Standard_B8ms": 8,
-
         # D-series v3
         "Standard_D2s_v3": 2,
         "Standard_D4s_v3": 4,
         "Standard_D8s_v3": 8,
         "Standard_D16s_v3": 16,
         "Standard_D32s_v3": 32,
-
         # E-series v5 (AMD)
         "Standard_E2as_v5": 2,
         "Standard_E4as_v5": 4,
@@ -104,7 +102,6 @@ class QuotaManager:
         "Standard_E32as_v5": 32,
         "Standard_E48as_v5": 48,
         "Standard_E64as_v5": 64,
-
         # F-series (Compute optimized)
         "Standard_F2s_v2": 2,
         "Standard_F4s_v2": 4,
@@ -114,9 +111,7 @@ class QuotaManager:
     }
 
     @classmethod
-    def get_quota(
-        cls, region: str, quota_name: str, use_cache: bool = True
-    ) -> QuotaInfo | None:
+    def get_quota(cls, region: str, quota_name: str, use_cache: bool = True) -> QuotaInfo | None:
         """Get quota information for a specific resource type in a region.
 
         Args:
@@ -174,25 +169,11 @@ class QuotaManager:
 
         try:
             # Query Azure CLI for all quotas
-            cmd = [
-                "az",
-                "vm",
-                "list-usage",
-                "--location",
-                region,
-                "--output",
-                "json"
-            ]
+            cmd = ["az", "vm", "list-usage", "--location", region, "--output", "json"]
 
             logger.debug(f"Fetching all quotas for {region}")
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
 
             # Parse JSON response
             try:
@@ -215,7 +196,7 @@ class QuotaManager:
                         region=region,
                         quota_name=quota_name,
                         current_usage=quota_data["currentValue"],
-                        limit=quota_data["limit"]
+                        limit=quota_data["limit"],
                     )
 
                     quotas.append(quota_info)
@@ -230,7 +211,7 @@ class QuotaManager:
             error_msg = e.stderr if e.stderr else str(e)
             raise QuotaManagerError(f"Failed to fetch quotas: {error_msg}") from e
         except subprocess.TimeoutExpired as e:
-            raise QuotaManagerError(f"Quota query timed out after 30 seconds") from e
+            raise QuotaManagerError("Quota query timed out after 30 seconds") from e
         except Exception as e:
             raise QuotaManagerError(f"Unexpected error fetching quotas: {e}") from e
 
@@ -250,6 +231,7 @@ class QuotaManager:
 
         # Try to extract from size name (e.g., "Standard_D8s_v3" -> 8)
         import re
+
         match = re.search(r"_([A-Z])(\d+)", vm_size)
         if match:
             try:
@@ -282,8 +264,7 @@ class QuotaManager:
         with ThreadPoolExecutor(max_workers=min(10, len(locations))) as executor:
             # Submit all tasks
             future_to_region = {
-                executor.submit(cls.get_all_quotas, region): region
-                for region in locations
+                executor.submit(cls.get_all_quotas, region): region for region in locations
             }
 
             # Collect results as they complete

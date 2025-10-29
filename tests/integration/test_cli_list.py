@@ -10,8 +10,6 @@ This module tests the enhanced list command functionality:
 All tests should FAIL initially (TDD approach).
 """
 
-import json
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -657,7 +655,8 @@ class TestListCommandOutputFormatting:
         # Should show usage in readable format
         # Format: "12 / 20" or "12/20 (60%)" or similar
         output_lower = result.output.lower()
-        assert "12" in result.output and "20" in result.output
+        assert "12" in result.output
+        assert "20" in result.output
 
     @patch("azlin.cli.VMManager.list_vms")
     @patch("azlin.cli.TmuxSessionExecutor.get_sessions_parallel")

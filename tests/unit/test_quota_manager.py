@@ -176,7 +176,9 @@ class TestQuotaManagerGetQuota:
         )
 
         with pytest.raises(QuotaManagerError, match="Failed to fetch quotas"):
-            QuotaManager.get_quota(region="eastus", quota_name="standardDSv3Family", use_cache=False)
+            QuotaManager.get_quota(
+                region="eastus", quota_name="standardDSv3Family", use_cache=False
+            )
 
     @patch("azlin.quota_manager.subprocess.run")
     def test_get_quota_timeout(self, mock_run):
@@ -184,7 +186,9 @@ class TestQuotaManagerGetQuota:
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="az", timeout=30)
 
         with pytest.raises(QuotaManagerError, match="Quota query timed out"):
-            QuotaManager.get_quota(region="eastus", quota_name="standardDSv3Family", use_cache=False)
+            QuotaManager.get_quota(
+                region="eastus", quota_name="standardDSv3Family", use_cache=False
+            )
 
     @patch("azlin.quota_manager.subprocess.run")
     def test_get_quota_invalid_json(self, mock_run):
@@ -192,7 +196,9 @@ class TestQuotaManagerGetQuota:
         mock_run.return_value = Mock(returncode=0, stdout="invalid json {", stderr="")
 
         with pytest.raises(QuotaManagerError, match="Failed to parse quota response"):
-            QuotaManager.get_quota(region="eastus", quota_name="standardDSv3Family", use_cache=False)
+            QuotaManager.get_quota(
+                region="eastus", quota_name="standardDSv3Family", use_cache=False
+            )
 
     @patch("azlin.quota_manager.subprocess.run")
     def test_get_quota_empty_response(self, mock_run):
@@ -217,7 +223,9 @@ class TestQuotaManagerGetQuota:
         mock_run.return_value = Mock(returncode=0, stdout=mock_output, stderr="")
 
         # Since get_all_quotas skips malformed entries, this returns None
-        quota = QuotaManager.get_quota(region="eastus", quota_name="standardDSv3Family", use_cache=False)
+        quota = QuotaManager.get_quota(
+            region="eastus", quota_name="standardDSv3Family", use_cache=False
+        )
         assert quota is None
 
     @patch("azlin.quota_manager.subprocess.run")
@@ -234,7 +242,9 @@ class TestQuotaManagerGetQuota:
         )
         mock_run.return_value = Mock(returncode=0, stdout=mock_output, stderr="")
 
-        quota = QuotaManager.get_quota(region="eastus", quota_name="standardDSv3Family", use_cache=False)
+        quota = QuotaManager.get_quota(
+            region="eastus", quota_name="standardDSv3Family", use_cache=False
+        )
 
         assert quota is not None
         assert quota.limit == -1
@@ -254,7 +264,9 @@ class TestQuotaManagerGetQuota:
         )
         mock_run.return_value = Mock(returncode=0, stdout=mock_output, stderr="")
 
-        quota = QuotaManager.get_quota(region="eastus", quota_name="standardDSv3Family", use_cache=False)
+        quota = QuotaManager.get_quota(
+            region="eastus", quota_name="standardDSv3Family", use_cache=False
+        )
 
         assert quota is not None
         assert quota.limit == 0
@@ -268,7 +280,9 @@ class TestQuotaManagerGetQuota:
         )
 
         with pytest.raises(QuotaManagerError, match="Failed to fetch quotas"):
-            QuotaManager.get_quota(region="invalid-region", quota_name="standardDSv3Family", use_cache=False)
+            QuotaManager.get_quota(
+                region="invalid-region", quota_name="standardDSv3Family", use_cache=False
+            )
 
 
 @pytest.mark.unit
