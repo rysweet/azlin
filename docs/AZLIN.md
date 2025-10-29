@@ -255,6 +255,8 @@ azlin connect my-project
 
 **Note**: Session names are stored locally in `~/.azlin/config.toml`
 
+**Important**: Session names identify VMs (for connection), while tmux session names control which remote tmux session to connect to. By default, azlin connects to the "azlin" tmux session on the remote VM. Use `--tmux-session` to specify a different tmux session name.
+
 ### `azlin status` - Detailed VM status
 
 ```bash
@@ -419,6 +421,8 @@ azlin connect my-project
 azlin connect 20.12.34.56
 
 # Connect to specific tmux session
+# Note: By default, connects to existing "azlin" tmux session
+# Use --tmux-session to specify a different session
 azlin connect my-vm --tmux-session work
 
 # Connect without tmux

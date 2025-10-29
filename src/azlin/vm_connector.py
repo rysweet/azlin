@@ -153,7 +153,9 @@ class VMConnector:
                 ssh_key_path=conn_info.ssh_key_path,
                 command=remote_command,
                 title=f"azlin - {conn_info.vm_name}",
-                tmux_session=(tmux_session if tmux_session is not None else "azlin") if use_tmux else None,
+                tmux_session=(tmux_session if tmux_session is not None else "azlin")
+                if use_tmux
+                else None,
             )
 
             # Launch terminal
