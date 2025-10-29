@@ -207,7 +207,9 @@ class TestSessionNameValidation:
         # Lookup should filter out self-referential entry
         # Pass resource_group="" to force config-only lookup (tags require RG)
         with patch("azlin.tag_manager.TagManager.get_vm_by_session", return_value=None):
-            result = ConfigManager.get_vm_name_by_session("simserv", str(config_file), resource_group="test-rg")
+            result = ConfigManager.get_vm_name_by_session(
+                "simserv", str(config_file), resource_group="test-rg"
+            )
             assert result is None
             assert "Ignoring invalid self-referential session mapping" in caplog.text
 
@@ -225,7 +227,9 @@ class TestSessionNameValidation:
         # Lookup should warn and return first match
         # Mock TagManager to force config fallback
         with patch("azlin.tag_manager.TagManager.get_vm_by_session", return_value=None):
-            result = ConfigManager.get_vm_name_by_session("prod", str(config_file), resource_group="test-rg")
+            result = ConfigManager.get_vm_name_by_session(
+                "prod", str(config_file), resource_group="test-rg"
+            )
             assert result == "vm1"
             assert "Duplicate session name 'prod'" in caplog.text
 
