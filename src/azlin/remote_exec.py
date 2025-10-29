@@ -318,8 +318,7 @@ class TmuxSessionExecutor:
             # Parse results
             if result.success and result.stdout and "No sessions" not in result.stdout:
                 return cls.parse_tmux_output(result.stdout, vm_name)
-            else:
-                return []
+            return []
 
         except Exception as e:
             logger.warning(f"Failed to get tmux sessions from {vm_name}: {e}")
