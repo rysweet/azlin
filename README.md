@@ -611,6 +611,8 @@ my-project           azlin-vm-001                        Running         20.12.3
 
 Session names are custom labels you can assign to VMs to help identify what you're working on. They appear in the `azlin list` output and make it easier to track multiple projects. You can also use session names to connect to VMs.
 
+**Note:** Session names are different from tmux session names. Session names identify VMs, while tmux session names (specified with `--tmux-session`) control which tmux session you connect to on the remote VM. By default, azlin connects to the "azlin" tmux session.
+
 ```bash
 # Create a new VM with a session name
 azlin new --name my-project
@@ -962,6 +964,8 @@ azlin connect my-project
 azlin connect 20.12.34.56
 
 # Connect to specific tmux session
+# Note: By default, connects to existing "azlin" tmux session
+# Use --tmux-session to specify a different tmux session name
 azlin connect my-vm --tmux-session work
 
 # Connect without tmux
