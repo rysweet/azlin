@@ -2156,8 +2156,8 @@ def list_command(
             additional_vms = total_vms_in_subscription - len(vms)
             if additional_vms > 0:
                 console.print(
-                    f"\n💡 [dim]{additional_vms} additional VMs found in subscription. "
-                    f"Use --show-all-vms to see all {total_vms_in_subscription} VMs.[/dim]"
+                    f"\n{additional_vms} additional vms not currently managed by azlin detected. "
+                    f"Run with --show-all-vms to show them."
                 )
 
     except VMManagerError as e:
