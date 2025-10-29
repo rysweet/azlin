@@ -697,3 +697,271 @@ class TestShowAllVMsFlagDefinition:
         assert "--show-all-vms" in result.output
         # Should mention both managed and unmanaged
         assert "all" in output_lower or "unmanaged" in output_lower
+
+
+class TestCrossRGNotification:
+    """Test cross-RG mode unmanaged VM notification - Issue #208 Bug Fix."""
+
+    # =========================================================================
+    # Test 7: Cross-RG mode notification (the actual bug being fixed)
+    # =========================================================================
+
+    @patch("azlin.cli.TagManager.list_all_vms_cross_rg")
+    @patch("azlin.cli.TagManager.list_managed_vms")
+    @patch("azlin.cli.ConfigManager.get_resource_group")
+    def test_cross_rg_mode_shows_notification_for_unmanaged_vms(
+        self, mock_get_rg, mock_list_managed, mock_list_all
+    ):
+        """Test that cross-RG mode shows notification when unmanaged VMs exist.
+
+        This is the actual bug being fixed in Issue #208.
+        Without --rg flag, the notification should still work.
+
+        Expected to PASS after fix is implemented.
+        """
+        # Mock no default resource group to trigger cross-RG mode
+        mock_get_rg.return_value = None
+
+        # Mock managed VMs only (1 managed)
+        managed_vms = [
+            VMInfo(
+                name="azlin-vm-1",
+                resource_group="rg1",
+                location="eastus",
+                power_state="VM running",
+                tags={"managed-by": "azlin"},
+            )
+        ]
+
+        # Mock all VMs (1 managed + 2 unmanaged)
+        all_vms = [
+            VMInfo(
+                name="azlin-vm-1",
+                resource_group="rg1",
+                location="eastus",
+                power_state="VM running",
+                tags={"managed-by": "azlin"},
+            ),
+            VMInfo(
+                name="user-vm-1",
+                resource_group="rg1",
+                location="eastus",
+                power_state="VM running",
+                tags={},
+            ),
+            VMInfo(
+                name="user-vm-2",
+                resource_group="rg2",
+                location="westus",
+                power_state="VM running",
+                tags={},
+            ),
+        ]
+
+        mock_list_managed.return_value = managed_vms
+        mock_list_all.return_value = all_vms
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["list"])
+
+        # Should show notification for 2 unmanaged VMs
+        assert result.exit_code == 0
+        assert (
+            "2 additional vms not currently managed by azlin detected. Run with --show-all-vms to show them."
+            in result.output
+        )
+
+        # Verify both methods were called
+        mock_list_managed.assert_called_once_with(resource_group=None)
+        mock_list_all.assert_called_once()
+
+    @patch("azlin.cli.TagManager.list_all_vms_cross_rg")
+    @patch("azlin.cli.TagManager.list_managed_vms")
+    @patch("azlin.cli.ConfigManager.get_resource_group")
+    def test_cross_rg_mode_no_notification_when_all_managed(
+        self, mock_get_rg, mock_list_managed, mock_list_all
+    ):
+        """Test that cross-RG mode shows no notification when all VMs are managed.
+
+        Expected to PASS after fix is implemented.
+        """
+        # Mock no default resource group to trigger cross-RG mode
+        mock_get_rg.return_value = None
+
+        # All VMs are managed
+        managed_vms = [
+            VMInfo(
+                name="azlin-vm-1",
+                resource_group="rg1",
+                location="eastus",
+                power_state="VM running",
+                tags={"managed-by": "azlin"},
+            ),
+            VMInfo(
+                name="azlin-vm-2",
+                resource_group="rg2",
+                location="westus",
+                power_state="VM running",
+                tags={"managed-by": "azlin"},
+            ),
+        ]
+
+        mock_list_managed.return_value = managed_vms
+        mock_list_all.return_value = managed_vms  # Same list
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["list"])
+
+        # Should NOT show notification
+        assert result.exit_code == 0
+        assert "additional vms not currently managed by azlin" not in result.output
+
+    @patch("azlin.cli.TagManager.list_all_vms_cross_rg")
+    @patch("azlin.cli.TagManager.list_managed_vms")
+    @patch("azlin.cli.ConfigManager.get_resource_group")
+    def test_cross_rg_mode_only_unmanaged_vms_exist(
+        self, mock_get_rg, mock_list_managed, mock_list_all
+    ):
+        """Test cross-RG mode when only unmanaged VMs exist.
+
+        Expected to PASS after fix is implemented.
+        """
+        # Mock no default resource group to trigger cross-RG mode
+        mock_get_rg.return_value = None
+
+        # No managed VMs
+        mock_list_managed.return_value = []
+
+        # Only unmanaged VMs
+        all_vms = [
+            VMInfo(
+                name="user-vm-1",
+                resource_group="rg1",
+                location="eastus",
+                power_state="VM running",
+                tags={},
+            ),
+            VMInfo(
+                name="user-vm-2",
+                resource_group="rg2",
+                location="westus",
+                power_state="VM running",
+                tags={},
+            ),
+        ]
+
+        mock_list_all.return_value = all_vms
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["list"])
+
+        # Should show notification for 2 unmanaged VMs
+        assert result.exit_code == 0
+        assert (
+            "2 additional vms not currently managed by azlin detected. Run with --show-all-vms to show them."
+            in result.output
+        )
+
+    @patch("azlin.cli.TagManager.list_all_vms_cross_rg")
+    @patch("azlin.cli.ConfigManager.get_resource_group")
+    def test_cross_rg_mode_with_show_all_vms_flag(self, mock_get_rg, mock_list_all):
+        """Test cross-RG mode with --show-all-vms flag.
+
+        Expected to PASS after fix is implemented.
+        """
+        # Mock no default resource group to trigger cross-RG mode
+        mock_get_rg.return_value = None
+
+        # Mix of managed and unmanaged VMs
+        all_vms = [
+            VMInfo(
+                name="azlin-vm-1",
+                resource_group="rg1",
+                location="eastus",
+                power_state="VM running",
+                tags={"managed-by": "azlin"},
+            ),
+            VMInfo(
+                name="user-vm-1",
+                resource_group="rg1",
+                location="eastus",
+                power_state="VM running",
+                tags={},
+            ),
+            VMInfo(
+                name="user-vm-2",
+                resource_group="rg2",
+                location="westus",
+                power_state="VM running",
+                tags={},
+            ),
+        ]
+
+        mock_list_all.return_value = all_vms
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["list", "--show-all-vms"])
+
+        # Should show all VMs
+        assert result.exit_code == 0
+        assert "azlin-vm-1" in result.output
+        assert "user-vm-1" in result.output
+        assert "user-vm-2" in result.output
+
+        # Should NOT show notification when using --show-all-vms
+        assert "additional vms not currently managed by azlin" not in result.output
+
+        # Verify list_all_vms_cross_rg was called
+        mock_list_all.assert_called_once()
+
+    @patch("azlin.cli.TagManager.list_all_vms_cross_rg")
+    @patch("azlin.cli.TagManager.list_managed_vms")
+    @patch("azlin.cli.ConfigManager.get_resource_group")
+    def test_cross_rg_mode_notification_with_59_unmanaged_vms(
+        self, mock_get_rg, mock_list_managed, mock_list_all
+    ):
+        """Test cross-RG mode notification with 59 unmanaged VMs (the reported bug case).
+
+        This tests the exact scenario reported in Issue #208.
+
+        Expected to PASS after fix is implemented.
+        """
+        # Mock no default resource group to trigger cross-RG mode
+        mock_get_rg.return_value = None
+
+        # 3 managed VMs
+        managed_vms = [
+            VMInfo(
+                name=f"azlin-vm-{i}",
+                resource_group="rg1",
+                location="eastus",
+                power_state="VM running",
+                tags={"managed-by": "azlin"},
+            )
+            for i in range(1, 4)
+        ]
+
+        # 3 managed + 59 unmanaged = 62 total
+        all_vms = managed_vms + [
+            VMInfo(
+                name=f"user-vm-{i}",
+                resource_group=f"rg{i % 5}",
+                location="eastus",
+                power_state="VM running",
+                tags={},
+            )
+            for i in range(1, 60)
+        ]
+
+        mock_list_managed.return_value = managed_vms
+        mock_list_all.return_value = all_vms
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["list"])
+
+        # Should show notification for 59 unmanaged VMs
+        assert result.exit_code == 0
+        assert (
+            "59 additional vms not currently managed by azlin detected. Run with --show-all-vms to show them."
+            in result.output
+        )

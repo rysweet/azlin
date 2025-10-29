@@ -534,3 +534,65 @@ class TagManager:
         # Must match: letters, numbers, hyphens, underscores
         pattern = r"^[a-zA-Z0-9_-]+$"
         return bool(re.match(pattern, session_name))
+
+    @classmethod
+    def list_all_vms_cross_rg(cls) -> list[VMInfo]:
+        """List ALL VMs across all resource groups (managed + unmanaged).
+
+        Similar to list_managed_vms() but WITHOUT tag filtering.
+        Returns all VMs accessible to the authenticated user.
+
+        This is used in cross-RG mode to detect unmanaged VMs for notification purposes.
+
+        Returns:
+            List of VMInfo objects for all VMs across all RGs
+
+        Raises:
+            TagManagerError: If listing fails
+        """
+        from azlin.vm_manager import VMManager
+
+        try:
+            # Build Azure CLI command - list ALL VMs without tag filter
+            cmd = ["az", "vm", "list", "--output", "json"]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+
+            vms_data = json.loads(result.stdout)
+
+            # Convert to VMInfo objects using VMManager's parser
+            vms = []
+            for vm_data in vms_data:
+                try:
+                    # Extract resource group from VM ID
+                    vm_id = vm_data.get("id", "")
+                    rg_parts = vm_id.split("/")
+                    rg = None
+                    for i, part in enumerate(rg_parts):
+                        if part == "resourceGroups" and i + 1 < len(rg_parts):
+                            rg = rg_parts[i + 1]
+                            break
+
+                    if not rg:
+                        rg = vm_data.get("resourceGroup")
+
+                    if rg:
+                        # Use VMManager to get full VM info
+                        vm_info = VMManager.get_vm(vm_data["name"], rg)
+                        if vm_info:
+                            vms.append(vm_info)
+                except Exception as e:
+                    logger.warning(f"Failed to parse VM data: {e}")
+                    continue
+
+            return vms
+
+        except subprocess.TimeoutExpired as e:
+            msg = "Azure CLI timeout while listing VMs"
+            raise TagManagerError(msg) from e
+        except subprocess.CalledProcessError as e:
+            msg = f"Failed to list VMs: {e.stderr}"
+            raise TagManagerError(msg) from e
+        except json.JSONDecodeError as e:
+            msg = f"Failed to parse VM list response: {e}"
+            raise TagManagerError(msg) from e

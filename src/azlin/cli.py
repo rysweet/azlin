@@ -1909,9 +1909,23 @@ def list_command(
         if not rg:
             click.echo("Listing all azlin-managed VMs across resource groups...\n")
             try:
-                vms = TagManager.list_managed_vms(resource_group=None)
-                if not show_all:
-                    vms = [vm for vm in vms if vm.is_running()]
+                if show_all_vms:
+                    # Show ALL VMs (managed + unmanaged) across all RGs
+                    vms = TagManager.list_all_vms_cross_rg()
+                    if not show_all:
+                        vms = [vm for vm in vms if vm.is_running()]
+                else:
+                    # Default behavior: show only managed VMs
+                    vms = TagManager.list_managed_vms(resource_group=None)
+                    if not show_all:
+                        vms = [vm for vm in vms if vm.is_running()]
+
+                    # Get all VMs for notification (if not showing all)
+                    all_vms_for_notification = TagManager.list_all_vms_cross_rg()
+                    if not show_all:
+                        all_vms_for_notification = [
+                            vm for vm in all_vms_for_notification if vm.is_running()
+                        ]
             except Exception as e:
                 click.echo(
                     f"Warning: Tag-based discovery failed ({e}).\n"
