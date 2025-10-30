@@ -329,5 +329,6 @@ class ClaudeProcess:
             try:
                 os.close(self._master_fd)
             except Exception:
+                # Ignore errors when closing PTY master fd during cleanup
                 pass
             self._master_fd = None

@@ -134,6 +134,7 @@ class FileRotatingHandler(logging.Handler):
             try:
                 old_file.unlink()
             except Exception:
+                # Ignore errors when cleaning up old log files
                 pass
 
 

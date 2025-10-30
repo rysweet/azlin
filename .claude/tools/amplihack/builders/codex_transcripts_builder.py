@@ -263,6 +263,7 @@ class CodexTranscriptsBuilder:
             try:
                 session_data["decisions"] = decisions_file.read_text()
             except OSError:
+                # Ignore file read errors - decisions are optional
                 pass
 
         return session_data if any(session_data.values()) else None
