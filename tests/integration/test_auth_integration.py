@@ -456,20 +456,17 @@ class TestExistingFunctionalityUnaffected:
         """Test that ConfigManager is not affected by SP integration."""
         from azlin.config_manager import AzlinConfig, ConfigManager
 
-        mock_home = tmp_path / "home"
-        mock_home.mkdir()
-        azlin_dir = mock_home / ".azlin"
-        azlin_dir.mkdir()
-
-        monkeypatch.setenv("HOME", str(mock_home))
+        # Use explicit custom_path to avoid writing to real ~/.azlin/config.toml
+        # ConfigManager.DEFAULT_CONFIG_FILE is cached at import, so monkeypatch won't work
+        test_config_path = str(tmp_path / "config.toml")
 
         # Create and save config
         config = AzlinConfig(default_resource_group="test-rg", default_region="eastus")
 
-        ConfigManager.save_config(config)
+        ConfigManager.save_config(config, custom_path=test_config_path)
 
         # Load config
-        loaded = ConfigManager.load_config()
+        loaded = ConfigManager.load_config(custom_path=test_config_path)
 
         assert loaded.default_resource_group == "test-rg"
         assert loaded.default_region == "eastus"

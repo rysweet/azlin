@@ -1,15 +1,19 @@
 # NFS Home Directory Setup Guide
 
-## Current Status
+## Current Status: ✅ BOOTSTRAP COMPLETE
 
 ### ✅ What's Working
 - NFS storage account `rysweethomedir` exists and is configured
 - NFS feature is fully implemented in main branch (issue #72 merged)
 - Auto-detection feature works (auto-selects when only one storage exists)
 - All necessary commands are available (`azlin storage mount/unmount`)
+- **Bootstrap is COMPLETE** - NFS share is populated and ready to use
+- Config file is set with `default_nfs_storage = "rysweethomedir"`
 
-### ❌ What's Missing
-The NFS share is empty and needs to be populated with your `~/.azlin/home` contents before VMs can use it.
+### ⚠️ IMPORTANT: Config Protection
+**DO NOT remove or comment out `default_nfs_storage` from ~/.azlin/config.toml**
+
+This setting ensures new VMs automatically mount your shared NFS home directory.
 
 ## The Problem
 
@@ -36,7 +40,9 @@ az vm delete --name <vm-name> --resource-group rysweet-linux-vm-pool --yes
 ```
 
 ### Step 2: Create Bootstrap VM WITHOUT NFS
-The `default_nfs_storage` in your config has been temporarily removed to allow this.
+⚠️ **SKIP THIS STEP - Bootstrap already complete!**
+
+If you need to re-bootstrap, temporarily remove `default_nfs_storage` from config.
 
 ```bash
 # Create VM that will sync ~/.azlin/home
@@ -90,13 +96,15 @@ uv run python -m azlin new --name test-nfs-vm-2 --no-auto-connect
 
 ## Current Configuration
 
-Your `~/.azlin/config.toml` has been prepared:
+Your `~/.azlin/config.toml` is configured:
 ```toml
 default_resource_group = "rysweet-linux-vm-pool"
 default_region = "westus2"
-default_vm_size = "Standard_D2s_v3"
-# default_nfs_storage = "rysweethomedir"  # Uncomment after bootstrap
+default_vm_size = "Standard_E16as_v5"
+default_nfs_storage = "rysweethomedir"  # ✅ ACTIVE - Do not remove!
 ```
+
+**⚠️ WARNING**: Do NOT remove or comment out `default_nfs_storage`. This ensures all new VMs automatically use your shared NFS home directory.
 
 ## NFS Storage Details
 

@@ -1,6 +1,5 @@
 """ToolkitLogger for structured logging with session integration."""
 
-import contextlib
 import json
 import logging
 import sys
@@ -132,8 +131,11 @@ class FileRotatingHandler(logging.Handler):
 
         # Remove excess files
         for old_file in log_files[self.max_files - 1 :]:
-            with contextlib.suppress(Exception):
+            try:
                 old_file.unlink()
+            except Exception:
+                # Ignore errors when cleaning up old log files
+                pass
 
 
 class ToolkitLogger:
@@ -404,5 +406,8 @@ class OperationContext:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         success = exc_type is None
-        message = f"Operation failed: {exc_val}" if exc_type else None
+        if exc_type:
+            message = f"Operation failed: {exc_val}"
+        else:
+            message = None
         self.logger.end_operation(success=success, message=message)

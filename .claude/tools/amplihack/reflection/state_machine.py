@@ -1,6 +1,5 @@
 """State machine for interactive reflection workflow."""
 
-import contextlib
 import json
 import time
 from dataclasses import asdict, dataclass, field
@@ -145,5 +144,7 @@ class ReflectionStateMachine:
     def cleanup(self):
         """Clean up state file."""
         if self.state_file.exists():
-            with contextlib.suppress(OSError):
+            try:
                 self.state_file.unlink()
+            except OSError:
+                pass
