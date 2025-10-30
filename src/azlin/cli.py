@@ -45,6 +45,7 @@ from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult,
 # Auth commands
 from azlin.commands.auth import auth
 
+# Bastion commands
 # Storage commands
 from azlin.commands.bastion import bastion_group
 from azlin.commands.storage import storage_group
@@ -2111,6 +2112,34 @@ def list_command(
                 "\n[dim]To show all VMs accessible by this subscription, run:[/dim]\n"
                 "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])"
             )
+
+        # List Bastion hosts in the same resource group
+        if rg:
+            try:
+                from azlin.modules.bastion_detector import BastionDetector
+
+                bastions = BastionDetector.list_bastions(rg)
+                if bastions:
+                    console.print("\n[bold cyan]Azure Bastion Hosts[/bold cyan]")
+                    bastion_table = Table(show_header=True, header_style="bold magenta")
+                    bastion_table.add_column("Name", style="cyan")
+                    bastion_table.add_column("Location", style="blue")
+                    bastion_table.add_column("SKU", style="green")
+                    bastion_table.add_column("State", style="yellow")
+
+                    for bastion in bastions:
+                        bastion_table.add_row(
+                            bastion.get("name", "Unknown"),
+                            bastion.get("location", "N/A"),
+                            bastion.get("sku", {}).get("name", "N/A"),
+                            bastion.get("provisioningState", "N/A"),
+                        )
+
+                    console.print(bastion_table)
+                    console.print(f"\n[bold]Total: {len(bastions)} Bastion host(s)[/bold]")
+            except Exception as e:
+                # Silently skip if Bastion listing fails
+                logger.debug(f"Bastion listing skipped: {e}")
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
