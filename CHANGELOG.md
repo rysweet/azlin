@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - CI/CD pipeline with comprehensive testing and security scanning
 - Dependabot automation for dependency management
+- Comprehensive Table of Contents for README Command Reference (19 sections) ([#223](https://github.com/rysweet/azlin/pull/223))
+- Azure Bastion examples in Quick Start section ([#223](https://github.com/rysweet/azlin/pull/223))
 - `--show-all-vms` / `-a` flag for cross-resource-group VM scanning ([#209](https://github.com/rysweet/azlin/pull/209))
 - Regression test for config field preservation during updates ([#209](https://github.com/rysweet/azlin/pull/209))
 - Helpful error messages when no resource group configured ([#209](https://github.com/rysweet/azlin/pull/209))
@@ -21,10 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expensive cross-RG scanning running by default (now requires explicit flag) ([#209](https://github.com/rysweet/azlin/pull/209))
 
 ### Changed
+- README reorganized for improved navigation and discoverability ([#223](https://github.com/rysweet/azlin/pull/223))
+  - Natural Language Commands section moved to end (after traditional commands)
+  - Opening example block now shows only traditional commands
+  - Azure Bastion now visible in Quick Start section
 - `azlin list` default behavior: now uses configured resource group instead of scanning all RGs ([#209](https://github.com/rysweet/azlin/pull/209))
 - `--show-all-vms` flag meaning simplified: cross-RG scan instead of showing unmanaged VMs ([#209](https://github.com/rysweet/azlin/pull/209))
 
 ### Removed
+- Duplicate "Understanding VM Identifiers" section from README ([#223](https://github.com/rysweet/azlin/pull/223))
+- Redundant "Command Categories" mini-TOC from README ([#223](https://github.com/rysweet/azlin/pull/223))
 - Expensive notification queries from default list path ([#209](https://github.com/rysweet/azlin/pull/209))
 - VMManager.list_all_user_vms() method (unused) ([#209](https://github.com/rysweet/azlin/pull/209))
 - TagManager.list_all_vms_cross_rg() method (expensive, unused) ([#209](https://github.com/rysweet/azlin/pull/209))
