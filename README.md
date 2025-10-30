@@ -170,7 +170,7 @@ mkdir -p ~/.azlin/home
 cp ~/.bashrc ~/.vimrc ~/.gitconfig ~/.azlin/home/
 
 # Auto-syncs on VM creation and login
-azlin new  # Dotfiles automatically synced after provisioning
+azlin new # Dotfiles automatically synced after provisioning
 
 # Manual sync to specific VM
 azlin sync --vm-name my-vm
@@ -311,7 +311,7 @@ This section provides detailed examples of all azlin commands with practical use
 - [Snapshot Management](#snapshot-management) - Backup and restore VMs
 - [Advanced Usage](#advanced-usage) - Command passthrough and config
 - [Common Workflows](#common-workflows) - Example use cases
-- [Tips & Best Practices](#tips--best-practices) - Optimization tips
+- [Tips & Best Practices](#tips-best-practices) - Optimization tips
 - [Quick Reference](#quick-reference) - Command cheat sheet
 - [Natural Language Commands](#natural-language-commands-ai-powered) - Use AI-powered commands
 
