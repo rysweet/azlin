@@ -156,8 +156,17 @@ class ExecutionOrchestrator:
                 )
                 break
 
-        # All strategies failed
-        final_result = self.attempts[-1].result if self.attempts else result
+        # All strategies failed - get last result from attempts or create a generic failure
+        if self.attempts:
+            final_result = self.attempts[-1].result
+        else:
+            # No attempts recorded - return generic failure
+            final_result = ExecutionResult(
+                success=False,
+                strategy=strategy_chain[0],
+                error="No execution attempts were recorded",
+                failure_type=FailureType.INTERNAL_ERROR,
+            )
 
         # Attempt rollback if enabled
         if self.enable_rollback and final_result.resources_created:
@@ -237,8 +246,11 @@ class ExecutionOrchestrator:
             )
             time.sleep(delay)
 
-        # Should not reach here, but return last result
-        return result
+        # Should not reach here - raise error to satisfy type checker
+        # max_retries must be >= 1, so loop always executes at least once
+        raise RuntimeError(
+            f"Execution loop completed without returning result (max_retries={self.max_retries})"
+        )
 
     def _get_strategy(self, strategy_type: Strategy) -> Any:
         """Get strategy instance (cached).

@@ -234,7 +234,7 @@ class GCPStrategy(ExecutionStrategy):
 
         return True, ""
 
-    def estimate_duration(self, context: ExecutionContext) -> float:
+    def estimate_duration(self, context: ExecutionContext) -> int:
         """Estimate execution duration in seconds.
 
         Args:
@@ -247,23 +247,23 @@ class GCPStrategy(ExecutionStrategy):
 
         # Base estimates for common operations
         if "list" in intent_type or "describe" in intent_type or "get" in intent_type:
-            return 5.0
+            return 5
         if "create" in intent_type or "provision" in intent_type:
             if "compute" in intent_type or "instance" in intent_type or "vm" in intent_type:
-                return 90.0  # GCE instances take ~1.5 minutes
+                return 90  # GCE instances take ~1.5 minutes
             if "sql" in intent_type or "database" in intent_type:
-                return 300.0  # Cloud SQL takes ~5 minutes
+                return 300  # Cloud SQL takes ~5 minutes
             if "function" in intent_type:
-                return 15.0
+                return 15
             if "bucket" in intent_type or "storage" in intent_type:
-                return 3.0
-            return 60.0
+                return 3
+            return 60
         if "delete" in intent_type or "terminate" in intent_type:
-            return 30.0
+            return 30
         if "update" in intent_type or "modify" in intent_type:
-            return 45.0
+            return 45
 
-        return 30.0  # Default
+        return 30  # Default
 
     def _generate_commands(self, context: ExecutionContext) -> list[str]:
         """Generate gcloud CLI commands from intent.
