@@ -2,12 +2,14 @@
 
 This module provides functionality to connect to existing Azure VMs via SSH.
 Supports connecting by VM name or direct IP address, with optional tmux sessions.
+Integrates with Azure Bastion for private-only VMs.
 
 Security:
 - Input validation for VM names and IPs
 - Secure SSH key handling
 - No shell=True for subprocess
 - Sanitized logging
+- Bastion tunnels bound to localhost only
 """
 
 import ipaddress
@@ -15,8 +17,13 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+import click
+
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.connection_tracker import ConnectionTracker
+from azlin.modules.bastion_config import BastionConfig
+from azlin.modules.bastion_detector import BastionDetector
+from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.modules.ssh_reconnect import SSHReconnectHandler
@@ -65,19 +72,25 @@ class VMConnector:
         ssh_key_path: Path | None = None,
         enable_reconnect: bool = True,
         max_reconnect_retries: int = 3,
+        use_bastion: bool = False,
+        bastion_name: str | None = None,
+        bastion_resource_group: str | None = None,
     ) -> bool:
-        """Connect to a VM via SSH.
+        """Connect to a VM via SSH (with optional Bastion routing).
 
         Args:
             vm_identifier: VM name or IP address
             resource_group: Resource group (required for VM name, optional for IP)
             use_tmux: Launch tmux session (default: True)
-            tmux_session: Tmux session name (default: azlin)
+            tmux_session: Tmux session name (default: vm_identifier)
             remote_command: Command to run on VM (optional)
             ssh_user: SSH username (default: azureuser)
             ssh_key_path: Path to SSH private key (default: ~/.ssh/azlin_key)
             enable_reconnect: Enable auto-reconnect on disconnect (default: True)
             max_reconnect_retries: Maximum reconnection attempts (default: 3)
+            use_bastion: Force use of Bastion tunnel (default: False)
+            bastion_name: Bastion host name (optional, auto-detected if not provided)
+            bastion_resource_group: Bastion resource group (optional)
 
         Returns:
             True if connection successful
@@ -88,6 +101,9 @@ class VMConnector:
         Example:
             >>> # Connect by VM name
             >>> VMConnector.connect("my-vm", resource_group="my-rg")
+
+            >>> # Force Bastion connection
+            >>> VMConnector.connect("my-vm", resource_group="my-rg", use_bastion=True)
 
             >>> # Connect by IP
             >>> VMConnector.connect("20.1.2.3")
@@ -113,66 +129,120 @@ class VMConnector:
         except SSHKeyError as e:
             raise VMConnectorError(f"SSH key error: {e}") from e
 
-        # If reconnect is enabled and no remote command, use direct SSH with reconnect
-        # Otherwise use terminal launcher (which opens new windows)
-        if enable_reconnect and remote_command is None:
-            # Use direct SSH connection with reconnect support
-            ssh_config = SSHConfig(
-                host=conn_info.ip_address,
-                user=conn_info.ssh_user,
-                key_path=conn_info.ssh_key_path,
-                port=22,
-                strict_host_key_checking=False,
-            )
+        # Bastion routing logic
+        bastion_tunnel = None
+        bastion_manager = None
+        original_ip = conn_info.ip_address
+        ssh_port = 22
 
-            try:
-                logger.info(f"Connecting to {conn_info.vm_name} ({conn_info.ip_address})...")
-                handler = SSHReconnectHandler(max_retries=max_reconnect_retries)
-                exit_code = handler.connect_with_reconnect(
-                    config=ssh_config,
+        try:
+            # Check if we should use Bastion
+            should_use_bastion = use_bastion
+            bastion_info = None
+
+            if not should_use_bastion and not cls.is_valid_ip(vm_identifier):
+                # Auto-detect Bastion if not connecting by IP
+                bastion_info = cls._check_bastion_routing(
+                    conn_info.vm_name, conn_info.resource_group, use_bastion
+                )
+                should_use_bastion = bastion_info is not None
+
+            # If using Bastion, create tunnel
+            if should_use_bastion:
+                if not bastion_info:
+                    if not bastion_name:
+                        raise VMConnectorError(
+                            "Bastion name required when using --use-bastion flag"
+                        )
+                    bastion_info = {
+                        "name": bastion_name,
+                        "resource_group": bastion_resource_group or resource_group,
+                    }
+
+                bastion_manager, bastion_tunnel = cls._create_bastion_tunnel(
                     vm_name=conn_info.vm_name,
-                    tmux_session=tmux_session if tmux_session is not None else "azlin",
-                    auto_tmux=use_tmux,
+                    resource_group=conn_info.resource_group,
+                    bastion_name=bastion_info["name"],
+                    bastion_resource_group=bastion_info["resource_group"],
                 )
 
-                # Record successful connection
-                if exit_code == 0:
-                    try:
-                        ConnectionTracker.record_connection(conn_info.vm_name)
-                    except Exception as e:
-                        logger.warning(f"Failed to record connection for {conn_info.vm_name}: {e}")
+                # Update connection info to use tunnel
+                conn_info.ip_address = "127.0.0.1"
+                ssh_port = bastion_tunnel.local_port
 
-                return exit_code == 0
-            except Exception as e:
-                raise VMConnectorError(f"SSH connection failed: {e}") from e
-        else:
-            # Build terminal config for new window or remote command
-            terminal_config = TerminalConfig(
-                ssh_host=conn_info.ip_address,
-                ssh_user=conn_info.ssh_user,
-                ssh_key_path=conn_info.ssh_key_path,
-                command=remote_command,
-                title=f"azlin - {conn_info.vm_name}",
-                tmux_session=(tmux_session if tmux_session is not None else "azlin")
-                if use_tmux
-                else None,
-            )
+                logger.info(
+                    f"Connecting through Bastion tunnel: {bastion_info['name']} "
+                    f"(127.0.0.1:{ssh_port})"
+                )
 
-            # Launch terminal
-            try:
-                logger.info(f"Connecting to {conn_info.vm_name} ({conn_info.ip_address})...")
-                success = TerminalLauncher.launch(terminal_config)
+            # If reconnect is enabled and no remote command, use direct SSH with reconnect
+            # Otherwise use terminal launcher (which opens new windows)
+            if enable_reconnect and remote_command is None:
+                # Use direct SSH connection with reconnect support
+                ssh_config = SSHConfig(
+                    host=conn_info.ip_address,
+                    user=conn_info.ssh_user,
+                    key_path=conn_info.ssh_key_path,
+                    port=ssh_port,
+                    strict_host_key_checking=False,
+                )
 
-                # Record successful connection
-                if success:
-                    try:
-                        ConnectionTracker.record_connection(conn_info.vm_name)
-                    except Exception as e:
-                        logger.warning(f"Failed to record connection for {conn_info.vm_name}: {e}")
+                try:
+                    logger.info(f"Connecting to {conn_info.vm_name} ({original_ip})...")
+                    handler = SSHReconnectHandler(max_retries=max_reconnect_retries)
+                    exit_code = handler.connect_with_reconnect(
+                        config=ssh_config,
+                        vm_name=conn_info.vm_name,
+                        tmux_session=tmux_session or conn_info.vm_name if use_tmux else "azlin",
+                        auto_tmux=use_tmux,
+                    )
 
-                return success
-            except TerminalLauncherError as e:
-                raise VMConnectorError(f"Failed to launch terminal: {e}") from e
+                    # Record successful connection
+                    if exit_code == 0:
+                        try:
+                            ConnectionTracker.record_connection(conn_info.vm_name)
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to record connection for {conn_info.vm_name}: {e}"
+                            )
+
+                    return exit_code == 0
+                except Exception as e:
+                    raise VMConnectorError(f"SSH connection failed: {e}") from e
+            else:
+                # Build terminal config for new window or remote command
+                terminal_config = TerminalConfig(
+                    ssh_host=conn_info.ip_address,
+                    ssh_user=conn_info.ssh_user,
+                    ssh_key_path=conn_info.ssh_key_path,
+                    command=remote_command,
+                    title=f"azlin - {conn_info.vm_name}",
+                    tmux_session=tmux_session or conn_info.vm_name if use_tmux else None,
+                )
+
+                # Launch terminal
+                try:
+                    logger.info(f"Connecting to {conn_info.vm_name} ({original_ip})...")
+                    success = TerminalLauncher.launch(terminal_config)
+
+                    # Record successful connection
+                    if success:
+                        try:
+                            ConnectionTracker.record_connection(conn_info.vm_name)
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to record connection for {conn_info.vm_name}: {e}"
+                            )
+
+                    return success
+                except TerminalLauncherError as e:
+                    raise VMConnectorError(f"Failed to launch terminal: {e}") from e
+
+        finally:
+            # Cleanup: Note that bastion_manager handles cleanup via atexit
+            # So we don't need to explicitly close tunnels here unless
+            # we want immediate cleanup
+            pass
 
     @classmethod
     def connect_by_name(
@@ -191,7 +261,7 @@ class VMConnector:
             vm_name: VM name
             resource_group: Resource group (uses config default if not specified)
             use_tmux: Launch tmux session (default: True)
-            tmux_session: Tmux session name (default: azlin)
+            tmux_session: Tmux session name (default: vm_name)
             remote_command: Command to run on VM (optional)
             ssh_user: SSH username (default: azureuser)
             ssh_key_path: Path to SSH private key (default: ~/.ssh/azlin_key)
@@ -227,7 +297,7 @@ class VMConnector:
         Args:
             ip_address: VM public IP address
             use_tmux: Launch tmux session (default: True)
-            tmux_session: Tmux session name (default: azlin)
+            tmux_session: Tmux session name (default: IP address)
             remote_command: Command to run on VM (optional)
             ssh_user: SSH username (default: azureuser)
             ssh_key_path: Path to SSH private key (default: ~/.ssh/azlin_key)
@@ -246,7 +316,7 @@ class VMConnector:
             vm_identifier=ip_address,
             resource_group=None,
             use_tmux=use_tmux,
-            tmux_session=tmux_session,
+            tmux_session=tmux_session or ip_address,
             remote_command=remote_command,
             ssh_user=ssh_user,
             ssh_key_path=ssh_key_path,
@@ -331,6 +401,120 @@ class VMConnector:
 
         except VMManagerError as e:
             raise VMConnectorError(f"Failed to get VM info: {e}") from e
+
+    @classmethod
+    def _check_bastion_routing(
+        cls, vm_name: str, resource_group: str, force_bastion: bool
+    ) -> dict[str, str] | None:
+        """Check if Bastion routing should be used for VM.
+
+        Checks configuration and auto-detects Bastion hosts.
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group
+            force_bastion: Force use of Bastion
+
+        Returns:
+            Dict with bastion name and resource_group if should use Bastion, None otherwise
+        """
+        # If forcing Bastion, skip checks
+        if force_bastion:
+            return None  # Caller will provide bastion_name
+
+        # Load Bastion config
+        try:
+            config_path = ConfigManager.DEFAULT_CONFIG_DIR / "bastion_config.toml"
+            bastion_config = BastionConfig.load(config_path)
+
+            # Check if auto-detection is disabled
+            if not bastion_config.auto_detect:
+                logger.debug("Bastion auto-detection disabled in config")
+                return None
+
+            # Check for explicit mapping
+            mapping = bastion_config.get_mapping(vm_name)
+            if mapping:
+                logger.info(f"Using configured Bastion mapping for {vm_name}")
+                return {
+                    "name": mapping.bastion_name,
+                    "resource_group": mapping.bastion_resource_group,
+                }
+
+        except Exception as e:
+            logger.debug(f"Could not load Bastion config: {e}")
+
+        # Auto-detect Bastion
+        try:
+            bastion_info = BastionDetector.detect_bastion_for_vm(vm_name, resource_group)
+
+            if bastion_info:
+                # Prompt user
+                if click.confirm(
+                    f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
+                    default=False,
+                ):
+                    return bastion_info
+
+                logger.info("User declined Bastion connection, using direct connection")
+
+        except Exception as e:
+            logger.debug(f"Bastion detection failed: {e}")
+
+        return None
+
+    @classmethod
+    def _create_bastion_tunnel(
+        cls,
+        vm_name: str,
+        resource_group: str,
+        bastion_name: str,
+        bastion_resource_group: str,
+    ) -> tuple:
+        """Create Bastion tunnel for VM connection.
+
+        Args:
+            vm_name: VM name
+            resource_group: VM resource group
+            bastion_name: Bastion host name
+            bastion_resource_group: Bastion resource group
+
+        Returns:
+            Tuple of (BastionManager, BastionTunnel)
+
+        Raises:
+            VMConnectorError: If tunnel creation fails
+        """
+        try:
+            # Get VM resource ID
+            vm_resource_id = VMManager.get_vm_resource_id(vm_name, resource_group)
+            if not vm_resource_id:
+                raise VMConnectorError(
+                    f"Could not determine resource ID for VM: {vm_name}. "
+                    f"Ensure Azure CLI is authenticated."
+                )
+
+            # Create bastion manager
+            bastion_manager = BastionManager()
+
+            # Find available port
+            local_port = bastion_manager.get_available_port()
+
+            # Create tunnel
+            tunnel = bastion_manager.create_tunnel(
+                bastion_name=bastion_name,
+                resource_group=bastion_resource_group,
+                target_vm_id=vm_resource_id,
+                local_port=local_port,
+                remote_port=22,
+            )
+
+            return (bastion_manager, tunnel)
+
+        except BastionManagerError as e:
+            raise VMConnectorError(f"Failed to create Bastion tunnel: {e}") from e
+        except Exception as e:
+            raise VMConnectorError(f"Unexpected error creating Bastion tunnel: {e}") from e
 
     @classmethod
     def is_valid_ip(cls, identifier: str) -> bool:
