@@ -197,7 +197,7 @@ class ExecutionOrchestrator:
             Execution result (success or final failure)
         """
         strategy = self._get_strategy(strategy_type)
-        result: ExecutionResult | None = None
+        result: ExecutionResult
 
         for attempt_num in range(1, self.max_retries + 1):
             logger.debug(
@@ -248,13 +248,7 @@ class ExecutionOrchestrator:
             time.sleep(delay)
 
         # Should not reach here due to loop logic, but return last result if we do
-        # This satisfies type checker while maintaining existing behavior
-        return result if result is not None else ExecutionResult(
-            success=False,
-            strategy=strategy_type,
-            error="Execution loop completed without result",
-            failure_type=FailureType.INTERNAL_ERROR,
-        )
+        return result
 
     def _get_strategy(self, strategy_type: Strategy) -> Any:
         """Get strategy instance (cached).

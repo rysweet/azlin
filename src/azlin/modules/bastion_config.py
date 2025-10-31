@@ -305,6 +305,7 @@ class BastionConfig:
         Raises:
             BastionConfigError: If save fails
         """
+        temp_path = None
         try:
             # Ensure parent directory exists
             config_path.parent.mkdir(parents=True, exist_ok=True)
