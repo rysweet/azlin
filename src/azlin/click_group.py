@@ -47,10 +47,9 @@ class AzlinGroup(click.Group):
                 # Use ctx.exit() to properly handle Click's testing mode
                 ctx.exit(e.exit_code if hasattr(e, "exit_code") else 1)
                 return None  # Explicit return for code clarity (never reached)
-            else:
-                # No context available, use sys.exit
-                sys.exit(e.exit_code if hasattr(e, "exit_code") else 1)
-                return None  # Explicit return for code clarity (never reached)
+            # No context available, use sys.exit
+            sys.exit(e.exit_code if hasattr(e, "exit_code") else 1)
+            return None  # Explicit return for code clarity (never reached)
         except click.exceptions.ClickException:
             # For other Click exceptions, use default handling
             raise
