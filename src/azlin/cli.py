@@ -41,8 +41,6 @@ from azlin.agentic import (
 )
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
-from azlin.modules.bastion_detector import BastionDetector
-from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.click_group import AzlinGroup
 
 # Auth commands
@@ -65,6 +63,8 @@ from azlin.ip_diagnostics import (
     format_diagnostic_report,
 )
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
+from azlin.modules.bastion_detector import BastionDetector
+from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -1814,6 +1814,8 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
         vm_name_map = {}  # Map IP to VM name for result matching
 
         for vm in direct_ssh_vms:
+            # Type assertion: vm.public_ip is guaranteed non-None by direct_ssh_vms filter
+            assert vm.public_ip is not None
             ssh_config = SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_path)
             ssh_configs.append(ssh_config)
             vm_name_map[vm.public_ip] = vm.name
@@ -1859,7 +1861,7 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                             continue
 
                         # Allocate local port for tunnel
-                        local_port = bastion_manager.find_available_port()
+                        local_port = bastion_manager.get_available_port()
 
                         # Get VM resource ID
                         vm_resource_id = vm.get_resource_id(subscription_id)
