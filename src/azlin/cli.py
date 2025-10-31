@@ -982,9 +982,6 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         Raises:
             Exception: If storage mount fails (this is a critical operation)
         """
-        if not vm_details.public_ip:
-            raise Exception("VM has no public IP address, cannot mount NFS storage")
-
         from azlin.modules.nfs_mount_manager import NFSMountManager
         from azlin.modules.storage_manager import StorageManager
 
@@ -1045,6 +1042,8 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
     def _setup_github(self, vm_details: VMDetails, key_path: Path) -> None:
         """Setup GitHub on VM and clone repository.
 
+        Supports both direct SSH (public IP) and Bastion tunnels (private IP only).
+
         Args:
             vm_details: VM details
             key_path: SSH private key path
@@ -1055,9 +1054,6 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         if not self.repo:
             return
 
-        if not vm_details.public_ip:
-            raise GitHubSetupError("VM has no public IP address")
-
         self.progress.update(f"Setting up GitHub for: {self.repo}")
 
         # Validate repo URL
@@ -1065,14 +1061,24 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         if not valid:
             raise GitHubSetupError(f"Invalid repository URL: {message}")
 
-        # Create SSH config
-        ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
+        # Get SSH connection parameters (handles both direct and Bastion)
+        host, port, bastion_manager = self._get_ssh_connection_params(vm_details)
 
-        # Setup GitHub and clone repo
-        self.progress.update("Authenticating with GitHub (may require browser)...")
-        repo_details = GitHubSetupHandler.setup_github_on_vm(ssh_config, self.repo)
+        # Use context manager for automatic Bastion cleanup
+        with contextlib.ExitStack() as stack:
+            # Register bastion_manager cleanup if present
+            if bastion_manager:
+                stack.enter_context(bastion_manager)
+                self.progress.update(f"Using Bastion tunnel on localhost:{port}")
 
-        self.progress.update(f"Repository cloned to: {repo_details.clone_path}")
+            # Create SSH config with port parameter
+            ssh_config = SSHConfig(host=host, port=port, user="azureuser", key_path=key_path)
+
+            # Setup GitHub and clone repo
+            self.progress.update("Authenticating with GitHub (may require browser)...")
+            repo_details = GitHubSetupHandler.setup_github_on_vm(ssh_config, self.repo)
+
+            self.progress.update(f"Repository cloned to: {repo_details.clone_path}")
 
     def _connect_ssh(self, vm_details: VMDetails, key_path: Path) -> int:
         """Connect to VM via SSH with tmux session.
