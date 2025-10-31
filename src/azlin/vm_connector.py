@@ -193,7 +193,7 @@ class VMConnector:
                     exit_code = handler.connect_with_reconnect(
                         config=ssh_config,
                         vm_name=conn_info.vm_name,
-                        tmux_session=tmux_session or conn_info.vm_name if use_tmux else "azlin",
+                        tmux_session=tmux_session or "azlin",
                         auto_tmux=use_tmux,
                     )
 
@@ -385,15 +385,15 @@ class VMConnector:
                     f"VM is not running (state: {vm_info.power_state}). Connection may fail."
                 )
 
-            # Get IP address
-            if not vm_info.public_ip:
-                raise VMConnectorError(
-                    f"VM {vm_name} has no public IP address. Ensure VM has a public IP configured."
-                )
+            # Get IP address (allow None - Bastion routing will handle it)
+            ip_address = vm_info.public_ip or vm_info.private_ip
+
+            if not ip_address:
+                raise VMConnectorError(f"VM {vm_name} has neither public nor private IP address.")
 
             return ConnectionInfo(
                 vm_name=vm_name,
-                ip_address=vm_info.public_ip,
+                ip_address=ip_address,
                 resource_group=resource_group,
                 ssh_user=ssh_user,
                 ssh_key_path=ssh_key_path,
