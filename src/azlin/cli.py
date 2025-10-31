@@ -2057,7 +2057,7 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                         vm_resource_id = vm.get_resource_id(subscription_id)
 
                         # Create tunnel
-                        tunnel = bastion_manager.create_tunnel(
+                        bastion_manager.create_tunnel(
                             bastion_name=bastion_info["name"],
                             resource_group=bastion_info["resource_group"],
                             target_vm_id=vm_resource_id,
