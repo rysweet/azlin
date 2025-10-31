@@ -530,6 +530,21 @@ class BastionManager:
         if wait_seconds < 0:
             raise ValueError("wait_seconds cannot be negative")
 
+        # Security: Cap maximum wait time to prevent DoS
+        max_wait = 3600  # 1 hour maximum
+        if wait_seconds > max_wait:
+            raise ValueError(
+                f"wait_seconds cannot exceed {max_wait}s (1 hour). "
+                f"If VM requires longer boot time, consider increasing SSH timeout instead."
+            )
+
+        # Warn for unusually long wait times
+        if wait_seconds > 300:  # 5 minutes
+            logger.warning(
+                f"Using unusually long boot wait: {wait_seconds}s. "
+                f"Consider verifying VM boot performance."
+            )
+
         # Skip wait if 0
         if wait_seconds == 0:
             logger.debug("Skipping VM boot wait (wait_seconds=0)")

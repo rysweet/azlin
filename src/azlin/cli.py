@@ -626,11 +626,6 @@ class CLIOrchestrator:
         with contextlib.ExitStack() as stack:
             # Register bastion_manager cleanup if present
             if bastion_manager:
-                # TODO: Remove this Mock support once tests are properly configured
-                # This handles test mocks that may not have context manager protocol
-                if not hasattr(bastion_manager, '__enter__'):
-                    bastion_manager.__enter__ = lambda self: self
-                    bastion_manager.__exit__ = lambda self, *args: None
                 stack.enter_context(bastion_manager)
                 self.progress.update(f"Using Bastion tunnel on localhost:{port}")
 

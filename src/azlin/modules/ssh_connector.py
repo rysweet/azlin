@@ -196,36 +196,21 @@ class SSHConnector:
 
             # First check if port is open
             if cls._check_port_open(host, port):
-                try:
-                    logger.debug(f"Port {port} is open on {host}")
-                except StopIteration:
-                    # NOTE: Logging infrastructure calls time.time() for timestamps.
-                    # In tests with mocked time.time(), exhausted mocks raise StopIteration.
-                    # This is a test infrastructure issue, not production behavior.
-                    pass
+                logger.debug(f"Port {port} is open on {host}")
 
                 # Then try actual SSH connection
                 if cls._test_ssh_connection(host, key_path, port):
                     elapsed = current_time - start_time
-                    try:
-                        logger.info(
-                            f"SSH ready on {host}:{port} (after {elapsed:.1f}s, {attempt} attempts)"
-                        )
-                    except StopIteration:
-                        pass
+                    logger.info(
+                        f"SSH ready on {host}:{port} (after {elapsed:.1f}s, {attempt} attempts)"
+                    )
                     return True
 
             # Wait before next attempt
-            try:
-                logger.debug(f"SSH not ready, retrying in {interval}s...")
-            except StopIteration:
-                pass
+            logger.debug(f"SSH not ready, retrying in {interval}s...")
             time.sleep(interval)
 
-        try:
-            logger.error(f"SSH not ready after {timeout}s ({attempt} attempts)")
-        except StopIteration:
-            pass
+        logger.error(f"SSH not ready after {timeout}s ({attempt} attempts)")
         return False
 
     @classmethod

@@ -13,6 +13,7 @@ Key Requirements:
 """
 
 from pathlib import Path
+import itertools
 from unittest.mock import Mock, patch
 
 import pytest
@@ -87,8 +88,8 @@ class TestSSHConnectorBackwardCompatibility:
         with patch("azlin.modules.ssh_connector.SSHConnector._check_port_open", return_value=False):
             with patch("time.sleep"):
                 with patch("time.time") as mock_time:
-                    # Simulate timeout after 300 seconds
-                    mock_time.side_effect = [0, 100, 200, 301]
+                    # Simulate timeout after 300 seconds using non-exhausting iterator
+                    mock_time.side_effect = itertools.cycle([0, 100, 200, 301])
 
                     result = SSHConnector.wait_for_ssh_ready(
                         host="192.168.1.100", key_path=key_file
@@ -162,7 +163,7 @@ class TestSSHConnectorTimeoutBehavior:
                 return_value=True,
             ):
                 with patch("time.time") as mock_time:
-                    mock_time.side_effect = [0, 1]
+                    mock_time.side_effect = itertools.cycle([0, 1])
                     result = SSHConnector.wait_for_ssh_ready(
                         host="20.12.34.56",  # Public IP (direct SSH)
                         key_path=key_file,
@@ -184,7 +185,7 @@ class TestSSHConnectorTimeoutBehavior:
         with patch("azlin.modules.ssh_connector.SSHConnector._check_port_open") as mock_check:
             # Simulate SSH not ready until after 400s (would fail with 300s timeout)
             with patch("time.time") as mock_time:
-                mock_time.side_effect = [0, 100, 200, 300, 400, 450]
+                mock_time.side_effect = itertools.cycle([0, 100, 200, 300, 400, 450])
                 mock_check.side_effect = [False, False, False, False, True]
 
                 with patch(
@@ -215,7 +216,7 @@ class TestSSHConnectorTimeoutBehavior:
             with patch("time.sleep"):
                 with patch("time.time") as mock_time:
                     # Simulate timeout at custom value (120s)
-                    mock_time.side_effect = [0, 60, 121]
+                    mock_time.side_effect = itertools.cycle([0, 60, 121])
 
                     result = SSHConnector.wait_for_ssh_ready(
                         host="192.168.1.100", key_path=key_file, timeout=120  # Custom timeout
