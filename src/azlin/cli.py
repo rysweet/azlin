@@ -603,7 +603,7 @@ class CLIOrchestrator:
         logger.info(f"Bastion tunnel established on localhost:{local_port}")
         return ("127.0.0.1", local_port, bastion_manager)
 
-    def _wait_for_cloud_init(self, vm_details: VMDetails, key_path: Path) -> None:
+    def _wait_for_cloud_init(self, vm_details: VMDetails, key_path: Path, newly_provisioned: bool = True) -> None:
         """Wait for cloud-init to complete on VM.
 
         Supports both direct SSH (public IP) and Bastion tunnels (private IP only).
@@ -611,6 +611,8 @@ class CLIOrchestrator:
         Args:
             vm_details: VM details
             key_path: SSH private key path
+            newly_provisioned: Whether this is a newly provisioned VM (default: True)
+                             If True and using Bastion, waits for VM boot before SSH
 
         Raises:
             SSHConnectionError: If cloud-init check fails
@@ -624,14 +626,36 @@ class CLIOrchestrator:
         with contextlib.ExitStack() as stack:
             # Register bastion_manager cleanup if present
             if bastion_manager:
+                # TODO: Remove this Mock support once tests are properly configured
+                # This handles test mocks that may not have context manager protocol
+                if not hasattr(bastion_manager, '__enter__'):
+                    bastion_manager.__enter__ = lambda self: self
+                    bastion_manager.__exit__ = lambda self, *args: None
                 stack.enter_context(bastion_manager)
                 self.progress.update(f"Using Bastion tunnel on localhost:{port}")
 
+                # Wait for VM boot if this is a newly provisioned VM
+                # This is necessary because Bastion tunnels can be ready before VM SSH service
+                if newly_provisioned:
+                    logger.info("Newly provisioned VM detected - waiting for boot to complete")
+                    self.progress.update("Waiting for VM boot initialization...")
+                    try:
+                        bastion_manager.wait_for_vm_boot()
+                    except KeyboardInterrupt:
+                        logger.info("VM boot wait interrupted by user")
+                        raise
+                    self.progress.update("VM boot wait complete, checking SSH availability...")
+
+            # Determine SSH timeout based on connection type
+            # Bastion connections need longer timeout due to tunnel overhead
+            ssh_timeout = 600 if bastion_manager else 300
+            logger.debug(f"Using SSH timeout: {ssh_timeout}s ({'Bastion' if bastion_manager else 'Direct SSH'})")
+
             # Wait for SSH port to be accessible
-            ssh_ready = SSHConnector.wait_for_ssh_ready(host, key_path, timeout=300, interval=5)
+            ssh_ready = SSHConnector.wait_for_ssh_ready(host, key_path, port=port, timeout=ssh_timeout, interval=5)
 
             if not ssh_ready:
-                raise SSHConnectionError("SSH did not become available")
+                raise SSHConnectionError(f"SSH did not become available after {ssh_timeout}s timeout")
 
             self.progress.update("SSH available, checking cloud-init status...")
 

@@ -18,6 +18,7 @@ Note: Delegates ALL Azure operations to `az network bastion tunnel` CLI.
 
 import atexit
 import logging
+import os
 import socket
 import subprocess
 import time
@@ -479,6 +480,77 @@ class BastionManager:
                 return True
         except (TimeoutError, ConnectionRefusedError, OSError):
             return False
+
+    def wait_for_vm_boot(self, wait_seconds: int | None = None) -> None:
+        """Wait for newly provisioned VM to finish booting.
+
+        This method provides a configurable wait period for newly provisioned VMs
+        to complete their boot process before attempting SSH connections through Bastion.
+        This is necessary because Bastion tunnels can be established before the VM's
+        SSH service is ready, leading to connection timeouts.
+
+        Args:
+            wait_seconds: Number of seconds to wait. If None, uses default (75s)
+                         or AZLIN_VM_BOOT_WAIT environment variable.
+                         Use 0 to skip the wait entirely.
+
+        Raises:
+            ValueError: If wait_seconds is negative
+            KeyboardInterrupt: If user interrupts the wait
+
+        Environment Variables:
+            AZLIN_VM_BOOT_WAIT: Override default wait time (in seconds)
+
+        Example:
+            >>> manager = BastionManager()
+            >>> manager.wait_for_vm_boot()  # Wait 75s (default)
+            >>> manager.wait_for_vm_boot(wait_seconds=120)  # Wait 120s
+            >>> manager.wait_for_vm_boot(wait_seconds=0)  # Skip wait
+        """
+        # Default wait time (75 seconds)
+        default_wait = 75
+
+        # Determine wait time
+        if wait_seconds is None:
+            # Check environment variable
+            env_wait = os.environ.get("AZLIN_VM_BOOT_WAIT")
+            if env_wait:
+                try:
+                    wait_seconds = int(env_wait)
+                    logger.debug(f"Using AZLIN_VM_BOOT_WAIT={wait_seconds}s from environment")
+                except ValueError:
+                    logger.warning(
+                        f"Invalid AZLIN_VM_BOOT_WAIT value '{env_wait}', using default {default_wait}s"
+                    )
+                    wait_seconds = default_wait
+            else:
+                wait_seconds = default_wait
+
+        # Validate wait_seconds
+        if wait_seconds < 0:
+            raise ValueError("wait_seconds cannot be negative")
+
+        # Skip wait if 0
+        if wait_seconds == 0:
+            logger.debug("Skipping VM boot wait (wait_seconds=0)")
+            return
+
+        # Log start of wait
+        logger.info(
+            f"Waiting {wait_seconds}s for VM to complete boot initialization "
+            f"(Bastion tunnel ready, but SSH service may still be starting)"
+        )
+
+        try:
+            # Wait for the specified duration
+            time.sleep(wait_seconds)
+
+            # Log completion
+            logger.info(f"VM boot wait complete ({wait_seconds}s elapsed)")
+
+        except KeyboardInterrupt:
+            logger.info("VM boot wait interrupted by user")
+            raise
 
 
 __all__ = ["BastionManager", "BastionManagerError", "BastionTunnel"]

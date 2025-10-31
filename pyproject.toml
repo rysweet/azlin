@@ -68,6 +68,7 @@ markers = [
     "command_connect: Tests for 'azlin connect' command",
 ]
 addopts = "-ra -q"
+log_level = "INFO"  # Capture INFO level logs in caplog for testing
 
 [tool.coverage.run]
 source = ["src"]
