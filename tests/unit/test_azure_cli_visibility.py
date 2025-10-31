@@ -899,7 +899,7 @@ class TestEdgeCases:
         from azlin.azure_cli_visibility import AzureCLIExecutor
 
         # Should reject or use default
-        with pytest.raises(ValueError, match="timeout"):
+        with pytest.raises(ValueError, match="[Tt]imeout"):
             AzureCLIExecutor(timeout=-1)
 
     def test_command_with_special_characters(self):
