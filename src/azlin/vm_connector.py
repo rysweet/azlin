@@ -193,7 +193,7 @@ class VMConnector:
                     exit_code = handler.connect_with_reconnect(
                         config=ssh_config,
                         vm_name=conn_info.vm_name,
-                        tmux_session=tmux_session or conn_info.vm_name if use_tmux else "azlin",
+                        tmux_session=tmux_session or "azlin",
                         auto_tmux=use_tmux,
                     )
 
@@ -385,29 +385,19 @@ class VMConnector:
                     f"VM is not running (state: {vm_info.power_state}). Connection may fail."
                 )
 
-            # Get IP address (public or private)
-            if not vm_info.public_ip:
-                # VM has no public IP - check if bastion is available
-                if not vm_info.private_ip:
-                    raise VMConnectorError(
-                        f"VM {vm_name} has no IP addresses configured. Cannot connect."
-                    )
+            # Get IP address (public or private - Bastion routing will handle both)
+            ip_address = vm_info.public_ip or vm_info.private_ip
 
-                # Private-only VM - will require bastion for connection
+            if not ip_address:
+                raise VMConnectorError(f"VM {vm_name} has neither public nor private IP address.")
+
+            # Log when VM is private-only (helps with debugging bastion connections)
+            if not vm_info.public_ip and vm_info.private_ip:
                 logger.info(f"VM {vm_name} is private-only (no public IP), will use Bastion if available")
 
-                return ConnectionInfo(
-                    vm_name=vm_name,
-                    ip_address=vm_info.private_ip,  # Use private IP for bastion connection
-                    resource_group=resource_group,
-                    ssh_user=ssh_user,
-                    ssh_key_path=ssh_key_path,
-                )
-
-            # VM has public IP - use direct connection
             return ConnectionInfo(
                 vm_name=vm_name,
-                ip_address=vm_info.public_ip,
+                ip_address=ip_address,
                 resource_group=resource_group,
                 ssh_user=ssh_user,
                 ssh_key_path=ssh_key_path,
