@@ -51,7 +51,6 @@ from azlin.commands.auth import auth
 from azlin.commands.bastion import bastion_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
-from azlin.modules.bastion_detector import BastionDetector
 
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
@@ -64,6 +63,7 @@ from azlin.ip_diagnostics import (
     format_diagnostic_report,
 )
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
+from azlin.modules.bastion_detector import BastionDetector
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -358,7 +358,9 @@ class CLIOrchestrator:
 
         return ssh_key_pair
 
-    def _check_bastion_availability(self, resource_group: str) -> tuple[bool, dict[str, str] | None]:
+    def _check_bastion_availability(
+        self, resource_group: str
+    ) -> tuple[bool, dict[str, str] | None]:
         """Check if Bastion should be used for VM provisioning.
 
         This method implements the bastion default behavior:
@@ -381,17 +383,23 @@ class CLIOrchestrator:
         """
         # Skip bastion if --no-bastion flag is set
         if self.no_bastion:
-            self.progress.update("Skipping bastion (--no-bastion flag set)", ProgressStage.IN_PROGRESS)
+            self.progress.update(
+                "Skipping bastion (--no-bastion flag set)", ProgressStage.IN_PROGRESS
+            )
             return (False, None)
 
         # If explicit bastion name provided, use it
         if self.bastion_name:
-            self.progress.update(f"Using explicit bastion: {self.bastion_name}", ProgressStage.IN_PROGRESS)
+            self.progress.update(
+                f"Using explicit bastion: {self.bastion_name}", ProgressStage.IN_PROGRESS
+            )
             return (True, {"name": self.bastion_name, "resource_group": resource_group})
 
         # Auto-detect bastion in resource group
         try:
-            self.progress.update("Checking for Bastion host in resource group...", ProgressStage.IN_PROGRESS)
+            self.progress.update(
+                "Checking for Bastion host in resource group...", ProgressStage.IN_PROGRESS
+            )
             bastion_info = BastionDetector.detect_bastion_for_vm("temp-check", resource_group)
 
             if bastion_info:
@@ -403,37 +411,40 @@ class CLIOrchestrator:
                     f"  - No Bastion: Public IP (direct SSH, less secure)"
                 )
                 if click.confirm(message, default=True):
-                    self.progress.update(f"Using Bastion: {bastion_info['name']}", ProgressStage.IN_PROGRESS)
-                    return (True, bastion_info)
-                else:
-                    self.progress.update("User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS)
-                    return (False, None)
-            else:
-                # No bastion found - prompt to create with default=True
-                message = (
-                    f"\nNo Bastion host found in resource group '{resource_group}'.\n"
-                    f"Create VM with Bastion access?\n"
-                    f"  - Yes: More secure (private VM, ~$140/month for Bastion)\n"
-                    f"  - No: Less secure (public IP, direct internet access)"
-                )
-                if click.confirm(message, default=True):
                     self.progress.update(
-                        "User requested Bastion but none exists. Please create Bastion first.",
-                        ProgressStage.WARNING
+                        f"Using Bastion: {bastion_info['name']}", ProgressStage.IN_PROGRESS
                     )
-                    click.echo(
-                        click.style(
-                            "\nTo create a Bastion host, run:\n"
-                            f"  azlin bastion create --name <bastion-name> --resource-group {resource_group}",
-                            fg="yellow"
-                        )
+                    return (True, bastion_info)
+                self.progress.update(
+                    "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
+                )
+                return (False, None)
+            # No bastion found - prompt to create with default=True
+            message = (
+                f"\nNo Bastion host found in resource group '{resource_group}'.\n"
+                f"Create VM with Bastion access?\n"
+                f"  - Yes: More secure (private VM, ~$140/month for Bastion)\n"
+                f"  - No: Less secure (public IP, direct internet access)"
+            )
+            if click.confirm(message, default=True):
+                self.progress.update(
+                    "User requested Bastion but none exists. Please create Bastion first.",
+                    ProgressStage.WARNING,
+                )
+                click.echo(
+                    click.style(
+                        "\nTo create a Bastion host, run:\n"
+                        f"  azlin bastion create --name <bastion-name> --resource-group {resource_group}",
+                        fg="yellow",
                     )
-                    # For now, fall back to public IP if no bastion exists
-                    # TODO: Implement automatic bastion creation
-                    return (False, None)
-                else:
-                    self.progress.update("User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS)
-                    return (False, None)
+                )
+                # For now, fall back to public IP if no bastion exists
+                # TODO: Implement automatic bastion creation
+                return (False, None)
+            self.progress.update(
+                "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
+            )
+            return (False, None)
 
         except Exception as e:
             # Any error in detection - fall back to public IP
@@ -487,7 +498,9 @@ class CLIOrchestrator:
         if vm_details.public_ip:
             self.progress.update(f"VM created with public IP: {vm_details.public_ip}")
         else:
-            self.progress.update(f"VM created with private IP: {vm_details.private_ip} (Bastion access)")
+            self.progress.update(
+                f"VM created with private IP: {vm_details.private_ip} (Bastion access)"
+            )
 
         return vm_details
 
@@ -953,8 +966,7 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         if not vm_details.public_ip:
             if not self.bastion_info:
                 raise SSHConnectionError(
-                    "VM has no public IP and no Bastion configured. "
-                    "Cannot establish connection."
+                    "VM has no public IP and no Bastion configured. Cannot establish connection."
                 )
 
             # Use VMConnector which handles bastion tunneling
@@ -969,8 +981,8 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
                     vm_identifier=vm_details.name,
                     resource_group=vm_details.resource_group,
                     use_bastion=True,
-                    bastion_name=self.bastion_info['name'],
-                    bastion_resource_group=self.bastion_info['resource_group'],
+                    bastion_name=self.bastion_info["name"],
+                    bastion_resource_group=self.bastion_info["resource_group"],
                     ssh_key_path=key_path,
                     use_tmux=True,
                     tmux_session="azlin",
@@ -1768,7 +1780,9 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
-@click.option("--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True)
+@click.option(
+    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
+)
 @click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
 def new_command(
     ctx: click.Context,
@@ -1901,7 +1915,9 @@ def new_command(
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
-@click.option("--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True)
+@click.option(
+    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
+)
 @click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
 def vm_command(ctx: click.Context, **kwargs: Any) -> Any:
     """Alias for 'new' command. Provision a new Azure VM."""
@@ -1921,7 +1937,9 @@ def vm_command(ctx: click.Context, **kwargs: Any) -> Any:
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
-@click.option("--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True)
+@click.option(
+    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
+)
 @click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
 def create_command(ctx: click.Context, **kwargs: Any) -> Any:
     """Alias for 'new' command. Provision a new Azure VM."""

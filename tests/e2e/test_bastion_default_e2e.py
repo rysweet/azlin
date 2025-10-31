@@ -10,10 +10,11 @@ Testing Level: E2E (10% of testing pyramid)
 """
 
 import os
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Mark all tests as E2E
 pytestmark = pytest.mark.e2e
@@ -78,8 +79,7 @@ class TestAcceptanceCriteria:
 
         # Act
         bastion_info = BastionDetector.detect_bastion_for_vm(
-            vm_name="test-vm",
-            resource_group=test_env["resource_group"]
+            vm_name="test-vm", resource_group=test_env["resource_group"]
         )
 
         # Assert
@@ -87,8 +87,9 @@ class TestAcceptanceCriteria:
         # If none exists, should return None gracefully
         assert bastion_info is None or isinstance(bastion_info, dict)
 
-    def test_ac2_use_bastion_automatically_with_confirmation(self, skip_e2e,
-                                                              test_env, temp_home_dir):
+    def test_ac2_use_bastion_automatically_with_confirmation(
+        self, skip_e2e, test_env, temp_home_dir
+    ):
         """AC2: Use bastion automatically if exists (after confirmation).
 
         Given: Bastion detected in resource group
@@ -97,15 +98,16 @@ class TestAcceptanceCriteria:
         """
         # Mock the complete workflow
         from azlin.modules.bastion_detector import BastionDetector
-        from azlin.vm_provisioning import VMProvisioner, VMConfig
+        from azlin.vm_provisioning import VMConfig, VMProvisioner
 
-        bastion_info = {"name": test_env["bastion_name"],
-                       "resource_group": test_env["resource_group"]}
+        bastion_info = {
+            "name": test_env["bastion_name"],
+            "resource_group": test_env["resource_group"],
+        }
 
-        with patch.object(BastionDetector, 'detect_bastion_for_vm',
-                         return_value=bastion_info):
-            with patch('click.confirm', return_value=True) as mock_confirm:
-                with patch('subprocess.run') as mock_run:
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=bastion_info):
+            with patch("click.confirm", return_value=True) as mock_confirm:
+                with patch("subprocess.run") as mock_run:
                     mock_run.return_value.stdout = '{"privateIpAddress": "10.0.0.4"}'
 
                     # Act
@@ -113,7 +115,7 @@ class TestAcceptanceCriteria:
                     config = VMConfig(
                         name="test-vm",
                         resource_group=test_env["resource_group"],
-                        location=test_env["location"]
+                        location=test_env["location"],
                     )
 
                     # Should auto-detect and prompt
@@ -124,8 +126,7 @@ class TestAcceptanceCriteria:
         confirm_message = str(mock_confirm.call_args)
         assert "bastion" in confirm_message.lower()
 
-    def test_ac3_prompt_to_create_bastion_default_yes(self, skip_e2e, test_env,
-                                                       temp_home_dir):
+    def test_ac3_prompt_to_create_bastion_default_yes(self, skip_e2e, test_env, temp_home_dir):
         """AC3: Prompt to create bastion if doesn't exist (default: yes).
 
         Given: No bastion exists in resource group
@@ -134,11 +135,9 @@ class TestAcceptanceCriteria:
         And: User can accept to create bastion
         """
         from azlin.modules.bastion_detector import BastionDetector
-        from azlin.vm_provisioning import VMProvisioner, VMConfig
 
-        with patch.object(BastionDetector, 'detect_bastion_for_vm',
-                         return_value=None):
-            with patch('click.confirm', return_value=True) as mock_confirm:
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=None):
+            with patch("click.confirm", return_value=True) as mock_confirm:
                 # Act
                 # Should prompt: "No Bastion found. Create one? (Y/n)"
                 pass
@@ -147,8 +146,7 @@ class TestAcceptanceCriteria:
         mock_confirm.assert_called()
         confirm_call = mock_confirm.call_args
         # Verify default is True (yes)
-        assert confirm_call.kwargs.get('default') is True or \
-               confirm_call[1].get('default') is True
+        assert confirm_call.kwargs.get("default") is True or confirm_call[1].get("default") is True
 
     def test_ac4_allow_decline_bastion_use_public_ip(self, skip_e2e, test_env):
         """AC4: Allow user to decline and create public IP instead.
@@ -158,14 +156,12 @@ class TestAcceptanceCriteria:
         Then: VM is created with public IP for direct access
         """
         from azlin.modules.bastion_detector import BastionDetector
-        from azlin.vm_provisioning import VMProvisioner, VMConfig
 
         bastion_info = {"name": "test-bastion", "resource_group": test_env["resource_group"]}
 
-        with patch.object(BastionDetector, 'detect_bastion_for_vm',
-                         return_value=bastion_info):
-            with patch('click.confirm', return_value=False):  # User declines
-                with patch('subprocess.run') as mock_run:
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=bastion_info):
+            with patch("click.confirm", return_value=False):  # User declines
+                with patch("subprocess.run") as mock_run:
                     # Act
                     # Should provision VM with public IP
                     pass
@@ -185,10 +181,9 @@ class TestAcceptanceCriteria:
         Then: Bastion is used without prompting
         And: Existing workflows continue to work
         """
-        from azlin.vm_connector import VMConnector
 
-        with patch('subprocess.Popen'):
-            with patch('click.confirm') as mock_confirm:
+        with patch("subprocess.Popen"):
+            with patch("click.confirm") as mock_confirm:
                 # Act
                 # CLI: azlin connect test-vm --use-bastion
                 # Should NOT prompt when flag is explicit
@@ -202,8 +197,7 @@ class TestAcceptanceCriteria:
 class TestUserWorkflows:
     """Test complete user workflows from CLI."""
 
-    def test_workflow_create_first_vm_with_bastion(self, skip_e2e, test_env,
-                                                    temp_home_dir):
+    def test_workflow_create_first_vm_with_bastion(self, skip_e2e, test_env, temp_home_dir):
         """
         Workflow: Create first VM in new resource group with bastion.
 
@@ -218,9 +212,9 @@ class TestUserWorkflows:
         """
         from azlin.modules.bastion_detector import BastionDetector
 
-        with patch.object(BastionDetector, 'detect_bastion_for_vm', return_value=None):
-            with patch('click.confirm', return_value=True) as mock_confirm:
-                with patch('subprocess.run') as mock_run:
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=None):
+            with patch("click.confirm", return_value=True) as mock_confirm:
+                with patch("subprocess.run") as mock_run:
                     # Act
                     # CLI workflow simulation
                     pass
@@ -246,9 +240,8 @@ class TestUserWorkflows:
 
         bastion_info = {"name": "existing-bastion", "resource_group": test_env["resource_group"]}
 
-        with patch.object(BastionDetector, 'detect_bastion_for_vm',
-                         return_value=bastion_info):
-            with patch('click.confirm', return_value=True) as mock_confirm:
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=bastion_info):
+            with patch("click.confirm", return_value=True) as mock_confirm:
                 # Act
                 # Should detect and prompt to use existing bastion
                 pass
@@ -271,9 +264,9 @@ class TestUserWorkflows:
         """
         from azlin.modules.bastion_detector import BastionDetector
 
-        with patch.object(BastionDetector, 'detect_bastion_for_vm', return_value=None):
-            with patch('click.confirm', return_value=False):  # User declines
-                with patch('subprocess.run') as mock_run:
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=None):
+            with patch("click.confirm", return_value=False):  # User declines
+                with patch("subprocess.run") as mock_run:
                     # Act
                     # Should create VM with public IP
                     pass
@@ -293,9 +286,9 @@ class TestUserWorkflows:
         """
         from azlin.modules.bastion_detector import BastionDetector
 
-        with patch.object(BastionDetector, 'detect_bastion_for_vm') as mock_detect:
-            with patch('click.confirm') as mock_confirm:
-                with patch('subprocess.run'):
+        with patch.object(BastionDetector, "detect_bastion_for_vm") as mock_detect:
+            with patch("click.confirm") as mock_confirm:
+                with patch("subprocess.run"):
                     # Act
                     # CLI: azlin create my-vm --no-bastion
                     pass
@@ -316,9 +309,8 @@ class TestUserWorkflows:
         5. User connects via SSH through tunnel
         6. Tunnel cleans up on disconnect
         """
-        from azlin.vm_connector import VMConnector
-        from azlin.vm_manager import VMManager, VMInfo
         from azlin.modules.bastion_manager import BastionManager
+        from azlin.vm_manager import VMInfo, VMManager
 
         # Mock private VM
         mock_vm = Mock(spec=VMInfo)
@@ -326,8 +318,8 @@ class TestUserWorkflows:
         mock_vm.private_ip = "10.0.0.4"
         mock_vm.is_running.return_value = True
 
-        with patch.object(VMManager, 'get_vm', return_value=mock_vm):
-            with patch.object(BastionManager, 'create_tunnel'):
+        with patch.object(VMManager, "get_vm", return_value=mock_vm):
+            with patch.object(BastionManager, "create_tunnel"):
                 # Act
                 # Should automatically use bastion for private VM
                 pass
@@ -349,14 +341,17 @@ class TestErrorScenarios:
         """
         from azlin.modules.bastion_detector import BastionDetector
 
-        with patch.object(BastionDetector, 'detect_bastion_for_vm', return_value=None):
-            with patch('click.confirm', side_effect=[True, True]):
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=None):
+            with patch("click.confirm", side_effect=[True, True]):
                 # First: User wants bastion
                 # Second: User accepts fallback to public IP
-                with patch('subprocess.run', side_effect=[
-                    Exception("Quota exceeded"),  # Bastion creation fails
-                    Mock(stdout='{"publicIpAddress": "20.1.2.3"}')  # VM succeeds
-                ]):
+                with patch(
+                    "subprocess.run",
+                    side_effect=[
+                        Exception("Quota exceeded"),  # Bastion creation fails
+                        Mock(stdout='{"publicIpAddress": "20.1.2.3"}'),  # VM succeeds
+                    ],
+                ):
                     # Act
                     # Should fallback gracefully
                     pass
@@ -370,18 +365,17 @@ class TestErrorScenarios:
         When: User tries to connect
         Then: System shows helpful error with remediation steps
         """
-        from azlin.vm_connector import VMConnector
-        from azlin.vm_manager import VMManager, VMInfo
         from azlin.modules.bastion_detector import BastionDetector
+        from azlin.vm_connector import VMConnector
+        from azlin.vm_manager import VMInfo, VMManager
 
         # Mock private VM
         mock_vm = Mock(spec=VMInfo)
         mock_vm.public_ip = None
         mock_vm.private_ip = "10.0.0.4"
 
-        with patch.object(VMManager, 'get_vm', return_value=mock_vm):
-            with patch.object(BastionDetector, 'detect_bastion_for_vm',
-                             return_value=None):
+        with patch.object(VMManager, "get_vm", return_value=mock_vm):
+            with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=None):
                 # Act & Assert
                 try:
                     VMConnector.connect("my-vm", resource_group=test_env["resource_group"])
@@ -414,7 +408,7 @@ class TestErrorScenarios:
                 config = VMConfig(
                     name="test-vm",
                     resource_group=test_env["resource_group"],
-                    bastion_name=invalid_name
+                    bastion_name=invalid_name,
                 )
 
 
@@ -424,13 +418,13 @@ class TestPerformanceAndScaling:
     def test_bastion_detection_performance(self, skip_e2e, test_env):
         """Test bastion detection completes in reasonable time."""
         import time
+
         from azlin.modules.bastion_detector import BastionDetector
 
         # Act
         start = time.time()
         BastionDetector.detect_bastion_for_vm(
-            vm_name="test-vm",
-            resource_group=test_env["resource_group"]
+            vm_name="test-vm", resource_group=test_env["resource_group"]
         )
         duration = time.time() - start
 
@@ -441,12 +435,12 @@ class TestPerformanceAndScaling:
         """Test provisioning multiple VMs shares bastion efficiently."""
         from azlin.modules.bastion_detector import BastionDetector
 
-        bastion_info = {"name": "shared-bastion",
-                       "resource_group": test_env["resource_group"]}
+        bastion_info = {"name": "shared-bastion", "resource_group": test_env["resource_group"]}
 
-        with patch.object(BastionDetector, 'detect_bastion_for_vm',
-                         return_value=bastion_info) as mock_detect:
-            with patch('click.confirm', return_value=True):
+        with patch.object(
+            BastionDetector, "detect_bastion_for_vm", return_value=bastion_info
+        ) as mock_detect:
+            with patch("click.confirm", return_value=True):
                 # Act - Provision 5 VMs
                 for i in range(5):
                     # Each VM should use same bastion
@@ -470,7 +464,7 @@ class TestSecurityCompliance:
             vm_name="test-vm",
             vm_resource_group="test-rg",
             bastion_name="test-bastion",
-            bastion_resource_group="network-rg"
+            bastion_resource_group="network-rg",
         )
 
         # Act
@@ -479,12 +473,18 @@ class TestSecurityCompliance:
         # Assert
         config_content = config_path.read_text()
         sensitive_patterns = [
-            "password", "secret", "token", "key", "credential",
-            "client_secret", "subscription_id"
+            "password",
+            "secret",
+            "token",
+            "key",
+            "credential",
+            "client_secret",
+            "subscription_id",
         ]
         for pattern in sensitive_patterns:
-            assert pattern not in config_content.lower(), \
+            assert pattern not in config_content.lower(), (
                 f"Found sensitive pattern '{pattern}' in config"
+            )
 
     def test_config_file_permissions_secure(self, skip_e2e, temp_home_dir):
         """Test config files have secure permissions (0600)."""

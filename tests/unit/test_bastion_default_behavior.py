@@ -18,13 +18,14 @@ Testing Philosophy (Testing Pyramid):
 - E2E tests: 10% coverage - Complete workflows
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock, call
 from pathlib import Path
+from unittest.mock import patch
 
-from azlin.modules.bastion_detector import BastionDetector, BastionDetectorError
+import pytest
+
 from azlin.modules.bastion_config import BastionConfig
-from azlin.vm_provisioning import VMProvisioner, VMConfig, ProvisioningError
+from azlin.modules.bastion_detector import BastionDetector, BastionDetectorError
+from azlin.vm_provisioning import ProvisioningError, VMConfig, VMProvisioner
 
 
 class TestBastionAutoDetection:
@@ -42,12 +43,12 @@ class TestBastionAutoDetection:
                 "name": "my-bastion",
                 "resourceGroup": "my-rg",
                 "provisioningState": "Succeeded",
-                "sku": {"name": "Standard"}
+                "sku": {"name": "Standard"},
             }
         ]
 
         # Act
-        with patch.object(BastionDetector, 'list_bastions', return_value=mock_bastions):
+        with patch.object(BastionDetector, "list_bastions", return_value=mock_bastions):
             bastion = BastionDetector.detect_bastion_for_vm("test-vm", resource_group)
 
         # Assert
@@ -61,7 +62,7 @@ class TestBastionAutoDetection:
         resource_group = "my-rg"
 
         # Act
-        with patch.object(BastionDetector, 'list_bastions', return_value=[]):
+        with patch.object(BastionDetector, "list_bastions", return_value=[]):
             bastion = BastionDetector.detect_bastion_for_vm("test-vm", resource_group)
 
         # Assert
@@ -73,11 +74,11 @@ class TestBastionAutoDetection:
         resource_group = "my-rg"
         mock_bastions = [
             {"name": "bastion-1", "provisioningState": "Succeeded"},
-            {"name": "bastion-2", "provisioningState": "Succeeded"}
+            {"name": "bastion-2", "provisioningState": "Succeeded"},
         ]
 
         # Act
-        with patch.object(BastionDetector, 'list_bastions', return_value=mock_bastions):
+        with patch.object(BastionDetector, "list_bastions", return_value=mock_bastions):
             bastion = BastionDetector.detect_bastion_for_vm("test-vm", resource_group)
 
         # Assert
@@ -87,12 +88,10 @@ class TestBastionAutoDetection:
         """Test failed bastion hosts are ignored."""
         # Arrange
         resource_group = "my-rg"
-        mock_bastions = [
-            {"name": "failed-bastion", "provisioningState": "Failed"}
-        ]
+        mock_bastions = [{"name": "failed-bastion", "provisioningState": "Failed"}]
 
         # Act
-        with patch.object(BastionDetector, 'list_bastions', return_value=mock_bastions):
+        with patch.object(BastionDetector, "list_bastions", return_value=mock_bastions):
             # Should filter out failed bastions
             bastion = BastionDetector.detect_bastion_for_vm("test-vm", resource_group)
 
@@ -105,7 +104,9 @@ class TestBastionAutoDetection:
         resource_group = "my-rg"
 
         # Act
-        with patch.object(BastionDetector, 'list_bastions', side_effect=BastionDetectorError("Network error")):
+        with patch.object(
+            BastionDetector, "list_bastions", side_effect=BastionDetectorError("Network error")
+        ):
             bastion = BastionDetector.detect_bastion_for_vm("test-vm", resource_group)
 
         # Assert - Should return None, not raise
@@ -124,10 +125,9 @@ class TestUserPromptBehavior:
         bastion_info = {"name": "my-bastion", "resource_group": "my-rg"}
 
         # Act
-        with patch('click.confirm', return_value=True) as mock_confirm:
+        with patch("click.confirm", return_value=True) as mock_confirm:
             result = mock_confirm(
-                f"Found Bastion host '{bastion_info['name']}'. Use it for this VM?",
-                default=True
+                f"Found Bastion host '{bastion_info['name']}'. Use it for this VM?", default=True
             )
 
         # Assert
@@ -140,10 +140,9 @@ class TestUserPromptBehavior:
         bastion_info = {"name": "my-bastion", "resource_group": "my-rg"}
 
         # Act
-        with patch('click.confirm', return_value=False) as mock_confirm:
+        with patch("click.confirm", return_value=False) as mock_confirm:
             result = mock_confirm(
-                f"Found Bastion host '{bastion_info['name']}'. Use it for this VM?",
-                default=True
+                f"Found Bastion host '{bastion_info['name']}'. Use it for this VM?", default=True
             )
 
         # Assert
@@ -154,10 +153,9 @@ class TestUserPromptBehavior:
         # Arrange - No bastion exists
 
         # Act
-        with patch('click.confirm', return_value=True) as mock_confirm:
+        with patch("click.confirm", return_value=True) as mock_confirm:
             result = mock_confirm(
-                "No Bastion host found. Create one for secure access?",
-                default=True
+                "No Bastion host found. Create one for secure access?", default=True
             )
 
         # Assert
@@ -168,10 +166,9 @@ class TestUserPromptBehavior:
         # Arrange
 
         # Act
-        with patch('click.confirm', return_value=False) as mock_confirm:
+        with patch("click.confirm", return_value=False) as mock_confirm:
             result = mock_confirm(
-                "No Bastion host found. Create one for secure access?",
-                default=True
+                "No Bastion host found. Create one for secure access?", default=True
             )
 
         # Assert
@@ -186,7 +183,7 @@ class TestUserPromptBehavior:
         )
 
         # Act
-        with patch('click.confirm') as mock_confirm:
+        with patch("click.confirm") as mock_confirm:
             mock_confirm(expected_message, default=True)
 
         # Assert
@@ -203,14 +200,11 @@ class TestVMProvisioningWithBastion:
         """Test VM provisioned with bastion gets no public IP."""
         # Arrange
         config = VMConfig(
-            name="test-vm",
-            resource_group="my-rg",
-            location="westus2",
-            use_bastion=True
+            name="test-vm", resource_group="my-rg", location="westus2", use_bastion=True
         )
 
         # Act
-        with patch('subprocess.run') as mock_run:
+        with patch("subprocess.run") as mock_run:
             mock_run.return_value.stdout = '{"privateIpAddress": "10.0.0.4"}'
             # Should NOT include --public-ip-address in command
 
@@ -222,10 +216,7 @@ class TestVMProvisioningWithBastion:
         """Test VM provisioned without bastion gets public IP."""
         # Arrange
         config = VMConfig(
-            name="test-vm",
-            resource_group="my-rg",
-            location="westus2",
-            use_bastion=False
+            name="test-vm", resource_group="my-rg", location="westus2", use_bastion=False
         )
 
         # Act - Should include public IP in provisioning
@@ -238,16 +229,12 @@ class TestVMProvisioningWithBastion:
         """Test VM provisioning auto-detects and uses bastion."""
         # Arrange
         provisioner = VMProvisioner()
-        config = VMConfig(
-            name="test-vm",
-            resource_group="my-rg",
-            location="westus2"
-        )
+        config = VMConfig(name="test-vm", resource_group="my-rg", location="westus2")
         bastion_info = {"name": "my-bastion", "resource_group": "my-rg"}
 
         # Act
-        with patch.object(BastionDetector, 'detect_bastion_for_vm', return_value=bastion_info):
-            with patch('click.confirm', return_value=True):
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=bastion_info):
+            with patch("click.confirm", return_value=True):
                 # Should use bastion automatically
                 pass
 
@@ -259,15 +246,11 @@ class TestVMProvisioningWithBastion:
         """Test provisioning prompts to create bastion when none exists."""
         # Arrange
         provisioner = VMProvisioner()
-        config = VMConfig(
-            name="test-vm",
-            resource_group="my-rg",
-            location="westus2"
-        )
+        config = VMConfig(name="test-vm", resource_group="my-rg", location="westus2")
 
         # Act
-        with patch.object(BastionDetector, 'detect_bastion_for_vm', return_value=None):
-            with patch('click.confirm', return_value=True) as mock_confirm:
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=None):
+            with patch("click.confirm", return_value=True) as mock_confirm:
                 # Should prompt to create bastion
                 pass
 
@@ -279,15 +262,11 @@ class TestVMProvisioningWithBastion:
         """Test VM gets public IP when user declines bastion."""
         # Arrange
         provisioner = VMProvisioner()
-        config = VMConfig(
-            name="test-vm",
-            resource_group="my-rg",
-            location="westus2"
-        )
+        config = VMConfig(name="test-vm", resource_group="my-rg", location="westus2")
 
         # Act
-        with patch.object(BastionDetector, 'detect_bastion_for_vm', return_value=None):
-            with patch('click.confirm', return_value=False):
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=None):
+            with patch("click.confirm", return_value=False):
                 # Should provision with public IP
                 pass
 
@@ -306,14 +285,11 @@ class TestBastionFlagOverride:
         """Test --no-bastion flag skips auto-detection."""
         # Arrange
         config = VMConfig(
-            name="test-vm",
-            resource_group="my-rg",
-            location="westus2",
-            no_bastion=True
+            name="test-vm", resource_group="my-rg", location="westus2", no_bastion=True
         )
 
         # Act
-        with patch.object(BastionDetector, 'detect_bastion_for_vm') as mock_detect:
+        with patch.object(BastionDetector, "detect_bastion_for_vm") as mock_detect:
             # Should NOT call detect when no_bastion=True
             pass
 
@@ -324,15 +300,12 @@ class TestBastionFlagOverride:
         """Test --no-bastion flag forces public IP creation."""
         # Arrange
         config = VMConfig(
-            name="test-vm",
-            resource_group="my-rg",
-            location="westus2",
-            no_bastion=True
+            name="test-vm", resource_group="my-rg", location="westus2", no_bastion=True
         )
         bastion_exists = {"name": "my-bastion", "resource_group": "my-rg"}
 
         # Act
-        with patch.object(BastionDetector, 'detect_bastion_for_vm', return_value=bastion_exists):
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=bastion_exists):
             # Should create public IP even though bastion exists
             pass
 
@@ -344,14 +317,11 @@ class TestBastionFlagOverride:
         """Test --no-bastion flag skips user prompts."""
         # Arrange
         config = VMConfig(
-            name="test-vm",
-            resource_group="my-rg",
-            location="westus2",
-            no_bastion=True
+            name="test-vm", resource_group="my-rg", location="westus2", no_bastion=True
         )
 
         # Act
-        with patch('click.confirm') as mock_confirm:
+        with patch("click.confirm") as mock_confirm:
             # Should NOT prompt user when no_bastion=True
             pass
 
@@ -369,14 +339,11 @@ class TestBackwardCompatibility:
         """Test --use-bastion flag forces bastion usage."""
         # Arrange
         config = VMConfig(
-            name="test-vm",
-            resource_group="my-rg",
-            location="westus2",
-            use_bastion=True
+            name="test-vm", resource_group="my-rg", location="westus2", use_bastion=True
         )
 
         # Act - Should use bastion without prompting
-        with patch('click.confirm') as mock_confirm:
+        with patch("click.confirm") as mock_confirm:
             # Should NOT prompt when use_bastion=True (explicit)
             pass
 
@@ -387,14 +354,11 @@ class TestBackwardCompatibility:
         """Test --use-bastion flag requires bastion name if not auto-detected."""
         # Arrange
         config = VMConfig(
-            name="test-vm",
-            resource_group="my-rg",
-            location="westus2",
-            use_bastion=True
+            name="test-vm", resource_group="my-rg", location="westus2", use_bastion=True
         )
 
         # Act
-        with patch.object(BastionDetector, 'detect_bastion_for_vm', return_value=None):
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=None):
             # Should raise error if no bastion name provided and none detected
             with pytest.raises(ProvisioningError, match="Bastion name required"):
                 pass
@@ -408,7 +372,7 @@ class TestBackwardCompatibility:
             location="westus2",
             use_bastion=True,
             bastion_name="my-bastion",
-            bastion_resource_group="network-rg"
+            bastion_resource_group="network-rg",
         )
 
         # Act - Should use specified bastion
@@ -424,10 +388,7 @@ class TestBackwardCompatibility:
         # Act & Assert
         with pytest.raises(ValueError, match="Cannot specify both.*use-bastion.*no-bastion"):
             config = VMConfig(
-                name="test-vm",
-                resource_group="my-rg",
-                use_bastion=True,
-                no_bastion=True
+                name="test-vm", resource_group="my-rg", use_bastion=True, no_bastion=True
             )
 
 
@@ -445,8 +406,8 @@ class TestConnectionFlowWithBastion:
         bastion_info = {"name": "my-bastion", "resource_group": "my-rg"}
 
         # Act
-        with patch.object(BastionDetector, 'detect_bastion_for_vm', return_value=bastion_info):
-            with patch('click.confirm', return_value=True):
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=bastion_info):
+            with patch("click.confirm", return_value=True):
                 # Should create bastion tunnel automatically
                 pass
 
@@ -492,7 +453,9 @@ class TestErrorHandling:
         resource_group = "my-rg"
 
         # Act
-        with patch.object(BastionDetector, 'list_bastions', side_effect=TimeoutError("Operation timed out")):
+        with patch.object(
+            BastionDetector, "list_bastions", side_effect=TimeoutError("Operation timed out")
+        ):
             bastion = BastionDetector.detect_bastion_for_vm("test-vm", resource_group)
 
         # Assert - Should return None, not crash
@@ -505,7 +468,7 @@ class TestErrorHandling:
         bastion_creation_failed = True
 
         # Act - Should prompt user to continue with public IP
-        with patch('click.confirm', return_value=True) as mock_confirm:
+        with patch("click.confirm", return_value=True) as mock_confirm:
             # Should ask: "Bastion creation failed. Create VM with public IP instead?"
             pass
 
@@ -526,11 +489,7 @@ class TestErrorHandling:
         # Act & Assert
         for invalid_name in invalid_names:
             with pytest.raises(ValueError, match="Invalid bastion name"):
-                config = VMConfig(
-                    name="test-vm",
-                    resource_group="my-rg",
-                    bastion_name=invalid_name
-                )
+                config = VMConfig(name="test-vm", resource_group="my-rg", bastion_name=invalid_name)
 
     def test_bastion_in_different_vnet_warning(self):
         """Test warning when bastion is in different VNet."""
@@ -539,7 +498,7 @@ class TestErrorHandling:
         bastion_vnet = "vnet-b"
 
         # Act - Should warn user about VNet mismatch
-        with patch('logging.warning') as mock_warn:
+        with patch("logging.warning") as mock_warn:
             # Should log warning about VNet mismatch
             pass
 
@@ -553,7 +512,9 @@ class TestErrorHandling:
         bastion_subnet_wrong_name = "default"  # Should be "AzureBastionSubnet"
 
         # Act & Assert
-        with pytest.raises(ProvisioningError, match="Bastion subnet must be named 'AzureBastionSubnet'"):
+        with pytest.raises(
+            ProvisioningError, match="Bastion subnet must be named 'AzureBastionSubnet'"
+        ):
             # Should validate subnet name
             pass
 
@@ -574,7 +535,7 @@ class TestBastionConfigPersistence:
             vm_name="test-vm",
             vm_resource_group="my-rg",
             bastion_name="my-bastion",
-            bastion_resource_group="network-rg"
+            bastion_resource_group="network-rg",
         )
 
         # Assert
@@ -590,7 +551,7 @@ class TestBastionConfigPersistence:
             vm_name="test-vm",
             vm_resource_group="my-rg",
             bastion_name="my-bastion",
-            bastion_resource_group="network-rg"
+            bastion_resource_group="network-rg",
         )
 
         # Act - Save and reload
@@ -634,7 +595,7 @@ class TestSecurityRequirements:
             vm_name="test-vm",
             vm_resource_group="my-rg",
             bastion_name="my-bastion",
-            bastion_resource_group="network-rg"
+            bastion_resource_group="network-rg",
         )
 
         # Assert
@@ -680,7 +641,7 @@ class TestSecurityRequirements:
                     vm_name="test-vm",
                     vm_resource_group="my-rg",
                     bastion_name=malicious_name,
-                    bastion_resource_group="my-rg"
+                    bastion_resource_group="my-rg",
                 )
 
 
@@ -691,29 +652,20 @@ class TestBoundaryConditions:
     def test_empty_resource_group(self):
         """Test empty resource group name."""
         with pytest.raises(ValueError, match="Resource group.*empty"):
-            config = VMConfig(
-                name="test-vm",
-                resource_group=""
-            )
+            config = VMConfig(name="test-vm", resource_group="")
 
     def test_very_long_vm_name(self):
         """Test VM name exceeding maximum length."""
         long_name = "a" * 100
         with pytest.raises(ValueError, match="Name too long"):
-            config = VMConfig(
-                name=long_name,
-                resource_group="my-rg"
-            )
+            config = VMConfig(name=long_name, resource_group="my-rg")
 
     def test_special_characters_in_names(self):
         """Test special characters are rejected."""
         invalid_names = ["vm@name", "vm name", "vm#name", "vm$name"]
         for invalid_name in invalid_names:
             with pytest.raises(ValueError, match="Invalid characters"):
-                config = VMConfig(
-                    name=invalid_name,
-                    resource_group="my-rg"
-                )
+                config = VMConfig(name=invalid_name, resource_group="my-rg")
 
     def test_null_bastion_info(self):
         """Test handling of null bastion info."""

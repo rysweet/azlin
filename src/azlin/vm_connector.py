@@ -393,7 +393,9 @@ class VMConnector:
 
             # Log when VM is private-only (helps with debugging bastion connections)
             if not vm_info.public_ip and vm_info.private_ip:
-                logger.info(f"VM {vm_name} is private-only (no public IP), will use Bastion if available")
+                logger.info(
+                    f"VM {vm_name} is private-only (no public IP), will use Bastion if available"
+                )
 
             return ConnectionInfo(
                 vm_name=vm_name,

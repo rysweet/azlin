@@ -12,18 +12,19 @@ Tests will FAIL until implementation is complete.
 Testing Level: Integration (30% of testing pyramid)
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-from pathlib import Path
-import tempfile
 import json
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock, patch
 
-from azlin.modules.bastion_detector import BastionDetector
+import pytest
+
 from azlin.modules.bastion_config import BastionConfig
+from azlin.modules.bastion_detector import BastionDetector
 from azlin.modules.bastion_manager import BastionManager
-from azlin.vm_provisioning import VMProvisioner, VMConfig
 from azlin.vm_connector import VMConnector
-from azlin.vm_manager import VMManager, VMInfo
+from azlin.vm_manager import VMInfo, VMManager
+from azlin.vm_provisioning import VMConfig, VMProvisioner
 
 
 @pytest.fixture
@@ -43,7 +44,7 @@ def mock_azure_resources():
                 "resourceGroup": "test-rg",
                 "provisioningState": "Succeeded",
                 "location": "westus2",
-                "sku": {"name": "Standard"}
+                "sku": {"name": "Standard"},
             }
         ],
         "vm": {
@@ -52,8 +53,8 @@ def mock_azure_resources():
             "location": "westus2",
             "powerState": "VM running",
             "privateIps": "10.0.0.4",
-            "publicIps": None  # Private-only VM
-        }
+            "publicIps": None,  # Private-only VM
+        },
     }
 
 
@@ -64,17 +65,14 @@ class TestBastionDetectionAndProvisioning:
         """Test VM provisioning detects bastion and prompts user."""
         # Arrange
         provisioner = VMProvisioner()
-        config = VMConfig(
-            name="test-vm",
-            resource_group="test-rg",
-            location="westus2"
-        )
+        config = VMConfig(name="test-vm", resource_group="test-rg", location="westus2")
 
         # Mock Azure calls
-        with patch.object(BastionDetector, 'list_bastions',
-                         return_value=mock_azure_resources["bastions"]):
-            with patch('click.confirm', return_value=True) as mock_confirm:
-                with patch('subprocess.run') as mock_run:
+        with patch.object(
+            BastionDetector, "list_bastions", return_value=mock_azure_resources["bastions"]
+        ):
+            with patch("click.confirm", return_value=True) as mock_confirm:
+                with patch("subprocess.run") as mock_run:
                     mock_run.return_value.stdout = json.dumps(mock_azure_resources["vm"])
 
                     # Act
@@ -94,15 +92,11 @@ class TestBastionDetectionAndProvisioning:
         """Test VM provisioning prompts to create bastion when none exists."""
         # Arrange
         provisioner = VMProvisioner()
-        config = VMConfig(
-            name="test-vm",
-            resource_group="test-rg",
-            location="westus2"
-        )
+        config = VMConfig(name="test-vm", resource_group="test-rg", location="westus2")
 
         # Mock Azure calls - no bastions
-        with patch.object(BastionDetector, 'list_bastions', return_value=[]):
-            with patch('click.confirm', side_effect=[True, True]) as mock_confirm:
+        with patch.object(BastionDetector, "list_bastions", return_value=[]):
+            with patch("click.confirm", side_effect=[True, True]) as mock_confirm:
                 # First confirm: create bastion?
                 # Second confirm: proceed with provisioning?
 
@@ -121,16 +115,12 @@ class TestBastionDetectionAndProvisioning:
         """Test VM gets public IP when user declines bastion."""
         # Arrange
         provisioner = VMProvisioner()
-        config = VMConfig(
-            name="test-vm",
-            resource_group="test-rg",
-            location="westus2"
-        )
+        config = VMConfig(name="test-vm", resource_group="test-rg", location="westus2")
 
         # Mock Azure calls
-        with patch.object(BastionDetector, 'detect_bastion_for_vm', return_value=None):
-            with patch('click.confirm', return_value=False):  # User declines
-                with patch('subprocess.run') as mock_run:
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=None):
+            with patch("click.confirm", return_value=False):  # User declines
+                with patch("subprocess.run") as mock_run:
                     # Act
                     # Should provision with public IP
                     pass
@@ -147,24 +137,19 @@ class TestBastionDetectionAndProvisioning:
         # Arrange
         config_path = temp_config_dir / "bastion_config.toml"
         provisioner = VMProvisioner()
-        vm_config = VMConfig(
-            name="test-vm",
-            resource_group="test-rg",
-            location="westus2"
-        )
+        vm_config = VMConfig(name="test-vm", resource_group="test-rg", location="westus2")
         bastion_info = {"name": "test-bastion", "resource_group": "test-rg"}
 
         # Act
-        with patch.object(BastionDetector, 'detect_bastion_for_vm',
-                         return_value=bastion_info):
-            with patch('click.confirm', return_value=True):
+        with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=bastion_info):
+            with patch("click.confirm", return_value=True):
                 # Should save mapping after provisioning
                 bastion_config = BastionConfig()
                 bastion_config.add_mapping(
                     vm_name=vm_config.name,
                     vm_resource_group=vm_config.resource_group,
                     bastion_name=bastion_info["name"],
-                    bastion_resource_group=bastion_info["resource_group"]
+                    bastion_resource_group=bastion_info["resource_group"],
                 )
                 bastion_config.save(config_path)
 
@@ -178,8 +163,7 @@ class TestBastionDetectionAndProvisioning:
 class TestConnectionWorkflowWithBastion:
     """Integration tests for connection workflow with bastion."""
 
-    def test_connect_to_vm_uses_saved_bastion_mapping(self, temp_config_dir,
-                                                       mock_azure_resources):
+    def test_connect_to_vm_uses_saved_bastion_mapping(self, temp_config_dir, mock_azure_resources):
         """Test connection uses saved bastion mapping."""
         # Arrange
         config_path = temp_config_dir / "bastion_config.toml"
@@ -188,14 +172,14 @@ class TestConnectionWorkflowWithBastion:
             vm_name="test-vm",
             vm_resource_group="test-rg",
             bastion_name="test-bastion",
-            bastion_resource_group="test-rg"
+            bastion_resource_group="test-rg",
         )
         bastion_config.save(config_path)
 
         # Act
-        with patch.object(BastionConfig, 'load', return_value=bastion_config):
-            with patch.object(BastionManager, 'create_tunnel') as mock_tunnel:
-                with patch.object(VMManager, 'get_vm') as mock_get_vm:
+        with patch.object(BastionConfig, "load", return_value=bastion_config):
+            with patch.object(BastionManager, "create_tunnel") as mock_tunnel:
+                with patch.object(VMManager, "get_vm") as mock_get_vm:
                     mock_vm = Mock(spec=VMInfo)
                     mock_vm.public_ip = None  # Private VM
                     mock_vm.private_ip = "10.0.0.4"
@@ -216,10 +200,13 @@ class TestConnectionWorkflowWithBastion:
         resource_group = "test-rg"
 
         # Act
-        with patch.object(BastionDetector, 'detect_bastion_for_vm',
-                         return_value={"name": "test-bastion", "resource_group": "test-rg"}):
-            with patch('click.confirm', return_value=True) as mock_confirm:
-                with patch.object(BastionManager, 'create_tunnel'):
+        with patch.object(
+            BastionDetector,
+            "detect_bastion_for_vm",
+            return_value={"name": "test-bastion", "resource_group": "test-rg"},
+        ):
+            with patch("click.confirm", return_value=True) as mock_confirm:
+                with patch.object(BastionManager, "create_tunnel"):
                     # Should detect bastion and prompt user
                     pass
 
@@ -233,14 +220,13 @@ class TestConnectionWorkflowWithBastion:
         resource_group = "test-rg"
 
         # Mock private-only VM
-        with patch.object(VMManager, 'get_vm') as mock_get_vm:
+        with patch.object(VMManager, "get_vm") as mock_get_vm:
             mock_vm = Mock(spec=VMInfo)
             mock_vm.public_ip = None
             mock_vm.private_ip = "10.0.0.4"
             mock_get_vm.return_value = mock_vm
 
-            with patch.object(BastionDetector, 'detect_bastion_for_vm',
-                             return_value=None):
+            with patch.object(BastionDetector, "detect_bastion_for_vm", return_value=None):
                 # Act & Assert
                 with pytest.raises(Exception, match="no bastion.*private VM"):
                     # Should provide helpful error message
@@ -340,10 +326,11 @@ class TestCLIIntegration:
     def test_cli_create_vm_with_bastion_auto_detection(self, mock_azure_resources):
         """Test 'azlin create' command with bastion auto-detection."""
         # Arrange
-        with patch.object(BastionDetector, 'list_bastions',
-                         return_value=mock_azure_resources["bastions"]):
-            with patch('click.confirm', return_value=True):
-                with patch('subprocess.run') as mock_run:
+        with patch.object(
+            BastionDetector, "list_bastions", return_value=mock_azure_resources["bastions"]
+        ):
+            with patch("click.confirm", return_value=True):
+                with patch("subprocess.run") as mock_run:
                     # Act
                     # CLI command: azlin create my-vm --resource-group test-rg
                     # Should detect bastion and prompt user
@@ -355,8 +342,8 @@ class TestCLIIntegration:
     def test_cli_create_vm_with_no_bastion_flag(self):
         """Test 'azlin create' with --no-bastion flag."""
         # Arrange
-        with patch.object(BastionDetector, 'detect_bastion_for_vm') as mock_detect:
-            with patch('subprocess.run'):
+        with patch.object(BastionDetector, "detect_bastion_for_vm") as mock_detect:
+            with patch("subprocess.run"):
                 # Act
                 # CLI command: azlin create my-vm --no-bastion
                 # Should skip bastion detection
@@ -373,8 +360,8 @@ class TestCLIIntegration:
         bastion_config.add_mapping("vm1", "rg1", "bastion1", "network-rg")
         bastion_config.save(config_path)
 
-        with patch.object(BastionConfig, 'load', return_value=bastion_config):
-            with patch.object(BastionManager, 'create_tunnel'):
+        with patch.object(BastionConfig, "load", return_value=bastion_config):
+            with patch.object(BastionManager, "create_tunnel"):
                 # Act
                 # CLI command: azlin connect vm1 --resource-group rg1
                 # Should use bastion from config automatically
@@ -390,11 +377,11 @@ class TestErrorRecoveryAndFallback:
     def test_bastion_tunnel_failure_retries(self):
         """Test tunnel creation retries on failure."""
         # Arrange
-        with patch.object(BastionManager, 'create_tunnel') as mock_tunnel:
+        with patch.object(BastionManager, "create_tunnel") as mock_tunnel:
             # First attempt fails, second succeeds
             mock_tunnel.side_effect = [
                 Exception("Connection refused"),
-                Mock()  # Success
+                Mock(),  # Success
             ]
 
             # Act
@@ -407,14 +394,14 @@ class TestErrorRecoveryAndFallback:
     def test_bastion_creation_failure_falls_back_to_public_ip(self):
         """Test fallback to public IP when bastion creation fails."""
         # Arrange
-        with patch('click.confirm', side_effect=[True, True]) as mock_confirm:
+        with patch("click.confirm", side_effect=[True, True]) as mock_confirm:
             # First: User wants bastion
             # Second: User accepts fallback to public IP
-            with patch('subprocess.run') as mock_run:
+            with patch("subprocess.run") as mock_run:
                 # Mock bastion creation failure
                 mock_run.side_effect = [
                     Exception("Bastion creation failed"),  # Bastion creation
-                    Mock(stdout='{"publicIpAddress": "20.1.2.3"}')  # VM creation
+                    Mock(stdout='{"publicIpAddress": "20.1.2.3"}'),  # VM creation
                 ]
 
                 # Act
@@ -431,7 +418,7 @@ class TestErrorRecoveryAndFallback:
         config_path.write_text("invalid toml content {[")
 
         # Act
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match="Invalid"):
             BastionConfig.load(config_path)
 
         # Should continue with empty config
@@ -458,7 +445,7 @@ class TestMultiVMScenarios:
                 vm_name=vm_name,
                 vm_resource_group="test-rg",
                 bastion_name="shared-bastion",
-                bastion_resource_group="network-rg"
+                bastion_resource_group="network-rg",
             )
 
         bastion_config.save(config_path)
@@ -475,14 +462,14 @@ class TestMultiVMScenarios:
         # Arrange
         provisioner = VMProvisioner()
         configs = [
-            VMConfig(name=f"vm{i}", resource_group="test-rg", location="westus2")
-            for i in range(3)
+            VMConfig(name=f"vm{i}", resource_group="test-rg", location="westus2") for i in range(3)
         ]
 
         # Act
-        with patch.object(BastionDetector, 'list_bastions',
-                         return_value=mock_azure_resources["bastions"]):
-            with patch('click.confirm', return_value=True):
+        with patch.object(
+            BastionDetector, "list_bastions", return_value=mock_azure_resources["bastions"]
+        ):
+            with patch("click.confirm", return_value=True):
                 # Should detect bastion once and use for all VMs
                 pass
 

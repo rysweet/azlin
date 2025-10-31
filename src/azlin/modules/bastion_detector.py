@@ -92,12 +92,13 @@ class BastionDetector:
 
             # Filter out failed bastions - only use successfully provisioned ones
             successful_bastions = [
-                b for b in bastions
-                if b.get("provisioningState", "").lower() == "succeeded"
+                b for b in bastions if b.get("provisioningState", "").lower() == "succeeded"
             ]
 
             if not successful_bastions:
-                logger.debug(f"No successfully provisioned Bastion hosts in resource group: {resource_group}")
+                logger.debug(
+                    f"No successfully provisioned Bastion hosts in resource group: {resource_group}"
+                )
                 return None
 
             # Use the first successfully provisioned Bastion found in the RG
