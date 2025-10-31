@@ -41,6 +41,8 @@ from azlin.agentic import (
 )
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
+from azlin.modules.bastion_detector import BastionDetector
+from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.click_group import AzlinGroup
 
 # Auth commands
@@ -1787,6 +1789,9 @@ def create_command(ctx: click.Context, **kwargs: Any) -> Any:
 def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """Collect tmux sessions from running VMs.
 
+    Supports both direct SSH (VMs with public IPs) and Bastion tunneling
+    (VMs with only private IPs).
+
     Args:
         vms: List of VMInfo objects
 
@@ -1795,20 +1800,23 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """
     tmux_by_vm: dict[str, list[TmuxSession]] = {}
 
+    ssh_key_path = Path.home() / ".ssh" / "azlin_key"
+    if not ssh_key_path.exists():
+        return tmux_by_vm
+
+    # Classify VMs into direct SSH (public IP) and Bastion (private IP only)
+    direct_ssh_vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+    bastion_vms = [vm for vm in vms if vm.is_running() and vm.private_ip and not vm.public_ip]
+
+    # Handle direct SSH VMs (existing code path)
     try:
-        # Build SSH configs for running VMs only
         ssh_configs = []
         vm_name_map = {}  # Map IP to VM name for result matching
-        ssh_key_path = Path.home() / ".ssh" / "azlin_key"
 
-        if not ssh_key_path.exists():
-            return tmux_by_vm
-
-        for vm in vms:
-            if vm.is_running() and vm.public_ip:
-                ssh_config = SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_path)
-                ssh_configs.append(ssh_config)
-                vm_name_map[vm.public_ip] = vm.name
+        for vm in direct_ssh_vms:
+            ssh_config = SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_path)
+            ssh_configs.append(ssh_config)
+            vm_name_map[vm.public_ip] = vm.name
 
         # Query tmux sessions in parallel
         if ssh_configs:
@@ -1826,7 +1834,79 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                     tmux_by_vm[vm_name].append(session)
 
     except Exception as e:
-        logger.warning(f"Failed to fetch tmux sessions: {e}")
+        logger.warning(f"Failed to fetch tmux sessions from direct SSH VMs: {e}")
+
+    # Handle Bastion VMs (new code path)
+    if bastion_vms:
+        try:
+            # Get subscription ID for resource ID generation
+            auth = AzureAuthenticator()
+            subscription_id = auth.get_subscription_id()
+
+            # Use context manager to ensure tunnel cleanup
+            with BastionManager() as bastion_manager:
+                for vm in bastion_vms:
+                    try:
+                        # Detect Bastion host for this VM
+                        bastion_info = BastionDetector.detect_bastion_for_vm(
+                            vm.name, vm.resource_group
+                        )
+
+                        if not bastion_info:
+                            logger.warning(
+                                f"No Bastion host found for VM {vm.name} in {vm.resource_group}"
+                            )
+                            continue
+
+                        # Allocate local port for tunnel
+                        local_port = bastion_manager.find_available_port()
+
+                        # Get VM resource ID
+                        vm_resource_id = vm.get_resource_id(subscription_id)
+
+                        # Create tunnel
+                        tunnel = bastion_manager.create_tunnel(
+                            bastion_name=bastion_info["name"],
+                            resource_group=bastion_info["resource_group"],
+                            target_vm_id=vm_resource_id,
+                            local_port=local_port,
+                            remote_port=22,
+                            wait_for_ready=True,
+                            timeout=30,
+                        )
+
+                        # Query tmux sessions through tunnel
+                        ssh_config = SSHConfig(
+                            host="127.0.0.1",
+                            port=local_port,
+                            user="azureuser",
+                            key_path=ssh_key_path,
+                        )
+
+                        # Get sessions for this VM
+                        tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
+                            [ssh_config], timeout=5, max_workers=1
+                        )
+
+                        # Add sessions to result
+                        for session in tmux_sessions:
+                            if vm.name not in tmux_by_vm:
+                                tmux_by_vm[vm.name] = []
+                            # Update session VM name to actual VM name (not localhost)
+                            session.vm_name = vm.name
+                            tmux_by_vm[vm.name].append(session)
+
+                    except BastionManagerError as e:
+                        logger.warning(
+                            f"Failed to create Bastion tunnel for VM {vm.name}: {e}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to fetch tmux sessions from Bastion VM {vm.name}: {e}"
+                        )
+
+        except Exception as e:
+            logger.warning(f"Failed to initialize Bastion support: {e}")
 
     return tmux_by_vm
 
