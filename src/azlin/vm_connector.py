@@ -389,9 +389,7 @@ class VMConnector:
             ip_address = vm_info.public_ip or vm_info.private_ip
 
             if not ip_address:
-                raise VMConnectorError(
-                    f"VM {vm_name} has neither public nor private IP address."
-                )
+                raise VMConnectorError(f"VM {vm_name} has neither public nor private IP address.")
 
             return ConnectionInfo(
                 vm_name=vm_name,
