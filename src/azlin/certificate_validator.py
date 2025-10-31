@@ -13,11 +13,14 @@ Security:
 - No external command execution
 """
 
+import logging
 import stat
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from cryptography import x509
@@ -298,7 +301,8 @@ class CertificateValidator:
                 elif validation.errors:
                     validation_status = "invalid"
 
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Certificate validation check failed: {e}")
                 pass
 
         return CertificateInfo(
