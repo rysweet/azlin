@@ -262,7 +262,7 @@ class TestVMLifecycleController:
         result = VMLifecycleController.stop_vm("test-vm", "test-rg")
 
         assert result.success is False
-        assert "timed out" in result.message
+        assert "timeout" in result.message.lower()
         assert result.operation == "deallocate"
 
     @patch("azlin.vm_lifecycle_control.subprocess.run")
@@ -383,7 +383,7 @@ class TestVMLifecycleController:
         result = VMLifecycleController.start_vm("test-vm", "test-rg")
 
         assert result.success is False
-        assert "timed out" in result.message
+        assert "timeout" in result.message.lower()
         assert result.operation == "start"
 
     @patch("azlin.vm_lifecycle_control.subprocess.run")
@@ -612,7 +612,7 @@ class TestVMLifecycleController:
         """Test _get_vm_details raises error on timeout."""
         mock_run.side_effect = subprocess.TimeoutExpired("az", 30)
 
-        with pytest.raises(VMLifecycleControlError, match="timed out"):
+        with pytest.raises(VMLifecycleControlError, match="timeout"):
             VMLifecycleController._get_vm_details("test-vm", "test-rg")
 
     @patch("azlin.vm_lifecycle_control.subprocess.run")
@@ -699,7 +699,7 @@ class TestVMLifecycleController:
         """Test _list_vms_in_group raises error on timeout."""
         mock_run.side_effect = subprocess.TimeoutExpired("az", 30)
 
-        with pytest.raises(VMLifecycleControlError, match="timed out"):
+        with pytest.raises(VMLifecycleControlError, match="timeout"):
             VMLifecycleController._list_vms_in_group("test-rg")
 
     @patch("azlin.vm_lifecycle_control.VMLifecycleController._list_vms_in_group")

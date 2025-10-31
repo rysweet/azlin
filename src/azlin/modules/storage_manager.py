@@ -638,9 +638,6 @@ class StorageManager:
         if size_gb <= 0:
             raise ValidationError("Size must be greater than zero")
 
-        if size_gb < 0:
-            raise ValidationError("Size must be positive")
-
     @classmethod
     def configure_nfs_network_access(
         cls,
