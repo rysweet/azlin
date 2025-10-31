@@ -193,7 +193,7 @@ class VMConnector:
                     exit_code = handler.connect_with_reconnect(
                         config=ssh_config,
                         vm_name=conn_info.vm_name,
-                        tmux_session=tmux_session or ("azlin" if use_tmux else None),
+                        tmux_session=tmux_session or "azlin",
                         auto_tmux=use_tmux,
                     )
 
