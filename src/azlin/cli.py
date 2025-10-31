@@ -87,6 +87,7 @@ from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnec
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
 from azlin.prune import PruneManager
 from azlin.quota_manager import QuotaInfo, QuotaManager
+from azlin.security_audit import SecurityAuditLogger
 from azlin.remote_exec import (
     OSUpdateExecutor,
     PSCommandExecutor,
@@ -359,7 +360,7 @@ class CLIOrchestrator:
         return ssh_key_pair
 
     def _check_bastion_availability(
-        self, resource_group: str
+        self, resource_group: str, vm_name: str
     ) -> tuple[bool, dict[str, str] | None]:
         """Check if Bastion should be used for VM provisioning.
 
@@ -372,6 +373,7 @@ class CLIOrchestrator:
 
         Args:
             resource_group: Resource group where VM will be created
+            vm_name: Name of the VM being provisioned
 
         Returns:
             Tuple of (use_bastion: bool, bastion_info: dict | None)
@@ -383,6 +385,25 @@ class CLIOrchestrator:
         """
         # Skip bastion if --no-bastion flag is set
         if self.no_bastion:
+            # Confirm with user about security implications
+            warning_message = (
+                f"\nWARNING: --no-bastion flag will create VM '{vm_name}' with PUBLIC IP.\n"
+                f"This exposes your VM directly to the internet, which is LESS SECURE.\n"
+                f"Continue with public IP?"
+            )
+            if not click.confirm(warning_message, default=False):
+                self.progress.update(
+                    "User cancelled VM creation", ProgressStage.WARNING
+                )
+                raise click.Abort()
+
+            # Log security decision
+            SecurityAuditLogger.log_bastion_opt_out(
+                vm_name=vm_name,
+                method="flag",
+                user=None  # Will use system user
+            )
+
             self.progress.update(
                 "Skipping bastion (--no-bastion flag set)", ProgressStage.IN_PROGRESS
             )
@@ -415,6 +436,13 @@ class CLIOrchestrator:
                         f"Using Bastion: {bastion_info['name']}", ProgressStage.IN_PROGRESS
                     )
                     return (True, bastion_info)
+
+                # User declined existing bastion - log security decision
+                SecurityAuditLogger.log_bastion_opt_out(
+                    vm_name=vm_name,
+                    method="prompt_existing",
+                    user=None
+                )
                 self.progress.update(
                     "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
                 )
@@ -441,6 +469,13 @@ class CLIOrchestrator:
                 # For now, fall back to public IP if no bastion exists
                 # TODO: Implement automatic bastion creation
                 return (False, None)
+
+            # User declined creating bastion - log security decision
+            SecurityAuditLogger.log_bastion_opt_out(
+                vm_name=vm_name,
+                method="prompt_create",
+                user=None
+            )
             self.progress.update(
                 "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
             )
@@ -470,7 +505,7 @@ class CLIOrchestrator:
         self.progress.update(f"Region: {self.region}, Size: {self.vm_size}")
 
         # Check bastion availability and get user preference
-        use_bastion, bastion_info = self._check_bastion_availability(rg_name)
+        use_bastion, bastion_info = self._check_bastion_availability(rg_name, vm_name)
         self.bastion_info = bastion_info  # Store for later use in connection
 
         # Determine if public IP should be created
