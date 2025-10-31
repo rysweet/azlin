@@ -146,6 +146,7 @@ class CLIOrchestrator:
         auto_connect: bool = True,
         config_file: str | None = None,
         nfs_storage: str | None = None,
+        session_name: str | None = None,
         no_bastion: bool = False,
         bastion_name: str | None = None,
     ):
@@ -159,6 +160,7 @@ class CLIOrchestrator:
             auto_connect: Whether to auto-connect via SSH
             config_file: Configuration file path (optional)
             nfs_storage: NFS storage account name to mount as home directory (optional)
+            session_name: Session name for VM tags (optional)
             no_bastion: Skip bastion auto-detection and always create public IP (optional)
             bastion_name: Explicit bastion host name to use (optional)
         """
@@ -169,6 +171,7 @@ class CLIOrchestrator:
         self.auto_connect = auto_connect
         self.config_file = config_file
         self.nfs_storage = nfs_storage
+        self.session_name = session_name
         self.no_bastion = no_bastion
         self.bastion_name = bastion_name
 
@@ -514,6 +517,7 @@ class CLIOrchestrator:
             location=self.region,
             size=self.vm_size,
             ssh_public_key=public_key,
+            session_name=self.session_name,
             public_ip_enabled=public_ip_enabled,
         )
 
@@ -1739,6 +1743,7 @@ def _provision_pool(
             location=final_region,
             size=final_vm_size,
             ssh_public_key=ssh_key_pair.public_key_content,
+            session_name=f"{session_name}-{i + 1:02d}" if session_name else None,
         )
         configs.append(config_item)
 
@@ -1896,6 +1901,7 @@ def new_command(
         auto_connect=not no_auto_connect,
         config_file=config,
         nfs_storage=nfs_storage,
+        session_name=name,
         no_bastion=no_bastion,
         bastion_name=bastion_name,
     )

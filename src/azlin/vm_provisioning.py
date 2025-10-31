@@ -359,6 +359,7 @@ class VMProvisioner:
         location: str = "westus2",
         size: str = "Standard_E16as_v5",
         ssh_public_key: str | None = None,
+        session_name: str | None = None,
         public_ip_enabled: bool = True,
     ) -> VMConfig:
         """Create VM configuration with validation.
@@ -369,6 +370,7 @@ class VMProvisioner:
             location: Azure region
             size: VM size
             ssh_public_key: SSH public key content
+            session_name: Session name for VM tags (optional)
             public_ip_enabled: Whether to create a public IP (default: True)
 
         Returns:
@@ -396,6 +398,7 @@ class VMProvisioner:
             ssh_public_key=ssh_public_key,
             admin_username="azureuser",
             disable_password_auth=True,
+            session_name=session_name,
             public_ip_enabled=public_ip_enabled,
         )
 
