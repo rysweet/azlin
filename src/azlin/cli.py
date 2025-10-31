@@ -41,6 +41,7 @@ from azlin.agentic import (
 )
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
+from azlin.click_group import AzlinGroup
 
 # Auth commands
 from azlin.commands.auth import auth
@@ -1138,43 +1139,6 @@ def select_vm_for_command(vms: list[VMInfo], command: str) -> VMInfo | None:
         return None
 
 
-class AzlinGroup(click.Group):
-    """Custom Click group that handles -- delimiter for command passthrough."""
-
-    def main(self, *args: Any, **kwargs: Any) -> Any:
-        """Override main to handle -- delimiter before any Click processing."""
-        # Check if -- is in sys.argv BEFORE Click processes anything
-        if "--" in sys.argv:
-            delimiter_idx = sys.argv.index("--")
-            # Store the command for later
-            passthrough_args = sys.argv[delimiter_idx + 1 :]
-            if passthrough_args:
-                # Remove everything from -- onwards so Click doesn't see it
-                sys.argv = sys.argv[:delimiter_idx]
-                # We'll pass this through the context
-                if not hasattr(self, "_passthrough_command"):
-                    self._passthrough_command = " ".join(passthrough_args)
-
-        return super().main(*args, **kwargs)
-
-    def invoke(self, ctx: click.Context) -> Any:
-        """Pass the passthrough command to the context."""
-        if hasattr(self, "_passthrough_command"):
-            ctx.obj = {"passthrough_command": self._passthrough_command}
-        return super().invoke(ctx)
-
-    def resolve_command(
-        self, ctx: click.Context, args: list[str]
-    ) -> tuple[str | None, click.Command | None, list[str]]:
-        """Override to show help when command is not found."""
-        try:
-            return super().resolve_command(ctx, args)
-        except click.UsageError:
-            # Command not found - show help and exit
-            click.echo(ctx.get_help())
-            ctx.exit(1)
-
-
 @click.group(
     cls=AzlinGroup,
     invoke_without_command=True,
@@ -1377,12 +1341,14 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
             except ConfigError as e:
                 click.echo(click.style(f"Configuration error: {e}", fg="red"), err=True)
                 ctx.exit(1)
+                return  # Explicit return for code clarity (never reached)
             except KeyboardInterrupt:
                 click.echo()
                 click.echo(
                     click.style("Setup cancelled. Run 'azlin' again to configure.", fg="yellow")
                 )
                 ctx.exit(130)  # Standard exit code for SIGINT
+                return  # Explicit return for code clarity (never reached)
     except Exception as e:
         # If wizard check fails, log but continue (allow commands to work)
         logger.debug(f"Could not check configuration status: {e}")
@@ -1396,11 +1362,13 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
         except AuthenticationError as e:
             click.echo(f"Error: Authentication failed: {e}", err=True)
             ctx.exit(1)
+            return  # Explicit return for code clarity (never reached)
 
     # If no subcommand provided, show help
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         ctx.exit(0)  # Use ctx.exit() instead of sys.exit() for Click compatibility
+        return  # Explicit return for code clarity (never reached)
 
 
 @main.command(name="help")

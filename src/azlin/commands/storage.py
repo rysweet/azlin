@@ -13,6 +13,7 @@ from pathlib import Path
 
 import click
 
+from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.modules.nfs_mount_manager import NFSMountManager
 from azlin.modules.storage_manager import StorageManager
@@ -21,7 +22,7 @@ from azlin.vm_manager import VMManager
 logger = logging.getLogger(__name__)
 
 
-@click.group(name="storage")
+@click.group(name="storage", cls=AzlinGroup)
 def storage_group():
     """Manage Azure Files NFS shared storage.
 

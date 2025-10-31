@@ -62,8 +62,8 @@ class TestNewCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["new"])
 
-        # Should not show usage error
-        assert "Usage:" not in result.output or result.exit_code == 0
+        # Should not show usage help text (but "Usage" might appear in error messages like "Current Usage: 96")
+        assert "Usage: main" not in result.output or result.exit_code == 0
         # Should not show missing required arg error
         assert "Missing argument" not in result.output.lower()
         assert "Error: Missing option" not in result.output
