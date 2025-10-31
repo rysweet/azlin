@@ -63,6 +63,7 @@ from azlin.ip_diagnostics import (
     format_diagnostic_report,
 )
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
+from azlin.modules.bastion_detector import BastionDetector
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -95,6 +96,7 @@ from azlin.remote_exec import (
     TmuxSessionExecutor,
     WCommandExecutor,
 )
+from azlin.security_audit import SecurityAuditLogger
 from azlin.tag_manager import TagManager
 from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 from azlin.vm_connector import VMConnector, VMConnectorError
@@ -144,6 +146,8 @@ class CLIOrchestrator:
         config_file: str | None = None,
         nfs_storage: str | None = None,
         session_name: str | None = None,
+        no_bastion: bool = False,
+        bastion_name: str | None = None,
     ):
         """Initialize CLI orchestrator.
 
@@ -156,6 +160,8 @@ class CLIOrchestrator:
             config_file: Configuration file path (optional)
             nfs_storage: NFS storage account name to mount as home directory (optional)
             session_name: Session name for VM tags (optional)
+            no_bastion: Skip bastion auto-detection and always create public IP (optional)
+            bastion_name: Explicit bastion host name to use (optional)
         """
         self.repo = repo
         self.vm_size = vm_size
@@ -165,6 +171,8 @@ class CLIOrchestrator:
         self.config_file = config_file
         self.nfs_storage = nfs_storage
         self.session_name = session_name
+        self.no_bastion = no_bastion
+        self.bastion_name = bastion_name
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -174,6 +182,7 @@ class CLIOrchestrator:
         # Track resources for cleanup
         self.vm_details: VMDetails | None = None
         self.ssh_keys: Path | None = None
+        self.bastion_info: dict[str, str] | None = None  # Track bastion if detected
 
     def run(self) -> int:
         """Execute main workflow.
@@ -353,6 +362,128 @@ class CLIOrchestrator:
 
         return ssh_key_pair
 
+    def _check_bastion_availability(
+        self, resource_group: str, vm_name: str
+    ) -> tuple[bool, dict[str, str] | None]:
+        """Check if Bastion should be used for VM provisioning.
+
+        This method implements the bastion default behavior:
+        1. If --no-bastion flag is set, skip bastion (return False, None)
+        2. Auto-detect bastion in resource group
+        3. If found, prompt user with default=True
+        4. If not found, prompt to create with default=True
+        5. If user declines, return False to use public IP
+
+        Args:
+            resource_group: Resource group where VM will be created
+            vm_name: Name of the VM being provisioned
+
+        Returns:
+            Tuple of (use_bastion: bool, bastion_info: dict | None)
+            - use_bastion: Whether to provision VM without public IP
+            - bastion_info: Bastion details if available (name, resource_group)
+
+        Raises:
+            No exceptions - all failures result in returning (False, None)
+        """
+        # Skip bastion if --no-bastion flag is set
+        if self.no_bastion:
+            # Confirm with user about security implications
+            warning_message = (
+                f"\nWARNING: --no-bastion flag will create VM '{vm_name}' with PUBLIC IP.\n"
+                f"This exposes your VM directly to the internet, which is LESS SECURE.\n"
+                f"Continue with public IP?"
+            )
+            if not click.confirm(warning_message, default=False):
+                self.progress.update("User cancelled VM creation", ProgressStage.WARNING)
+                raise click.Abort
+
+            # Log security decision
+            SecurityAuditLogger.log_bastion_opt_out(
+                vm_name=vm_name,
+                method="flag",
+                user=None,  # Will use system user
+            )
+
+            self.progress.update(
+                "Skipping bastion (--no-bastion flag set)", ProgressStage.IN_PROGRESS
+            )
+            return (False, None)
+
+        # If explicit bastion name provided, use it
+        if self.bastion_name:
+            self.progress.update(
+                f"Using explicit bastion: {self.bastion_name}", ProgressStage.IN_PROGRESS
+            )
+            return (True, {"name": self.bastion_name, "resource_group": resource_group})
+
+        # Auto-detect bastion in resource group
+        try:
+            self.progress.update(
+                "Checking for Bastion host in resource group...", ProgressStage.IN_PROGRESS
+            )
+            bastion_info = BastionDetector.detect_bastion_for_vm("temp-check", resource_group)
+
+            if bastion_info:
+                # Found bastion - prompt user with default=True
+                message = (
+                    f"\nFound Bastion host '{bastion_info['name']}' in resource group.\n"
+                    f"Use Bastion for secure access (recommended)?\n"
+                    f"  - Bastion: Private VM (no public IP, more secure)\n"
+                    f"  - No Bastion: Public IP (direct SSH, less secure)"
+                )
+                if click.confirm(message, default=True):
+                    self.progress.update(
+                        f"Using Bastion: {bastion_info['name']}", ProgressStage.IN_PROGRESS
+                    )
+                    return (True, bastion_info)
+
+                # User declined existing bastion - log security decision
+                SecurityAuditLogger.log_bastion_opt_out(
+                    vm_name=vm_name, method="prompt_existing", user=None
+                )
+                self.progress.update(
+                    "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
+                )
+                return (False, None)
+            # No bastion found - prompt to create with default=True
+            message = (
+                f"\nNo Bastion host found in resource group '{resource_group}'.\n"
+                f"Create VM with Bastion access?\n"
+                f"  - Yes: More secure (private VM, ~$140/month for Bastion)\n"
+                f"  - No: Less secure (public IP, direct internet access)"
+            )
+            if click.confirm(message, default=True):
+                self.progress.update(
+                    "User requested Bastion but none exists. Please create Bastion first.",
+                    ProgressStage.WARNING,
+                )
+                click.echo(
+                    click.style(
+                        "\nTo create a Bastion host, run:\n"
+                        f"  azlin bastion create --name <bastion-name> --resource-group {resource_group}",
+                        fg="yellow",
+                    )
+                )
+                # For now, fall back to public IP if no bastion exists
+                # TODO: Implement automatic bastion creation
+                return (False, None)
+
+            # User declined creating bastion - log security decision
+            SecurityAuditLogger.log_bastion_opt_out(
+                vm_name=vm_name, method="prompt_create", user=None
+            )
+            self.progress.update(
+                "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
+            )
+            return (False, None)
+
+        except Exception as e:
+            # Any error in detection - fall back to public IP
+            logger.debug(f"Bastion detection failed: {e}")
+            self.progress.update("Bastion detection failed, using public IP", ProgressStage.WARNING)
+            return (False, None)
+
     def _provision_vm(self, vm_name: str, rg_name: str, public_key: str) -> VMDetails:
         """Provision Azure VM with dev tools.
 
@@ -370,6 +501,14 @@ class CLIOrchestrator:
         self.progress.update(f"Creating VM: {vm_name}")
         self.progress.update(f"Region: {self.region}, Size: {self.vm_size}")
 
+        # Check bastion availability and get user preference
+        use_bastion, bastion_info = self._check_bastion_availability(rg_name, vm_name)
+        self.bastion_info = bastion_info  # Store for later use in connection
+
+        # Determine if public IP should be created
+        # Public IP is disabled when using bastion
+        public_ip_enabled = not use_bastion
+
         # Create VM config
         config = self.provisioner.create_vm_config(
             name=vm_name,
@@ -378,6 +517,7 @@ class CLIOrchestrator:
             size=self.vm_size,
             ssh_public_key=public_key,
             session_name=self.session_name,
+            public_ip_enabled=public_ip_enabled,
         )
 
         # Progress callback
@@ -387,7 +527,13 @@ class CLIOrchestrator:
         # Provision VM
         vm_details = self.provisioner.provision_vm(config, progress_callback)
 
-        self.progress.update(f"VM created with IP: {vm_details.public_ip}")
+        # Update progress message based on IP configuration
+        if vm_details.public_ip:
+            self.progress.update(f"VM created with public IP: {vm_details.public_ip}")
+        else:
+            self.progress.update(
+                f"VM created with private IP: {vm_details.private_ip} (Bastion access)"
+            )
 
         return vm_details
 
@@ -837,6 +983,8 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
     def _connect_ssh(self, vm_details: VMDetails, key_path: Path) -> int:
         """Connect to VM via SSH with tmux session.
 
+        Handles both direct connections (public IP) and bastion tunneling (private IP).
+
         Args:
             vm_details: VM details
             key_path: SSH private key path
@@ -847,9 +995,36 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         Raises:
             SSHConnectionError: If connection fails
         """
+        # If VM has no public IP, use bastion
         if not vm_details.public_ip:
-            raise SSHConnectionError("VM has no public IP address")
+            if not self.bastion_info:
+                raise SSHConnectionError(
+                    "VM has no public IP and no Bastion configured. Cannot establish connection."
+                )
 
+            # Use VMConnector which handles bastion tunneling
+            click.echo("\n" + "=" * 60)
+            click.echo(f"Connecting to {vm_details.name} via Bastion...")
+            click.echo(f"Bastion: {self.bastion_info['name']}")
+            click.echo("Starting tmux session 'azlin'")
+            click.echo("=" * 60 + "\n")
+
+            try:
+                VMConnector.connect(
+                    vm_identifier=vm_details.name,
+                    resource_group=vm_details.resource_group,
+                    use_bastion=True,
+                    bastion_name=self.bastion_info["name"],
+                    bastion_resource_group=self.bastion_info["resource_group"],
+                    ssh_key_path=key_path,
+                    use_tmux=True,
+                    tmux_session="azlin",
+                )
+                return 0
+            except VMConnectorError as e:
+                raise SSHConnectionError(f"Bastion connection failed: {e}") from e
+
+        # Direct SSH connection (public IP)
         ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
 
         click.echo("\n" + "=" * 60)
@@ -1638,6 +1813,10 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
+@click.option(
+    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
+)
+@click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
 def new_command(
     ctx: click.Context,
     repo: str | None,
@@ -1651,6 +1830,8 @@ def new_command(
     config: str | None,
     template: str | None,
     nfs_storage: str | None,
+    no_bastion: bool,
+    bastion_name: str | None,
 ) -> None:
     """Provision a new Azure VM with development tools.
 
@@ -1719,6 +1900,8 @@ def new_command(
         config_file=config,
         nfs_storage=nfs_storage,
         session_name=name,
+        no_bastion=no_bastion,
+        bastion_name=bastion_name,
     )
 
     # Update config state (resource group only, session name saved after VM creation)
@@ -1766,6 +1949,10 @@ def new_command(
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
+@click.option(
+    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
+)
+@click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
 def vm_command(ctx: click.Context, **kwargs: Any) -> Any:
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
@@ -1784,6 +1971,10 @@ def vm_command(ctx: click.Context, **kwargs: Any) -> Any:
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
+@click.option(
+    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
+)
+@click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
 def create_command(ctx: click.Context, **kwargs: Any) -> Any:
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
