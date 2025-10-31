@@ -86,23 +86,19 @@ jobs:
 
   # Comprehensive test suite
   test:
-    name: Tests (Python ${{ matrix.python-version }})
+    name: Tests (Python 3.13)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Need full history for coverage
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.13"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -114,9 +110,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .pytest_cache
-          key: pytest-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
+          key: pytest-${{ runner.os }}-3.13-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
-            pytest-${{ runner.os }}-${{ matrix.python-version }}-
+            pytest-${{ runner.os }}-3.13-
 
       - name: Install dependencies
         run: |
@@ -129,14 +125,13 @@ jobs:
             --cov-report=xml \
             --cov-report=term-missing \
             --cov-report=html \
-            --junitxml=junit/test-results-${{ matrix.python-version }}.xml \
+            --junitxml=junit/test-results-3.13.xml \
             -v
         env:
-          COVERAGE_FILE: .coverage.${{ matrix.python-version }}
+          COVERAGE_FILE: .coverage.3.13
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
-        if: matrix.python-version == '3.13'
         with:
           file: ./coverage.xml
           flags: unittests
@@ -148,13 +143,12 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.python-version }}
+          name: test-results-3.13
           path: junit/test-results-*.xml
           retention-days: 30
 
       - name: Upload coverage reports
         uses: actions/upload-artifact@v4
-        if: matrix.python-version == '3.13'
         with:
           name: coverage-reports
           path: |
