@@ -19,6 +19,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import ClassVar
 
+from azlin.azure_cli_visibility import AzureCLIExecutor
+
 logger = logging.getLogger(__name__)
 
 
@@ -494,15 +496,15 @@ class VMProvisioner:
         report_progress(f"Provisioning VM: {config.name}")
         report_progress("This will take 3-5 minutes...")
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 minutes
-            check=True,
-        )
+        executor = AzureCLIExecutor(show_progress=True, timeout=600)
+        result = executor.execute(cmd)
 
-        vm_data = json.loads(result.stdout)
+        if not result["success"]:
+            raise subprocess.CalledProcessError(
+                result["returncode"], cmd, result["stdout"], result["stderr"]
+            )
+
+        vm_data = json.loads(result["stdout"])
 
         # Extract VM details
         vm_details = VMDetails(
@@ -554,20 +556,17 @@ class VMProvisioner:
         """
         try:
             # Check if exists first
-            result = subprocess.run(
-                ["az", "group", "exists", "--name", resource_group],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
+            executor = AzureCLIExecutor(show_progress=True, timeout=10)
+            result = executor.execute(["az", "group", "exists", "--name", resource_group])
 
-            if result.stdout.strip().lower() == "true":
+            if result["stdout"].strip().lower() == "true":
                 logger.info(f"Resource group {resource_group} already exists")
                 return True
 
             # Create resource group
             logger.info(f"Creating resource group: {resource_group}")
-            subprocess.run(
+            executor = AzureCLIExecutor(show_progress=True, timeout=30)
+            create_result = executor.execute(
                 [
                     "az",
                     "group",
@@ -578,12 +577,17 @@ class VMProvisioner:
                     location,
                     "--output",
                     "json",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True,
+                ]
             )
+
+            if not create_result["success"]:
+                raise subprocess.CalledProcessError(
+                    create_result["returncode"],
+                    ["az", "group", "create"],
+                    create_result["stdout"],
+                    create_result["stderr"],
+                )
+
             logger.info(f"Resource group {resource_group} created successfully")
             return True
 

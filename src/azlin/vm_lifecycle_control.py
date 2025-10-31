@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 from typing import Any, ClassVar
 
+from azlin.azure_cli_visibility import AzureCLIExecutor
+
 logger = logging.getLogger(__name__)
 
 
@@ -156,9 +158,13 @@ class VMLifecycleController:
             if no_wait:
                 cmd.append("--no-wait")
 
-            subprocess.run(
-                cmd, capture_output=True, text=True, timeout=180 if not no_wait else 30, check=True
-            )
+            executor = AzureCLIExecutor(show_progress=True, timeout=180 if not no_wait else 30)
+            result = executor.execute(cmd)
+
+            if not result["success"]:
+                raise subprocess.CalledProcessError(
+                    result["returncode"], cmd, result["stdout"], result["stderr"]
+                )
 
             message = f"VM {'deallocated' if deallocate else 'stopped'} successfully"
             logger.info(f"{message}: {vm_name}")
@@ -233,9 +239,13 @@ class VMLifecycleController:
             if no_wait:
                 cmd.append("--no-wait")
 
-            subprocess.run(
-                cmd, capture_output=True, text=True, timeout=180 if not no_wait else 30, check=True
-            )
+            executor = AzureCLIExecutor(show_progress=True, timeout=180 if not no_wait else 30)
+            result = executor.execute(cmd)
+
+            if not result["success"]:
+                raise subprocess.CalledProcessError(
+                    result["returncode"], cmd, result["stdout"], result["stderr"]
+                )
 
             logger.info(f"VM started successfully: {vm_name}")
 
@@ -486,9 +496,15 @@ class VMLifecycleController:
                 "json",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            executor = AzureCLIExecutor(show_progress=False, timeout=30)
+            result = executor.execute(cmd)
 
-            return json.loads(result.stdout)
+            if not result["success"]:
+                raise subprocess.CalledProcessError(
+                    result["returncode"], cmd, result["stdout"], result["stderr"]
+                )
+
+            return json.loads(result["stdout"])
 
         except subprocess.CalledProcessError as e:
             if "ResourceNotFound" in e.stderr:
@@ -522,9 +538,15 @@ class VMLifecycleController:
                 "json",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            executor = AzureCLIExecutor(show_progress=False, timeout=30)
+            result = executor.execute(cmd)
 
-            return json.loads(result.stdout)
+            if not result["success"]:
+                raise subprocess.CalledProcessError(
+                    result["returncode"], cmd, result["stdout"], result["stderr"]
+                )
+
+            return json.loads(result["stdout"])
 
         except subprocess.CalledProcessError as e:
             if "ResourceGroupNotFound" in e.stderr:
