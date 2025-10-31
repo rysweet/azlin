@@ -1742,6 +1742,7 @@ def _provision_pool(
             location=final_region,
             size=final_vm_size,
             ssh_public_key=ssh_key_pair.public_key_content,
+            session_name=f"{session_name}-{i + 1:02d}" if session_name else None,
         )
         configs.append(config_item)
 
