@@ -71,9 +71,9 @@ class SecurityAuditLogger:
         audit_log: list[dict[str, Any]] = []
         if cls.AUDIT_FILE.exists():
             try:
-                with open(cls.AUDIT_FILE, "r") as f:
+                with open(cls.AUDIT_FILE) as f:
                     audit_log = json.load(f)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 # If file is corrupted or unreadable, start fresh
                 audit_log = []
 
@@ -113,9 +113,9 @@ class SecurityAuditLogger:
             return []
 
         try:
-            with open(cls.AUDIT_FILE, "r") as f:
+            with open(cls.AUDIT_FILE) as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             return []
 
 

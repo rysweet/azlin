@@ -87,7 +87,6 @@ from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnec
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
 from azlin.prune import PruneManager
 from azlin.quota_manager import QuotaInfo, QuotaManager
-from azlin.security_audit import SecurityAuditLogger
 from azlin.remote_exec import (
     OSUpdateExecutor,
     PSCommandExecutor,
@@ -97,6 +96,7 @@ from azlin.remote_exec import (
     TmuxSessionExecutor,
     WCommandExecutor,
 )
+from azlin.security_audit import SecurityAuditLogger
 from azlin.tag_manager import TagManager
 from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 from azlin.vm_connector import VMConnector, VMConnectorError
@@ -395,7 +395,7 @@ class CLIOrchestrator:
                 self.progress.update(
                     "User cancelled VM creation", ProgressStage.WARNING
                 )
-                raise click.Abort()
+                raise click.Abort
 
             # Log security decision
             SecurityAuditLogger.log_bastion_opt_out(

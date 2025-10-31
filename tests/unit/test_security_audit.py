@@ -10,7 +10,6 @@ These tests verify the SecurityAuditLogger functionality including:
 import json
 import os
 import stat
-from pathlib import Path
 
 import pytest
 
