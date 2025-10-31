@@ -41,6 +41,7 @@ class VMConfig:
     admin_username: str = "azureuser"
     disable_password_auth: bool = True
     session_name: str | None = None  # Optional session name for tag management
+    public_ip_enabled: bool = True  # Whether to create a public IP (False for bastion-only VMs)
 
 
 @dataclass
@@ -356,6 +357,7 @@ class VMProvisioner:
         location: str = "westus2",
         size: str = "Standard_E16as_v5",
         ssh_public_key: str | None = None,
+        public_ip_enabled: bool = True,
     ) -> VMConfig:
         """Create VM configuration with validation.
 
@@ -365,6 +367,7 @@ class VMProvisioner:
             location: Azure region
             size: VM size
             ssh_public_key: SSH public key content
+            public_ip_enabled: Whether to create a public IP (default: True)
 
         Returns:
             VMConfig object
@@ -391,6 +394,7 @@ class VMProvisioner:
             ssh_public_key=ssh_public_key,
             admin_username="azureuser",
             disable_password_auth=True,
+            public_ip_enabled=public_ip_enabled,
         )
 
     def validate_vm_size(self, size: str) -> bool:
@@ -488,7 +492,16 @@ class VMProvisioner:
         if config.ssh_public_key:
             cmd.append(config.ssh_public_key)
 
-        cmd.extend(["--custom-data", cloud_init, "--public-ip-sku", "Standard", "--output", "json"])
+        cmd.extend(["--custom-data", cloud_init])
+
+        # Conditionally add public IP based on configuration
+        if config.public_ip_enabled:
+            cmd.extend(["--public-ip-sku", "Standard"])
+        else:
+            cmd.extend(["--public-ip-address", ""])  # Empty string disables public IP creation
+
+        cmd.append("--output")
+        cmd.append("json")
 
         # Provision VM
         report_progress(f"Provisioning VM: {config.name}")

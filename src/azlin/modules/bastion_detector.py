@@ -90,8 +90,18 @@ class BastionDetector:
                 logger.debug(f"No Bastion hosts found in resource group: {resource_group}")
                 return None
 
-            # Use the first Bastion found in the RG
-            bastion = bastions[0]
+            # Filter out failed bastions - only use successfully provisioned ones
+            successful_bastions = [
+                b for b in bastions
+                if b.get("provisioningState", "").lower() == "succeeded"
+            ]
+
+            if not successful_bastions:
+                logger.debug(f"No successfully provisioned Bastion hosts in resource group: {resource_group}")
+                return None
+
+            # Use the first successfully provisioned Bastion found in the RG
+            bastion = successful_bastions[0]
             logger.info(
                 f"Detected Bastion host '{bastion['name']}' in {resource_group} for VM {vm_name}"
             )

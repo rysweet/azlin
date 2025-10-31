@@ -385,12 +385,26 @@ class VMConnector:
                     f"VM is not running (state: {vm_info.power_state}). Connection may fail."
                 )
 
-            # Get IP address
+            # Get IP address (public or private)
             if not vm_info.public_ip:
-                raise VMConnectorError(
-                    f"VM {vm_name} has no public IP address. Ensure VM has a public IP configured."
+                # VM has no public IP - check if bastion is available
+                if not vm_info.private_ip:
+                    raise VMConnectorError(
+                        f"VM {vm_name} has no IP addresses configured. Cannot connect."
+                    )
+
+                # Private-only VM - will require bastion for connection
+                logger.info(f"VM {vm_name} is private-only (no public IP), will use Bastion if available")
+
+                return ConnectionInfo(
+                    vm_name=vm_name,
+                    ip_address=vm_info.private_ip,  # Use private IP for bastion connection
+                    resource_group=resource_group,
+                    ssh_user=ssh_user,
+                    ssh_key_path=ssh_key_path,
                 )
 
+            # VM has public IP - use direct connection
             return ConnectionInfo(
                 vm_name=vm_name,
                 ip_address=vm_info.public_ip,
@@ -449,10 +463,10 @@ class VMConnector:
             bastion_info = BastionDetector.detect_bastion_for_vm(vm_name, resource_group)
 
             if bastion_info:
-                # Prompt user
+                # Prompt user (default changed to True for security by default)
                 if click.confirm(
                     f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
-                    default=False,
+                    default=True,
                 ):
                     return bastion_info
 
