@@ -143,6 +143,7 @@ class CLIOrchestrator:
         auto_connect: bool = True,
         config_file: str | None = None,
         nfs_storage: str | None = None,
+        session_name: str | None = None,
     ):
         """Initialize CLI orchestrator.
 
@@ -154,6 +155,7 @@ class CLIOrchestrator:
             auto_connect: Whether to auto-connect via SSH
             config_file: Configuration file path (optional)
             nfs_storage: NFS storage account name to mount as home directory (optional)
+            session_name: Session name for VM tags (optional)
         """
         self.repo = repo
         self.vm_size = vm_size
@@ -162,6 +164,7 @@ class CLIOrchestrator:
         self.auto_connect = auto_connect
         self.config_file = config_file
         self.nfs_storage = nfs_storage
+        self.session_name = session_name
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -374,6 +377,7 @@ class CLIOrchestrator:
             location=self.region,
             size=self.vm_size,
             ssh_public_key=public_key,
+            session_name=self.session_name,
         )
 
         # Progress callback
@@ -1714,6 +1718,7 @@ def new_command(
         auto_connect=not no_auto_connect,
         config_file=config,
         nfs_storage=nfs_storage,
+        session_name=name,
     )
 
     # Update config state (resource group only, session name saved after VM creation)

@@ -356,6 +356,7 @@ class VMProvisioner:
         location: str = "westus2",
         size: str = "Standard_E16as_v5",
         ssh_public_key: str | None = None,
+        session_name: str | None = None,
     ) -> VMConfig:
         """Create VM configuration with validation.
 
@@ -365,6 +366,7 @@ class VMProvisioner:
             location: Azure region
             size: VM size
             ssh_public_key: SSH public key content
+            session_name: Session name for VM tags (optional)
 
         Returns:
             VMConfig object
@@ -391,6 +393,7 @@ class VMProvisioner:
             ssh_public_key=ssh_public_key,
             admin_username="azureuser",
             disable_password_auth=True,
+            session_name=session_name,
         )
 
     def validate_vm_size(self, size: str) -> bool:
