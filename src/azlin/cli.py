@@ -548,6 +548,30 @@ class CLIOrchestrator:
             self.progress.update("Home sync failed (unexpected error)", ProgressStage.WARNING)
             logger.exception("Unexpected error during home sync")
 
+    def _lookup_storage_by_name(self, resource_group: str, storage_name: str) -> "StorageInfo":
+        """Lookup storage by name, raising ValueError if not found.
+
+        Args:
+            resource_group: Resource group to search in
+            storage_name: Name of storage account to find
+
+        Returns:
+            StorageInfo object for the storage account
+
+        Raises:
+            ValueError: If storage account not found in resource group
+        """
+        from azlin.modules.storage_manager import StorageManager
+
+        storages = StorageManager.list_storage(resource_group)
+        storage = next((s for s in storages if s.name == storage_name), None)
+        if not storage:
+            raise ValueError(
+                f"Storage account '{storage_name}' not found in resource group '{resource_group}'. "
+                f"Create it first with: azlin storage create {storage_name}"
+            )
+        return storage
+
     def _resolve_nfs_storage(
         self, resource_group: str, config: AzlinConfig | None
     ) -> "StorageInfo | None":
@@ -573,26 +597,15 @@ class CLIOrchestrator:
 
         # Priority 1: Explicit --nfs-storage option
         if self.nfs_storage:
-            # Need to lookup the StorageInfo for this name
-            storages = StorageManager.list_storage(resource_group)
-            storage = next((s for s in storages if s.name == self.nfs_storage), None)
-            if not storage:
-                raise ValueError(
-                    f"Storage account '{self.nfs_storage}' not found in resource group '{resource_group}'"
-                )
-            return storage
+            return self._lookup_storage_by_name(resource_group, self.nfs_storage)
 
         # Priority 2: Config file default
         if config and config.default_nfs_storage:
-            storages = StorageManager.list_storage(resource_group)
-            storage = next((s for s in storages if s.name == config.default_nfs_storage), None)
-            if not storage:
-                raise ValueError(
-                    f"Storage account '{config.default_nfs_storage}' not found in resource group '{resource_group}'"
-                )
-            return storage
+            return self._lookup_storage_by_name(resource_group, config.default_nfs_storage)
 
-        # Priority 3: Auto-detect
+        # Priority 3: Auto-detect (more permissive than explicit/config)
+        # Note: If storage listing fails during auto-detection, we fallback to
+        # home sync instead of failing the entire VM creation operation
         try:
             storages = StorageManager.list_storage(resource_group)
         except Exception as e:
