@@ -197,7 +197,6 @@ class ExecutionOrchestrator:
             Execution result (success or final failure)
         """
         strategy = self._get_strategy(strategy_type)
-        result: ExecutionResult
 
         for attempt_num in range(1, self.max_retries + 1):
             logger.debug(
@@ -247,8 +246,11 @@ class ExecutionOrchestrator:
             )
             time.sleep(delay)
 
-        # Should not reach here due to loop logic, but return last result if we do
-        return result
+        # Should not reach here - raise error to satisfy type checker
+        # max_retries must be >= 1, so loop always executes at least once
+        raise RuntimeError(
+            f"Execution loop completed without returning result (max_retries={self.max_retries})"
+        )
 
     def _get_strategy(self, strategy_type: Strategy) -> Any:
         """Get strategy instance (cached).
