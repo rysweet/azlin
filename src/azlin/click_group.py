@@ -46,9 +46,11 @@ class AzlinGroup(click.Group):
                 click.echo(ctx.get_help())
                 # Use ctx.exit() to properly handle Click's testing mode
                 ctx.exit(e.exit_code if hasattr(e, "exit_code") else 1)
+                return None  # Explicit return for code clarity (never reached)
             else:
                 # No context available, use sys.exit
                 sys.exit(e.exit_code if hasattr(e, "exit_code") else 1)
+                return None  # Explicit return for code clarity (never reached)
         except click.exceptions.ClickException:
             # For other Click exceptions, use default handling
             raise
@@ -77,6 +79,7 @@ class AzlinGroup(click.Group):
 
             # Exit with error code - use ctx.exit() for Click compatibility
             error_ctx.exit(e.exit_code if hasattr(e, "exit_code") else 1)
+            return None  # Explicit return for code clarity (never reached)
         except click.exceptions.ClickException:
             # For other Click exceptions, use default handling
             raise
@@ -98,6 +101,7 @@ class AzlinGroup(click.Group):
             click.echo("")
             click.echo(ctx.get_help())
             ctx.exit(1)
+            return None, None, []  # Explicit return for code clarity (never reached)
 
 
 # Set group_class so that subgroups created with @main.group() also use AzlinGroup
