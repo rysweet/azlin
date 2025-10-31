@@ -1340,12 +1340,14 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
             except ConfigError as e:
                 click.echo(click.style(f"Configuration error: {e}", fg="red"), err=True)
                 ctx.exit(1)
+                return  # Explicit return for code clarity (never reached)
             except KeyboardInterrupt:
                 click.echo()
                 click.echo(
                     click.style("Setup cancelled. Run 'azlin' again to configure.", fg="yellow")
                 )
                 ctx.exit(130)  # Standard exit code for SIGINT
+                return  # Explicit return for code clarity (never reached)
     except Exception as e:
         # If wizard check fails, log but continue (allow commands to work)
         logger.debug(f"Could not check configuration status: {e}")
@@ -1359,11 +1361,13 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
         except AuthenticationError as e:
             click.echo(f"Error: Authentication failed: {e}", err=True)
             ctx.exit(1)
+            return  # Explicit return for code clarity (never reached)
 
     # If no subcommand provided, show help
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         ctx.exit(0)  # Use ctx.exit() instead of sys.exit() for Click compatibility
+        return  # Explicit return for code clarity (never reached)
 
 
 @main.command(name="help")
