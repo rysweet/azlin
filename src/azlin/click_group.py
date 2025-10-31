@@ -91,9 +91,7 @@ class AzlinGroup(click.Group):
             # Only handle command-not-found errors here
             # Let parameter errors (MissingParameter, BadParameter) propagate
             # so they can be handled by invoke() with proper error messages
-            if isinstance(
-                e, (click.exceptions.MissingParameter, click.exceptions.BadParameter)
-            ):
+            if isinstance(e, (click.exceptions.MissingParameter, click.exceptions.BadParameter)):
                 raise
             # Command not found - show error and help
             click.echo(f"Error: {e.format_message()}", err=True)
