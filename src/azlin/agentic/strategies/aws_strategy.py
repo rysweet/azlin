@@ -226,7 +226,7 @@ class AWSStrategy(ExecutionStrategy):
 
         return True, ""
 
-    def estimate_duration(self, context: ExecutionContext) -> float:
+    def estimate_duration(self, context: ExecutionContext) -> int:
         """Estimate execution duration in seconds.
 
         Args:
@@ -239,23 +239,23 @@ class AWSStrategy(ExecutionStrategy):
 
         # Base estimates for common operations
         if "list" in intent_type or "describe" in intent_type or "get" in intent_type:
-            return 5.0
+            return 5
         if "create" in intent_type or "provision" in intent_type:
             if "ec2" in intent_type or "instance" in intent_type:
-                return 120.0  # EC2 takes ~2 minutes to start
+                return 120  # EC2 takes ~2 minutes to start
             if "rds" in intent_type or "database" in intent_type:
-                return 300.0  # RDS takes ~5 minutes
+                return 300  # RDS takes ~5 minutes
             if "lambda" in intent_type or "function" in intent_type:
-                return 10.0
+                return 10
             if "s3" in intent_type or "bucket" in intent_type:
-                return 3.0
-            return 60.0
+                return 3
+            return 60
         if "delete" in intent_type or "terminate" in intent_type:
-            return 30.0
+            return 30
         if "update" in intent_type or "modify" in intent_type:
-            return 45.0
+            return 45
 
-        return 30.0  # Default
+        return 30  # Default
 
     def _generate_commands(self, context: ExecutionContext) -> list[str]:
         """Generate AWS CLI commands from intent.

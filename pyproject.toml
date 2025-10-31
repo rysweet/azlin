@@ -84,18 +84,19 @@ exclude_lines = [
 ]
 
 [tool.pyright]
-typeCheckingMode = "basic"
+typeCheckingMode = "standard"  # Upgraded from "basic" for better type safety
 pythonVersion = "3.11"
 venvPath = "."
 venv = ".venv"
 include = ["src"]
 exclude = ["**/__pycache__", "**/.pytest_cache", "**/node_modules"]
-reportUnknownParameterType = false
-reportUnknownVariableType = false
-reportUnknownMemberType = false
-reportUnknownArgumentType = false
-reportMissingTypeStubs = false
-reportOptionalMemberAccess = false
+# Enable important type checks (previously all disabled)
+reportUnknownParameterType = "warning"  # Catch parameter type issues
+reportUnknownVariableType = "warning"  # Catch variable type issues
+reportUnknownMemberType = false  # Keep disabled (too noisy with Azure SDK)
+reportUnknownArgumentType = false  # Keep disabled (too noisy with Azure SDK)
+reportMissingTypeStubs = false  # Keep disabled (external libraries)
+reportOptionalMemberAccess = "warning"  # Catch potential None access bugs
 
 [tool.ruff]
 line-length = 100
