@@ -603,7 +603,9 @@ class CLIOrchestrator:
         logger.info(f"Bastion tunnel established on localhost:{local_port}")
         return ("127.0.0.1", local_port, bastion_manager)
 
-    def _wait_for_cloud_init(self, vm_details: VMDetails, key_path: Path, newly_provisioned: bool = True) -> None:
+    def _wait_for_cloud_init(
+        self, vm_details: VMDetails, key_path: Path, newly_provisioned: bool = True
+    ) -> None:
         """Wait for cloud-init to complete on VM.
 
         Supports both direct SSH (public IP) and Bastion tunnels (private IP only).
@@ -644,13 +646,19 @@ class CLIOrchestrator:
             # Determine SSH timeout based on connection type
             # Bastion connections need longer timeout due to tunnel overhead
             ssh_timeout = 600 if bastion_manager else 300
-            logger.debug(f"Using SSH timeout: {ssh_timeout}s ({'Bastion' if bastion_manager else 'Direct SSH'})")
+            logger.debug(
+                f"Using SSH timeout: {ssh_timeout}s ({'Bastion' if bastion_manager else 'Direct SSH'})"
+            )
 
             # Wait for SSH port to be accessible
-            ssh_ready = SSHConnector.wait_for_ssh_ready(host, key_path, port=port, timeout=ssh_timeout, interval=5)
+            ssh_ready = SSHConnector.wait_for_ssh_ready(
+                host, key_path, port=port, timeout=ssh_timeout, interval=5
+            )
 
             if not ssh_ready:
-                raise SSHConnectionError(f"SSH did not become available after {ssh_timeout}s timeout")
+                raise SSHConnectionError(
+                    f"SSH did not become available after {ssh_timeout}s timeout"
+                )
 
             self.progress.update("SSH available, checking cloud-init status...")
 

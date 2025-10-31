@@ -17,13 +17,11 @@ Key Requirements:
 """
 
 import os
-import time
-from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import call, patch
 
 import pytest
 
-from azlin.modules.bastion_manager import BastionManager, BastionManagerError
+from azlin.modules.bastion_manager import BastionManager
 
 
 class TestBastionManagerVMBootWait:
@@ -142,7 +140,7 @@ class TestBastionManagerVMBootWait:
 
         # Assert
         assert hasattr(manager, "wait_for_vm_boot")
-        assert callable(getattr(manager, "wait_for_vm_boot"))
+        assert callable(manager.wait_for_vm_boot)
 
 
 class TestBastionManagerEdgeCases:
@@ -232,6 +230,7 @@ class TestBastionManagerLoggingDetail:
         # Act
         with patch("time.sleep"):
             import logging
+
             with caplog.at_level(logging.INFO):
                 manager.wait_for_vm_boot()
 

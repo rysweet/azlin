@@ -12,7 +12,6 @@ Key Requirements:
 4. New timeout parameter is optional
 """
 
-from pathlib import Path
 import itertools
 from unittest.mock import Mock, patch
 
@@ -101,7 +100,9 @@ class TestSSHConnectorBackwardCompatibility:
     def test_connect_method_signature_backward_compatible(self, ssh_config):
         """Test that connect() method signature is backward compatible."""
         # Arrange
-        with patch("azlin.modules.ssh_connector.SSHConnector.wait_for_ssh_ready", return_value=True):
+        with patch(
+            "azlin.modules.ssh_connector.SSHConnector.wait_for_ssh_ready", return_value=True
+        ):
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = Mock(returncode=0)
 
@@ -219,7 +220,9 @@ class TestSSHConnectorTimeoutBehavior:
                     mock_time.side_effect = itertools.cycle([0, 60, 121])
 
                     result = SSHConnector.wait_for_ssh_ready(
-                        host="192.168.1.100", key_path=key_file, timeout=120  # Custom timeout
+                        host="192.168.1.100",
+                        key_path=key_file,
+                        timeout=120,  # Custom timeout
                     )
 
         # Assert
@@ -246,7 +249,9 @@ class TestSSHConnectorPortDetection:
                 return_value=True,
             ):
                 result = SSHConnector.wait_for_ssh_ready(
-                    host="192.168.1.100", key_path=key_path, port=22  # Standard SSH port
+                    host="192.168.1.100",
+                    key_path=key_path,
+                    port=22,  # Standard SSH port
                 )
 
         # Assert
@@ -261,7 +266,9 @@ class TestSSHConnectorPortDetection:
                 return_value=True,
             ):
                 result = SSHConnector.wait_for_ssh_ready(
-                    host="127.0.0.1", key_path=key_path, port=50022  # Bastion tunnel port
+                    host="127.0.0.1",
+                    key_path=key_path,
+                    port=50022,  # Bastion tunnel port
                 )
 
         # Assert
@@ -376,9 +383,7 @@ class TestSSHConnectorEdgeCases:
 
         # Act & Assert
         with pytest.raises(ValueError, match="timeout.*negative|positive"):
-            SSHConnector.wait_for_ssh_ready(
-                host="192.168.1.100", key_path=key_file, timeout=-10
-            )
+            SSHConnector.wait_for_ssh_ready(host="192.168.1.100", key_path=key_file, timeout=-10)
 
     def test_very_large_timeout_accepted(self, tmp_path):
         """Test that very large timeout values are accepted."""
@@ -394,7 +399,9 @@ class TestSSHConnectorEdgeCases:
                 return_value=True,
             ):
                 result = SSHConnector.wait_for_ssh_ready(
-                    host="192.168.1.100", key_path=key_file, timeout=3600  # 1 hour
+                    host="192.168.1.100",
+                    key_path=key_file,
+                    timeout=3600,  # 1 hour
                 )
 
         # Assert
@@ -415,7 +422,8 @@ class TestSSHConnectorEdgeCases:
             ):
                 # Call without timeout (should use default)
                 result = SSHConnector.wait_for_ssh_ready(
-                    host="192.168.1.100", key_path=key_file  # No timeout specified
+                    host="192.168.1.100",
+                    key_path=key_file,  # No timeout specified
                 )
 
         # Assert
