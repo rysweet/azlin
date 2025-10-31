@@ -392,16 +392,14 @@ class CLIOrchestrator:
                 f"Continue with public IP?"
             )
             if not click.confirm(warning_message, default=False):
-                self.progress.update(
-                    "User cancelled VM creation", ProgressStage.WARNING
-                )
+                self.progress.update("User cancelled VM creation", ProgressStage.WARNING)
                 raise click.Abort
 
             # Log security decision
             SecurityAuditLogger.log_bastion_opt_out(
                 vm_name=vm_name,
                 method="flag",
-                user=None  # Will use system user
+                user=None,  # Will use system user
             )
 
             self.progress.update(
@@ -439,9 +437,7 @@ class CLIOrchestrator:
 
                 # User declined existing bastion - log security decision
                 SecurityAuditLogger.log_bastion_opt_out(
-                    vm_name=vm_name,
-                    method="prompt_existing",
-                    user=None
+                    vm_name=vm_name, method="prompt_existing", user=None
                 )
                 self.progress.update(
                     "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
@@ -472,9 +468,7 @@ class CLIOrchestrator:
 
             # User declined creating bastion - log security decision
             SecurityAuditLogger.log_bastion_opt_out(
-                vm_name=vm_name,
-                method="prompt_create",
-                user=None
+                vm_name=vm_name, method="prompt_create", user=None
             )
             self.progress.update(
                 "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS

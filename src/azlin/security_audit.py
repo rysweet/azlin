@@ -27,9 +27,7 @@ class SecurityAuditLogger:
     AUDIT_FILE = Path.home() / ".azlin" / "security_audit.json"
 
     @classmethod
-    def log_bastion_opt_out(
-        cls, vm_name: str, method: str, user: str | None = None
-    ) -> None:
+    def log_bastion_opt_out(cls, vm_name: str, method: str, user: str | None = None) -> None:
         """Log when a user opts out of using Bastion for VM access.
 
         Creates an audit entry with timestamp, user, VM name, opt-out method,

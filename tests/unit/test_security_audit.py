@@ -39,21 +39,13 @@ class TestSecurityAuditLogger:
         """Test that logging creates audit file if it doesn't exist."""
         assert not audit_file_path.exists()
 
-        SecurityAuditLogger.log_bastion_opt_out(
-            vm_name="test-vm",
-            method="flag",
-            user="testuser"
-        )
+        SecurityAuditLogger.log_bastion_opt_out(vm_name="test-vm", method="flag", user="testuser")
 
         assert audit_file_path.exists()
 
     def test_log_bastion_opt_out_correct_structure(self, audit_file_path):
         """Test that audit entry has correct structure."""
-        SecurityAuditLogger.log_bastion_opt_out(
-            vm_name="test-vm",
-            method="flag",
-            user="testuser"
-        )
+        SecurityAuditLogger.log_bastion_opt_out(vm_name="test-vm", method="flag", user="testuser")
 
         with open(audit_file_path) as f:
             audit_log = json.load(f)
@@ -80,7 +72,7 @@ class TestSecurityAuditLogger:
         SecurityAuditLogger.log_bastion_opt_out(
             vm_name="test-vm",
             method="flag",
-            user=None  # Should use system user
+            user=None,  # Should use system user
         )
 
         with open(audit_file_path) as f:
@@ -88,19 +80,11 @@ class TestSecurityAuditLogger:
 
         entry = audit_log[0]
         # User should be set from environment or 'unknown'
-        assert entry["user"] in [
-            os.getenv("USER"),
-            os.getenv("USERNAME"),
-            "unknown"
-        ]
+        assert entry["user"] in [os.getenv("USER"), os.getenv("USERNAME"), "unknown"]
 
     def test_log_bastion_opt_out_secure_permissions(self, audit_file_path):
         """Test that audit file has secure permissions (0600)."""
-        SecurityAuditLogger.log_bastion_opt_out(
-            vm_name="test-vm",
-            method="flag",
-            user="testuser"
-        )
+        SecurityAuditLogger.log_bastion_opt_out(vm_name="test-vm", method="flag", user="testuser")
 
         # Get file permissions
         file_stat = os.stat(audit_file_path)
@@ -112,24 +96,16 @@ class TestSecurityAuditLogger:
     def test_log_bastion_opt_out_append_entries(self, audit_file_path):
         """Test that multiple logs are appended correctly."""
         # Log first entry
-        SecurityAuditLogger.log_bastion_opt_out(
-            vm_name="vm-1",
-            method="flag",
-            user="user1"
-        )
+        SecurityAuditLogger.log_bastion_opt_out(vm_name="vm-1", method="flag", user="user1")
 
         # Log second entry
         SecurityAuditLogger.log_bastion_opt_out(
-            vm_name="vm-2",
-            method="prompt_existing",
-            user="user2"
+            vm_name="vm-2", method="prompt_existing", user="user2"
         )
 
         # Log third entry
         SecurityAuditLogger.log_bastion_opt_out(
-            vm_name="vm-3",
-            method="prompt_create",
-            user="user3"
+            vm_name="vm-3", method="prompt_create", user="user3"
         )
 
         with open(audit_file_path) as f:
@@ -149,9 +125,7 @@ class TestSecurityAuditLogger:
 
         for i, method in enumerate(methods):
             SecurityAuditLogger.log_bastion_opt_out(
-                vm_name=f"vm-{i}",
-                method=method,
-                user="testuser"
+                vm_name=f"vm-{i}", method=method, user="testuser"
             )
 
         with open(audit_file_path) as f:
@@ -167,11 +141,7 @@ class TestSecurityAuditLogger:
         audit_file_path.write_text("not valid json {{{")
 
         # Should not raise exception, should start fresh
-        SecurityAuditLogger.log_bastion_opt_out(
-            vm_name="test-vm",
-            method="flag",
-            user="testuser"
-        )
+        SecurityAuditLogger.log_bastion_opt_out(vm_name="test-vm", method="flag", user="testuser")
 
         with open(audit_file_path) as f:
             audit_log = json.load(f)
@@ -189,15 +159,9 @@ class TestSecurityAuditLogger:
     def test_get_audit_log_with_entries(self, audit_file_path):
         """Test get_audit_log retrieves all entries."""
         # Add entries
+        SecurityAuditLogger.log_bastion_opt_out(vm_name="vm-1", method="flag", user="user1")
         SecurityAuditLogger.log_bastion_opt_out(
-            vm_name="vm-1",
-            method="flag",
-            user="user1"
-        )
-        SecurityAuditLogger.log_bastion_opt_out(
-            vm_name="vm-2",
-            method="prompt_existing",
-            user="user2"
+            vm_name="vm-2", method="prompt_existing", user="user2"
         )
 
         # Retrieve entries
@@ -225,11 +189,7 @@ class TestSecurityAuditLogger:
 
         assert not audit_dir.exists()
 
-        SecurityAuditLogger.log_bastion_opt_out(
-            vm_name="test-vm",
-            method="flag",
-            user="testuser"
-        )
+        SecurityAuditLogger.log_bastion_opt_out(vm_name="test-vm", method="flag", user="testuser")
 
         assert audit_dir.exists()
         assert audit_file.exists()
@@ -262,11 +222,7 @@ class TestSecurityAuditLoggerIntegration:
         users = ["alice", "bob", "charlie"]
 
         for user in users:
-            SecurityAuditLogger.log_bastion_opt_out(
-                vm_name=f"{user}-vm",
-                method="flag",
-                user=user
-            )
+            SecurityAuditLogger.log_bastion_opt_out(vm_name=f"{user}-vm", method="flag", user=user)
 
         audit_log = SecurityAuditLogger.get_audit_log()
         assert len(audit_log) == 3
@@ -281,9 +237,7 @@ class TestSecurityAuditLoggerIntegration:
 
         for i in range(3):
             SecurityAuditLogger.log_bastion_opt_out(
-                vm_name=f"vm-{i}",
-                method="flag",
-                user="testuser"
+                vm_name=f"vm-{i}", method="flag", user="testuser"
             )
             time.sleep(0.1)  # Small delay to ensure different timestamps
 
