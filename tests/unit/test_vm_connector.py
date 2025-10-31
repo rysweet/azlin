@@ -176,7 +176,7 @@ class TestVMConnector:
         )
         mock_vm_mgr.get_vm.return_value = vm_info
 
-        with pytest.raises(VMConnectorError, match="has no public IP"):
+        with pytest.raises(VMConnectorError, match="has neither public nor private IP"):
             VMConnector._resolve_connection_info(
                 vm_identifier="my-vm",
                 resource_group="my-rg",
