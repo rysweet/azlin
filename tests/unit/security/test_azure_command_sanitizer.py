@@ -53,6 +53,22 @@ class TestPasswordSanitization:
                 "az vm create --admin-password 'My Pass 123'",
                 "az vm create --admin-password '[REDACTED]'",
             ),
+            # EQUALS SIGN SYNTAX - CRITICAL SECURITY FIX
+            # Unquoted with equals
+            (
+                "az vm create --admin-password=Secret123",
+                "az vm create --admin-password=[REDACTED]",
+            ),
+            # Double quoted with equals
+            (
+                'az vm create --admin-password="Secret123"',
+                'az vm create --admin-password="[REDACTED]"',
+            ),
+            # Single quoted with equals
+            (
+                "az vm create --admin-password='Secret123'",
+                "az vm create --admin-password='[REDACTED]'",
+            ),
         ],
     )
     def test_password_parameters_redacted(self, command: str, expected_redacted: str) -> None:
@@ -83,6 +99,143 @@ class TestPasswordSanitization:
         assert "Pass2" not in result
         assert "Pass3" not in result
         assert result.count("[REDACTED]") >= 2
+
+
+class TestEqualsSignSyntax:
+    """Test equals sign parameter syntax (CRITICAL SECURITY FIX).
+
+    These tests verify the fix for the security vulnerability where credentials
+    leaked when using --param=value syntax instead of --param value.
+    """
+
+    @pytest.mark.parametrize(
+        ("command", "expected_redacted"),
+        [
+            # VM passwords
+            (
+                "az vm create --admin-password=Secret123",
+                "az vm create --admin-password=[REDACTED]",
+            ),
+            (
+                'az vm create --admin-password="Secret123"',
+                'az vm create --admin-password="[REDACTED]"',
+            ),
+            (
+                "az vm create --admin-password='Secret123'",
+                "az vm create --admin-password='[REDACTED]'",
+            ),
+            # Key Vault secrets
+            (
+                "az keyvault secret set --secret=TopSecret",
+                "az keyvault secret set --secret=[REDACTED]",
+            ),
+            (
+                'az keyvault secret set --secret="TopSecret"',
+                'az keyvault secret set --secret="[REDACTED]"',
+            ),
+            # Storage keys
+            (
+                "az storage account keys list --account-key=abc123XYZ",
+                "az storage account keys list --account-key=[REDACTED]",
+            ),
+            # SAS tokens
+            (
+                "az storage blob url --sas-token=?sv=2021-01-01",
+                "az storage blob url --sas-token=[REDACTED]",
+            ),
+            # SSH keys
+            (
+                "az vm create --ssh-key-value=ssh-rsa-AAAAB3...",
+                "az vm create --ssh-key-value=[REDACTED]",
+            ),
+            # Client secrets
+            (
+                "az ad sp create-for-rbac --client-secret=MySecret",
+                "az ad sp create-for-rbac --client-secret=[REDACTED]",
+            ),
+            # Connection strings
+            (
+                "az storage blob upload --connection-string=DefaultEndpoints...",
+                "az storage blob upload --connection-string=[REDACTED]",
+            ),
+            # Tokens
+            (
+                "az login --access-token=eyJhbGc...",
+                "az login --access-token=[REDACTED]",
+            ),
+            # Database passwords
+            (
+                "az sql server create --administrator-login-password=DbPass123",
+                "az sql server create --administrator-login-password=[REDACTED]",
+            ),
+        ],
+    )
+    def test_equals_sign_syntax_redacted(self, command: str, expected_redacted: str) -> None:
+        """Test that equals sign syntax is properly redacted."""
+        result = AzureCommandSanitizer.sanitize(command)
+        assert result == expected_redacted
+
+    def test_equals_no_credential_leak(self) -> None:
+        """Test that credentials never leak with equals syntax."""
+        commands_with_secrets = [
+            ("az vm create --admin-password=Secret123", "Secret123"),
+            ('az vm create --admin-password="Secret123"', "Secret123"),
+            ("az keyvault secret set --secret=TopSecret", "TopSecret"),
+            ("az storage account keys list --account-key=abc123", "abc123"),
+        ]
+
+        for command, secret in commands_with_secrets:
+            result = AzureCommandSanitizer.sanitize(command)
+            assert secret not in result, f"Secret '{secret}' leaked in: {result}"
+            assert "[REDACTED]" in result
+
+    def test_mixed_space_and_equals_syntax(self) -> None:
+        """Test command with both space and equals syntax."""
+        command = (
+            "az vm create --name myvm "
+            "--admin-password=Secret123 "
+            "--ssh-key-value 'ssh-rsa AAA...'"
+        )
+        result = AzureCommandSanitizer.sanitize(command)
+
+        # Both should be redacted
+        assert "Secret123" not in result
+        assert "ssh-rsa AAA..." not in result
+        assert result.count("[REDACTED]") == 2
+        # Non-sensitive preserved
+        assert "myvm" in result
+
+    def test_equals_sign_with_complex_values(self) -> None:
+        """Test equals syntax with complex credential values."""
+        complex_values = [
+            "P@ssw0rd!#$%",
+            "Secret-With-Dashes-123",
+            "Key_With_Underscores_456",
+            "MixedCase123UPPER",
+        ]
+
+        for value in complex_values:
+            command = f"az vm create --admin-password={value}"
+            result = AzureCommandSanitizer.sanitize(command)
+            assert value not in result
+            assert "[REDACTED]" in result
+
+    def test_equals_sign_preserves_non_sensitive(self) -> None:
+        """Test that equals syntax preserves non-sensitive parameters."""
+        command = (
+            "az vm create --name=myvm --size=Standard_B2s "
+            "--admin-password=Secret123 --location=eastus"
+        )
+        result = AzureCommandSanitizer.sanitize(command)
+
+        # Sensitive redacted
+        assert "Secret123" not in result
+        assert "[REDACTED]" in result
+
+        # Non-sensitive preserved with equals sign
+        assert "--name=myvm" in result
+        assert "--size=Standard_B2s" in result
+        assert "--location=eastus" in result
 
 
 class TestSSHKeySanitization:

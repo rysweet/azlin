@@ -101,14 +101,15 @@ class AzureCommandSanitizer:
     }
 
     # Regex patterns for parameter-based redaction
-    # Matches: --param-name value or --param-name "quoted value" or --param-name 'quoted value'
+    # Matches: --param-name value or --param-name=value or --param-name="quoted value"
     # Two patterns: one for quoted values, one for unquoted
+    # Uses (?:\s+|=) to match either whitespace OR equals sign
     PARAM_VALUE_QUOTED_PATTERN: ClassVar[Pattern] = re.compile(
-        r'(--[\w-]+)\s+(["' "'" r'])([^"' "'" r']+)\2',
+        r'(--[\w-]+)(?:\s+|=)(["' "'" r'])([^"' "'" r']+)\2',
         re.IGNORECASE,
     )
     PARAM_VALUE_UNQUOTED_PATTERN: ClassVar[Pattern] = re.compile(
-        r'(--[\w-]+)\s+([^\s"' "'" r'-][^\s]*)',
+        r'(--[\w-]+)(?:\s+|=)([^\s"' "'" r'-][^\s]*)',
         re.IGNORECASE,
     )
 
@@ -187,8 +188,11 @@ class AzureCommandSanitizer:
 
             # Check if this parameter is sensitive
             if param in cls.SENSITIVE_PARAMS or cls._is_sensitive_param_name(param):
-                # Redact the value but keep parameter name and quotes
-                return f"{match.group(1)} {quote}{cls.REDACTED}{quote}"
+                # Determine separator (space or equals from original match)
+                full_match = match.group(0)
+                separator = "=" if "=" in full_match[:len(match.group(1)) + 2] else " "
+                # Redact the value but keep parameter name, separator, and quotes
+                return f"{match.group(1)}{separator}{quote}{cls.REDACTED}{quote}"
 
             # Not sensitive, return original
             return match.group(0)
@@ -200,8 +204,11 @@ class AzureCommandSanitizer:
 
             # Check if this parameter is sensitive
             if param in cls.SENSITIVE_PARAMS or cls._is_sensitive_param_name(param):
-                # Redact the value but keep parameter name
-                return f"{match.group(1)} {cls.REDACTED}"
+                # Determine separator (space or equals from original match)
+                full_match = match.group(0)
+                separator = "=" if "=" in full_match[:len(match.group(1)) + 2] else " "
+                # Redact the value but keep parameter name and separator
+                return f"{match.group(1)}{separator}{cls.REDACTED}"
 
             # Not sensitive, return original
             return match.group(0)
