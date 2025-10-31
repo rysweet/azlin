@@ -105,11 +105,11 @@ class AzureCommandSanitizer:
     # Two patterns: one for quoted values, one for unquoted
     # Uses (?:\s+|=) to match either whitespace OR equals sign
     PARAM_VALUE_QUOTED_PATTERN: ClassVar[Pattern] = re.compile(
-        r'(--[\w-]+)(?:\s+|=)(["' "'" r'])([^"' "'" r']+)\2',
+        r'(--[\w-]+)(?:\s+|=)(["' "'" r'])([^"' "'" r"]+)\2",
         re.IGNORECASE,
     )
     PARAM_VALUE_UNQUOTED_PATTERN: ClassVar[Pattern] = re.compile(
-        r'(--[\w-]+)(?:\s+|=)([^\s"' "'" r'-][^\s]*)',
+        r'(--[\w-]+)(?:\s+|=)([^\s"' "'" r"-][^\s]*)",
         re.IGNORECASE,
     )
 
@@ -118,19 +118,19 @@ class AzureCommandSanitizer:
         # Azure Storage connection string
         # Format: DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...
         "azure_connection_string": re.compile(
-            r'DefaultEndpointsProtocol=https[^;\s]*;AccountName=[^;]+;AccountKey=([A-Za-z0-9+/=]+)',
+            r"DefaultEndpointsProtocol=https[^;\s]*;AccountName=[^;]+;AccountKey=([A-Za-z0-9+/=]+)",
             re.IGNORECASE,
         ),
         # Azure SAS token
         # Format: ?sv=2021-01-01&ss=b&srt=sco&sp=rwdlac&...
         "sas_token": re.compile(r'(\?sv=\d{4}-\d{2}-\d{2}[^\s"\']+)', re.IGNORECASE),
         # Base64 encoded secrets (likely keys) - 40+ chars
-        "base64_long": re.compile(r'\b([A-Za-z0-9+/]{40,}={0,2})\b'),
+        "base64_long": re.compile(r"\b([A-Za-z0-9+/]{40,}={0,2})\b"),
         # JWT tokens
         # Format: eyJ...eyJ...signature
-        "jwt": re.compile(r'(eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)'),
+        "jwt": re.compile(r"(eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)"),
         # Azure Active Directory tokens (starts with ey)
-        "aad_token": re.compile(r'\b(ey[A-Za-z0-9_-]{100,})\b'),
+        "aad_token": re.compile(r"\b(ey[A-Za-z0-9_-]{100,})\b"),
     }
 
     @classmethod
@@ -190,7 +190,7 @@ class AzureCommandSanitizer:
             if param in cls.SENSITIVE_PARAMS or cls._is_sensitive_param_name(param):
                 # Determine separator (space or equals from original match)
                 full_match = match.group(0)
-                separator = "=" if "=" in full_match[:len(match.group(1)) + 2] else " "
+                separator = "=" if "=" in full_match[: len(match.group(1)) + 2] else " "
                 # Redact the value but keep parameter name, separator, and quotes
                 return f"{match.group(1)}{separator}{quote}{cls.REDACTED}{quote}"
 
@@ -206,7 +206,7 @@ class AzureCommandSanitizer:
             if param in cls.SENSITIVE_PARAMS or cls._is_sensitive_param_name(param):
                 # Determine separator (space or equals from original match)
                 full_match = match.group(0)
-                separator = "=" if "=" in full_match[:len(match.group(1)) + 2] else " "
+                separator = "=" if "=" in full_match[: len(match.group(1)) + 2] else " "
                 # Redact the value but keep parameter name and separator
                 return f"{match.group(1)}{separator}{cls.REDACTED}"
 
@@ -284,7 +284,7 @@ class AzureCommandSanitizer:
         # Remove ANSI escape sequences
         # Pattern matches: ESC [ ... m (colors, formatting)
         #                  ESC ] ... BEL/ST (OSC sequences like title)
-        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         text = ansi_escape.sub("", text)
 
         # Remove other control characters except newline/tab
@@ -401,10 +401,11 @@ class AzureCommandSanitizer:
 
         for match in cls.PARAM_VALUE_UNQUOTED_PATTERN.finditer(command):
             param = match.group(1).lower()
-            if param in cls.SENSITIVE_PARAMS or cls._is_sensitive_param_name(param):
+            if (
+                param in cls.SENSITIVE_PARAMS or cls._is_sensitive_param_name(param)
+            ) and param not in found_params:
                 # Avoid duplicates
-                if param not in found_params:
-                    found_params.append(param)
+                found_params.append(param)
 
         return found_params
 

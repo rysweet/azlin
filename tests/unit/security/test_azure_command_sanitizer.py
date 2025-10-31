@@ -15,7 +15,6 @@ Test Coverage:
 """
 
 import concurrent.futures
-from typing import Any
 
 import pytest
 
@@ -192,9 +191,7 @@ class TestEqualsSignSyntax:
     def test_mixed_space_and_equals_syntax(self) -> None:
         """Test command with both space and equals syntax."""
         command = (
-            "az vm create --name myvm "
-            "--admin-password=Secret123 "
-            "--ssh-key-value 'ssh-rsa AAA...'"
+            "az vm create --name myvm --admin-password=Secret123 --ssh-key-value 'ssh-rsa AAA...'"
         )
         result = AzureCommandSanitizer.sanitize(command)
 
@@ -343,11 +340,7 @@ class TestCustomDataSanitization:
     def test_custom_data_with_secrets_redacted(self) -> None:
         """Test that custom-data containing secrets is redacted."""
         command = (
-            "az vm create --custom-data '"
-            "#!/bin/bash\\n"
-            "export PASSWORD=SecretPass\\n"
-            "echo Hello\\n"
-            "'"
+            "az vm create --custom-data '#!/bin/bash\\nexport PASSWORD=SecretPass\\necho Hello\\n'"
         )
         result = AzureCommandSanitizer.sanitize(command)
 
@@ -413,10 +406,7 @@ class TestThreadSafety:
 
     def test_concurrent_sanitization(self) -> None:
         """Test that sanitization works correctly with concurrent calls."""
-        commands = [
-            f"az vm create --admin-password Secret{i} --name vm{i}"
-            for i in range(100)
-        ]
+        commands = [f"az vm create --admin-password Secret{i} --name vm{i}" for i in range(100)]
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             results = list(executor.map(AzureCommandSanitizer.sanitize, commands))
@@ -503,11 +493,7 @@ class TestUtilityMethods:
 
     def test_get_sensitive_parameters_in_command(self) -> None:
         """Test extraction of sensitive parameters."""
-        command = (
-            "az vm create --name myvm "
-            "--admin-password Secret "
-            "--ssh-key-value 'key'"
-        )
+        command = "az vm create --name myvm --admin-password Secret --ssh-key-value 'key'"
 
         params = AzureCommandSanitizer.get_sensitive_parameters_in_command(command)
 

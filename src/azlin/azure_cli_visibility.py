@@ -26,6 +26,7 @@ Usage:
     Executing: az vm create --admin-password [REDACTED]
 """
 
+import contextlib
 import logging
 import os
 import subprocess
@@ -36,8 +37,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from rich.console import Console
-from rich.live import Live
-from rich.spinner import Spinner
 from rich.text import Text
 
 from azlin.security import AzureCommandSanitizer
@@ -105,8 +104,7 @@ class CommandSanitizer:
 
         if isinstance(command, list):
             return self._sanitize_list(command)
-        else:
-            return AzureCommandSanitizer.sanitize(command)
+        return AzureCommandSanitizer.sanitize(command)
 
     def _sanitize_list(self, command: list[str]) -> list[str]:
         """Sanitize command provided as list.
@@ -298,10 +296,7 @@ class CommandDisplayFormatter:
             'az vm list'
         """
         # Convert to string if list
-        if isinstance(command, list):
-            cmd_str = " ".join(command)
-        else:
-            cmd_str = command
+        cmd_str = " ".join(command) if isinstance(command, list) else command
 
         # Apply color if supported
         if self.use_color and self.console:
@@ -309,8 +304,7 @@ class CommandDisplayFormatter:
             text = Text("Executing: ", style="bold blue")
             text.append(cmd_str, style="cyan")
             return text  # type: ignore
-        else:
-            return f"Executing: {cmd_str}"
+        return f"Executing: {cmd_str}"
 
 
 # ============================================================================
@@ -575,11 +569,9 @@ class AzureCLIExecutor:
 
         # Start progress indicator
         if self.show_progress:
-            try:
-                self.progress_indicator.start("Executing command")
-            except ProgressError:
+            with contextlib.suppress(ProgressError):
                 # Already active, continue
-                pass
+                self.progress_indicator.start("Executing command")
 
         try:
             # Execute command
@@ -692,11 +684,8 @@ class AzureCLIExecutor:
             command = cmd_spec["command"]
             args = cmd_spec.get("args", [])
 
-            if isinstance(command, str):
-                # Split command string
-                cmd_parts = command.split()
-            else:
-                cmd_parts = list(command)
+            # Split command string
+            cmd_parts = command.split() if isinstance(command, str) else list(command)
 
             full_command = cmd_parts + args
 
@@ -716,11 +705,11 @@ class AzureCLIExecutor:
 # ============================================================================
 
 __all__ = [
-    "CommandSanitizer",
-    "TTYDetector",
-    "CommandDisplayFormatter",
-    "ProgressIndicator",
-    "ProgressError",
-    "ProgressUpdate",
     "AzureCLIExecutor",
+    "CommandDisplayFormatter",
+    "CommandSanitizer",
+    "ProgressError",
+    "ProgressIndicator",
+    "ProgressUpdate",
+    "TTYDetector",
 ]

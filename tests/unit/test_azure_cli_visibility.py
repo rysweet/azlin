@@ -22,12 +22,9 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from pathlib import Path
-from typing import Any
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 import pytest
-
 
 # ============================================================================
 # UNIT TESTS (60%) - Command Sanitization & Core Logic
@@ -284,7 +281,7 @@ class TestProgressIndicator:
 
     def test_progress_cannot_start_twice(self):
         """Test that starting progress twice raises error."""
-        from azlin.azure_cli_visibility import ProgressIndicator, ProgressError
+        from azlin.azure_cli_visibility import ProgressError, ProgressIndicator
 
         indicator = ProgressIndicator()
         indicator.start("Operation 1")
@@ -294,7 +291,7 @@ class TestProgressIndicator:
 
     def test_progress_cannot_update_when_not_active(self):
         """Test that updating inactive progress raises error."""
-        from azlin.azure_cli_visibility import ProgressIndicator, ProgressError
+        from azlin.azure_cli_visibility import ProgressError, ProgressIndicator
 
         indicator = ProgressIndicator()
 
@@ -303,7 +300,7 @@ class TestProgressIndicator:
 
     def test_progress_cannot_stop_when_not_active(self):
         """Test that stopping inactive progress raises error."""
-        from azlin.azure_cli_visibility import ProgressIndicator, ProgressError
+        from azlin.azure_cli_visibility import ProgressError, ProgressIndicator
 
         indicator = ProgressIndicator()
 
@@ -333,7 +330,11 @@ class TestTTYDetection:
 
         detector = TTYDetector()
 
-        with patch.object(sys.stdout, "isatty", return_value=True):
+        # Clear CI environment variables and mock isatty
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(sys.stdout, "isatty", return_value=True),
+        ):
             assert detector.is_tty() is True
 
     def test_is_not_tty_when_stdout_redirected(self):
@@ -369,7 +370,11 @@ class TestTTYDetection:
 
         detector = TTYDetector()
 
-        with patch.object(sys.stdout, "isatty", return_value=True):
+        # Clear CI environment variables and mock isatty
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(sys.stdout, "isatty", return_value=True),
+        ):
             assert detector.supports_color() is True
 
     def test_no_color_when_no_color_env_set(self):
@@ -595,9 +600,7 @@ class TestAzureCLIVisibilityWorkflow:
         """Test handling of command execution failures."""
         from azlin.azure_cli_visibility import AzureCLIExecutor
 
-        mock_run.return_value = Mock(
-            returncode=1, stdout="", stderr="ERROR: VM not found"
-        )
+        mock_run.return_value = Mock(returncode=1, stdout="", stderr="ERROR: VM not found")
 
         executor = AzureCLIExecutor(show_progress=True)
         output_buffer = io.StringIO()
@@ -896,7 +899,7 @@ class TestEdgeCases:
         from azlin.azure_cli_visibility import AzureCLIExecutor
 
         # Should reject or use default
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="timeout"):
             AzureCLIExecutor(timeout=-1)
 
     def test_command_with_special_characters(self):
