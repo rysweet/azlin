@@ -625,7 +625,9 @@ class CLIOrchestrator:
                 self.progress.update(f"Using Bastion tunnel on localhost:{port}")
 
             # Wait for SSH port to be accessible
-            ssh_ready = SSHConnector.wait_for_ssh_ready(host, key_path, timeout=300, interval=5)
+            ssh_ready = SSHConnector.wait_for_ssh_ready(
+                host, key_path, port=port, timeout=300, interval=5
+            )
 
             if not ssh_ready:
                 raise SSHConnectionError("SSH did not become available")
