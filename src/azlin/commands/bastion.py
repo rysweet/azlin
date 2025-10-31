@@ -11,6 +11,7 @@ import sys
 
 import click
 
+from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.modules.bastion_config import BastionConfig, BastionConfigError
 from azlin.modules.bastion_detector import BastionDetector, BastionDetectorError
@@ -18,7 +19,7 @@ from azlin.modules.bastion_detector import BastionDetector, BastionDetectorError
 logger = logging.getLogger(__name__)
 
 
-@click.group(name="bastion")
+@click.group(name="bastion", cls=AzlinGroup)
 def bastion_group():
     """Manage Azure Bastion hosts for secure VM connections.
 

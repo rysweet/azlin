@@ -11,6 +11,7 @@ import sys
 
 import click
 
+from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.tag_manager import TagManager, TagManagerError
 from azlin.vm_manager import VMManager, VMManagerError
@@ -18,7 +19,7 @@ from azlin.vm_manager import VMManager, VMManagerError
 logger = logging.getLogger(__name__)
 
 
-@click.group(name="tag")
+@click.group(name="tag", cls=AzlinGroup)
 def tag_group():
     """Manage Azure VM tags.
 
