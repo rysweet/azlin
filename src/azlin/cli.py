@@ -429,7 +429,9 @@ class CLIOrchestrator:
             self.progress.update(
                 "Checking for Bastion host in resource group...", ProgressStage.IN_PROGRESS
             )
-            bastion_info = BastionDetector.detect_bastion_for_vm("temp-check", resource_group)
+            bastion_info = BastionDetector.detect_bastion_for_vm(
+                "temp-check", resource_group, self.region
+            )
 
             if bastion_info:
                 # Found bastion - prompt user with default=True
@@ -573,7 +575,7 @@ class CLIOrchestrator:
         # Detect Bastion
         logger.info("No public IP - attempting Bastion detection...")
         bastion_info = BastionDetector.detect_bastion_for_vm(
-            vm_details.name, vm_details.resource_group
+            vm_details.name, vm_details.resource_group, vm_details.location
         )
 
         if not bastion_info:
@@ -2290,7 +2292,7 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                     try:
                         # Detect Bastion host for this VM
                         bastion_info = BastionDetector.detect_bastion_for_vm(
-                            vm.name, vm.resource_group
+                            vm.name, vm.resource_group, vm.location
                         )
 
                         if not bastion_info:
