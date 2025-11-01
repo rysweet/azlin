@@ -66,7 +66,7 @@ from azlin.ip_diagnostics import (
     format_diagnostic_report,
 )
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
-from azlin.modules.bastion_detector import BastionDetector
+from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.file_transfer import (
     FileTransfer,
@@ -186,7 +186,7 @@ class CLIOrchestrator:
         # Track resources for cleanup
         self.vm_details: VMDetails | None = None
         self.ssh_keys: Path | None = None
-        self.bastion_info: dict[str, str] | None = None  # Track bastion if detected
+        self.bastion_info: BastionInfo | None = None  # Track bastion if detected
 
     def run(self) -> int:
         """Execute main workflow.
@@ -368,7 +368,7 @@ class CLIOrchestrator:
 
     def _check_bastion_availability(
         self, resource_group: str, vm_name: str
-    ) -> tuple[bool, dict[str, str] | None]:
+    ) -> tuple[bool, BastionInfo | None]:
         """Check if Bastion should be used for VM provisioning.
 
         This method implements the bastion default behavior:
@@ -419,7 +419,10 @@ class CLIOrchestrator:
             self.progress.update(
                 f"Using explicit bastion: {self.bastion_name}", ProgressStage.IN_PROGRESS
             )
-            return (True, {"name": self.bastion_name, "resource_group": resource_group})
+            return (
+                True,
+                {"name": self.bastion_name, "resource_group": resource_group, "location": None},
+            )
 
         # Auto-detect bastion in resource group
         try:
@@ -641,9 +644,7 @@ class CLIOrchestrator:
         # Use Bastion tunnel
         self._wait_for_cloud_init_via_bastion(vm_details, key_path, bastion_info)
 
-    def _wait_for_cloud_init_via_public_ip(
-        self, vm_details: VMDetails, key_path: Path
-    ) -> None:
+    def _wait_for_cloud_init_via_public_ip(self, vm_details: VMDetails, key_path: Path) -> None:
         """Wait for cloud-init via direct public IP access.
 
         Args:
@@ -701,7 +702,7 @@ class CLIOrchestrator:
         )
 
     def _wait_for_cloud_init_via_bastion(
-        self, vm_details: VMDetails, key_path: Path, bastion_info: dict[str, str]
+        self, vm_details: VMDetails, key_path: Path, bastion_info: BastionInfo
     ) -> None:
         """Wait for cloud-init via Bastion tunnel.
 

@@ -16,9 +16,17 @@ Note: Delegates ALL Azure operations to Azure CLI.
 import json
 import logging
 import subprocess
-from typing import Any
+from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
+
+
+class BastionInfo(TypedDict):
+    """Type definition for Bastion information dictionary."""
+
+    name: str
+    resource_group: str
+    location: str | None
 
 
 class BastionDetectorError(Exception):
@@ -66,7 +74,7 @@ class BastionDetector:
     @classmethod
     def detect_bastion_for_vm(
         cls, vm_name: str, resource_group: str, vm_location: str | None = None
-    ) -> dict[str, str] | None:
+    ) -> BastionInfo | None:
         """Detect if a Bastion host is available for VM.
 
         Checks if there's a Bastion host in the same resource group
