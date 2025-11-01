@@ -89,6 +89,8 @@ class RemoteExecutor:
                 f"ConnectTimeout={min(timeout, 10)}",
                 "-i",
                 str(ssh_config.key_path),
+                "-p",
+                str(ssh_config.port),
                 f"{ssh_config.user}@{ssh_config.host}",
                 command,  # Pass command directly, not through shell
             ]
