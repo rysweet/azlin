@@ -658,7 +658,9 @@ class CLIOrchestrator:
         self.progress.update("Waiting for SSH to be available...")
 
         # Wait for SSH port to be accessible (direct public IP access)
-        public_ip: str = vm_details.public_ip  # Type hint - should be non-None
+        # Assert for type narrowing - caller ensures public_ip exists
+        assert vm_details.public_ip is not None, "VM must have public IP for direct SSH access"
+        public_ip: str = vm_details.public_ip
         ssh_ready = SSHConnector.wait_for_ssh_ready(public_ip, key_path, timeout=300, interval=5)
 
         if not ssh_ready:
