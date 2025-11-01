@@ -113,9 +113,11 @@ class BastionDetector:
                 bastion = bastions[0]
 
             logger.info(
-                f"Detected Bastion host '{bastion['name']}' in {resource_group} for VM {vm_name}"
+                f"Detected Bastion host '{bastion['name']}' "
+                f"(region: {bastion.get('location', 'unknown')}) in {resource_group} for VM {vm_name}"
             )
 
+            # Always return location for consistency (may be None if not available)
             return {
                 "name": bastion["name"],
                 "resource_group": resource_group,

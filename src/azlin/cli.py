@@ -491,27 +491,26 @@ class CLIOrchestrator:
         Raises:
             SSHConnectionError: If tunnel creation or cloud-init check fails
         """
-        # Validate VM resource ID
+        # STEP 0: Validate prerequisites (fail-fast)
         if not vm_details.id:
             raise SSHConnectionError(
                 f"VM {vm_details.name} has no resource ID. Cannot create Bastion tunnel."
             )
 
-        # Create Bastion manager
+        # Create Bastion manager (tracks all tunnels for cleanup)
         bastion_mgr = BastionManager()
-        tunnel = None
 
         try:
             # Step 1: Find available port
             self.progress.update("Allocating local port for Bastion tunnel...")
             local_port = bastion_mgr.get_available_port()
 
-            # Step 2: Create tunnel
+            # Step 2: Create tunnel (60s timeout for tunnel establishment)
             self.progress.update(
                 f"Creating Bastion tunnel via {bastion_info['name']} (localhost:{local_port})..."
             )
 
-            tunnel = bastion_mgr.create_tunnel(
+            _tunnel = bastion_mgr.create_tunnel(
                 bastion_name=bastion_info["name"],
                 resource_group=bastion_info["resource_group"],
                 target_vm_id=vm_details.id,
@@ -524,20 +523,27 @@ class CLIOrchestrator:
             self.progress.update("Bastion tunnel established")
 
             # Step 3: Wait for SSH through tunnel
+            # Tunnel is already established, so SSH should be ready quickly
+            # 2-minute timeout (vs 5 minutes for public IP path)
             self.progress.update("Waiting for SSH through Bastion tunnel...")
 
             ssh_ready = SSHConnector.wait_for_ssh_ready(
-                host="127.0.0.1", key_path=key_path, port=local_port, timeout=600, interval=15
+                host="127.0.0.1", key_path=key_path, port=local_port, timeout=120, interval=5
             )
 
             if not ssh_ready:
-                raise SSHConnectionError("SSH did not become available through Bastion tunnel")
+                raise SSHConnectionError(
+                    "SSH did not become available through Bastion tunnel after 120s"
+                )
 
             self.progress.update("SSH available, checking cloud-init status...")
 
             # Step 4: Check cloud-init status (same as public IP path)
             ssh_config = SSHConfig(
-                host="127.0.0.1", port=local_port, user="azureuser", key_path=key_path
+                host="127.0.0.1",
+                port=local_port,
+                user=SSHConnector.DEFAULT_USER,
+                key_path=key_path,
             )
 
             # Wait for cloud-init to complete (check every 10s for up to 3 minutes)
@@ -553,9 +559,11 @@ class CLIOrchestrator:
                         return
 
                     if "status: running" in output:
-                        self.progress.update(
-                            f"cloud-init still running... (attempt {attempt + 1}/{max_attempts})"
-                        )
+                        # Only show progress every 3rd attempt (every 30s) to reduce noise
+                        if attempt % 3 == 0:
+                            self.progress.update(
+                                f"cloud-init still running... (attempt {attempt + 1}/{max_attempts})"
+                            )
                         time.sleep(10)
                     else:
                         self.progress.update(f"cloud-init status: {output.strip()}")
@@ -573,11 +581,12 @@ class CLIOrchestrator:
         except BastionManagerError as e:
             raise SSHConnectionError(f"Bastion tunnel error: {e}") from e
         finally:
-            # Step 5: Always cleanup tunnel
-            if tunnel:
+            # Step 5: Always cleanup ALL tunnels (even if creation failed mid-way)
+            # BastionManager tracks all tunnels, even those that fail during readiness wait
+            if bastion_mgr.active_tunnels:
                 self.progress.update("Closing Bastion tunnel...")
-                bastion_mgr.close_tunnel(tunnel)
-                logger.info("Bastion tunnel closed")
+                bastion_mgr.close_all_tunnels()
+                logger.info("Bastion tunnel(s) closed")
 
     def _show_blocked_files_warning(self, blocked_files: list[str]) -> None:
         """Display warning about blocked files before sync."""
