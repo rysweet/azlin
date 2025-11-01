@@ -33,7 +33,8 @@ class TestNFSAutoDetection:
             mock_list.return_value = [mock_storage_info]
 
             result = orchestrator._resolve_nfs_storage("test-rg", None)
-            assert result == "test-storage"
+            assert isinstance(result, StorageInfo)
+            assert result.name == "test-storage"
 
     def test_single_storage_auto_detected(self, mock_storage_info):
         """Test that single NFS storage is auto-detected."""
@@ -43,7 +44,8 @@ class TestNFSAutoDetection:
             mock_list.return_value = [mock_storage_info]
 
             result = orchestrator._resolve_nfs_storage("test-rg", None)
-            assert result == "test-storage"
+            assert isinstance(result, StorageInfo)
+            assert result.name == "test-storage"
 
     def test_multiple_storages_without_explicit_choice_errors(self, mock_storage_info):
         """Test that multiple NFS storages without explicit choice raises error."""
@@ -86,7 +88,8 @@ class TestNFSAutoDetection:
             mock_list.return_value = [mock_storage_info]
 
             result = orchestrator._resolve_nfs_storage("test-rg", mock_config)
-            assert result == "test-storage"
+            assert isinstance(result, StorageInfo)
+            assert result.name == "test-storage"
 
     def test_explicit_overrides_config(self, mock_storage_info):
         """Test that explicit --nfs-storage overrides config default."""
@@ -110,7 +113,8 @@ class TestNFSAutoDetection:
             ]
 
             result = orchestrator._resolve_nfs_storage("test-rg", mock_config)
-            assert result == "explicit-storage"
+            assert isinstance(result, StorageInfo)
+            assert result.name == "explicit-storage"
 
 
 class TestNFSHomeDirectorySetup:

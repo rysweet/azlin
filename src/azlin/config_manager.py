@@ -591,7 +591,8 @@ class ConfigManager:
                     )
                     return matches[0]
 
-        except ConfigError:
+        except ConfigError as e:
+            logger.debug(f"Config error while finding resource group: {e}")
             pass
         return None
 
@@ -1296,7 +1297,8 @@ class ConfigManager:
             available_groups = [
                 line.strip() for line in result.stdout.strip().split("\n") if line.strip()
             ]
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to list resource groups: {e}")
             pass
 
         resource_group = cls.prompt_resource_group_selection(available_groups)

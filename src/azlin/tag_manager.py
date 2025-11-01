@@ -15,6 +15,7 @@ import re
 import subprocess
 from typing import Any
 
+from azlin.azure_cli_visibility import AzureCLIExecutor
 from azlin.vm_manager import VMInfo
 
 logger = logging.getLogger(__name__)
@@ -433,9 +434,15 @@ class TagManager:
                 ]
             )
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            executor = AzureCLIExecutor(show_progress=False, timeout=30)
+            result = executor.execute(cmd)
 
-            vms_data = json.loads(result.stdout)
+            if not result["success"]:
+                raise subprocess.CalledProcessError(
+                    result["returncode"], cmd, result["stdout"], result["stderr"]
+                )
+
+            vms_data = json.loads(result["stdout"])
 
             # Convert to VMInfo objects using VMManager's parser
             vms = []

@@ -19,6 +19,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import ClassVar
 
+from azlin.azure_cli_visibility import AzureCLIExecutor
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,6 +43,7 @@ class VMConfig:
     admin_username: str = "azureuser"
     disable_password_auth: bool = True
     session_name: str | None = None  # Optional session name for tag management
+    public_ip_enabled: bool = True  # Whether to create a public IP (False for bastion-only VMs)
 
 
 @dataclass
@@ -356,6 +359,8 @@ class VMProvisioner:
         location: str = "westus2",
         size: str = "Standard_E16as_v5",
         ssh_public_key: str | None = None,
+        session_name: str | None = None,
+        public_ip_enabled: bool = True,
     ) -> VMConfig:
         """Create VM configuration with validation.
 
@@ -365,6 +370,8 @@ class VMProvisioner:
             location: Azure region
             size: VM size
             ssh_public_key: SSH public key content
+            session_name: Session name for VM tags (optional)
+            public_ip_enabled: Whether to create a public IP (default: True)
 
         Returns:
             VMConfig object
@@ -391,6 +398,8 @@ class VMProvisioner:
             ssh_public_key=ssh_public_key,
             admin_username="azureuser",
             disable_password_auth=True,
+            session_name=session_name,
+            public_ip_enabled=public_ip_enabled,
         )
 
     def validate_vm_size(self, size: str) -> bool:
@@ -488,21 +497,30 @@ class VMProvisioner:
         if config.ssh_public_key:
             cmd.append(config.ssh_public_key)
 
-        cmd.extend(["--custom-data", cloud_init, "--public-ip-sku", "Standard", "--output", "json"])
+        cmd.extend(["--custom-data", cloud_init])
+
+        # Conditionally add public IP based on configuration
+        if config.public_ip_enabled:
+            cmd.extend(["--public-ip-sku", "Standard"])
+        else:
+            cmd.extend(["--public-ip-address", ""])  # Empty string disables public IP creation
+
+        cmd.append("--output")
+        cmd.append("json")
 
         # Provision VM
         report_progress(f"Provisioning VM: {config.name}")
         report_progress("This will take 3-5 minutes...")
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 minutes
-            check=True,
-        )
+        executor = AzureCLIExecutor(show_progress=True, timeout=600)
+        result = executor.execute(cmd)
 
-        vm_data = json.loads(result.stdout)
+        if not result["success"]:
+            raise subprocess.CalledProcessError(
+                result["returncode"], cmd, result["stdout"], result["stderr"]
+            )
+
+        vm_data = json.loads(result["stdout"])
 
         # Extract VM details
         vm_details = VMDetails(
@@ -554,20 +572,17 @@ class VMProvisioner:
         """
         try:
             # Check if exists first
-            result = subprocess.run(
-                ["az", "group", "exists", "--name", resource_group],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
+            executor = AzureCLIExecutor(show_progress=True, timeout=10)
+            result = executor.execute(["az", "group", "exists", "--name", resource_group])
 
-            if result.stdout.strip().lower() == "true":
+            if result["stdout"].strip().lower() == "true":
                 logger.info(f"Resource group {resource_group} already exists")
                 return True
 
             # Create resource group
             logger.info(f"Creating resource group: {resource_group}")
-            subprocess.run(
+            executor = AzureCLIExecutor(show_progress=True, timeout=30)
+            create_result = executor.execute(
                 [
                     "az",
                     "group",
@@ -578,12 +593,17 @@ class VMProvisioner:
                     location,
                     "--output",
                     "json",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True,
+                ]
             )
+
+            if not create_result["success"]:
+                raise subprocess.CalledProcessError(
+                    create_result["returncode"],
+                    ["az", "group", "create"],
+                    create_result["stdout"],
+                    create_result["stderr"],
+                )
+
             logger.info(f"Resource group {resource_group} created successfully")
             return True
 
@@ -660,7 +680,18 @@ runcmd:
 
   # OPTIMIZATION: Single apt update for both deadsnakes and GitHub CLI
   - apt update
-  - apt install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils gh
+
+  # Install Python 3.12 packages
+  - apt install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils
+
+  # Install GitHub CLI (separate command for explicit error handling)
+  - |
+    if apt install -y gh; then
+      echo "GitHub CLI (gh) installed successfully"
+    else
+      echo "WARNING: GitHub CLI (gh) installation failed - check repository setup"
+    fi
+
   - update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
   - update-alternatives --set python3 /usr/bin/python3.12
   - curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12

@@ -158,11 +158,14 @@ class SSHConnector:
             host: Target hostname/IP
             key_path: Path to SSH private key
             port: SSH port
-            timeout: Maximum wait time in seconds
+            timeout: Maximum wait time in seconds (default: 300)
             interval: Check interval in seconds
 
         Returns:
             bool: True if SSH is ready, False if timed out
+
+        Raises:
+            ValueError: If timeout is negative
 
         Security:
         - Non-blocking socket checks
@@ -177,10 +180,18 @@ class SSHConnector:
             >>> if ready:
             ...     print("SSH is ready")
         """
+        # Validate timeout
+        if timeout < 0:
+            raise ValueError("timeout must be positive (non-negative)")
+
         start_time = time.time()
         attempt = 0
 
-        while (time.time() - start_time) < timeout:
+        while True:
+            current_time = time.time()
+            if (current_time - start_time) >= timeout:
+                break
+
             attempt += 1
 
             # First check if port is open
@@ -189,14 +200,11 @@ class SSHConnector:
 
                 # Then try actual SSH connection
                 if cls._test_ssh_connection(host, key_path, port):
-                    elapsed = time.time() - start_time
+                    elapsed = current_time - start_time
                     logger.info(
                         f"SSH ready on {host}:{port} (after {elapsed:.1f}s, {attempt} attempts)"
                     )
                     return True
-
-            if (time.time() - start_time) >= timeout:
-                break
 
             # Wait before next attempt
             logger.debug(f"SSH not ready, retrying in {interval}s...")

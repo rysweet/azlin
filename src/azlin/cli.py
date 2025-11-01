@@ -25,7 +25,10 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from azlin.modules.storage_manager import StorageInfo
 
 import click
 from rich.console import Console
@@ -41,10 +44,12 @@ from azlin.agentic import (
 )
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
+from azlin.click_group import AzlinGroup
 
 # Auth commands
 from azlin.commands.auth import auth
 
+# Bastion commands
 # Storage commands
 from azlin.commands.bastion import bastion_group
 from azlin.commands.storage import storage_group
@@ -61,6 +66,8 @@ from azlin.ip_diagnostics import (
     format_diagnostic_report,
 )
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
+from azlin.modules.bastion_detector import BastionDetector
+from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -80,8 +87,6 @@ from azlin.modules.notifications import NotificationHandler
 from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
 from azlin.modules.progress import ProgressDisplay, ProgressStage
 from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
-from azlin.modules.bastion_detector import BastionDetector
-from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
 from azlin.prune import PruneManager
@@ -95,6 +100,7 @@ from azlin.remote_exec import (
     TmuxSessionExecutor,
     WCommandExecutor,
 )
+from azlin.security_audit import SecurityAuditLogger
 from azlin.tag_manager import TagManager
 from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 from azlin.vm_connector import VMConnector, VMConnectorError
@@ -143,6 +149,9 @@ class CLIOrchestrator:
         auto_connect: bool = True,
         config_file: str | None = None,
         nfs_storage: str | None = None,
+        session_name: str | None = None,
+        no_bastion: bool = False,
+        bastion_name: str | None = None,
     ):
         """Initialize CLI orchestrator.
 
@@ -154,6 +163,9 @@ class CLIOrchestrator:
             auto_connect: Whether to auto-connect via SSH
             config_file: Configuration file path (optional)
             nfs_storage: NFS storage account name to mount as home directory (optional)
+            session_name: Session name for VM tags (optional)
+            no_bastion: Skip bastion auto-detection and always create public IP (optional)
+            bastion_name: Explicit bastion host name to use (optional)
         """
         self.repo = repo
         self.vm_size = vm_size
@@ -162,6 +174,9 @@ class CLIOrchestrator:
         self.auto_connect = auto_connect
         self.config_file = config_file
         self.nfs_storage = nfs_storage
+        self.session_name = session_name
+        self.no_bastion = no_bastion
+        self.bastion_name = bastion_name
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -171,6 +186,7 @@ class CLIOrchestrator:
         # Track resources for cleanup
         self.vm_details: VMDetails | None = None
         self.ssh_keys: Path | None = None
+        self.bastion_info: dict[str, str] | None = None  # Track bastion if detected
 
     def run(self) -> int:
         """Execute main workflow.
@@ -221,11 +237,11 @@ class CLIOrchestrator:
             except ConfigError:
                 azlin_config = AzlinConfig()
 
-            resolved_nfs = self._resolve_nfs_storage(rg_name, azlin_config)
+            resolved_storage = self._resolve_nfs_storage(rg_name, azlin_config)
 
-            if resolved_nfs:
-                self.progress.start_operation(f"Mounting NFS storage: {resolved_nfs}")
-                self._mount_nfs_storage(vm_details, ssh_key_pair.private_path, resolved_nfs)
+            if resolved_storage:
+                self.progress.start_operation(f"Mounting NFS storage: {resolved_storage.name}")
+                self._mount_nfs_storage(vm_details, ssh_key_pair.private_path, resolved_storage)
                 self.progress.complete(success=True, message="NFS storage mounted")
             else:
                 # Only sync home directory if NOT using NFS storage
@@ -350,6 +366,128 @@ class CLIOrchestrator:
 
         return ssh_key_pair
 
+    def _check_bastion_availability(
+        self, resource_group: str, vm_name: str
+    ) -> tuple[bool, dict[str, str] | None]:
+        """Check if Bastion should be used for VM provisioning.
+
+        This method implements the bastion default behavior:
+        1. If --no-bastion flag is set, skip bastion (return False, None)
+        2. Auto-detect bastion in resource group
+        3. If found, prompt user with default=True
+        4. If not found, prompt to create with default=True
+        5. If user declines, return False to use public IP
+
+        Args:
+            resource_group: Resource group where VM will be created
+            vm_name: Name of the VM being provisioned
+
+        Returns:
+            Tuple of (use_bastion: bool, bastion_info: dict | None)
+            - use_bastion: Whether to provision VM without public IP
+            - bastion_info: Bastion details if available (name, resource_group)
+
+        Raises:
+            No exceptions - all failures result in returning (False, None)
+        """
+        # Skip bastion if --no-bastion flag is set
+        if self.no_bastion:
+            # Confirm with user about security implications
+            warning_message = (
+                f"\nWARNING: --no-bastion flag will create VM '{vm_name}' with PUBLIC IP.\n"
+                f"This exposes your VM directly to the internet, which is LESS SECURE.\n"
+                f"Continue with public IP?"
+            )
+            if not click.confirm(warning_message, default=False):
+                self.progress.update("User cancelled VM creation", ProgressStage.WARNING)
+                raise click.Abort
+
+            # Log security decision
+            SecurityAuditLogger.log_bastion_opt_out(
+                vm_name=vm_name,
+                method="flag",
+                user=None,  # Will use system user
+            )
+
+            self.progress.update(
+                "Skipping bastion (--no-bastion flag set)", ProgressStage.IN_PROGRESS
+            )
+            return (False, None)
+
+        # If explicit bastion name provided, use it
+        if self.bastion_name:
+            self.progress.update(
+                f"Using explicit bastion: {self.bastion_name}", ProgressStage.IN_PROGRESS
+            )
+            return (True, {"name": self.bastion_name, "resource_group": resource_group})
+
+        # Auto-detect bastion in resource group
+        try:
+            self.progress.update(
+                "Checking for Bastion host in resource group...", ProgressStage.IN_PROGRESS
+            )
+            bastion_info = BastionDetector.detect_bastion_for_vm("temp-check", resource_group)
+
+            if bastion_info:
+                # Found bastion - prompt user with default=True
+                message = (
+                    f"\nFound Bastion host '{bastion_info['name']}' in resource group.\n"
+                    f"Use Bastion for secure access (recommended)?\n"
+                    f"  - Bastion: Private VM (no public IP, more secure)\n"
+                    f"  - No Bastion: Public IP (direct SSH, less secure)"
+                )
+                if click.confirm(message, default=True):
+                    self.progress.update(
+                        f"Using Bastion: {bastion_info['name']}", ProgressStage.IN_PROGRESS
+                    )
+                    return (True, bastion_info)
+
+                # User declined existing bastion - log security decision
+                SecurityAuditLogger.log_bastion_opt_out(
+                    vm_name=vm_name, method="prompt_existing", user=None
+                )
+                self.progress.update(
+                    "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
+                )
+                return (False, None)
+            # No bastion found - prompt to create with default=True
+            message = (
+                f"\nNo Bastion host found in resource group '{resource_group}'.\n"
+                f"Create VM with Bastion access?\n"
+                f"  - Yes: More secure (private VM, ~$140/month for Bastion)\n"
+                f"  - No: Less secure (public IP, direct internet access)"
+            )
+            if click.confirm(message, default=True):
+                self.progress.update(
+                    "User requested Bastion but none exists. Please create Bastion first.",
+                    ProgressStage.WARNING,
+                )
+                click.echo(
+                    click.style(
+                        "\nTo create a Bastion host, run:\n"
+                        f"  azlin bastion create --name <bastion-name> --resource-group {resource_group}",
+                        fg="yellow",
+                    )
+                )
+                # For now, fall back to public IP if no bastion exists
+                # TODO: Implement automatic bastion creation
+                return (False, None)
+
+            # User declined creating bastion - log security decision
+            SecurityAuditLogger.log_bastion_opt_out(
+                vm_name=vm_name, method="prompt_create", user=None
+            )
+            self.progress.update(
+                "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
+            )
+            return (False, None)
+
+        except Exception as e:
+            # Any error in detection - fall back to public IP
+            logger.debug(f"Bastion detection failed: {e}")
+            self.progress.update("Bastion detection failed, using public IP", ProgressStage.WARNING)
+            return (False, None)
+
     def _provision_vm(self, vm_name: str, rg_name: str, public_key: str) -> VMDetails:
         """Provision Azure VM with dev tools.
 
@@ -367,6 +505,14 @@ class CLIOrchestrator:
         self.progress.update(f"Creating VM: {vm_name}")
         self.progress.update(f"Region: {self.region}, Size: {self.vm_size}")
 
+        # Check bastion availability and get user preference
+        use_bastion, bastion_info = self._check_bastion_availability(rg_name, vm_name)
+        self.bastion_info = bastion_info  # Store for later use in connection
+
+        # Determine if public IP should be created
+        # Public IP is disabled when using bastion
+        public_ip_enabled = not use_bastion
+
         # Create VM config
         config = self.provisioner.create_vm_config(
             name=vm_name,
@@ -374,6 +520,8 @@ class CLIOrchestrator:
             location=self.region,
             size=self.vm_size,
             ssh_public_key=public_key,
+            session_name=self.session_name,
+            public_ip_enabled=public_ip_enabled,
         )
 
         # Progress callback
@@ -383,14 +531,84 @@ class CLIOrchestrator:
         # Provision VM
         vm_details = self.provisioner.provision_vm(config, progress_callback)
 
-        self.progress.update(f"VM created with IP: {vm_details.public_ip}")
+        # Update progress message based on IP configuration
+        if vm_details.public_ip:
+            self.progress.update(f"VM created with public IP: {vm_details.public_ip}")
+        else:
+            self.progress.update(
+                f"VM created with private IP: {vm_details.private_ip} (Bastion access)"
+            )
 
         return vm_details
 
-    def _wait_for_cloud_init(self, vm_details: VMDetails, key_path: Path) -> None:
+    def _get_ssh_connection_params(
+        self, vm_details: VMDetails
+    ) -> tuple[str, int, BastionManager | None]:
+        """Get SSH connection parameters (host, port, bastion_manager).
+
+        For VMs with public IPs, returns (public_ip, 22, None) for direct connection.
+        For Bastion-only VMs, creates a tunnel and returns (localhost, local_port, bastion_manager).
+
+        Args:
+            vm_details: VM details with IP configuration
+
+        Returns:
+            Tuple of (host, port, bastion_manager_or_none)
+
+        Raises:
+            SSHConnectionError: If no connection method available
+        """
+        # Public IP VMs: Direct SSH
+        if vm_details.public_ip:
+            logger.debug(f"Using direct SSH to {vm_details.public_ip}:22")
+            return (vm_details.public_ip, 22, None)
+
+        # Bastion-only VMs: Create tunnel
+        if not vm_details.private_ip:
+            raise SSHConnectionError("VM has neither public nor private IP")
+
+        # Detect Bastion
+        logger.info("No public IP - attempting Bastion detection...")
+        bastion_info = BastionDetector.detect_bastion_for_vm(
+            vm_details.name, vm_details.resource_group
+        )
+
+        if not bastion_info:
+            raise SSHConnectionError(
+                f"VM {vm_details.name} has no public IP and no Bastion host detected"
+            )
+
+        # Create Bastion tunnel
+        logger.info(f"Creating Bastion tunnel via {bastion_info['name']} to {vm_details.name}...")
+        bastion_manager = BastionManager()
+
+        # Get VM resource ID (needed for Bastion tunnel)
+        if not vm_details.id:
+            raise SSHConnectionError("VM resource ID not available")
+
+        # Allocate local port
+        local_port = bastion_manager.get_available_port()
+
+        # Create tunnel
+        bastion_manager.create_tunnel(
+            bastion_name=bastion_info["name"],
+            resource_group=bastion_info["resource_group"],
+            target_vm_id=vm_details.id,
+            local_port=local_port,
+            remote_port=22,
+            wait_for_ready=True,
+            timeout=30,
+        )
+
+        logger.info(f"Bastion tunnel established on localhost:{local_port}")
+        return ("127.0.0.1", local_port, bastion_manager)
+
+    def _wait_for_cloud_init(
+        self, vm_details: VMDetails, key_path: Path, newly_provisioned: bool = True
+    ) -> None:
         """Wait for cloud-init to complete on VM.
 
-        Supports both direct public IP access and Bastion tunnel access.
+        Supports both direct SSH (public IP) and Bastion tunnels (private IP only).
 
         Args:
             vm_details: VM details (may or may not have public_ip)
@@ -431,23 +649,25 @@ class CLIOrchestrator:
         Args:
             vm_details: VM details with public_ip
             key_path: SSH private key path
+            newly_provisioned: Whether this is a newly provisioned VM (default: True)
+                             If True and using Bastion, waits for VM boot before SSH
 
         Raises:
             SSHConnectionError: If cloud-init check fails
         """
         self.progress.update("Waiting for SSH to be available...")
 
-        # Wait for SSH port to be accessible
+        # Wait for SSH port to be accessible (direct public IP access)
         public_ip: str = vm_details.public_ip  # Type hint - should be non-None
         ssh_ready = SSHConnector.wait_for_ssh_ready(public_ip, key_path, timeout=300, interval=5)
 
         if not ssh_ready:
-            raise SSHConnectionError("SSH did not become available")
+            raise SSHConnectionError("SSH did not become available after 300s timeout")
 
         self.progress.update("SSH available, checking cloud-init status...")
 
         # Check cloud-init status
-        ssh_config = SSHConfig(host=public_ip, user="azureuser", key_path=key_path)
+        ssh_config = SSHConfig(host=public_ip, port=22, user="azureuser", key_path=key_path)
 
         # Wait for cloud-init to complete (check every 10s for up to 3 minutes)
         max_attempts = 18
@@ -692,7 +912,33 @@ class CLIOrchestrator:
             self.progress.update("Home sync failed (unexpected error)", ProgressStage.WARNING)
             logger.exception("Unexpected error during home sync")
 
-    def _resolve_nfs_storage(self, resource_group: str, config: AzlinConfig | None) -> str | None:
+    def _lookup_storage_by_name(self, resource_group: str, storage_name: str) -> "StorageInfo":
+        """Lookup storage by name, raising ValueError if not found.
+
+        Args:
+            resource_group: Resource group to search in
+            storage_name: Name of storage account to find
+
+        Returns:
+            StorageInfo object for the storage account
+
+        Raises:
+            ValueError: If storage account not found in resource group
+        """
+        from azlin.modules.storage_manager import StorageManager
+
+        storages = StorageManager.list_storage(resource_group)
+        storage = next((s for s in storages if s.name == storage_name), None)
+        if not storage:
+            raise ValueError(
+                f"Storage account '{storage_name}' not found in resource group '{resource_group}'. "
+                f"Create it first with: azlin storage create {storage_name}"
+            )
+        return storage
+
+    def _resolve_nfs_storage(
+        self, resource_group: str, config: AzlinConfig | None
+    ) -> "StorageInfo | None":
         """Resolve which NFS storage to use.
 
         Priority:
@@ -706,7 +952,7 @@ class CLIOrchestrator:
             config: Configuration object (optional)
 
         Returns:
-            Storage name or None
+            StorageInfo object or None
 
         Raises:
             ValueError: If multiple storages exist without explicit choice
@@ -715,13 +961,15 @@ class CLIOrchestrator:
 
         # Priority 1: Explicit --nfs-storage option
         if self.nfs_storage:
-            return self.nfs_storage
+            return self._lookup_storage_by_name(resource_group, self.nfs_storage)
 
         # Priority 2: Config file default
         if config and config.default_nfs_storage:
-            return config.default_nfs_storage
+            return self._lookup_storage_by_name(resource_group, config.default_nfs_storage)
 
-        # Priority 3: Auto-detect
+        # Priority 3: Auto-detect (more permissive than explicit/config)
+        # Note: If storage listing fails during auto-detection, we fallback to
+        # home sync instead of failing the entire VM creation operation
         try:
             storages = StorageManager.list_storage(resource_group)
         except Exception as e:
@@ -732,9 +980,9 @@ class CLIOrchestrator:
             return None
         if len(storages) == 1:
             # Auto-detect single storage
-            storage_name = storages[0].name
-            self.progress.update(f"Auto-detected NFS storage: {storage_name}")
-            return storage_name
+            storage = storages[0]
+            self.progress.update(f"Auto-detected NFS storage: {storage.name}")
+            return storage
         # Multiple storages without explicit choice
         storage_names = [s.name for s in storages]
         raise ValueError(
@@ -862,47 +1110,36 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         except Exception as e:
             raise Exception(f"Failed to restore SSH keys: {e}") from e
 
-    def _mount_nfs_storage(self, vm_details: VMDetails, key_path: Path, storage_name: str) -> None:
+    def _mount_nfs_storage(
+        self, vm_details: VMDetails, key_path: Path, storage: "StorageInfo"
+    ) -> None:
         """Mount NFS storage on VM home directory.
 
         Args:
             vm_details: VM details
             key_path: SSH private key path
-            storage_name: Name of the NFS storage account to mount
+            storage: StorageInfo object with NFS storage account details
 
         Raises:
             Exception: If storage mount fails (this is a critical operation)
         """
-        if not vm_details.public_ip:
-            raise Exception("VM has no public IP address, cannot mount NFS storage")
-
         from azlin.modules.nfs_mount_manager import NFSMountManager
         from azlin.modules.storage_manager import StorageManager
 
         try:
-            # Get storage details
-            self.progress.update(f"Fetching storage account: {storage_name}")
+            # Storage details already resolved, use them directly
+            self.progress.update(f"Using storage account: {storage.name}")
 
             # Get resource group (use the VM's resource group)
             rg = vm_details.resource_group
 
-            # List storage accounts to find the one we want
-            accounts = StorageManager.list_storage(rg)
-            storage = next((a for a in accounts if a.name == storage_name), None)
-
-            if not storage:
-                raise Exception(
-                    f"Storage account '{storage_name}' not found in resource group '{rg}'. "
-                    f"Create it first with: azlin storage create {storage_name}"
-                )
-
-            self.progress.update(f"Storage found: {storage.nfs_endpoint}")
+            self.progress.update(f"Storage endpoint: {storage.nfs_endpoint}")
 
             # Configure network access for NFS (must be done before mount)
             self.progress.update("Configuring NFS network access...")
             vm_subnet_id = self._get_vm_subnet_id(vm_details)
             StorageManager.configure_nfs_network_access(
-                storage_account=storage_name,
+                storage_account=storage.name,
                 resource_group=rg,
                 vm_subnet_id=vm_subnet_id,
             )
@@ -946,6 +1183,8 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
     def _setup_github(self, vm_details: VMDetails, key_path: Path) -> None:
         """Setup GitHub on VM and clone repository.
 
+        Supports both direct SSH (public IP) and Bastion tunnels (private IP only).
+
         Args:
             vm_details: VM details
             key_path: SSH private key path
@@ -956,9 +1195,6 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         if not self.repo:
             return
 
-        if not vm_details.public_ip:
-            raise GitHubSetupError("VM has no public IP address")
-
         self.progress.update(f"Setting up GitHub for: {self.repo}")
 
         # Validate repo URL
@@ -966,17 +1202,29 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         if not valid:
             raise GitHubSetupError(f"Invalid repository URL: {message}")
 
-        # Create SSH config
-        ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
+        # Get SSH connection parameters (handles both direct and Bastion)
+        host, port, bastion_manager = self._get_ssh_connection_params(vm_details)
 
-        # Setup GitHub and clone repo
-        self.progress.update("Authenticating with GitHub (may require browser)...")
-        repo_details = GitHubSetupHandler.setup_github_on_vm(ssh_config, self.repo)
+        # Use context manager for automatic Bastion cleanup
+        with contextlib.ExitStack() as stack:
+            # Register bastion_manager cleanup if present
+            if bastion_manager:
+                stack.enter_context(bastion_manager)
+                self.progress.update(f"Using Bastion tunnel on localhost:{port}")
 
-        self.progress.update(f"Repository cloned to: {repo_details.clone_path}")
+            # Create SSH config with port parameter
+            ssh_config = SSHConfig(host=host, port=port, user="azureuser", key_path=key_path)
+
+            # Setup GitHub and clone repo
+            self.progress.update("Authenticating with GitHub (may require browser)...")
+            repo_details = GitHubSetupHandler.setup_github_on_vm(ssh_config, self.repo)
+
+            self.progress.update(f"Repository cloned to: {repo_details.clone_path}")
 
     def _connect_ssh(self, vm_details: VMDetails, key_path: Path) -> int:
         """Connect to VM via SSH with tmux session.
+
+        Handles both direct connections (public IP) and bastion tunneling (private IP).
 
         Args:
             vm_details: VM details
@@ -988,9 +1236,36 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         Raises:
             SSHConnectionError: If connection fails
         """
+        # If VM has no public IP, use bastion
         if not vm_details.public_ip:
-            raise SSHConnectionError("VM has no public IP address")
+            if not self.bastion_info:
+                raise SSHConnectionError(
+                    "VM has no public IP and no Bastion configured. Cannot establish connection."
+                )
 
+            # Use VMConnector which handles bastion tunneling
+            click.echo("\n" + "=" * 60)
+            click.echo(f"Connecting to {vm_details.name} via Bastion...")
+            click.echo(f"Bastion: {self.bastion_info['name']}")
+            click.echo("Starting tmux session 'azlin'")
+            click.echo("=" * 60 + "\n")
+
+            try:
+                VMConnector.connect(
+                    vm_identifier=vm_details.name,
+                    resource_group=vm_details.resource_group,
+                    use_bastion=True,
+                    bastion_name=self.bastion_info["name"],
+                    bastion_resource_group=self.bastion_info["resource_group"],
+                    ssh_key_path=key_path,
+                    use_tmux=True,
+                    tmux_session="azlin",
+                )
+                return 0
+            except VMConnectorError as e:
+                raise SSHConnectionError(f"Bastion connection failed: {e}") from e
+
+        # Direct SSH connection (public IP)
         ssh_config = SSHConfig(host=vm_details.public_ip, user="azureuser", key_path=key_path)
 
         click.echo("\n" + "=" * 60)
@@ -1284,43 +1559,6 @@ def select_vm_for_command(vms: list[VMInfo], command: str) -> VMInfo | None:
         return None
 
 
-class AzlinGroup(click.Group):
-    """Custom Click group that handles -- delimiter for command passthrough."""
-
-    def main(self, *args: Any, **kwargs: Any) -> Any:
-        """Override main to handle -- delimiter before any Click processing."""
-        # Check if -- is in sys.argv BEFORE Click processes anything
-        if "--" in sys.argv:
-            delimiter_idx = sys.argv.index("--")
-            # Store the command for later
-            passthrough_args = sys.argv[delimiter_idx + 1 :]
-            if passthrough_args:
-                # Remove everything from -- onwards so Click doesn't see it
-                sys.argv = sys.argv[:delimiter_idx]
-                # We'll pass this through the context
-                if not hasattr(self, "_passthrough_command"):
-                    self._passthrough_command = " ".join(passthrough_args)
-
-        return super().main(*args, **kwargs)
-
-    def invoke(self, ctx: click.Context) -> Any:
-        """Pass the passthrough command to the context."""
-        if hasattr(self, "_passthrough_command"):
-            ctx.obj = {"passthrough_command": self._passthrough_command}
-        return super().invoke(ctx)
-
-    def resolve_command(
-        self, ctx: click.Context, args: list[str]
-    ) -> tuple[str | None, click.Command | None, list[str]]:
-        """Override to show help when command is not found."""
-        try:
-            return super().resolve_command(ctx, args)
-        except click.UsageError:
-            # Command not found - show help and exit
-            click.echo(ctx.get_help())
-            ctx.exit(1)
-
-
 @click.group(
     cls=AzlinGroup,
     invoke_without_command=True,
@@ -1523,12 +1761,14 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
             except ConfigError as e:
                 click.echo(click.style(f"Configuration error: {e}", fg="red"), err=True)
                 ctx.exit(1)
+                return  # Explicit return for code clarity (never reached)
             except KeyboardInterrupt:
                 click.echo()
                 click.echo(
                     click.style("Setup cancelled. Run 'azlin' again to configure.", fg="yellow")
                 )
                 ctx.exit(130)  # Standard exit code for SIGINT
+                return  # Explicit return for code clarity (never reached)
     except Exception as e:
         # If wizard check fails, log but continue (allow commands to work)
         logger.debug(f"Could not check configuration status: {e}")
@@ -1542,11 +1782,13 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
         except AuthenticationError as e:
             click.echo(f"Error: Authentication failed: {e}", err=True)
             ctx.exit(1)
+            return  # Explicit return for code clarity (never reached)
 
     # If no subcommand provided, show help
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         ctx.exit(0)  # Use ctx.exit() instead of sys.exit() for Click compatibility
+        return  # Explicit return for code clarity (never reached)
 
 
 @main.command(name="help")
@@ -1741,6 +1983,7 @@ def _provision_pool(
             location=final_region,
             size=final_vm_size,
             ssh_public_key=ssh_key_pair.public_key_content,
+            session_name=f"{session_name}-{i + 1:02d}" if session_name else None,
         )
         configs.append(config_item)
 
@@ -1812,6 +2055,10 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
+@click.option(
+    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
+)
+@click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
 def new_command(
     ctx: click.Context,
     repo: str | None,
@@ -1825,6 +2072,8 @@ def new_command(
     config: str | None,
     template: str | None,
     nfs_storage: str | None,
+    no_bastion: bool,
+    bastion_name: str | None,
 ) -> None:
     """Provision a new Azure VM with development tools.
 
@@ -1892,6 +2141,9 @@ def new_command(
         auto_connect=not no_auto_connect,
         config_file=config,
         nfs_storage=nfs_storage,
+        session_name=name,
+        no_bastion=no_bastion,
+        bastion_name=bastion_name,
     )
 
     # Update config state (resource group only, session name saved after VM creation)
@@ -1939,6 +2191,10 @@ def new_command(
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
+@click.option(
+    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
+)
+@click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
 def vm_command(ctx: click.Context, **kwargs: Any) -> Any:
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
@@ -1957,6 +2213,10 @@ def vm_command(ctx: click.Context, **kwargs: Any) -> Any:
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
+@click.option(
+    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
+)
+@click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
 def create_command(ctx: click.Context, **kwargs: Any) -> Any:
     """Alias for 'new' command. Provision a new Azure VM."""
     return ctx.invoke(new_command, **kwargs)
@@ -1964,6 +2224,9 @@ def create_command(ctx: click.Context, **kwargs: Any) -> Any:
 
 def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """Collect tmux sessions from running VMs.
+
+    Supports both direct SSH (VMs with public IPs) and Bastion tunneling
+    (VMs with only private IPs).
 
     Args:
         vms: List of VMInfo objects
@@ -1973,20 +2236,25 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """
     tmux_by_vm: dict[str, list[TmuxSession]] = {}
 
+    ssh_key_path = Path.home() / ".ssh" / "azlin_key"
+    if not ssh_key_path.exists():
+        return tmux_by_vm
+
+    # Classify VMs into direct SSH (public IP) and Bastion (private IP only)
+    direct_ssh_vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+    bastion_vms = [vm for vm in vms if vm.is_running() and vm.private_ip and not vm.public_ip]
+
+    # Handle direct SSH VMs (existing code path)
     try:
-        # Build SSH configs for running VMs only
         ssh_configs = []
         vm_name_map = {}  # Map IP to VM name for result matching
-        ssh_key_path = Path.home() / ".ssh" / "azlin_key"
 
-        if not ssh_key_path.exists():
-            return tmux_by_vm
-
-        for vm in vms:
-            if vm.is_running() and vm.public_ip:
-                ssh_config = SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_path)
-                ssh_configs.append(ssh_config)
-                vm_name_map[vm.public_ip] = vm.name
+        for vm in direct_ssh_vms:
+            # Type assertion: vm.public_ip is guaranteed non-None by direct_ssh_vms filter
+            assert vm.public_ip is not None
+            ssh_config = SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_path)
+            ssh_configs.append(ssh_config)
+            vm_name_map[vm.public_ip] = vm.name
 
         # Query tmux sessions in parallel
         if ssh_configs:
@@ -2004,7 +2272,77 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                     tmux_by_vm[vm_name].append(session)
 
     except Exception as e:
-        logger.warning(f"Failed to fetch tmux sessions: {e}")
+        logger.warning(f"Failed to fetch tmux sessions from direct SSH VMs: {e}")
+
+    # Handle Bastion VMs (new code path)
+    if bastion_vms:
+        try:
+            # Get subscription ID for resource ID generation
+            auth = AzureAuthenticator()
+            subscription_id = auth.get_subscription_id()
+
+            # Use context manager to ensure tunnel cleanup
+            with BastionManager() as bastion_manager:
+                for vm in bastion_vms:
+                    try:
+                        # Detect Bastion host for this VM
+                        bastion_info = BastionDetector.detect_bastion_for_vm(
+                            vm.name, vm.resource_group
+                        )
+
+                        if not bastion_info:
+                            logger.warning(
+                                f"No Bastion host found for VM {vm.name} in {vm.resource_group}"
+                            )
+                            continue
+
+                        # Allocate local port for tunnel
+                        local_port = bastion_manager.get_available_port()
+
+                        # Get VM resource ID
+                        vm_resource_id = vm.get_resource_id(subscription_id)
+
+                        # Create tunnel
+                        bastion_manager.create_tunnel(
+                            bastion_name=bastion_info["name"],
+                            resource_group=bastion_info["resource_group"],
+                            target_vm_id=vm_resource_id,
+                            local_port=local_port,
+                            remote_port=22,
+                            wait_for_ready=True,
+                            timeout=30,
+                        )
+
+                        # Query tmux sessions through tunnel
+                        ssh_config = SSHConfig(
+                            host="127.0.0.1",
+                            port=local_port,
+                            user="azureuser",
+                            key_path=ssh_key_path,
+                        )
+
+                        # Get sessions for this VM
+                        tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
+                            [ssh_config], timeout=5, max_workers=1
+                        )
+
+                        # Add sessions to result
+                        for session in tmux_sessions:
+                            if vm.name not in tmux_by_vm:
+                                tmux_by_vm[vm.name] = []
+                            # Update session VM name to actual VM name (not localhost)
+                            session.vm_name = vm.name
+                            tmux_by_vm[vm.name].append(session)
+
+                    except BastionManagerError as e:
+                        logger.warning(f"Failed to create Bastion tunnel for VM {vm.name}: {e}")
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to fetch tmux sessions from Bastion VM {vm.name}: {e}"
+                        )
+
+        except Exception as e:
+            logger.warning(f"Failed to initialize Bastion support: {e}")
 
     return tmux_by_vm
 
@@ -2016,6 +2354,13 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
 @click.option("--tag", help="Filter VMs by tag (format: key or key=value)", type=str)
 @click.option("--show-quota/--no-quota", default=True, help="Show Azure vCPU quota information")
 @click.option("--show-tmux/--no-tmux", default=True, help="Show active tmux sessions")
+@click.option(
+    "--show-all-vms",
+    "-a",
+    "show_all_vms",
+    help="List all VMs across all resource groups (expensive operation)",
+    is_flag=True,
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -2023,20 +2368,23 @@ def list_command(
     tag: str | None,
     show_quota: bool,
     show_tmux: bool,
+    show_all_vms: bool,
 ):
-    """List VMs in resource group or across all resource groups.
+    """List VMs in a resource group.
 
-    By default, lists all azlin-managed VMs (those with managed-by=azlin tag) across all resource groups.
-    Use --rg to limit to a specific resource group.
+    By default, lists azlin-managed VMs in the configured resource group.
+    Use --show-all-vms (-a) to scan all VMs across all resource groups (expensive).
 
     Shows VM name, status, IP address, region, size, vCPUs, and optionally quota/tmux info.
 
     \b
     Examples:
-        azlin list                    # All azlin VMs across all RGs with quota & tmux
+        azlin list                    # VMs in default RG with quota & tmux
         azlin list --rg my-rg         # VMs in specific RG
         azlin list --all              # Include stopped VMs
         azlin list --tag env=dev      # Filter by tag
+        azlin list --show-all-vms     # All VMs across all RGs (expensive)
+        azlin list -a                 # Same as --show-all-vms
         azlin list --no-quota         # Skip quota information
         azlin list --no-tmux          # Skip tmux session info
     """
@@ -2044,8 +2392,8 @@ def list_command(
         # Get resource group from config or CLI
         rg = ConfigManager.get_resource_group(resource_group, config)
 
-        # Cross-RG discovery: if no RG specified, list all managed VMs
-        if not rg:
+        # Cross-RG discovery: ONLY if --show-all-vms flag is set
+        if not rg and show_all_vms:
             click.echo("Listing all azlin-managed VMs across resource groups...\n")
             try:
                 vms = TagManager.list_managed_vms(resource_group=None)
@@ -2053,18 +2401,24 @@ def list_command(
                     vms = [vm for vm in vms if vm.is_running()]
             except Exception as e:
                 click.echo(
-                    f"Warning: Tag-based discovery failed ({e}).\n"
-                    "Falling back to default resource group.\n",
+                    f"Error: Failed to list VMs across resource groups: {e}\n"
+                    "Use --resource-group or set default in ~/.azlin/config.toml",
                     err=True,
                 )
-                # Fall back to requiring RG
-                click.echo(
-                    "Error: No resource group specified and no default configured.", err=True
-                )
-                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
                 sys.exit(1)
+        elif not rg and not show_all_vms:
+            # No RG and no --show-all-vms flag: require RG or show help
+            click.echo("Error: No resource group specified and no default configured.", err=True)
+            click.echo("Use --resource-group or set default in ~/.azlin/config.toml\n", err=True)
+            click.echo(
+                "To show all VMs accessible by this subscription, run:\n"
+                "  azlin list --show-all-vms\n"
+                "  (or use the short form: azlin list -a)"
+            )
+            sys.exit(1)
         else:
-            # Single RG listing
+            # Single RG listing (rg is guaranteed to be str here)
+            assert rg is not None, "Resource group must be set in this branch"
             click.echo(f"Listing VMs in resource group: {rg}\n")
             vms = VMManager.list_vms(rg, include_stopped=show_all)
             # Filter to azlin VMs
@@ -2082,14 +2436,14 @@ def list_command(
 
         # Populate session names from tags (hybrid resolution: tags first, config fallback)
         for vm in vms:
-            # Try to get from tags first
-            session_from_tag = TagManager.get_session_name(vm.name, vm.resource_group)
-            if session_from_tag:
-                vm.session_name = session_from_tag
+            # Use tags already in memory instead of making N API calls (fixes Issue #219)
+            if vm.tags and TagManager.TAG_SESSION in vm.tags:
+                vm.session_name = vm.tags[TagManager.TAG_SESSION]
             else:
                 # Fall back to config file
                 vm.session_name = ConfigManager.get_session_name(vm.name, config)
 
+        # Display results
         if not vms:
             click.echo("No VMs found.")
             return
@@ -2235,6 +2589,41 @@ def list_command(
             summary_parts.append(f"{total_vcpus} vCPUs in use")
 
         console.print(f"\n[bold]{' | '.join(summary_parts)}[/bold]")
+
+        # Show helpful message if not already showing all VMs
+        if not show_all_vms:
+            console.print(
+                "\n[dim]To show all VMs accessible by this subscription, run:[/dim]\n"
+                "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])"
+            )
+
+        # List Bastion hosts in the same resource group
+        if rg:
+            try:
+                from azlin.modules.bastion_detector import BastionDetector
+
+                bastions = BastionDetector.list_bastions(rg)
+                if bastions:
+                    console.print("\n[bold cyan]Azure Bastion Hosts[/bold cyan]")
+                    bastion_table = Table(show_header=True, header_style="bold magenta")
+                    bastion_table.add_column("Name", style="cyan")
+                    bastion_table.add_column("Location", style="blue")
+                    bastion_table.add_column("SKU", style="green")
+                    bastion_table.add_column("State", style="yellow")
+
+                    for bastion in bastions:
+                        bastion_table.add_row(
+                            bastion.get("name", "Unknown"),
+                            bastion.get("location", "N/A"),
+                            bastion.get("sku", {}).get("name", "N/A"),
+                            bastion.get("provisioningState", "N/A"),
+                        )
+
+                    console.print(bastion_table)
+                    console.print(f"\n[bold]Total: {len(bastions)} Bastion host(s)[/bold]")
+            except Exception as e:
+                # Silently skip if Bastion listing fails
+                logger.debug(f"Bastion listing skipped: {e}")
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)

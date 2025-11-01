@@ -93,25 +93,37 @@ class BastionDetector:
                 logger.debug(f"No Bastion hosts found in resource group: {resource_group}")
                 return None
 
+            # Filter out failed bastions - only use successfully provisioned ones
+            successful_bastions = [
+                b for b in bastions if b.get("provisioningState", "").lower() == "succeeded"
+            ]
+
+            if not successful_bastions:
+                logger.debug(
+                    f"No successfully provisioned Bastion hosts in resource group: {resource_group}"
+                )
+                return None
+
             # If VM location provided, filter Bastions by matching region
             if vm_location:
                 matching_bastions = [
-                    b for b in bastions if b.get("location", "").lower() == vm_location.lower()
+                    b
+                    for b in successful_bastions
+                    if b.get("location", "").lower() == vm_location.lower()
                 ]
 
                 if not matching_bastions:
                     logger.warning(
-                        f"Found {len(bastions)} Bastion(s) in {resource_group}, "
+                        f"Found {len(successful_bastions)} successfully provisioned Bastion(s) in {resource_group}, "
                         f"but none in VM region '{vm_location}'. "
-                        f"Bastion locations: {[b.get('location') for b in bastions]}"
+                        f"Bastion locations: {[b.get('location') for b in successful_bastions]}"
                     )
                     return None
 
                 bastion = matching_bastions[0]
             else:
-                # No location filtering - use first Bastion found
-                bastion = bastions[0]
-
+                # No location filtering - use first successfully provisioned Bastion found
+                bastion = successful_bastions[0]
             logger.info(
                 f"Detected Bastion host '{bastion['name']}' "
                 f"(region: {bastion.get('location', 'unknown')}) in {resource_group} for VM {vm_name}"

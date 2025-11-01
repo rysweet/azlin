@@ -111,7 +111,7 @@ class TestSessionManager:
         # Check session info
         for session_info in sessions:
             if session_info["session_id"] in session_ids:
-                assert session_info["status"] == "active"
+                assert session_info["status"] == "created"  # Sessions start as "created", not "active"
                 assert "statistics" in session_info
 
         # List active only
