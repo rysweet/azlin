@@ -22,7 +22,7 @@ import click
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.connection_tracker import ConnectionTracker
 from azlin.modules.bastion_config import BastionConfig
-from azlin.modules.bastion_detector import BastionDetector
+from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
@@ -411,7 +411,7 @@ class VMConnector:
     @classmethod
     def _check_bastion_routing(
         cls, vm_name: str, resource_group: str, force_bastion: bool
-    ) -> dict[str, str] | None:
+    ) -> BastionInfo | None:
         """Check if Bastion routing should be used for VM.
 
         Checks configuration and auto-detects Bastion hosts.
@@ -445,6 +445,7 @@ class VMConnector:
                 return {
                     "name": mapping.bastion_name,
                     "resource_group": mapping.bastion_resource_group,
+                    "location": None,
                 }
 
         except Exception as e:

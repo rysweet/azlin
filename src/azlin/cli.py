@@ -66,7 +66,7 @@ from azlin.ip_diagnostics import (
     format_diagnostic_report,
 )
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
-from azlin.modules.bastion_detector import BastionDetector
+from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.file_transfer import (
     FileTransfer,
@@ -186,7 +186,7 @@ class CLIOrchestrator:
         # Track resources for cleanup
         self.vm_details: VMDetails | None = None
         self.ssh_keys: Path | None = None
-        self.bastion_info: dict[str, str] | None = None  # Track bastion if detected
+        self.bastion_info: BastionInfo | None = None  # Track bastion if detected
 
     def run(self) -> int:
         """Execute main workflow.
@@ -368,7 +368,7 @@ class CLIOrchestrator:
 
     def _check_bastion_availability(
         self, resource_group: str, vm_name: str
-    ) -> tuple[bool, dict[str, str] | None]:
+    ) -> tuple[bool, BastionInfo | None]:
         """Check if Bastion should be used for VM provisioning.
 
         This method implements the bastion default behavior:
@@ -419,7 +419,10 @@ class CLIOrchestrator:
             self.progress.update(
                 f"Using explicit bastion: {self.bastion_name}", ProgressStage.IN_PROGRESS
             )
-            return (True, {"name": self.bastion_name, "resource_group": resource_group})
+            return (
+                True,
+                {"name": self.bastion_name, "resource_group": resource_group, "location": None},
+            )
 
         # Auto-detect bastion in resource group
         try:
@@ -611,7 +614,41 @@ class CLIOrchestrator:
         Supports both direct SSH (public IP) and Bastion tunnels (private IP only).
 
         Args:
-            vm_details: VM details
+            vm_details: VM details (may or may not have public_ip)
+            key_path: SSH private key path
+
+        Raises:
+            SSHConnectionError: If cloud-init check fails or no access method available
+        """
+        # Path 1: Public IP exists (existing behavior)
+        if vm_details.public_ip:
+            self._wait_for_cloud_init_via_public_ip(vm_details, key_path)
+            return
+
+        # Path 2: No public IP - try Bastion
+        self.progress.update("VM has no public IP, checking for Bastion access...")
+
+        bastion_info = BastionDetector.detect_bastion_for_vm(
+            vm_name=vm_details.name,
+            resource_group=vm_details.resource_group,
+            vm_location=vm_details.location,
+        )
+
+        if not bastion_info:
+            raise SSHConnectionError(
+                f"VM {vm_details.name} has no public IP and no Bastion host found "
+                f"in region '{vm_details.location}'. Cannot access VM for cloud-init check.\n"
+                f"Bastion must be in the same region as the VM."
+            )
+
+        # Use Bastion tunnel
+        self._wait_for_cloud_init_via_bastion(vm_details, key_path, bastion_info)
+
+    def _wait_for_cloud_init_via_public_ip(self, vm_details: VMDetails, key_path: Path) -> None:
+        """Wait for cloud-init via direct public IP access.
+
+        Args:
+            vm_details: VM details with public_ip
             key_path: SSH private key path
             newly_provisioned: Whether this is a newly provisioned VM (default: True)
                              If True and using Bastion, waits for VM boot before SSH
@@ -621,49 +658,116 @@ class CLIOrchestrator:
         """
         self.progress.update("Waiting for SSH to be available...")
 
-        # Get SSH connection parameters (handles both direct and Bastion)
-        host, port, bastion_manager = self._get_ssh_connection_params(vm_details)
+        # Wait for SSH port to be accessible (direct public IP access)
+        # Assert for type narrowing - caller ensures public_ip exists
+        assert vm_details.public_ip is not None, "VM must have public IP for direct SSH access"
+        public_ip: str = vm_details.public_ip
+        ssh_ready = SSHConnector.wait_for_ssh_ready(public_ip, key_path, timeout=300, interval=5)
 
-        # Use context manager for automatic Bastion cleanup
-        with contextlib.ExitStack() as stack:
-            # Register bastion_manager cleanup if present
-            if bastion_manager:
-                stack.enter_context(bastion_manager)
-                self.progress.update(f"Using Bastion tunnel on localhost:{port}")
+        if not ssh_ready:
+            raise SSHConnectionError("SSH did not become available after 300s timeout")
 
-                # Wait for VM boot if this is a newly provisioned VM
-                # This is necessary because Bastion tunnels can be ready before VM SSH service
-                if newly_provisioned:
-                    logger.info("Newly provisioned VM detected - waiting for boot to complete")
-                    self.progress.update("Waiting for VM boot initialization...")
-                    try:
-                        bastion_manager.wait_for_vm_boot()
-                    except KeyboardInterrupt:
-                        logger.info("VM boot wait interrupted by user")
-                        raise
-                    self.progress.update("VM boot wait complete, checking SSH availability...")
+        self.progress.update("SSH available, checking cloud-init status...")
 
-            # Determine SSH timeout based on connection type
-            # Bastion connections need longer timeout due to tunnel overhead
-            ssh_timeout = 600 if bastion_manager else 300
-            logger.debug(
-                f"Using SSH timeout: {ssh_timeout}s ({'Bastion' if bastion_manager else 'Direct SSH'})"
+        # Check cloud-init status
+        ssh_config = SSHConfig(host=public_ip, port=22, user="azureuser", key_path=key_path)
+
+        # Wait for cloud-init to complete (check every 10s for up to 3 minutes)
+        max_attempts = 18
+        for attempt in range(max_attempts):
+            try:
+                output = SSHConnector.execute_remote_command(
+                    ssh_config, "cloud-init status", timeout=30
+                )
+
+                if "status: done" in output:
+                    self.progress.update("cloud-init completed successfully")
+                    return
+                if "status: running" in output:
+                    self.progress.update(
+                        f"cloud-init still running... (attempt {attempt + 1}/{max_attempts})"
+                    )
+                    time.sleep(10)
+                else:
+                    self.progress.update(f"cloud-init status: {output.strip()}")
+                    time.sleep(10)
+
+            except Exception as e:
+                logger.debug(f"Error checking cloud-init status: {e}")
+                time.sleep(10)
+
+        # If we get here, cloud-init didn't complete but we'll proceed anyway
+        self.progress.update(
+            "cloud-init status check timed out, proceeding anyway", ProgressStage.WARNING
+        )
+
+    def _wait_for_cloud_init_via_bastion(
+        self, vm_details: VMDetails, key_path: Path, bastion_info: BastionInfo
+    ) -> None:
+        """Wait for cloud-init via Bastion tunnel.
+
+        Args:
+            vm_details: VM details (must have .id for resource ID)
+            key_path: SSH private key path
+            bastion_info: Dict with 'name' and 'resource_group' keys
+
+        Raises:
+            SSHConnectionError: If tunnel creation or cloud-init check fails
+        """
+        # STEP 0: Validate prerequisites (fail-fast)
+        if not vm_details.id:
+            raise SSHConnectionError(
+                f"VM {vm_details.name} has no resource ID. Cannot create Bastion tunnel."
             )
 
-            # Wait for SSH port to be accessible
+        # Create Bastion manager (tracks all tunnels for cleanup)
+        bastion_mgr = BastionManager()
+
+        try:
+            # Step 1: Find available port
+            self.progress.update("Allocating local port for Bastion tunnel...")
+            local_port = bastion_mgr.get_available_port()
+
+            # Step 2: Create tunnel (60s timeout for tunnel establishment)
+            self.progress.update(
+                f"Creating Bastion tunnel via {bastion_info['name']} (localhost:{local_port})..."
+            )
+
+            _tunnel = bastion_mgr.create_tunnel(
+                bastion_name=bastion_info["name"],
+                resource_group=bastion_info["resource_group"],
+                target_vm_id=vm_details.id,
+                local_port=local_port,
+                remote_port=22,
+                wait_for_ready=True,
+                timeout=60,
+            )
+
+            self.progress.update("Bastion tunnel established")
+
+            # Step 3: Wait for SSH through tunnel
+            # Tunnel is already established, so SSH should be ready quickly
+            # 2-minute timeout (vs 5 minutes for public IP path)
+            self.progress.update("Waiting for SSH through Bastion tunnel...")
+
             ssh_ready = SSHConnector.wait_for_ssh_ready(
-                host, key_path, port=port, timeout=ssh_timeout, interval=5
+                host="127.0.0.1", key_path=key_path, port=local_port, timeout=120, interval=5
             )
 
             if not ssh_ready:
                 raise SSHConnectionError(
-                    f"SSH did not become available after {ssh_timeout}s timeout"
+                    "SSH did not become available through Bastion tunnel after 120s"
                 )
 
             self.progress.update("SSH available, checking cloud-init status...")
 
-            # Check cloud-init status
-            ssh_config = SSHConfig(host=host, port=port, user="azureuser", key_path=key_path)
+            # Step 4: Check cloud-init status (same as public IP path)
+            ssh_config = SSHConfig(
+                host="127.0.0.1",
+                port=local_port,
+                user=SSHConnector.DEFAULT_USER,
+                key_path=key_path,
+            )
 
             # Wait for cloud-init to complete (check every 10s for up to 3 minutes)
             max_attempts = 18
@@ -676,10 +780,13 @@ class CLIOrchestrator:
                     if "status: done" in output:
                         self.progress.update("cloud-init completed successfully")
                         return
+
                     if "status: running" in output:
-                        self.progress.update(
-                            f"cloud-init still running... (attempt {attempt + 1}/{max_attempts})"
-                        )
+                        # Only show progress every 3rd attempt (every 30s) to reduce noise
+                        if attempt % 3 == 0:
+                            self.progress.update(
+                                f"cloud-init still running... (attempt {attempt + 1}/{max_attempts})"
+                            )
                         time.sleep(10)
                     else:
                         self.progress.update(f"cloud-init status: {output.strip()}")
@@ -693,6 +800,16 @@ class CLIOrchestrator:
             self.progress.update(
                 "cloud-init status check timed out, proceeding anyway", ProgressStage.WARNING
             )
+
+        except BastionManagerError as e:
+            raise SSHConnectionError(f"Bastion tunnel error: {e}") from e
+        finally:
+            # Step 5: Always cleanup ALL tunnels (even if creation failed mid-way)
+            # BastionManager tracks all tunnels, even those that fail during readiness wait
+            if bastion_mgr.active_tunnels:
+                self.progress.update("Closing Bastion tunnel...")
+                bastion_mgr.close_all_tunnels()
+                logger.info("Bastion tunnel(s) closed")
 
     def _show_blocked_files_warning(self, blocked_files: list[str]) -> None:
         """Display warning about blocked files before sync."""

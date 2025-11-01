@@ -16,9 +16,17 @@ Note: Delegates ALL Azure operations to Azure CLI.
 import json
 import logging
 import subprocess
-from typing import Any
+from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
+
+
+class BastionInfo(TypedDict):
+    """Type definition for Bastion information dictionary."""
+
+    name: str
+    resource_group: str
+    location: str | None
 
 
 class BastionDetectorError(Exception):
@@ -64,21 +72,24 @@ class BastionDetector:
         return "Azure operation failed"
 
     @classmethod
-    def detect_bastion_for_vm(cls, vm_name: str, resource_group: str) -> dict[str, str] | None:
+    def detect_bastion_for_vm(
+        cls, vm_name: str, resource_group: str, vm_location: str | None = None
+    ) -> BastionInfo | None:
         """Detect if a Bastion host is available for VM.
 
         Checks if there's a Bastion host in the same resource group
-        that can be used to connect to the VM.
+        and region that can be used to connect to the VM.
 
         Args:
             vm_name: VM name
             resource_group: Resource group containing VM
+            vm_location: VM region/location (optional, for region validation)
 
         Returns:
             Dict with bastion_name and resource_group if found, None otherwise
 
         Example:
-            >>> bastion = BastionDetector.detect_bastion_for_vm("my-vm", "my-rg")
+            >>> bastion = BastionDetector.detect_bastion_for_vm("my-vm", "my-rg", "westus")
             >>> if bastion:
             ...     print(f"Found: {bastion['name']}")
         """
@@ -101,15 +112,36 @@ class BastionDetector:
                 )
                 return None
 
-            # Use the first successfully provisioned Bastion found in the RG
-            bastion = successful_bastions[0]
+            # If VM location provided, filter Bastions by matching region
+            if vm_location:
+                matching_bastions = [
+                    b
+                    for b in successful_bastions
+                    if b.get("location", "").lower() == vm_location.lower()
+                ]
+
+                if not matching_bastions:
+                    logger.warning(
+                        f"Found {len(successful_bastions)} successfully provisioned Bastion(s) in {resource_group}, "
+                        f"but none in VM region '{vm_location}'. "
+                        f"Bastion locations: {[b.get('location') for b in successful_bastions]}"
+                    )
+                    return None
+
+                bastion = matching_bastions[0]
+            else:
+                # No location filtering - use first successfully provisioned Bastion found
+                bastion = successful_bastions[0]
             logger.info(
-                f"Detected Bastion host '{bastion['name']}' in {resource_group} for VM {vm_name}"
+                f"Detected Bastion host '{bastion['name']}' "
+                f"(region: {bastion.get('location', 'unknown')}) in {resource_group} for VM {vm_name}"
             )
 
+            # Always return location for consistency (may be None if not available)
             return {
                 "name": bastion["name"],
                 "resource_group": resource_group,
+                "location": bastion.get("location"),
             }
 
         except Exception as e:
