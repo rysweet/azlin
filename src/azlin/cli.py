@@ -569,8 +569,11 @@ class CLIOrchestrator:
             )
             return (False, None)
 
+        except (ProvisioningError, click.Abort):
+            # Re-raise critical errors - don't fall back to public IP
+            raise
         except Exception as e:
-            # Any error in detection - fall back to public IP
+            # Only detection errors (not provisioning/user cancellation) fall back to public IP
             logger.debug(f"Bastion detection failed: {e}")
             self.progress.update("Bastion detection failed, using public IP", ProgressStage.WARNING)
             return (False, None)
