@@ -43,7 +43,7 @@ class TestCLIInteractionHandler:
 
         # Simulate user selecting option 2
         with runner.isolated_filesystem():
-            result = runner.invoke(
+            _result = runner.invoke(
                 click.Command("test", callback=lambda: interaction()),
                 input="2\n",
             )
@@ -68,7 +68,7 @@ class TestCLIInteractionHandler:
 
         # First input invalid (0), then valid (1)
         with runner.isolated_filesystem():
-            result = runner.invoke(
+            _result = runner.invoke(
                 click.Command("test", callback=lambda: interaction()),
                 input="0\n1\n",
             )
@@ -83,7 +83,7 @@ class TestCLIInteractionHandler:
 
         # Just press Enter to accept default
         with runner.isolated_filesystem():
-            result = runner.invoke(
+            _result = runner.invoke(
                 click.Command("test", callback=lambda: interaction()),
                 input="\n",
             )
@@ -98,7 +98,7 @@ class TestCLIInteractionHandler:
 
         # Press 'n' to decline
         with runner.isolated_filesystem():
-            result = runner.invoke(
+            _result = runner.invoke(
                 click.Command("test", callback=lambda: interaction()),
                 input="n\n",
             )

@@ -524,7 +524,7 @@ class TestRollbackScenarios:
         """Test rollback tracking when Bastion provisioning fails."""
         # Arrange
         handler = MockInteractionHandler(choice_responses=[0])
-        orchestrator = ResourceOrchestrator(interaction_handler=handler)
+        _orchestrator = ResourceOrchestrator(interaction_handler=handler)
 
         # Mock Azure CLI - public IP succeeds, Bastion fails
         mock_run.side_effect = [

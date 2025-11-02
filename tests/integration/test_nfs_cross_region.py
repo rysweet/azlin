@@ -605,7 +605,7 @@ class TestResourceOrchestratorNFSDecisions:
 
         # Verify warning and info shown
         warnings = handler.get_interactions_by_type("warning")
-        infos = handler.get_interactions_by_type("info")
+        _infos = handler.get_interactions_by_type("info")
         assert len(warnings) >= 1
         assert any("cross-region" in w["message"].lower() for w in warnings)
 

@@ -764,7 +764,7 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            result = subprocess.run(
+            _result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -811,7 +811,7 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            result = subprocess.run(
+            _result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -859,7 +859,7 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            result = subprocess.run(
+            _result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -913,7 +913,7 @@ class BastionProvisioner:
             ]
             # Bastion creation takes 5-15 minutes - use async execution
             # The command will return immediately and provision in background
-            result = subprocess.run(
+            _result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,

@@ -688,7 +688,6 @@ class TestEndToEndBastionAutoCreation:
                         resource_group=options.resource_group,
                         location=options.region,
                         vnet_name=options.vnet_name,
-                        sku=options.sku,
                         wait_for_completion=True,
                         timeout=10,
                     )

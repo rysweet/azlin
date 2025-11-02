@@ -490,7 +490,7 @@ class NFSProvisioner:
             result = subprocess.run(
                 subnet_id_cmd, capture_output=True, text=True, check=True, timeout=30
             )
-            subnet_id = result.stdout.strip()
+            _subnet_id = result.stdout.strip()
 
             # Create private endpoint
             create_cmd = [
