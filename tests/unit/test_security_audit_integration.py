@@ -91,11 +91,15 @@ class TestSecurityAuditIntegrationWithCLI:
 
     def test_check_bastion_availability_logs_create_decline(self, orchestrator, audit_file_path):
         """Test that declining to create bastion raises Abort (security policy enforcement)."""
+        import click
+
+        from azlin.vm_provisioning import ProvisioningError
+
         # Mock bastion detection to return None (no bastion found)
         with patch("azlin.cli.BastionDetector.detect_bastion_for_vm", return_value=None):
             with patch("azlin.cli.click.confirm", return_value=False):  # User declines creation
                 # With security policy enforcement, declining bastion should raise Abort
-                with pytest.raises(Exception):  # Will be click.Abort or ProvisioningError
+                with pytest.raises((click.Abort, ProvisioningError)):
                     orchestrator._check_bastion_availability(
                         resource_group="test-rg", vm_name="test-vm"
                     )
