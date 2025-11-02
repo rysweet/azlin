@@ -480,7 +480,7 @@ class CLIOrchestrator:
                     # Initialize orchestrator with CLI handler and cost estimator
                     orchestrator = ResourceOrchestrator(
                         interaction_handler=CLIInteractionHandler(),
-                        cost_estimator=CostEstimator(region=self.region),
+                        cost_estimator=CostEstimator(),
                     )
 
                     # Get user decision via orchestrator
@@ -488,7 +488,7 @@ class CLIOrchestrator:
                         BastionOptions(
                             region=self.region,
                             resource_group=resource_group,
-                            vnet_name=None,  # Will auto-create if needed
+                            vnet_name="",  # Will auto-create if needed
                             bastion_subnet_id=None,
                             allow_public_ip_fallback=True,
                         )
@@ -513,7 +513,7 @@ class CLIOrchestrator:
                         if result.success:
                             self.progress.update(
                                 f"Bastion created successfully: {result.bastion_name}",
-                                ProgressStage.COMPLETE,
+                                ProgressStage.COMPLETED,
                             )
                             return (
                                 True,
@@ -526,7 +526,7 @@ class CLIOrchestrator:
                         # Bastion creation failed
                         self.progress.update(
                             f"Bastion creation failed: {result.error_message}",
-                            ProgressStage.ERROR,
+                            ProgressStage.FAILED,
                         )
                         raise ProvisioningError(
                             f"Failed to create Bastion host: {result.error_message}"
@@ -555,7 +555,7 @@ class CLIOrchestrator:
                 except Exception as e:
                     # Handle unexpected orchestration errors
                     logger.error(f"Bastion orchestration failed: {e}")
-                    self.progress.update(f"Bastion creation failed: {e!s}", ProgressStage.ERROR)
+                    self.progress.update(f"Bastion creation failed: {e!s}", ProgressStage.FAILED)
                     raise ProvisioningError(f"Failed to orchestrate Bastion creation: {e!s}") from e
 
             # User declined creating bastion - log security decision
@@ -3399,11 +3399,11 @@ def _execute_vm_deletion(vm_name: str, rg: str, force: bool) -> None:
                 cleanup_results = cleanup_orch.cleanup_orphaned_bastions()
 
                 for cleanup_result in cleanup_results:
-                    if cleanup_result.success:
+                    if cleanup_result.was_successful():
                         click.echo(
                             click.style(
                                 f"✓ Removed {cleanup_result.bastion_name} "
-                                f"(saving ${cleanup_result.monthly_savings:.2f}/month)",
+                                f"(saving ${cleanup_result.estimated_monthly_savings:.2f}/month)",
                                 fg="green",
                             )
                         )
