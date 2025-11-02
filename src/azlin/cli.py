@@ -463,20 +463,23 @@ class CLIOrchestrator:
                 f"  - No: Less secure (public IP, direct internet access)"
             )
             if click.confirm(message, default=True):
+                # User wants Bastion but none exists - abort VM creation
                 self.progress.update(
-                    "User requested Bastion but none exists. Please create Bastion first.",
-                    ProgressStage.WARNING,
+                    "User requested Bastion but none exists in region", ProgressStage.WARNING
                 )
                 click.echo(
                     click.style(
-                        "\nTo create a Bastion host, run:\n"
-                        f"  azlin bastion create --name <bastion-name> --resource-group {resource_group}",
+                        f"\n⚠ No Bastion host found in region '{self.region}'.\n"
+                        f"Cannot create VM without Bastion as requested.\n\n"
+                        f"To create a Bastion host in {self.region}, run:\n"
+                        f"  azlin bastion create --name azlin-bastion-{self.region} "
+                        f"--resource-group {resource_group} --region {self.region}\n\n"
+                        f"Then retry VM creation.\n",
                         fg="yellow",
+                        bold=True,
                     )
                 )
-                # For now, fall back to public IP if no bastion exists
-                # TODO: Implement automatic bastion creation
-                return (False, None)
+                raise click.Abort
 
             # User declined creating bastion - log security decision
             SecurityAuditLogger.log_bastion_opt_out(
