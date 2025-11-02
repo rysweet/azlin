@@ -1002,9 +1002,7 @@ class CLIOrchestrator:
 
         # Filter to only storage accounts in same region as VM
         # Azure network ACLs require storage and VNet to be in same region
-        matching_region_storages = [
-            s for s in storages if s.region.lower() == self.region.lower()
-        ]
+        matching_region_storages = [s for s in storages if s.region.lower() == self.region.lower()]
 
         if len(matching_region_storages) == 0:
             logger.warning(
