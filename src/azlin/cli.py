@@ -68,6 +68,14 @@ from azlin.ip_diagnostics import (
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
 from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
+from azlin.modules.bastion_provisioner import BastionProvisioner, ProvisioningResult
+from azlin.modules.cost_estimator import CostEstimator
+from azlin.modules.interaction_handler import CLIInteractionHandler
+from azlin.modules.resource_orchestrator import (
+    BastionOptions,
+    DecisionAction,
+    ResourceOrchestrator,
+)
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -463,23 +471,95 @@ class CLIOrchestrator:
                 f"  - No: Less secure (public IP, direct internet access)"
             )
             if click.confirm(message, default=True):
-                # User wants Bastion but none exists - abort VM creation
-                self.progress.update(
-                    "User requested Bastion but none exists in region", ProgressStage.WARNING
-                )
-                click.echo(
-                    click.style(
-                        f"\n⚠ No Bastion host found in region '{self.region}'.\n"
-                        f"Cannot create VM without Bastion as requested.\n\n"
-                        f"To create a Bastion host in {self.region}, run:\n"
-                        f"  azlin bastion create --name azlin-bastion-{self.region} "
-                        f"--resource-group {resource_group} --region {self.region}\n\n"
-                        f"Then retry VM creation.\n",
-                        fg="yellow",
-                        bold=True,
+                # User wants Bastion - use orchestrator to create it
+                try:
+                    self.progress.update(
+                        "Preparing to create Bastion host...", ProgressStage.IN_PROGRESS
                     )
-                )
-                raise click.Abort
+
+                    # Initialize orchestrator with CLI handler and cost estimator
+                    orchestrator = ResourceOrchestrator(
+                        interaction_handler=CLIInteractionHandler(),
+                        cost_estimator=CostEstimator(region=self.region),
+                    )
+
+                    # Get user decision via orchestrator
+                    decision = orchestrator.ensure_bastion(
+                        BastionOptions(
+                            region=self.region,
+                            resource_group=resource_group,
+                            vnet_name=None,  # Will auto-create if needed
+                            bastion_subnet_id=None,
+                            allow_public_ip_fallback=True,
+                        )
+                    )
+
+                    if decision.action == DecisionAction.CREATE:
+                        # Create Bastion now
+                        bastion_name = f"azlin-bastion-{self.region}"
+                        self.progress.update(
+                            f"Creating Bastion host '{bastion_name}' (this may take 5-10 minutes)...",
+                            ProgressStage.IN_PROGRESS,
+                        )
+
+                        result = BastionProvisioner.provision_bastion(
+                            bastion_name=bastion_name,
+                            resource_group=resource_group,
+                            location=self.region,
+                            vnet_name=None,  # Auto-create VNet
+                            wait_for_completion=True,  # Wait for Bastion to be ready
+                        )
+
+                        if result.success:
+                            self.progress.update(
+                                f"Bastion created successfully: {result.bastion_name}",
+                                ProgressStage.COMPLETE,
+                            )
+                            return (
+                                True,
+                                {
+                                    "name": result.bastion_name,
+                                    "resource_group": resource_group,
+                                    "location": self.region,
+                                },
+                            )
+                        else:
+                            # Bastion creation failed
+                            self.progress.update(
+                                f"Bastion creation failed: {result.error_message}",
+                                ProgressStage.ERROR,
+                            )
+                            raise ProvisioningError(
+                                f"Failed to create Bastion host: {result.error_message}"
+                            )
+
+                    elif decision.action == DecisionAction.SKIP:
+                        # User chose public IP instead via orchestrator prompt
+                        SecurityAuditLogger.log_bastion_opt_out(
+                            vm_name=vm_name, method="orchestrator_skip", user=None
+                        )
+                        self.progress.update(
+                            "User chose public IP, skipping Bastion", ProgressStage.IN_PROGRESS
+                        )
+                        return (False, None)
+
+                    else:  # CANCEL
+                        self.progress.update("User cancelled operation", ProgressStage.WARNING)
+                        raise click.Abort()
+
+                except ProvisioningError:
+                    # Re-raise provisioning errors
+                    raise
+                except click.Abort:
+                    # Re-raise user cancellation
+                    raise
+                except Exception as e:
+                    # Handle unexpected orchestration errors
+                    logger.error(f"Bastion orchestration failed: {e}")
+                    self.progress.update(
+                        f"Bastion creation failed: {str(e)}", ProgressStage.ERROR
+                    )
+                    raise ProvisioningError(f"Failed to orchestrate Bastion creation: {str(e)}")
 
             # User declined creating bastion - log security decision
             SecurityAuditLogger.log_bastion_opt_out(
@@ -943,16 +1023,12 @@ class CLIOrchestrator:
                 f"Create it first with: azlin storage create {storage_name}"
             )
 
-        # Validate storage is in same region as VM
-        # Azure network ACLs require storage and VNet to be in same region
+        # Note: Cross-region storage is now handled in _mount_nfs_storage()
+        # with private endpoint setup via ResourceOrchestrator
         if storage.region.lower() != self.region.lower():
-            raise ValueError(
+            logger.info(
                 f"Storage account '{storage_name}' is in region '{storage.region}', "
-                f"but VM will be created in region '{self.region}'.\n"
-                f"Azure network ACLs require storage and VNet to be in the same region.\n"
-                f"Either:\n"
-                f"  1. Use a storage account in '{self.region}', or\n"
-                f"  2. Create VM in '{storage.region}' (--region {storage.region})"
+                f"VM will be in region '{self.region}'. Cross-region access will be handled during mount."
             )
 
         return storage
@@ -1000,15 +1076,16 @@ class CLIOrchestrator:
         if len(storages) == 0:
             return None
 
-        # Filter to only storage accounts in same region as VM
-        # Azure network ACLs require storage and VNet to be in same region
+        # Prefer storage accounts in same region as VM for best performance
+        # Cross-region storage will be handled with private endpoint setup if needed
         matching_region_storages = [s for s in storages if s.region.lower() == self.region.lower()]
 
         if len(matching_region_storages) == 0:
             logger.warning(
                 f"Found {len(storages)} NFS storage account(s) in {resource_group}, "
                 f"but none in VM region '{self.region}'. "
-                f"Storage locations: {[s.region for s in storages]}"
+                f"Storage locations: {[s.region for s in storages]}. "
+                f"Cross-region access will require private endpoint setup."
             )
             return None
 
@@ -1026,6 +1103,32 @@ class CLIOrchestrator:
             f"Multiple NFS storage accounts found in region '{self.region}': {', '.join(storage_names)}. "
             f"Please specify one with --nfs-storage or set default_nfs_storage in config."
         )
+
+    def _extract_vnet_info_from_subnet_id(self, subnet_id: str) -> tuple[str, str]:
+        """Extract VNet name and resource group from subnet resource ID.
+
+        Args:
+            subnet_id: Full Azure subnet resource ID
+
+        Returns:
+            Tuple of (vnet_name, resource_group)
+
+        Raises:
+            ValueError: If subnet ID format is invalid
+        """
+        # Subnet ID format: /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet}/subnets/{subnet}
+        import re
+
+        pattern = r"/subscriptions/[^/]+/resourceGroups/([^/]+)/providers/Microsoft\.Network/virtualNetworks/([^/]+)/subnets/[^/]+"
+        match = re.match(pattern, subnet_id)
+
+        if not match:
+            raise ValueError(f"Invalid subnet ID format: {subnet_id}")
+
+        resource_group = match.group(1)
+        vnet_name = match.group(2)
+
+        return vnet_name, resource_group
 
     def _get_vm_subnet_id(self, vm_details: VMDetails) -> str:
         """Get the subnet ID for a VM.
@@ -1152,6 +1255,10 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
     ) -> None:
         """Mount NFS storage on VM home directory.
 
+        Handles both same-region and cross-region storage access:
+        - Same region: Direct mount with network ACL configuration
+        - Cross region: Offers private endpoint setup via orchestrator
+
         Args:
             vm_details: VM details
             key_path: SSH private key path
@@ -1162,6 +1269,12 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         """
         from azlin.modules.nfs_mount_manager import NFSMountManager
         from azlin.modules.storage_manager import StorageManager
+        from azlin.modules.resource_orchestrator import (
+            ResourceOrchestrator,
+            NFSOptions,
+            DecisionAction,
+        )
+        from azlin.modules.interaction_handler import CLIInteractionHandler
 
         try:
             # Storage details already resolved, use them directly
@@ -1172,9 +1285,65 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
 
             self.progress.update(f"Storage endpoint: {storage.nfs_endpoint}")
 
+            # Get VM network information
+            vm_subnet_id = self._get_vm_subnet_id(vm_details)
+            vnet_name, vnet_rg = self._extract_vnet_info_from_subnet_id(vm_subnet_id)
+
+            # Check if cross-region access is needed
+            if storage.region.lower() != vm_details.location.lower():
+                self.progress.update(
+                    f"Storage in {storage.region}, VM in {vm_details.location} - cross-region access required"
+                )
+
+                # Use orchestrator to handle cross-region decision
+                orchestrator = ResourceOrchestrator(
+                    interaction_handler=CLIInteractionHandler()
+                )
+
+                nfs_options = NFSOptions(
+                    region=vm_details.location,
+                    resource_group=rg,
+                    storage_account_name=storage.name,
+                    storage_account_region=storage.region,
+                    share_name="home",
+                    mount_point="/home/azureuser",
+                    cross_region_required=True,
+                )
+
+                decision = orchestrator.ensure_nfs_access(nfs_options)
+
+                if decision.action == DecisionAction.CREATE:
+                    # User wants private endpoint setup
+                    self.progress.update("Setting up cross-region private endpoint access...")
+
+                    from azlin.modules.nfs_provisioner import NFSProvisioner
+
+                    # Setup private endpoint, VNet peering, and DNS
+                    endpoint, peering, dns_zone = NFSProvisioner.setup_private_endpoint_access(
+                        storage_account=storage.name,
+                        storage_resource_group=rg,
+                        target_region=vm_details.location,
+                        target_resource_group=rg,
+                        target_vnet=vnet_name,
+                        target_subnet="default",  # Use default subnet
+                        source_vnet=None,  # No source VNet peering for now
+                        source_resource_group=None,
+                    )
+
+                    self.progress.update(
+                        f"Private endpoint created: {endpoint.name} (IP: {endpoint.private_ip})"
+                    )
+
+                elif decision.action == DecisionAction.SKIP:
+                    # User chose local storage fallback
+                    self.progress.update("Skipping NFS mount - using local storage")
+                    return
+
+                elif decision.action == DecisionAction.CANCEL:
+                    raise Exception("User cancelled cross-region NFS setup")
+
             # Configure network access for NFS (must be done before mount)
             self.progress.update("Configuring NFS network access...")
-            vm_subnet_id = self._get_vm_subnet_id(vm_details)
             StorageManager.configure_nfs_network_access(
                 storage_account=storage.name,
                 resource_group=rg,
@@ -3220,6 +3389,33 @@ def _execute_vm_deletion(vm_name: str, rg: str, force: bool) -> None:
                 click.echo(f"Removed session name mapping for '{vm_name}'")
         except ConfigError:
             pass  # Config cleanup is non-critical
+
+        # Check for orphaned Bastion after VM deletion
+        try:
+            from azlin.modules.cleanup_orchestrator import CleanupOrchestrator
+
+            cleanup_orch = CleanupOrchestrator(
+                resource_group=rg, interaction_handler=CLIInteractionHandler()
+            )
+
+            orphaned = cleanup_orch.detect_orphaned_bastions()
+            if orphaned:
+                click.echo(f"\n🔍 Detected {len(orphaned)} orphaned Bastion host(s)")
+                cleanup_results = cleanup_orch.cleanup_orphaned_bastions()
+
+                for cleanup_result in cleanup_results:
+                    if cleanup_result.success:
+                        click.echo(
+                            click.style(
+                                f"✓ Removed {cleanup_result.bastion_name} "
+                                f"(saving ${cleanup_result.monthly_savings:.2f}/month)",
+                                fg="green",
+                            )
+                        )
+        except Exception as e:
+            # Bastion cleanup is optional - don't fail the entire destroy
+            logger.debug(f"Bastion cleanup check failed: {e}")
+
     else:
         click.echo(f"\nError: {result.message}", err=True)
         sys.exit(1)
