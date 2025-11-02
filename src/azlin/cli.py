@@ -942,6 +942,19 @@ class CLIOrchestrator:
                 f"Storage account '{storage_name}' not found in resource group '{resource_group}'. "
                 f"Create it first with: azlin storage create {storage_name}"
             )
+
+        # Validate storage is in same region as VM
+        # Azure network ACLs require storage and VNet to be in same region
+        if storage.region.lower() != self.region.lower():
+            raise ValueError(
+                f"Storage account '{storage_name}' is in region '{storage.region}', "
+                f"but VM will be created in region '{self.region}'.\n"
+                f"Azure network ACLs require storage and VNet to be in the same region.\n"
+                f"Either:\n"
+                f"  1. Use a storage account in '{self.region}', or\n"
+                f"  2. Create VM in '{storage.region}' (--region {storage.region})"
+            )
+
         return storage
 
     def _resolve_nfs_storage(
@@ -986,15 +999,31 @@ class CLIOrchestrator:
 
         if len(storages) == 0:
             return None
-        if len(storages) == 1:
-            # Auto-detect single storage
-            storage = storages[0]
-            self.progress.update(f"Auto-detected NFS storage: {storage.name}")
+
+        # Filter to only storage accounts in same region as VM
+        # Azure network ACLs require storage and VNet to be in same region
+        matching_region_storages = [s for s in storages if s.region.lower() == self.region.lower()]
+
+        if len(matching_region_storages) == 0:
+            logger.warning(
+                f"Found {len(storages)} NFS storage account(s) in {resource_group}, "
+                f"but none in VM region '{self.region}'. "
+                f"Storage locations: {[s.region for s in storages]}"
+            )
+            return None
+
+        if len(matching_region_storages) == 1:
+            # Auto-detect single storage in matching region
+            storage = matching_region_storages[0]
+            self.progress.update(
+                f"Auto-detected NFS storage: {storage.name} (region: {storage.region})"
+            )
             return storage
-        # Multiple storages without explicit choice
-        storage_names = [s.name for s in storages]
+
+        # Multiple storages in same region without explicit choice
+        storage_names = [s.name for s in matching_region_storages]
         raise ValueError(
-            f"Multiple NFS storage accounts found: {', '.join(storage_names)}. "
+            f"Multiple NFS storage accounts found in region '{self.region}': {', '.join(storage_names)}. "
             f"Please specify one with --nfs-storage or set default_nfs_storage in config."
         )
 
