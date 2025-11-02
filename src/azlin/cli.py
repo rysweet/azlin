@@ -479,7 +479,7 @@ class CLIOrchestrator:
                         bold=True,
                     )
                 )
-                raise click.Abort()
+                raise click.Abort
 
             # User declined creating bastion - log security decision
             SecurityAuditLogger.log_bastion_opt_out(
