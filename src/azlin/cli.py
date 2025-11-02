@@ -584,6 +584,9 @@ class CLIOrchestrator:
             )
             raise click.Abort
 
+        except (ProvisioningError, click.Abort):
+            # Re-raise critical errors - don't fall back to public IP
+            raise
         except Exception as e:
             # Any error in detection - abort (no public IP fallback)
             logger.error(f"Bastion detection failed: {e}")

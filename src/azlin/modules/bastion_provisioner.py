@@ -133,8 +133,10 @@ class BastionProvisioner:
     # Azure Bastion constants
     BASTION_SUBNET_NAME = "AzureBastionSubnet"
     BASTION_SUBNET_PREFIX_LENGTH = 26  # /26 minimum (64 addresses)
+    DEFAULT_SUBNET_NAME = "default"  # Default subnet for VMs
     DEFAULT_VNET_PREFIX = "10.0.0.0/16"
     DEFAULT_BASTION_SUBNET_PREFIX = "10.0.1.0/26"
+    DEFAULT_VM_SUBNET_PREFIX = "10.0.0.0/24"  # Default subnet for VMs
 
     # Timeouts
     DEFAULT_PROVISIONING_TIMEOUT = 900  # 15 minutes
@@ -736,7 +738,10 @@ class BastionProvisioner:
         location: str,
         address_prefix: str,
     ) -> None:
-        """Create VNet.
+        """Create VNet with default subnet for VMs.
+
+        Creates a VNet with a default subnet that VMs can use.
+        The AzureBastionSubnet will be created separately.
 
         Args:
             vnet_name: VNet name
@@ -748,6 +753,7 @@ class BastionProvisioner:
             BastionProvisionerError: If creation fails
         """
         try:
+            # Create VNet with default subnet for VMs
             cmd = [
                 "az",
                 "network",
@@ -761,6 +767,10 @@ class BastionProvisioner:
                 location,
                 "--address-prefix",
                 address_prefix,
+                "--subnet-name",
+                cls.DEFAULT_SUBNET_NAME,
+                "--subnet-prefix",
+                cls.DEFAULT_VM_SUBNET_PREFIX,
                 "--output",
                 "json",
             ]
@@ -771,7 +781,7 @@ class BastionProvisioner:
                 timeout=cls.DEFAULT_COMMAND_TIMEOUT,
                 check=True,
             )
-            logger.debug(f"VNet created: {vnet_name}")
+            logger.debug(f"VNet created with default subnet: {vnet_name}")
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr or "")
             raise BastionProvisionerError(f"Failed to create VNet: {safe_error}") from e
@@ -911,13 +921,13 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            # Bastion creation takes 5-15 minutes - use async execution
-            # The command will return immediately and provision in background
+            # Bastion creation takes 5-15 minutes - use proper timeout
+            # The command will return when provisioning starts
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=120,  # Command itself should return quickly
+                timeout=cls.DEFAULT_PROVISIONING_TIMEOUT,  # Use full provisioning timeout (900s)
                 check=True,
             )
             logger.debug(f"Bastion creation initiated: {bastion_name}")

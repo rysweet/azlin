@@ -754,14 +754,11 @@ class ResourceOrchestrator:
 
         # Use cost estimator
         try:
-            estimate = self.cost_estimator.estimate(
-                {
-                    "bastion_sku": sku,
-                }
-            )
+            monthly_cost = self.cost_estimator.estimate_bastion_cost(sku)
+            hourly_cost = Decimal(str(monthly_cost)) / Decimal("730")
             return {
-                "hourly": estimate.total_hourly,
-                "monthly": estimate.total_monthly,
+                "hourly": hourly_cost,
+                "monthly": Decimal(str(monthly_cost)),
             }
         except Exception as e:
             logger.warning("Cost estimation failed: %s, using defaults", e)
@@ -803,15 +800,11 @@ class ResourceOrchestrator:
 
         # Use cost estimator
         try:
-            estimate = self.cost_estimator.estimate(
-                {
-                    "private_endpoint": 1,
-                    "data_transfer_gb": 100,  # Estimated monthly transfer
-                }
-            )
+            monthly_cost = self.cost_estimator.estimate_private_endpoint_cost(100)
+            hourly_cost = Decimal(str(monthly_cost)) / Decimal("730")
             return {
-                "hourly": estimate.total_hourly,
-                "monthly": estimate.total_monthly,
+                "hourly": hourly_cost,
+                "monthly": Decimal(str(monthly_cost)),
             }
         except Exception as e:
             logger.warning("Cost estimation failed: %s, using defaults", e)
