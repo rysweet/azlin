@@ -488,8 +488,10 @@ class CLIOrchestrator:
                         BastionOptions(
                             region=self.region,
                             resource_group=resource_group,
-                            vnet_name="",  # Will auto-create if needed
+                            vnet_name=None,  # Will auto-create VNet if needed
+                            vnet_id=None,
                             bastion_subnet_id=None,
+                            sku="Basic",
                             allow_public_ip_fallback=True,
                         )
                     )
