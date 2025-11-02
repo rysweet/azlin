@@ -13,7 +13,6 @@ These tests verify component integration with mocked Azure CLI.
 
 import json
 import subprocess
-from datetime import datetime
 from unittest.mock import Mock, patch
 
 import pytest
@@ -22,9 +21,8 @@ from azlin.modules.cost_estimator import CostEstimator
 from azlin.modules.interaction_handler import MockInteractionHandler
 from azlin.modules.nfs_provisioner import (
     AccessStrategy,
-    NFSProvisioner,
-    NFSProvisionerError,
     NetworkConfigurationError,
+    NFSProvisioner,
     ValidationError,
 )
 from azlin.modules.resource_orchestrator import (
@@ -232,13 +230,13 @@ class TestPrivateEndpointCreation:
             # Create private endpoint
             Mock(
                 returncode=0,
-                stdout=json.dumps({
-                    "name": "my-pe",
-                    "provisioningState": "Succeeded",
-                    "customDnsConfigs": [
-                        {"ipAddresses": ["10.0.1.5"]}
-                    ],
-                }),
+                stdout=json.dumps(
+                    {
+                        "name": "my-pe",
+                        "provisioningState": "Succeeded",
+                        "customDnsConfigs": [{"ipAddresses": ["10.0.1.5"]}],
+                    }
+                ),
             ),
         ]
 
@@ -310,10 +308,12 @@ class TestVNetPeeringCreation:
             # Create local->remote peering
             Mock(
                 returncode=0,
-                stdout=json.dumps({
-                    "name": "local-to-remote",
-                    "peeringState": "Connected",
-                }),
+                stdout=json.dumps(
+                    {
+                        "name": "local-to-remote",
+                        "peeringState": "Connected",
+                    }
+                ),
             ),
             # Get local VNet resource ID
             Mock(
@@ -441,21 +441,25 @@ class TestCompletePrivateEndpointSetup:
             # Create private endpoint
             Mock(
                 returncode=0,
-                stdout=json.dumps({
-                    "name": "storage-pe-westus",
-                    "provisioningState": "Succeeded",
-                    "customDnsConfigs": [{"ipAddresses": ["10.0.1.5"]}],
-                }),
+                stdout=json.dumps(
+                    {
+                        "name": "storage-pe-westus",
+                        "provisioningState": "Succeeded",
+                        "customDnsConfigs": [{"ipAddresses": ["10.0.1.5"]}],
+                    }
+                ),
             ),
             # VNet peering - remote VNet ID
             Mock(returncode=0, stdout="/subscriptions/.../source-vnet\n"),
             # VNet peering - create local->remote
             Mock(
                 returncode=0,
-                stdout=json.dumps({
-                    "name": "target-vnet-to-source-vnet",
-                    "peeringState": "Connected",
-                }),
+                stdout=json.dumps(
+                    {
+                        "name": "target-vnet-to-source-vnet",
+                        "peeringState": "Connected",
+                    }
+                ),
             ),
             # VNet peering - local VNet ID
             Mock(returncode=0, stdout="/subscriptions/.../target-vnet\n"),
@@ -510,11 +514,13 @@ class TestCompletePrivateEndpointSetup:
             # Create private endpoint
             Mock(
                 returncode=0,
-                stdout=json.dumps({
-                    "name": "storage-pe-westus",
-                    "provisioningState": "Succeeded",
-                    "customDnsConfigs": [{"ipAddresses": ["10.0.1.5"]}],
-                }),
+                stdout=json.dumps(
+                    {
+                        "name": "storage-pe-westus",
+                        "provisioningState": "Succeeded",
+                        "customDnsConfigs": [{"ipAddresses": ["10.0.1.5"]}],
+                    }
+                ),
             ),
             # DNS configuration steps (no peering)
             Mock(returncode=0),  # Create zone
@@ -725,9 +731,7 @@ class TestEndToEndCrossRegionNFS:
 
     @patch("subprocess.run")
     @patch("azlin.modules.nfs_provisioner.StorageManager.get_storage")
-    def test_complete_workflow_private_endpoint_setup(
-        self, mock_get_storage, mock_run
-    ):
+    def test_complete_workflow_private_endpoint_setup(self, mock_get_storage, mock_run):
         """Test complete workflow: analyze -> prompt -> setup private endpoint."""
         # Arrange
         mock_get_storage.return_value = Mock(size_gb=100, tier="Premium")
@@ -751,11 +755,13 @@ class TestEndToEndCrossRegionNFS:
             Mock(returncode=0, stdout="/subscriptions/.../subnet\n"),
             Mock(
                 returncode=0,
-                stdout=json.dumps({
-                    "name": "mystorageacct-pe-westus",
-                    "provisioningState": "Succeeded",
-                    "customDnsConfigs": [{"ipAddresses": ["10.0.1.5"]}],
-                }),
+                stdout=json.dumps(
+                    {
+                        "name": "mystorageacct-pe-westus",
+                        "provisioningState": "Succeeded",
+                        "customDnsConfigs": [{"ipAddresses": ["10.0.1.5"]}],
+                    }
+                ),
             ),
             # DNS configuration
             Mock(returncode=0),  # Create zone

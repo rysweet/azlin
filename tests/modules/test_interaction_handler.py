@@ -1,12 +1,12 @@
 """Tests for interaction handler module."""
 
+import click
 import pytest
 from click.testing import CliRunner
-import click
 
 from azlin.modules.interaction_handler import (
-    InteractionHandler,
     CLIInteractionHandler,
+    InteractionHandler,
     MockInteractionHandler,
 )
 
@@ -111,9 +111,7 @@ class TestCLIInteractionHandler:
         def interaction():
             handler.show_warning("This is a warning")
 
-        result = runner.invoke(
-            click.Command("test", callback=lambda: interaction())
-        )
+        result = runner.invoke(click.Command("test", callback=lambda: interaction()))
         assert "Warning: This is a warning" in result.output
 
     def test_show_info_displays_message(self):
@@ -124,9 +122,7 @@ class TestCLIInteractionHandler:
         def interaction():
             handler.show_info("This is info")
 
-        result = runner.invoke(
-            click.Command("test", callback=lambda: interaction())
-        )
+        result = runner.invoke(click.Command("test", callback=lambda: interaction()))
         assert "This is info" in result.output
 
 

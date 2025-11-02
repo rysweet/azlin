@@ -88,9 +88,7 @@ class CostEstimator:
         elif sku_normalized == "standard":
             bastion_cost = CostEstimator.BASTION_STANDARD
         else:
-            raise ValueError(
-                f"Invalid Bastion SKU: {sku}. Must be 'Basic' or 'Standard'."
-            )
+            raise ValueError(f"Invalid Bastion SKU: {sku}. Must be 'Basic' or 'Standard'.")
 
         # Bastion requires a static public IP
         total_cost = bastion_cost + CostEstimator.PUBLIC_IP_STATIC
@@ -202,9 +200,7 @@ class CostEstimator:
         elif tier_normalized == "standard":
             rate = CostEstimator.NFS_STANDARD_GB
         else:
-            raise ValueError(
-                f"Invalid tier: {tier}. Must be 'Premium' or 'Standard'."
-            )
+            raise ValueError(f"Invalid tier: {tier}. Must be 'Premium' or 'Standard'.")
 
         total_cost = size_gb * rate
 

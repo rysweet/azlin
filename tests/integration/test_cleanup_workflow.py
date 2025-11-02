@@ -11,15 +11,10 @@ These tests verify the CleanupOrchestrator with mocked Azure CLI.
 """
 
 import json
-import subprocess
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
-import pytest
-
 from azlin.modules.cleanup_orchestrator import (
-    BastionCleanupResult,
-    CleanupDecision,
     CleanupOrchestrator,
     OrphanedBastionInfo,
 )
@@ -49,14 +44,16 @@ class TestOrphanedBastionDetection:
         # List Bastions
         mock_run.return_value = Mock(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "name": "bastion1",
-                    "location": "eastus",
-                    "provisioningState": "Succeeded",
-                    "sku": {"name": "Standard"},
-                }
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "name": "bastion1",
+                        "location": "eastus",
+                        "provisioningState": "Succeeded",
+                        "sku": {"name": "Standard"},
+                    }
+                ]
+            ),
         )
 
         handler = MockInteractionHandler()
@@ -91,24 +88,26 @@ class TestOrphanedBastionDetection:
         # List Bastions
         mock_run.return_value = Mock(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "name": "orphaned-bastion",
-                    "location": "eastus",  # No VMs in this region
-                    "provisioningState": "Succeeded",
-                    "sku": {"name": "Standard"},
-                    "ipConfigurations": [
-                        {
-                            "subnet": {
-                                "id": "/subscriptions/sub/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/AzureBastionSubnet"
-                            },
-                            "publicIPAddress": {
-                                "id": "/subscriptions/sub/resourceGroups/test-rg/providers/Microsoft.Network/publicIPAddresses/bastion-pip"
-                            },
-                        }
-                    ],
-                }
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "name": "orphaned-bastion",
+                        "location": "eastus",  # No VMs in this region
+                        "provisioningState": "Succeeded",
+                        "sku": {"name": "Standard"},
+                        "ipConfigurations": [
+                            {
+                                "subnet": {
+                                    "id": "/subscriptions/sub/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/AzureBastionSubnet"
+                                },
+                                "publicIPAddress": {
+                                    "id": "/subscriptions/sub/resourceGroups/test-rg/providers/Microsoft.Network/publicIPAddresses/bastion-pip"
+                                },
+                            }
+                        ],
+                    }
+                ]
+            ),
         )
 
         handler = MockInteractionHandler()
@@ -158,20 +157,22 @@ class TestOrphanedBastionDetection:
         # List Bastions
         mock_run.return_value = Mock(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "name": "bastion-west",
-                    "location": "westus",
-                    "provisioningState": "Succeeded",
-                    "sku": {"name": "Standard"},
-                },
-                {
-                    "name": "bastion-east",
-                    "location": "eastus",
-                    "provisioningState": "Succeeded",
-                    "sku": {"name": "Standard"},
-                },
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "name": "bastion-west",
+                        "location": "westus",
+                        "provisioningState": "Succeeded",
+                        "sku": {"name": "Standard"},
+                    },
+                    {
+                        "name": "bastion-east",
+                        "location": "eastus",
+                        "provisioningState": "Succeeded",
+                        "sku": {"name": "Standard"},
+                    },
+                ]
+            ),
         )
 
         handler = MockInteractionHandler()
@@ -198,18 +199,20 @@ class TestOrphanedBastionDetection:
         # List Bastions with various states
         mock_run.return_value = Mock(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "name": "bastion-creating",
-                    "location": "eastus",
-                    "provisioningState": "Creating",  # Not succeeded
-                },
-                {
-                    "name": "bastion-failed",
-                    "location": "westus",
-                    "provisioningState": "Failed",  # Not succeeded
-                },
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "name": "bastion-creating",
+                        "location": "eastus",
+                        "provisioningState": "Creating",  # Not succeeded
+                    },
+                    {
+                        "name": "bastion-failed",
+                        "location": "westus",
+                        "provisioningState": "Failed",  # Not succeeded
+                    },
+                ]
+            ),
         )
 
         handler = MockInteractionHandler()
@@ -287,22 +290,22 @@ class TestCleanupDecisionPrompt:
     @patch("subprocess.run")
     @patch("azlin.modules.cleanup_orchestrator.VMManager.list_vms")
     @patch("builtins.input")
-    def test_cleanup_decision_user_confirms_delete(
-        self, mock_input, mock_list_vms, mock_run
-    ):
+    def test_cleanup_decision_user_confirms_delete(self, mock_input, mock_list_vms, mock_run):
         """Test user confirms deletion."""
         # Arrange
         mock_list_vms.return_value = []
         mock_run.return_value = Mock(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "name": "orphaned-bastion",
-                    "location": "eastus",
-                    "provisioningState": "Succeeded",
-                    "sku": {"name": "Standard"},
-                }
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "name": "orphaned-bastion",
+                        "location": "eastus",
+                        "provisioningState": "Succeeded",
+                        "sku": {"name": "Standard"},
+                    }
+                ]
+            ),
         )
 
         mock_input.return_value = "delete"  # User confirms
@@ -552,9 +555,7 @@ class TestCleanupOrchestratedWorkflow:
     @patch("subprocess.run")
     @patch("azlin.modules.cleanup_orchestrator.VMManager.list_vms")
     @patch("builtins.input")
-    def test_cleanup_orphaned_bastions_complete_workflow(
-        self, mock_input, mock_list_vms, mock_run
-    ):
+    def test_cleanup_orphaned_bastions_complete_workflow(self, mock_input, mock_list_vms, mock_run):
         """Test complete workflow: detect -> prompt -> delete -> report."""
         # Arrange
         mock_list_vms.return_value = []  # No VMs
@@ -566,41 +567,32 @@ class TestCleanupOrchestratedWorkflow:
                 # List orphaned Bastions
                 return Mock(
                     returncode=0,
-                    stdout=json.dumps([
-                        {
-                            "name": "orphaned-bastion-1",
-                            "location": "eastus",
-                            "provisioningState": "Succeeded",
-                            "sku": {"name": "Standard"},
-                            "ipConfigurations": [
-                                {
-                                    "publicIPAddress": {
-                                        "id": "/subscriptions/.../pip1"
-                                    }
-                                }
-                            ],
-                        },
-                        {
-                            "name": "orphaned-bastion-2",
-                            "location": "westus",
-                            "provisioningState": "Succeeded",
-                            "sku": {"name": "Standard"},
-                            "ipConfigurations": [
-                                {
-                                    "publicIPAddress": {
-                                        "id": "/subscriptions/.../pip2"
-                                    }
-                                }
-                            ],
-                        },
-                    ]),
+                    stdout=json.dumps(
+                        [
+                            {
+                                "name": "orphaned-bastion-1",
+                                "location": "eastus",
+                                "provisioningState": "Succeeded",
+                                "sku": {"name": "Standard"},
+                                "ipConfigurations": [
+                                    {"publicIPAddress": {"id": "/subscriptions/.../pip1"}}
+                                ],
+                            },
+                            {
+                                "name": "orphaned-bastion-2",
+                                "location": "westus",
+                                "provisioningState": "Succeeded",
+                                "sku": {"name": "Standard"},
+                                "ipConfigurations": [
+                                    {"publicIPAddress": {"id": "/subscriptions/.../pip2"}}
+                                ],
+                            },
+                        ]
+                    ),
                 )
-            elif "bastion delete" in cmd_str:
+            if "bastion delete" in cmd_str or "public-ip delete" in cmd_str:
                 return Mock(returncode=0)
-            elif "public-ip delete" in cmd_str:
-                return Mock(returncode=0)
-            else:
-                return Mock(returncode=0, stdout="")
+            return Mock(returncode=0, stdout="")
 
         mock_run.side_effect = run_side_effect
         mock_input.return_value = "delete"  # User confirms
@@ -626,9 +618,7 @@ class TestCleanupOrchestratedWorkflow:
 
     @patch("subprocess.run")
     @patch("azlin.modules.cleanup_orchestrator.VMManager.list_vms")
-    def test_cleanup_orphaned_bastions_no_orphans_found(
-        self, mock_list_vms, mock_run
-    ):
+    def test_cleanup_orphaned_bastions_no_orphans_found(self, mock_list_vms, mock_run):
         """Test workflow when no orphaned Bastions found."""
         # Arrange
         mock_list_vms.return_value = [
@@ -644,13 +634,15 @@ class TestCleanupOrchestratedWorkflow:
 
         mock_run.return_value = Mock(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "name": "bastion1",
-                    "location": "eastus",
-                    "provisioningState": "Succeeded",
-                }
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "name": "bastion1",
+                        "location": "eastus",
+                        "provisioningState": "Succeeded",
+                    }
+                ]
+            ),
         )
 
         handler = MockInteractionHandler()
@@ -742,9 +734,7 @@ class TestEndToEndCleanupWorkflow:
 
     @patch("subprocess.run")
     @patch("azlin.modules.cleanup_orchestrator.VMManager.list_vms")
-    def test_complete_cleanup_workflow_with_cost_savings(
-        self, mock_list_vms, mock_run
-    ):
+    def test_complete_cleanup_workflow_with_cost_savings(self, mock_list_vms, mock_run):
         """Test complete cleanup with cost savings reporting."""
         # Arrange
         mock_list_vms.return_value = []  # No VMs
@@ -755,19 +745,20 @@ class TestEndToEndCleanupWorkflow:
             if "bastion list" in cmd_str:
                 return Mock(
                     returncode=0,
-                    stdout=json.dumps([
-                        {
-                            "name": "expensive-bastion",
-                            "location": "eastus",
-                            "provisioningState": "Succeeded",
-                            "sku": {"name": "Premium"},  # More expensive
-                        }
-                    ]),
+                    stdout=json.dumps(
+                        [
+                            {
+                                "name": "expensive-bastion",
+                                "location": "eastus",
+                                "provisioningState": "Succeeded",
+                                "sku": {"name": "Premium"},  # More expensive
+                            }
+                        ]
+                    ),
                 )
-            elif "bastion delete" in cmd_str:
+            if "bastion delete" in cmd_str:
                 return Mock(returncode=0)
-            else:
-                return Mock(returncode=0, stdout="")
+            return Mock(returncode=0, stdout="")
 
         mock_run.side_effect = run_side_effect
 

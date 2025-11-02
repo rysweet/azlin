@@ -8,13 +8,11 @@ This test suite verifies:
 - Integration with interaction handlers and cost estimator
 """
 
-import time
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from azlin.agentic.cost_estimator import CostEstimator
 from azlin.agentic.types import CostEstimate
 from azlin.modules.interaction_handler import MockInteractionHandler
 from azlin.modules.resource_orchestrator import (
@@ -22,12 +20,10 @@ from azlin.modules.resource_orchestrator import (
     DecisionAction,
     DependencyError,
     NFSOptions,
-    OrchestratorError,
     ResourceDecision,
     ResourceOrchestrator,
     ResourceStatus,
     ResourceType,
-    RollbackError,
 )
 
 

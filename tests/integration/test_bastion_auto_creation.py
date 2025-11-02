@@ -12,18 +12,13 @@ These tests follow the testing pyramid: focused integration tests
 that verify component interactions without full E2E Azure operations.
 """
 
-import json
-import subprocess
-from decimal import Decimal
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 import pytest
 
 from azlin.modules.bastion_provisioner import (
     BastionProvisioner,
     BastionProvisionerError,
-    PrerequisiteStatus,
-    ProvisioningResult,
 )
 from azlin.modules.cost_estimator import CostEstimator
 from azlin.modules.interaction_handler import MockInteractionHandler
@@ -604,15 +599,15 @@ class TestBastionRollbackWorkflow:
     @patch("subprocess.run")
     def test_rollback_bastion_partial_failure(self, mock_run):
         """Test rollback handles partial deletion failures."""
+
         # Arrange
         def run_side_effect(cmd, *args, **kwargs):
             cmd_str = " ".join(cmd)
             if "bastion delete" in cmd_str:
                 return Mock(returncode=0)  # Success
-            elif "public-ip delete" in cmd_str:
+            if "public-ip delete" in cmd_str:
                 return Mock(returncode=1, stderr="IP still in use")  # Failure
-            else:
-                return Mock(returncode=0)
+            return Mock(returncode=0)
 
         mock_run.side_effect = run_side_effect
 

@@ -35,7 +35,10 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from azlin.modules.storage_manager import StorageManager
 
 logger = logging.getLogger(__name__)
 
@@ -265,9 +268,7 @@ class NFSProvisioner:
         _validate_resource_name(source_region, "Source region")
         _validate_resource_name(target_region, "Target region")
 
-        logger.info(
-            f"Analyzing NFS access: {storage_account} ({source_region} -> {target_region})"
-        )
+        logger.info(f"Analyzing NFS access: {storage_account} ({source_region} -> {target_region})")
 
         same_region = source_region == target_region
 
@@ -277,7 +278,7 @@ class NFSProvisioner:
 
             storage_info = StorageManager.get_storage(storage_account, resource_group)
         except Exception as e:
-            raise ResourceNotFoundError(f"Storage account {storage_account} not found: {e}")
+            raise ResourceNotFoundError(f"Storage account {storage_account} not found: {e}") from e
 
         # Build strategy analysis
         strategies = {}
@@ -519,7 +520,9 @@ class NFSProvisioner:
 
             logger.info(f"Running: az network private-endpoint create --name {name}")
 
-            result = subprocess.run(create_cmd, capture_output=True, text=True, check=True, timeout=300)
+            result = subprocess.run(
+                create_cmd, capture_output=True, text=True, check=True, timeout=300
+            )
 
             endpoint_data = json.loads(result.stdout)
 
@@ -765,7 +768,9 @@ class NFSProvisioner:
 
             logger.info(f"Creating private DNS zone: {zone_name}")
 
-            subprocess.run(create_zone_cmd, capture_output=True, text=True, check=False, timeout=120)
+            subprocess.run(
+                create_zone_cmd, capture_output=True, text=True, check=False, timeout=120
+            )
 
             # Link DNS zone to each VNet
             linked_vnets = []
@@ -870,9 +875,9 @@ class NFSProvisioner:
         target_resource_group: str,
         target_vnet: str,
         target_subnet: str,
-        source_vnet: Optional[str] = None,
-        source_resource_group: Optional[str] = None,
-    ) -> tuple[PrivateEndpointInfo, Optional[VNetPeeringInfo], PrivateDNSZoneInfo]:
+        source_vnet: str | None = None,
+        source_resource_group: str | None = None,
+    ) -> tuple[PrivateEndpointInfo, VNetPeeringInfo | None, PrivateDNSZoneInfo]:
         """Setup complete private endpoint access for cross-region NFS.
 
         This is the main orchestration method that:
@@ -946,7 +951,7 @@ class NFSProvisioner:
         region: str,
         tier: str = "Premium",
         size_gb: int = 100,
-    ) -> "StorageInfo":
+    ) -> "StorageManager.StorageInfo":  # type: ignore[name-defined]
         """Create new NFS storage in target region.
 
         This wraps StorageManager.create_storage for convenience.
@@ -1017,10 +1022,12 @@ class NFSProvisioner:
         _validate_resource_name(target_storage, "Target storage")
         _validate_resource_name(share_name, "Share name")
 
+        from datetime import datetime as dt
+
         logger.info(f"Replicating data: {source_storage} -> {target_storage}")
 
         errors = []
-        start_time = datetime.now()
+        start_time = dt.now()
 
         try:
             # Get storage account keys for azcopy
@@ -1067,18 +1074,13 @@ class NFSProvisioner:
             target_key = result.stdout.strip()
 
             # Build source and destination URLs without embedded keys
-            source_url = (
-                f"https://{source_storage}.file.core.windows.net/"
-                f"{share_name}"
-            )
-            target_url = (
-                f"https://{target_storage}.file.core.windows.net/"
-                f"{share_name}"
-            )
+            source_url = f"https://{source_storage}.file.core.windows.net/{share_name}"
+            target_url = f"https://{target_storage}.file.core.windows.net/{share_name}"
 
             # Use environment variables to pass storage keys securely
             # This prevents keys from appearing in command-line arguments or process listings
             import os
+
             azcopy_env = os.environ.copy()
 
             # Set Azure Storage credentials via environment variables
@@ -1156,9 +1158,7 @@ class NFSProvisioner:
             if not success:
                 errors.append(f"azcopy failed: {result.stderr}")
 
-            logger.info(
-                f"Replication {'completed' if success else 'failed'} in {duration:.1f}s"
-            )
+            logger.info(f"Replication {'completed' if success else 'failed'} in {duration:.1f}s")
 
             return ReplicationResult(
                 success=success,
@@ -1180,7 +1180,7 @@ class NFSProvisioner:
                 target_endpoint=f"{target_storage}/{share_name}",
                 files_copied=0,
                 bytes_copied=0,
-                duration_seconds=(datetime.now() - start_time).total_seconds(),
+                duration_seconds=(dt.now() - start_time).total_seconds(),
                 errors=errors,
             )
         except Exception as e:
@@ -1192,22 +1192,22 @@ class NFSProvisioner:
                 target_endpoint=f"{target_storage}/{share_name}",
                 files_copied=0,
                 bytes_copied=0,
-                duration_seconds=(datetime.now() - start_time).total_seconds(),
+                duration_seconds=(dt.now() - start_time).total_seconds(),
                 errors=errors,
             )
 
 
 # Public API
 __all__ = [
-    "NFSProvisioner",
-    "AccessStrategy",
     "AccessAnalysis",
-    "PrivateEndpointInfo",
-    "VNetPeeringInfo",
-    "PrivateDNSZoneInfo",
-    "ReplicationResult",
+    "AccessStrategy",
+    "NFSProvisioner",
     "NFSProvisionerError",
-    "ValidationError",
-    "ResourceNotFoundError",
     "NetworkConfigurationError",
+    "PrivateDNSZoneInfo",
+    "PrivateEndpointInfo",
+    "ReplicationResult",
+    "ResourceNotFoundError",
+    "VNetPeeringInfo",
+    "ValidationError",
 ]

@@ -178,16 +178,15 @@ class CLIInteractionHandler:
 
                 if 1 <= choice_num <= len(choices):
                     return choice_num - 1
-                else:
-                    click.secho(
-                        f"Please enter a number between 1 and {len(choices)}",
-                        fg="red",
-                    )
+                click.secho(
+                    f"Please enter a number between 1 and {len(choices)}",
+                    fg="red",
+                )
             except ValueError:
                 click.secho("Please enter a valid number", fg="red")
             except (KeyboardInterrupt, click.Abort):
                 click.echo()
-                raise click.Abort()
+                raise click.Abort from None
 
     def confirm(self, message: str, default: bool = True) -> bool:
         """Prompt for yes/no confirmation with colored output.
@@ -315,8 +314,7 @@ class MockInteractionHandler:
         # Validate response is in valid range
         if not 0 <= response < len(choices):
             raise ValueError(
-                f"Invalid pre-programmed response {response} "
-                f"for {len(choices)} choices"
+                f"Invalid pre-programmed response {response} for {len(choices)} choices"
             )
 
         self.interactions.append(

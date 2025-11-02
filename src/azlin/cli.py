@@ -68,14 +68,8 @@ from azlin.ip_diagnostics import (
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
 from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
-from azlin.modules.bastion_provisioner import BastionProvisioner, ProvisioningResult
+from azlin.modules.bastion_provisioner import BastionProvisioner
 from azlin.modules.cost_estimator import CostEstimator
-from azlin.modules.interaction_handler import CLIInteractionHandler
-from azlin.modules.resource_orchestrator import (
-    BastionOptions,
-    DecisionAction,
-    ResourceOrchestrator,
-)
 from azlin.modules.file_transfer import (
     FileTransfer,
     FileTransferError,
@@ -91,9 +85,15 @@ from azlin.modules.home_sync import (
     SecurityValidationError,
     SyncResult,
 )
+from azlin.modules.interaction_handler import CLIInteractionHandler
 from azlin.modules.notifications import NotificationHandler
 from azlin.modules.prerequisites import PrerequisiteChecker, PrerequisiteError
 from azlin.modules.progress import ProgressDisplay, ProgressStage
+from azlin.modules.resource_orchestrator import (
+    BastionOptions,
+    DecisionAction,
+    ResourceOrchestrator,
+)
 from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
@@ -523,17 +523,16 @@ class CLIOrchestrator:
                                     "location": self.region,
                                 },
                             )
-                        else:
-                            # Bastion creation failed
-                            self.progress.update(
-                                f"Bastion creation failed: {result.error_message}",
-                                ProgressStage.ERROR,
-                            )
-                            raise ProvisioningError(
-                                f"Failed to create Bastion host: {result.error_message}"
-                            )
+                        # Bastion creation failed
+                        self.progress.update(
+                            f"Bastion creation failed: {result.error_message}",
+                            ProgressStage.ERROR,
+                        )
+                        raise ProvisioningError(
+                            f"Failed to create Bastion host: {result.error_message}"
+                        )
 
-                    elif decision.action == DecisionAction.SKIP:
+                    if decision.action == DecisionAction.SKIP:
                         # User chose public IP instead via orchestrator prompt
                         SecurityAuditLogger.log_bastion_opt_out(
                             vm_name=vm_name, method="orchestrator_skip", user=None
@@ -543,9 +542,9 @@ class CLIOrchestrator:
                         )
                         return (False, None)
 
-                    else:  # CANCEL
-                        self.progress.update("User cancelled operation", ProgressStage.WARNING)
-                        raise click.Abort()
+                    # CANCEL
+                    self.progress.update("User cancelled operation", ProgressStage.WARNING)
+                    raise click.Abort
 
                 except ProvisioningError:
                     # Re-raise provisioning errors
@@ -556,10 +555,8 @@ class CLIOrchestrator:
                 except Exception as e:
                     # Handle unexpected orchestration errors
                     logger.error(f"Bastion orchestration failed: {e}")
-                    self.progress.update(
-                        f"Bastion creation failed: {str(e)}", ProgressStage.ERROR
-                    )
-                    raise ProvisioningError(f"Failed to orchestrate Bastion creation: {str(e)}")
+                    self.progress.update(f"Bastion creation failed: {e!s}", ProgressStage.ERROR)
+                    raise ProvisioningError(f"Failed to orchestrate Bastion creation: {e!s}") from e
 
             # User declined creating bastion - log security decision
             SecurityAuditLogger.log_bastion_opt_out(
@@ -1267,14 +1264,14 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
         Raises:
             Exception: If storage mount fails (this is a critical operation)
         """
-        from azlin.modules.nfs_mount_manager import NFSMountManager
-        from azlin.modules.storage_manager import StorageManager
-        from azlin.modules.resource_orchestrator import (
-            ResourceOrchestrator,
-            NFSOptions,
-            DecisionAction,
-        )
         from azlin.modules.interaction_handler import CLIInteractionHandler
+        from azlin.modules.nfs_mount_manager import NFSMountManager
+        from azlin.modules.resource_orchestrator import (
+            DecisionAction,
+            NFSOptions,
+            ResourceOrchestrator,
+        )
+        from azlin.modules.storage_manager import StorageManager
 
         try:
             # Storage details already resolved, use them directly
@@ -1296,9 +1293,7 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
                 )
 
                 # Use orchestrator to handle cross-region decision
-                orchestrator = ResourceOrchestrator(
-                    interaction_handler=CLIInteractionHandler()
-                )
+                orchestrator = ResourceOrchestrator(interaction_handler=CLIInteractionHandler())
 
                 nfs_options = NFSOptions(
                     region=vm_details.location,

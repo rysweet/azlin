@@ -57,7 +57,12 @@ class PrerequisiteStatus:
         Returns:
             True if Bastion can be created without additional resources
         """
-        return self.vnet_exists and self.subnet_exists and self.public_ip_exists and self.quota_available
+        return (
+            self.vnet_exists
+            and self.subnet_exists
+            and self.public_ip_exists
+            and self.quota_available
+        )
 
     def missing_resources(self) -> list[str]:
         """List of missing resources that need creation.

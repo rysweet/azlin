@@ -41,6 +41,7 @@ Example:
 """
 
 import logging
+import subprocess
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
@@ -122,9 +123,7 @@ class ResourceDecision:
     def __post_init__(self):
         """Validate decision structure."""
         if self.action == DecisionAction.CREATE and self.cost_estimate is None:
-            logger.warning(
-                "CREATE decision without cost estimate for %s", self.resource_type.value
-            )
+            logger.warning("CREATE decision without cost estimate for %s", self.resource_type.value)
 
 
 @dataclass
@@ -289,14 +288,10 @@ class ResourceOrchestrator:
 
         # Validate dependencies
         if not options.vnet_id and not options.vnet_name:
-            raise DependencyError(
-                "Either vnet_id or vnet_name must be provided for Bastion setup"
-            )
+            raise DependencyError("Either vnet_id or vnet_name must be provided for Bastion setup")
 
         # Step 1: Check for existing Bastion
-        existing_bastion = self._check_existing_bastion(
-            options.resource_group, options.vnet_name
-        )
+        existing_bastion = self._check_existing_bastion(options.resource_group, options.vnet_name)
 
         if existing_bastion:
             logger.info("Found existing Bastion: %s", existing_bastion["name"])
@@ -383,7 +378,7 @@ class ResourceOrchestrator:
                 },
             )
 
-        elif choice_label == "public-ip":
+        if choice_label == "public-ip":
             logger.info("User chose to skip Bastion (use public IP)")
             self.interaction_handler.show_warning(
                 "VM will be created with a public IP address. "
@@ -395,12 +390,12 @@ class ResourceOrchestrator:
                 metadata={"fallback": "public-ip"},
             )
 
-        else:  # cancel
-            logger.info("User cancelled operation")
-            return ResourceDecision(
-                action=DecisionAction.CANCEL,
-                resource_type=ResourceType.BASTION,
-            )
+        # cancel
+        logger.info("User cancelled operation")
+        return ResourceDecision(
+            action=DecisionAction.CANCEL,
+            resource_type=ResourceType.BASTION,
+        )
 
     def ensure_nfs_access(self, options: NFSOptions) -> ResourceDecision:
         """Ensure NFS share is accessible from VM, handle cross-region if needed.
@@ -480,12 +475,12 @@ class ResourceOrchestrator:
         choices = [
             (
                 "setup-cross-region",
-                f"Setup cross-region access (includes private endpoint and data transfer costs)",
+                "Setup cross-region access (includes private endpoint and data transfer costs)",
                 float(cost_estimate["monthly"]),
             ),
             (
                 "use-local-storage",
-                f"Skip NFS mount - Use VM's local disk instead (no transfer costs)",
+                "Skip NFS mount - Use VM's local disk instead (no transfer costs)",
                 0.0,
             ),
             (
@@ -525,7 +520,7 @@ class ResourceOrchestrator:
                 },
             )
 
-        elif choice_label == "use-local-storage":
+        if choice_label == "use-local-storage":
             logger.info("User chose to use local storage instead of NFS")
             self.interaction_handler.show_info(
                 "VM will use local disk storage. Files will not be shared across VMs."
@@ -536,12 +531,12 @@ class ResourceOrchestrator:
                 metadata={"fallback": "local-storage"},
             )
 
-        else:  # cancel
-            logger.info("User cancelled operation")
-            return ResourceDecision(
-                action=DecisionAction.CANCEL,
-                resource_type=ResourceType.NFS,
-            )
+        # cancel
+        logger.info("User cancelled operation")
+        return ResourceDecision(
+            action=DecisionAction.CANCEL,
+            resource_type=ResourceType.NFS,
+        )
 
     def track_resource(
         self,
@@ -701,9 +696,7 @@ class ResourceOrchestrator:
 
     # Private helper methods
 
-    def _check_existing_bastion(
-        self, resource_group: str, vnet_name: str
-    ) -> dict[str, Any] | None:
+    def _check_existing_bastion(self, resource_group: str, vnet_name: str) -> dict[str, Any] | None:
         """Check if Bastion host already exists in VNet.
 
         Args:
@@ -837,16 +830,15 @@ class ResourceOrchestrator:
         # Parse command string into argument list for safe execution
         # This prevents command injection by avoiding shell=True
         import shlex
+
         try:
             cmd_args = shlex.split(cmd_string)
         except ValueError as e:
-            raise OrchestratorError(f"Invalid rollback command format: {e}")
+            raise OrchestratorError(f"Invalid rollback command format: {e}") from e
 
         logger.info("Executing rollback command: %s", " ".join(cmd_args))
 
         try:
-            import subprocess
-
             result = subprocess.run(
                 cmd_args,
                 capture_output=True,
@@ -861,7 +853,9 @@ class ResourceOrchestrator:
 
             logger.debug("Rollback command output: %s", result.stdout)
 
-        except subprocess.TimeoutExpired:
-            raise OrchestratorError(f"Rollback command timed out for {resource.resource_name}")
+        except subprocess.TimeoutExpired as e:
+            raise OrchestratorError(
+                f"Rollback command timed out for {resource.resource_name}"
+            ) from e
         except Exception as e:
-            raise OrchestratorError(f"Failed to execute rollback command: {e}")
+            raise OrchestratorError(f"Failed to execute rollback command: {e}") from e

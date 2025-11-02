@@ -10,11 +10,7 @@ These tests verify the full integration of all orchestration modules.
 """
 
 import json
-import subprocess
-from decimal import Decimal
 from unittest.mock import Mock, patch
-
-import pytest
 
 from azlin.modules.bastion_provisioner import BastionProvisioner
 from azlin.modules.cleanup_orchestrator import CleanupOrchestrator
@@ -92,7 +88,9 @@ class TestVMCreationWithBastionAutoCreation:
 
                 # Track resource for potential rollback
                 orchestrator.track_resource(
-                    resource_type=result.resource_type if hasattr(result, "resource_type") else "bastion",
+                    resource_type=result.resource_type
+                    if hasattr(result, "resource_type")
+                    else "bastion",
                     resource_id=f"/subscriptions/sub/resourceGroups/test-rg/providers/Microsoft.Network/bastionHosts/{result.bastion_name}",
                     resource_name=result.bastion_name,
                 )
@@ -165,11 +163,13 @@ class TestVMCreationWithCrossRegionNFS:
             Mock(returncode=0, stdout="/subscriptions/.../subnet\n"),
             Mock(
                 returncode=0,
-                stdout=json.dumps({
-                    "name": "mystorageacct-pe-westus",
-                    "provisioningState": "Succeeded",
-                    "customDnsConfigs": [{"ipAddresses": ["10.0.1.5"]}],
-                }),
+                stdout=json.dumps(
+                    {
+                        "name": "mystorageacct-pe-westus",
+                        "provisioningState": "Succeeded",
+                        "customDnsConfigs": [{"ipAddresses": ["10.0.1.5"]}],
+                    }
+                ),
             ),
             # DNS configuration
             Mock(returncode=0),  # Create zone
@@ -246,19 +246,20 @@ class TestVMDeletionWithCleanup:
             if "bastion list" in cmd_str:
                 return Mock(
                     returncode=0,
-                    stdout=json.dumps([
-                        {
-                            "name": "now-orphaned-bastion",
-                            "location": "eastus",
-                            "provisioningState": "Succeeded",
-                            "sku": {"name": "Standard"},
-                        }
-                    ]),
+                    stdout=json.dumps(
+                        [
+                            {
+                                "name": "now-orphaned-bastion",
+                                "location": "eastus",
+                                "provisioningState": "Succeeded",
+                                "sku": {"name": "Standard"},
+                            }
+                        ]
+                    ),
                 )
-            elif "bastion delete" in cmd_str:
+            if "bastion delete" in cmd_str:
                 return Mock(returncode=0)
-            else:
-                return Mock(returncode=0, stdout="")
+            return Mock(returncode=0, stdout="")
 
         mock_run.side_effect = run_side_effect
 
@@ -303,13 +304,15 @@ class TestVMDeletionWithCleanup:
 
         mock_run.return_value = Mock(
             returncode=0,
-            stdout=json.dumps([
-                {
-                    "name": "still-in-use-bastion",
-                    "location": "eastus",
-                    "provisioningState": "Succeeded",
-                }
-            ]),
+            stdout=json.dumps(
+                [
+                    {
+                        "name": "still-in-use-bastion",
+                        "location": "eastus",
+                        "provisioningState": "Succeeded",
+                    }
+                ]
+            ),
         )
 
         handler = MockInteractionHandler()
@@ -330,16 +333,12 @@ class TestCompleteVMLifecycle:
 
     @patch("subprocess.run")
     @patch("azlin.modules.cleanup_orchestrator.VMManager.list_vms")
-    def test_complete_lifecycle_create_use_delete_cleanup(
-        self, mock_list_vms, mock_run
-    ):
+    def test_complete_lifecycle_create_use_delete_cleanup(self, mock_list_vms, mock_run):
         """Test complete VM lifecycle: create with Bastion -> use -> delete -> cleanup."""
         # ===== Phase 1: VM Creation with Bastion =====
         # User chooses to create Bastion (option 0)
         creation_handler = MockInteractionHandler(choice_responses=[0])
-        resource_orchestrator = ResourceOrchestrator(
-            interaction_handler=creation_handler
-        )
+        resource_orchestrator = ResourceOrchestrator(interaction_handler=creation_handler)
 
         bastion_options = BastionOptions(
             region="eastus",
@@ -365,9 +364,7 @@ class TestCompleteVMLifecycle:
         mock_run.side_effect = creation_calls
 
         # Act - Phase 1: Create Bastion
-        with patch.object(
-            resource_orchestrator, "_check_existing_bastion", return_value=None
-        ):
+        with patch.object(resource_orchestrator, "_check_existing_bastion", return_value=None):
             decision = resource_orchestrator.ensure_bastion(bastion_options)
 
             assert decision.action == DecisionAction.CREATE
@@ -403,14 +400,16 @@ class TestCompleteVMLifecycle:
             # List Bastions
             Mock(
                 returncode=0,
-                stdout=json.dumps([
-                    {
-                        "name": "test-vnet-bastion",
-                        "location": "eastus",
-                        "provisioningState": "Succeeded",
-                        "sku": {"name": "Standard"},
-                    }
-                ]),
+                stdout=json.dumps(
+                    [
+                        {
+                            "name": "test-vnet-bastion",
+                            "location": "eastus",
+                            "provisioningState": "Succeeded",
+                            "sku": {"name": "Standard"},
+                        }
+                    ]
+                ),
             ),
             # Delete Bastion
             Mock(returncode=0),
@@ -487,10 +486,12 @@ class TestCompleteVMLifecycle:
             Mock(returncode=0, stdout="/subscriptions/.../subnet\n"),
             Mock(
                 returncode=0,
-                stdout=json.dumps({
-                    "name": "mystorageacct-pe-westus",
-                    "provisioningState": "Succeeded",
-                }),
+                stdout=json.dumps(
+                    {
+                        "name": "mystorageacct-pe-westus",
+                        "provisioningState": "Succeeded",
+                    }
+                ),
             ),
             Mock(returncode=0),  # DNS zone
             Mock(returncode=0, stdout="/subscriptions/.../vnet\n"),

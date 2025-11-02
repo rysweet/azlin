@@ -49,8 +49,6 @@ from decimal import Decimal
 from typing import Any
 
 from azlin.resource_cleanup import (
-    CleanupSummary,
-    OrphanedResource,
     ResourceCleanup,
     ResourceCleanupError,
 )
@@ -110,10 +108,7 @@ class OrphanedBastionInfo:
         # - Standard SKU: ~$0.32/hour = ~$230/month
         # - Public IP: ~$3.65/month
         if self.sku:
-            if "Standard" in self.sku:
-                bastion_cost = Decimal("230.0")
-            else:  # Basic or unknown
-                bastion_cost = Decimal("140.0")
+            bastion_cost = Decimal("230.0") if "Standard" in self.sku else Decimal("140.0")
         else:
             bastion_cost = Decimal("140.0")
 
@@ -234,7 +229,9 @@ class CleanupOrchestrator:
             ...     print(f"{bastion.name}: ${bastion.estimated_monthly_cost}/mo")
         """
         try:
-            logger.info("Detecting orphaned Bastion hosts in resource group: %s", self.resource_group)
+            logger.info(
+                "Detecting orphaned Bastion hosts in resource group: %s", self.resource_group
+            )
 
             # Step 1: List all VMs in resource group
             try:
@@ -277,9 +274,7 @@ class CleanupOrchestrator:
         except Exception as e:
             raise BastionCleanupError(f"Failed to detect orphaned Bastions: {e}") from e
 
-    def cleanup_orphaned_bastions(
-        self, force: bool = False
-    ) -> list[BastionCleanupResult]:
+    def cleanup_orphaned_bastions(self, force: bool = False) -> list[BastionCleanupResult]:
         """Detect and clean up all orphaned Bastion hosts.
 
         Workflow:
@@ -316,7 +311,7 @@ class CleanupOrchestrator:
             return []
 
         # Step 2: Calculate total savings
-        total_savings = sum(b.estimated_monthly_cost for b in orphaned)
+        total_savings = sum((b.estimated_monthly_cost for b in orphaned), start=Decimal("0.0"))
 
         # Step 3: Prompt user
         decision = self._prompt_cleanup_decision(orphaned, total_savings, force)
@@ -475,9 +470,7 @@ class CleanupOrchestrator:
             logger.warning("Failed to get VMs using Bastion: %s", e)
             return []
 
-    def cleanup_all_orphaned_resources(
-        self, force: bool = False
-    ) -> dict[str, Any]:
+    def cleanup_all_orphaned_resources(self, force: bool = False) -> dict[str, Any]:
         """Clean up all types of orphaned resources in resource group.
 
         Detects and cleans:
@@ -616,6 +609,10 @@ class CleanupOrchestrator:
             OrphanedBastionInfo if orphaned, None otherwise
         """
         name = bastion_data.get("name")
+        if not name:
+            logger.debug("Skipping Bastion with no name")
+            return None
+
         location = bastion_data.get("location", "").lower()
         provisioning_state = bastion_data.get("provisioningState", "")
 
@@ -685,9 +682,7 @@ class CleanupOrchestrator:
 
         # Show orphaned resources
         if self.interaction_handler:
-            self.interaction_handler.show_info(
-                f"\nFound {len(orphaned)} orphaned Bastion host(s):"
-            )
+            self.interaction_handler.show_info(f"\nFound {len(orphaned)} orphaned Bastion host(s):")
             for bastion in orphaned:
                 self.interaction_handler.show_info(
                     f"  - {bastion.name} ({bastion.location}): "
@@ -695,9 +690,7 @@ class CleanupOrchestrator:
                     f"{bastion.vm_count} VMs using it"
                 )
 
-            self.interaction_handler.show_info(
-                f"\nEstimated monthly savings: ${total_savings:.2f}"
-            )
+            self.interaction_handler.show_info(f"\nEstimated monthly savings: ${total_savings:.2f}")
 
             if self.dry_run:
                 self.interaction_handler.show_info("\n[DRY RUN] No resources will be deleted.")
@@ -911,9 +904,7 @@ class CleanupOrchestrator:
         if total_failed > 0:
             self.interaction_handler.show_warning(f"Total failures: {total_failed}")
 
-        self.interaction_handler.show_info(
-            f"Estimated monthly savings: ${total_savings:.2f}"
-        )
+        self.interaction_handler.show_info(f"Estimated monthly savings: ${total_savings:.2f}")
         self.interaction_handler.show_info("=" * 80 + "\n")
 
     def _report_overall_results(self, results: dict[str, Any]) -> None:
@@ -929,13 +920,9 @@ class CleanupOrchestrator:
         self.interaction_handler.show_info("Overall Cleanup Summary")
         self.interaction_handler.show_info("=" * 80)
 
-        self.interaction_handler.show_info(
-            f"\nTotal resources deleted: {results['total_deleted']}"
-        )
+        self.interaction_handler.show_info(f"\nTotal resources deleted: {results['total_deleted']}")
         if results["total_failed"] > 0:
-            self.interaction_handler.show_warning(
-                f"Total failures: {results['total_failed']}"
-            )
+            self.interaction_handler.show_warning(f"Total failures: {results['total_failed']}")
 
         self.interaction_handler.show_info(
             f"Total estimated monthly savings: ${results['total_savings']:.2f}"
@@ -945,10 +932,10 @@ class CleanupOrchestrator:
 
 
 __all__ = [
-    "CleanupOrchestrator",
-    "OrphanedBastionInfo",
-    "CleanupDecision",
-    "BastionCleanupResult",
-    "CleanupOrchestratorError",
     "BastionCleanupError",
+    "BastionCleanupResult",
+    "CleanupDecision",
+    "CleanupOrchestrator",
+    "CleanupOrchestratorError",
+    "OrphanedBastionInfo",
 ]
