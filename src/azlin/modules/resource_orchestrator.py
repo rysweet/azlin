@@ -286,9 +286,11 @@ class ResourceOrchestrator:
             options.vnet_name,
         )
 
-        # Validate dependencies
+        # Auto-generate VNet name if not provided
         if not options.vnet_id and not options.vnet_name:
-            raise DependencyError("Either vnet_id or vnet_name must be provided for Bastion setup")
+            # Auto-generate VNet name based on region
+            options.vnet_name = f"azlin-vnet-{options.region}"
+            logger.info(f"No VNet specified, will use/create: {options.vnet_name}")
 
         # Step 1: Check for existing Bastion
         existing_bastion = self._check_existing_bastion(options.resource_group, options.vnet_name)
