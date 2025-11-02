@@ -316,7 +316,7 @@ class LogSanitizer:
             elif isinstance(value, str):
                 # Sanitize string values
                 result[key] = cls.sanitize(value)
-            elif isinstance(value, (list, tuple)):
+            elif isinstance(value, list | tuple):
                 # Sanitize list/tuple elements
                 result[key] = type(value)(
                     cls.sanitize_dict(item)
