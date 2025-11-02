@@ -90,27 +90,23 @@ class TestSecurityAuditIntegrationWithCLI:
         assert entry["security_impact"] == "VM will have public IP exposed to internet"
 
     def test_check_bastion_availability_logs_create_decline(self, orchestrator, audit_file_path):
-        """Test that declining to create bastion is logged."""
+        """Test that declining to create bastion raises Abort (security policy enforcement)."""
+        import click
+
+        from azlin.vm_provisioning import ProvisioningError
+
         # Mock bastion detection to return None (no bastion found)
         with patch("azlin.cli.BastionDetector.detect_bastion_for_vm", return_value=None):
             with patch("azlin.cli.click.confirm", return_value=False):  # User declines creation
-                use_bastion, bastion_info = orchestrator._check_bastion_availability(
-                    resource_group="test-rg", vm_name="test-vm"
-                )
+                # With security policy enforcement, declining bastion should raise Abort
+                with pytest.raises((click.Abort, ProvisioningError)):
+                    orchestrator._check_bastion_availability(
+                        resource_group="test-rg", vm_name="test-vm"
+                    )
 
-        # Verify return values
-        assert use_bastion is False
-        assert bastion_info is None
-
-        # Verify audit log entry
-        with open(audit_file_path) as f:
-            audit_log = json.load(f)
-
-        assert len(audit_log) == 1
-        entry = audit_log[0]
-        assert entry["vm_name"] == "test-vm"
-        assert entry["method"] == "prompt_create"
-        assert entry["security_impact"] == "VM will have public IP exposed to internet"
+        # Verify NO audit log entry (security policy prevents VM creation without bastion)
+        # We don't log opt-outs anymore because we don't allow them
+        assert not audit_file_path.exists()
 
     def test_check_bastion_availability_accepts_existing_no_log(
         self, orchestrator, audit_file_path

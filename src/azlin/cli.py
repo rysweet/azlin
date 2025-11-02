@@ -484,6 +484,7 @@ class CLIOrchestrator:
                     )
 
                     # Get user decision via orchestrator
+                    # SECURITY POLICY: No public IPs on VMs, only on Bastion hosts
                     decision = orchestrator.ensure_bastion(
                         BastionOptions(
                             region=self.region,
@@ -492,7 +493,7 @@ class CLIOrchestrator:
                             vnet_id=None,
                             bastion_subnet_id=None,
                             sku="Basic",
-                            allow_public_ip_fallback=True,
+                            allow_public_ip_fallback=False,  # NEVER allow public IP on VMs
                         )
                     )
 
@@ -535,14 +536,22 @@ class CLIOrchestrator:
                         )
 
                     if decision.action == DecisionAction.SKIP:
-                        # User chose public IP instead via orchestrator prompt
-                        SecurityAuditLogger.log_bastion_opt_out(
-                            vm_name=vm_name, method="orchestrator_skip", user=None
-                        )
+                        # User declined to create Bastion
+                        # SECURITY POLICY: No public IPs on VMs allowed
                         self.progress.update(
-                            "User chose public IP, skipping Bastion", ProgressStage.IN_PROGRESS
+                            "Bastion required but user declined creation", ProgressStage.FAILED
                         )
-                        return (False, None)
+                        click.echo(
+                            click.style(
+                                "\n⚠️  Cannot create VM without Bastion (security policy: no public IPs on VMs).\n"
+                                "To proceed, either:\n"
+                                f"  1. Accept Bastion creation in {self.region}\n"
+                                f"  2. Use --no-bastion flag to override (not recommended)\n",
+                                fg="yellow",
+                                bold=True,
+                            )
+                        )
+                        raise click.Abort
 
                     # CANCEL
                     self.progress.update("User cancelled operation", ProgressStage.WARNING)
@@ -560,23 +569,38 @@ class CLIOrchestrator:
                     self.progress.update(f"Bastion creation failed: {e!s}", ProgressStage.FAILED)
                     raise ProvisioningError(f"Failed to orchestrate Bastion creation: {e!s}") from e
 
-            # User declined creating bastion - log security decision
-            SecurityAuditLogger.log_bastion_opt_out(
-                vm_name=vm_name, method="prompt_create", user=None
+            # User declined creating bastion
+            # SECURITY POLICY: No public IPs on VMs
+            self.progress.update("User declined Bastion creation", ProgressStage.FAILED)
+            click.echo(
+                click.style(
+                    "\n⚠️  Cannot create VM without Bastion (security policy: no public IPs on VMs).\n"
+                    "To proceed, either:\n"
+                    f"  1. Accept Bastion creation in {self.region}\n"
+                    f"  2. Use --no-bastion flag to override (not recommended)\n",
+                    fg="yellow",
+                    bold=True,
+                )
             )
-            self.progress.update(
-                "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
-            )
-            return (False, None)
+            raise click.Abort
 
         except (ProvisioningError, click.Abort):
             # Re-raise critical errors - don't fall back to public IP
             raise
         except Exception as e:
-            # Only detection errors (not provisioning/user cancellation) fall back to public IP
-            logger.debug(f"Bastion detection failed: {e}")
-            self.progress.update("Bastion detection failed, using public IP", ProgressStage.WARNING)
-            return (False, None)
+            # Any error in detection - abort (no public IP fallback)
+            logger.error(f"Bastion detection failed: {e}")
+            self.progress.update("Bastion detection failed", ProgressStage.FAILED)
+            click.echo(
+                click.style(
+                    f"\n⚠️  Bastion detection failed: {e}\n"
+                    "Cannot create VM without Bastion (security policy: no public IPs on VMs).\n"
+                    f"Use --no-bastion flag to override if needed.\n",
+                    fg="red",
+                    bold=True,
+                )
+            )
+            raise ProvisioningError(f"Bastion detection failed: {e}") from e
 
     def _provision_vm(self, vm_name: str, rg_name: str, public_key: str) -> VMDetails:
         """Provision Azure VM with dev tools.
