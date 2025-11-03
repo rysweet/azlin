@@ -160,6 +160,7 @@ class CLIOrchestrator:
         session_name: str | None = None,
         no_bastion: bool = False,
         bastion_name: str | None = None,
+        auto_approve: bool = False,
     ):
         """Initialize CLI orchestrator.
 
@@ -174,6 +175,7 @@ class CLIOrchestrator:
             session_name: Session name for VM tags (optional)
             no_bastion: Skip bastion auto-detection and always create public IP (optional)
             bastion_name: Explicit bastion host name to use (optional)
+            auto_approve: Accept all defaults and confirmations (non-interactive mode)
         """
         self.repo = repo
         self.vm_size = vm_size
@@ -185,6 +187,7 @@ class CLIOrchestrator:
         self.session_name = session_name
         self.no_bastion = no_bastion
         self.bastion_name = bastion_name
+        self.auto_approve = auto_approve
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -442,7 +445,15 @@ class CLIOrchestrator:
             )
 
             if bastion_info:
-                # Found bastion - prompt user with default=True
+                # Found bastion - prompt user with default=True (or auto-approve)
+                if self.auto_approve:
+                    # Non-interactive mode: use Bastion by default
+                    self.progress.update(
+                        f"Using Bastion: {bastion_info['name']} (auto-approved)",
+                        ProgressStage.IN_PROGRESS,
+                    )
+                    return (True, bastion_info)
+
                 message = (
                     f"\nFound Bastion host '{bastion_info['name']}' in resource group.\n"
                     f"Use Bastion for secure access (recommended)?\n"
@@ -463,14 +474,37 @@ class CLIOrchestrator:
                     "User declined Bastion, will create public IP", ProgressStage.IN_PROGRESS
                 )
                 return (False, None)
-            # No bastion found - prompt to create with default=True
-            message = (
-                f"\nNo Bastion host found in resource group '{resource_group}'.\n"
-                f"Create VM with Bastion access?\n"
-                f"  - Yes: More secure (private VM, ~$140/month for Bastion)\n"
-                f"  - No: Less secure (public IP, direct internet access)"
-            )
-            if click.confirm(message, default=True):
+            # No bastion found - prompt to create with default=True (or auto-approve)
+            if self.auto_approve:
+                # Non-interactive mode: create Bastion by default
+                self.progress.update(
+                    "No Bastion found - will create one (auto-approved)", ProgressStage.IN_PROGRESS
+                )
+                # Skip to Bastion creation logic below
+            else:
+                message = (
+                    f"\nNo Bastion host found in resource group '{resource_group}'.\n"
+                    f"Create VM with Bastion access?\n"
+                    f"  - Yes: More secure (private VM, ~$140/month for Bastion)\n"
+                    f"  - No: Less secure (public IP, direct internet access)"
+                )
+                if not click.confirm(message, default=True):
+                    # User declined - abort per security policy
+                    self.progress.update("User declined Bastion creation", ProgressStage.FAILED)
+                    click.echo(
+                        click.style(
+                            "\n⚠️  Cannot create VM without Bastion (security policy: no public IPs on VMs).\n"
+                            "To proceed, either:\n"
+                            f"  1. Accept Bastion creation in {self.region}\n"
+                            f"  2. Use --no-bastion flag to override (not recommended)\n",
+                            fg="yellow",
+                            bold=True,
+                        )
+                    )
+                    raise click.Abort
+
+            # User approved (or auto-approved) - proceed with Bastion creation
+            if True:
                 # User wants Bastion - use orchestrator to create it
                 try:
                     self.progress.update(
@@ -2289,6 +2323,12 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
     "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
 )
 @click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    help="Accept all defaults and confirmations (non-interactive mode)",
+)
 def new_command(
     ctx: click.Context,
     repo: str | None,
@@ -2304,6 +2344,7 @@ def new_command(
     nfs_storage: str | None,
     no_bastion: bool,
     bastion_name: str | None,
+    yes: bool,
 ) -> None:
     """Provision a new Azure VM with development tools.
 
@@ -2374,6 +2415,7 @@ def new_command(
         session_name=name,
         no_bastion=no_bastion,
         bastion_name=bastion_name,
+        auto_approve=yes,
     )
 
     # Update config state (resource group only, session name saved after VM creation)
