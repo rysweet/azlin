@@ -900,6 +900,7 @@ class BastionProvisioner:
                 vnet_name,
                 "--public-ip-address",
                 public_ip_name,
+                "--enable-tunneling",
                 "--output",
                 "json",
             ]
