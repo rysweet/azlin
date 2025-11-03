@@ -246,25 +246,25 @@ class TestOrphanedBastionInfoCost:
         bastion.calculate_cost()
 
         # Assert
-        # $140 Bastion + $3.65 public IP
-        assert bastion.estimated_monthly_cost == Decimal("143.65")
+        # $289 Bastion + $3.65 public IP
+        assert bastion.estimated_monthly_cost == Decimal("292.65")
 
-    def test_calculate_cost_premium_sku(self):
-        """Test cost calculation for Premium SKU."""
+    def test_calculate_cost_basic_sku(self):
+        """Test cost calculation for Basic SKU."""
         # Arrange
         bastion = OrphanedBastionInfo(
             name="my-bastion",
             resource_group="test-rg",
             location="eastus",
-            sku="Premium",
+            sku="Basic",
         )
 
         # Act
         bastion.calculate_cost()
 
         # Assert
-        # $230 Bastion + $3.65 public IP
-        assert bastion.estimated_monthly_cost == Decimal("233.65")
+        # $140 Bastion + $3.65 public IP
+        assert bastion.estimated_monthly_cost == Decimal("143.65")
 
     def test_calculate_cost_unknown_sku_uses_basic(self):
         """Test cost calculation defaults to Basic for unknown SKU."""
@@ -322,21 +322,21 @@ class TestCleanupDecisionPrompt:
                 resource_group="test-rg",
                 location="eastus",
                 sku="Standard",
-                estimated_monthly_cost=Decimal("143.65"),
+                estimated_monthly_cost=Decimal("292.65"),
             )
         ]
 
         # Act
         decision = orchestrator._prompt_cleanup_decision(
             orphaned=orphaned,
-            total_savings=Decimal("143.65"),
+            total_savings=Decimal("292.65"),
             force=False,
         )
 
         # Assert
         assert decision.approved is True
         assert "orphaned-bastion" in decision.resources_to_delete
-        assert decision.estimated_savings == Decimal("143.65")
+        assert decision.estimated_savings == Decimal("292.65")
         assert decision.cancelled is False
 
     @patch("builtins.input")

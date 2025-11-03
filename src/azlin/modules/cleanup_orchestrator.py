@@ -105,10 +105,10 @@ class OrphanedBastionInfo:
         """Calculate estimated monthly cost for this Bastion."""
         # Bastion pricing (approximate US East):
         # - Basic SKU: ~$0.19/hour = ~$140/month
-        # - Standard SKU: ~$0.32/hour = ~$230/month
+        # - Standard SKU: ~$0.40/hour = ~$289/month
         # - Public IP: ~$3.65/month
         if self.sku:
-            bastion_cost = Decimal("230.0") if "Standard" in self.sku else Decimal("140.0")
+            bastion_cost = Decimal("289.0") if "Standard" in self.sku else Decimal("140.0")
         else:
             bastion_cost = Decimal("140.0")
 

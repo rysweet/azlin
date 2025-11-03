@@ -36,13 +36,13 @@ class TestResourceDecision:
             action=DecisionAction.CREATE,
             resource_type=ResourceType.BASTION,
             resource_name="my-bastion",
-            cost_estimate=Decimal("140.00"),
+            cost_estimate=Decimal("292.65"),
         )
 
         assert decision.action == DecisionAction.CREATE
         assert decision.resource_type == ResourceType.BASTION
         assert decision.resource_name == "my-bastion"
-        assert decision.cost_estimate == Decimal("140.00")
+        assert decision.cost_estimate == Decimal("292.65")
 
     def test_use_existing_decision(self):
         """Test decision for using existing resource."""
@@ -498,9 +498,9 @@ class TestCostEstimation:
         # Mock cost estimator
         mock_estimator = MagicMock()
         mock_estimator.estimate.return_value = CostEstimate(
-            total_monthly=Decimal("140.00"),
-            total_hourly=Decimal("0.19"),
-            breakdown={"bastion": Decimal("140.00")},
+            total_monthly=Decimal("292.65"),
+            total_hourly=Decimal("0.40"),
+            breakdown={"bastion": Decimal("289.00")},
             confidence="high",
         )
 
@@ -519,7 +519,7 @@ class TestCostEstimation:
 
             decision = orchestrator.ensure_bastion(options)
 
-            assert decision.cost_estimate == Decimal("140.00")
+            assert decision.cost_estimate == Decimal("292.65")
             assert mock_estimator.estimate.called
 
     def test_bastion_cost_without_estimator(self):

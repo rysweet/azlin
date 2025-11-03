@@ -526,7 +526,7 @@ class CLIOrchestrator:
                             vnet_name=None,  # Will auto-create VNet if needed
                             vnet_id=None,
                             bastion_subnet_id=None,
-                            sku="Basic",
+                            sku="Standard",
                             allow_public_ip_fallback=False,  # NEVER allow public IP on VMs
                         )
                     )
