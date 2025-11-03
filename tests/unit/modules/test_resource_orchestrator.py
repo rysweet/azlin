@@ -12,10 +12,8 @@ from azlin.modules.interaction_handler import MockInteractionHandler
 from azlin.modules.resource_orchestrator import (
     BastionOptions,
     DecisionAction,
-    DependencyError,
     NFSOptions,
     OrchestratedResource,
-    OrchestratorError,
     ResourceDecision,
     ResourceOrchestrator,
     ResourceStatus,

@@ -5,7 +5,6 @@ Tests cross-region NFS access, private endpoints, and data replication.
 
 import subprocess
 from datetime import datetime
-from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,9 +12,9 @@ import pytest
 from azlin.modules.nfs_provisioner import (
     AccessAnalysis,
     AccessStrategy,
+    NetworkConfigurationError,
     NFSProvisioner,
     NFSProvisionerError,
-    NetworkConfigurationError,
     PrivateDNSZoneInfo,
     PrivateEndpointInfo,
     ReplicationResult,
@@ -317,7 +316,9 @@ class TestConfigurePrivateDNSZone:
     @patch("azlin.modules.nfs_provisioner.subprocess.run")
     def test_configure_dns_zone_success(self, mock_run):
         """DNS zone configuration should succeed."""
-        vnet_id = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet"
+        vnet_id = (
+            "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet"
+        )
 
         mock_run.side_effect = [
             MagicMock(returncode=0),  # create zone
@@ -340,8 +341,12 @@ class TestConfigurePrivateDNSZone:
     @patch("azlin.modules.nfs_provisioner.subprocess.run")
     def test_configure_dns_zone_multiple_vnets(self, mock_run):
         """DNS zone should link multiple VNets."""
-        vnet1_id = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet1"
-        vnet2_id = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet2"
+        vnet1_id = (
+            "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet1"
+        )
+        vnet2_id = (
+            "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet2"
+        )
 
         mock_run.side_effect = [
             MagicMock(returncode=0),  # create zone
@@ -370,9 +375,7 @@ class TestSetupPrivateEndpointAccess:
     @patch("azlin.modules.nfs_provisioner.NFSProvisioner.create_private_endpoint")
     @patch("azlin.modules.nfs_provisioner.NFSProvisioner.create_vnet_peering")
     @patch("azlin.modules.nfs_provisioner.NFSProvisioner.configure_private_dns_zone")
-    def test_setup_without_peering(
-        self, mock_dns, mock_peering, mock_endpoint
-    ):
+    def test_setup_without_peering(self, mock_dns, mock_peering, mock_endpoint):
         """Setup without source VNet should skip peering."""
         mock_endpoint.return_value = PrivateEndpointInfo(
             name="my-pe",

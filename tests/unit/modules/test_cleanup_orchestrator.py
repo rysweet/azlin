@@ -14,7 +14,6 @@ from azlin.modules.cleanup_orchestrator import (
     BastionCleanupResult,
     CleanupDecision,
     CleanupOrchestrator,
-    CleanupOrchestratorError,
     OrphanedBastionInfo,
 )
 from azlin.modules.interaction_handler import MockInteractionHandler
@@ -298,9 +297,7 @@ class TestCleanupOrphanedBastions:
     @patch("azlin.modules.cleanup_orchestrator.CleanupOrchestrator.detect_orphaned_bastions")
     @patch("azlin.modules.cleanup_orchestrator.CleanupOrchestrator.cleanup_bastion")
     @patch("builtins.input")
-    def test_cleanup_user_confirms_deletion(
-        self, mock_input, mock_cleanup_bastion, mock_detect
-    ):
+    def test_cleanup_user_confirms_deletion(self, mock_input, mock_cleanup_bastion, mock_detect):
         """User confirming should delete Bastions."""
         # Mock orphaned Bastion
         orphaned_bastion = OrphanedBastionInfo(
@@ -451,10 +448,12 @@ class TestHelperMethods:
     @patch("azlin.modules.cleanup_orchestrator.subprocess.run")
     def test_list_bastions_success(self, mock_run):
         """List Bastions should parse JSON output."""
-        bastions_json = json.dumps([
-            {"name": "bastion1", "location": "eastus"},
-            {"name": "bastion2", "location": "westus"},
-        ])
+        bastions_json = json.dumps(
+            [
+                {"name": "bastion1", "location": "eastus"},
+                {"name": "bastion2", "location": "westus"},
+            ]
+        )
         mock_run.return_value = MagicMock(returncode=0, stdout=bastions_json)
 
         orchestrator = CleanupOrchestrator("my-rg")
