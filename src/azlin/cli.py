@@ -518,8 +518,8 @@ class CLIOrchestrator:
 
                         # Pre-program to select option 1 (CREATE) for all prompts
                         interaction_handler = MockInteractionHandler(
-                            pre_programmed_choices=[0],  # Index 0 = option 1 (CREATE)
-                            pre_programmed_confirmations=[True],
+                            choice_responses=[0],  # Index 0 = option 1 (CREATE)
+                            confirm_responses=[True],
                         )
                     else:
                         interaction_handler = CLIInteractionHandler()
