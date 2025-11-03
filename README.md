@@ -213,7 +213,9 @@ azlin bastion configure my-vm --bastion-name my-bastion --resource-group my-rg
 
 **Security Benefits**: Bastion eliminates internet-facing access to VMs, providing enhanced security through centralized access control, audit logging, and compliance with security policies requiring private-only VMs.
 
-**Cost**: ~$140/month per Bastion host (shared across all VMs in the VNet).
+**Cost**: ~$289/month per Bastion host (Standard SKU, shared across all VMs in the VNet).
+
+**Note**: azlin requires Standard SKU to enable CLI tunneling via `az network bastion tunnel`. Basic SKU only supports browser-based access.
 
 For complete documentation, see the [Azure Bastion](#azure-bastion-secure-vm-access) section.
 
@@ -852,9 +854,16 @@ Azure Bastion provides secure SSH access to VMs without public IPs, enhancing se
 - Compliance with security policies requiring private-only VMs
 
 **Cost Consideration:**
-- Bastion: ~$140/month per host
+- Bastion: ~$289/month per host (Standard SKU required for CLI access)
 - Saves: ~$3/month per VM (no public IP needed)
-- Break-even: ~47 VMs per Bastion host
+- Break-even: ~96 VMs per Bastion host
+
+**Standard SKU Requirement:**
+
+azlin uses Azure Bastion Standard SKU (not Basic) because:
+- **CLI tunneling support**: Standard SKU enables `az network bastion tunnel` for programmatic SSH access
+- **Basic SKU limitation**: Basic SKU only supports browser-based SSH through Azure Portal
+- **azlin workflow**: Requires CLI-based tunneling for automated connection management and tmux integration
 
 ### Bastion Commands
 

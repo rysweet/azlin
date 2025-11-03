@@ -51,7 +51,7 @@ class CostEstimator:
     NFS_STANDARD_GB = 0.06  # per GB/month
 
     @staticmethod
-    def estimate_bastion_cost(sku: str = "Basic") -> float:
+    def estimate_bastion_cost(sku: str = "Standard") -> float:
         """Estimate monthly Azure Bastion cost including required public IP.
 
         Azure Bastion requires a static public IP address in addition to the

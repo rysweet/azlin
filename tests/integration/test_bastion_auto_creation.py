@@ -39,19 +39,19 @@ class TestBastionCostEstimation:
         cost = CostEstimator.estimate_bastion_cost("Standard")
 
         # Assert
-        assert cost == 143.65  # $140 Bastion + $3.65 public IP
-        formatted = CostEstimator.format_cost(cost)
-        assert formatted == "$143.65/month"
-
-    def test_estimate_bastion_premium_cost(self):
-        """Test estimating Premium SKU Bastion cost."""
-        # Act
-        cost = CostEstimator.estimate_bastion_cost("Premium")
-
-        # Assert
         assert cost == 292.65  # $289 Bastion + $3.65 public IP
         formatted = CostEstimator.format_cost(cost)
         assert formatted == "$292.65/month"
+
+    def test_estimate_bastion_basic_cost(self):
+        """Test estimating Basic SKU Bastion cost."""
+        # Act
+        cost = CostEstimator.estimate_bastion_cost("Basic")
+
+        # Assert
+        assert cost == 143.65  # $140 Bastion + $3.65 public IP
+        formatted = CostEstimator.format_cost(cost)
+        assert formatted == "$143.65/month"
 
     def test_estimate_bastion_invalid_sku(self):
         """Test error handling for invalid SKU."""
@@ -368,21 +368,24 @@ class TestResourceOrchestratorBastionDecisions:
         assert decision.action == DecisionAction.CANCEL
         assert decision.resource_type == ResourceType.BASTION
 
-    def test_ensure_bastion_no_vnet_error(self):
-        """Test error when no VNet information provided."""
+    def test_ensure_bastion_no_vnet_auto_generates(self):
+        """Test auto-generation of VNet name when not provided."""
         # Arrange
-        handler = MockInteractionHandler()
+        handler = MockInteractionHandler(choice_responses=[0])  # User approves creation
         orchestrator = ResourceOrchestrator(interaction_handler=handler)
 
         options = BastionOptions(
             region="eastus",
             resource_group="test-rg",
-            vnet_name="",  # Missing VNet
+            vnet_name="",  # Missing VNet - should auto-generate
         )
 
-        # Act & Assert
-        with pytest.raises(Exception, match="vnet"):
-            orchestrator.ensure_bastion(options)
+        # Act
+        with patch.object(orchestrator, "_check_existing_bastion", return_value=None):
+            decision = orchestrator.ensure_bastion(options)
+
+        # Assert - VNet name should be auto-generated
+        assert decision.metadata["vnet_name"] == "azlin-vnet-eastus"
 
 
 class TestBastionProvisioningWorkflow:

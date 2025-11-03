@@ -170,7 +170,7 @@ class BastionOptions:
     vnet_name: str | None
     vnet_id: str | None = None
     bastion_subnet_id: str | None = None
-    sku: str = "Basic"
+    sku: str = "Standard"
     allow_public_ip_fallback: bool = True
 
 
@@ -738,8 +738,8 @@ class ResourceOrchestrator:
         if not self.cost_estimator:
             # Default estimates if no cost estimator provided
             # Basic SKU: ~$0.19/hour = ~$140/month
-            # Standard SKU: ~$0.32/hour = ~$230/month
-            hourly = Decimal("0.19" if sku == "Basic" else "0.32")
+            # Standard SKU: ~$0.40/hour = ~$289/month
+            hourly = Decimal("0.19" if sku == "Basic" else "0.40")
             monthly = hourly * Decimal("730")  # Average hours per month
 
             logger.warning(
