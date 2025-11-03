@@ -512,8 +512,20 @@ class CLIOrchestrator:
                     )
 
                     # Initialize orchestrator with CLI handler and cost estimator
+                    # Use MockInteractionHandler in auto-approve mode to accept defaults
+                    if self.auto_approve:
+                        from azlin.modules.interaction_handler import MockInteractionHandler
+
+                        # Pre-program to select option 1 (CREATE) for all prompts
+                        interaction_handler = MockInteractionHandler(
+                            choice_responses=[0],  # Index 0 = option 1 (CREATE)
+                            confirm_responses=[True],
+                        )
+                    else:
+                        interaction_handler = CLIInteractionHandler()
+
                     orchestrator = ResourceOrchestrator(
-                        interaction_handler=CLIInteractionHandler(),
+                        interaction_handler=interaction_handler,
                         cost_estimator=CostEstimator(),
                     )
 
