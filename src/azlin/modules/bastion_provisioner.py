@@ -24,6 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from azlin.azure_cli_visibility import AzureCLIExecutor
 from azlin.modules.bastion_detector import BastionDetector, BastionDetectorError
 
 logger = logging.getLogger(__name__)
@@ -613,14 +614,9 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=cls.DEFAULT_COMMAND_TIMEOUT,
-                check=False,
-            )
-            return result.returncode == 0
+            executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_COMMAND_TIMEOUT)
+            exec_result = executor.execute(cmd)
+            return exec_result["success"]
         except Exception:
             return False
 
@@ -645,14 +641,13 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=cls.DEFAULT_COMMAND_TIMEOUT,
-                check=True,
-            )
-            return json.loads(result.stdout)
+            executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_COMMAND_TIMEOUT)
+            exec_result = executor.execute(cmd)
+            if not exec_result["success"]:
+                raise subprocess.CalledProcessError(
+                    exec_result["returncode"], cmd, exec_result["stdout"], exec_result["stderr"]
+                )
+            return json.loads(exec_result["stdout"])
         except Exception:
             return []
 
@@ -684,14 +679,9 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=cls.DEFAULT_COMMAND_TIMEOUT,
-                check=False,
-            )
-            return result.returncode == 0
+            executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_COMMAND_TIMEOUT)
+            exec_result = executor.execute(cmd)
+            return exec_result["success"]
         except Exception:
             return False
 
@@ -719,14 +709,9 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=cls.DEFAULT_COMMAND_TIMEOUT,
-                check=False,
-            )
-            return result.returncode == 0
+            executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_COMMAND_TIMEOUT)
+            exec_result = executor.execute(cmd)
+            return exec_result["success"]
         except Exception:
             return False
 
@@ -774,13 +759,12 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=cls.DEFAULT_COMMAND_TIMEOUT,
-                check=True,
-            )
+            executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_COMMAND_TIMEOUT)
+            exec_result = executor.execute(cmd)
+            if not exec_result["success"]:
+                raise subprocess.CalledProcessError(
+                    exec_result["returncode"], cmd, exec_result["stdout"], exec_result["stderr"]
+                )
             logger.debug(f"VNet created with default subnet: {vnet_name}")
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr or "")
@@ -821,13 +805,12 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=cls.DEFAULT_COMMAND_TIMEOUT,
-                check=True,
-            )
+            executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_COMMAND_TIMEOUT)
+            exec_result = executor.execute(cmd)
+            if not exec_result["success"]:
+                raise subprocess.CalledProcessError(
+                    exec_result["returncode"], cmd, exec_result["stdout"], exec_result["stderr"]
+                )
             logger.debug(f"Bastion subnet created in {vnet_name}")
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr or "")
@@ -869,13 +852,12 @@ class BastionProvisioner:
                 "--output",
                 "json",
             ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=cls.DEFAULT_COMMAND_TIMEOUT,
-                check=True,
-            )
+            executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_COMMAND_TIMEOUT)
+            exec_result = executor.execute(cmd)
+            if not exec_result["success"]:
+                raise subprocess.CalledProcessError(
+                    exec_result["returncode"], cmd, exec_result["stdout"], exec_result["stderr"]
+                )
             logger.debug(f"Public IP created: {public_ip_name}")
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr or "")
@@ -923,13 +905,14 @@ class BastionProvisioner:
             ]
             # Bastion creation takes 5-15 minutes - use proper timeout
             # The command will return when provisioning starts
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=cls.DEFAULT_PROVISIONING_TIMEOUT,  # Use full provisioning timeout (900s)
-                check=True,
+            executor = AzureCLIExecutor(
+                show_progress=True, timeout=cls.DEFAULT_PROVISIONING_TIMEOUT
             )
+            exec_result = executor.execute(cmd)
+            if not exec_result["success"]:
+                raise subprocess.CalledProcessError(
+                    exec_result["returncode"], cmd, exec_result["stdout"], exec_result["stderr"]
+                )
             logger.debug(f"Bastion creation initiated: {bastion_name}")
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr or "")
