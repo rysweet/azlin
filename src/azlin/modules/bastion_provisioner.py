@@ -905,7 +905,9 @@ class BastionProvisioner:
             ]
             # Bastion creation takes 5-15 minutes - use proper timeout
             # The command will return when provisioning starts
-            executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_PROVISIONING_TIMEOUT)
+            executor = AzureCLIExecutor(
+                show_progress=True, timeout=cls.DEFAULT_PROVISIONING_TIMEOUT
+            )
             exec_result = executor.execute(cmd)
             if not exec_result["success"]:
                 raise subprocess.CalledProcessError(
