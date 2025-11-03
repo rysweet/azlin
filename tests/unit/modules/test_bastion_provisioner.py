@@ -3,7 +3,6 @@
 Tests provisioning logic with mocked Azure CLI calls.
 """
 
-import json
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -200,9 +199,7 @@ class TestCheckPrerequisites:
         # Mock VNet check - exists
         mock_run.return_value = MagicMock(returncode=0, stdout='{"name": "my-vnet"}')
 
-        status = BastionProvisioner.check_prerequisites(
-            "my-rg", "eastus", vnet_name="my-vnet"
-        )
+        status = BastionProvisioner.check_prerequisites("my-rg", "eastus", vnet_name="my-vnet")
 
         assert status.vnet_exists is True
         assert status.vnet_name == "my-vnet"
@@ -213,9 +210,7 @@ class TestCheckPrerequisites:
         # Mock VNet check - doesn't exist
         mock_run.return_value = MagicMock(returncode=1, stderr="ResourceNotFound")
 
-        status = BastionProvisioner.check_prerequisites(
-            "my-rg", "eastus", vnet_name="missing-vnet"
-        )
+        status = BastionProvisioner.check_prerequisites("my-rg", "eastus", vnet_name="missing-vnet")
 
         assert status.vnet_exists is False
 
@@ -392,9 +387,7 @@ class TestRollbackBastion:
             "bastion:my-bastion",
         ]
 
-        BastionProvisioner.rollback_bastion(
-            "my-bastion", "my-rg", resources, delete_bastion=True
-        )
+        BastionProvisioner.rollback_bastion("my-bastion", "my-rg", resources, delete_bastion=True)
 
         # Verify deletion order (bastion first, vnet last)
         assert mock_delete_bastion.called
@@ -406,9 +399,7 @@ class TestRollbackBastion:
         """Rollback should skip bastion deletion if delete_bastion=False."""
         resources = ["bastion:my-bastion"]
 
-        BastionProvisioner.rollback_bastion(
-            "my-bastion", "my-rg", resources, delete_bastion=False
-        )
+        BastionProvisioner.rollback_bastion("my-bastion", "my-rg", resources, delete_bastion=False)
 
         assert not mock_delete_bastion.called
 
@@ -464,9 +455,7 @@ class TestHelperMethods:
     @patch("azlin.modules.bastion_provisioner.subprocess.run")
     def test_create_vnet_failure(self, mock_run):
         """Create VNet failure should raise error."""
-        mock_run.side_effect = subprocess.CalledProcessError(
-            1, "az", stderr="QuotaExceeded"
-        )
+        mock_run.side_effect = subprocess.CalledProcessError(1, "az", stderr="QuotaExceeded")
 
         with pytest.raises(BastionProvisionerError, match="Quota exceeded"):
             BastionProvisioner._create_vnet("my-vnet", "my-rg", "eastus", "10.0.0.0/16")

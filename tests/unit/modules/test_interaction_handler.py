@@ -3,7 +3,7 @@
 Tests CLI and Mock handlers for user interaction abstraction.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
