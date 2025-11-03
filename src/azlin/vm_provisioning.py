@@ -505,13 +505,15 @@ class VMProvisioner:
         else:
             cmd.extend(["--public-ip-address", ""])  # Empty string disables public IP creation
 
-        # CRITICAL: Specify subnet when using Bastion (avoid AzureBastionSubnet)
+        # CRITICAL: Specify subnet AND vnet-name when using Bastion (avoid AzureBastionSubnet)
         # When a VNet exists with multiple subnets (e.g., from Bastion provisioning),
         # Azure may pick the wrong subnet (AzureBastionSubnet). We must explicitly
         # specify the 'default' subnet for VMs.
+        # Azure CLI requires BOTH --subnet and --vnet-name together.
         if not config.public_ip_enabled:
             # Bastion-only VM - ensure it uses correct subnet
-            cmd.extend(["--subnet", "default"])
+            vnet_name = f"azlin-bastion-{config.location}-vnet"
+            cmd.extend(["--subnet", "default", "--vnet-name", vnet_name])
 
         cmd.append("--output")
         cmd.append("json")
