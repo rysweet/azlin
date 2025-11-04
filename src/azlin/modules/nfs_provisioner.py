@@ -823,7 +823,21 @@ class NFSProvisioner:
 
                 logger.info(f"Linking DNS zone to VNet: {vnet_name}")
 
-                subprocess.run(link_cmd, capture_output=True, text=True, check=True, timeout=120)
+                # Use check=False to make idempotent (link may already exist)
+                result = subprocess.run(
+                    link_cmd, capture_output=True, text=True, check=False, timeout=120
+                )
+                if result.returncode == 0:
+                    logger.info(f"DNS link created for {vnet_name}")
+                else:
+                    # Link may already exist - check if error is "already exists"
+                    if "exists already" in result.stderr.lower():
+                        logger.info(f"DNS link already exists for {vnet_name}")
+                    else:
+                        # Real error - raise it
+                        raise subprocess.CalledProcessError(
+                            result.returncode, link_cmd, result.stdout, result.stderr
+                        )
                 linked_vnets.append(vnet_name)
 
             # Create DNS zone group for private endpoint
