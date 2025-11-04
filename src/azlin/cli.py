@@ -1368,7 +1368,18 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
                 )
 
                 # Use orchestrator to handle cross-region decision
-                orchestrator = ResourceOrchestrator(interaction_handler=CLIInteractionHandler())
+                # Use same interaction handler pattern as Bastion creation
+                if self.auto_approve:
+                    from azlin.modules.interaction_handler import MockInteractionHandler
+
+                    nfs_interaction_handler = MockInteractionHandler(
+                        choice_responses=[0, 0, 0, 0],  # Auto-select CREATE for all prompts
+                        confirm_responses=[True, True, True, True],
+                    )
+                else:
+                    nfs_interaction_handler = CLIInteractionHandler()
+
+                orchestrator = ResourceOrchestrator(interaction_handler=nfs_interaction_handler)
 
                 nfs_options = NFSOptions(
                     region=vm_details.location,
