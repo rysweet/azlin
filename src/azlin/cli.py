@@ -4177,7 +4177,21 @@ def connect(
             vm_identifier = _interactive_vm_selection(rg, config, no_tmux, tmux_session)
 
         # Parse remote command and key path
-        command = " ".join(remote_command) if remote_command else None
+        # SPECIAL CASE: If remote_command is a single word with no command chars,
+        # treat it as tmux session name, not a remote command
+        command = None
+        if remote_command:
+            if len(remote_command) == 1 and not any(
+                char in remote_command[0] for char in [" ", "|", ">", "<", ";", "&", "`", "$"]
+            ):
+                # Single word with no command characters = tmux session name
+                if not tmux_session:  # Only if not already explicitly set
+                    tmux_session = remote_command[0]
+                    logger.info(f"Treating '{remote_command[0]}' as tmux session name")
+            else:
+                # Has command characters or multiple words = actual remote command
+                command = " ".join(remote_command)
+
         key_path = Path(key).expanduser() if key else None
 
         # Resolve session name to VM name
