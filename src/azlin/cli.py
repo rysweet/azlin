@@ -519,7 +519,12 @@ class CLIOrchestrator:
                         # Pre-program to select option 1 (CREATE) for ALL prompts
                         # Need multiple entries for: Bastion + NFS + any other prompts
                         interaction_handler = MockInteractionHandler(
-                            choice_responses=[0, 0, 0, 0],  # Index 0 = option 1 (CREATE) - enough for all prompts
+                            choice_responses=[
+                                0,
+                                0,
+                                0,
+                                0,
+                            ],  # Index 0 = option 1 (CREATE) - enough for all prompts
                             confirm_responses=[True, True, True, True],
                         )
                     else:
