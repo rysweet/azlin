@@ -1361,6 +1361,9 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
             vm_subnet_id = self._get_vm_subnet_id(vm_details)
             vnet_name, vnet_rg = self._extract_vnet_info_from_subnet_id(vm_subnet_id)
 
+            # Track if using private endpoint (to skip service endpoint ACL config)
+            using_private_endpoint = False
+
             # Check if cross-region access is needed
             if storage.region.lower() != vm_details.location.lower():
                 self.progress.update(
@@ -1403,6 +1406,8 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
                     self.progress.update(
                         f"Private endpoint created: {endpoint.name} (IP: {endpoint.private_ip})"
                     )
+                    # Flag to skip service endpoint ACL config (private endpoint provides access)
+                    using_private_endpoint = True
 
                 elif decision.action == DecisionAction.SKIP:
                     # User chose local storage fallback
@@ -1412,13 +1417,18 @@ chmod 600 /home/azureuser/.ssh/authorized_keys
                 elif decision.action == DecisionAction.CANCEL:
                     raise Exception("User cancelled cross-region NFS setup")
 
-            # Configure network access for NFS (must be done before mount)
-            self.progress.update("Configuring NFS network access...")
-            StorageManager.configure_nfs_network_access(
-                storage_account=storage.name,
-                resource_group=rg,
-                vm_subnet_id=vm_subnet_id,
-            )
+            # Configure network access for NFS ONLY if NOT using private endpoint
+            # Private endpoints provide access via private IP, service endpoint ACLs not needed
+            # and fail cross-region (NetworkAclsValidationFailure)
+            if not using_private_endpoint:
+                self.progress.update("Configuring NFS network access...")
+                StorageManager.configure_nfs_network_access(
+                    storage_account=storage.name,
+                    resource_group=rg,
+                    vm_subnet_id=vm_subnet_id,
+                )
+            else:
+                self.progress.update("Skipping service endpoint ACLs (using private endpoint)")
 
             # Read SSH public key for restoration after mount
             pub_key_path = Path(str(key_path) + ".pub")
