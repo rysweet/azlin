@@ -18,8 +18,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from azlin.modules.home_sync import (
+    HomeSyncError,
     HomeSyncManager,
-    RsyncError,
 )
 from azlin.modules.ssh_connector import SSHConfig
 
@@ -611,7 +611,7 @@ class TestRsyncExecution:
 
         ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 
-        with pytest.raises(RsyncError, match="timed out"):
+        with pytest.raises(HomeSyncError, match="timed out"):
             HomeSyncManager.sync_to_vm(ssh_config, dry_run=False)
 
 

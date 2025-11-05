@@ -162,8 +162,20 @@ class SSHKeyRotator:
             # Step 4: Handle rollback if needed
             if not update_result.all_succeeded and enable_rollback and backup:
                 logger.warning(f"Rolling back {len(update_result.vms_failed)} failed VMs")
-                # Rollback would restore old key from backup
-                # For now, we just log the failure
+                try:
+                    # Read old public key from backup
+                    old_public_key = backup.old_public_key.read_text().strip()
+
+                    # Rollback: restore old key to VMs that succeeded but should revert
+                    rollback_result = cls.update_all_vms(
+                        resource_group=resource_group,
+                        new_public_key=old_public_key,
+                        vm_prefix=vm_prefix,
+                    )
+                    logger.info(f"Rollback completed: {rollback_result.message}")
+                except Exception as e:
+                    logger.error(f"Rollback failed: {e}")
+                    # Continue to return partial failure result
 
             return KeyRotationResult(
                 success=update_result.all_succeeded,

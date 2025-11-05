@@ -621,7 +621,28 @@ class ConfigManager:
             profiles = auth_config.get("profiles", {})
             return profiles.get(profile_name)
 
-        except Exception:
+        except FileNotFoundError:
+            # Config file doesn't exist
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug("Config file not found when loading auth profile")
+            return None
+
+        except (OSError, IOError, PermissionError) as e:
+            # File system errors
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to read config file for auth profile: {e}")
+            return None
+
+        except Exception as e:
+            # TOML parsing errors or unexpected issues
+            import logging
+            import os
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to load auth profile {profile_name}: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Auth profile load error details:", exc_info=True)
             return None
 
     @classmethod
@@ -749,7 +770,28 @@ class ConfigManager:
 
             return list(profiles.keys())
 
-        except Exception:
+        except FileNotFoundError:
+            # Config file doesn't exist - no profiles
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug("Config file not found when listing auth profiles")
+            return []
+
+        except (OSError, IOError, PermissionError) as e:
+            # File system errors
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to read config file for auth profiles: {e}")
+            return []
+
+        except Exception as e:
+            # TOML parsing errors or unexpected issues
+            import logging
+            import os
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to list auth profiles: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Auth profile list error details:", exc_info=True)
             return []
 
     # ============================================================================
@@ -1361,7 +1403,20 @@ class ConfigManager:
         try:
             tier_info = VMSizeTiers.get_tier_info(tier)
             pricing_info = {"hourly": float(tier_info["monthly_cost"]) / 730}
-        except Exception:
+        except (KeyError, ValueError, TypeError) as e:
+            # Missing or invalid cost data
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to get pricing info for tier {tier}: {e}")
+            pricing_info = {"hourly": 0.0}
+        except Exception as e:
+            # Unexpected errors
+            import logging
+            import os
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Unexpected error getting pricing info: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Pricing info error details:", exc_info=True)
             pricing_info = {"hourly": 0.0}
 
         return {"tier": tier, "vm_size": vm_size, "pricing_info": pricing_info}

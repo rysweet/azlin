@@ -108,19 +108,17 @@ class MSLearnClient:
     ) -> list[SearchResult]:
         """Search MS Learn documentation.
 
-        In production, this would:
-        1. Query MS Learn API or search endpoint
-        2. Parse HTML results
-        3. Extract title, URL, summary
-
-        For now, returns simulated results based on patterns.
+        Note: Returns pattern-based documentation links rather than live API queries.
+        A production implementation would query the MS Learn API or search endpoint
+        and parse HTML results. Current implementation provides common Azure
+        troubleshooting documentation based on error code patterns.
 
         Args:
             error_code: Error code to search
             resource_type: Resource type
 
         Returns:
-            List of search results
+            List of search results based on error patterns
         """
         # Build search query
         query_parts = [error_code]

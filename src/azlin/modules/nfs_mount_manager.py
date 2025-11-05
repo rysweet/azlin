@@ -830,7 +830,32 @@ fi
             cmd = f"mount | grep {mount_point} | grep nfs"
             result = cls._ssh_command(vm_ip, ssh_key, cmd)
             return bool(result.strip())
-        except Exception:
+        except subprocess.TimeoutExpired as e:
+            # SSH command timed out
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Mount check timed out for {vm_ip}:{mount_point}: {e}")
+            return False
+        except subprocess.CalledProcessError as e:
+            # SSH command failed (mount not found or grep returned nothing)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Mount check failed for {vm_ip}:{mount_point}: {e}")
+            return False
+        except (OSError, IOError) as e:
+            # SSH connection or file system errors
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"SSH error checking mount on {vm_ip}: {e}")
+            return False
+        except Exception as e:
+            # Unexpected errors
+            import logging
+            import os
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Unexpected error checking mount on {vm_ip}:{mount_point}: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Mount check error details:", exc_info=True)
             return False
 
     @classmethod

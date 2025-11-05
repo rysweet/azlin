@@ -40,19 +40,16 @@ logger = logging.getLogger(__name__)
 
 
 class HomeSyncError(Exception):
-    """Base exception for home sync errors."""
+    """Exception for home sync operations.
 
-    pass
+    Use descriptive error messages to distinguish between different failure types
+    (security validation, rsync errors, etc.) rather than separate exception classes.
 
-
-class SecurityValidationError(HomeSyncError):
-    """Raised when security validation fails."""
-
-    pass
-
-
-class RsyncError(HomeSyncError):
-    """Raised when rsync command fails."""
+    Example:
+        raise HomeSyncError(f"Security validation failed: dangerous files detected")
+        raise HomeSyncError(f"Rsync command failed: {error}")
+        raise HomeSyncError(f"Sync timed out after 5 minutes")
+    """
 
     pass
 
@@ -640,8 +637,7 @@ class HomeSyncManager:
             SyncResult with sync outcome
 
         Raises:
-            SecurityValidationError: If dangerous files detected
-            RsyncError: If rsync command fails
+            HomeSyncError: If security validation fails or rsync command fails
         """
         start_time = time.time()
         sync_dir = cls.get_sync_directory()
@@ -711,19 +707,17 @@ class HomeSyncManager:
             )
 
         except subprocess.TimeoutExpired as e:
-            raise RsyncError("Sync timed out after 5 minutes") from e
+            raise HomeSyncError("Sync timed out after 5 minutes") from e
         except subprocess.CalledProcessError as e:
-            raise RsyncError("rsync failed (see output above for details)") from e
+            raise HomeSyncError("rsync failed (see output above for details)") from e
         except Exception as e:
-            raise RsyncError(f"Sync failed: {e!s}") from e
+            raise HomeSyncError(f"Sync failed: {e!s}") from e
 
 
 # Public API
 __all__ = [
     "HomeSyncError",
     "HomeSyncManager",
-    "RsyncError",
-    "SecurityValidationError",
     "SecurityWarning",
     "SyncResult",
     "ValidationResult",

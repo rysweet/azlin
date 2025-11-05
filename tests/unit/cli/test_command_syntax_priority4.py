@@ -167,9 +167,7 @@ class TestKeysCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["keys", "backup", "--output", "/tmp/backup"])
 
-        # XFAIL: --output not yet implemented
-        # When implemented, this should pass with exit_code 0
-        # For now, accept either success (0) or bad parameter (2)
+        # Accept either success (0) if --output is implemented or bad parameter (2) if not
         assert result.exit_code in [0, 2], (
             f"Expected exit code 0 (success) or 2 (bad parameter), "
             f"got {result.exit_code}: {result.output}"
