@@ -141,10 +141,13 @@ def setup(
         if not subscription_id:
             subscription_id = click.prompt("Azure Subscription ID", type=str)
 
-        # At this point all IDs are guaranteed to be str (type checker needs help)
-        assert tenant_id is not None
-        assert client_id is not None
-        assert subscription_id is not None
+        # Validate all required IDs were provided
+        if not tenant_id:
+            raise ConfigError("Tenant ID is required but was not provided")
+        if not client_id:
+            raise ConfigError("Client ID is required but was not provided")
+        if not subscription_id:
+            raise ConfigError("Subscription ID is required but was not provided")
 
         # Ask about auth method if not specified
         if not use_certificate and not certificate_path:

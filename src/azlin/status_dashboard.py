@@ -93,7 +93,12 @@ class StatusDashboard:
             command.extend(["--resource-group", resource_group])
 
         result = self._run_az_command(command)
-        assert isinstance(result, list), "Expected list from az vm list"
+        if not isinstance(result, list):
+            raise RuntimeError(
+                f"Unexpected response from Azure CLI 'az vm list' command.\n"
+                f"Expected a list but got {type(result).__name__}.\n"
+                "This is an internal error - please report this issue."
+            )
         return result  # type: ignore[return-value]
 
     def _get_vm_instance_view(self, vm_name: str, resource_group: str) -> dict[str, Any]:
@@ -179,14 +184,17 @@ class StatusDashboard:
     def _calculate_uptime(self, instance_view: dict[str, Any]) -> str | None:
         """Calculate VM uptime based on instance view.
 
+        Note: Returns None as Azure VM API does not directly expose uptime metrics.
+        VM uptime tracking would require separate logging of start times or
+        integration with Azure Monitor. For uptime information, use Azure
+        Portal's VM metrics or configure custom monitoring.
+
         Args:
-            instance_view: Instance view dictionary
+            instance_view: Instance view dictionary (unused)
 
         Returns:
-            Human-readable uptime string or None
+            Always returns None (uptime tracking not implemented)
         """
-        # Azure doesn't directly provide uptime, so we return None for now
-        # In a production system, you could track start times separately
         return None
 
     def _get_estimated_cost(self, vm_size: str, hours: float = 730.0) -> float:
