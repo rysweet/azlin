@@ -19,12 +19,18 @@ from azlin.vm_manager import VMInfo
 class TestIssue281BugReproduction:
     """Test that directly reproduces the bug from issue #281."""
 
+    @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
     @patch("azlin.cli.WCommandExecutor")
     @patch("azlin.cli.SSHKeyManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
     def test_issue_281_w_command_filters_out_bastion_only_vms(
-        self, mock_config_mgr, mock_vm_mgr, mock_ssh_key_mgr, mock_w_executor
+        self,
+        mock_config_mgr,
+        mock_vm_mgr,
+        mock_ssh_key_mgr,
+        mock_w_executor,
+        mock_resolve_routes,
     ):
         """REPRODUCTION: azlin w filters out VMs without public IPs.
 
@@ -69,6 +75,38 @@ class TestIssue281BugReproduction:
         mock_vm_mgr.list_vms.return_value = vms
         mock_vm_mgr.filter_by_prefix.return_value = vms
 
+        # Mock routing resolver to return configs for both VMs
+        from azlin.modules.ssh_connector import SSHConfig
+        from azlin.modules.ssh_routing_resolver import SSHRoute
+
+        mock_routes = [
+            SSHRoute(
+                vm_name="azlin-public-vm",
+                vm_info=vms[0],
+                routing_method="direct",
+                ssh_config=SSHConfig(
+                    host="20.1.2.3",
+                    port=22,
+                    user="azureuser",
+                    key_path=Path("/home/user/.ssh/azlin_key"),
+                ),
+                skip_reason=None,
+            ),
+            SSHRoute(
+                vm_name="azlin-bastion-only-vm",
+                vm_info=vms[1],
+                routing_method="bastion",
+                ssh_config=SSHConfig(
+                    host="127.0.0.1",
+                    port=50022,
+                    user="azureuser",
+                    key_path=Path("/home/user/.ssh/azlin_key"),
+                ),
+                skip_reason=None,
+            ),
+        ]
+        mock_resolve_routes.return_value = mock_routes
+
         mock_w_executor.execute_w_on_vms.return_value = []
         mock_w_executor.format_w_output.return_value = "Output"
 
@@ -100,12 +138,18 @@ class TestIssue281BugReproduction:
         else:
             pytest.fail("execute_w_on_vms was not called - command failed earlier")
 
+    @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
     @patch("azlin.cli.DistributedTopExecutor")
     @patch("azlin.cli.SSHKeyManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
     def test_issue_281_top_command_filters_out_bastion_only_vms(
-        self, mock_config_mgr, mock_vm_mgr, mock_ssh_key_mgr, mock_top_executor
+        self,
+        mock_config_mgr,
+        mock_vm_mgr,
+        mock_ssh_key_mgr,
+        mock_top_executor,
+        mock_resolve_routes,
     ):
         """REPRODUCTION: azlin top filters out VMs without public IPs."""
         # Setup (same as w command)
@@ -136,6 +180,38 @@ class TestIssue281BugReproduction:
         mock_vm_mgr.list_vms.return_value = vms
         mock_vm_mgr.filter_by_prefix.return_value = vms
 
+        # Mock routing resolver to return configs for both VMs
+        from azlin.modules.ssh_connector import SSHConfig
+        from azlin.modules.ssh_routing_resolver import SSHRoute
+
+        mock_routes = [
+            SSHRoute(
+                vm_name="azlin-public-vm",
+                vm_info=vms[0],
+                routing_method="direct",
+                ssh_config=SSHConfig(
+                    host="20.1.2.3",
+                    port=22,
+                    user="azureuser",
+                    key_path=Path("/home/user/.ssh/azlin_key"),
+                ),
+                skip_reason=None,
+            ),
+            SSHRoute(
+                vm_name="azlin-bastion-only-vm",
+                vm_info=vms[1],
+                routing_method="bastion",
+                ssh_config=SSHConfig(
+                    host="127.0.0.1",
+                    port=50022,
+                    user="azureuser",
+                    key_path=Path("/home/user/.ssh/azlin_key"),
+                ),
+                skip_reason=None,
+            ),
+        ]
+        mock_resolve_routes.return_value = mock_routes
+
         mock_executor_instance = Mock()
         mock_top_executor.return_value = mock_executor_instance
 
@@ -163,12 +239,18 @@ class TestIssue281BugReproduction:
         else:
             pytest.fail("DistributedTopExecutor was not called")
 
+    @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
     @patch("azlin.cli.PSCommandExecutor")
     @patch("azlin.cli.SSHKeyManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
     def test_issue_281_ps_command_filters_out_bastion_only_vms(
-        self, mock_config_mgr, mock_vm_mgr, mock_ssh_key_mgr, mock_ps_executor
+        self,
+        mock_config_mgr,
+        mock_vm_mgr,
+        mock_ssh_key_mgr,
+        mock_ps_executor,
+        mock_resolve_routes,
     ):
         """REPRODUCTION: azlin ps filters out VMs without public IPs."""
         # Setup
@@ -198,6 +280,38 @@ class TestIssue281BugReproduction:
         ]
         mock_vm_mgr.list_vms.return_value = vms
         mock_vm_mgr.filter_by_prefix.return_value = vms
+
+        # Mock routing resolver to return configs for both VMs
+        from azlin.modules.ssh_connector import SSHConfig
+        from azlin.modules.ssh_routing_resolver import SSHRoute
+
+        mock_routes = [
+            SSHRoute(
+                vm_name="azlin-public-vm",
+                vm_info=vms[0],
+                routing_method="direct",
+                ssh_config=SSHConfig(
+                    host="20.1.2.3",
+                    port=22,
+                    user="azureuser",
+                    key_path=Path("/home/user/.ssh/azlin_key"),
+                ),
+                skip_reason=None,
+            ),
+            SSHRoute(
+                vm_name="azlin-bastion-only-vm",
+                vm_info=vms[1],
+                routing_method="bastion",
+                ssh_config=SSHConfig(
+                    host="127.0.0.1",
+                    port=50022,
+                    user="azureuser",
+                    key_path=Path("/home/user/.ssh/azlin_key"),
+                ),
+                skip_reason=None,
+            ),
+        ]
+        mock_resolve_routes.return_value = mock_routes
 
         mock_ps_executor.execute_ps_on_vms.return_value = []
         mock_ps_executor.format_ps_output.return_value = "Output"
