@@ -313,7 +313,7 @@ class MCPClient:
         except json.JSONDecodeError as e:
             raise MCPError(f"Invalid JSON response from MCP server: {e!s}") from e
         except Exception as e:
-            if isinstance(e, (MCPError, MCPConnectionError, MCPTimeoutError)):
+            if isinstance(e, MCPError | MCPConnectionError | MCPTimeoutError):
                 raise
             raise MCPError(f"Request failed: {e!s}") from e
 

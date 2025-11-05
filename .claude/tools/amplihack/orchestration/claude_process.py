@@ -5,7 +5,6 @@ providing a clean interface for running Claude CLI processes with proper
 output streaming, timeout handling, and logging.
 """
 
-import contextlib
 import os
 import pty
 import subprocess
@@ -327,6 +326,8 @@ class ClaudeProcess:
         Closes PTY master fd if still open.
         """
         if self._master_fd is not None:
-            with contextlib.suppress(Exception):
+            try:
                 os.close(self._master_fd)
+            except Exception:
+                pass
             self._master_fd = None

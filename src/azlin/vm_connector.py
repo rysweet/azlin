@@ -22,7 +22,7 @@ import click
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.connection_tracker import ConnectionTracker
 from azlin.modules.bastion_config import BastionConfig
-from azlin.modules.bastion_detector import BastionDetector
+from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
@@ -193,7 +193,7 @@ class VMConnector:
                     exit_code = handler.connect_with_reconnect(
                         config=ssh_config,
                         vm_name=conn_info.vm_name,
-                        tmux_session=tmux_session or conn_info.vm_name if use_tmux else "azlin",
+                        tmux_session=tmux_session or "azlin",
                         auto_tmux=use_tmux,
                     )
 
@@ -385,15 +385,21 @@ class VMConnector:
                     f"VM is not running (state: {vm_info.power_state}). Connection may fail."
                 )
 
-            # Get IP address
-            if not vm_info.public_ip:
-                raise VMConnectorError(
-                    f"VM {vm_name} has no public IP address. Ensure VM has a public IP configured."
+            # Get IP address (public or private - Bastion routing will handle both)
+            ip_address = vm_info.public_ip or vm_info.private_ip
+
+            if not ip_address:
+                raise VMConnectorError(f"VM {vm_name} has neither public nor private IP address.")
+
+            # Log when VM is private-only (helps with debugging bastion connections)
+            if not vm_info.public_ip and vm_info.private_ip:
+                logger.info(
+                    f"VM {vm_name} is private-only (no public IP), will use Bastion if available"
                 )
 
             return ConnectionInfo(
                 vm_name=vm_name,
-                ip_address=vm_info.public_ip,
+                ip_address=ip_address,
                 resource_group=resource_group,
                 ssh_user=ssh_user,
                 ssh_key_path=ssh_key_path,
@@ -405,7 +411,7 @@ class VMConnector:
     @classmethod
     def _check_bastion_routing(
         cls, vm_name: str, resource_group: str, force_bastion: bool
-    ) -> dict[str, str] | None:
+    ) -> BastionInfo | None:
         """Check if Bastion routing should be used for VM.
 
         Checks configuration and auto-detects Bastion hosts.
@@ -439,6 +445,7 @@ class VMConnector:
                 return {
                     "name": mapping.bastion_name,
                     "resource_group": mapping.bastion_resource_group,
+                    "location": None,
                 }
 
         except Exception as e:
@@ -449,10 +456,10 @@ class VMConnector:
             bastion_info = BastionDetector.detect_bastion_for_vm(vm_name, resource_group)
 
             if bastion_info:
-                # Prompt user
+                # Prompt user (default changed to True for security by default)
                 if click.confirm(
                     f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
-                    default=False,
+                    default=True,
                 ):
                     return bastion_info
 

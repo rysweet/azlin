@@ -50,6 +50,20 @@ class VMInfo:
         """Check if VM is stopped."""
         return self.power_state in ["VM stopped", "VM deallocated"]
 
+    def is_managed(self) -> bool:
+        """Check if VM is managed by azlin.
+
+        A VM is considered managed if:
+        1. Has managed-by=azlin tag, OR
+        2. Name starts with 'azlin' prefix
+
+        Returns:
+            True if managed, False otherwise
+        """
+        if self.tags and self.tags.get("managed-by") == "azlin":
+            return True
+        return self.name.startswith("azlin")
+
     def get_status_display(self) -> str:
         """Get formatted status display."""
         if self.is_running():
@@ -126,6 +140,11 @@ class VMManager:
             result: subprocess.CompletedProcess[str] = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=30, check=True
             )
+
+            # Handle empty stdout (e.g., resource group not found but didn't raise error)
+            if not result.stdout or result.stdout.strip() == "":
+                logger.debug(f"No VMs found in resource group: {resource_group}")
+                return []
 
             vms_data: list[dict[str, Any]] = json.loads(result.stdout)
 

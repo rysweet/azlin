@@ -114,10 +114,16 @@ def run_cascade(
         )
 
     # Get timeouts
-    timeouts = custom_timeouts or TIMEOUT_STRATEGIES[timeout_strategy]
+    if custom_timeouts:
+        timeouts = custom_timeouts
+    else:
+        timeouts = TIMEOUT_STRATEGIES[timeout_strategy]
 
     # Get constraints
-    constraints = custom_constraints or FALLBACK_TEMPLATES[fallback_strategy]
+    if custom_constraints:
+        constraints = custom_constraints
+    else:
+        constraints = FALLBACK_TEMPLATES[fallback_strategy]
 
     # Create session
     session = OrchestratorSession(

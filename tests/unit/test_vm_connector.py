@@ -176,7 +176,7 @@ class TestVMConnector:
         )
         mock_vm_mgr.get_vm.return_value = vm_info
 
-        with pytest.raises(VMConnectorError, match="has no public IP"):
+        with pytest.raises(VMConnectorError, match="has neither public nor private IP"):
             VMConnector._resolve_connection_info(
                 vm_identifier="my-vm",
                 resource_group="my-rg",
@@ -212,10 +212,21 @@ class TestVMConnector:
         mock_reconnect_handler.assert_called_once_with(max_retries=3)
         mock_handler_instance.connect_with_reconnect.assert_called_once()
 
+    @patch("azlin.vm_connector.ConfigManager")
+    @patch("azlin.vm_connector.BastionConfig")
+    @patch("azlin.vm_connector.BastionDetector")
     @patch("azlin.vm_connector.SSHReconnectHandler")
     @patch("azlin.vm_connector.SSHKeyManager")
     @patch("azlin.vm_connector.VMManager")
-    def test_connect_by_name(self, mock_vm_mgr, mock_ssh_key_mgr, mock_reconnect_handler):
+    def test_connect_by_name(
+        self,
+        mock_vm_mgr,
+        mock_ssh_key_mgr,
+        mock_reconnect_handler,
+        mock_bastion_detector,
+        mock_bastion_config,
+        mock_config_manager,
+    ):
         """Test connecting by VM name with reconnect."""
         # Mock VM info
         vm_info = VMInfo(
@@ -235,6 +246,12 @@ class TestVMConnector:
         )
         mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
 
+        # Mock Bastion config to raise exception (simulating no config file)
+        mock_bastion_config.load.side_effect = Exception("No config file")
+
+        # Mock Bastion detection to return None (no Bastion needed for VM with public IP)
+        mock_bastion_detector.detect_bastion_for_vm.return_value = None
+
         # Mock reconnect handler
         mock_handler_instance = MagicMock()
         mock_handler_instance.connect_with_reconnect.return_value = 0
@@ -250,7 +267,8 @@ class TestVMConnector:
         # Verify reconnect was called with correct params
         call_args = mock_handler_instance.connect_with_reconnect.call_args
         assert call_args.kwargs["vm_name"] == "my-vm"
-        assert call_args.kwargs["tmux_session"] == "my-vm"
+        # Should use default "azlin" session name, not VM name
+        assert call_args.kwargs["tmux_session"] == "azlin"
         assert call_args.kwargs["auto_tmux"] is True
 
     @patch("azlin.vm_connector.TerminalLauncher")

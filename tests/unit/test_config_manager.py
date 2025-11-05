@@ -205,9 +205,13 @@ class TestSessionNameValidation:
         ConfigManager.save_config(config, str(config_file))
 
         # Lookup should filter out self-referential entry
-        result = ConfigManager.get_vm_name_by_session("simserv", str(config_file))
-        assert result is None
-        assert "Ignoring invalid self-referential session mapping" in caplog.text
+        # Pass resource_group="" to force config-only lookup (tags require RG)
+        with patch("azlin.tag_manager.TagManager.get_vm_by_session", return_value=None):
+            result = ConfigManager.get_vm_name_by_session(
+                "simserv", str(config_file), resource_group="test-rg"
+            )
+            assert result is None
+            assert "Ignoring invalid self-referential session mapping" in caplog.text
 
     def test_get_vm_name_by_session_warns_on_duplicates(self, tmp_path, caplog):
         """Test get_vm_name_by_session warns on duplicate session names."""
@@ -221,9 +225,13 @@ class TestSessionNameValidation:
         ConfigManager.save_config(config, str(config_file))
 
         # Lookup should warn and return first match
-        result = ConfigManager.get_vm_name_by_session("prod", str(config_file))
-        assert result == "vm1"
-        assert "Duplicate session name 'prod'" in caplog.text
+        # Mock TagManager to force config fallback
+        with patch("azlin.tag_manager.TagManager.get_vm_by_session", return_value=None):
+            result = ConfigManager.get_vm_name_by_session(
+                "prod", str(config_file), resource_group="test-rg"
+            )
+            assert result == "vm1"
+            assert "Duplicate session name 'prod'" in caplog.text
 
     def test_get_vm_name_by_session_normal_flow(self, tmp_path):
         """Test get_vm_name_by_session returns correct VM for valid mapping."""

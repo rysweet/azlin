@@ -36,6 +36,7 @@ try:
 except ImportError as e:
     raise ImportError("tomli-w library not available. Install with: pip install tomli-w") from e
 
+from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.service_principal_auth import (
     ServicePrincipalConfig,
@@ -46,7 +47,7 @@ from azlin.service_principal_auth import (
 logger = logging.getLogger(__name__)
 
 
-@click.group(name="auth")
+@click.group(name="auth", cls=AzlinGroup)
 def auth():
     """Manage service principal authentication profiles.
 
