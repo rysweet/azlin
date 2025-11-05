@@ -224,6 +224,7 @@ class AzureAuthenticator:
             # Unexpected errors
             logger.warning(f"Unexpected error checking managed identity: {e}")
             import os
+
             if os.getenv("AZLIN_DEV_MODE"):
                 logger.error("Managed identity check error details:", exc_info=True)
             return False
@@ -268,6 +269,7 @@ class AzureAuthenticator:
             # Unexpected errors
             logger.warning(f"Unexpected error validating credentials: {e}")
             import os
+
             if os.getenv("AZLIN_DEV_MODE"):
                 logger.error("Credential validation error details:", exc_info=True)
             return False

@@ -625,13 +625,15 @@ class ConfigManager:
         except FileNotFoundError:
             # Config file doesn't exist
             import logging
+
             logger = logging.getLogger(__name__)
             logger.debug("Config file not found when loading auth profile")
             return None
 
-        except (OSError, IOError, PermissionError) as e:
+        except (OSError, PermissionError) as e:
             # File system errors
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning(f"Failed to read config file for auth profile: {e}")
             return None
@@ -640,6 +642,7 @@ class ConfigManager:
             # TOML parsing errors or unexpected issues
             import logging
             import os
+
             logger = logging.getLogger(__name__)
             logger.warning(f"Failed to load auth profile {profile_name}: {e}")
             if os.getenv("AZLIN_DEV_MODE"):
@@ -774,13 +777,15 @@ class ConfigManager:
         except FileNotFoundError:
             # Config file doesn't exist - no profiles
             import logging
+
             logger = logging.getLogger(__name__)
             logger.debug("Config file not found when listing auth profiles")
             return []
 
-        except (OSError, IOError, PermissionError) as e:
+        except (OSError, PermissionError) as e:
             # File system errors
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning(f"Failed to read config file for auth profiles: {e}")
             return []
@@ -789,6 +794,7 @@ class ConfigManager:
             # TOML parsing errors or unexpected issues
             import logging
             import os
+
             logger = logging.getLogger(__name__)
             logger.warning(f"Failed to list auth profiles: {e}")
             if os.getenv("AZLIN_DEV_MODE"):
@@ -1408,6 +1414,7 @@ class ConfigManager:
         except (KeyError, ValueError, TypeError) as e:
             # Missing or invalid cost data
             import logging
+
             logger = logging.getLogger(__name__)
             logger.debug(f"Failed to get pricing info for tier {tier}: {e}")
             pricing_info = {"hourly": 0.0}
@@ -1415,6 +1422,7 @@ class ConfigManager:
             # Unexpected errors
             import logging
             import os
+
             logger = logging.getLogger(__name__)
             logger.warning(f"Unexpected error getting pricing info: {e}")
             if os.getenv("AZLIN_DEV_MODE"):

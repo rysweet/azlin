@@ -620,6 +620,7 @@ class BastionProvisioner:
         except (KeyError, TypeError) as e:
             # Malformed executor result
             import logging
+
             logger = logging.getLogger(__name__)
             logger.debug(f"VNet existence check failed (invalid result): {e}")
             return False
@@ -627,6 +628,7 @@ class BastionProvisioner:
             # Azure CLI errors or network issues
             import logging
             import os
+
             logger = logging.getLogger(__name__)
             logger.debug(f"VNet existence check failed: {e}")
             if os.getenv("AZLIN_DEV_MODE"):
@@ -664,18 +666,21 @@ class BastionProvisioner:
         except json.JSONDecodeError as e:
             # Invalid JSON response from Azure CLI
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning(f"Failed to parse VNet list JSON: {e}")
             return []
         except (KeyError, TypeError) as e:
             # Malformed executor result
             import logging
+
             logger = logging.getLogger(__name__)
             logger.debug(f"VNet list failed (invalid result): {e}")
             return []
         except subprocess.CalledProcessError as e:
             # Azure CLI command failed - already handled above, shouldn't reach here
             import logging
+
             logger = logging.getLogger(__name__)
             logger.debug(f"VNet list command failed: {e}")
             return []
@@ -683,6 +688,7 @@ class BastionProvisioner:
             # Unexpected errors
             import logging
             import os
+
             logger = logging.getLogger(__name__)
             logger.warning(f"Unexpected error listing VNets: {e}")
             if os.getenv("AZLIN_DEV_MODE"):
@@ -723,6 +729,7 @@ class BastionProvisioner:
         except (KeyError, TypeError) as e:
             # Malformed executor result
             import logging
+
             logger = logging.getLogger(__name__)
             logger.debug(f"Subnet existence check failed (invalid result): {e}")
             return False
@@ -730,6 +737,7 @@ class BastionProvisioner:
             # Azure CLI errors or network issues
             import logging
             import os
+
             logger = logging.getLogger(__name__)
             logger.debug(f"Subnet existence check failed: {e}")
             if os.getenv("AZLIN_DEV_MODE"):
@@ -766,6 +774,7 @@ class BastionProvisioner:
         except (KeyError, TypeError) as e:
             # Malformed executor result
             import logging
+
             logger = logging.getLogger(__name__)
             logger.debug(f"Public IP existence check failed (invalid result): {e}")
             return False
@@ -773,6 +782,7 @@ class BastionProvisioner:
             # Azure CLI errors or network issues
             import logging
             import os
+
             logger = logging.getLogger(__name__)
             logger.debug(f"Public IP existence check failed: {e}")
             if os.getenv("AZLIN_DEV_MODE"):

@@ -521,7 +521,7 @@ class HomeSyncManager:
             pass
 
         # If it looks like an IP (all digits and dots), reject it if not valid IP
-        if all(c.isdigit() or c == '.' for c in host):
+        if all(c.isdigit() or c == "." for c in host):
             return False  # Looks like IP but failed IP validation above
 
         # Validate hostname (RFC 1123)

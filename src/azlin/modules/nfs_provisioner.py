@@ -539,9 +539,7 @@ class NFSProvisioner:
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            raise NFSProvisionerError(
-                f"Failed to create private endpoint: {error_msg}"
-            ) from e
+            raise NFSProvisionerError(f"Failed to create private endpoint: {error_msg}") from e
         except json.JSONDecodeError as e:
             raise NFSProvisionerError(f"Failed to parse endpoint response: {e}") from e
 
@@ -863,9 +861,7 @@ class NFSProvisioner:
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            raise NFSProvisionerError(
-                f"Failed to configure private DNS zone: {error_msg}"
-            ) from e
+            raise NFSProvisionerError(f"Failed to configure private DNS zone: {error_msg}") from e
 
     @classmethod
     def setup_private_endpoint_access(

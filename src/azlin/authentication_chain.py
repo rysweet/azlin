@@ -178,6 +178,7 @@ class AuthenticationChain:
         except (ValueError, TypeError, AttributeError) as e:
             # Invalid credential object or malformed token
             import logging
+
             logger = logging.getLogger(__name__)
             logger.debug(f"Credential validation failed (invalid object): {e}")
             return False
@@ -185,10 +186,11 @@ class AuthenticationChain:
             # Azure SDK errors (ClientAuthenticationError, HttpResponseError, etc.)
             import logging
             import os
+
             logger = logging.getLogger(__name__)
             logger.debug(f"Token request failed: {e}")
             if os.getenv("AZLIN_DEV_MODE"):
-                logger.error(f"Credential validation error details:", exc_info=True)
+                logger.error("Credential validation error details:", exc_info=True)
             return False
 
     @staticmethod
@@ -232,6 +234,7 @@ class AuthenticationChain:
         except ValueError as e:
             # Invalid subscription ID format
             import logging
+
             logger = logging.getLogger(__name__)
             logger.debug(f"Subscription validation failed (invalid ID): {e}")
             return False
@@ -239,8 +242,9 @@ class AuthenticationChain:
             # Azure SDK errors (ResourceNotFoundError, AuthenticationError, etc.)
             import logging
             import os
+
             logger = logging.getLogger(__name__)
             logger.debug(f"Subscription access check failed: {e}")
             if os.getenv("AZLIN_DEV_MODE"):
-                logger.error(f"Subscription validation error details:", exc_info=True)
+                logger.error("Subscription validation error details:", exc_info=True)
             return False
