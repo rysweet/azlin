@@ -73,8 +73,9 @@ class TestIssue281BugReproduction:
         mock_w_executor.format_w_output.return_value = "Output"
 
         # Execute
-        from azlin.cli import w
         from click.testing import CliRunner
+
+        from azlin.cli import w
 
         runner = CliRunner()
         result = runner.invoke(w, [])
@@ -139,8 +140,9 @@ class TestIssue281BugReproduction:
         mock_top_executor.return_value = mock_executor_instance
 
         # Execute
-        from azlin.cli import top
         from click.testing import CliRunner
+
+        from azlin.cli import top
 
         runner = CliRunner()
         result = runner.invoke(top, ["--interval", "10"])
@@ -201,8 +203,9 @@ class TestIssue281BugReproduction:
         mock_ps_executor.format_ps_output.return_value = "Output"
 
         # Execute
-        from azlin.cli import ps
         from click.testing import CliRunner
+
+        from azlin.cli import ps
 
         runner = CliRunner()
         result = runner.invoke(ps, [])
@@ -283,14 +286,11 @@ class TestIssue281WorkingReference:
         # Execute connect command
         from azlin.vm_connector import VMConnector
 
-        result = VMConnector.connect(
-            "azlin-bastion-only-vm", resource_group="test-rg"
-        )
+        result = VMConnector.connect("azlin-bastion-only-vm", resource_group="test-rg")
 
         # Verify it works (doesn't fail due to no public IP)
         assert result is True, (
-            "connect command should work with bastion-only VM "
-            "(this is the working reference)"
+            "connect command should work with bastion-only VM (this is the working reference)"
         )
 
         # Note: In actual implementation with bastion, connection would use
@@ -345,9 +345,7 @@ class TestIssue281RootCause:
 
         # Desired (fixed) logic
         running_vms_fixed = [
-            vm
-            for vm in vms
-            if vm.is_running() and (vm.public_ip or vm.private_ip)
+            vm for vm in vms if vm.is_running() and (vm.public_ip or vm.private_ip)
         ]
 
         # This should pass with fix - gets both VMs

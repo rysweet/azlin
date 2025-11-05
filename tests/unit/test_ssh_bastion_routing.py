@@ -12,18 +12,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from azlin.modules.ssh_connector import SSHConfig
+from azlin.cli_helpers import SSHConfigBuilder
 from azlin.vm_manager import VMInfo
-
-
-class SSHConfigBuilder:
-    """Builder for SSH configurations with bastion awareness.
-
-    This class should be implemented to support the fix for issue-281.
-    Determines whether to use direct SSH or bastion tunnel based on VM connectivity.
-    """
-
-    pass
 
 
 class TestSSHConfigBuilder:
@@ -203,9 +193,7 @@ class TestBastionTunnelLifecycle:
         )
 
         # Tunnel should be created
-        config = SSHConfigBuilder.build_for_vm(
-            vm, Path("/tmp/key"), bastion_manager=mock_bastion
-        )
+        config = SSHConfigBuilder.build_for_vm(vm, Path("/tmp/key"), bastion_manager=mock_bastion)
 
         assert config.port == 50022
         mock_bastion.create_tunnel.assert_called_once()
@@ -228,12 +216,8 @@ class TestBastionTunnelLifecycle:
         )
 
         # Create config twice
-        config1 = SSHConfigBuilder.build_for_vm(
-            vm, Path("/tmp/key"), bastion_manager=mock_bastion
-        )
-        config2 = SSHConfigBuilder.build_for_vm(
-            vm, Path("/tmp/key"), bastion_manager=mock_bastion
-        )
+        config1 = SSHConfigBuilder.build_for_vm(vm, Path("/tmp/key"), bastion_manager=mock_bastion)
+        config2 = SSHConfigBuilder.build_for_vm(vm, Path("/tmp/key"), bastion_manager=mock_bastion)
 
         # Should use same port
         assert config1.port == config2.port
@@ -258,9 +242,7 @@ class TestBastionTunnelLifecycle:
 
         # Should propagate error
         with pytest.raises(Exception, match="Tunnel creation failed"):
-            SSHConfigBuilder.build_for_vm(
-                vm, Path("/tmp/key"), bastion_manager=mock_bastion
-            )
+            SSHConfigBuilder.build_for_vm(vm, Path("/tmp/key"), bastion_manager=mock_bastion)
 
 
 class TestVMConnectivityDetection:

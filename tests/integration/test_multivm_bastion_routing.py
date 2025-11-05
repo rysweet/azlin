@@ -10,10 +10,7 @@ after implementing bastion routing support.
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
-import pytest
-
-from azlin.modules.ssh_connector import SSHConfig
-from azlin.vm_manager import VMInfo, VMManager
+from azlin.vm_manager import VMInfo
 
 
 class TestWCommandWithBastion:
@@ -77,8 +74,9 @@ class TestWCommandWithBastion:
         mock_w_executor.format_w_output.return_value = "Formatted output"
 
         # Import and run command
-        from azlin.cli import w
         from click.testing import CliRunner
+
+        from azlin.cli import w
 
         runner = CliRunner()
         result = runner.invoke(w, [])
@@ -124,8 +122,9 @@ class TestWCommandWithBastion:
         mock_vm_mgr.list_vms.return_value = vms
         mock_vm_mgr.filter_by_prefix.return_value = vms
 
-        from azlin.cli import w
         from click.testing import CliRunner
+
+        from azlin.cli import w
 
         runner = CliRunner()
         result = runner.invoke(w, [])
@@ -135,9 +134,7 @@ class TestWCommandWithBastion:
 
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
-    def test_w_command_fails_gracefully_no_reachable_vms(
-        self, mock_config_mgr, mock_vm_mgr
-    ):
+    def test_w_command_fails_gracefully_no_reachable_vms(self, mock_config_mgr, mock_vm_mgr):
         """Test w command handles case with no reachable VMs."""
         mock_config_mgr.get_resource_group.return_value = "test-rg"
 
@@ -162,8 +159,9 @@ class TestWCommandWithBastion:
         mock_vm_mgr.list_vms.return_value = vms
         mock_vm_mgr.filter_by_prefix.return_value = vms
 
-        from azlin.cli import w
         from click.testing import CliRunner
+
+        from azlin.cli import w
 
         runner = CliRunner()
         result = runner.invoke(w, [])
@@ -230,8 +228,9 @@ class TestTopCommandWithBastion:
         mock_top_executor.return_value = mock_executor_instance
 
         # Import and run command
-        from azlin.cli import top
         from click.testing import CliRunner
+
+        from azlin.cli import top
 
         runner = CliRunner()
         # Use iterations=1 to prevent infinite loop
@@ -312,8 +311,9 @@ class TestPsCommandWithBastion:
         mock_ps_executor.format_ps_output.return_value = "Formatted output"
 
         # Import and run command
-        from azlin.cli import ps
         from click.testing import CliRunner
+
+        from azlin.cli import ps
 
         runner = CliRunner()
         result = runner.invoke(ps, [])
@@ -391,8 +391,9 @@ class TestBastionTunnelReuse:
         mock_w_executor.format_w_output.return_value = ""
 
         # Run command
-        from azlin.cli import w
         from click.testing import CliRunner
+
+        from azlin.cli import w
 
         runner = CliRunner()
         result = runner.invoke(w, [])
@@ -430,8 +431,9 @@ class TestErrorHandling:
         # Mock bastion manager to fail
         mock_bastion_mgr.side_effect = Exception("No bastion found")
 
-        from azlin.cli import w
         from click.testing import CliRunner
+
+        from azlin.cli import w
 
         runner = CliRunner()
         result = runner.invoke(w, [])
@@ -492,8 +494,9 @@ class TestErrorHandling:
         ]
         mock_w_executor.format_w_output.return_value = "Partial output"
 
-        from azlin.cli import w
         from click.testing import CliRunner
+
+        from azlin.cli import w
 
         runner = CliRunner()
         result = runner.invoke(w, [])

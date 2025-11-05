@@ -18,6 +18,156 @@ from azlin.vm_manager import VMInfo
 logger = logging.getLogger(__name__)
 
 
+class SSHConfigBuilder:
+    """Builder for SSH configurations with bastion awareness.
+
+    This class provides static methods for creating SSH configurations
+    with automatic bastion routing support.
+    """
+
+    @staticmethod
+    def build_for_vm(
+        vm: VMInfo,
+        ssh_key_path: Path,
+        bastion_manager=None,
+        auto_bastion: bool = True,
+        skip_interactive: bool = True,
+    ) -> SSHConfig:
+        """Build SSH config for a single VM.
+
+        Args:
+            vm: VM information
+            ssh_key_path: Path to SSH private key
+            bastion_manager: Optional bastion manager instance
+            auto_bastion: Automatically detect and use bastion (default: True)
+            skip_interactive: Skip interactive prompts (default: True)
+
+        Returns:
+            SSHConfig instance
+
+        Raises:
+            ValueError: If VM requires bastion but no bastion manager provided
+            ValueError: If VM has no IP addresses
+        """
+        # Check if VM is reachable
+        if not SSHConfigBuilder.is_reachable(vm):
+            if vm.power_state != "VM running":
+                raise ValueError(f"VM {vm.name} is not running")
+            raise ValueError(f"VM {vm.name} has no IP addresses")
+
+        # Direct SSH if VM has public IP
+        if SSHConfigBuilder.has_direct_connectivity(vm):
+            # Type assertion: has_direct_connectivity ensures public_ip is not None
+            assert vm.public_ip is not None
+            return SSHConfig(
+                host=vm.public_ip,
+                port=22,
+                user="azureuser",
+                key_path=ssh_key_path,
+            )
+
+        # Bastion required for private-only VM
+        if not auto_bastion or bastion_manager is None:
+            raise ValueError(f"Bastion manager required for VM {vm.name} without public IP")
+
+        # Create bastion tunnel
+        tunnel = bastion_manager.create_tunnel(
+            vm_name=vm.name,
+            resource_group=vm.resource_group,
+            private_ip=vm.private_ip,
+            skip_interactive=skip_interactive,
+        )
+
+        return SSHConfig(
+            host="127.0.0.1",
+            port=tunnel.local_port,
+            user="azureuser",
+            key_path=ssh_key_path,
+        )
+
+    @staticmethod
+    def build_for_vms(
+        vms: list[VMInfo],
+        ssh_key_path: Path,
+        bastion_manager=None,
+        auto_bastion: bool = True,
+        skip_interactive: bool = True,
+    ) -> list[SSHConfig]:
+        """Build SSH configs for multiple VMs.
+
+        Args:
+            vms: List of VM information
+            ssh_key_path: Path to SSH private key
+            bastion_manager: Optional bastion manager instance
+            auto_bastion: Automatically detect and use bastion (default: True)
+            skip_interactive: Skip interactive prompts (default: True)
+
+        Returns:
+            List of SSHConfig instances for reachable VMs
+        """
+        configs = []
+        for vm in vms:
+            try:
+                config = SSHConfigBuilder.build_for_vm(
+                    vm=vm,
+                    ssh_key_path=ssh_key_path,
+                    bastion_manager=bastion_manager,
+                    auto_bastion=auto_bastion,
+                    skip_interactive=skip_interactive,
+                )
+                configs.append(config)
+            except (ValueError, Exception) as e:
+                logger.debug(f"Skipping VM {vm.name}: {e}")
+                continue
+        return configs
+
+    @staticmethod
+    def has_direct_connectivity(vm: VMInfo) -> bool:
+        """Check if VM has direct SSH connectivity (public IP).
+
+        Args:
+            vm: VM information
+
+        Returns:
+            True if VM has a public IP, False otherwise
+        """
+        return bool(vm.public_ip and vm.public_ip.strip())
+
+    @staticmethod
+    def is_reachable(vm: VMInfo) -> bool:
+        """Check if VM is reachable via SSH.
+
+        A VM is reachable if:
+        - It is running
+        - It has at least one IP address (public or private)
+
+        Args:
+            vm: VM information
+
+        Returns:
+            True if VM is reachable, False otherwise
+        """
+        if vm.power_state != "VM running":
+            return False
+
+        has_ip = bool(
+            (vm.public_ip and vm.public_ip.strip()) or (vm.private_ip and vm.private_ip.strip())
+        )
+        return has_ip
+
+    @staticmethod
+    def filter_reachable_vms(vms: list[VMInfo]) -> list[VMInfo]:
+        """Filter list to only reachable VMs.
+
+        Args:
+            vms: List of VM information
+
+        Returns:
+            List of reachable VMs
+        """
+        return [vm for vm in vms if SSHConfigBuilder.is_reachable(vm)]
+
+
 def get_ssh_configs_for_vms(
     vms: list[VMInfo],
     ssh_key_path: Path | None = None,
@@ -58,16 +208,19 @@ def get_ssh_configs_for_vms(
         return [], []
 
     # Ensure ssh_key_path is provided
+    resolved_key_path: Path
     if ssh_key_path is None:
-        from azlin.ssh_key_manager import SSHKeyManager
+        from azlin.modules.ssh_keys import SSHKeyManager
 
         ssh_keys = SSHKeyManager.ensure_key_exists()
-        ssh_key_path = ssh_keys.private_path
+        resolved_key_path = ssh_keys.private_path
+    else:
+        resolved_key_path = ssh_key_path
 
     # Resolve routing for all VMs
     routes = SSHRoutingResolver.resolve_routes_batch(
         vms=vms,
-        ssh_key_path=ssh_key_path,
+        ssh_key_path=resolved_key_path,
         auto_bastion=auto_bastion,
         skip_interactive=skip_interactive,
     )

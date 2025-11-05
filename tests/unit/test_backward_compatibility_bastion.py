@@ -9,9 +9,6 @@ All these tests should PASS both before and after the fix.
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
-import pytest
-
-from azlin.modules.ssh_connector import SSHConfig
 from azlin.vm_manager import VMInfo
 
 
@@ -57,8 +54,9 @@ class TestBackwardCompatibilityW:
         mock_w_executor.format_w_output.return_value = "Output"
 
         # Import and run command
-        from azlin.cli import w
         from click.testing import CliRunner
+
+        from azlin.cli import w
 
         runner = CliRunner()
         result = runner.invoke(w, [])
@@ -86,8 +84,9 @@ class TestBackwardCompatibilityW:
         mock_vm_mgr.list_vms.return_value = []
         mock_vm_mgr.filter_by_prefix.return_value = []
 
-        from azlin.cli import w
         from click.testing import CliRunner
+
+        from azlin.cli import w
 
         runner = CliRunner()
         result = runner.invoke(w, [])
@@ -131,8 +130,9 @@ class TestBackwardCompatibilityTop:
         mock_executor_instance = MagicMock()
         mock_top_executor.return_value = mock_executor_instance
 
-        from azlin.cli import top
         from click.testing import CliRunner
+
+        from azlin.cli import top
 
         runner = CliRunner()
         result = runner.invoke(top, ["--interval", "10"])
@@ -186,8 +186,9 @@ class TestBackwardCompatibilityPs:
         mock_ps_executor.execute_ps_on_vms.return_value = []
         mock_ps_executor.format_ps_output.return_value = "Output"
 
-        from azlin.cli import ps
         from click.testing import CliRunner
+
+        from azlin.cli import ps
 
         runner = CliRunner()
         result = runner.invoke(ps, [])

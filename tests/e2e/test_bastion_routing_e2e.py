@@ -9,7 +9,6 @@ after implementing bastion routing support.
 
 import subprocess
 import time
-from pathlib import Path
 
 import pytest
 
@@ -102,9 +101,7 @@ class TestMultiVMCommandsE2E:
         # Should show processes from the VM
         assert "azureuser" in result.stdout or "root" in result.stdout
 
-    def test_mixed_vms_all_included(
-        self, test_resource_group, public_vm_name, private_vm_name
-    ):
+    def test_mixed_vms_all_included(self, test_resource_group, public_vm_name, private_vm_name):
         """Test commands include both public and private VMs."""
         # Run azlin w command
         result = subprocess.run(
@@ -124,7 +121,16 @@ class TestMultiVMCommandsE2E:
         """Test 'azlin connect' works with bastion-only VM."""
         # This is the working reference - should already pass
         result = subprocess.run(
-            ["azlin", "connect", private_vm_name, "--rg", test_resource_group, "--", "echo", "test"],
+            [
+                "azlin",
+                "connect",
+                private_vm_name,
+                "--rg",
+                test_resource_group,
+                "--",
+                "echo",
+                "test",
+            ],
             capture_output=True,
             text=True,
             timeout=60,

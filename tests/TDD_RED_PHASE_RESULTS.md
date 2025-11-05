@@ -35,21 +35,21 @@ pytest tests/unit/test_issue_281_reproduction.py -v
 
 #### ✗ test_issue_281_w_command_filters_out_bastion_only_vms
 ```
-AssertionError: BUG REPRODUCED: Only 1 VM(s) included, expected 2. 
+AssertionError: BUG REPRODUCED: Only 1 VM(s) included, expected 2.
 VM without public IP was filtered out! Configs: ['20.1.2.3']
 assert 1 == 2
 ```
 
 #### ✗ test_issue_281_top_command_filters_out_bastion_only_vms
 ```
-AssertionError: BUG REPRODUCED: Only 1 VM(s) included, expected 2. 
+AssertionError: BUG REPRODUCED: Only 1 VM(s) included, expected 2.
 VM without public IP was filtered out!
 assert 1 == 2
 ```
 
 #### ✗ test_issue_281_ps_command_filters_out_bastion_only_vms
 ```
-AssertionError: BUG REPRODUCED: Only 1 VM(s) included, expected 2. 
+AssertionError: BUG REPRODUCED: Only 1 VM(s) included, expected 2.
 VM without public IP was filtered out!
 assert 1 == 2
 ```
@@ -144,7 +144,7 @@ assert 0 != 0
 #### ✓ test_w_command_skips_stopped_vms
 - Correctly skips stopped VMs
 
-#### ✓ test_w_command_fails_gracefully_no_reachable_vms  
+#### ✓ test_w_command_fails_gracefully_no_reachable_vms
 - Proper error message for no VMs
 
 #### ✓ test_command_continues_with_mixed_success
@@ -272,7 +272,7 @@ Create `/Users/ryan/src/azlin/worktrees/fix/issue-281-bastion-routing/src/azlin/
 
 Required methods:
 - `build_for_vm()` - Build SSH config for single VM
-- `build_for_vms()` - Build configs for multiple VMs  
+- `build_for_vms()` - Build configs for multiple VMs
 - `has_direct_connectivity()` - Check for public IP
 - `is_reachable()` - Check if VM is accessible
 - `filter_reachable_vms()` - Filter to running VMs with connectivity
