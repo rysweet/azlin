@@ -106,6 +106,8 @@ class HomeSyncManager:
     BLOCKED_GLOBS: ClassVar[list[str]] = [
         # SSH keys (private) - Matches id_rsa, id_ed25519 but NOT id_rsa.pub
         ".ssh/id_*[!.pub]",
+        ".ssh/*id_rsa",  # Catch variants like my_id_rsa, backup_id_rsa
+        ".ssh/*id_ed25519",  # Catch variants like my_id_ed25519
         ".ssh/*_key",
         ".ssh/*.pem",
         # AWS
@@ -118,6 +120,9 @@ class HomeSyncManager:
         # Azure - USER REQUEST: Allow .azure/ directory for VM authentication
         # Only block obviously dangerous files, allow tokens/cache for az CLI
         ".azure/service_principal*.json",  # Keep blocking service principals
+        ".azure/*Token*.json",  # Block access tokens
+        ".azure/*token*.json",  # Block token files (case variations)
+        ".azure/*secret*.json",  # Block secret files
         # Generic credential files
         "*.key",
         "*.pem",
@@ -514,6 +519,10 @@ class HomeSyncManager:
             return True
         except (ValueError, ipaddress.AddressValueError):
             pass
+
+        # If it looks like an IP (all digits and dots), reject it if not valid IP
+        if all(c.isdigit() or c == '.' for c in host):
+            return False  # Looks like IP but failed IP validation above
 
         # Validate hostname (RFC 1123)
         hostname_pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
