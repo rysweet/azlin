@@ -81,8 +81,6 @@ from azlin.modules.github_setup import GitHubSetupError, GitHubSetupHandler
 from azlin.modules.home_sync import (
     HomeSyncError,
     HomeSyncManager,
-    RsyncError,
-    SecurityValidationError,
     SyncResult,
 )
 from azlin.modules.interaction_handler import CLIInteractionHandler
@@ -1063,12 +1061,7 @@ class CLIOrchestrator:
 
             self._process_sync_result(result)
 
-        except SecurityValidationError as e:
-            # Don't fail VM provisioning, just warn
-            self.progress.update(f"Home sync skipped: {e}", ProgressStage.WARNING)
-            logger.warning(f"Security validation failed: {e}")
-
-        except (RsyncError, HomeSyncError) as e:
+        except HomeSyncError as e:
             # Don't fail VM provisioning, just warn
             self.progress.update(f"Home sync failed: {e}", ProgressStage.WARNING)
             logger.warning(f"Home sync failed: {e}")
@@ -4626,13 +4619,7 @@ def sync(vm_name: str | None, dry_run: bool, resource_group: str | None, config:
         # Execute sync
         _execute_sync(selected_vm, ssh_key_pair, dry_run)
 
-    except SecurityValidationError as e:
-        click.echo("\nSecurity validation failed:", err=True)
-        click.echo(str(e), err=True)
-        click.echo("\nRemove sensitive files from ~/.azlin/home/ and try again.", err=True)
-        sys.exit(1)
-
-    except (RsyncError, HomeSyncError) as e:
+    except HomeSyncError as e:
         click.echo(f"\nSync failed: {e}", err=True)
         sys.exit(1)
 
