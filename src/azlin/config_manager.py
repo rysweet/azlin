@@ -55,6 +55,46 @@ class ConfigError(Exception):
     pass
 
 
+def get_default_notification_command(platform: str | None = None) -> str:
+    """Get platform-appropriate default notification command.
+
+    Args:
+        platform: Platform name (darwin, linux, wsl, windows, unknown).
+                  If None, auto-detects platform using PrerequisiteChecker.
+
+    Returns:
+        str: Platform-appropriate notification command with {} placeholder.
+
+    Examples:
+        >>> get_default_notification_command("darwin")
+        'osascript -e \\'display notification "{}" with title "Azlin"\\''
+
+        >>> get_default_notification_command("linux")
+        "notify-send 'Azlin' '{}'"
+
+        >>> get_default_notification_command()  # Auto-detects platform
+        'osascript -e \\'display notification "{}" with title "Azlin"\\''  # on macOS
+    """
+    # Auto-detect platform if not provided
+    if platform is None:
+        from azlin.modules.prerequisites import PrerequisiteChecker
+
+        platform = PrerequisiteChecker.detect_platform()
+
+    # Platform-specific notification commands
+    # All commands must include {} as message placeholder
+    platform_commands = {
+        "darwin": 'osascript -e \'display notification "{}" with title "Azlin"\'',
+        "macos": 'osascript -e \'display notification "{}" with title "Azlin"\'',  # Alias for darwin
+        "linux": "notify-send 'Azlin' '{}'",
+        "wsl": "powershell.exe -Command \"New-BurntToastNotification -Text '{}'\"",
+        "windows": "powershell -Command \"New-BurntToastNotification -Text '{}'\"",
+    }
+
+    # Return platform-specific command or fallback
+    return platform_commands.get(platform, "echo 'Notification: {}'")
+
+
 @dataclass
 class AzlinConfig:
     """Azlin configuration data."""
@@ -65,10 +105,15 @@ class AzlinConfig:
         "Standard_E16as_v5"  # Memory-optimized: 128GB RAM, 16 vCPU, 12.5 Gbps network
     )
     last_vm_name: str | None = None
-    notification_command: str = "imessR"
+    notification_command: str | None = None  # Will use default_factory, set in __post_init__
     session_names: dict[str, str] | None = None  # vm_name -> session_name mapping
     vm_storage: dict[str, str] | None = None  # vm_name -> storage_name mapping (for NFS)
     default_nfs_storage: str | None = None  # Default NFS storage for new VMs
+
+    def __post_init__(self):
+        """Set platform-appropriate default for notification_command if None."""
+        if self.notification_command is None:
+            self.notification_command = get_default_notification_command()
 
     @property
     def resource_group(self) -> str | None:
@@ -93,13 +138,28 @@ class AzlinConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AzlinConfig":
-        """Create from dictionary."""
+        """Create from dictionary.
+
+        Applies platform-appropriate notification_command default only when:
+        - notification_command is missing from data, OR
+        - notification_command is empty string
+
+        Preserves existing custom notification commands (including "imessR")
+        for backward compatibility.
+        """
+        # Get notification_command from data
+        notification_cmd = data.get("notification_command")
+
+        # Apply default only if missing or empty
+        if not notification_cmd:
+            notification_cmd = None  # Will be set by __post_init__
+
         return cls(
             default_resource_group=data.get("default_resource_group"),
             default_region=data.get("default_region", "westus2"),
             default_vm_size=data.get("default_vm_size", "Standard_E16as_v5"),
             last_vm_name=data.get("last_vm_name"),
-            notification_command=data.get("notification_command", "imessR"),
+            notification_command=notification_cmd,
             session_names=data.get("session_names", {}),
             vm_storage=data.get("vm_storage", {}),
             default_nfs_storage=data.get("default_nfs_storage"),
@@ -1590,4 +1650,4 @@ class ConfigManager:
             raise
 
 
-__all__ = ["AzlinConfig", "ConfigError", "ConfigManager"]
+__all__ = ["AzlinConfig", "ConfigError", "ConfigManager", "get_default_notification_command"]

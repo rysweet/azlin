@@ -10,6 +10,7 @@ Security Requirements:
 """
 
 import logging
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -47,13 +48,23 @@ class NotificationHandler:
 
     @classmethod
     def _get_notification_command(cls) -> str:
-        """Get notification command from config."""
+        """Get notification command from config.
+
+        Returns:
+            str: Notification command template (may contain {} placeholder)
+        """
         try:
             # Import here to avoid circular dependency
-            from azlin.config_manager import ConfigManager
+            from azlin.config_manager import ConfigManager, get_default_notification_command
 
             config = ConfigManager.load_config()
-            return config.notification_command
+            notification_command = config.notification_command
+
+            # Handle None case explicitly by getting platform default
+            if notification_command is None:
+                notification_command = get_default_notification_command()
+
+            return notification_command
         except Exception:
             # Fallback to default if config not available
             return "imessR"
@@ -89,11 +100,18 @@ class NotificationHandler:
 
         # Send notification
         try:
-            notification_cmd = cls._get_notification_command()
-            logger.debug(f"Sending notification via {notification_cmd}: {message}")
+            notification_cmd_template = cls._get_notification_command()
+            logger.debug(f"Sending notification via {notification_cmd_template}: {message}")
 
-            # Build command
-            args = [notification_cmd, message]
+            # Check if command contains {} placeholder (new platform-specific commands)
+            if "{}" in notification_cmd_template:
+                # Substitute message into template
+                full_command = notification_cmd_template.format(message)
+                # Parse into command array using shlex for proper shell word splitting
+                args = shlex.split(full_command)
+            else:
+                # Legacy command (like "imessR") - treat as simple command name
+                args = [notification_cmd_template, message]
 
             # Execute notification command
             subprocess.run(args, capture_output=True, text=True, timeout=10, check=True)
@@ -132,14 +150,32 @@ class NotificationHandler:
             >>> if NotificationHandler.is_imessr_available():
             ...     print("Notification command is installed")
         """
-        notification_cmd = cls._get_notification_command()
-        result = shutil.which(notification_cmd)
+        notification_cmd_template = cls._get_notification_command()
+
+        # Extract the base command for availability check
+        if "{}" in notification_cmd_template:
+            # Command template - extract first command using shlex
+            # For example: 'osascript -e \'display notification "{}" with title "Azlin"\''
+            # We just need to check if "osascript" is available
+            try:
+                # Parse the template (with placeholder removed to avoid errors)
+                temp_cmd = notification_cmd_template.replace("{}", "placeholder")
+                parsed = shlex.split(temp_cmd)
+                base_command = parsed[0] if parsed else notification_cmd_template
+            except ValueError:
+                # If parsing fails, fall back to checking the whole template
+                base_command = notification_cmd_template
+        else:
+            # Legacy command (like "imessR") - check directly
+            base_command = notification_cmd_template
+
+        result = shutil.which(base_command)
         available = result is not None
 
         if available:
-            logger.debug(f"{notification_cmd} found at {result}")
+            logger.debug(f"{base_command} found at {result}")
         else:
-            logger.debug(f"{notification_cmd} not found in PATH")
+            logger.debug(f"{base_command} not found in PATH")
 
         return available
 
