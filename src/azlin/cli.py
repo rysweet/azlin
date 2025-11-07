@@ -252,12 +252,12 @@ class CLIOrchestrator:
                 self.progress.start_operation(f"Mounting NFS storage: {resolved_storage.name}")
                 self._mount_nfs_storage(vm_details, ssh_key_pair.private_path, resolved_storage)
                 self.progress.complete(success=True, message="NFS storage mounted")
-            else:
-                # Only sync home directory if NOT using NFS storage
-                # (NFS storage provides the home directory)
-                self.progress.start_operation("Syncing home directory")
-                self._sync_home_directory(vm_details, ssh_key_pair.private_path)
-                self.progress.complete(success=True, message="Home directory synced")
+
+            # Always sync home directory (provides initial dotfiles even with NFS)
+            # NFS provides persistence, ~/.azlin/home provides initial configuration
+            self.progress.start_operation("Syncing home directory")
+            self._sync_home_directory(vm_details, ssh_key_pair.private_path)
+            self.progress.complete(success=True, message="Home directory synced")
 
             # STEP 6: GitHub setup (if repo provided)
             if self.repo:
