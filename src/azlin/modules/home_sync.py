@@ -569,6 +569,7 @@ class HomeSyncManager:
             f"ssh -i {ssh_config.key_path} "
             f"-o StrictHostKeyChecking=no "
             f"-o UserKnownHostsFile=/dev/null "
+            f"-o IdentitiesOnly=yes "  # FIX: Prevent "too many authentication failures"
             f"-o ConnectTimeout=30"
         )
 
