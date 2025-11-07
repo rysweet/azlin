@@ -30,7 +30,7 @@ except ImportError:
         raise ImportError("toml library not available. Install with: pip install tomli") from e
 
 try:
-    import tomlkit
+    import tomlkit  # type: ignore[import]
 except ImportError as e:
     raise ImportError("tomlkit library not available. Install with: pip install tomlkit") from e
 
@@ -607,8 +607,9 @@ class ConfigManager:
         """Get VM name by session name using hybrid resolution.
 
         Resolution priority:
-        1. Azure VM tags (source of truth) - checks managed-by=azlin VMs
-        2. Local config file (backward compatibility fallback)
+        1. VM cache (fast lookup with 15-minute TTL)
+        2. Azure VM tags (source of truth) - checks managed-by=azlin VMs
+        3. Local config file (backward compatibility fallback)
 
         Args:
             session_name: Session name to look up
@@ -622,7 +623,19 @@ class ConfigManager:
             Filters out self-referential entries (vm_name == session_name)
             and warns on duplicate session names pointing to different VMs.
         """
-        # Priority 1: Check Azure tags first
+        # Priority 1: Check VM cache first (fast path)
+        try:
+            from azlin.vm_cache import VMCache
+
+            cache = VMCache()
+            vm_name = cache.get(session_name)
+            if vm_name:
+                logger.debug(f"Resolved session '{session_name}' to VM '{vm_name}' via cache")
+                return vm_name
+        except Exception as e:
+            logger.debug(f"Failed to check cache, continuing with tag/config lookup: {e}")
+
+        # Priority 2: Check Azure tags
         try:
             from azlin.tag_manager import TagManager
 
@@ -631,11 +644,20 @@ class ConfigManager:
                 logger.debug(
                     f"Resolved session '{session_name}' to VM '{vm_info.name}' via Azure tags"
                 )
+                # Update cache for future lookups
+                try:
+                    from azlin.vm_cache import VMCache
+
+                    cache = VMCache()
+                    cache.set(session_name, vm_info.name)
+                    logger.debug(f"Cached session '{session_name}' -> '{vm_info.name}'")
+                except Exception as cache_error:
+                    logger.debug(f"Failed to update cache: {cache_error}")
                 return vm_info.name
         except Exception as e:
             logger.debug(f"Failed to resolve session via tags, falling back to config: {e}")
 
-        # Priority 2: Fall back to local config file
+        # Priority 3: Fall back to local config file
         try:
             config = cls.load_config(custom_path)
             if config.session_names:
@@ -660,12 +682,25 @@ class ConfigManager:
                         f"Duplicate session name '{session_name}' maps to multiple VMs: {matches}\n"
                         f"Using first match: {matches[0]}"
                     )
-                    return matches[0]
-                if len(matches) == 1:
+                    vm_name = matches[0]
+                elif len(matches) == 1:
                     logger.debug(
                         f"Resolved session '{session_name}' to VM '{matches[0]}' via local config"
                     )
-                    return matches[0]
+                    vm_name = matches[0]
+                else:
+                    return None
+
+                # Update cache for future lookups
+                try:
+                    from azlin.vm_cache import VMCache
+
+                    cache = VMCache()
+                    cache.set(session_name, vm_name)
+                    logger.debug(f"Cached session '{session_name}' -> '{vm_name}'")
+                except Exception as cache_error:
+                    logger.debug(f"Failed to update cache: {cache_error}")
+                return vm_name
 
         except ConfigError as e:
             logger.debug(f"Config error while finding resource group: {e}")
