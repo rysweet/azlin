@@ -4536,7 +4536,8 @@ def _select_sync_vm_interactive(rg: str):
     """Interactively select a VM for syncing."""
     vms = VMManager.list_vms(rg, include_stopped=False)
     vms = VMManager.filter_by_prefix(vms, "azlin")
-    vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+    # Include all running VMs (both public IP and Bastion-only)
+    vms = [vm for vm in vms if vm.is_running()]
 
     if not vms:
         click.echo("No running VMs found.")
