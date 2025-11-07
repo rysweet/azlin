@@ -34,4 +34,4 @@ repos:
           - click>=8.1.0
           - pyyaml>=6.0.0
           - rich>=13.7.0
-          - tomli-w>=1.0.0
+          - tomlkit>=0.12.0
