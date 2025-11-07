@@ -293,7 +293,11 @@ class ResourceOrchestrator:
             logger.info(f"No VNet specified, will use/create: {options.vnet_name}")
 
         # Ensure vnet_name is set (either provided or auto-generated)
-        assert options.vnet_name is not None, "VNet name must be set at this point"
+        if options.vnet_name is None:
+            raise OrchestratorError(
+                "Internal error: VNet name is None after auto-generation logic.\n"
+                "VNet configuration is incomplete. This is a bug - please report it."
+            )
 
         # Step 1: Check for existing Bastion
         existing_bastion = self._check_existing_bastion(options.resource_group, options.vnet_name)
@@ -716,14 +720,34 @@ class ResourceOrchestrator:
             return None
 
         try:
-            # This would call BastionDetector or Azure CLI
-            # For now, return None (to be integrated with actual implementation)
-            logger.debug("Checking for existing Bastion in VNet: %s", vnet_name)
+            from azlin.modules.bastion_detector import BastionDetector
+
+            bastions = BastionDetector.list_bastions(resource_group)
+
+            # Find Bastion attached to this VNet
+            for bastion in bastions:
+                # Extract VNet name from subnet ID in ipConfigurations
+                ip_configs = bastion.get("ipConfigurations", [])
+                if ip_configs:
+                    subnet_id = ip_configs[0].get("subnet", {}).get("id", "")
+                    if subnet_id:
+                        # Subnet ID format: /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet}/subnets/{subnet}
+                        # Extract VNet name (3rd element from the end)
+                        parts = subnet_id.split("/")
+                        if len(parts) >= 3:
+                            bastion_vnet_name = parts[-3]
+                            if bastion_vnet_name.lower() == vnet_name.lower():
+                                logger.info(
+                                    f"Found existing Bastion '{bastion['name']}' in VNet '{vnet_name}'"
+                                )
+                                return bastion
+
+            logger.debug(f"No existing Bastion found in VNet '{vnet_name}'")
             return None
 
         except Exception as e:
-            logger.warning("Failed to check for existing Bastion: %s", e)
-            return None
+            logger.warning(f"Failed to check for existing Bastion: {e}")
+            return None  # Assume no Bastion on error
 
     def _estimate_bastion_cost(self, region: str, sku: str) -> dict[str, Decimal]:
         """Estimate Bastion cost.

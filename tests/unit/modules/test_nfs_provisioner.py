@@ -12,13 +12,11 @@ import pytest
 from azlin.modules.nfs_provisioner import (
     AccessAnalysis,
     AccessStrategy,
-    NetworkConfigurationError,
     NFSProvisioner,
     NFSProvisionerError,
     PrivateDNSZoneInfo,
     PrivateEndpointInfo,
     ReplicationResult,
-    ValidationError,
     VNetPeeringInfo,
     _validate_resource_id,
     _validate_resource_name,
@@ -36,37 +34,37 @@ class TestResourceNameValidation:
 
     def test_empty_resource_name_raises_error(self):
         """Empty resource name should raise error."""
-        with pytest.raises(ValidationError, match="non-empty string"):
+        with pytest.raises(NFSProvisionerError, match="non-empty string"):
             _validate_resource_name("", "test")
 
     def test_none_resource_name_raises_error(self):
         """None resource name should raise error."""
-        with pytest.raises(ValidationError, match="non-empty string"):
+        with pytest.raises(NFSProvisionerError, match="non-empty string"):
             _validate_resource_name(None, "test")  # type: ignore
 
     def test_command_injection_semicolon_raises_error(self):
         """Semicolon should be rejected (command injection)."""
-        with pytest.raises(ValidationError, match="unsafe character"):
+        with pytest.raises(NFSProvisionerError, match="unsafe character"):
             _validate_resource_name("resource;rm -rf", "test")
 
     def test_command_injection_ampersand_raises_error(self):
         """Ampersand should be rejected (command injection)."""
-        with pytest.raises(ValidationError, match="unsafe character"):
+        with pytest.raises(NFSProvisionerError, match="unsafe character"):
             _validate_resource_name("resource&&whoami", "test")
 
     def test_command_injection_pipe_raises_error(self):
         """Pipe should be rejected (command injection)."""
-        with pytest.raises(ValidationError, match="unsafe character"):
+        with pytest.raises(NFSProvisionerError, match="unsafe character"):
             _validate_resource_name("resource|cat", "test")
 
     def test_path_traversal_raises_error(self):
         """Path traversal should be rejected."""
-        with pytest.raises(ValidationError, match="path traversal"):
+        with pytest.raises(NFSProvisionerError, match="path traversal"):
             _validate_resource_name("../etc/passwd", "test")
 
     def test_forward_slash_raises_error(self):
         """Forward slash should be rejected."""
-        with pytest.raises(ValidationError, match="path traversal"):
+        with pytest.raises(NFSProvisionerError, match="path traversal"):
             _validate_resource_name("path/to/resource", "test")
 
 
@@ -80,17 +78,17 @@ class TestResourceIDValidation:
 
     def test_empty_resource_id_raises_error(self):
         """Empty resource ID should raise error."""
-        with pytest.raises(ValidationError, match="non-empty string"):
+        with pytest.raises(NFSProvisionerError, match="non-empty string"):
             _validate_resource_id("")
 
     def test_invalid_format_raises_error(self):
         """Invalid format should raise error."""
-        with pytest.raises(ValidationError, match="Invalid Azure resource ID"):
+        with pytest.raises(NFSProvisionerError, match="Invalid Azure resource ID"):
             _validate_resource_id("not-a-resource-id")
 
     def test_command_injection_in_resource_id_raises_error(self):
         """Command injection in resource ID should be rejected."""
-        with pytest.raises(ValidationError, match="unsafe character"):
+        with pytest.raises(NFSProvisionerError, match="unsafe character"):
             _validate_resource_id("/subscriptions/sub;whoami/resourceGroups/rg")
 
 
@@ -223,7 +221,7 @@ class TestCreatePrivateEndpoint:
     @patch("azlin.modules.nfs_provisioner.subprocess.run")
     def test_create_private_endpoint_validation_error(self, mock_run):
         """Invalid inputs should raise validation error."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(NFSProvisionerError):
             NFSProvisioner.create_private_endpoint(
                 name="pe;whoami",  # Invalid character
                 resource_group="my-rg",
@@ -236,10 +234,10 @@ class TestCreatePrivateEndpoint:
 
     @patch("azlin.modules.nfs_provisioner.subprocess.run")
     def test_create_private_endpoint_command_failure(self, mock_run):
-        """Command failure should raise NetworkConfigurationError."""
+        """Command failure should raise NFSProvisionerError."""
         mock_run.side_effect = subprocess.CalledProcessError(1, "az", stderr="Error")
 
-        with pytest.raises(NetworkConfigurationError):
+        with pytest.raises(NFSProvisionerError):
             NFSProvisioner.create_private_endpoint(
                 name="my-pe",
                 resource_group="my-rg",
@@ -514,7 +512,7 @@ class TestReplicateNFSData:
 
     def test_replicate_data_validation_error(self):
         """Invalid storage names should raise error."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(NFSProvisionerError):
             NFSProvisioner.replicate_nfs_data(
                 source_storage="source;rm -rf",  # Invalid
                 source_resource_group="rg",

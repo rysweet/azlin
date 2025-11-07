@@ -617,7 +617,22 @@ class BastionProvisioner:
             executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_COMMAND_TIMEOUT)
             exec_result = executor.execute(cmd)
             return exec_result["success"]
-        except Exception:
+        except (KeyError, TypeError) as e:
+            # Malformed executor result
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"VNet existence check failed (invalid result): {e}")
+            return False
+        except Exception as e:
+            # Azure CLI errors or network issues
+            import logging
+            import os
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"VNet existence check failed: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("VNet check error details:", exc_info=True)
             return False
 
     @classmethod
@@ -648,7 +663,36 @@ class BastionProvisioner:
                     exec_result["returncode"], cmd, exec_result["stdout"], exec_result["stderr"]
                 )
             return json.loads(exec_result["stdout"])
-        except Exception:
+        except json.JSONDecodeError as e:
+            # Invalid JSON response from Azure CLI
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to parse VNet list JSON: {e}")
+            return []
+        except (KeyError, TypeError) as e:
+            # Malformed executor result
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"VNet list failed (invalid result): {e}")
+            return []
+        except subprocess.CalledProcessError as e:
+            # Azure CLI command failed - already handled above, shouldn't reach here
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"VNet list command failed: {e}")
+            return []
+        except Exception as e:
+            # Unexpected errors
+            import logging
+            import os
+
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Unexpected error listing VNets: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("VNet list error details:", exc_info=True)
             return []
 
     @classmethod
@@ -682,7 +726,22 @@ class BastionProvisioner:
             executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_COMMAND_TIMEOUT)
             exec_result = executor.execute(cmd)
             return exec_result["success"]
-        except Exception:
+        except (KeyError, TypeError) as e:
+            # Malformed executor result
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Subnet existence check failed (invalid result): {e}")
+            return False
+        except Exception as e:
+            # Azure CLI errors or network issues
+            import logging
+            import os
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Subnet existence check failed: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Subnet check error details:", exc_info=True)
             return False
 
     @classmethod
@@ -712,7 +771,22 @@ class BastionProvisioner:
             executor = AzureCLIExecutor(show_progress=True, timeout=cls.DEFAULT_COMMAND_TIMEOUT)
             exec_result = executor.execute(cmd)
             return exec_result["success"]
-        except Exception:
+        except (KeyError, TypeError) as e:
+            # Malformed executor result
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Public IP existence check failed (invalid result): {e}")
+            return False
+        except Exception as e:
+            # Azure CLI errors or network issues
+            import logging
+            import os
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Public IP existence check failed: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Public IP check error details:", exc_info=True)
             return False
 
     @classmethod
