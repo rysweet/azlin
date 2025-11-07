@@ -8,6 +8,7 @@ import pytest
 from azlin.agentic.execution_orchestrator import (
     ExecutionAttempt,
     ExecutionOrchestrator,
+    ExecutionOrchestratorError,
     RetryDecision,
 )
 from azlin.agentic.types import (
@@ -490,3 +491,64 @@ class TestExecutionOrchestrator:
 
             assert counts[Strategy.AZURE_CLI.value] == 2
             assert counts[Strategy.TERRAFORM.value] == 1
+
+    def test_all_strategy_enum_values_implemented(self):
+        """Test that all Strategy enum values have implementations.
+
+        This test ensures that when a new Strategy is added to the enum,
+        it is also added to the _get_strategy method. This prevents
+        NotImplementedError exceptions in production.
+        """
+        orchestrator = ExecutionOrchestrator()
+
+        # Test all implemented strategies can be instantiated
+        implemented_strategies = [
+            Strategy.AZURE_CLI,
+            Strategy.TERRAFORM,
+            Strategy.AWS_CLI,
+            Strategy.GCP_CLI,
+            Strategy.MCP_CLIENT,
+        ]
+
+        with (
+            patch("azlin.agentic.execution_orchestrator.AzureCLIStrategy") as mock_azure,
+            patch("azlin.agentic.execution_orchestrator.TerraformStrategy") as mock_tf,
+            patch("azlin.agentic.execution_orchestrator.AWSStrategy") as mock_aws,
+            patch("azlin.agentic.execution_orchestrator.GCPStrategy") as mock_gcp,
+            patch("azlin.agentic.execution_orchestrator.MCPClientStrategy") as mock_mcp,
+        ):
+            # Mock all strategy constructors
+            mock_azure.return_value = MagicMock()
+            mock_tf.return_value = MagicMock()
+            mock_aws.return_value = MagicMock()
+            mock_gcp.return_value = MagicMock()
+            mock_mcp.return_value = MagicMock()
+
+            # Test that all implemented strategies can be instantiated
+            for strategy in implemented_strategies:
+                result = orchestrator._get_strategy(strategy)
+                assert result is not None
+
+        # Test that CUSTOM_CODE raises ExecutionOrchestratorError (not NotImplementedError)
+        with pytest.raises(ExecutionOrchestratorError) as exc_info:
+            orchestrator._get_strategy(Strategy.CUSTOM_CODE)
+
+        assert "not yet implemented" in str(exc_info.value).lower()
+        assert "security considerations" in str(exc_info.value).lower()
+
+    def test_get_strategy_raises_proper_error_not_notimplementederror(self):
+        """Test that _get_strategy never raises NotImplementedError.
+
+        NotImplementedError should only be used in abstract base classes.
+        For missing strategy implementations, we should raise ExecutionOrchestratorError.
+        """
+        orchestrator = ExecutionOrchestrator()
+
+        # Test that CUSTOM_CODE raises ExecutionOrchestratorError, not NotImplementedError
+        with pytest.raises(ExecutionOrchestratorError) as exc_info:
+            orchestrator._get_strategy(Strategy.CUSTOM_CODE)
+
+        # Verify the error message is informative
+        error_msg = str(exc_info.value).lower()
+        assert "custom_code" in error_msg
+        assert "not yet implemented" in error_msg

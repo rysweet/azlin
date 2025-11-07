@@ -6,6 +6,7 @@ Phase 2: Strategy selection and execution (Azure CLI, Terraform).
 
 from .audit_logger import AuditLogger
 from .command_executor import CommandExecutionError, CommandExecutor, ResultValidator
+from .execution_orchestrator import ExecutionOrchestrator, ExecutionOrchestratorError
 from .intent_parser import CommandPlanner, IntentParseError, IntentParser
 from .objective_manager import ObjectiveError, ObjectiveManager
 from .strategies import AzureCLIStrategy, ExecutionStrategy, TerraformStrategy
@@ -31,6 +32,8 @@ __all__ = [
     "CommandPlanner",
     "CostEstimate",
     "ExecutionContext",
+    "ExecutionOrchestrator",
+    "ExecutionOrchestratorError",
     "ExecutionResult",
     "ExecutionStrategy",
     "FailureType",
