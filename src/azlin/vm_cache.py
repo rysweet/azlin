@@ -28,10 +28,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    import tomli
+    import tomllib as tomli  # type: ignore[import]
 except ImportError:
     try:
-        import tomllib as tomli  # type: ignore[import]
+        import tomli  # type: ignore[import]
     except ImportError as e:
         raise ImportError("toml library not available. Install with: pip install tomli") from e
 
