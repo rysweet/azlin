@@ -45,25 +45,16 @@ logger = logging.getLogger(__name__)
 
 # Exceptions
 class NFSProvisionerError(Exception):
-    """Base exception for NFS provisioning operations."""
+    """Exception for NFS provisioning operations.
 
-    pass
+    Use descriptive error messages to distinguish between different failure types
+    (validation, network, resource errors) rather than separate exception classes.
 
-
-class ValidationError(NFSProvisionerError):
-    """Invalid input parameters."""
-
-    pass
-
-
-class ResourceNotFoundError(NFSProvisionerError):
-    """Azure resource not found."""
-
-    pass
-
-
-class NetworkConfigurationError(NFSProvisionerError):
-    """Network configuration failed."""
+    Example:
+        raise NFSProvisionerError(f"Invalid subnet name: {subnet_name}")
+        raise NFSProvisionerError(f"Network connection failed: {error}")
+        raise NFSProvisionerError(f"Resource not found: {resource_name}")
+    """
 
     pass
 
@@ -163,24 +154,24 @@ def _validate_resource_name(name: str, resource_type: str) -> str:
         Validated name
 
     Raises:
-        ValidationError: If name contains unsafe characters
+        NFSProvisionerError: If name contains unsafe characters
     """
     if not name or not isinstance(name, str):
-        raise ValidationError(f"{resource_type} name must be a non-empty string")
+        raise NFSProvisionerError(f"{resource_type} name must be a non-empty string")
 
     # Security: Check for command injection patterns
     dangerous_patterns = [";", "&", "|", "$", "`", "(", ")", "<", ">", "\n", "\r", "\t"]
     for pattern in dangerous_patterns:
         if pattern in name:
-            raise ValidationError(f"{resource_type} name contains unsafe character '{pattern}'")
+            raise NFSProvisionerError(f"{resource_type} name contains unsafe character '{pattern}'")
 
     # Check for path traversal
     if ".." in name or "/" in name or "\\" in name:
-        raise ValidationError(f"{resource_type} name contains path traversal sequences")
+        raise NFSProvisionerError(f"{resource_type} name contains path traversal sequences")
 
     # Basic alphanumeric validation (with hyphens and underscores)
     if not re.match(r"^[a-zA-Z0-9_-]+$", name):
-        raise ValidationError(
+        raise NFSProvisionerError(
             f"{resource_type} name must be alphanumeric with hyphens/underscores only"
         )
 
@@ -197,20 +188,20 @@ def _validate_resource_id(resource_id: str) -> str:
         Validated resource ID
 
     Raises:
-        ValidationError: If resource ID is invalid
+        NFSProvisionerError: If resource ID is invalid
     """
     if not resource_id or not isinstance(resource_id, str):
-        raise ValidationError("Resource ID must be a non-empty string")
+        raise NFSProvisionerError("Resource ID must be a non-empty string")
 
     # Azure resource ID format: /subscriptions/{sub}/resourceGroups/{rg}/providers/{provider}/...
     if not resource_id.startswith("/subscriptions/"):
-        raise ValidationError(f"Invalid Azure resource ID format: {resource_id}")
+        raise NFSProvisionerError(f"Invalid Azure resource ID format: {resource_id}")
 
     # Security: Check for command injection patterns
     dangerous_patterns = [";", "&", "|", "$", "`", "\n", "\r", "\t"]
     for pattern in dangerous_patterns:
         if pattern in resource_id:
-            raise ValidationError(f"Resource ID contains unsafe character '{pattern}'")
+            raise NFSProvisionerError(f"Resource ID contains unsafe character '{pattern}'")
 
     return resource_id
 
@@ -260,8 +251,7 @@ class NFSProvisioner:
             AccessAnalysis with recommended strategy and details
 
         Raises:
-            ValidationError: If inputs are invalid
-            ResourceNotFoundError: If storage account not found
+            NFSProvisionerError: If inputs are invalid or storage account not found
         """
         # Validate inputs
         _validate_resource_name(storage_account, "Storage account")
@@ -278,7 +268,7 @@ class NFSProvisioner:
 
             storage_info = StorageManager.get_storage(storage_account, resource_group)
         except Exception as e:
-            raise ResourceNotFoundError(f"Storage account {storage_account} not found: {e}") from e
+            raise NFSProvisionerError(f"Storage account {storage_account} not found: {e}") from e
 
         # Build strategy analysis
         strategies = {}
@@ -435,8 +425,7 @@ class NFSProvisioner:
             PrivateEndpointInfo with created endpoint details
 
         Raises:
-            ValidationError: If inputs are invalid
-            NetworkConfigurationError: If creation fails
+            NFSProvisionerError: If inputs are invalid or creation fails
         """
         # Validate inputs
         _validate_resource_name(name, "Private endpoint")
@@ -550,11 +539,9 @@ class NFSProvisioner:
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            raise NetworkConfigurationError(
-                f"Failed to create private endpoint: {error_msg}"
-            ) from e
+            raise NFSProvisionerError(f"Failed to create private endpoint: {error_msg}") from e
         except json.JSONDecodeError as e:
-            raise NetworkConfigurationError(f"Failed to parse endpoint response: {e}") from e
+            raise NFSProvisionerError(f"Failed to parse endpoint response: {e}") from e
 
     @classmethod
     def create_vnet_peering(
@@ -582,8 +569,7 @@ class NFSProvisioner:
             VNetPeeringInfo with peering details
 
         Raises:
-            ValidationError: If inputs are invalid
-            NetworkConfigurationError: If peering fails
+            NFSProvisionerError: If inputs are invalid or peering fails
         """
         # Validate inputs
         _validate_resource_name(name, "Peering")
@@ -714,9 +700,9 @@ class NFSProvisioner:
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            raise NetworkConfigurationError(f"Failed to create VNet peering: {error_msg}") from e
+            raise NFSProvisionerError(f"Failed to create VNet peering: {error_msg}") from e
         except json.JSONDecodeError as e:
-            raise NetworkConfigurationError(f"Failed to parse peering response: {e}") from e
+            raise NFSProvisionerError(f"Failed to parse peering response: {e}") from e
 
     @classmethod
     def configure_private_dns_zone(
@@ -740,8 +726,7 @@ class NFSProvisioner:
             PrivateDNSZoneInfo with DNS configuration
 
         Raises:
-            ValidationError: If inputs are invalid
-            NetworkConfigurationError: If DNS configuration fails
+            NFSProvisionerError: If inputs are invalid or DNS configuration fails
         """
         _validate_resource_name(storage_account, "Storage account")
         _validate_resource_name(private_endpoint_name, "Private endpoint")
@@ -876,9 +861,7 @@ class NFSProvisioner:
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            raise NetworkConfigurationError(
-                f"Failed to configure private DNS zone: {error_msg}"
-            ) from e
+            raise NFSProvisionerError(f"Failed to configure private DNS zone: {error_msg}") from e
 
     @classmethod
     def setup_private_endpoint_access(
@@ -913,8 +896,7 @@ class NFSProvisioner:
             Tuple of (PrivateEndpointInfo, VNetPeeringInfo, PrivateDNSZoneInfo)
 
         Raises:
-            ValidationError: If inputs are invalid
-            NetworkConfigurationError: If setup fails
+            NFSProvisionerError: If inputs are invalid or setup fails
         """
         logger.info(f"Setting up private endpoint access for {storage_account}")
 
@@ -981,8 +963,7 @@ class NFSProvisioner:
             StorageInfo with created storage details
 
         Raises:
-            ValidationError: If inputs are invalid
-            NFSProvisionerError: If creation fails
+            NFSProvisionerError: If inputs are invalid or creation fails
         """
         try:
             from azlin.modules.storage_manager import StorageManager
@@ -1029,8 +1010,7 @@ class NFSProvisioner:
             ReplicationResult with replication details
 
         Raises:
-            ValidationError: If inputs are invalid
-            NFSProvisionerError: If replication fails
+            NFSProvisionerError: If inputs are invalid or replication fails
         """
         _validate_resource_name(source_storage, "Source storage")
         _validate_resource_name(target_storage, "Target storage")
@@ -1217,11 +1197,8 @@ __all__ = [
     "AccessStrategy",
     "NFSProvisioner",
     "NFSProvisionerError",
-    "NetworkConfigurationError",
     "PrivateDNSZoneInfo",
     "PrivateEndpointInfo",
     "ReplicationResult",
-    "ResourceNotFoundError",
     "VNetPeeringInfo",
-    "ValidationError",
 ]

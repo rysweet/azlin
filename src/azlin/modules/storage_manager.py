@@ -532,9 +532,18 @@ class StorageManager:
 
     @classmethod
     def _get_storage_usage(cls, storage_account: str) -> float:
-        """Get storage usage in GB."""
-        # For now, return 0 as usage metrics require additional setup
-        # In production, would query Azure Monitor metrics
+        """Get storage usage in GB.
+
+        Note: Returns 0 as Azure storage usage metrics require Azure Monitor
+        configuration and additional API calls. For detailed usage analysis,
+        use Azure Portal's storage account metrics or configure Azure Monitor.
+
+        Args:
+            storage_account: Storage account name
+
+        Returns:
+            Always returns 0.0 (usage tracking not implemented)
+        """
         return 0.0
 
     @classmethod

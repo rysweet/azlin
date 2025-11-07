@@ -33,28 +33,34 @@ class TestDisconnectDetection:
 class TestReconnectPrompt:
     """Test reconnect prompting logic."""
 
+    @patch("click.secho")
+    @patch("click.echo")
     @patch("click.confirm")
-    def test_should_attempt_reconnect_user_accepts(self, mock_confirm):
+    def test_should_attempt_reconnect_user_accepts(self, mock_confirm, mock_echo, mock_secho):
         """Test reconnect prompt when user accepts."""
         mock_confirm.return_value = True
 
         result = should_attempt_reconnect("test-vm")
 
         assert result is True
-        mock_confirm.assert_called_once()
-        # Check that the prompt mentions the VM name
-        call_args = mock_confirm.call_args
-        assert "test-vm" in call_args[0][0]
+        mock_confirm.assert_called_once_with("Do you want to reconnect?", default=True)
+        # Check that the VM name appears in the visual header
+        mock_secho.assert_called_once()
+        secho_call_args = mock_secho.call_args
+        assert "test-vm" in secho_call_args[0][0]
+        assert "CONNECTION LOST" in secho_call_args[0][0]
 
+    @patch("click.secho")
+    @patch("click.echo")
     @patch("click.confirm")
-    def test_should_attempt_reconnect_user_declines(self, mock_confirm):
+    def test_should_attempt_reconnect_user_declines(self, mock_confirm, mock_echo, mock_secho):
         """Test reconnect prompt when user declines."""
         mock_confirm.return_value = False
 
         result = should_attempt_reconnect("test-vm")
 
         assert result is False
-        mock_confirm.assert_called_once()
+        mock_confirm.assert_called_once_with("Do you want to reconnect?", default=True)
 
 
 class TestSSHReconnectHandler:

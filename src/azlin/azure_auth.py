@@ -212,7 +212,21 @@ class AzureAuthenticator:
                 timeout=2,
             )
             return result.returncode == 0
-        except Exception:
+        except subprocess.TimeoutExpired:
+            # Timeout means no managed identity endpoint
+            logger.debug("Managed identity check timed out")
+            return False
+        except (subprocess.SubprocessError, FileNotFoundError, OSError) as e:
+            # Subprocess or system errors
+            logger.debug(f"Managed identity check failed: {e}")
+            return False
+        except Exception as e:
+            # Unexpected errors
+            logger.warning(f"Unexpected error checking managed identity: {e}")
+            import os
+
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Managed identity check error details:", exc_info=True)
             return False
 
     def check_az_cli_available(self) -> bool:
@@ -243,7 +257,21 @@ class AzureAuthenticator:
                 # Check token is not expired (simple check)
                 return len(creds.token) > 0
             return True
-        except Exception:
+        except AuthenticationError as e:
+            # Known authentication errors
+            logger.debug(f"Credential validation failed: {e}")
+            return False
+        except (AttributeError, KeyError, TypeError) as e:
+            # Invalid credential object structure
+            logger.debug(f"Credential validation failed (invalid object): {e}")
+            return False
+        except Exception as e:
+            # Unexpected errors
+            logger.warning(f"Unexpected error validating credentials: {e}")
+            import os
+
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Credential validation error details:", exc_info=True)
             return False
 
     def validate_subscription_id(self, subscription_id: str | None) -> bool:

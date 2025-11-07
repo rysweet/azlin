@@ -81,8 +81,6 @@ from azlin.modules.github_setup import GitHubSetupError, GitHubSetupHandler
 from azlin.modules.home_sync import (
     HomeSyncError,
     HomeSyncManager,
-    RsyncError,
-    SecurityValidationError,
     SyncResult,
 )
 from azlin.modules.interaction_handler import CLIInteractionHandler
@@ -456,9 +454,10 @@ class CLIOrchestrator:
 
                 message = (
                     f"\nFound Bastion host '{bastion_info['name']}' in resource group.\n"
-                    f"Use Bastion for secure access (recommended)?\n"
+                    f"\nOptions:\n"
                     f"  - Bastion: Private VM (no public IP, more secure)\n"
-                    f"  - No Bastion: Public IP (direct SSH, less secure)"
+                    f"  - No Bastion: Public IP (direct SSH, less secure)\n"
+                    f"\nUse Bastion for secure access (recommended)?"
                 )
                 if click.confirm(message, default=True):
                     self.progress.update(
@@ -484,9 +483,10 @@ class CLIOrchestrator:
             else:
                 message = (
                     f"\nNo Bastion host found in resource group '{resource_group}'.\n"
-                    f"Create VM with Bastion access?\n"
+                    f"\nOptions:\n"
                     f"  - Yes: More secure (private VM, ~$140/month for Bastion)\n"
-                    f"  - No: Less secure (public IP, direct internet access)"
+                    f"  - No: Less secure (public IP, direct internet access)\n"
+                    f"\nCreate VM with Bastion access?"
                 )
                 if not click.confirm(message, default=True):
                     # User declined - abort per security policy
@@ -1063,12 +1063,7 @@ class CLIOrchestrator:
 
             self._process_sync_result(result)
 
-        except SecurityValidationError as e:
-            # Don't fail VM provisioning, just warn
-            self.progress.update(f"Home sync skipped: {e}", ProgressStage.WARNING)
-            logger.warning(f"Security validation failed: {e}")
-
-        except (RsyncError, HomeSyncError) as e:
+        except HomeSyncError as e:
             # Don't fail VM provisioning, just warn
             self.progress.update(f"Home sync failed: {e}", ProgressStage.WARNING)
             logger.warning(f"Home sync failed: {e}")
@@ -2547,8 +2542,17 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """
     tmux_by_vm: dict[str, list[TmuxSession]] = {}
 
-    ssh_key_path = Path.home() / ".ssh" / "azlin_key"
-    if not ssh_key_path.exists():
+    # Ensure SSH key is available for connecting to VMs
+    try:
+        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+        ssh_key_path = ssh_key_pair.private_path
+    except SSHKeyError as e:
+        logger.warning(
+            f"Cannot collect tmux sessions: SSH key validation failed: {e}\n"
+            "Tmux sessions will not be displayed.\n"
+            "To fix this, ensure your SSH key is available or run 'azlin' commands "
+            "to set up SSH access."
+        )
         return tmux_by_vm
 
     # Classify VMs into direct SSH (public IP) and Bastion (private IP only)
@@ -3111,25 +3115,29 @@ def w(resource_group: str | None, config: str | None):
             click.echo("No running VMs found.")
             return
 
-        running_vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+        running_vms = [vm for vm in vms if vm.is_running()]
 
         if not running_vms:
-            click.echo("No running VMs with public IPs found.")
+            click.echo("No running VMs found.")
             return
 
-        click.echo(f"Running 'w' on {len(running_vms)} VMs...\n")
+        # Get SSH configs with bastion support (Issue #281 fix)
+        from azlin.cli_helpers import get_ssh_configs_for_vms
 
-        # Build SSH configs (all running_vms have public_ip due to filter above)
-        ssh_configs: list[SSHConfig] = []
-        for vm in running_vms:
-            if vm.public_ip:  # Type guard for pyright
-                ssh_configs.append(  # noqa: PERF401 (type guard needed for pyright)
-                    SSHConfig(
-                        host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
-                    )
-                )
+        ssh_configs, _routes = get_ssh_configs_for_vms(
+            vms=running_vms,
+            ssh_key_path=ssh_key_pair.private_path,
+            skip_interactive=True,  # Batch operation
+            show_summary=True,
+        )
 
-        # Execute in parallel
+        if not ssh_configs:
+            click.echo("No reachable VMs found.")
+            return
+
+        click.echo(f"Running 'w' on {len(ssh_configs)} VMs...\n")
+
+        # Execute in parallel (bastion tunnels cleaned up automatically via atexit)
         results = WCommandExecutor.execute_w_on_vms(ssh_configs, timeout=30)
 
         # Display output
@@ -3201,30 +3209,33 @@ def top(
             click.echo("No running VMs found.")
             return
 
-        running_vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+        running_vms = [vm for vm in vms if vm.is_running()]
 
         if not running_vms:
-            click.echo("No running VMs with public IPs found.")
+            click.echo("No running VMs found.")
+            return
+
+        # Get SSH configs with bastion support (Issue #281 fix)
+        from azlin.cli_helpers import get_ssh_configs_for_vms
+
+        ssh_configs, _routes = get_ssh_configs_for_vms(
+            vms=running_vms,
+            ssh_key_path=ssh_key_pair.private_path,
+            skip_interactive=True,  # Batch operation
+            show_summary=True,
+        )
+
+        if not ssh_configs:
+            click.echo("No reachable VMs found.")
             return
 
         click.echo(
-            f"Starting distributed top for {len(running_vms)} VMs "
+            f"Starting distributed top for {len(ssh_configs)} VMs "
             f"(refresh: {interval}s, timeout: {timeout}s)..."
         )
         click.echo("Press Ctrl+C to exit.\n")
 
-        # Build SSH configs (filter out VMs without public IPs)
-        ssh_configs = [
-            SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
-            for vm in running_vms
-            if vm.public_ip is not None
-        ]
-
-        if not ssh_configs:
-            click.echo("Error: No VMs with public IP addresses found", err=True)
-            sys.exit(1)
-
-        # Create and run executor
+        # Create and run executor (bastion tunnels cleaned up automatically via atexit)
         executor = DistributedTopExecutor(
             ssh_configs=ssh_configs,
             interval=interval,
@@ -3862,25 +3873,29 @@ def ps(resource_group: str | None, config: str | None, grouped: bool):
             click.echo("No running VMs found.")
             return
 
-        running_vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+        running_vms = [vm for vm in vms if vm.is_running()]
 
         if not running_vms:
-            click.echo("No running VMs with public IPs found.")
+            click.echo("No running VMs found.")
             return
 
-        click.echo(f"Running 'ps aux' on {len(running_vms)} VMs...\n")
+        # Get SSH configs with bastion support (Issue #281 fix)
+        from azlin.cli_helpers import get_ssh_configs_for_vms
 
-        # Build SSH configs (all running_vms have public_ip due to filter above)
-        ssh_configs: list[SSHConfig] = []
-        for vm in running_vms:
-            if vm.public_ip:  # Type guard for pyright
-                ssh_configs.append(  # noqa: PERF401 (type guard needed for pyright)
-                    SSHConfig(
-                        host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
-                    )
-                )
+        ssh_configs, _routes = get_ssh_configs_for_vms(
+            vms=running_vms,
+            ssh_key_path=ssh_key_pair.private_path,
+            skip_interactive=True,  # Batch operation
+            show_summary=True,
+        )
 
-        # Execute in parallel
+        if not ssh_configs:
+            click.echo("No reachable VMs found.")
+            return
+
+        click.echo(f"Running 'ps aux' on {len(ssh_configs)} VMs...\n")
+
+        # Execute in parallel (bastion tunnels cleaned up automatically via atexit)
         results = PSCommandExecutor.execute_ps_on_vms(ssh_configs, timeout=30)
 
         # Display output
@@ -4626,13 +4641,7 @@ def sync(vm_name: str | None, dry_run: bool, resource_group: str | None, config:
         # Execute sync
         _execute_sync(selected_vm, ssh_key_pair, dry_run)
 
-    except SecurityValidationError as e:
-        click.echo("\nSecurity validation failed:", err=True)
-        click.echo(str(e), err=True)
-        click.echo("\nRemove sensitive files from ~/.azlin/home/ and try again.", err=True)
-        sys.exit(1)
-
-    except (RsyncError, HomeSyncError) as e:
+    except HomeSyncError as e:
         click.echo(f"\nSync failed: {e}", err=True)
         sys.exit(1)
 
