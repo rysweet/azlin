@@ -2540,8 +2540,17 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """
     tmux_by_vm: dict[str, list[TmuxSession]] = {}
 
-    ssh_key_path = Path.home() / ".ssh" / "azlin_key"
-    if not ssh_key_path.exists():
+    # Ensure SSH key is available for connecting to VMs
+    try:
+        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+        ssh_key_path = ssh_key_pair.private_path
+    except SSHKeyError as e:
+        logger.warning(
+            f"Cannot collect tmux sessions: SSH key validation failed: {e}\n"
+            "Tmux sessions will not be displayed.\n"
+            "To fix this, ensure your SSH key is available or run 'azlin' commands "
+            "to set up SSH access."
+        )
         return tmux_by_vm
 
     # Classify VMs into direct SSH (public IP) and Bastion (private IP only)
