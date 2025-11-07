@@ -454,9 +454,10 @@ class CLIOrchestrator:
 
                 message = (
                     f"\nFound Bastion host '{bastion_info['name']}' in resource group.\n"
-                    f"Use Bastion for secure access (recommended)?\n"
+                    f"\nOptions:\n"
                     f"  - Bastion: Private VM (no public IP, more secure)\n"
-                    f"  - No Bastion: Public IP (direct SSH, less secure)"
+                    f"  - No Bastion: Public IP (direct SSH, less secure)\n"
+                    f"\nUse Bastion for secure access (recommended)?"
                 )
                 if click.confirm(message, default=True):
                     self.progress.update(
@@ -482,9 +483,10 @@ class CLIOrchestrator:
             else:
                 message = (
                     f"\nNo Bastion host found in resource group '{resource_group}'.\n"
-                    f"Create VM with Bastion access?\n"
+                    f"\nOptions:\n"
                     f"  - Yes: More secure (private VM, ~$140/month for Bastion)\n"
-                    f"  - No: Less secure (public IP, direct internet access)"
+                    f"  - No: Less secure (public IP, direct internet access)\n"
+                    f"\nCreate VM with Bastion access?"
                 )
                 if not click.confirm(message, default=True):
                     # User declined - abort per security policy
