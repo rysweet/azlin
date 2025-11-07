@@ -27,9 +27,7 @@ except ImportError:
     try:
         import tomllib as tomli  # type: ignore[import]
     except ImportError as e:
-        raise ImportError(
-            "toml library not available. Install with: pip install tomli tomli-w"
-        ) from e
+        raise ImportError("toml library not available. Install with: pip install tomli") from e
 
 try:
     import tomli_w  # type: ignore[import]
