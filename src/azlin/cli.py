@@ -1082,6 +1082,13 @@ class CLIOrchestrator:
                 )
                 return
 
+            # Verify VM ID is available (required for Bastion tunnel)
+            if not vm_details.id:
+                logger.warning(
+                    f"VM '{vm_details.name}' has no Azure resource ID, cannot create Bastion tunnel"
+                )
+                return
+
             # Create tunnel and sync
             self.progress.update(
                 f"Creating Bastion tunnel via {bastion_info['name']}...", ProgressStage.IN_PROGRESS
@@ -1095,7 +1102,7 @@ class CLIOrchestrator:
                 tunnel = bastion_mgr.create_tunnel(
                     bastion_name=bastion_info["name"],
                     resource_group=bastion_info["resource_group"],
-                    target_vm_id=vm_details.id,
+                    target_vm_id=vm_details.id,  # Type narrowed by check above
                     local_port=local_port,
                     remote_port=22,
                     wait_for_ready=True,
