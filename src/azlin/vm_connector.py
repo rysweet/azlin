@@ -28,6 +28,7 @@ from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.modules.ssh_reconnect import SSHReconnectHandler
 from azlin.terminal_launcher import TerminalConfig, TerminalLauncher, TerminalLauncherError
+from azlin.vm_cache import VMCache
 from azlin.vm_manager import VMManager, VMManagerError
 
 logger = logging.getLogger(__name__)
@@ -206,8 +207,29 @@ class VMConnector:
                                 f"Failed to record connection for {conn_info.vm_name}: {e}"
                             )
 
+                    # Invalidate cache on connection failure (if using session name)
+                    if exit_code != 0 and tmux_session and tmux_session != conn_info.vm_name:
+                        try:
+                            cache = VMCache()
+                            cache.delete(tmux_session)
+                            logger.debug(
+                                f"Invalidated cache entry for session '{tmux_session}' after connection failure"
+                            )
+                        except Exception as e:
+                            logger.debug(f"Failed to invalidate cache: {e}")
+
                     return exit_code == 0
                 except Exception as e:
+                    # Invalidate cache on connection exception (if using session name)
+                    if tmux_session and tmux_session != conn_info.vm_name:
+                        try:
+                            cache = VMCache()
+                            cache.delete(tmux_session)
+                            logger.debug(
+                                f"Invalidated cache entry for session '{tmux_session}' after connection exception"
+                            )
+                        except Exception as cache_error:
+                            logger.debug(f"Failed to invalidate cache: {cache_error}")
                     raise VMConnectorError(f"SSH connection failed: {e}") from e
             else:
                 # Build terminal config for new window or remote command
@@ -233,9 +255,30 @@ class VMConnector:
                             logger.warning(
                                 f"Failed to record connection for {conn_info.vm_name}: {e}"
                             )
+                    else:
+                        # Invalidate cache on connection failure (if using session name)
+                        if tmux_session and tmux_session != conn_info.vm_name:
+                            try:
+                                cache = VMCache()
+                                cache.delete(tmux_session)
+                                logger.debug(
+                                    f"Invalidated cache entry for session '{tmux_session}' after connection failure"
+                                )
+                            except Exception as e:
+                                logger.debug(f"Failed to invalidate cache: {e}")
 
                     return success
                 except TerminalLauncherError as e:
+                    # Invalidate cache on connection exception (if using session name)
+                    if tmux_session and tmux_session != conn_info.vm_name:
+                        try:
+                            cache = VMCache()
+                            cache.delete(tmux_session)
+                            logger.debug(
+                                f"Invalidated cache entry for session '{tmux_session}' after connection exception"
+                            )
+                        except Exception as cache_error:
+                            logger.debug(f"Failed to invalidate cache: {cache_error}")
                     raise VMConnectorError(f"Failed to launch terminal: {e}") from e
 
         finally:
