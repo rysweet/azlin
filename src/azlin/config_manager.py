@@ -22,17 +22,21 @@ import click
 
 try:
     import tomli  # type: ignore[import]
-    import tomli_w
 except ImportError:
     # Fallback for older Python versions
     try:
         import tomllib as tomli  # type: ignore[import]
-
-        import tomli_w
     except ImportError as e:
         raise ImportError(
-            "toml library not available. Install with: pip install tomli tomli-w"
+            "toml library not available. Install with: pip install tomli"
         ) from e
+
+try:
+    import tomlkit
+except ImportError as e:
+    raise ImportError(
+        "tomlkit library not available. Install with: pip install tomlkit"
+    ) from e
 
 logger = logging.getLogger(__name__)
 
@@ -294,11 +298,27 @@ class ConfigManager:
                 config_path = cls.DEFAULT_CONFIG_FILE
 
             # Write TOML with secure permissions
+            # Use tomlkit to preserve comments and formatting
             # Use temporary file and atomic rename for safety
             temp_path = config_path.with_suffix(".tmp")
 
-            with open(temp_path, "wb") as f:
-                tomli_w.dump(config.to_dict(), f)
+            # Load existing file if it exists (preserves comments/formatting)
+            if config_path.exists():
+                with open(config_path, "r") as f:
+                    doc = tomlkit.load(f)
+                # Update values from config
+                config_dict = config.to_dict()
+                for key, value in config_dict.items():
+                    doc[key] = value
+            else:
+                # Create new document
+                doc = tomlkit.document()
+                for key, value in config.to_dict().items():
+                    doc[key] = value
+
+            # Write to temp file
+            with open(temp_path, "w") as f:
+                tomlkit.dump(doc, f)
 
             # Set secure permissions before moving
             os.chmod(temp_path, 0o600)
@@ -660,11 +680,15 @@ class ConfigManager:
             # Set profile
             data["auth"]["profiles"][profile_name] = config
 
-            # Save
+            # Save with tomlkit (preserves comments)
             cls.ensure_config_dir()
             temp_path = config_path.with_suffix(".tmp")
-            with open(temp_path, "wb") as f:
-                tomli_w.dump(data, f)
+
+            # Convert dict to tomlkit document
+            doc = tomlkit.item(data)
+
+            with open(temp_path, "w") as f:
+                tomlkit.dump(doc, f)
 
             # Set secure permissions
             os.chmod(temp_path, 0o600)
@@ -710,10 +734,14 @@ class ConfigManager:
             # Delete profile
             del profiles[profile_name]
 
-            # Save
+            # Save with tomlkit (preserves comments)
             temp_path = config_path.with_suffix(".tmp")
-            with open(temp_path, "wb") as f:
-                tomli_w.dump(data, f)
+
+            # Convert dict to tomlkit document
+            doc = tomlkit.item(data)
+
+            with open(temp_path, "w") as f:
+                tomlkit.dump(doc, f)
 
             os.chmod(temp_path, 0o600)
             temp_path.replace(config_path)
