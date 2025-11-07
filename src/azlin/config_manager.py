@@ -300,7 +300,7 @@ class ConfigManager:
 
             # Load existing file if it exists (preserves comments/formatting)
             if config_path.exists():
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     doc = tomlkit.load(f)
                 # Update values from config
                 config_dict = config.to_dict()
