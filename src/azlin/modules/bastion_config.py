@@ -29,9 +29,7 @@ except ImportError:
 
         import tomli_w  # type: ignore[import-not-found]
     except ImportError as e:
-        raise ImportError(
-            "toml library not available. Install with: pip install tomli tomli-w"
-        ) from e
+        raise ImportError("toml library not available. Install with: pip install tomli") from e
 
 logger = logging.getLogger(__name__)
 

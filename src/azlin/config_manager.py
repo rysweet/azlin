@@ -27,16 +27,12 @@ except ImportError:
     try:
         import tomllib as tomli  # type: ignore[import]
     except ImportError as e:
-        raise ImportError(
-            "toml library not available. Install with: pip install tomli"
-        ) from e
+        raise ImportError("toml library not available. Install with: pip install tomli") from e
 
 try:
     import tomlkit
 except ImportError as e:
-    raise ImportError(
-        "tomlkit library not available. Install with: pip install tomlkit"
-    ) from e
+    raise ImportError("tomlkit library not available. Install with: pip install tomlkit") from e
 
 logger = logging.getLogger(__name__)
 
