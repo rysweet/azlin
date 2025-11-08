@@ -55,7 +55,7 @@ class CosmosDBStrategy(Strategy):
         location = goal.parameters.get("location", "eastus")
         kind = goal.parameters.get("kind", "GlobalDocumentDB")
 
-        return f'''resource cosmosAccount '{goal.name}' 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {{
+        return f"""resource cosmosAccount '{goal.name}' 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {{
   name: '{goal.name}'
   location: '{location}'
   kind: '{kind}'
@@ -72,7 +72,7 @@ class CosmosDBStrategy(Strategy):
       }}
     ]
   }}
-}}'''
+}}"""
 
     def _to_tf_name(self, name: str) -> str:
         """Convert Azure name to Terraform resource name."""

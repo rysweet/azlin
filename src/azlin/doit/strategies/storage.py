@@ -1,6 +1,6 @@
 """Storage Account deployment strategy."""
 
-from azlin.doit.goals import Goal, GoalHierarchy, ResourceType
+from azlin.doit.goals import Goal, GoalHierarchy
 from azlin.doit.strategies.base import Strategy
 
 
@@ -59,7 +59,7 @@ class StorageStrategy(Strategy):
         location = goal.parameters.get("location", "eastus")
         sku = goal.parameters.get("sku", "Standard_LRS")
 
-        return f'''resource storageAccount '{goal.name}' 'Microsoft.Storage/storageAccounts@2023-01-01' = {{
+        return f"""resource storageAccount '{goal.name}' 'Microsoft.Storage/storageAccounts@2023-01-01' = {{
   name: '{goal.name}'
   location: '{location}'
   sku: {{
@@ -71,7 +71,7 @@ class StorageStrategy(Strategy):
     minimumTlsVersion: 'TLS1_2'
     allowBlobPublicAccess: false
   }}
-}}'''
+}}"""
 
     def _to_tf_name(self, name: str) -> str:
         """Convert Azure name to Terraform resource name."""

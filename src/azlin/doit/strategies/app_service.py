@@ -1,6 +1,6 @@
 """App Service deployment strategy."""
 
-from azlin.doit.goals import Goal, GoalHierarchy, ResourceType
+from azlin.doit.goals import Goal, GoalHierarchy
 from azlin.doit.strategies.base import Strategy
 
 
@@ -49,7 +49,7 @@ class AppServicePlanStrategy(Strategy):
         sku = goal.parameters.get("sku", "B1")
         os_type = goal.parameters.get("os_type", "Linux")
 
-        return f'''resource appServicePlan '{goal.name}' 'Microsoft.Web/serverfarms@2023-01-01' = {{
+        return f"""resource appServicePlan '{goal.name}' 'Microsoft.Web/serverfarms@2023-01-01' = {{
   name: '{goal.name}'
   location: '{location}'
   sku: {{
@@ -57,9 +57,9 @@ class AppServicePlanStrategy(Strategy):
   }}
   kind: '{os_type.lower()}'
   properties: {{
-    reserved: {str(os_type == 'Linux').lower()}
+    reserved: {str(os_type == "Linux").lower()}
   }}
-}}'''
+}}"""
 
     def _to_tf_name(self, name: str) -> str:
         """Convert Azure name to Terraform resource name."""
@@ -85,7 +85,7 @@ class AppServiceStrategy(Strategy):
             f"--name {goal.name} "
             f"--resource-group {rg} "
             f"--plan {plan_name} "
-            f"--runtime \"{runtime}\" "
+            f'--runtime "{runtime}" '
         )
 
         if managed_identity:
@@ -114,10 +114,10 @@ class AppServiceStrategy(Strategy):
 
         identity_block = ""
         if managed_identity:
-            identity_block = '''
+            identity_block = """
   identity {
     type = "SystemAssigned"
-  }'''
+  }"""
 
         return f'''resource "azurerm_linux_web_app" "{self._to_tf_name(goal.name)}" {{
   name                = "{goal.name}"
@@ -154,12 +154,12 @@ class AppServiceStrategy(Strategy):
 
         identity_block = ""
         if managed_identity:
-            identity_block = '''
+            identity_block = """
   identity: {
     type: 'SystemAssigned'
-  }'''
+  }"""
 
-        return f'''resource appService '{goal.name}' 'Microsoft.Web/sites@2023-01-01' = {{
+        return f"""resource appService '{goal.name}' 'Microsoft.Web/sites@2023-01-01' = {{
   name: '{goal.name}'
   location: '{location}'
   properties: {{
@@ -171,7 +171,7 @@ class AppServiceStrategy(Strategy):
     httpsOnly: true
   }}
 {identity_block}
-}}'''
+}}"""
 
     def _to_tf_name(self, name: str) -> str:
         """Convert Azure name to Terraform resource name."""

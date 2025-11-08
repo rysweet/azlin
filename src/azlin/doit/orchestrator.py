@@ -5,7 +5,7 @@ from pathlib import Path
 from azlin.doit.artifacts import ArtifactGenerator
 from azlin.doit.engine import ExecutionEngine, ExecutionState
 from azlin.doit.evaluator import GoalEvaluator
-from azlin.doit.goals import GoalParser, ParsedRequest
+from azlin.doit.goals import GoalParser
 from azlin.doit.reporter import ProgressReporter
 
 
@@ -85,27 +85,21 @@ class DoItOrchestrator:
             if action_results:
                 evaluation = self.evaluator.evaluate(goal, action_results)
                 if evaluation.teaching_notes and self.verbose:
-                    self.reporter.console.print(
-                        f"[dim]{evaluation.teaching_notes}[/dim]"
-                    )
+                    self.reporter.console.print(f"[dim]{evaluation.teaching_notes}[/dim]")
 
         # Report completion
         self.reporter.report_completion(state, hierarchy)
 
         # Phase 4: Generate artifacts
         if not self.dry_run:
-            self.reporter.console.print(
-                "\n[bold cyan]Phase 4: Generating Artifacts[/bold cyan]"
-            )
+            self.reporter.console.print("\n[bold cyan]Phase 4: Generating Artifacts[/bold cyan]")
             artifacts = self.artifact_generator.generate_all(hierarchy, state)
 
             self.reporter.console.print("\n[bold green]Generated Files:[/bold green]")
             for artifact_type, path in artifacts.items():
                 self.reporter.console.print(f"  [green]✓[/green] {path}")
 
-            self.reporter.console.print(
-                f"\n[bold]Output Directory:[/bold] {self.output_dir}"
-            )
+            self.reporter.console.print(f"\n[bold]Output Directory:[/bold] {self.output_dir}")
 
         return state
 

@@ -31,7 +31,9 @@ class TestGoalParser:
     def test_parse_complex_request(self):
         """Test parsing a complex request."""
         parser = GoalParser()
-        request = "Create App Service, Cosmos DB, API Management, Storage, and KeyVault all connected"
+        request = (
+            "Create App Service, Cosmos DB, API Management, Storage, and KeyVault all connected"
+        )
 
         parsed = parser.parse(request)
         hierarchy = parsed.goal_hierarchy
@@ -105,13 +107,17 @@ class TestGoalParser:
         ready = hierarchy.get_ready_goals()
         assert all(g.level == 0 for g in ready)
 
+        # Get initial levels
+        initial_levels = {g.level for g in hierarchy.goals}
+
         # Mark level 0 complete
         for goal in hierarchy.get_goals_by_level(0):
             goal.mark_completed({})
 
-        # Now level 1 should be ready
+        # Now higher level goals should be ready
         ready = hierarchy.get_ready_goals()
-        assert any(g.level == 1 for g in ready)
+        assert len(ready) > 0, "Expected some goals to be ready after completing level 0"
+        assert all(g.level > 0 for g in ready), "Ready goals should be at a higher level than 0"
 
     def test_constraint_extraction(self):
         """Test constraint extraction from request."""

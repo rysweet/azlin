@@ -2,4 +2,4 @@
 
 from azlin.doit.evaluator.evaluator import EvaluationResult, GoalEvaluator
 
-__all__ = ["GoalEvaluator", "EvaluationResult"]
+__all__ = ["EvaluationResult", "GoalEvaluator"]

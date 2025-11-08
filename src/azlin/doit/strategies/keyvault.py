@@ -58,7 +58,7 @@ data "azurerm_client_config" "current" {{}}'''
         sku = goal.parameters.get("sku", "standard")
         enable_rbac = goal.parameters.get("enable_rbac", True)
 
-        return f'''resource keyVault '{goal.name}' 'Microsoft.KeyVault/vaults@2023-07-01' = {{
+        return f"""resource keyVault '{goal.name}' 'Microsoft.KeyVault/vaults@2023-07-01' = {{
   name: '{goal.name}'
   location: '{location}'
   properties: {{
@@ -71,7 +71,7 @@ data "azurerm_client_config" "current" {{}}'''
     softDeleteRetentionInDays: 7
     enablePurgeProtection: false
   }}
-}}'''
+}}"""
 
     def _to_tf_name(self, name: str) -> str:
         """Convert Azure name to Terraform resource name."""

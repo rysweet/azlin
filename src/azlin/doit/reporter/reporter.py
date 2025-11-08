@@ -1,11 +1,8 @@
 """Progress reporter - provides user-friendly updates."""
 
-from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from azlin.doit.engine.models import ExecutionState
@@ -18,9 +15,7 @@ class ProgressReporter:
     def __init__(self, prompts_dir: Path | None = None, verbose: bool = True):
         """Initialize reporter."""
         if prompts_dir is None:
-            prompts_dir = (
-                Path(__file__).parent.parent.parent / "prompts" / "doit"
-            )
+            prompts_dir = Path(__file__).parent.parent.parent / "prompts" / "doit"
         self.prompts_dir = prompts_dir
         self.verbose = verbose
         self.console = Console()
@@ -54,19 +49,13 @@ class ProgressReporter:
 
         self.console.print(table)
         self.console.print()
-        self.console.print(
-            f"[bold]Total Resources:[/bold] {len(hierarchy.goals)}"
-        )
-        self.console.print(
-            f"[bold]Estimated Time:[/bold] 5-10 minutes"
-        )
+        self.console.print(f"[bold]Total Resources:[/bold] {len(hierarchy.goals)}")
+        self.console.print("[bold]Estimated Time:[/bold] 5-10 minutes")
         self.console.print()
         self.console.print("=" * 70)
         self.console.print()
 
-    def report_progress(
-        self, state: ExecutionState, hierarchy: GoalHierarchy
-    ) -> None:
+    def report_progress(self, state: ExecutionState, hierarchy: GoalHierarchy) -> None:
         """Report current progress."""
         # Only report every 2 iterations unless verbose
         if not self.verbose and state.iteration - self.last_report_iteration < 2:
@@ -87,9 +76,7 @@ class ProgressReporter:
             status_icon = self._get_status_icon(goal.status)
             status_color = self._get_status_color(goal.status)
 
-            self.console.print(
-                f"{status_icon} [{status_color}]{goal.name}[/{status_color}]"
-            )
+            self.console.print(f"{status_icon} [{status_color}]{goal.name}[/{status_color}]")
 
         elapsed = state.get_elapsed_time()
         self.console.print()
@@ -99,16 +86,12 @@ class ProgressReporter:
     def report_goal_start(self, goal_name: str, goal_type: str) -> None:
         """Report start of goal execution."""
         if self.verbose:
-            self.console.print(
-                f"[cyan]→[/cyan] Starting: {goal_type} ({goal_name})"
-            )
+            self.console.print(f"[cyan]→[/cyan] Starting: {goal_type} ({goal_name})")
 
     def report_goal_complete(self, goal_name: str, duration: float) -> None:
         """Report goal completion."""
         if self.verbose:
-            self.console.print(
-                f"[green]✓[/green] Completed: {goal_name} ({duration:.1f}s)"
-            )
+            self.console.print(f"[green]✓[/green] Completed: {goal_name} ({duration:.1f}s)")
 
     def report_goal_failed(self, goal_name: str, error: str) -> None:
         """Report goal failure."""
@@ -116,9 +99,7 @@ class ProgressReporter:
         if error:
             self.console.print(f"  [dim]Error: {error}[/dim]")
 
-    def report_completion(
-        self, state: ExecutionState, hierarchy: GoalHierarchy
-    ) -> None:
+    def report_completion(self, state: ExecutionState, hierarchy: GoalHierarchy) -> None:
         """Report final completion."""
         completed, total = hierarchy.get_progress()
         elapsed = state.get_elapsed_time()
@@ -145,7 +126,7 @@ class ProgressReporter:
 
         self.console.print(table)
         self.console.print()
-        self.console.print(f"[bold]Total Time:[/bold] {elapsed:.1f}s ({elapsed/60:.1f}m)")
+        self.console.print(f"[bold]Total Time:[/bold] {elapsed:.1f}s ({elapsed / 60:.1f}m)")
         self.console.print()
 
         # List completed resources

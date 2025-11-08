@@ -35,14 +35,14 @@ def get_strategy(resource_type: ResourceType) -> Strategy:
 
 
 __all__ = [
-    "Strategy",
-    "ResourceGroupStrategy",
-    "StorageStrategy",
-    "KeyVaultStrategy",
-    "CosmosDBStrategy",
+    "APIManagementStrategy",
     "AppServicePlanStrategy",
     "AppServiceStrategy",
-    "APIManagementStrategy",
     "ConnectionStrategy",
+    "CosmosDBStrategy",
+    "KeyVaultStrategy",
+    "ResourceGroupStrategy",
+    "StorageStrategy",
+    "Strategy",
     "get_strategy",
 ]

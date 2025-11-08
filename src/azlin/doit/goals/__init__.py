@@ -12,12 +12,12 @@ from azlin.doit.goals.models import (
 from azlin.doit.goals.parser import GoalParser
 
 __all__ = [
-    "Goal",
-    "GoalHierarchy",
-    "GoalStatus",
-    "ResourceType",
     "Connection",
     "ConnectionType",
-    "ParsedRequest",
+    "Goal",
+    "GoalHierarchy",
     "GoalParser",
+    "GoalStatus",
+    "ParsedRequest",
+    "ResourceType",
 ]

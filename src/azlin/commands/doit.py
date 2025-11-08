@@ -176,7 +176,7 @@ def examples_command():
         console.print(f"  [dim]{ex['description']}[/dim]\n")
 
     console.print("[bold]Usage:[/bold]")
-    console.print("  azlin doit deploy \"<your request here>\"\n")
+    console.print('  azlin doit deploy "<your request here>"\n')
     console.print("[bold]Options:[/bold]")
     console.print("  --dry-run      Show what would be deployed")
     console.print("  --output-dir   Custom output directory")

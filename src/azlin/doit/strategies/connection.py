@@ -19,18 +19,22 @@ class ConnectionStrategy(Strategy):
 
         if method == "key_vault_secret":
             return self._build_keyvault_connection(goal, hierarchy)
-        elif method == "api_backend":
+        if method == "api_backend":
             return self._build_apim_backend(goal, hierarchy)
-        else:
-            return "echo 'Connection method not implemented'"
+        return "echo 'Connection method not implemented'"
 
-    def _build_keyvault_connection(
-        self, goal: Goal, hierarchy: GoalHierarchy
-    ) -> str:
+    def _build_keyvault_connection(self, goal: Goal, hierarchy: GoalHierarchy) -> str:
         """Build commands to connect via Key Vault."""
         from_id = goal.parameters.get("from")
         to_id = goal.parameters.get("to")
         via_id = goal.parameters.get("via")
+
+        if (
+            not isinstance(from_id, str)
+            or not isinstance(to_id, str)
+            or not isinstance(via_id, str)
+        ):
+            return "echo 'Invalid connection parameters'"
 
         from_goal = hierarchy.get_goal(from_id)
         to_goal = hierarchy.get_goal(to_id)
@@ -74,6 +78,9 @@ az webapp config appsettings set --name {from_goal.name} --resource-group {rg} -
         from_id = goal.parameters.get("from")  # APIM
         to_id = goal.parameters.get("to")  # App Service
 
+        if not isinstance(from_id, str) or not isinstance(to_id, str):
+            return "echo 'Invalid connection parameters'"
+
         apim_goal = hierarchy.get_goal(from_id)
         app_goal = hierarchy.get_goal(to_id)
 
@@ -105,18 +112,22 @@ az apim api create \\
 
         if method == "key_vault_secret":
             return self._generate_tf_keyvault_connection(goal, hierarchy)
-        elif method == "api_backend":
+        if method == "api_backend":
             return self._generate_tf_apim_backend(goal, hierarchy)
-        else:
-            return "# Connection not implemented"
+        return "# Connection not implemented"
 
-    def _generate_tf_keyvault_connection(
-        self, goal: Goal, hierarchy: GoalHierarchy
-    ) -> str:
+    def _generate_tf_keyvault_connection(self, goal: Goal, hierarchy: GoalHierarchy) -> str:
         """Generate Terraform for Key Vault connection."""
         from_id = goal.parameters.get("from")
         to_id = goal.parameters.get("to")
         via_id = goal.parameters.get("via")
+
+        if (
+            not isinstance(from_id, str)
+            or not isinstance(to_id, str)
+            or not isinstance(via_id, str)
+        ):
+            return "# Invalid connection parameters"
 
         from_goal = hierarchy.get_goal(from_id)
         to_goal = hierarchy.get_goal(to_id)
@@ -129,7 +140,7 @@ az apim api create \\
         to_tf = self._to_tf_name(to_goal.name)
         kv_tf = self._to_tf_name(kv_goal.name)
 
-        return f'''# Store Cosmos connection info in Key Vault
+        return f"""# Store Cosmos connection info in Key Vault
 resource "azurerm_key_vault_secret" "cosmos_endpoint" {{
   name         = "cosmos-endpoint"
   value        = azurerm_cosmosdb_account.{to_tf}.endpoint
@@ -151,14 +162,15 @@ resource "azurerm_role_assignment" "app_kv_access" {{
   scope                = azurerm_key_vault.{kv_tf}.id
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_linux_web_app.{from_tf}.identity[0].principal_id
-}}'''
+}}"""
 
-    def _generate_tf_apim_backend(
-        self, goal: Goal, hierarchy: GoalHierarchy
-    ) -> str:
+    def _generate_tf_apim_backend(self, goal: Goal, hierarchy: GoalHierarchy) -> str:
         """Generate Terraform for APIM backend."""
         from_id = goal.parameters.get("from")
         to_id = goal.parameters.get("to")
+
+        if not isinstance(from_id, str) or not isinstance(to_id, str):
+            return "# Invalid connection parameters"
 
         apim_goal = hierarchy.get_goal(from_id)
         app_goal = hierarchy.get_goal(to_id)
@@ -186,10 +198,9 @@ resource "azurerm_role_assignment" "app_kv_access" {{
 
         if method == "key_vault_secret":
             return "// Key Vault connection configured via app settings"
-        elif method == "api_backend":
+        if method == "api_backend":
             return "// APIM backend configured"
-        else:
-            return "// Connection not implemented"
+        return "// Connection not implemented"
 
     def _to_tf_name(self, name: str) -> str:
         """Convert Azure name to Terraform resource name."""

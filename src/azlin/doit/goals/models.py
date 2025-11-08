@@ -133,11 +133,7 @@ class GoalHierarchy:
     def get_ready_goals(self) -> list[Goal]:
         """Get all goals ready for execution."""
         completed = {g.id for g in self.goals if g.status == GoalStatus.COMPLETED}
-        ready = []
-        for goal in self.goals:
-            if goal.is_ready(completed):
-                ready.append(goal)
-        return ready
+        return [goal for goal in self.goals if goal.is_ready(completed)]
 
     def get_max_level(self) -> int:
         """Get maximum dependency level."""
@@ -147,9 +143,7 @@ class GoalHierarchy:
 
     def is_complete(self) -> bool:
         """Check if all goals are completed."""
-        return all(
-            g.status in [GoalStatus.COMPLETED, GoalStatus.FAILED] for g in self.goals
-        )
+        return all(g.status in [GoalStatus.COMPLETED, GoalStatus.FAILED] for g in self.goals)
 
     def get_progress(self) -> tuple[int, int]:
         """Get (completed, total) count."""
@@ -158,11 +152,7 @@ class GoalHierarchy:
 
     def get_connections_for_goal(self, goal_id: str) -> list[Connection]:
         """Get all connections involving a goal."""
-        return [
-            c
-            for c in self.connections
-            if c.from_goal_id == goal_id or c.to_goal_id == goal_id
-        ]
+        return [c for c in self.connections if c.from_goal_id == goal_id or c.to_goal_id == goal_id]
 
 
 @dataclass

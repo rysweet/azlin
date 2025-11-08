@@ -24,7 +24,7 @@ class APIManagementStrategy(Strategy):
             f"--resource-group {rg} "
             f"--location {location} "
             f"--sku-name {sku} "
-            f"--publisher-name \"{publisher_name}\" "
+            f'--publisher-name "{publisher_name}" '
             f"--publisher-email {publisher_email} "
             f"--no-wait "  # Don't wait for completion (takes too long)
             f"--output json"
@@ -64,7 +64,7 @@ class APIManagementStrategy(Strategy):
         publisher_name = goal.parameters.get("publisher_name", "Organization")
         publisher_email = goal.parameters.get("publisher_email", "admin@example.com")
 
-        return f'''resource apiManagement '{goal.name}' 'Microsoft.ApiManagement/service@2023-05-01-preview' = {{
+        return f"""resource apiManagement '{goal.name}' 'Microsoft.ApiManagement/service@2023-05-01-preview' = {{
   name: '{goal.name}'
   location: '{location}'
   sku: {{
@@ -75,7 +75,7 @@ class APIManagementStrategy(Strategy):
     publisherEmail: '{publisher_email}'
     publisherName: '{publisher_name}'
   }}
-}}'''
+}}"""
 
     def _to_tf_name(self, name: str) -> str:
         """Convert Azure name to Terraform resource name."""

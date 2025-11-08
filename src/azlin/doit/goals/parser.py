@@ -1,6 +1,5 @@
 """Goal parser - converts natural language to goal hierarchy."""
 
-import json
 import re
 from pathlib import Path
 
@@ -20,9 +19,7 @@ class GoalParser:
     def __init__(self, prompts_dir: Path | None = None):
         """Initialize parser with prompts directory."""
         if prompts_dir is None:
-            prompts_dir = (
-                Path(__file__).parent.parent.parent / "prompts" / "doit"
-            )
+            prompts_dir = Path(__file__).parent.parent.parent / "prompts" / "doit"
         self.prompts_dir = prompts_dir
         self.system_prompt = self._load_prompt("system_prompt.md")
         self.parser_prompt = self._load_prompt("goal_parser.md")
@@ -307,7 +304,7 @@ class GoalParser:
                     type=ResourceType.APP_SERVICE,
                     name=f"app-{base_name}-{env}",
                     level=2,
-                    dependencies=[rg_goal.id, plan_goal.id] + level1_ids,
+                    dependencies=[rg_goal.id, plan_goal.id, *level1_ids],
                     parameters={
                         "resource_group": rg_goal.name,
                         "location": region,
@@ -341,9 +338,7 @@ class GoalParser:
 
         # Level 3: Connections and configurations
         if parsed.implied_connections:
-            self._add_connection_goals(
-                hierarchy, level1_goals, level2_goals, goal_counter
-            )
+            self._add_connection_goals(hierarchy, level1_goals, level2_goals, goal_counter)
 
         return hierarchy
 
@@ -382,12 +377,8 @@ class GoalParser:
         counter = start_counter
 
         # Find resources that need connections
-        app_service_goals = [
-            g for g in level2_goals if g.type == ResourceType.APP_SERVICE
-        ]
-        cosmos_goals = [
-            g for g in level1_goals if g.type == ResourceType.COSMOS_DB
-        ]
+        app_service_goals = [g for g in level2_goals if g.type == ResourceType.APP_SERVICE]
+        cosmos_goals = [g for g in level1_goals if g.type == ResourceType.COSMOS_DB]
         kv_goals = [g for g in level1_goals if g.type == ResourceType.KEY_VAULT]
 
         # Connect App Service to Cosmos via Key Vault
@@ -422,9 +413,7 @@ class GoalParser:
                         counter += 1
 
         # Connect API Management to App Service
-        apim_goals = [
-            g for g in level2_goals if g.type == ResourceType.API_MANAGEMENT
-        ]
+        apim_goals = [g for g in level2_goals if g.type == ResourceType.API_MANAGEMENT]
         if apim_goals and app_service_goals:
             for apim in apim_goals:
                 for app in app_service_goals:

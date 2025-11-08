@@ -1,10 +1,10 @@
 """Main execution engine - ReAct loop implementation."""
 
+import json
 import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from azlin.doit.engine.models import (
     Action,
@@ -28,9 +28,7 @@ class ExecutionEngine:
     ):
         """Initialize execution engine."""
         if prompts_dir is None:
-            prompts_dir = (
-                Path(__file__).parent.parent.parent / "prompts" / "doit"
-            )
+            prompts_dir = Path(__file__).parent.parent.parent / "prompts" / "doit"
         self.prompts_dir = prompts_dir
         self.enable_mcp = enable_mcp
         self.dry_run = dry_run
@@ -48,9 +46,7 @@ class ExecutionEngine:
             return path.read_text()
         return ""
 
-    def execute(
-        self, hierarchy: GoalHierarchy, max_iterations: int = 50
-    ) -> ExecutionState:
+    def execute(self, hierarchy: GoalHierarchy, max_iterations: int = 50) -> ExecutionState:
         """Execute goal hierarchy using ReAct loop.
 
         ReAct Loop:
@@ -107,9 +103,7 @@ class ExecutionEngine:
 
         return self.state
 
-    def _react_step(
-        self, hierarchy: GoalHierarchy, iteration: int
-    ) -> ReActStep | None:
+    def _react_step(self, hierarchy: GoalHierarchy, iteration: int) -> ReActStep | None:
         """Execute one ReAct step."""
 
         # 1. REASON: Select next goal to work on
@@ -230,28 +224,33 @@ class ExecutionEngine:
         # Execute based on action type
         if action.action_type == ActionType.AZ_CLI:
             return self._execute_az_cli(action, started_at)
-        elif action.action_type == ActionType.MCP_CALL:
+        if action.action_type == ActionType.MCP_CALL:
             return self._execute_mcp(action, started_at)
-        else:
-            # Not implemented yet
-            return ActionResult(
-                action_id=action.id,
-                goal_id=action.goal_id,
-                success=False,
-                started_at=started_at,
-                completed_at=datetime.now(),
-                duration_seconds=0,
-                tool_used=action.action_type.value,
-                command=action.command,
-                error=f"Action type {action.action_type} not implemented",
-            )
+        # Not implemented yet
+        return ActionResult(
+            action_id=action.id,
+            goal_id=action.goal_id,
+            success=False,
+            started_at=started_at,
+            completed_at=datetime.now(),
+            duration_seconds=0,
+            tool_used=action.action_type.value,
+            command=action.command,
+            error=f"Action type {action.action_type} not implemented",
+        )
 
     def _execute_az_cli(self, action: Action, started_at: datetime) -> ActionResult:
         """Execute Azure CLI command."""
         try:
+            # Convert command string to list for shell=False security
+            import shlex
+
+            cmd_list = (
+                shlex.split(action.command) if isinstance(action.command, str) else action.command
+            )
             result = subprocess.run(
-                action.command,
-                shell=True,
+                cmd_list,
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
@@ -266,8 +265,6 @@ class ExecutionEngine:
 
             if result.returncode == 0 and result.stdout:
                 try:
-                    import json
-
                     data = json.loads(result.stdout)
                     if isinstance(data, dict):
                         outputs = data
@@ -381,7 +378,4 @@ class ExecutionEngine:
 
     def _are_all_goals_final(self, hierarchy: GoalHierarchy) -> bool:
         """Check if all goals are in a final state."""
-        return all(
-            g.status in [GoalStatus.COMPLETED, GoalStatus.FAILED]
-            for g in hierarchy.goals
-        )
+        return all(g.status in [GoalStatus.COMPLETED, GoalStatus.FAILED] for g in hierarchy.goals)

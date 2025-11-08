@@ -1,6 +1,5 @@
 """Goal evaluator - determines if goals are achieved."""
 
-import json
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,9 +28,7 @@ class GoalEvaluator:
     def __init__(self, prompts_dir: Path | None = None):
         """Initialize evaluator."""
         if prompts_dir is None:
-            prompts_dir = (
-                Path(__file__).parent.parent.parent / "prompts" / "doit"
-            )
+            prompts_dir = Path(__file__).parent.parent.parent / "prompts" / "doit"
         self.prompts_dir = prompts_dir
         self.evaluation_prompt = self._load_prompt("goal_evaluation.md")
 
@@ -71,27 +68,24 @@ class GoalEvaluator:
         # Check resource-specific criteria
         if goal.type == ResourceType.RESOURCE_GROUP:
             return self._evaluate_resource_group(goal, latest)
-        elif goal.type == ResourceType.STORAGE_ACCOUNT:
+        if goal.type == ResourceType.STORAGE_ACCOUNT:
             return self._evaluate_storage_account(goal, latest)
-        elif goal.type == ResourceType.KEY_VAULT:
+        if goal.type == ResourceType.KEY_VAULT:
             return self._evaluate_key_vault(goal, latest)
-        elif goal.type == ResourceType.COSMOS_DB:
+        if goal.type == ResourceType.COSMOS_DB:
             return self._evaluate_cosmos_db(goal, latest)
-        elif goal.type == ResourceType.APP_SERVICE_PLAN:
+        if goal.type == ResourceType.APP_SERVICE_PLAN:
             return self._evaluate_app_service_plan(goal, latest)
-        elif goal.type == ResourceType.APP_SERVICE:
+        if goal.type == ResourceType.APP_SERVICE:
             return self._evaluate_app_service(goal, latest)
-        elif goal.type == ResourceType.API_MANAGEMENT:
+        if goal.type == ResourceType.API_MANAGEMENT:
             return self._evaluate_api_management(goal, latest)
-        elif goal.type == ResourceType.CONNECTION:
+        if goal.type == ResourceType.CONNECTION:
             return self._evaluate_connection(goal, latest)
-        else:
-            # Generic evaluation
-            return self._evaluate_generic(goal, latest)
+        # Generic evaluation
+        return self._evaluate_generic(goal, latest)
 
-    def _evaluate_failure(
-        self, goal: Goal, action_results: list[ActionResult]
-    ) -> EvaluationResult:
+    def _evaluate_failure(self, goal: Goal, action_results: list[ActionResult]) -> EvaluationResult:
         """Evaluate a failed goal."""
         latest = action_results[-1]
 
@@ -104,7 +98,7 @@ class GoalEvaluator:
                 criteria_failed=["Action failed with transient error"],
                 teaching_notes=f"Transient error encountered: {latest.error}. Will retry.",
             )
-        elif latest.is_recoverable_error and goal.can_retry():
+        if latest.is_recoverable_error and goal.can_retry():
             return EvaluationResult(
                 goal_id=goal.id,
                 status=GoalStatus.PENDING,  # Will retry with adjustments
@@ -112,19 +106,16 @@ class GoalEvaluator:
                 criteria_failed=["Action failed with recoverable error"],
                 teaching_notes=f"Recoverable error: {latest.error}. Will adjust parameters and retry.",
             )
-        else:
-            return EvaluationResult(
-                goal_id=goal.id,
-                status=GoalStatus.FAILED,
-                confidence=1.0,
-                criteria_failed=["Action failed and cannot recover"],
-                evidence={"error": {"type": "unrecoverable", "message": latest.error}},
-                teaching_notes=f"Goal failed: {latest.error}. No recovery strategy available.",
-            )
+        return EvaluationResult(
+            goal_id=goal.id,
+            status=GoalStatus.FAILED,
+            confidence=1.0,
+            criteria_failed=["Action failed and cannot recover"],
+            evidence={"error": {"type": "unrecoverable", "message": latest.error}},
+            teaching_notes=f"Goal failed: {latest.error}. No recovery strategy available.",
+        )
 
-    def _evaluate_resource_group(
-        self, goal: Goal, result: ActionResult
-    ) -> EvaluationResult:
+    def _evaluate_resource_group(self, goal: Goal, result: ActionResult) -> EvaluationResult:
         """Evaluate resource group deployment."""
         criteria_met = []
         criteria_failed = []
@@ -170,9 +161,7 @@ class GoalEvaluator:
             ),
         )
 
-    def _evaluate_storage_account(
-        self, goal: Goal, result: ActionResult
-    ) -> EvaluationResult:
+    def _evaluate_storage_account(self, goal: Goal, result: ActionResult) -> EvaluationResult:
         """Evaluate storage account deployment."""
         criteria_met = []
         criteria_failed = []
@@ -197,9 +186,7 @@ class GoalEvaluator:
             teaching_notes=f"Storage account '{goal.name}' deployed with secure settings (HTTPS only, TLS 1.2).",
         )
 
-    def _evaluate_key_vault(
-        self, goal: Goal, result: ActionResult
-    ) -> EvaluationResult:
+    def _evaluate_key_vault(self, goal: Goal, result: ActionResult) -> EvaluationResult:
         """Evaluate Key Vault deployment."""
         criteria_met = []
 
@@ -222,9 +209,7 @@ class GoalEvaluator:
             teaching_notes=f"Key Vault '{goal.name}' deployed with RBAC authorization enabled.",
         )
 
-    def _evaluate_cosmos_db(
-        self, goal: Goal, result: ActionResult
-    ) -> EvaluationResult:
+    def _evaluate_cosmos_db(self, goal: Goal, result: ActionResult) -> EvaluationResult:
         """Evaluate Cosmos DB deployment."""
         criteria_met = []
 
@@ -247,9 +232,7 @@ class GoalEvaluator:
             teaching_notes=f"Cosmos DB '{goal.name}' deployed with Session consistency level.",
         )
 
-    def _evaluate_app_service_plan(
-        self, goal: Goal, result: ActionResult
-    ) -> EvaluationResult:
+    def _evaluate_app_service_plan(self, goal: Goal, result: ActionResult) -> EvaluationResult:
         """Evaluate App Service Plan deployment."""
         criteria_met = []
 
@@ -269,9 +252,7 @@ class GoalEvaluator:
             teaching_notes=f"App Service Plan '{goal.name}' deployed.",
         )
 
-    def _evaluate_app_service(
-        self, goal: Goal, result: ActionResult
-    ) -> EvaluationResult:
+    def _evaluate_app_service(self, goal: Goal, result: ActionResult) -> EvaluationResult:
         """Evaluate App Service deployment."""
         criteria_met = []
 
@@ -297,9 +278,7 @@ class GoalEvaluator:
             teaching_notes=f"App Service '{goal.name}' deployed with managed identity for secure access to other resources.",
         )
 
-    def _evaluate_api_management(
-        self, goal: Goal, result: ActionResult
-    ) -> EvaluationResult:
+    def _evaluate_api_management(self, goal: Goal, result: ActionResult) -> EvaluationResult:
         """Evaluate API Management deployment."""
         criteria_met = []
 
@@ -322,9 +301,7 @@ class GoalEvaluator:
             teaching_notes=f"API Management '{goal.name}' deployed. Note: APIM provisioning can take 30-45 minutes.",
         )
 
-    def _evaluate_connection(
-        self, goal: Goal, result: ActionResult
-    ) -> EvaluationResult:
+    def _evaluate_connection(self, goal: Goal, result: ActionResult) -> EvaluationResult:
         """Evaluate connection between resources."""
         criteria_met = []
 
@@ -341,9 +318,7 @@ class GoalEvaluator:
             teaching_notes="Connection established between resources using managed identity and Key Vault.",
         )
 
-    def _evaluate_generic(
-        self, goal: Goal, result: ActionResult
-    ) -> EvaluationResult:
+    def _evaluate_generic(self, goal: Goal, result: ActionResult) -> EvaluationResult:
         """Generic evaluation for unknown resource types."""
         if result.success and result.resource_id:
             return EvaluationResult(
@@ -353,13 +328,12 @@ class GoalEvaluator:
                 criteria_met=["Resource created successfully"],
                 teaching_notes=f"Resource '{goal.name}' of type {goal.type.value} deployed.",
             )
-        else:
-            return EvaluationResult(
-                goal_id=goal.id,
-                status=GoalStatus.FAILED,
-                confidence=1.0,
-                criteria_failed=["Resource creation failed"],
-            )
+        return EvaluationResult(
+            goal_id=goal.id,
+            status=GoalStatus.FAILED,
+            confidence=1.0,
+            criteria_failed=["Resource creation failed"],
+        )
 
     def _verify_resource_exists(
         self, resource_type: str, name: str, location: str | None = None
@@ -367,13 +341,13 @@ class GoalEvaluator:
         """Verify resource exists via az CLI."""
         try:
             if resource_type == "group":
-                cmd = f"az group show --name {name} --output json"
+                cmd_list = ["az", "group", "show", "--name", name, "--output", "json"]
             else:
                 return True  # Skip verification for other types for now
 
             result = subprocess.run(
-                cmd,
-                shell=True,
+                cmd_list,
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=30,

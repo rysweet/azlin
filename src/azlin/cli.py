@@ -52,6 +52,7 @@ from azlin.commands.auth import auth
 # Bastion commands
 # Storage commands
 from azlin.commands.bastion import bastion_group
+from azlin.commands.doit import doit_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
@@ -7494,8 +7495,6 @@ main.add_command(storage_group)
 main.add_command(tag_group)
 
 # Register doit commands
-from azlin.commands.doit import doit_group
-
 main.add_command(doit_group)
 
 

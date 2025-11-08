@@ -16,11 +16,7 @@ class ResourceGroupStrategy(Strategy):
         tag_parts = [f"{k}={v}" for k, v in tags.items()]
         tags_str = " ".join(tag_parts) if tag_parts else ""
 
-        cmd = (
-            f"az group create "
-            f"--name {goal.name} "
-            f"--location {location} "
-        )
+        cmd = f"az group create --name {goal.name} --location {location} "
 
         if tags_str:
             cmd += f"--tags {tags_str} "
