@@ -27,8 +27,14 @@ class APIManagementStrategy(Strategy):
             f'--publisher-name "{publisher_name}" '
             f"--publisher-email {publisher_email} "
             f"--no-wait "  # Don't wait for completion (takes too long)
-            f"--output json"
         )
+
+        # Add tags if available
+        tags = self.get_tags_string()
+        if tags:
+            cmd += f"--tags {tags} "
+
+        cmd += "--output json"
 
         return cmd
 

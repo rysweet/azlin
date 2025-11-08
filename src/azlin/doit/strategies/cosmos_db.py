@@ -20,8 +20,14 @@ class CosmosDBStrategy(Strategy):
             f"--locations regionName={location} failoverPriority=0 "
             f"--kind {kind} "
             f"--default-consistency-level Session "
-            f"--output json"
         )
+
+        # Add tags if available
+        tags = self.get_tags_string()
+        if tags:
+            cmd += f"--tags {tags} "
+
+        cmd += "--output json"
 
         return cmd
 

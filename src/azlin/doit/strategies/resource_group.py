@@ -12,8 +12,14 @@ class ResourceGroupStrategy(Strategy):
         location = goal.parameters.get("location", "eastus")
         tags = goal.parameters.get("tags", {})
 
-        # Build tags string
+        # Build tags string - merge with doit tags
         tag_parts = [f"{k}={v}" for k, v in tags.items()]
+
+        # Add doit tags
+        doit_tags_str = self.get_tags_string()
+        if doit_tags_str:
+            tag_parts.append(doit_tags_str)
+
         tags_str = " ".join(tag_parts) if tag_parts else ""
 
         cmd = f"az group create --name {goal.name} --location {location} "

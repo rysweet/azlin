@@ -21,8 +21,14 @@ class AppServicePlanStrategy(Strategy):
             f"--location {location} "
             f"--sku {sku} "
             f"--is-linux {str(os_type == 'Linux').lower()} "
-            f"--output json"
         )
+
+        # Add tags if available
+        tags = self.get_tags_string()
+        if tags:
+            cmd += f"--tags {tags} "
+
+        cmd += "--output json"
 
         return cmd
 
@@ -90,6 +96,11 @@ class AppServiceStrategy(Strategy):
 
         if managed_identity:
             cmd += "--assign-identity "
+
+        # Add tags if available
+        tags = self.get_tags_string()
+        if tags:
+            cmd += f"--tags {tags} "
 
         cmd += "--output json"
 

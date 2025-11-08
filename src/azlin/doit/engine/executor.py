@@ -15,6 +15,7 @@ from azlin.doit.engine.models import (
     ReActStep,
 )
 from azlin.doit.goals import Goal, GoalHierarchy, GoalStatus
+from azlin.doit.utils import generate_doit_tags
 
 
 class ExecutionEngine:
@@ -33,6 +34,13 @@ class ExecutionEngine:
         self.enable_mcp = enable_mcp
         self.dry_run = dry_run
         self.state = ExecutionState()
+
+        # Generate tags for resource tracking
+        try:
+            self.tags = generate_doit_tags()
+        except Exception:
+            # If we can't get username, continue without tags
+            self.tags = None
 
         # Load prompts
         self.system_prompt = self._load_prompt("system_prompt.md")
@@ -190,6 +198,10 @@ class ExecutionEngine:
 
         # Get appropriate strategy for goal type
         strategy = get_strategy(goal.type)
+
+        # Set tags on strategy
+        if self.tags:
+            strategy.set_tags(self.tags)
 
         # Build command
         command = strategy.build_command(goal, hierarchy)

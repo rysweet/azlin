@@ -24,8 +24,14 @@ class StorageStrategy(Strategy):
             f"--https-only {'true' if https_only else 'false'} "
             f"--min-tls-version TLS1_2 "
             f"--allow-blob-public-access false "
-            f"--output json"
         )
+
+        # Add tags if available
+        tags = self.get_tags_string()
+        if tags:
+            cmd += f"--tags {tags} "
+
+        cmd += "--output json"
 
         return cmd
 

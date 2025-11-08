@@ -5662,20 +5662,21 @@ def do(
     _do_impl(request, dry_run, yes, resource_group, config, verbose)
 
 
-@main.command()
-@click.argument("objective", type=str)
-@click.option("--dry-run", is_flag=True, help="Show execution plan without running")
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
-def doit(
+# NOTE: Old doit command commented out in favor of new doit_group with subcommands
+# @main.command(name="doit-old")
+# @click.argument("objective", type=str)
+# @click.option("--dry-run", is_flag=True, help="Show execution plan without running")
+# @click.option("--resource-group", "--rg", help="Resource group", type=str)
+# @click.option("--config", help="Config file path", type=click.Path())
+# @click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
+def _doit_old_impl(
     objective: str,
     dry_run: bool,
     resource_group: str | None,
     config: str | None,
     verbose: bool,
 ):
-    """Enhanced agentic Azure infrastructure management.
+    """[DEPRECATED] Enhanced agentic Azure infrastructure management (old version).
 
     This command provides multi-strategy execution with state persistence
     and intelligent fallback handling. It enhances the basic 'do' command
@@ -7494,7 +7495,9 @@ main.add_command(bastion_group)
 main.add_command(storage_group)
 main.add_command(tag_group)
 
-# Register doit commands
+# Register doit commands (replace old doit if it exists)
+if "doit" in main.commands:
+    del main.commands["doit"]
 main.add_command(doit_group)
 
 

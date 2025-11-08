@@ -25,6 +25,11 @@ class KeyVaultStrategy(Strategy):
         if enable_rbac:
             cmd += "--enable-rbac-authorization true "
 
+        # Add tags if available
+        tags = self.get_tags_string()
+        if tags:
+            cmd += f"--tags {tags} "
+
         cmd += "--output json"
 
         return cmd

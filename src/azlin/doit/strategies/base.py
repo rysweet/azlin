@@ -3,10 +3,33 @@
 from abc import ABC, abstractmethod
 
 from azlin.doit.goals import Goal, GoalHierarchy
+from azlin.doit.utils import DoItTags, format_tags_for_az_cli
 
 
 class Strategy(ABC):
     """Base strategy for deploying Azure resources."""
+
+    def __init__(self):
+        """Initialize strategy."""
+        self._tags: DoItTags | None = None
+
+    def set_tags(self, tags: DoItTags) -> None:
+        """Set tags to be applied to resources.
+
+        Args:
+            tags: Tags to apply to all resources created by this strategy
+        """
+        self._tags = tags
+
+    def get_tags_string(self) -> str:
+        """Get tags formatted for Azure CLI.
+
+        Returns:
+            Formatted tags string for --tags parameter, or empty string if no tags
+        """
+        if self._tags:
+            return format_tags_for_az_cli(self._tags)
+        return ""
 
     @abstractmethod
     def build_command(self, goal: Goal, hierarchy: GoalHierarchy) -> str:
