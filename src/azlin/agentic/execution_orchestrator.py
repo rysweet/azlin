@@ -16,7 +16,6 @@ from typing import Any
 from azlin.agentic.strategies.aws_strategy import AWSStrategy
 from azlin.agentic.strategies.azure_cli import AzureCLIStrategy
 from azlin.agentic.strategies.gcp_strategy import GCPStrategy
-from azlin.agentic.strategies.mcp_client_strategy import MCPClientStrategy
 from azlin.agentic.strategies.terraform_strategy import TerraformStrategy
 from azlin.agentic.types import (
     ExecutionContext,
@@ -282,11 +281,7 @@ class ExecutionOrchestrator:
                 self._strategy_cache[strategy_type] = AWSStrategy()
             elif strategy_type == Strategy.GCP_CLI:
                 self._strategy_cache[strategy_type] = GCPStrategy()
-            elif strategy_type == Strategy.MCP_CLIENT:
-                self._strategy_cache[strategy_type] = MCPClientStrategy()
             elif strategy_type == Strategy.CUSTOM_CODE:
-                # CUSTOM_CODE strategy is not yet implemented
-                # This is a valid enum value but requires user-provided code execution
                 msg = (
                     f"Strategy {strategy_type.value} is not yet implemented. "
                     "Custom code execution requires additional security considerations."
@@ -294,8 +289,6 @@ class ExecutionOrchestrator:
                 logger.error(msg)
                 raise ExecutionOrchestratorError(msg)
             else:
-                # This should never happen if all Strategy enum values are handled above
-                # If you see this error, a new Strategy was added to the enum but not implemented here
                 msg = (
                     f"Invalid strategy type: {strategy_type.value}. "
                     "This is a bug - please report it at https://github.com/rynop/azlin/issues"

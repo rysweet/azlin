@@ -17,7 +17,6 @@ class Strategy(str, Enum):
     AWS_CLI = "aws_cli"
     GCP_CLI = "gcp_cli"
     TERRAFORM = "terraform"
-    MCP_CLIENT = "mcp_client"
     CUSTOM_CODE = "custom_code"
 
 
@@ -152,9 +151,15 @@ class ExecutionResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        """Ensure Decimal for cost."""
+        """Ensure Decimal for cost and sanitize secrets."""
         if self.cost_incurred is not None and not isinstance(self.cost_incurred, Decimal):
             self.cost_incurred = Decimal(str(self.cost_incurred))
+
+        # Sanitize output and error to remove secrets
+        from azlin.agentic.utils.sanitizer import sanitize_output
+
+        self.output = sanitize_output(self.output)
+        self.error = sanitize_output(self.error)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""

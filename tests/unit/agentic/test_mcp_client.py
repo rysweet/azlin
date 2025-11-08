@@ -7,7 +7,6 @@ import json
 from unittest.mock import Mock, patch
 
 import pytest
-
 from azlin.agentic.mcp_client import (
     MCPClient,
     MCPConnectionError,

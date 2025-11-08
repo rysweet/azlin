@@ -18,10 +18,9 @@ class StrategySelector:
     """Selects the optimal execution strategy for a given intent.
 
     Strategy Priority (when all prerequisites met):
-    1. MCP_CLIENT - When MCP server available (preferred for tool-based execution)
-    2. AZURE_CLI - Simple, direct, fast
-    3. TERRAFORM - Infrastructure as Code, repeatable
-    4. CUSTOM_CODE - Last resort, generated code
+    1. AZURE_CLI - Simple, direct, fast
+    2. TERRAFORM - Infrastructure as Code, repeatable
+    3. CUSTOM_CODE - Last resort, generated code
 
     Example:
         >>> selector = StrategySelector()
@@ -30,14 +29,9 @@ class StrategySelector:
         >>> print(f"Using {plan.primary_strategy}")
     """
 
-    def __init__(self, mcp_server_command: str | list[str] = "mcp-server-azure"):
-        """Initialize strategy selector with tool detection.
-
-        Args:
-            mcp_server_command: Command to start MCP server (default: mcp-server-azure)
-        """
+    def __init__(self):
+        """Initialize strategy selector with tool detection."""
         self._cached_tools: dict[str, bool] | None = None
-        self.mcp_server_command = mcp_server_command
 
     def select_strategy(
         self,
@@ -126,7 +120,6 @@ class StrategySelector:
             "aws_cli": self._check_aws_cli(),
             "gcp_cli": self._check_gcp_cli(),
             "terraform": self._check_terraform(),
-            "mcp_server": self._check_mcp_server(),
         }
 
         self._cached_tools = tools
@@ -189,29 +182,6 @@ class StrategySelector:
     def _check_terraform(self) -> bool:
         """Check if Terraform is installed."""
         return shutil.which("terraform") is not None
-
-    def _check_mcp_server(self) -> bool:
-        """Check if MCP server is available.
-
-        Returns:
-            True if MCP server can be connected to
-        """
-        try:
-            # Import here to avoid circular dependency
-            from azlin.agentic.mcp_client import MCPClient
-
-            # Try to connect to MCP server with short timeout
-            client = MCPClient(self.mcp_server_command, timeout=5)
-            try:
-                client.connect()
-                # Try to list tools to verify it's working
-                tools = client.list_tools()
-                return len(tools) > 0
-            finally:
-                client.disconnect()
-        except Exception:
-            # MCP server not available or connection failed
-            return False
 
     def _is_complex_intent(self, intent: Intent) -> bool:
         """Determine if intent is complex (multi-resource, multi-step).
@@ -330,10 +300,6 @@ class StrategySelector:
         # Start with all strategies
         ranking = []
 
-        # MCP Client is preferred when available (provides standardized tool interface)
-        if available_tools.get("mcp_server") and Strategy.MCP_CLIENT not in failed_strategies:
-            ranking.append(Strategy.MCP_CLIENT)
-
         # For COMPLEX infrastructure, prefer Terraform (cloud-agnostic)
         if (
             is_complex
@@ -437,11 +403,6 @@ class StrategySelector:
                 return False, "At least one cloud CLI required for Terraform (az/aws/gcloud)"
             return True, None
 
-        if strategy == Strategy.MCP_CLIENT:
-            if not available_tools.get("mcp_server"):
-                return False, "MCP server not available"
-            return True, None
-
         if strategy == Strategy.CUSTOM_CODE:
             # Custom code has no special prerequisites
             return True, None
@@ -462,7 +423,6 @@ class StrategySelector:
         base_durations = {
             Strategy.AZURE_CLI: 30,  # Fast direct execution
             Strategy.TERRAFORM: 120,  # Slower (init + plan + apply)
-            Strategy.MCP_CLIENT: 60,  # Medium speed
             Strategy.CUSTOM_CODE: 90,  # Depends on generated code
         }
 
@@ -511,8 +471,6 @@ class StrategySelector:
                 parts.append("Terraform selected for infrastructure-as-code approach")
             else:
                 parts.append("Terraform selected as fallback strategy")
-        elif primary_strategy == Strategy.MCP_CLIENT:
-            parts.append("MCP Client selected for tool-based execution")
         elif primary_strategy == Strategy.CUSTOM_CODE:
             parts.append("Custom code generation selected as last resort")
 
