@@ -7493,6 +7493,11 @@ main.add_command(bastion_group)
 main.add_command(storage_group)
 main.add_command(tag_group)
 
+# Register doit commands
+from azlin.commands.doit import doit_group
+
+main.add_command(doit_group)
+
 
 @main.group()
 def env():
