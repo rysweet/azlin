@@ -681,7 +681,7 @@ class TestDoitCommandSyntax:
 
         # Now a command group, should show help instead of error
         assert result.exit_code in [0, 2]
-        assert ("deploy" in result.output.lower() or "usage" in result.output.lower())
+        assert "deploy" in result.output.lower() or "usage" in result.output.lower()
 
     def test_doit_with_objective(self):
         """Test 'azlin doit deploy "create a dev vm"' accepts objective."""
