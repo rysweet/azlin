@@ -27,7 +27,7 @@ class SecretSanitizer:
             # Azure Storage Account Keys
             (
                 re.compile(
-                    r"(AccountKey|account-key)[\s=:]+([A-Za-z0-9+/]{88}==?)",
+                    r"(AccountKey|account-key)[\s=:]+([A-Za-z0-9+/]{40,}={0,4})",
                     re.IGNORECASE,
                 ),
                 r"\1=***REDACTED***",
@@ -35,7 +35,7 @@ class SecretSanitizer:
             # Azure Connection Strings
             (
                 re.compile(
-                    r"(DefaultEndpointsProtocol=https?;.*?AccountKey=)([A-Za-z0-9+/]{88}==?)",
+                    r"(DefaultEndpointsProtocol=https?;.*?AccountKey=)([A-Za-z0-9+/]{40,}={0,4})",
                     re.IGNORECASE,
                 ),
                 r"\1***REDACTED***",
@@ -45,10 +45,13 @@ class SecretSanitizer:
                 re.compile(r"(\?sv=[\d-]+&[^&]*sig=)([A-Za-z0-9%+/]+)", re.IGNORECASE),
                 r"\1***REDACTED***",
             ),
-            # Anthropic API Keys
+            # Anthropic API Keys (must come before generic API keys)
             (
-                re.compile(r"(sk-ant-)([a-zA-Z0-9-_]{95,})", re.IGNORECASE),
-                r"\1***REDACTED***",
+                re.compile(
+                    r"(api[-_]?key|apikey)[\s=:]+['\"]?(sk-ant-[a-zA-Z0-9-_]{40,})['\"]?",
+                    re.IGNORECASE,
+                ),
+                r"\1=sk-ant-***REDACTED***",
             ),
             # Generic API Keys
             (

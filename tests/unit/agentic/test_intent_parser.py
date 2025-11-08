@@ -3,6 +3,7 @@
 import json
 from unittest.mock import Mock, patch
 
+import anthropic
 import pytest
 
 from azlin.agentic.intent_parser import CommandPlanner, IntentParseError, IntentParser
@@ -94,7 +95,7 @@ class TestIntentParser:
         with patch("azlin.agentic.intent_parser.anthropic") as mock_anthropic:
             mock_client = Mock()
             mock_anthropic.Anthropic.return_value = mock_client
-            mock_client.messages.create.side_effect = mock_anthropic.APIError("API error")
+            mock_client.messages.create.side_effect = anthropic.APIError("API error")
 
             parser = IntentParser(api_key="test-key")
             with pytest.raises(IntentParseError, match="Claude API error"):
