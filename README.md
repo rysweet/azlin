@@ -1935,6 +1935,45 @@ Advanced natural language execution with state persistence and objective trackin
 - `doit` - Complex objectives requiring state tracking
 
 ---
+
+## Autonomous Infrastructure Deployment (R2D2 for Azure)
+
+**azlin doit** is an autonomous goal-seeking agent that deploys complex Azure infrastructure from natural language.
+
+### Quick Examples
+
+```bash
+# Deploy complete web application stack
+azlin doit deploy "App Service with Cosmos DB and Storage"
+
+# Create API platform
+azlin doit deploy "2 App Services behind API Management with shared database"
+
+# Serverless pipeline
+azlin doit deploy "Function App triggered by Storage queue saving to Cosmos DB"
+```
+
+**What the agent does:**
+- 🎯 Parses your goal into executable sub-goals
+- 🤖 Deploys resources autonomously (ReAct loop: Reason → Act → Observe → Evaluate)
+- ✅ Self-evaluates and adapts to failures
+- 📦 Generates production-ready Terraform + Bicep
+- 📚 Creates teaching materials with architecture diagrams
+
+### Management
+
+```bash
+azlin doit list                 # Show all doit-created resources
+azlin doit cleanup --force      # Delete all doit resources
+```
+
+**📖 Learn More:**
+- [Quick Start Guide](QUICKSTART_DOIT.md)
+- [Tagging & Management](DOIT_TAGGING_AND_MANAGEMENT.md)
+- [Architecture Docs](src/azlin/doit/README.md)
+
+---
+
 ## Advanced Usage
 
 ### Command Passthrough (Execute on VM)

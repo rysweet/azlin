@@ -391,6 +391,8 @@ mono_crash.*
 project.lock.json
 project.fragment.lock.json
 artifacts/
+# But allow the doit artifacts module (source code)
+!src/azlin/doit/artifacts/
 
 # ============================================
 # RUST
