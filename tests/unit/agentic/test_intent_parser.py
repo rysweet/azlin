@@ -1,11 +1,11 @@
 """Unit tests for intent parser."""
 
 import json
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
-from azlin.agentic.intent_parser import CommandPlanner, IntentParser, IntentParseError
+from azlin.agentic.intent_parser import CommandPlanner, IntentParseError, IntentParser
 
 
 @pytest.fixture

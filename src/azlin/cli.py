@@ -5782,7 +5782,6 @@ def doit(
         # Phase 2: Strategy Selection and Execution
         from azlin.agentic.strategies import (
             AzureCLIStrategy,
-            MCPClientStrategy,
             TerraformStrategy,
         )
         from azlin.agentic.strategy_selector import StrategySelector
@@ -5851,7 +5850,6 @@ def doit(
         strategy_map = {
             Strategy.AZURE_CLI: AzureCLIStrategy(),
             Strategy.TERRAFORM: TerraformStrategy(),
-            Strategy.MCP_CLIENT: MCPClientStrategy(),
         }
         strategy = strategy_map.get(strategy_plan.primary_strategy)
 

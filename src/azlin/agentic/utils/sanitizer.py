@@ -42,9 +42,7 @@ class SecretSanitizer:
             ),
             # Azure SAS Tokens
             (
-                re.compile(
-                    r"(\?sv=[\d-]+&[^&]*sig=)([A-Za-z0-9%+/]+)", re.IGNORECASE
-                ),
+                re.compile(r"(\?sv=[\d-]+&[^&]*sig=)([A-Za-z0-9%+/]+)", re.IGNORECASE),
                 r"\1***REDACTED***",
             ),
             # Anthropic API Keys
@@ -62,9 +60,7 @@ class SecretSanitizer:
             ),
             # Bearer Tokens
             (
-                re.compile(
-                    r"(Bearer|bearer)[\s]+([a-zA-Z0-9_\-\.]{20,})", re.IGNORECASE
-                ),
+                re.compile(r"(Bearer|bearer)[\s]+([a-zA-Z0-9_\-\.]{20,})", re.IGNORECASE),
                 r"\1 ***REDACTED***",
             ),
             # Azure AD Tokens (JWT)
@@ -77,9 +73,7 @@ class SecretSanitizer:
             ),
             # Passwords in URLs
             (
-                re.compile(
-                    r"(https?://[^:]+:)([^@]+)(@)", re.IGNORECASE
-                ),
+                re.compile(r"(https?://[^:]+:)([^@]+)(@)", re.IGNORECASE),
                 r"\1***REDACTED***\3",
             ),
             # Generic passwords
@@ -108,9 +102,7 @@ class SecretSanitizer:
             ),
             # Azure Storage Connection String Components
             (
-                re.compile(
-                    r"(SharedAccessSignature=)([^;\"'\s]+)", re.IGNORECASE
-                ),
+                re.compile(r"(SharedAccessSignature=)([^;\"'\s]+)", re.IGNORECASE),
                 r"\1***REDACTED***",
             ),
         ]

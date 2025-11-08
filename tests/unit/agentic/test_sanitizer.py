@@ -1,7 +1,5 @@
 """Unit tests for secret sanitizer."""
 
-import pytest
-
 from azlin.agentic.utils.sanitizer import SecretSanitizer, sanitize_output
 
 
@@ -61,7 +59,9 @@ class TestSecretSanitizer:
     def test_sanitize_bearer_token(self):
         """Test sanitizing Bearer tokens."""
         sanitizer = SecretSanitizer()
-        text = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0"
+        text = (
+            "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0"
+        )
         result = sanitizer.sanitize(text)
 
         assert "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" not in result
@@ -118,7 +118,7 @@ MIIEpAIBAAKCAQEA1234567890abcdef
     def test_sanitize_shared_access_signature(self):
         """Test sanitizing SharedAccessSignature."""
         sanitizer = SecretSanitizer()
-        text = 'BlobEndpoint=https://myaccount.blob.core.windows.net/;SharedAccessSignature=sv=2020-08-04&ss=bfqt&srt=sco&sp=rwdlacupx&se=2024-01-01T00:00:00Z&st=2023-01-01T00:00:00Z&spr=https&sig=abc123xyz456'
+        text = "BlobEndpoint=https://myaccount.blob.core.windows.net/;SharedAccessSignature=sv=2020-08-04&ss=bfqt&srt=sco&sp=rwdlacupx&se=2024-01-01T00:00:00Z&st=2023-01-01T00:00:00Z&spr=https&sig=abc123xyz456"
         result = sanitizer.sanitize(text)
 
         assert "abc123xyz456" not in result
@@ -149,7 +149,9 @@ MIIEpAIBAAKCAQEA1234567890abcdef
         data = {
             "connection_string": "AccountKey=abc123xyz456def789ghi012jkl345mno678pqr901stu234vwx567yza890bcd123efg456====",
             "safe_value": "This is safe",
-            "nested": {"api_key": "sk-ant-api03-abc123xyz456def789ghi012jkl345mno678pqr901stu234vwx567yza890bcd123"},
+            "nested": {
+                "api_key": "sk-ant-api03-abc123xyz456def789ghi012jkl345mno678pqr901stu234vwx567yza890bcd123"
+            },
         }
         result = sanitizer.sanitize_dict(data)
 
@@ -179,7 +181,9 @@ MIIEpAIBAAKCAQEA1234567890abcdef
         data = {
             "level1": {
                 "level2": {
-                    "level3": ["AccountKey=abc123xyz456def789ghi012jkl345mno678pqr901stu234vwx567yza890bcd123efg456===="]
+                    "level3": [
+                        "AccountKey=abc123xyz456def789ghi012jkl345mno678pqr901stu234vwx567yza890bcd123efg456===="
+                    ]
                 }
             }
         }
