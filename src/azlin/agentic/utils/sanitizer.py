@@ -152,7 +152,28 @@ class SecretSanitizer:
         result = {}
         for key, value in data.items():
             if isinstance(value, str):
-                result[key] = self.sanitize(value)
+                # For sensitive keys, sanitize the value by checking key name patterns
+                key_lower = key.lower()
+                if any(
+                    pattern in key_lower
+                    for pattern in [
+                        "key",
+                        "password",
+                        "token",
+                        "secret",
+                        "credential",
+                        "auth",
+                    ]
+                ):
+                    # Treat the key=value pair as text for sanitization
+                    sanitized_text = self.sanitize(f"{key}={value}")
+                    # Extract just the sanitized value part
+                    if "=" in sanitized_text:
+                        result[key] = sanitized_text.split("=", 1)[1]
+                    else:
+                        result[key] = "***REDACTED***"
+                else:
+                    result[key] = self.sanitize(value)
             elif isinstance(value, dict):
                 result[key] = self.sanitize_dict(value)
             elif isinstance(value, list):

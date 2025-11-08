@@ -95,7 +95,11 @@ class TestIntentParser:
         with patch("azlin.agentic.intent_parser.anthropic") as mock_anthropic:
             mock_client = Mock()
             mock_anthropic.Anthropic.return_value = mock_client
-            mock_client.messages.create.side_effect = anthropic.APIError("API error")
+            # Create a mock API error that acts like an exception
+            api_error = Exception("API error")
+            api_error.__class__.__name__ = "APIError"
+            mock_anthropic.APIError = Exception
+            mock_client.messages.create.side_effect = api_error
 
             parser = IntentParser(api_key="test-key")
             with pytest.raises(IntentParseError, match="Claude API error"):
