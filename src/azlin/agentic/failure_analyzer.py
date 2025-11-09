@@ -161,6 +161,7 @@ class FailureAnalyzer:
         self.history_file = history_file or Path.home() / ".azlin" / "failure_history.json"
         self.ms_learn_client = ms_learn_client
         self._ensure_history_dir()
+        self._register_suggestion_strategies()
 
     def _ensure_history_dir(self) -> None:
         """Ensure history directory exists."""
@@ -244,6 +245,21 @@ class FailureAnalyzer:
             if entry.get("error_signature", {}).get("signature_hash") == error_signature
         ]
 
+    def _register_suggestion_strategies(self) -> None:
+        """Register suggestion strategies for each failure type."""
+        from collections.abc import Callable
+
+        self._suggestion_registry: dict[FailureType, Callable[[str], list[str]]] = {
+            FailureType.QUOTA_EXCEEDED: self._suggest_quota_exceeded,
+            FailureType.PERMISSION_DENIED: self._suggest_permission_denied,
+            FailureType.RESOURCE_NOT_FOUND: self._suggest_resource_not_found,
+            FailureType.NETWORK_ERROR: self._suggest_network_error,
+            FailureType.TIMEOUT: self._suggest_timeout,
+            FailureType.VALIDATION_ERROR: self._suggest_validation_error,
+            FailureType.DEPENDENCY_FAILED: self._suggest_dependency_failed,
+            FailureType.UNKNOWN: self._suggest_unknown,
+        }
+
     def suggest_fix(self, failure_type: FailureType, error_message: str) -> list[str]:
         """Suggest fixes based on failure type.
 
@@ -254,90 +270,84 @@ class FailureAnalyzer:
         Returns:
             List of suggested fix descriptions
         """
+        strategy = self._suggestion_registry.get(failure_type, self._suggest_unknown)
+        return strategy(error_message)
+
+    def _suggest_quota_exceeded(self, error_message: str) -> list[str]:
+        """Suggest fixes for quota exceeded errors."""
+        return [
+            "Request quota increase in Azure Portal under Subscriptions > Usage + quotas",
+            "Choose a different VM size with available quota",
+            "Try a different Azure region with more capacity",
+            "Delete unused resources to free up quota",
+        ]
+
+    def _suggest_permission_denied(self, error_message: str) -> list[str]:
+        """Suggest fixes for permission denied errors."""
+        return [
+            "Verify you have Contributor or Owner role on the subscription/resource group",
+            "Check Azure RBAC permissions: az role assignment list --assignee <your-email>",
+            "Ensure you're logged in: az account show",
+            "Try re-authenticating: az login",
+        ]
+
+    def _suggest_resource_not_found(self, error_message: str) -> list[str]:
+        """Suggest fixes for resource not found errors."""
+        return [
+            "Verify the resource name and resource group are correct",
+            "Check if the resource was deleted or moved",
+            "Ensure you're in the correct subscription: az account set --subscription <name>",
+        ]
+
+    def _suggest_network_error(self, error_message: str) -> list[str]:
+        """Suggest fixes for network errors."""
+        return [
+            "Check your internet connection",
+            "Verify Azure service status: https://status.azure.com",
+            "Try again after a few minutes (transient issue)",
+            "Check if firewall/proxy is blocking Azure endpoints",
+        ]
+
+    def _suggest_timeout(self, error_message: str) -> list[str]:
+        """Suggest fixes for timeout errors."""
+        return [
+            "Retry the operation (may be transient)",
+            "Check Azure service health for the region",
+            "Try a different Azure region",
+            "Reduce operation complexity or size",
+        ]
+
+    def _suggest_validation_error(self, error_message: str) -> list[str]:
+        """Suggest fixes for validation errors."""
         suggestions = []
+        error_lower = error_message.lower()
 
-        if failure_type == FailureType.QUOTA_EXCEEDED:
-            suggestions.extend(
-                [
-                    "Request quota increase in Azure Portal under Subscriptions > Usage + quotas",
-                    "Choose a different VM size with available quota",
-                    "Try a different Azure region with more capacity",
-                    "Delete unused resources to free up quota",
-                ]
-            )
+        if "name" in error_lower:
+            suggestions.append("Check resource naming rules (alphanumeric, hyphens, length limits)")
+        if "location" in error_lower or "region" in error_lower:
+            suggestions.append("Verify the Azure region/location is valid and available")
+        if "size" in error_lower or "sku" in error_lower:
+            suggestions.append("Verify the VM size/SKU is available in the selected region")
 
-        elif failure_type == FailureType.PERMISSION_DENIED:
-            suggestions.extend(
-                [
-                    "Verify you have Contributor or Owner role on the subscription/resource group",
-                    "Check Azure RBAC permissions: az role assignment list --assignee <your-email>",
-                    "Ensure you're logged in: az account show",
-                    "Try re-authenticating: az login",
-                ]
-            )
-
-        elif failure_type == FailureType.RESOURCE_NOT_FOUND:
-            suggestions.extend(
-                [
-                    "Verify the resource name and resource group are correct",
-                    "Check if the resource was deleted or moved",
-                    "Ensure you're in the correct subscription: az account set --subscription <name>",
-                ]
-            )
-
-        elif failure_type == FailureType.NETWORK_ERROR:
-            suggestions.extend(
-                [
-                    "Check your internet connection",
-                    "Verify Azure service status: https://status.azure.com",
-                    "Try again after a few minutes (transient issue)",
-                    "Check if firewall/proxy is blocking Azure endpoints",
-                ]
-            )
-
-        elif failure_type == FailureType.TIMEOUT:
-            suggestions.extend(
-                [
-                    "Retry the operation (may be transient)",
-                    "Check Azure service health for the region",
-                    "Try a different Azure region",
-                    "Reduce operation complexity or size",
-                ]
-            )
-
-        elif failure_type == FailureType.VALIDATION_ERROR:
-            # Extract specific validation issues
-            if "name" in error_message.lower():
-                suggestions.append(
-                    "Check resource naming rules (alphanumeric, hyphens, length limits)"
-                )
-            if "location" in error_message.lower() or "region" in error_message.lower():
-                suggestions.append("Verify the Azure region/location is valid and available")
-            if "size" in error_message.lower() or "sku" in error_message.lower():
-                suggestions.append("Verify the VM size/SKU is available in the selected region")
-
-            suggestions.append("Review Azure naming conventions and resource requirements")
-
-        elif failure_type == FailureType.DEPENDENCY_FAILED:
-            suggestions.extend(
-                [
-                    "Check if dependent resources exist (VNet, subnet, NSG, etc.)",
-                    "Verify dependencies are in the same region/subscription",
-                    "Ensure dependency resources are in a healthy state",
-                ]
-            )
-
-        else:  # UNKNOWN
-            suggestions.extend(
-                [
-                    "Review the full error message for specific details",
-                    "Check Azure service health and status",
-                    "Try running with --verbose for more details",
-                    "Search Azure documentation for the specific error code",
-                ]
-            )
-
+        suggestions.append("Review Azure naming conventions and resource requirements")
         return suggestions
+
+    def _suggest_dependency_failed(self, error_message: str) -> list[str]:
+        """Suggest fixes for dependency failed errors."""
+        return [
+            "Check if dependent resources exist (VNet, subnet, NSG, etc.)",
+            "Verify dependencies are in the same region/subscription",
+            "Ensure dependency resources are in a healthy state",
+        ]
+
+    def _suggest_unknown(self, error_message: str) -> list[str]:
+        """Suggest fixes for unknown errors."""
+        return [
+            "Review the full error message for specific details",
+            "Check Azure service health and status",
+            "Try running with --verbose for more details",
+            "Search Azure documentation for the specific error code",
+        ]
 
     def search_ms_learn(self, error_code: str, resource_type: str | None) -> list[DocLink]:
         """Search MS Learn for relevant docs.
@@ -354,8 +364,14 @@ class FailureAnalyzer:
 
         try:
             return self.ms_learn_client.search(error_code, resource_type, max_results=3)
-        except Exception:
-            logger.exception("Failed to search MS Learn")
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning("Network error searching MS Learn: %s", str(e))
+            return []
+        except (ValueError, KeyError, AttributeError) as e:
+            logger.warning("Invalid response from MS Learn client: %s", str(e))
+            return []
+        except Exception as e:
+            logger.error("Unexpected error searching MS Learn: %s", str(e), exc_info=True)
             return []
 
     def _extract_resource_type(
@@ -441,8 +457,17 @@ class FailureAnalyzer:
         """
         try:
             return json.loads(self.history_file.read_text())
-        except Exception:
-            logger.warning("Failed to load failure history")
+        except FileNotFoundError:
+            logger.debug("Failure history file not found, starting with empty history")
+            return []
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to parse failure history JSON: %s", str(e))
+            return []
+        except (OSError, PermissionError) as e:
+            logger.warning("Failed to read failure history file: %s", str(e))
+            return []
+        except Exception as e:
+            logger.error("Unexpected error loading failure history: %s", str(e), exc_info=True)
             return []
 
     def _save_to_history(self, analysis: FailureAnalysis) -> None:
@@ -464,5 +489,9 @@ class FailureAnalyzer:
             # Save
             self.history_file.write_text(json.dumps(history, indent=2))
 
-        except Exception:
-            logger.exception("Failed to save to failure history")
+        except (OSError, PermissionError) as e:
+            logger.warning("Failed to write failure history file: %s", str(e))
+        except (ValueError, TypeError) as e:
+            logger.error("Failed to serialize failure analysis to JSON: %s", str(e), exc_info=True)
+        except Exception as e:
+            logger.error("Unexpected error saving failure history: %s", str(e), exc_info=True)

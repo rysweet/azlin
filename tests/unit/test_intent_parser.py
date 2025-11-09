@@ -188,7 +188,7 @@ class TestIntentParser:
                         "intent": "provision_vm",
                         "parameters": {},
                         "confidence": 1.5,  # Invalid: > 1.0
-                        "azlin_commands": [],
+                        "azlin_commands": [{"command": "azlin", "args": []}],
                     }
                 )
             )
@@ -200,7 +200,7 @@ class TestIntentParser:
 
         parser = IntentParser(api_key="test-key")
 
-        with pytest.raises(IntentParseError, match="confidence must be between"):
+        with pytest.raises(IntentParseError, match="Confidence must be"):
             parser.parse("create a vm")
 
     @patch("azlin.agentic.intent_parser.anthropic.Anthropic")

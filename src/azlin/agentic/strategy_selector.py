@@ -18,10 +18,9 @@ class StrategySelector:
     """Selects the optimal execution strategy for a given intent.
 
     Strategy Priority (when all prerequisites met):
-    1. MCP_CLIENT - When MCP server available (preferred for tool-based execution)
-    2. AZURE_CLI - Simple, direct, fast
-    3. TERRAFORM - Infrastructure as Code, repeatable
-    4. CUSTOM_CODE - Last resort, generated code
+    1. AZURE_CLI - Simple, direct, fast
+    2. TERRAFORM - Infrastructure as Code, repeatable
+    3. CUSTOM_CODE - Last resort, generated code
 
     Example:
         >>> selector = StrategySelector()
@@ -30,14 +29,9 @@ class StrategySelector:
         >>> print(f"Using {plan.primary_strategy}")
     """
 
-    def __init__(self, mcp_server_command: str | list[str] = "mcp-server-azure"):
-        """Initialize strategy selector with tool detection.
-
-        Args:
-            mcp_server_command: Command to start MCP server (default: mcp-server-azure)
-        """
+    def __init__(self):
+        """Initialize strategy selector with tool detection."""
         self._cached_tools: dict[str, bool] | None = None
-        self.mcp_server_command = mcp_server_command
 
     def select_strategy(
         self,
@@ -126,7 +120,6 @@ class StrategySelector:
             "aws_cli": self._check_aws_cli(),
             "gcp_cli": self._check_gcp_cli(),
             "terraform": self._check_terraform(),
-            "mcp_server": self._check_mcp_server(),
         }
 
         self._cached_tools = tools
@@ -189,29 +182,6 @@ class StrategySelector:
     def _check_terraform(self) -> bool:
         """Check if Terraform is installed."""
         return shutil.which("terraform") is not None
-
-    def _check_mcp_server(self) -> bool:
-        """Check if MCP server is available.
-
-        Returns:
-            True if MCP server can be connected to
-        """
-        try:
-            # Import here to avoid circular dependency
-            from azlin.agentic.mcp_client import MCPClient
-
-            # Try to connect to MCP server with short timeout
-            client = MCPClient(self.mcp_server_command, timeout=5)
-            try:
-                client.connect()
-                # Try to list tools to verify it's working
-                tools = client.list_tools()
-                return len(tools) > 0
-            finally:
-                client.disconnect()
-        except Exception:
-            # MCP server not available or connection failed
-            return False
 
     def _is_complex_intent(self, intent: Intent) -> bool:
         """Determine if intent is complex (multi-resource, multi-step).
@@ -319,22 +289,58 @@ class StrategySelector:
         Returns:
             List of strategies ranked by preference
         """
-        # Get previously failed strategies to avoid
-        failed_strategies = {
-            Strategy(f.get("strategy")) for f in previous_failures if f.get("strategy")
-        }
-
-        # Detect cloud provider from intent
+        failed_strategies = self._extract_failed_strategies(previous_failures)
         cloud_provider = self._detect_cloud_provider(intent)
 
-        # Start with all strategies
-        ranking = []
+        ranking: list[Strategy] = []
 
-        # MCP Client is preferred when available (provides standardized tool interface)
-        if available_tools.get("mcp_server") and Strategy.MCP_CLIENT not in failed_strategies:
-            ranking.append(Strategy.MCP_CLIENT)
+        # Add Terraform first for complex infrastructure
+        self._add_terraform_if_preferred(
+            ranking, is_complex, is_infrastructure, available_tools, failed_strategies
+        )
 
-        # For COMPLEX infrastructure, prefer Terraform (cloud-agnostic)
+        # Add cloud-specific CLI strategies
+        self._add_cloud_cli_strategies(ranking, cloud_provider, available_tools, failed_strategies)
+
+        # Add Terraform as fallback if not already added
+        self._add_terraform_fallback(ranking, available_tools, failed_strategies)
+
+        # Add custom code as last resort
+        self._add_custom_code_fallback(ranking, failed_strategies)
+
+        # Ensure we have at least one strategy
+        return self._ensure_fallback_strategy(ranking, cloud_provider)
+
+    def _extract_failed_strategies(
+        self, previous_failures: list[dict[str, Any]]
+    ) -> set[Strategy]:
+        """Extract set of previously failed strategies.
+
+        Args:
+            previous_failures: List of previous failure records
+
+        Returns:
+            Set of failed strategies
+        """
+        return {Strategy(f.get("strategy")) for f in previous_failures if f.get("strategy")}
+
+    def _add_terraform_if_preferred(
+        self,
+        ranking: list[Strategy],
+        is_complex: bool,
+        is_infrastructure: bool,
+        available_tools: dict[str, bool],
+        failed_strategies: set[Strategy],
+    ) -> None:
+        """Add Terraform to ranking if preferred for complex infrastructure.
+
+        Args:
+            ranking: Current ranking list to modify
+            is_complex: Whether intent is complex
+            is_infrastructure: Whether intent is infrastructure-focused
+            available_tools: Available tools
+            failed_strategies: Set of failed strategies to avoid
+        """
         if (
             is_complex
             and is_infrastructure
@@ -343,38 +349,67 @@ class StrategySelector:
         ):
             ranking.append(Strategy.TERRAFORM)
 
-        # Add cloud-specific CLI strategies based on detected provider
+    def _add_cloud_cli_strategies(
+        self,
+        ranking: list[Strategy],
+        cloud_provider: str,
+        available_tools: dict[str, bool],
+        failed_strategies: set[Strategy],
+    ) -> None:
+        """Add cloud-specific CLI strategies based on provider.
+
+        Args:
+            ranking: Current ranking list to modify
+            cloud_provider: Detected cloud provider
+            available_tools: Available tools
+            failed_strategies: Set of failed strategies to avoid
+        """
         if cloud_provider == "aws":
-            # AWS-specific ranking
-            if available_tools.get("aws_cli") and Strategy.AWS_CLI not in failed_strategies:
-                ranking.append(Strategy.AWS_CLI)
-            # Fallback to Azure/GCP if multi-cloud
-            if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
-                ranking.append(Strategy.AZURE_CLI)
-            if available_tools.get("gcp_cli") and Strategy.GCP_CLI not in failed_strategies:
-                ranking.append(Strategy.GCP_CLI)
-
+            self._add_aws_strategies(ranking, available_tools, failed_strategies)
         elif cloud_provider == "gcp":
-            # GCP-specific ranking
-            if available_tools.get("gcp_cli") and Strategy.GCP_CLI not in failed_strategies:
-                ranking.append(Strategy.GCP_CLI)
-            # Fallback to Azure/AWS if multi-cloud
-            if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
-                ranking.append(Strategy.AZURE_CLI)
-            if available_tools.get("aws_cli") and Strategy.AWS_CLI not in failed_strategies:
-                ranking.append(Strategy.AWS_CLI)
-
+            self._add_gcp_strategies(ranking, available_tools, failed_strategies)
         else:
-            # Azure (default) or multi-cloud
-            if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
-                ranking.append(Strategy.AZURE_CLI)
-            # Also add AWS and GCP as fallbacks for multi-cloud support
-            if available_tools.get("aws_cli") and Strategy.AWS_CLI not in failed_strategies:
-                ranking.append(Strategy.AWS_CLI)
-            if available_tools.get("gcp_cli") and Strategy.GCP_CLI not in failed_strategies:
-                ranking.append(Strategy.GCP_CLI)
+            self._add_azure_strategies(ranking, available_tools, failed_strategies)
 
-        # Add Terraform if not already added
+    def _add_aws_strategies(
+        self,
+        ranking: list[Strategy],
+        available_tools: dict[str, bool],
+        failed_strategies: set[Strategy],
+    ) -> None:
+        """Add AWS-specific strategies with Azure fallback (AWS not implemented)."""
+        # AWS CLI strategy not implemented - fall back to Azure
+        if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
+            ranking.append(Strategy.AZURE_CLI)
+
+    def _add_gcp_strategies(
+        self,
+        ranking: list[Strategy],
+        available_tools: dict[str, bool],
+        failed_strategies: set[Strategy],
+    ) -> None:
+        """Add GCP-specific strategies with Azure fallback (GCP not implemented)."""
+        # GCP CLI strategy not implemented - fall back to Azure
+        if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
+            ranking.append(Strategy.AZURE_CLI)
+
+    def _add_azure_strategies(
+        self,
+        ranking: list[Strategy],
+        available_tools: dict[str, bool],
+        failed_strategies: set[Strategy],
+    ) -> None:
+        """Add Azure-specific strategies (no AWS/GCP fallbacks - not implemented)."""
+        if available_tools.get("az_cli") and Strategy.AZURE_CLI not in failed_strategies:
+            ranking.append(Strategy.AZURE_CLI)
+
+    def _add_terraform_fallback(
+        self,
+        ranking: list[Strategy],
+        available_tools: dict[str, bool],
+        failed_strategies: set[Strategy],
+    ) -> None:
+        """Add Terraform as fallback if not already in ranking."""
         if (
             Strategy.TERRAFORM not in ranking
             and available_tools.get("terraform")
@@ -382,19 +417,29 @@ class StrategySelector:
         ):
             ranking.append(Strategy.TERRAFORM)
 
-        # Custom code as last resort
+    def _add_custom_code_fallback(
+        self, ranking: list[Strategy], failed_strategies: set[Strategy]
+    ) -> None:
+        """Add custom code as last resort."""
         if Strategy.CUSTOM_CODE not in failed_strategies:
             ranking.append(Strategy.CUSTOM_CODE)
 
-        # Ensure we have at least one strategy
+    def _ensure_fallback_strategy(
+        self, ranking: list[Strategy], cloud_provider: str
+    ) -> list[Strategy]:
+        """Ensure ranking has at least one strategy.
+
+        Args:
+            ranking: Current ranking list
+            cloud_provider: Detected cloud provider
+
+        Returns:
+            Ranking with at least one strategy
+        """
         if not ranking:
-            # All strategies failed, try primary cloud CLI again as last resort
-            if cloud_provider == "aws":
-                ranking.append(Strategy.AWS_CLI)
-            elif cloud_provider == "gcp":
-                ranking.append(Strategy.GCP_CLI)
-            else:
-                ranking.append(Strategy.AZURE_CLI)
+            # All strategies failed, use Azure CLI as last resort
+            # (AWS and GCP strategies not implemented)
+            ranking.append(Strategy.AZURE_CLI)
 
         return ranking
 
@@ -415,16 +460,6 @@ class StrategySelector:
                 return False, "Azure CLI not installed or not authenticated (run 'az login')"
             return True, None
 
-        if strategy == Strategy.AWS_CLI:
-            if not available_tools.get("aws_cli"):
-                return False, "AWS CLI not installed or not configured (run 'aws configure')"
-            return True, None
-
-        if strategy == Strategy.GCP_CLI:
-            if not available_tools.get("gcp_cli"):
-                return False, "gcloud CLI not installed or not configured (run 'gcloud init')"
-            return True, None
-
         if strategy == Strategy.TERRAFORM:
             if not available_tools.get("terraform"):
                 return False, "Terraform not installed"
@@ -435,11 +470,6 @@ class StrategySelector:
                 or available_tools.get("gcp_cli")
             ):
                 return False, "At least one cloud CLI required for Terraform (az/aws/gcloud)"
-            return True, None
-
-        if strategy == Strategy.MCP_CLIENT:
-            if not available_tools.get("mcp_server"):
-                return False, "MCP server not available"
             return True, None
 
         if strategy == Strategy.CUSTOM_CODE:
@@ -462,7 +492,6 @@ class StrategySelector:
         base_durations = {
             Strategy.AZURE_CLI: 30,  # Fast direct execution
             Strategy.TERRAFORM: 120,  # Slower (init + plan + apply)
-            Strategy.MCP_CLIENT: 60,  # Medium speed
             Strategy.CUSTOM_CODE: 90,  # Depends on generated code
         }
 
@@ -511,8 +540,6 @@ class StrategySelector:
                 parts.append("Terraform selected for infrastructure-as-code approach")
             else:
                 parts.append("Terraform selected as fallback strategy")
-        elif primary_strategy == Strategy.MCP_CLIENT:
-            parts.append("MCP Client selected for tool-based execution")
         elif primary_strategy == Strategy.CUSTOM_CODE:
             parts.append("Custom code generation selected as last resort")
 

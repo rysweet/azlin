@@ -7,17 +7,41 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, NotRequired, TypedDict
+
+from azlin.agentic.serialization import (
+    serialize_datetime,
+    serialize_decimal,
+    serialize_decimal_dict,
+    serialize_enum,
+    serialize_enum_list,
+)
+
+
+class ExecutionHistoryEvent(TypedDict):
+    """Command execution history event (from CommandExecutor)."""
+
+    command: str
+    stdout: str
+    stderr: str
+    returncode: int
+    success: bool
+    error: NotRequired[str]
+
+
+class WorkflowHistoryEvent(TypedDict):
+    """High-level workflow event (strategy changes, retries, etc.)."""
+
+    timestamp: str
+    action: str
+    details: dict[str, Any]
 
 
 class Strategy(str, Enum):
     """Available execution strategies."""
 
     AZURE_CLI = "azure_cli"
-    AWS_CLI = "aws_cli"
-    GCP_CLI = "gcp_cli"
     TERRAFORM = "terraform"
-    MCP_CLIENT = "mcp_client"
     CUSTOM_CODE = "custom_code"
 
 
@@ -51,6 +75,12 @@ class Intent:
     """Parsed intent from natural language.
 
     This is the output from IntentParser and input to StrategySelector.
+
+    Validation Rules:
+    - confidence must be between 0.0 and 1.0
+    - parameters must be a dict
+    - azlin_commands must be a list of dicts
+    - Each command dict must have 'command' and 'args' keys
     """
 
     intent: str
@@ -67,6 +97,13 @@ class Intent:
             raise ValueError("Parameters must be a dict")
         if not isinstance(self.azlin_commands, list):
             raise ValueError("azlin_commands must be a list")
+
+        # Validate azlin_commands structure
+        for cmd in self.azlin_commands:
+            if not isinstance(cmd, dict):
+                raise ValueError("Each azlin_command must be a dict")
+            if "command" not in cmd or "args" not in cmd:
+                raise ValueError("Each azlin_command must have 'command' and 'args' keys")
 
 
 @dataclass
@@ -152,9 +189,15 @@ class ExecutionResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        """Ensure Decimal for cost."""
+        """Ensure Decimal for cost and sanitize secrets."""
         if self.cost_incurred is not None and not isinstance(self.cost_incurred, Decimal):
             self.cost_incurred = Decimal(str(self.cost_incurred))
+
+        # Sanitize output and error to remove secrets
+        from azlin.agentic.utils.sanitizer import sanitize_output
+
+        self.output = sanitize_output(self.output)
+        self.error = sanitize_output(self.error)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -163,10 +206,10 @@ class ExecutionResult:
             "strategy": self.strategy.value,
             "output": self.output,
             "error": self.error,
-            "failure_type": self.failure_type.value if self.failure_type else None,
+            "failure_type": serialize_enum(self.failure_type),
             "resources_created": self.resources_created,
             "duration_seconds": self.duration_seconds,
-            "cost_incurred": str(self.cost_incurred) if self.cost_incurred else None,
+            "cost_incurred": serialize_decimal(self.cost_incurred),
             "metadata": self.metadata,
         }
 
@@ -188,7 +231,7 @@ class ObjectiveState:
     strategy_plan: StrategyPlan | None = None
     cost_estimate: CostEstimate | None = None
     execution_results: list[ExecutionResult] = field(default_factory=list)
-    execution_history: list[dict[str, Any]] = field(default_factory=list)
+    execution_history: list[WorkflowHistoryEvent] = field(default_factory=list)
     retry_count: int = 0
     max_retries: int = 3
     resources_created: list[str] = field(default_factory=list)
@@ -212,12 +255,12 @@ class ObjectiveState:
                 "explanation": self.intent.explanation,
             },
             "status": self.status.value,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
-            "selected_strategy": self.selected_strategy.value if self.selected_strategy else None,
+            "created_at": serialize_datetime(self.created_at),
+            "updated_at": serialize_datetime(self.updated_at),
+            "selected_strategy": serialize_enum(self.selected_strategy),
             "strategy_plan": {
                 "primary_strategy": self.strategy_plan.primary_strategy.value,
-                "fallback_strategies": [s.value for s in self.strategy_plan.fallback_strategies],
+                "fallback_strategies": serialize_enum_list(self.strategy_plan.fallback_strategies),
                 "prerequisites_met": self.strategy_plan.prerequisites_met,
                 "reasoning": self.strategy_plan.reasoning,
                 "estimated_duration_seconds": self.strategy_plan.estimated_duration_seconds,
@@ -225,9 +268,9 @@ class ObjectiveState:
             if self.strategy_plan
             else None,
             "cost_estimate": {
-                "total_monthly": str(self.cost_estimate.total_monthly),
-                "total_hourly": str(self.cost_estimate.total_hourly),
-                "breakdown": {k: str(v) for k, v in self.cost_estimate.breakdown.items()},
+                "total_monthly": serialize_decimal(self.cost_estimate.total_monthly),
+                "total_hourly": serialize_decimal(self.cost_estimate.total_hourly),
+                "breakdown": serialize_decimal_dict(self.cost_estimate.breakdown),
                 "confidence": self.cost_estimate.confidence,
             }
             if self.cost_estimate
@@ -238,7 +281,7 @@ class ObjectiveState:
             "max_retries": self.max_retries,
             "resources_created": self.resources_created,
             "error_message": self.error_message,
-            "failure_type": self.failure_type.value if self.failure_type else None,
+            "failure_type": serialize_enum(self.failure_type),
         }
 
     @classmethod
