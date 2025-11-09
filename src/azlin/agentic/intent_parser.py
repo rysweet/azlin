@@ -254,7 +254,7 @@ Output JSON only:
 
             raise ValueError("No JSON found in response")
 
-        except (anthropic.APIError, json.JSONDecodeError, ValueError) as e:
+        except Exception as e:
             # Fallback: assume complete if we hit an error
             return {
                 "status": "failed",

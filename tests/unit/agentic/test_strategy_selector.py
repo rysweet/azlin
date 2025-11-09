@@ -112,7 +112,7 @@ class TestIntentClassification:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}, {}, {}, {}],  # 4 commands
+            azlin_commands=[{"command": "azlin", "args": []}, {"command": "azlin", "args": []}, {"command": "azlin", "args": []}, {"command": "azlin", "args": []}],  # 4 commands
         )
 
         assert selector._is_complex_intent(intent) is True
@@ -124,7 +124,7 @@ class TestIntentClassification:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         assert selector._is_complex_intent(intent) is True
@@ -136,7 +136,7 @@ class TestIntentClassification:
             intent="provision_kubernetes",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         assert selector._is_complex_intent(intent) is True
@@ -148,7 +148,7 @@ class TestIntentClassification:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],  # 1 command
+            azlin_commands=[{"command": "azlin", "args": []}],  # 1 command
         )
 
         assert selector._is_complex_intent(intent) is False
@@ -160,7 +160,7 @@ class TestIntentClassification:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         assert selector._is_infrastructure_intent(intent) is True
@@ -172,7 +172,7 @@ class TestIntentClassification:
             intent="create_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         assert selector._is_infrastructure_intent(intent) is True
@@ -184,7 +184,7 @@ class TestIntentClassification:
             intent="list_vms",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         assert selector._is_infrastructure_intent(intent) is False
@@ -200,7 +200,7 @@ class TestStrategyRanking:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         ranking = selector._rank_strategies(
@@ -222,7 +222,7 @@ class TestStrategyRanking:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         ranking = selector._rank_strategies(
@@ -243,7 +243,7 @@ class TestStrategyRanking:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         ranking = selector._rank_strategies(
@@ -265,7 +265,7 @@ class TestStrategyRanking:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         ranking = selector._rank_strategies(
@@ -288,7 +288,7 @@ class TestStrategyRanking:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         ranking = selector._rank_strategies(
@@ -418,7 +418,7 @@ class TestStrategySelection:
             intent="provision_aks_cluster",
             parameters={"cluster_name": "my-cluster"},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         plan = selector.select_strategy(intent)
@@ -437,7 +437,7 @@ class TestStrategySelection:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         plan = selector.select_strategy(intent)
@@ -454,7 +454,7 @@ class TestStrategySelection:
             intent="list_vms",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         duration = selector._estimate_duration(Strategy.AZURE_CLI, intent)
@@ -470,7 +470,7 @@ class TestStrategySelection:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}, {}, {}, {}],  # 4 commands
+            azlin_commands=[{"command": "azlin", "args": []}, {"command": "azlin", "args": []}, {"command": "azlin", "args": []}, {"command": "azlin", "args": []}],  # 4 commands
         )
 
         duration = selector._estimate_duration(Strategy.TERRAFORM, intent)
@@ -502,7 +502,7 @@ class TestReasoningGeneration:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         reasoning = selector._build_reasoning(
@@ -524,7 +524,7 @@ class TestReasoningGeneration:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         reasoning = selector._build_reasoning(
@@ -546,7 +546,7 @@ class TestReasoningGeneration:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         reasoning = selector._build_reasoning(

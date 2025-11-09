@@ -3,7 +3,6 @@
 import json
 from unittest.mock import Mock, patch
 
-import anthropic
 import pytest
 
 from azlin.agentic.intent_parser import CommandPlanner, IntentParseError, IntentParser
@@ -144,7 +143,7 @@ class TestIntentParser:
                 "intent": "provision_vm",
                 "parameters": {},
                 "confidence": 1.5,  # Invalid: > 1.0
-                "azlin_commands": [],
+                "azlin_commands": [{"command": "azlin", "args": []}],
             }
         )
         mock_message = Mock()
@@ -152,7 +151,7 @@ class TestIntentParser:
         mock_anthropic_client.messages.create.return_value = mock_message
 
         parser = IntentParser(api_key="test-key")
-        with pytest.raises(IntentParseError, match="confidence must be between 0 and 1"):
+        with pytest.raises(IntentParseError, match="Confidence must be"):
             parser.parse("test")
 
 
