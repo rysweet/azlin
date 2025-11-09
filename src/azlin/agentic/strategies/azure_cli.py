@@ -84,71 +84,19 @@ class AzureCLIStrategy(ExecutionStrategy):
 
         try:
             # Validate prerequisites
-            valid, error_msg = self.validate(context)
-            if not valid:
-                return ExecutionResult(
-                    success=False,
-                    strategy=Strategy.AZURE_CLI,
-                    error=error_msg,
-                    failure_type=FailureType.VALIDATION_ERROR,
-                )
+            validation_result = self._validate_prerequisites(context, start_time)
+            if validation_result:
+                return validation_result
 
             # Generate az commands from intent
             commands = self._generate_commands(context)
 
+            # Handle dry run mode
             if context.dry_run:
-                # Dry run: just show commands
-                output = "DRY RUN - Commands to execute:\n"
-                output += "\n".join(f"  {cmd}" for cmd in commands)
-                return ExecutionResult(
-                    success=True,
-                    strategy=Strategy.AZURE_CLI,
-                    output=output,
-                    duration_seconds=time.time() - start_time,
-                    metadata={"commands": commands, "dry_run": True},
-                )
+                return self._create_dry_run_result(commands, start_time)
 
-            # Execute commands
-            resources_created = []
-            outputs = []
-
-            for i, cmd in enumerate(commands, 1):
-                # Execute command
-                result = self._execute_command(cmd)
-
-                if not result["success"]:
-                    # Command failed
-                    failure_type = self._classify_failure(result["error"])
-                    return ExecutionResult(
-                        success=False,
-                        strategy=Strategy.AZURE_CLI,
-                        output="\n".join(outputs),
-                        error=result["error"],
-                        failure_type=failure_type,
-                        resources_created=resources_created,
-                        duration_seconds=time.time() - start_time,
-                        metadata={"failed_command": cmd, "command_index": i},
-                    )
-
-                outputs.append(result["output"])
-
-                # Extract created resources
-                created = self._extract_resources(result["output"], cmd)
-                resources_created.extend(created)
-
-            # Success
-            duration = time.time() - start_time
-            return ExecutionResult(
-                success=True,
-                strategy=Strategy.AZURE_CLI,
-                output="\n".join(outputs),
-                resources_created=resources_created,
-                duration_seconds=duration,
-                metadata={
-                    "commands_executed": len(commands),
-                    "commands": commands,
-                },
-            )
+            # Execute commands and return result
+            return self._execute_commands_and_build_result(context, commands, start_time)
 
         except Exception as e:
             return ExecutionResult(
@@ -158,6 +106,143 @@ class AzureCLIStrategy(ExecutionStrategy):
                 failure_type=FailureType.UNKNOWN,
                 duration_seconds=time.time() - start_time,
             )
+
+    def _validate_prerequisites(
+        self, context: ExecutionContext, start_time: float
+    ) -> ExecutionResult | None:
+        """Validate prerequisites and return error result if validation fails.
+
+        Args:
+            context: Execution context
+            start_time: Execution start time
+
+        Returns:
+            ExecutionResult if validation fails, None if validation succeeds
+        """
+        valid, error_msg = self.validate(context)
+        if not valid:
+            return ExecutionResult(
+                success=False,
+                strategy=Strategy.AZURE_CLI,
+                error=error_msg,
+                failure_type=FailureType.VALIDATION_ERROR,
+            )
+        return None
+
+    def _create_dry_run_result(self, commands: list[str], start_time: float) -> ExecutionResult:
+        """Create dry run result showing commands without executing.
+
+        Args:
+            commands: Commands that would be executed
+            start_time: Execution start time
+
+        Returns:
+            ExecutionResult for dry run
+        """
+        output = "DRY RUN - Commands to execute:\n"
+        output += "\n".join(f"  {cmd}" for cmd in commands)
+        return ExecutionResult(
+            success=True,
+            strategy=Strategy.AZURE_CLI,
+            output=output,
+            duration_seconds=time.time() - start_time,
+            metadata={"commands": commands, "dry_run": True},
+        )
+
+    def _execute_commands_and_build_result(
+        self, context: ExecutionContext, commands: list[str], start_time: float
+    ) -> ExecutionResult:
+        """Execute commands and build final result.
+
+        Args:
+            context: Execution context
+            commands: Commands to execute
+            start_time: Execution start time
+
+        Returns:
+            ExecutionResult with command execution results
+        """
+        resources_created = []
+        outputs = []
+
+        for i, cmd in enumerate(commands, 1):
+            result = self._execute_command(cmd)
+
+            if not result["success"]:
+                return self._create_failure_result(
+                    result, cmd, i, outputs, resources_created, start_time
+                )
+
+            outputs.append(result["output"])
+            created = self._extract_resources(result["output"], cmd)
+            resources_created.extend(created)
+
+        # All commands succeeded
+        return self._create_success_result(commands, outputs, resources_created, start_time)
+
+    def _create_failure_result(
+        self,
+        cmd_result: dict[str, Any],
+        cmd: str,
+        cmd_index: int,
+        outputs: list[str],
+        resources_created: list[str],
+        start_time: float,
+    ) -> ExecutionResult:
+        """Create failure result from command execution failure.
+
+        Args:
+            cmd_result: Command execution result dict
+            cmd: Failed command
+            cmd_index: Index of failed command
+            outputs: Outputs from previous commands
+            resources_created: Resources created before failure
+            start_time: Execution start time
+
+        Returns:
+            ExecutionResult representing failure
+        """
+        failure_type = self._classify_failure(cmd_result["error"])
+        return ExecutionResult(
+            success=False,
+            strategy=Strategy.AZURE_CLI,
+            output="\n".join(outputs),
+            error=cmd_result["error"],
+            failure_type=failure_type,
+            resources_created=resources_created,
+            duration_seconds=time.time() - start_time,
+            metadata={"failed_command": cmd, "command_index": cmd_index},
+        )
+
+    def _create_success_result(
+        self,
+        commands: list[str],
+        outputs: list[str],
+        resources_created: list[str],
+        start_time: float,
+    ) -> ExecutionResult:
+        """Create success result after all commands complete.
+
+        Args:
+            commands: All executed commands
+            outputs: All command outputs
+            resources_created: All created resources
+            start_time: Execution start time
+
+        Returns:
+            ExecutionResult representing success
+        """
+        return ExecutionResult(
+            success=True,
+            strategy=Strategy.AZURE_CLI,
+            output="\n".join(outputs),
+            resources_created=resources_created,
+            duration_seconds=time.time() - start_time,
+            metadata={
+                "commands_executed": len(commands),
+                "commands": commands,
+            },
+        )
 
     def validate(self, context: ExecutionContext) -> tuple[bool, str | None]:
         """Validate Azure CLI prerequisites.

@@ -7,9 +7,18 @@ import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypedDict
 
 logger = logging.getLogger(__name__)
+
+
+class AuditLogEntry(TypedDict):
+    """Typed structure for audit log entries."""
+
+    timestamp: str
+    objective_id: str | None
+    event: str
+    details: dict[str, str]
 
 
 class AuditLogger:
@@ -104,7 +113,7 @@ class AuditLogger:
         objective_id: str | None = None,
         event_type: str | None = None,
         limit: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[AuditLogEntry]:
         """Read audit logs with filtering.
 
         Args:
@@ -158,7 +167,7 @@ class AuditLogger:
 
         return entries
 
-    def get_objective_timeline(self, objective_id: str) -> list[dict[str, Any]]:
+    def get_objective_timeline(self, objective_id: str) -> list[AuditLogEntry]:
         """Get complete timeline for an objective.
 
         Args:
@@ -231,7 +240,7 @@ class AuditLogger:
         # Create new empty log file
         self.log_file.touch(mode=0o600)
 
-    def _parse_log_line(self, line: str) -> dict[str, Any] | None:
+    def _parse_log_line(self, line: str) -> AuditLogEntry | None:
         """Parse log line into structured entry.
 
         Args:
@@ -258,19 +267,19 @@ class AuditLogger:
             details_str = parts[3].strip() if len(parts) > 3 else ""
 
             # Parse details
-            details = {}
+            details: dict[str, str] = {}
             if details_str:
                 for pair in details_str.split():
                     if "=" in pair:
                         key, value = pair.split("=", 1)
                         details[key] = value
 
-            return {
-                "timestamp": timestamp,
-                "objective_id": objective_id if objective_id != "N/A" else None,
-                "event": event,
-                "details": details,
-            }
+            return AuditLogEntry(
+                timestamp=timestamp,
+                objective_id=objective_id if objective_id != "N/A" else None,
+                event=event,
+                details=details,
+            )
 
         except Exception as e:
             logger.warning(f"Failed to parse log line: {e}")

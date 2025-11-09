@@ -149,7 +149,7 @@ class SecretSanitizer:
             >>> clean = sanitizer.sanitize_dict(data)
             >>> assert "abc123" not in str(clean)
         """
-        result = {}
+        result: dict[str, Any] = {}
         for key, value in data.items():
             if isinstance(value, str):
                 # For sensitive keys, sanitize the value by checking key name patterns
@@ -168,7 +168,7 @@ class SecretSanitizer:
                     # Treat the key=value pair as text for sanitization
                     sanitized_text = self.sanitize(f"{key}={value}")
                     # Extract just the sanitized value part
-                    if "=" in sanitized_text:
+                    if sanitized_text is not None and "=" in sanitized_text:
                         result[key] = sanitized_text.split("=", 1)[1]
                     else:
                         result[key] = "***REDACTED***"
@@ -197,7 +197,7 @@ class SecretSanitizer:
             >>> clean = sanitizer.sanitize_list(data)
             >>> assert "abc123" not in str(clean)
         """
-        result = []
+        result: list[Any] = []
         for item in data:
             if isinstance(item, str):
                 result.append(self.sanitize(item))

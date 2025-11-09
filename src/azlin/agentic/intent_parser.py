@@ -9,6 +9,8 @@ from typing import Any
 
 import anthropic  # type: ignore[import-untyped]
 
+from azlin.agentic.types import ExecutionHistoryEvent
+
 
 class IntentParseError(Exception):
     """Error parsing natural language intent."""
@@ -160,28 +162,30 @@ CRITICAL:
             raise
 
     def _validate_intent(self, intent: dict[str, Any]) -> None:
-        """Validate parsed intent structure."""
+        """Validate parsed intent structure.
+
+        This method validates the raw dict has required fields before
+        creating the Intent dataclass. The Intent.__post_init__ will
+        perform detailed validation of types and structure.
+        """
         required_fields = ["intent", "parameters", "confidence", "azlin_commands"]
 
         for field in required_fields:
             if field not in intent:
                 raise ValueError(f"Missing required field: {field}")
 
-        if not isinstance(intent["parameters"], dict):
-            raise ValueError("parameters must be a dict")
-
-        if not isinstance(intent["azlin_commands"], list):
-            raise ValueError("azlin_commands must be a list")
-
-        if not 0.0 <= intent["confidence"] <= 1.0:
-            raise ValueError("confidence must be between 0 and 1")
-
-        # Validate azlin_commands structure
-        for cmd in intent["azlin_commands"]:
-            if not isinstance(cmd, dict):
-                raise ValueError("Each azlin_command must be a dict")
-            if "command" not in cmd or "args" not in cmd:
-                raise ValueError("Each azlin_command must have 'command' and 'args'")
+        # Create Intent object to leverage its validation
+        # The Intent.__post_init__ will validate:
+        # - confidence range (0.0-1.0)
+        # - parameters is dict
+        # - azlin_commands is list of dicts with 'command' and 'args'
+        Intent(
+            intent=intent["intent"],
+            parameters=intent["parameters"],
+            confidence=intent["confidence"],
+            azlin_commands=intent["azlin_commands"],
+            explanation=intent.get("explanation"),
+        )
 
 
 class CommandPlanner:
@@ -196,7 +200,7 @@ class CommandPlanner:
         self.client = anthropic.Anthropic(api_key=self.api_key)
 
     def plan(
-        self, intent: dict[str, Any], execution_results: list[dict[str, Any]]
+        self, intent: dict[str, Any], execution_results: list[ExecutionHistoryEvent]
     ) -> dict[str, Any]:
         """Create or refine execution plan based on results.
 
