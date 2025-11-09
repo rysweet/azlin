@@ -505,8 +505,7 @@ class TestExecutionOrchestrator:
         implemented_strategies = [
             Strategy.AZURE_CLI,
             Strategy.TERRAFORM,
-            Strategy.AWS_CLI,
-            Strategy.GCP_CLI,
+            Strategy.CUSTOM_CODE,
         ]
 
         with (

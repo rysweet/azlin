@@ -95,10 +95,11 @@ class TestIntentParser:
         with patch("azlin.agentic.intent_parser.anthropic") as mock_anthropic:
             mock_client = Mock()
             mock_anthropic.Anthropic.return_value = mock_client
-            # Create a mock API error that acts like an exception
-            api_error = Exception("API error")
-            api_error.__class__.__name__ = "APIError"
-            mock_anthropic.APIError = Exception
+            # Create a mock API error by creating a custom exception class
+            class APIError(Exception):
+                pass
+            api_error = APIError("API error")
+            mock_anthropic.APIError = APIError
             mock_client.messages.create.side_effect = api_error
 
             parser = IntentParser(api_key="test-key")
@@ -174,7 +175,7 @@ class TestCommandPlanner:
             mock_text_block.text = json.dumps(
                 {
                     "status": "in_progress",
-                    "next_commands": [{"command": "azlin status", "args": ["vm1"]}],
+                    "next_commands": [{"command": "azlin", "args": ["status", "vm1"]}],
                     "reasoning": "Check VM status",
                 }
             )

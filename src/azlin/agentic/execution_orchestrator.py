@@ -454,14 +454,14 @@ class ExecutionOrchestrator:
             result.metadata = result.metadata or {}
             result.metadata["rollback_status"] = "success"
         except (OSError, subprocess.CalledProcessError) as e:
-            error_msg = f"Rollback failed - manual cleanup may be required: {str(e)}"
+            error_msg = f"Rollback failed - manual cleanup may be required: {e!s}"
             logger.error(error_msg)
             # Track rollback failure in metadata for user visibility
             result.metadata = result.metadata or {}
             result.metadata["rollback_status"] = "failed"
             result.metadata["rollback_error"] = str(e)
         except Exception as e:
-            error_msg = f"Unexpected error during rollback - manual cleanup may be required: {str(e)}"
+            error_msg = f"Unexpected error during rollback - manual cleanup may be required: {e!s}"
             logger.error(error_msg, exc_info=True)
             # Track rollback failure in metadata for user visibility
             result.metadata = result.metadata or {}

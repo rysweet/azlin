@@ -491,7 +491,7 @@ class FailureAnalyzer:
 
         except (OSError, PermissionError) as e:
             logger.warning("Failed to write failure history file: %s", str(e))
-        except json.JSONEncodeError as e:
+        except (ValueError, TypeError) as e:
             logger.error("Failed to serialize failure analysis to JSON: %s", str(e), exc_info=True)
         except Exception as e:
             logger.error("Unexpected error saving failure history: %s", str(e), exc_info=True)

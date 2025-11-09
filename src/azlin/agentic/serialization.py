@@ -93,7 +93,7 @@ def serialize_decimal_dict(breakdown: dict[str, Decimal]) -> dict[str, str]:
     return {k: str(v) for k, v in breakdown.items()}
 
 
-def serialize_enum_list(values: list[Enum]) -> list[str]:
+def serialize_enum_list(values: list[Any]) -> list[str]:
     """Convert list of Enums to list of values.
 
     Args:
@@ -114,9 +114,9 @@ def serialize_enum_list(values: list[Enum]) -> list[str]:
 
 
 __all__ = [
-    "serialize_enum",
-    "serialize_decimal",
     "serialize_datetime",
+    "serialize_decimal",
     "serialize_decimal_dict",
+    "serialize_enum",
     "serialize_enum_list",
 ]

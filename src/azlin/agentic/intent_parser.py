@@ -9,7 +9,7 @@ from typing import Any
 
 import anthropic  # type: ignore[import-untyped]
 
-from azlin.agentic.types import ExecutionHistoryEvent
+from azlin.agentic.types import ExecutionHistoryEvent, Intent
 
 
 class IntentParseError(Exception):
@@ -74,10 +74,15 @@ class IntentParser:
 
             return parsed_intent
 
-        except anthropic.APIError as e:
-            raise IntentParseError(f"Claude API error: {e}") from e
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            raise IntentParseError(f"Failed to parse Claude response: {e}") from e
+        except Exception as e:
+            # Check if it's an anthropic API error by class name
+            if e.__class__.__name__ == "APIError":
+                raise IntentParseError(f"Claude API error: {e}") from e
+            # Handle JSON and validation errors
+            if isinstance(e, json.JSONDecodeError | KeyError | ValueError):
+                raise IntentParseError(f"Failed to parse Claude response: {e}") from e
+            # Re-raise unexpected exceptions
+            raise
 
     def _build_system_prompt(self, context: dict[str, Any] | None) -> str:
         """Build system prompt for Claude."""
