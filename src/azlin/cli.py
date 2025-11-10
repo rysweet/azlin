@@ -5494,6 +5494,10 @@ def _do_impl(
             "yes",
         )
 
+        # Track whether we need to parse intent (or if we can reuse initial_intent)
+        initial_intent = None
+        needs_parsing = True
+
         if not disable_clarification:
             try:
                 clarifier = RequestClarifier()
@@ -5501,7 +5505,6 @@ def _do_impl(
                 # Quick check if clarification might be needed
                 # We'll do a fast initial parse to get confidence
                 parser = IntentParser()
-                initial_intent = None
                 initial_confidence = None
                 commands_empty = False
 
@@ -5536,18 +5539,35 @@ def _do_impl(
                         clarified_request = clarification_result.clarified_request
                         if verbose:
                             click.echo("\nUsing clarified request for command generation...")
+                else:
+                    # No clarification needed - reuse initial_intent to avoid double parsing
+                    if initial_intent is not None:
+                        needs_parsing = False
+                        if verbose:
+                            click.echo("Request is clear - proceeding with direct parsing...")
 
             except RequestClarificationError as e:
                 # Clarification failed - fall back to direct parsing with warning
+                # Always inform user when fallback occurs, not just in verbose mode
+                click.echo(f"Clarification unavailable: {e}", err=True)
+                click.echo("Continuing with direct parsing...", err=True)
                 if verbose:
-                    click.echo(f"\nClarification failed ({e}), proceeding with direct parsing...")
+                    import logging
+
+                    logger = logging.getLogger(__name__)
+                    logger.exception("Clarification error details:")
 
         # Phase 2: Parse natural language intent (possibly clarified)
-        if verbose:
-            click.echo(f"\nParsing request: {clarified_request}")
+        # Only parse if we didn't already parse successfully above
+        if needs_parsing:
+            if verbose:
+                click.echo(f"\nParsing request: {clarified_request}")
 
-        parser = IntentParser()
-        intent = parser.parse(clarified_request, context=context)
+            parser = IntentParser()
+            intent = parser.parse(clarified_request, context=context)
+        else:
+            # Reuse the initial intent we already parsed
+            intent = initial_intent
 
         if verbose:
             click.echo("\nParsed Intent:")

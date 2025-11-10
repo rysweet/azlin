@@ -190,6 +190,28 @@ class RequestClarifier:
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             raise RequestClarificationError(f"Failed to parse clarification response: {e}") from e
 
+    def _sanitize_input(self, text: str) -> str:
+        """Sanitize user input to prevent prompt injection.
+
+        Args:
+            text: User input text to sanitize
+
+        Returns:
+            Sanitized text safe for use in prompts
+        """
+        # Replace newlines and carriage returns with spaces
+        text = text.replace("\n", " ").replace("\r", " ")
+
+        # Collapse multiple spaces into single space
+        text = " ".join(text.split())
+
+        # Truncate excessively long inputs to prevent abuse
+        max_length = 500
+        if len(text) > max_length:
+            text = text[:max_length] + "..."
+
+        return text
+
     def _build_clarification_prompt(self, context: dict[str, Any] | None) -> str:
         """Build system prompt for clarification."""
         base_prompt = """You are an expert at understanding and clarifying Azure infrastructure requests.
@@ -236,8 +258,16 @@ CRITICAL:
         return base_prompt
 
     def _build_user_message(self, request: str) -> str:
-        """Build user message for Claude."""
-        return f"Clarify this Azure request: {request}"
+        """Build user message for Claude.
+
+        Args:
+            request: User's request (will be sanitized)
+
+        Returns:
+            Sanitized user message
+        """
+        sanitized_request = self._sanitize_input(request)
+        return f"Clarify this Azure request: {sanitized_request}"
 
     def _extract_json(self, response_text: str) -> dict[str, Any]:
         """Extract JSON from Claude's response."""
@@ -300,18 +330,18 @@ CRITICAL:
         click.echo()
 
         # Estimated operations
-        if "estimated_operations" in data and data["estimated_operations"]:
+        if data.get("estimated_operations"):
             click.echo(f"Estimated: ~{data['estimated_operations']} Azure operations")
 
         # Assumptions (if any)
-        if "assumptions" in data and data["assumptions"]:
+        if data.get("assumptions"):
             click.echo()
             click.echo(click.style("Assumptions:", fg="blue"))
             for assumption in data["assumptions"]:
                 click.echo(f"  • {assumption}")
 
         # Clarifications needed (if any)
-        if "clarifications_needed" in data and data["clarifications_needed"]:
+        if data.get("clarifications_needed"):
             click.echo()
             click.echo(click.style("Note:", fg="yellow"))
             for clarification in data["clarifications_needed"]:
