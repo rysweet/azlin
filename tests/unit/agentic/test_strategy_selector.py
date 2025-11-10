@@ -112,7 +112,12 @@ class TestIntentClassification:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{"command": "azlin", "args": []}, {"command": "azlin", "args": []}, {"command": "azlin", "args": []}, {"command": "azlin", "args": []}],  # 4 commands
+            azlin_commands=[
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+            ],  # 4 commands
         )
 
         assert selector._is_complex_intent(intent) is True
@@ -470,7 +475,12 @@ class TestStrategySelection:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{"command": "azlin", "args": []}, {"command": "azlin", "args": []}, {"command": "azlin", "args": []}, {"command": "azlin", "args": []}],  # 4 commands
+            azlin_commands=[
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+            ],  # 4 commands
         )
 
         duration = selector._estimate_duration(Strategy.TERRAFORM, intent)

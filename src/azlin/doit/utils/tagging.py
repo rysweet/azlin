@@ -1,6 +1,5 @@
 """Resource tagging utilities for doit."""
 
-import json
 import subprocess
 from datetime import datetime
 from typing import TypedDict
@@ -41,10 +40,10 @@ def get_azure_username() -> str:
 
         raise RuntimeError(f"Failed to get Azure username: {result.stderr}")
 
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("Timeout while getting Azure username")
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("Timeout while getting Azure username") from e
     except Exception as e:
-        raise RuntimeError(f"Error getting Azure username: {e}")
+        raise RuntimeError(f"Error getting Azure username: {e}") from e
 
 
 def generate_doit_tags(username: str | None = None) -> DoItTags:

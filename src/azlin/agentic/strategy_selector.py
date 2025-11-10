@@ -311,9 +311,7 @@ class StrategySelector:
         # Ensure we have at least one strategy
         return self._ensure_fallback_strategy(ranking, cloud_provider)
 
-    def _extract_failed_strategies(
-        self, previous_failures: list[dict[str, Any]]
-    ) -> set[Strategy]:
+    def _extract_failed_strategies(self, previous_failures: list[dict[str, Any]]) -> set[Strategy]:
         """Extract set of previously failed strategies.
 
         Args:

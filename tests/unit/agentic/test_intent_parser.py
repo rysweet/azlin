@@ -94,9 +94,11 @@ class TestIntentParser:
         with patch("azlin.agentic.intent_parser.anthropic") as mock_anthropic:
             mock_client = Mock()
             mock_anthropic.Anthropic.return_value = mock_client
+
             # Create a mock API error by creating a custom exception class
             class APIError(Exception):
                 pass
+
             api_error = APIError("API error")
             mock_anthropic.APIError = APIError
             mock_client.messages.create.side_effect = api_error
