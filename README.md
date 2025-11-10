@@ -1860,13 +1860,13 @@ azlin do "stop all stopped vms to deallocate them"
 The system gracefully handles invalid requests:
 
 ```bash
-# Invalid requests (0% confidence - no action taken)
+# Invalid requests (no action taken)
 azlin do "make me coffee"
-# Response: Warning: Low confidence (0.0%). No commands executed.
+# Response: Warning: Low confidence. No commands executed.
 
-# Ambiguous requests (40% confidence - asks for clarification)
+# Ambiguous requests (asks for clarification)
 azlin do "update something"
-# Response: Warning: Low confidence (40.0%). Continue anyway? [y/N]
+# Response: Warning: Low confidence. Continue anyway? [y/N]
 
 # Dry-run for safety
 azlin do "delete everything" --dry-run
