@@ -2,4 +2,4 @@
 
 from azlin.doit.manager.resource_manager import ResourceInfo, ResourceManager
 
-__all__ = ["ResourceManager", "ResourceInfo"]
+__all__ = ["ResourceInfo", "ResourceManager"]

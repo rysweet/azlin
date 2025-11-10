@@ -127,7 +127,12 @@ class TestValidate:
         strategy = AzureCLIStrategy()
         context = ExecutionContext(
             objective_id="test",
-            intent=Intent(intent="test", parameters={}, confidence=0.9, azlin_commands=[{"command": "azlin", "args": []}]),
+            intent=Intent(
+                intent="test",
+                parameters={},
+                confidence=0.9,
+                azlin_commands=[{"command": "azlin", "args": []}],
+            ),
             strategy=Strategy.AZURE_CLI,
         )
 
@@ -144,7 +149,12 @@ class TestValidate:
         strategy = AzureCLIStrategy()
         context = ExecutionContext(
             objective_id="test",
-            intent=Intent(intent="test", parameters={}, confidence=0.9, azlin_commands=[{"command": "azlin", "args": []}]),
+            intent=Intent(
+                intent="test",
+                parameters={},
+                confidence=0.9,
+                azlin_commands=[{"command": "azlin", "args": []}],
+            ),
             strategy=Strategy.AZURE_CLI,
         )
 
@@ -164,7 +174,12 @@ class TestValidate:
         strategy = AzureCLIStrategy()
         context = ExecutionContext(
             objective_id="test",
-            intent=Intent(intent="test", parameters={}, confidence=0.9, azlin_commands=[{"command": "azlin", "args": []}]),
+            intent=Intent(
+                intent="test",
+                parameters={},
+                confidence=0.9,
+                azlin_commands=[{"command": "azlin", "args": []}],
+            ),
             strategy=Strategy.AZURE_CLI,
         )
 

@@ -36,10 +36,13 @@ from rich.table import Table
 
 from azlin import __version__
 from azlin.agentic import (
+    ClarificationResult,
     CommandExecutionError,
     CommandExecutor,
     IntentParseError,
     IntentParser,
+    RequestClarificationError,
+    RequestClarifier,
     ResultValidator,
 )
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
@@ -5600,6 +5603,10 @@ def _do_impl(
     Raises:
         SystemExit: On various error conditions with appropriate exit codes
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     try:
         # Check for API key
         import os
@@ -5627,12 +5634,94 @@ def _do_impl(
                 # Context is optional - continue without VM list
                 context["current_vms"] = []
 
-        # Parse natural language intent
-        if verbose:
-            click.echo(f"Parsing request: {request}")
+        # Phase 1: Request Clarification (for complex/ambiguous requests)
+        clarification_result: ClarificationResult | None = None
+        clarified_request = request  # Use original by default
 
-        parser = IntentParser()
-        intent = parser.parse(request, context=context if context else None)
+        # Check if clarification is disabled via environment variable
+        disable_clarification = os.getenv("AZLIN_DISABLE_CLARIFICATION", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+        # Track whether we need to parse intent (or if we can reuse initial_intent)
+        initial_intent = None
+        needs_parsing = True
+
+        if not disable_clarification:
+            try:
+                clarifier = RequestClarifier()
+
+                # Quick check if clarification might be needed
+                # We'll do a fast initial parse to get confidence
+                parser = IntentParser()
+                initial_confidence = None
+                commands_empty = False
+
+                try:
+                    initial_intent = parser.parse(request, context=context)
+                    initial_confidence = initial_intent.get("confidence")
+                    commands_empty = not initial_intent.get("azlin_commands", [])
+                except Exception:
+                    # If initial parse fails, we should definitely try clarification
+                    initial_confidence = 0.0
+                    commands_empty = True
+
+                # Determine if clarification is needed
+                if clarifier.should_clarify(
+                    request, confidence=initial_confidence, commands_empty=commands_empty
+                ):
+                    if verbose:
+                        click.echo("Complex request detected - initiating clarification phase...")
+
+                    # Get clarification
+                    clarification_result = clarifier.clarify(
+                        request, context=context, auto_confirm=yes
+                    )
+
+                    # If user didn't confirm, exit
+                    if not clarification_result.user_confirmed:
+                        click.echo("Cancelled.")
+                        sys.exit(0)
+
+                    # Use clarified request for parsing
+                    if clarification_result.clarified_request:
+                        clarified_request = clarification_result.clarified_request
+                        if verbose:
+                            click.echo("\nUsing clarified request for command generation...")
+                else:
+                    # No clarification needed - reuse initial_intent to avoid double parsing
+                    if initial_intent is not None:
+                        needs_parsing = False
+                        if verbose:
+                            click.echo("Request is clear - proceeding with direct parsing...")
+
+            except RequestClarificationError as e:
+                # Clarification failed - fall back to direct parsing with warning
+                # Always inform user when fallback occurs, not just in verbose mode
+                click.echo(f"Clarification unavailable: {e}", err=True)
+                click.echo("Continuing with direct parsing...", err=True)
+                if verbose:
+                    logger.exception("Clarification error details:")
+
+        # Phase 2: Parse natural language intent (possibly clarified)
+        # Only parse if we didn't already parse successfully above
+        intent: dict[str, Any]
+        if needs_parsing:
+            if verbose:
+                click.echo(f"\nParsing request: {clarified_request}")
+
+            parser = IntentParser()
+            intent = parser.parse(clarified_request, context=context)
+        else:
+            # Reuse the initial intent we already parsed
+            if initial_intent is None:
+                # This shouldn't happen, but if it does, parse again
+                parser = IntentParser()
+                intent = parser.parse(clarified_request, context=context)
+            else:
+                intent = initial_intent
 
         if verbose:
             click.echo("\nParsed Intent:")
@@ -5641,8 +5730,8 @@ def _do_impl(
             if "explanation" in intent:
                 click.echo(f"  Plan: {intent['explanation']}")
 
-        # Check confidence
-        if intent["confidence"] < 0.7:
+        # Check confidence (only warn if we didn't already clarify)
+        if not clarification_result and intent["confidence"] < 0.7:
             click.echo(
                 f"\nWarning: Low confidence ({intent['confidence']:.1%}) in understanding your request.",
                 err=True,

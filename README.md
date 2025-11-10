@@ -1796,7 +1796,7 @@ Get your API key from: https://console.anthropic.com/
 All of these were tested and work reliably:
 
 ```bash
-# VM Provisioning 
+# VM Provisioning
 azlin do "create a new vm called Sam"
 azlin do "provision a Standard_D4s_v3 vm called ml-trainer"
 uvx --from git+https://github.com/rysweet/azlin azlin do "create a vm"

@@ -57,7 +57,7 @@ def check_prerequisites():
         pytest.skip("Azure CLI not authenticated")
 
 
-@pytest.fixture(autouse=True, scope="function")
+@pytest.fixture(autouse=True)
 def cleanup_after_test(resource_manager):
     """Cleanup resources after each test."""
     yield
@@ -161,10 +161,12 @@ class TestDoItScenarios:
 
         # Verify all resources are tagged
         for resource in resources:
-            assert "azlin-doit-owner" in resource["tags"], f"{resource['name']} should have owner tag"
-            assert (
-                "azlin-doit-created" in resource["tags"]
-            ), f"{resource['name']} should have created tag"
+            assert "azlin-doit-owner" in resource["tags"], (
+                f"{resource['name']} should have owner tag"
+            )
+            assert "azlin-doit-created" in resource["tags"], (
+                f"{resource['name']} should have created tag"
+            )
 
     def test_scenario_3_two_app_services_behind_apim(self, orchestrator, resource_manager):
         """Scenario 3: Two App Services behind API Management.
@@ -232,7 +234,9 @@ class TestDoItScenarios:
         assert len(resources) >= 3, "Should have at least 3 resources"
 
         # Check for storage
-        storage_resources = [r for r in resources if "Microsoft.Storage/storageAccounts" in r["type"]]
+        storage_resources = [
+            r for r in resources if "Microsoft.Storage/storageAccounts" in r["type"]
+        ]
         assert len(storage_resources) >= 1, "Should have Storage Account"
 
         # Check for Key Vault

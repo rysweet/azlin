@@ -2,7 +2,6 @@
 
 import json
 import subprocess
-from datetime import datetime
 from typing import Any, TypedDict
 
 from azlin.doit.utils import get_azure_username, parse_tag_filter
@@ -64,12 +63,12 @@ class ResourceManager:
             resources = json.loads(result.stdout)
             return [self._parse_resource(r) for r in resources]
 
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Timeout while listing resources")
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError("Timeout while listing resources") from e
         except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse resource list: {e}")
+            raise RuntimeError(f"Failed to parse resource list: {e}") from e
         except Exception as e:
-            raise RuntimeError(f"Error listing resources: {e}")
+            raise RuntimeError(f"Error listing resources: {e}") from e
 
     def get_resource_details(self, resource_id: str) -> dict[str, Any]:
         """Get detailed information about a specific resource.
@@ -105,12 +104,12 @@ class ResourceManager:
 
             return json.loads(result.stdout)
 
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Timeout while getting resource details")
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError("Timeout while getting resource details") from e
         except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse resource details: {e}")
+            raise RuntimeError(f"Failed to parse resource details: {e}") from e
         except Exception as e:
-            raise RuntimeError(f"Error getting resource details: {e}")
+            raise RuntimeError(f"Error getting resource details: {e}") from e
 
     def cleanup_resources(self, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
         """Delete all doit-created resources.
