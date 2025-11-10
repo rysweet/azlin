@@ -55,6 +55,7 @@ from azlin.commands.auth import auth
 # Bastion commands
 # Storage commands
 from azlin.commands.bastion import bastion_group
+from azlin.commands.doit import doit_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
@@ -255,12 +256,12 @@ class CLIOrchestrator:
                 self.progress.start_operation(f"Mounting NFS storage: {resolved_storage.name}")
                 self._mount_nfs_storage(vm_details, ssh_key_pair.private_path, resolved_storage)
                 self.progress.complete(success=True, message="NFS storage mounted")
-            else:
-                # Only sync home directory if NOT using NFS storage
-                # (NFS storage provides the home directory)
-                self.progress.start_operation("Syncing home directory")
-                self._sync_home_directory(vm_details, ssh_key_pair.private_path)
-                self.progress.complete(success=True, message="Home directory synced")
+
+            # Always sync home directory (provides initial dotfiles even with NFS)
+            # NFS provides persistence, ~/.azlin/home provides initial configuration
+            self.progress.start_operation("Syncing home directory")
+            self._sync_home_directory(vm_details, ssh_key_pair.private_path)
+            self.progress.complete(success=True, message="Home directory synced")
 
             # STEP 6: GitHub setup (if repo provided)
             if self.repo:
@@ -1031,6 +1032,8 @@ class CLIOrchestrator:
     def _sync_home_directory(self, vm_details: VMDetails, key_path: Path) -> None:
         """Sync home directory to VM.
 
+        Supports both direct connection (public IP) and Bastion routing (private IP only).
+
         Args:
             vm_details: VM details
             key_path: SSH private key path
@@ -1038,16 +1041,14 @@ class CLIOrchestrator:
         Note:
             Sync failures are logged as warnings but don't block VM provisioning.
         """
-        if not vm_details.public_ip:
-            logger.warning("VM has no public IP, skipping home directory sync")
+        # Check if VM has any IP address
+        if not vm_details.public_ip and not vm_details.private_ip:
+            logger.warning(
+                "VM has no IP address (neither public nor private), skipping home directory sync"
+            )
             return
 
-        public_ip: str = vm_details.public_ip  # Type narrowed by check above
-
         try:
-            # Create SSH config
-            ssh_config = SSHConfig(host=public_ip, user="azureuser", key_path=key_path)
-
             # Pre-sync validation check with visible warnings
             sync_dir = HomeSyncManager.get_sync_directory()
             if sync_dir.exists():
@@ -1059,12 +1060,73 @@ class CLIOrchestrator:
             def progress_callback(msg: str):
                 self.progress.update(msg, ProgressStage.IN_PROGRESS)
 
-            # Attempt sync
-            result = HomeSyncManager.sync_to_vm(
-                ssh_config, dry_run=False, progress_callback=progress_callback
+            # Direct connection if public IP available
+            if vm_details.public_ip:
+                ssh_config = SSHConfig(
+                    host=vm_details.public_ip, user="azureuser", key_path=key_path
+                )
+                result = HomeSyncManager.sync_to_vm(
+                    ssh_config, dry_run=False, progress_callback=progress_callback
+                )
+                self._process_sync_result(result)
+                return
+
+            # Bastion routing for private IP only VMs
+            # Detect Bastion
+            bastion_info = BastionDetector.detect_bastion_for_vm(
+                vm_name=vm_details.name,
+                resource_group=vm_details.resource_group,
+                vm_location=vm_details.location,
             )
 
-            self._process_sync_result(result)
+            if not bastion_info:
+                logger.warning(
+                    f"VM '{vm_details.name}' has no public IP and no Bastion host detected, "
+                    f"skipping home directory sync"
+                )
+                return
+
+            # Verify VM ID is available (required for Bastion tunnel)
+            if not vm_details.id:
+                logger.warning(
+                    f"VM '{vm_details.name}' has no Azure resource ID, cannot create Bastion tunnel"
+                )
+                return
+
+            # Create tunnel and sync
+            self.progress.update(
+                f"Creating Bastion tunnel via {bastion_info['name']}...", ProgressStage.IN_PROGRESS
+            )
+
+            with BastionManager() as bastion_mgr:
+                # Get available port
+                local_port = bastion_mgr.get_available_port()
+
+                # Create tunnel
+                tunnel = bastion_mgr.create_tunnel(
+                    bastion_name=bastion_info["name"],
+                    resource_group=bastion_info["resource_group"],
+                    target_vm_id=vm_details.id,  # Type narrowed by check above
+                    local_port=local_port,
+                    remote_port=22,
+                    wait_for_ready=True,
+                )
+
+                # Create SSH config using tunnel
+                ssh_config = SSHConfig(
+                    host="127.0.0.1", port=local_port, user="azureuser", key_path=key_path
+                )
+
+                # Perform sync through tunnel
+                result = HomeSyncManager.sync_to_vm(
+                    ssh_config, dry_run=False, progress_callback=progress_callback
+                )
+                self._process_sync_result(result)
+
+        except BastionManagerError as e:
+            # Don't fail VM provisioning, just warn
+            self.progress.update(f"Home sync failed (Bastion error): {e}", ProgressStage.WARNING)
+            logger.warning(f"Home sync failed (Bastion error): {e}")
 
         except HomeSyncError as e:
             # Don't fail VM provisioning, just warn
@@ -4528,8 +4590,11 @@ def _get_sync_vm_by_name(vm_name: str, rg: str):
         click.echo(f"Error: VM '{vm_name}' is not running.", err=True)
         sys.exit(1)
 
-    if not vm.public_ip:
-        click.echo(f"Error: VM '{vm_name}' has no public IP.", err=True)
+    # Check that VM has at least one IP (public or private)
+    if not vm.public_ip and not vm.private_ip:
+        click.echo(
+            f"Error: VM '{vm_name}' has no IP address (neither public nor private).", err=True
+        )
         sys.exit(1)
 
     return vm
@@ -4554,7 +4619,9 @@ def _select_sync_vm_interactive(rg: str):
     # Show menu
     click.echo("\nSelect VM to sync to:")
     for idx, vm in enumerate(vms, 1):
-        click.echo(f"  {idx}. {vm.name} - {vm.public_ip}")
+        # Display public IP if available, otherwise show "(Bastion)"
+        ip_display = vm.public_ip if vm.public_ip else f"{vm.private_ip} (Bastion)"
+        click.echo(f"  {idx}. {vm.name} - {ip_display}")
 
     choice = input("\nSelect VM (number): ").strip()
     try:
@@ -4568,19 +4635,16 @@ def _select_sync_vm_interactive(rg: str):
         sys.exit(1)
 
 
-def _execute_sync(selected_vm: VMInfo, ssh_key_pair: SSHKeyPair, dry_run: bool) -> None:
-    """Execute the sync operation to the selected VM."""
-    if not selected_vm.public_ip:
-        click.echo("Error: VM has no public IP address", err=True)
-        sys.exit(1)
+def _perform_sync(ssh_config, dry_run: bool) -> None:
+    """Perform the actual sync operation.
 
-    # Create SSH config
-    ssh_config = SSHConfig(
-        host=selected_vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
-    )
+    Args:
+        ssh_config: SSH configuration for connection
+        dry_run: Whether to perform dry run
 
-    # Sync
-    click.echo(f"\nSyncing to {selected_vm.name} ({selected_vm.public_ip})...")
+    Raises:
+        SystemExit: On sync errors
+    """
 
     def progress_callback(msg: str):
         click.echo(f"  {msg}")
@@ -4599,6 +4663,89 @@ def _execute_sync(selected_vm: VMInfo, ssh_key_pair: SSHKeyPair, dry_run: bool) 
         click.echo("\nSync completed with errors:", err=True)
         for error in result.errors:
             click.echo(f"  - {error}", err=True)
+        sys.exit(1)
+
+
+def _execute_sync(selected_vm: VMInfo, ssh_key_pair: SSHKeyPair, dry_run: bool) -> None:
+    """Execute the sync operation to the selected VM.
+
+    Supports both direct connection (public IP) and Bastion routing (private IP only).
+    """
+    # Check if VM has public IP for direct connection
+    if selected_vm.public_ip:
+        # Direct connection path (existing behavior)
+        click.echo(f"\nSyncing to {selected_vm.name} ({selected_vm.public_ip})...")
+
+        ssh_config = SSHConfig(
+            host=selected_vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
+        )
+
+        _perform_sync(ssh_config, dry_run)
+        return
+
+    # VM has no public IP - try Bastion routing
+    if not selected_vm.private_ip:
+        click.echo("Error: VM has no IP address (neither public nor private)", err=True)
+        sys.exit(1)
+
+    # Detect Bastion
+    bastion_info = BastionDetector.detect_bastion_for_vm(
+        vm_name=selected_vm.name,
+        resource_group=selected_vm.resource_group,
+        vm_location=selected_vm.location,
+    )
+    if not bastion_info:
+        click.echo(
+            f"Error: VM '{selected_vm.name}' has no public IP and no Bastion host was detected.\n"
+            f"Please provision a Bastion host or assign a public IP to the VM.",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Use Bastion tunnel
+    click.echo(
+        f"\nSyncing to {selected_vm.name} (private IP: {selected_vm.private_ip}) via Bastion..."
+    )
+
+    try:
+        with BastionManager() as bastion_mgr:
+            # Get VM resource ID
+            vm_resource_id = VMManager.get_vm_resource_id(
+                selected_vm.name, selected_vm.resource_group
+            )
+            if not vm_resource_id:
+                raise BastionManagerError("Failed to get VM resource ID")
+
+            # Find available port
+            local_port = bastion_mgr.get_available_port()
+
+            # Create tunnel
+            click.echo(f"Creating Bastion tunnel through {bastion_info['name']}...")
+            tunnel = bastion_mgr.create_tunnel(
+                bastion_name=bastion_info["name"],
+                resource_group=bastion_info["resource_group"],
+                target_vm_id=vm_resource_id,
+                local_port=local_port,
+                remote_port=22,
+                wait_for_ready=True,
+            )
+
+            # Create SSH config using tunnel
+            ssh_config = SSHConfig(
+                host="127.0.0.1",
+                port=local_port,
+                user="azureuser",
+                key_path=ssh_key_pair.private_path,
+            )
+
+            # Perform sync through tunnel
+            _perform_sync(ssh_config, dry_run)
+
+    except BastionManagerError as e:
+        click.echo(f"\nBastion tunnel error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"\nSync failed: {e}", err=True)
         sys.exit(1)
 
 
@@ -5750,20 +5897,21 @@ def do(
     _do_impl(request, dry_run, yes, resource_group, config, verbose)
 
 
-@main.command()
-@click.argument("objective", type=str)
-@click.option("--dry-run", is_flag=True, help="Show execution plan without running")
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
-def doit(
+# NOTE: Old doit command commented out in favor of new doit_group with subcommands
+# @main.command(name="doit-old")
+# @click.argument("objective", type=str)
+# @click.option("--dry-run", is_flag=True, help="Show execution plan without running")
+# @click.option("--resource-group", "--rg", help="Resource group", type=str)
+# @click.option("--config", help="Config file path", type=click.Path())
+# @click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
+def _doit_old_impl(
     objective: str,
     dry_run: bool,
     resource_group: str | None,
     config: str | None,
     verbose: bool,
 ):
-    """Enhanced agentic Azure infrastructure management.
+    """[DEPRECATED] Enhanced agentic Azure infrastructure management (old version).
 
     This command provides multi-strategy execution with state persistence
     and intelligent fallback handling. It enhances the basic 'do' command
@@ -5871,7 +6019,6 @@ def doit(
         # Phase 2: Strategy Selection and Execution
         from azlin.agentic.strategies import (
             AzureCLIStrategy,
-            MCPClientStrategy,
             TerraformStrategy,
         )
         from azlin.agentic.strategy_selector import StrategySelector
@@ -5940,7 +6087,6 @@ def doit(
         strategy_map = {
             Strategy.AZURE_CLI: AzureCLIStrategy(),
             Strategy.TERRAFORM: TerraformStrategy(),
-            Strategy.MCP_CLIENT: MCPClientStrategy(),
         }
         strategy = strategy_map.get(strategy_plan.primary_strategy)
 
@@ -7581,6 +7727,11 @@ main.add_command(bastion_group)
 # Register storage commands
 main.add_command(storage_group)
 main.add_command(tag_group)
+
+# Register doit commands (replace old doit if it exists)
+if "doit" in main.commands:
+    del main.commands["doit"]
+main.add_command(doit_group)
 
 
 @main.group()

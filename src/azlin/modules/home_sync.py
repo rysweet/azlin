@@ -565,10 +565,14 @@ class HomeSyncManager:
             raise ValueError(f"SSH key path must be absolute: {ssh_config.key_path}")
 
         # Build SSH options as string (passed to rsync -e)
+        # Include port if not default (22)
+        port_opt = f"-p {ssh_config.port} " if ssh_config.port != 22 else ""
         ssh_opts = (
-            f"ssh -i {ssh_config.key_path} "
+            f"ssh {port_opt}"
+            f"-i {ssh_config.key_path} "
             f"-o StrictHostKeyChecking=no "
             f"-o UserKnownHostsFile=/dev/null "
+            f"-o IdentitiesOnly=yes "  # FIX: Prevent "too many authentication failures"
             f"-o ConnectTimeout=30"
         )
 

@@ -1796,21 +1796,21 @@ Get your API key from: https://console.anthropic.com/
 All of these were tested and work reliably:
 
 ```bash
-# VM Provisioning (100% confidence)
+# VM Provisioning 
 azlin do "create a new vm called Sam"
 azlin do "provision a Standard_D4s_v3 vm called ml-trainer"
 uvx --from git+https://github.com/rysweet/azlin azlin do "create a vm"
 
-# Listing VMs (100% confidence)
+# Listing VMs
 azlin do "show me all my vms"
 azlin do "list all my vms"
 azlin do "what vms do I have"
 
-# Checking Status (95% confidence)
+# Checking Status
 azlin do "what is the status of my vms"
 azlin do "show me vm details"
 
-# Cost Queries (90% confidence)
+# Cost Queries
 azlin do "what are my azure costs"
 azlin do "show me costs by vm"
 azlin do "what's my current azure spending"
@@ -1860,13 +1860,13 @@ azlin do "stop all stopped vms to deallocate them"
 The system gracefully handles invalid requests:
 
 ```bash
-# Invalid requests (0% confidence - no action taken)
+# Invalid requests (no action taken)
 azlin do "make me coffee"
-# Response: Warning: Low confidence (0.0%). No commands executed.
+# Response: Warning: Low confidence. No commands executed.
 
-# Ambiguous requests (40% confidence - asks for clarification)
+# Ambiguous requests (asks for clarification)
 azlin do "update something"
-# Response: Warning: Low confidence (40.0%). Continue anyway? [y/N]
+# Response: Warning: Low confidence. Continue anyway? [y/N]
 
 # Dry-run for safety
 azlin do "delete everything" --dry-run
@@ -1891,7 +1891,6 @@ azlin do "delete test vms" --dry-run --verbose
 
 ### Features
 
-- **High Accuracy**: 95-100% confidence on VM operations (tested)
 - **Context-Aware**: Understands your current VMs, storage, and Azure state
 - **Safe by Default**: Shows plan and asks for confirmation
 - **Dry Run Mode**: Preview actions without executing
@@ -1935,6 +1934,45 @@ Advanced natural language execution with state persistence and objective trackin
 - `doit` - Complex objectives requiring state tracking
 
 ---
+
+## Autonomous Infrastructure Deployment (R2D2 for Azure)
+
+**azlin doit** is an autonomous goal-seeking agent that deploys complex Azure infrastructure from natural language.
+
+### Quick Examples
+
+```bash
+# Deploy complete web application stack
+azlin doit deploy "App Service with Cosmos DB and Storage"
+
+# Create API platform
+azlin doit deploy "2 App Services behind API Management with shared database"
+
+# Serverless pipeline
+azlin doit deploy "Function App triggered by Storage queue saving to Cosmos DB"
+```
+
+**What the agent does:**
+- 🎯 Parses your goal into executable sub-goals
+- 🤖 Deploys resources autonomously (ReAct loop: Reason → Act → Observe → Evaluate)
+- ✅ Self-evaluates and adapts to failures
+- 📦 Generates production-ready Terraform + Bicep
+- 📚 Creates teaching materials with architecture diagrams
+
+### Management
+
+```bash
+azlin doit list                 # Show all doit-created resources
+azlin doit cleanup --force      # Delete all doit resources
+```
+
+**📖 Learn More:**
+- [Quick Start Guide](QUICKSTART_DOIT.md)
+- [Tagging & Management](DOIT_TAGGING_AND_MANAGEMENT.md)
+- [Architecture Docs](src/azlin/doit/README.md)
+
+---
+
 ## Advanced Usage
 
 ### Command Passthrough (Execute on VM)
