@@ -264,7 +264,9 @@ class TestExtractJson:
         """Test extracting JSON embedded in text."""
         clarifier = RequestClarifier(api_key="test-key")
 
-        response = 'Here is the result: {"clarified_request": "test", "steps": [], "confidence": 0.9} done'
+        response = (
+            'Here is the result: {"clarified_request": "test", "steps": [], "confidence": 0.9} done'
+        )
         data = clarifier._extract_json(response)
 
         assert data["clarified_request"] == "test"
@@ -381,15 +383,17 @@ class TestClarify:
 
         mock_message = Mock()
         mock_content = Mock()
-        mock_content.text = json.dumps({
-            "clarified_request": "Create 10 storage blob containers",
-            "steps": [
-                "Step 1: Verify storage account exists",
-                "Step 2: Create 10 containers named container-01 to container-10",
-            ],
-            "confidence": 0.9,
-            "estimated_operations": 12,
-        })
+        mock_content.text = json.dumps(
+            {
+                "clarified_request": "Create 10 storage blob containers",
+                "steps": [
+                    "Step 1: Verify storage account exists",
+                    "Step 2: Create 10 containers named container-01 to container-10",
+                ],
+                "confidence": 0.9,
+                "estimated_operations": 12,
+            }
+        )
         mock_message.content = [mock_content]
         mock_client.messages.create.return_value = mock_message
 
@@ -414,11 +418,13 @@ class TestClarify:
 
         mock_message = Mock()
         mock_content = Mock()
-        mock_content.text = json.dumps({
-            "clarified_request": "Use existing storage account",
-            "steps": ["Step 1: Use existing account"],
-            "confidence": 0.95,
-        })
+        mock_content.text = json.dumps(
+            {
+                "clarified_request": "Use existing storage account",
+                "steps": ["Step 1: Use existing account"],
+                "confidence": 0.95,
+            }
+        )
         mock_message.content = [mock_content]
         mock_client.messages.create.return_value = mock_message
 
@@ -442,11 +448,13 @@ class TestClarify:
 
         mock_message = Mock()
         mock_content = Mock()
-        mock_content.text = json.dumps({
-            "clarified_request": "Test request",
-            "steps": ["Step 1"],
-            "confidence": 0.9,
-        })
+        mock_content.text = json.dumps(
+            {
+                "clarified_request": "Test request",
+                "steps": ["Step 1"],
+                "confidence": 0.9,
+            }
+        )
         mock_message.content = [mock_content]
         mock_client.messages.create.return_value = mock_message
 
@@ -470,11 +478,13 @@ class TestClarify:
 
         mock_message = Mock()
         mock_content = Mock()
-        mock_content.text = json.dumps({
-            "clarified_request": "Test request",
-            "steps": ["Step 1"],
-            "confidence": 0.9,
-        })
+        mock_content.text = json.dumps(
+            {
+                "clarified_request": "Test request",
+                "steps": ["Step 1"],
+                "confidence": 0.9,
+            }
+        )
         mock_message.content = [mock_content]
         mock_client.messages.create.return_value = mock_message
 
@@ -539,10 +549,12 @@ class TestClarify:
 
         mock_message = Mock()
         mock_content = Mock()
-        mock_content.text = json.dumps({
-            "clarified_request": "test",
-            # Missing steps and confidence
-        })
+        mock_content.text = json.dumps(
+            {
+                "clarified_request": "test",
+                # Missing steps and confidence
+            }
+        )
         mock_message.content = [mock_content]
         mock_client.messages.create.return_value = mock_message
 

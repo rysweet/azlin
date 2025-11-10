@@ -5456,6 +5456,10 @@ def _do_impl(
     Raises:
         SystemExit: On various error conditions with appropriate exit codes
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     try:
         # Check for API key
         import os
@@ -5552,13 +5556,11 @@ def _do_impl(
                 click.echo(f"Clarification unavailable: {e}", err=True)
                 click.echo("Continuing with direct parsing...", err=True)
                 if verbose:
-                    import logging
-
-                    logger = logging.getLogger(__name__)
                     logger.exception("Clarification error details:")
 
         # Phase 2: Parse natural language intent (possibly clarified)
         # Only parse if we didn't already parse successfully above
+        intent: dict[str, Any]
         if needs_parsing:
             if verbose:
                 click.echo(f"\nParsing request: {clarified_request}")
@@ -5567,7 +5569,12 @@ def _do_impl(
             intent = parser.parse(clarified_request, context=context)
         else:
             # Reuse the initial intent we already parsed
-            intent = initial_intent
+            if initial_intent is None:
+                # This shouldn't happen, but if it does, parse again
+                parser = IntentParser()
+                intent = parser.parse(clarified_request, context=context)
+            else:
+                intent = initial_intent
 
         if verbose:
             click.echo("\nParsed Intent:")
