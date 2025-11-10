@@ -1796,21 +1796,21 @@ Get your API key from: https://console.anthropic.com/
 All of these were tested and work reliably:
 
 ```bash
-# VM Provisioning (100% confidence)
+# VM Provisioning 
 azlin do "create a new vm called Sam"
 azlin do "provision a Standard_D4s_v3 vm called ml-trainer"
 uvx --from git+https://github.com/rysweet/azlin azlin do "create a vm"
 
-# Listing VMs (100% confidence)
+# Listing VMs
 azlin do "show me all my vms"
 azlin do "list all my vms"
 azlin do "what vms do I have"
 
-# Checking Status (95% confidence)
+# Checking Status
 azlin do "what is the status of my vms"
 azlin do "show me vm details"
 
-# Cost Queries (90% confidence)
+# Cost Queries
 azlin do "what are my azure costs"
 azlin do "show me costs by vm"
 azlin do "what's my current azure spending"
@@ -1891,7 +1891,6 @@ azlin do "delete test vms" --dry-run --verbose
 
 ### Features
 
-- **High Accuracy**: 95-100% confidence on VM operations (tested)
 - **Context-Aware**: Understands your current VMs, storage, and Azure state
 - **Safe by Default**: Shows plan and asks for confirmation
 - **Dry Run Mode**: Preview actions without executing
