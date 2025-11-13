@@ -6,15 +6,70 @@ This module provides common fixtures used across all test types:
 - Temporary directories for SSH/config
 - Sample VM configurations
 - Progress display mocks
+- CRITICAL: Protection for production config.toml
 """
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
+
+# ============================================================================
+# PRODUCTION CONFIG PROTECTION (CRITICAL - Issue #279)
+# ============================================================================
+
+
+@pytest.fixture(scope="session", autouse=True)
+def protect_production_config():
+    """Protect ~/.azlin/config.toml from being modified by tests.
+
+    CRITICAL PROTECTION: Tests should NEVER modify production config files.
+
+    This fixture:
+    1. Backs up the real config.toml before any tests run
+    2. Restores it after all tests complete
+    3. Prevents accidental modifications during test runs
+
+    Related Issues: #279
+    - Tests creating VMs in production resource groups (e.g., "my-rg")
+    - Tests modifying ~/.azlin/config.toml
+    - Lost user configuration when tests overwrite config
+    """
+    config_path = Path.home() / ".azlin" / "config.toml"
+    backup_path = Path.home() / ".azlin" / ".config.toml.pytest-backup"
+
+    # Backup if exists
+    config_existed = config_path.exists()
+    if config_existed:
+        shutil.copy2(config_path, backup_path)
+        print(f"\n[PYTEST] Protected config.toml - backup at {backup_path}")
+
+    yield
+
+    # Restore after all tests
+    if config_existed and backup_path.exists():
+        shutil.copy2(backup_path, config_path)
+        backup_path.unlink()
+        print(f"\n[PYTEST] Restored config.toml from backup")
+    elif backup_path.exists():
+        backup_path.unlink()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def set_test_mode_env():
+    """Set AZLIN_TEST_MODE environment variable for all tests.
+
+    This environment variable is checked by ConfigManager.save_config()
+    to prevent tests from accidentally writing to production config.
+    """
+    os.environ["AZLIN_TEST_MODE"] = "true"
+    yield
+    # Cleanup
+    os.environ.pop("AZLIN_TEST_MODE", None)
 
 # ============================================================================
 # DIRECTORY FIXTURES

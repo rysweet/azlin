@@ -339,6 +339,14 @@ class ConfigManager:
         Raises:
             ConfigError: If saving fails or path is outside allowed directories
         """
+        # CRITICAL: Prevent tests from modifying production config (Issue #279)
+        if os.getenv("AZLIN_TEST_MODE") == "true" and custom_path is None:
+            raise ConfigError(
+                "Cannot save to production config during tests. "
+                "Tests must use custom_path with tmp_path fixture. "
+                "This protects ~/.azlin/config.toml from being overwritten."
+            )
+
         temp_path: Path | None = None
         try:
             # Determine config path
