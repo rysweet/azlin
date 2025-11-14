@@ -176,9 +176,7 @@ class TestPriority2ConfigDefault:
                 for record in caplog.records
             )
 
-    def test_config_storage_listing_fails_falls_back_to_priority3(
-        self, storage_eastus, caplog
-    ):
+    def test_config_storage_listing_fails_falls_back_to_priority3(self, storage_eastus, caplog):
         """Priority 2: If listing fails, should fall back to Priority 3."""
         orchestrator = CLIOrchestrator(region="eastus")
 
@@ -193,9 +191,8 @@ class TestPriority2ConfigDefault:
             if call_count == 1:
                 # First call in _try_lookup_storage_by_name fails
                 raise Exception("API error")
-            else:
-                # Second call in Priority 3 succeeds
-                return [storage_eastus]
+            # Second call in Priority 3 succeeds
+            return [storage_eastus]
 
         with patch(
             "azlin.modules.storage_manager.StorageManager.list_storage",
@@ -207,7 +204,9 @@ class TestPriority2ConfigDefault:
             assert result.name == "storage-eastus"
 
             # Should log warning about listing failure
-            assert any("Could not list storage accounts" in record.message for record in caplog.records)
+            assert any(
+                "Could not list storage accounts" in record.message for record in caplog.records
+            )
 
 
 class TestPriority3AutoDetect:
@@ -246,9 +245,7 @@ class TestPriority3AutoDetect:
             assert result.name == "storage-eastus"
             assert result.region == "eastus"
 
-    def test_auto_detect_multiple_same_region_raises_error(
-        self, storage_westus, storage_westus2
-    ):
+    def test_auto_detect_multiple_same_region_raises_error(self, storage_westus, storage_westus2):
         """Priority 3: Multiple same-region storages without explicit choice should raise ValueError."""
         orchestrator = CLIOrchestrator(region="westus")
 
@@ -391,7 +388,9 @@ class TestTryLookupStorageByNameMethod:
             assert result is None
 
             # Should log warning
-            assert any("Could not list storage accounts" in record.message for record in caplog.records)
+            assert any(
+                "Could not list storage accounts" in record.message for record in caplog.records
+            )
 
 
 class TestEdgeCases:
