@@ -1138,18 +1138,23 @@ class CLIOrchestrator:
             self.progress.update("Home sync failed (unexpected error)", ProgressStage.WARNING)
             logger.exception("Unexpected error during home sync")
 
-    def _lookup_storage_by_name(self, resource_group: str, storage_name: str) -> "StorageInfo":
+    def _lookup_storage_by_name(
+        self, resource_group: str, storage_name: str, require_same_region: bool = True
+    ) -> "StorageInfo":
         """Lookup storage by name, raising ValueError if not found.
 
         Args:
             resource_group: Resource group to search in
             storage_name: Name of storage account to find
+            require_same_region: If True, raises ValueError for cross-region storage.
+                                If False, allows cross-region storage with info log.
 
         Returns:
             StorageInfo object for the storage account
 
         Raises:
-            ValueError: If storage account not found in resource group
+            ValueError: If storage account not found in resource group, or if
+                       require_same_region=True and storage is in different region
         """
         from azlin.modules.storage_manager import StorageManager
 
@@ -1161,13 +1166,66 @@ class CLIOrchestrator:
                 f"Create it first with: azlin storage create {storage_name}"
             )
 
-        # Note: Cross-region storage is now handled in _mount_nfs_storage()
-        # with private endpoint setup via ResourceOrchestrator
+        # Cross-region validation
         if storage.region.lower() != self.region.lower():
+            if require_same_region:
+                raise ValueError(
+                    f"Storage account '{storage_name}' is in region '{storage.region}', "
+                    f"but VM will be in region '{self.region}'. "
+                    f"Cross-region NFS storage is not supported. "
+                    f"Please create storage in the same region or use --region {storage.region}."
+                )
+            # Note: Cross-region storage is now handled in _mount_nfs_storage()
+            # with private endpoint setup via ResourceOrchestrator
             logger.info(
                 f"Storage account '{storage_name}' is in region '{storage.region}', "
                 f"VM will be in region '{self.region}'. Cross-region access will be handled during mount."
             )
+
+        return storage
+
+    def _try_lookup_storage_by_name(
+        self, resource_group: str, storage_name: str
+    ) -> "StorageInfo | None":
+        """Gracefully lookup storage by name, returning None on any failure.
+
+        This is the "graceful" version used for Priority 2 (config file default).
+        Returns None instead of raising exceptions, with warning logs for fallback.
+
+        Args:
+            resource_group: Resource group to search in
+            storage_name: Name of storage account to find
+
+        Returns:
+            StorageInfo object if found and in same region, None otherwise
+        """
+        from azlin.modules.storage_manager import StorageManager
+
+        try:
+            storages = StorageManager.list_storage(resource_group)
+        except Exception as e:
+            logger.warning(
+                f"Could not list storage accounts in resource group '{resource_group}': {e}. "
+                f"Skipping config default storage '{storage_name}'."
+            )
+            return None
+
+        storage = next((s for s in storages if s.name == storage_name), None)
+        if not storage:
+            logger.warning(
+                f"Config default storage '{storage_name}' not found in resource group '{resource_group}'. "
+                f"Falling back to auto-detection."
+            )
+            return None
+
+        # Cross-region validation for Priority 2
+        if storage.region.lower() != self.region.lower():
+            logger.warning(
+                f"Config default storage '{storage_name}' is in region '{storage.region}', "
+                f"but VM will be in region '{self.region}'. "
+                f"Cross-region NFS storage is not supported. Falling back to auto-detection."
+            )
+            return None
 
         return storage
 
@@ -1194,13 +1252,19 @@ class CLIOrchestrator:
         """
         from azlin.modules.storage_manager import StorageManager
 
-        # Priority 1: Explicit --nfs-storage option
+        # Priority 1: Explicit --nfs-storage option (strict - raises on cross-region)
         if self.nfs_storage:
             return self._lookup_storage_by_name(resource_group, self.nfs_storage)
 
-        # Priority 2: Config file default
+        # Priority 2: Config file default (graceful - falls back to Priority 3 on cross-region)
         if config and config.default_nfs_storage:
-            return self._lookup_storage_by_name(resource_group, config.default_nfs_storage)
+            storage = self._try_lookup_storage_by_name(resource_group, config.default_nfs_storage)
+            if storage:
+                self.progress.update(
+                    f"Using config default NFS storage: {storage.name} (region: {storage.region})"
+                )
+                return storage
+            # Fall through to Priority 3 if config storage not found or cross-region
 
         # Priority 3: Auto-detect (more permissive than explicit/config)
         # Note: If storage listing fails during auto-detection, we fallback to
