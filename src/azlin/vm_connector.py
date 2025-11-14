@@ -513,13 +513,17 @@ class VMConnector:
 
             if bastion_info:
                 # Prompt user (default changed to True for security by default)
-                if click.confirm(
-                    f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
-                    default=True,
-                ):
+                try:
+                    if click.confirm(
+                        f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
+                        default=True,
+                    ):
+                        return bastion_info
+                    logger.info("User declined Bastion connection, using direct connection")
+                except click.exceptions.Abort:
+                    # Non-interactive mode - use default (True)
+                    logger.info("Non-interactive mode, using Bastion (default)")
                     return bastion_info
-
-                logger.info("User declined Bastion connection, using direct connection")
 
         except Exception as e:
             logger.debug(f"Bastion detection failed: {e}")
