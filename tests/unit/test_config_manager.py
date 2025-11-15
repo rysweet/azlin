@@ -206,7 +206,18 @@ class TestSessionNameValidation:
 
         # Lookup should filter out self-referential entry
         # Pass resource_group="" to force config-only lookup (tags require RG)
-        with patch("azlin.tag_manager.TagManager.get_vm_by_session", return_value=None):
+        # Mock both tag search methods and VMCache to force config fallback
+        mock_tag_manager = MagicMock()
+        mock_tag_manager.get_vm_by_session.return_value = None
+        mock_tag_manager.find_vm_by_session_tag_fallback.return_value = None
+
+        mock_vm_cache = MagicMock()
+        mock_vm_cache.return_value.get.return_value = None
+
+        with (
+            patch("azlin.tag_manager.TagManager", mock_tag_manager),
+            patch("azlin.vm_cache.VMCache", mock_vm_cache),
+        ):
             result = ConfigManager.get_vm_name_by_session(
                 "simserv", str(config_file), resource_group="test-rg"
             )
@@ -225,13 +236,49 @@ class TestSessionNameValidation:
         ConfigManager.save_config(config, str(config_file))
 
         # Lookup should warn and return first match
-        # Mock TagManager to force config fallback
-        with patch("azlin.tag_manager.TagManager.get_vm_by_session", return_value=None):
+        # Mock TagManager and VMCache to force config fallback
+        mock_tag_manager = MagicMock()
+        mock_tag_manager.get_vm_by_session.return_value = None
+        mock_tag_manager.find_vm_by_session_tag_fallback.return_value = None
+
+        mock_vm_cache = MagicMock()
+        mock_vm_cache.return_value.get.return_value = None
+
+        with (
+            patch("azlin.tag_manager.TagManager", mock_tag_manager),
+            patch("azlin.vm_cache.VMCache", mock_vm_cache),
+        ):
             result = ConfigManager.get_vm_name_by_session(
                 "prod", str(config_file), resource_group="test-rg"
             )
             assert result == "vm1"
             assert "Duplicate session name 'prod'" in caplog.text
+
+    def test_get_vm_name_by_session_uses_fallback_when_primary_fails(self, tmp_path):
+        """Test fallback is used when primary tag search fails."""
+        from unittest.mock import MagicMock, patch
+
+        # Create mock VM info for fallback to return
+        mock_vm_info = MagicMock()
+        mock_vm_info.name = "test-vm-123"
+        mock_vm_info.resource_group = "test-rg"
+
+        # Mock VMCache to return None (cache miss)
+        mock_vm_cache = MagicMock()
+        mock_vm_cache.return_value.get.return_value = None
+
+        # Mock primary tag search to fail (returns None)
+        # Mock fallback to succeed (returns VM)
+        with patch("azlin.vm_cache.VMCache", mock_vm_cache):
+            with patch("azlin.tag_manager.TagManager.get_vm_by_session", return_value=None):
+                with patch(
+                    "azlin.tag_manager.TagManager.find_vm_by_session_tag_fallback",
+                    return_value=mock_vm_info,
+                ):
+                    result = ConfigManager.get_vm_name_by_session(
+                        "test-session", resource_group="test-rg"
+                    )
+                    assert result == "test-vm-123"
 
     def test_get_vm_name_by_session_normal_flow(self, tmp_path):
         """Test get_vm_name_by_session returns correct VM for valid mapping."""
