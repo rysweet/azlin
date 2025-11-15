@@ -51,6 +51,23 @@ class TagManager:
     # Tag key validation: alphanumeric, underscore, hyphen, period
     TAG_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
+    @staticmethod
+    def _extract_resource_group_from_vm_data(vm_data: dict[str, Any]) -> str | None:
+        """Extract resource group from VM data (ID or resourceGroup field).
+
+        Args:
+            vm_data: VM data dictionary from Azure CLI
+
+        Returns:
+            Resource group name or None if not found
+        """
+        vm_id = vm_data.get("id", "")
+        rg_parts = vm_id.split("/")
+        for i, part in enumerate(rg_parts):
+            if part == "resourceGroups" and i + 1 < len(rg_parts):
+                return rg_parts[i + 1]
+        return vm_data.get("resourceGroup")
+
     @classmethod
     def add_tags(cls, vm_name: str, resource_group: str, tags: dict[str, str]) -> None:
         """Add tags to a VM.
@@ -405,6 +422,103 @@ class TagManager:
             return None
 
     @classmethod
+    def find_vm_by_session_tag_fallback(
+        cls, session_name: str, resource_group: str | None = None
+    ) -> VMInfo | None:
+        """Find VM by session tag without managed-by filter (fallback).
+
+        This fallback method searches for VMs with azlin-session tag WITHOUT
+        requiring the managed-by=azlin tag. Used when primary tag search fails.
+
+        Args:
+            session_name: Session name to search for
+            resource_group: Optional RG to limit search (None = all RGs)
+
+        Returns:
+            VMInfo if found, None otherwise
+
+        Note:
+            This is a fallback for VMs that have azlin-session but not managed-by tag.
+            Used during transition period or for manually tagged VMs.
+        """
+        from azlin.vm_manager import VMManager
+
+        try:
+            # Build Azure CLI command
+            cmd = ["az", "vm", "list", "--output", "json"]
+
+            if resource_group:
+                cmd.extend(["--resource-group", resource_group])
+
+            # Query for VMs with specific azlin-session tag value
+            cmd.extend(
+                [
+                    "--query",
+                    f"[?tags.\"{cls.TAG_SESSION}\"=='{session_name}']",
+                ]
+            )
+
+            executor = AzureCLIExecutor(show_progress=False, timeout=30)
+            result = executor.execute(cmd)
+
+            if not result["success"]:
+                raise subprocess.CalledProcessError(
+                    result["returncode"], cmd, result["stdout"], result["stderr"]
+                )
+
+            vms_data = json.loads(result["stdout"])
+
+            # Filter to ensure we only get VMs with our specific session name
+            # and convert to VMInfo objects
+            vms = []
+            for vm_data in vms_data:
+                try:
+                    # Extract resource group using helper
+                    rg = cls._extract_resource_group_from_vm_data(vm_data)
+
+                    if rg:
+                        # Use VMManager to get full VM info
+                        vm_info = VMManager.get_vm(vm_data["name"], rg)
+                        if vm_info:
+                            vms.append(vm_info)
+                except Exception as e:
+                    logger.debug(f"Failed to parse VM data in fallback: {e}")
+                    continue
+
+            # Return first match, warn if multiple
+            if len(vms) > 1:
+                logger.warning(
+                    f"Multiple VMs found with session '{session_name}' "
+                    f"(without managed-by tag): {[vm.name for vm in vms]}, using first"
+                )
+                return vms[0]
+            if len(vms) == 1:
+                logger.info(
+                    f"Found VM '{vms[0].name}' with session '{session_name}' "
+                    f"via fallback (azlin-session tag without managed-by tag)"
+                )
+                return vms[0]
+
+            logger.debug(
+                f"Fallback: No VMs found with session '{session_name}' "
+                f"(checked azlin-session tag without managed-by requirement)"
+            )
+            return None
+
+        except subprocess.TimeoutExpired as e:
+            logger.debug(f"Fallback search timeout for session '{session_name}': {e}")
+            return None
+        except subprocess.CalledProcessError as e:
+            logger.debug(f"Fallback search failed for session '{session_name}': {e.stderr}")
+            return None
+        except json.JSONDecodeError as e:
+            logger.debug(f"Fallback search JSON parse error for session '{session_name}': {e}")
+            return None
+        except Exception as e:
+            logger.debug(f"Fallback search error for session '{session_name}': {e}")
+            return None
+
+    @classmethod
     def list_managed_vms(cls, resource_group: str | None = None) -> list[VMInfo]:
         """List all azlin-managed VMs.
 
@@ -448,17 +562,8 @@ class TagManager:
             vms = []
             for vm_data in vms_data:
                 try:
-                    # Extract resource group from VM ID
-                    vm_id = vm_data.get("id", "")
-                    rg_parts = vm_id.split("/")
-                    rg = None
-                    for i, part in enumerate(rg_parts):
-                        if part == "resourceGroups" and i + 1 < len(rg_parts):
-                            rg = rg_parts[i + 1]
-                            break
-
-                    if not rg:
-                        rg = vm_data.get("resourceGroup")
+                    # Extract resource group using helper
+                    rg = cls._extract_resource_group_from_vm_data(vm_data)
 
                     if rg:
                         # Use VMManager to get full VM info
