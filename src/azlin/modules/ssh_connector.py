@@ -93,7 +93,9 @@ class SSHConnector:
 
         # Wait for SSH to be ready
         logger.info(f"Waiting for SSH on {config.host}:{config.port}...")
-        if not cls.wait_for_ssh_ready(config.host, config.key_path, port=config.port, user=config.user):
+        if not cls.wait_for_ssh_ready(
+            config.host, config.key_path, port=config.port, user=config.user
+        ):
             raise SSHConnectionError(f"SSH connection to {config.host} timed out")
 
         # Build SSH command
