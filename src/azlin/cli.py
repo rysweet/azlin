@@ -55,6 +55,11 @@ from azlin.commands.auth import auth
 # Bastion commands
 # Storage commands
 from azlin.commands.bastion import bastion_group
+
+# Context commands
+from azlin.commands.context import context_group
+
+# Doit commands
 from azlin.commands.doit import doit_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
@@ -7784,6 +7789,9 @@ def snapshot_delete(
 
 # Register auth commands
 main.add_command(auth)
+
+# Register context commands
+main.add_command(context_group)
 
 # Register bastion commands
 main.add_command(bastion_group)
