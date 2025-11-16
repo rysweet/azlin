@@ -93,7 +93,9 @@ class SSHConnector:
 
         # Wait for SSH to be ready
         logger.info(f"Waiting for SSH on {config.host}:{config.port}...")
-        if not cls.wait_for_ssh_ready(config.host, config.key_path, port=config.port):
+        if not cls.wait_for_ssh_ready(
+            config.host, config.key_path, port=config.port, user=config.user
+        ):
             raise SSHConnectionError(f"SSH connection to {config.host} timed out")
 
         # Build SSH command
@@ -149,7 +151,13 @@ class SSHConnector:
 
     @classmethod
     def wait_for_ssh_ready(
-        cls, host: str, key_path: Path, port: int = 22, timeout: int = 300, interval: int = 5
+        cls,
+        host: str,
+        key_path: Path,
+        port: int = 22,
+        timeout: int = 300,
+        interval: int = 5,
+        user: str | None = None,
     ) -> bool:
         """
         Wait for SSH port to be accessible.
@@ -158,11 +166,15 @@ class SSHConnector:
             host: Target hostname/IP
             key_path: Path to SSH private key
             port: SSH port
-            timeout: Maximum wait time in seconds
+            timeout: Maximum wait time in seconds (default: 300)
             interval: Check interval in seconds
+            user: SSH username (optional, defaults to DEFAULT_USER)
 
         Returns:
             bool: True if SSH is ready, False if timed out
+
+        Raises:
+            ValueError: If timeout is negative
 
         Security:
         - Non-blocking socket checks
@@ -177,10 +189,18 @@ class SSHConnector:
             >>> if ready:
             ...     print("SSH is ready")
         """
+        # Validate timeout
+        if timeout < 0:
+            raise ValueError("timeout must be positive (non-negative)")
+
         start_time = time.time()
         attempt = 0
 
-        while (time.time() - start_time) < timeout:
+        while True:
+            current_time = time.time()
+            if (current_time - start_time) >= timeout:
+                break
+
             attempt += 1
 
             # First check if port is open
@@ -188,15 +208,12 @@ class SSHConnector:
                 logger.debug(f"Port {port} is open on {host}")
 
                 # Then try actual SSH connection
-                if cls._test_ssh_connection(host, key_path, port):
-                    elapsed = time.time() - start_time
+                if cls._test_ssh_connection(host, key_path, port, user=user):
+                    elapsed = current_time - start_time
                     logger.info(
                         f"SSH ready on {host}:{port} (after {elapsed:.1f}s, {attempt} attempts)"
                     )
                     return True
-
-            if (time.time() - start_time) >= timeout:
-                break
 
             # Wait before next attempt
             logger.debug(f"SSH not ready, retrying in {interval}s...")
@@ -230,7 +247,9 @@ class SSHConnector:
             return False
 
     @classmethod
-    def _test_ssh_connection(cls, host: str, key_path: Path, port: int, timeout: int = 10) -> bool:
+    def _test_ssh_connection(
+        cls, host: str, key_path: Path, port: int, timeout: int = 10, user: str | None = None
+    ) -> bool:
         """
         Test SSH connection with actual authentication.
 
@@ -239,6 +258,7 @@ class SSHConnector:
             key_path: SSH private key path
             port: SSH port
             timeout: Connection timeout
+            user: SSH username (optional, defaults to DEFAULT_USER)
 
         Returns:
             bool: True if SSH connection succeeds
@@ -249,6 +269,9 @@ class SSHConnector:
         - Short timeout
         """
         try:
+            # Use provided username or fallback to DEFAULT_USER
+            ssh_user = user if user else cls.DEFAULT_USER
+
             # Build minimal SSH command to test connection
             args = [
                 "ssh",
@@ -266,7 +289,7 @@ class SSHConnector:
                 f"ConnectTimeout={timeout}",
                 "-o",
                 "LogLevel=ERROR",
-                f"{cls.DEFAULT_USER}@{host}",
+                f"{ssh_user}@{host}",
                 "exit 0",  # Simple command
             ]
 

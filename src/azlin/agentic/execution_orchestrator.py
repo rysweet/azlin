@@ -8,6 +8,7 @@ Manages the full execution lifecycle including:
 """
 
 import logging
+import subprocess
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -24,6 +25,12 @@ from azlin.agentic.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class ExecutionOrchestratorError(Exception):
+    """Error raised by execution orchestrator for internal failures."""
+
+    pass
 
 
 class RetryDecision(str, Enum):
@@ -112,8 +119,7 @@ class ExecutionOrchestrator:
             >>> else:
             ...     print(f"All strategies failed: {result.error}")
         """
-        # Build strategy chain: primary + fallbacks
-        strategy_chain = [strategy_plan.primary_strategy, *strategy_plan.fallback_strategies]
+        strategy_chain = self._build_strategy_chain(strategy_plan)
 
         logger.info(
             "Starting execution with %d strategies in chain",
@@ -122,43 +128,129 @@ class ExecutionOrchestrator:
 
         # Try each strategy in the chain
         for strategy_type in strategy_chain:
-            logger.info("Attempting execution with strategy: %s", strategy_type.value)
-
-            # Try this strategy with retries
-            result = self._execute_with_retry(context, strategy_type)
+            result = self._execute_strategy_with_retry(context, strategy_type)
 
             if result.success:
-                logger.info(
-                    "Execution succeeded with %s after %d total attempts",
-                    strategy_type.value,
-                    len(self.attempts),
-                )
                 return result
 
-            # Failed - check if we should try next strategy
-            decision = self._should_retry_or_fallback(result, strategy_chain, strategy_type)
-
-            if (
-                decision == RetryDecision.RETRY_FALLBACK
-                and strategy_chain.index(strategy_type) < len(strategy_chain) - 1
-            ):
-                logger.info(
-                    "Strategy %s failed, trying fallback",
-                    strategy_type.value,
-                )
-                continue
-
-            if decision == RetryDecision.ABORT:
-                logger.error(
-                    "Aborting execution after %s failure: %s",
-                    strategy_type.value,
-                    result.error,
-                )
+            # Check if we should continue to next strategy or abort
+            if self._should_abort_execution(result, strategy_chain, strategy_type):
                 break
 
-        # All strategies failed
-        final_result = self.attempts[-1].result if self.attempts else result
+        # All strategies failed - prepare final result
+        final_result = self._prepare_final_failure_result(strategy_chain)
 
+        # Attempt rollback and add metadata
+        self._finalize_failed_execution(context, final_result)
+
+        return final_result
+
+    def _build_strategy_chain(self, strategy_plan: StrategyPlan) -> list[Strategy]:
+        """Build strategy chain from plan.
+
+        Args:
+            strategy_plan: Strategy plan with primary and fallbacks
+
+        Returns:
+            List of strategies in execution order
+        """
+        return [strategy_plan.primary_strategy, *strategy_plan.fallback_strategies]
+
+    def _execute_strategy_with_retry(
+        self,
+        context: ExecutionContext,
+        strategy_type: Strategy,
+    ) -> ExecutionResult:
+        """Execute strategy with retries and logging.
+
+        Args:
+            context: Execution context
+            strategy_type: Strategy to execute
+
+        Returns:
+            Execution result
+        """
+        logger.info("Attempting execution with strategy: %s", strategy_type.value)
+        result = self._execute_with_retry(context, strategy_type)
+
+        if result.success:
+            logger.info(
+                "Execution succeeded with %s after %d total attempts",
+                strategy_type.value,
+                len(self.attempts),
+            )
+
+        return result
+
+    def _should_abort_execution(
+        self,
+        result: ExecutionResult,
+        strategy_chain: list[Strategy],
+        current_strategy: Strategy,
+    ) -> bool:
+        """Determine if execution should abort or try next strategy.
+
+        Args:
+            result: Current execution result
+            strategy_chain: Full strategy chain
+            current_strategy: Current strategy that failed
+
+        Returns:
+            True if execution should abort
+        """
+        decision = self._should_retry_or_fallback(result, strategy_chain, current_strategy)
+
+        if decision == RetryDecision.ABORT:
+            logger.error(
+                "Aborting execution after %s failure: %s",
+                current_strategy.value,
+                result.error,
+            )
+            return True
+
+        current_index = strategy_chain.index(current_strategy)
+        has_more_strategies = current_index < len(strategy_chain) - 1
+
+        if decision == RetryDecision.RETRY_FALLBACK and has_more_strategies:
+            logger.info(
+                "Strategy %s failed, trying fallback",
+                current_strategy.value,
+            )
+            return False
+
+        return True
+
+    def _prepare_final_failure_result(self, strategy_chain: list[Strategy]) -> ExecutionResult:
+        """Prepare final failure result after all strategies exhausted.
+
+        Args:
+            strategy_chain: Strategy chain that was tried
+
+        Returns:
+            Final ExecutionResult representing failure
+        """
+        if self.attempts:
+            return self.attempts[-1].result
+
+        # No attempts recorded - return generic failure
+        return ExecutionResult(
+            success=False,
+            strategy=strategy_chain[0],
+            error="No execution attempts were recorded",
+            failure_type=FailureType.INTERNAL_ERROR,
+        )
+
+    def _finalize_failed_execution(
+        self,
+        context: ExecutionContext,
+        final_result: ExecutionResult,
+    ) -> None:
+        """Finalize failed execution with rollback and metadata.
+
+        Args:
+            context: Execution context
+            final_result: Final execution result to update
+        """
         # Attempt rollback if enabled
         if self.enable_rollback and final_result.resources_created:
             logger.info("Attempting rollback of %d resources", len(final_result.resources_created))
@@ -170,8 +262,6 @@ class ExecutionOrchestrator:
         final_result.metadata["strategies_tried"] = [
             attempt.strategy.value for attempt in self.attempts
         ]
-
-        return final_result
 
     def _execute_with_retry(
         self,
@@ -237,8 +327,11 @@ class ExecutionOrchestrator:
             )
             time.sleep(delay)
 
-        # Should not reach here, but return last result
-        return result
+        # Should not reach here - raise error to satisfy type checker
+        # max_retries must be >= 1, so loop always executes at least once
+        raise RuntimeError(
+            f"Execution loop completed without returning result (max_retries={self.max_retries})"
+        )
 
     def _get_strategy(self, strategy_type: Strategy) -> Any:
         """Get strategy instance (cached).
@@ -248,15 +341,29 @@ class ExecutionOrchestrator:
 
         Returns:
             Strategy instance
+
+        Raises:
+            ExecutionOrchestratorError: If strategy type is not implemented
         """
         if strategy_type not in self._strategy_cache:
             if strategy_type == Strategy.AZURE_CLI:
                 self._strategy_cache[strategy_type] = AzureCLIStrategy()
             elif strategy_type == Strategy.TERRAFORM:
                 self._strategy_cache[strategy_type] = TerraformStrategy()
+            elif strategy_type == Strategy.CUSTOM_CODE:
+                msg = (
+                    f"Strategy {strategy_type.value} is not yet implemented. "
+                    "Custom code execution requires additional security considerations."
+                )
+                logger.error(msg)
+                raise ExecutionOrchestratorError(msg)
             else:
-                msg = f"Strategy {strategy_type.value} not implemented"
-                raise NotImplementedError(msg)
+                msg = (
+                    f"Invalid strategy type: {strategy_type.value}. "
+                    "This is a bug - please report it at https://github.com/rynop/azlin/issues"
+                )
+                logger.error(msg)
+                raise ExecutionOrchestratorError(msg)
 
         return self._strategy_cache[strategy_type]
 
@@ -343,8 +450,23 @@ class ExecutionOrchestrator:
         try:
             cleanup_strategy.cleanup_on_failure(context, result.resources_created)
             logger.info("Rollback completed successfully")
-        except Exception:
-            logger.exception("Rollback failed - manual cleanup may be required")
+            # Track successful rollback in metadata
+            result.metadata = result.metadata or {}
+            result.metadata["rollback_status"] = "success"
+        except (OSError, subprocess.CalledProcessError) as e:
+            error_msg = f"Rollback failed - manual cleanup may be required: {e!s}"
+            logger.error(error_msg)
+            # Track rollback failure in metadata for user visibility
+            result.metadata = result.metadata or {}
+            result.metadata["rollback_status"] = "failed"
+            result.metadata["rollback_error"] = str(e)
+        except Exception as e:
+            error_msg = f"Unexpected error during rollback - manual cleanup may be required: {e!s}"
+            logger.error(error_msg, exc_info=True)
+            # Track rollback failure in metadata for user visibility
+            result.metadata = result.metadata or {}
+            result.metadata["rollback_status"] = "failed"
+            result.metadata["rollback_error"] = str(e)
 
     def get_execution_summary(self) -> dict[str, Any]:
         """Get summary of all execution attempts.

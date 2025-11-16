@@ -504,7 +504,11 @@ class ThreatPatternLibrary:
             r"class\s+\w+\s*\(",  # Class definitions
         ]
 
-        return any(re.search(pattern, content, re.IGNORECASE) for pattern in development_indicators)
+        for pattern in development_indicators:
+            if re.search(pattern, content, re.IGNORECASE):
+                return True
+
+        return False
 
 
 class XPIADefenseEngine:
@@ -656,7 +660,11 @@ class XPIADefenseEngine:
             r"^(?:what|how|when|where|why)\s+",
         ]
 
-        return any(re.match(pattern, content.strip(), re.IGNORECASE) for pattern in safe_patterns)
+        for pattern in safe_patterns:
+            if re.match(pattern, content.strip(), re.IGNORECASE):
+                return True
+
+        return False
 
     def _create_safe_result(self, content: str, start_time: float) -> ValidationResult:
         """Create a safe validation result"""

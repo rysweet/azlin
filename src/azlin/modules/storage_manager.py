@@ -390,11 +390,12 @@ class StorageManager:
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            logger.warning(f"Failed to list storage accounts: {error_msg}")
-            return []
+            logger.error(f"Failed to list storage accounts in {resource_group}: {error_msg}")
+            logger.error(f"Command: az storage account list --resource-group {resource_group}")
+            raise StorageError(f"Failed to list storage accounts: {error_msg}") from e
         except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Failed to parse storage account list: {e}")
-            return []
+            logger.error(f"Failed to parse storage account list in {resource_group}: {e}")
+            raise StorageError(f"Failed to parse storage account list: {e}") from e
 
     @classmethod
     def _get_share_quota(cls, storage_account: str, resource_group: str) -> int:
@@ -531,9 +532,18 @@ class StorageManager:
 
     @classmethod
     def _get_storage_usage(cls, storage_account: str) -> float:
-        """Get storage usage in GB."""
-        # For now, return 0 as usage metrics require additional setup
-        # In production, would query Azure Monitor metrics
+        """Get storage usage in GB.
+
+        Note: Returns 0 as Azure storage usage metrics require Azure Monitor
+        configuration and additional API calls. For detailed usage analysis,
+        use Azure Portal's storage account metrics or configure Azure Monitor.
+
+        Args:
+            storage_account: Storage account name
+
+        Returns:
+            Always returns 0.0 (usage tracking not implemented)
+        """
         return 0.0
 
     @classmethod
@@ -637,9 +647,6 @@ class StorageManager:
         """Validate storage size."""
         if size_gb <= 0:
             raise ValidationError("Size must be greater than zero")
-
-        if size_gb < 0:
-            raise ValidationError("Size must be positive")
 
     @classmethod
     def configure_nfs_network_access(

@@ -368,7 +368,10 @@ class ReflectionOrchestrator:
                 return results
 
             # Step 3: Get approval (unless auto mode)
-            approved = patterns if auto_create_issues else self.get_user_approval(patterns)
+            if auto_create_issues:
+                approved = patterns
+            else:
+                approved = self.get_user_approval(patterns)
 
             if not approved:
                 print("No issues will be created.")

@@ -27,15 +27,14 @@ except ImportError:
     try:
         import tomllib as tomli  # type: ignore[import]
     except ImportError as e:
-        raise ImportError(
-            "toml library not available. Install with: pip install tomli tomli-w"
-        ) from e
+        raise ImportError("toml library not available. Install with: pip install tomli") from e
 
 try:
     import tomli_w  # type: ignore[import]
 except ImportError as e:
     raise ImportError("tomli-w library not available. Install with: pip install tomli-w") from e
 
+from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.service_principal_auth import (
     ServicePrincipalConfig,
@@ -46,7 +45,7 @@ from azlin.service_principal_auth import (
 logger = logging.getLogger(__name__)
 
 
-@click.group(name="auth")
+@click.group(name="auth", cls=AzlinGroup)
 def auth():
     """Manage service principal authentication profiles.
 
@@ -140,10 +139,13 @@ def setup(
         if not subscription_id:
             subscription_id = click.prompt("Azure Subscription ID", type=str)
 
-        # At this point all IDs are guaranteed to be str (type checker needs help)
-        assert tenant_id is not None
-        assert client_id is not None
-        assert subscription_id is not None
+        # Validate all required IDs were provided
+        if not tenant_id:
+            raise ConfigError("Tenant ID is required but was not provided")
+        if not client_id:
+            raise ConfigError("Client ID is required but was not provided")
+        if not subscription_id:
+            raise ConfigError("Subscription ID is required but was not provided")
 
         # Ask about auth method if not specified
         if not use_certificate and not certificate_path:

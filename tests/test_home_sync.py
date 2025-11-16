@@ -18,8 +18,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from azlin.modules.home_sync import (
+    HomeSyncError,
     HomeSyncManager,
-    RsyncError,
 )
 from azlin.modules.ssh_connector import SSHConfig
 
@@ -287,8 +287,9 @@ class TestSymlinkValidation:
         sync_dir = tmp_path / "sync"
         sync_dir.mkdir()
 
-        # Create symlink to dangerous location
-        sync_dir / "dangerous_link"
+        # Create symlink to dangerous location (need to actually create the file for rglob to find it)
+        dangerous_link = sync_dir / "dangerous_link"
+        dangerous_link.touch()  # Create file so rglob finds it
         target = Path.home() / ".ssh"
 
         # Mock the symlink
@@ -420,9 +421,11 @@ class TestCommandConstruction:
         assert HomeSyncManager._is_valid_ip_or_hostname("192.168.1.1")
         assert HomeSyncManager._is_valid_ip_or_hostname("10.0.0.1")
 
-        # Invalid IP
+        # Invalid IP (looks like IP but has invalid octets)
         assert not HomeSyncManager._is_valid_ip_or_hostname("999.999.999.999")
-        assert not HomeSyncManager._is_valid_ip_or_hostname("not.an.ip.address")
+
+        # Valid hostname (not an IP, but valid per RFC 1123)
+        assert HomeSyncManager._is_valid_ip_or_hostname("not.an.ip.address")
 
     def test_hostname_validation(self):
         """Test that hostnames are validated per RFC 1123."""
@@ -611,7 +614,7 @@ class TestRsyncExecution:
 
         ssh_config = SSHConfig(host="20.1.2.3", user="azureuser", key_path=Path("/key"))
 
-        with pytest.raises(RsyncError, match="timed out"):
+        with pytest.raises(HomeSyncError, match="timed out"):
             HomeSyncManager.sync_to_vm(ssh_config, dry_run=False)
 
 

@@ -40,19 +40,16 @@ logger = logging.getLogger(__name__)
 
 
 class HomeSyncError(Exception):
-    """Base exception for home sync errors."""
+    """Exception for home sync operations.
 
-    pass
+    Use descriptive error messages to distinguish between different failure types
+    (security validation, rsync errors, etc.) rather than separate exception classes.
 
-
-class SecurityValidationError(HomeSyncError):
-    """Raised when security validation fails."""
-
-    pass
-
-
-class RsyncError(HomeSyncError):
-    """Raised when rsync command fails."""
+    Example:
+        raise HomeSyncError(f"Security validation failed: dangerous files detected")
+        raise HomeSyncError(f"Rsync command failed: {error}")
+        raise HomeSyncError(f"Sync timed out after 5 minutes")
+    """
 
     pass
 
@@ -109,6 +106,8 @@ class HomeSyncManager:
     BLOCKED_GLOBS: ClassVar[list[str]] = [
         # SSH keys (private) - Matches id_rsa, id_ed25519 but NOT id_rsa.pub
         ".ssh/id_*[!.pub]",
+        ".ssh/*id_rsa",  # Catch variants like my_id_rsa, backup_id_rsa
+        ".ssh/*id_ed25519",  # Catch variants like my_id_ed25519
         ".ssh/*_key",
         ".ssh/*.pem",
         # AWS
@@ -121,6 +120,9 @@ class HomeSyncManager:
         # Azure - USER REQUEST: Allow .azure/ directory for VM authentication
         # Only block obviously dangerous files, allow tokens/cache for az CLI
         ".azure/service_principal*.json",  # Keep blocking service principals
+        ".azure/*Token*.json",  # Block access tokens
+        ".azure/*token*.json",  # Block token files (case variations)
+        ".azure/*secret*.json",  # Block secret files
         # Generic credential files
         "*.key",
         "*.pem",
@@ -518,6 +520,10 @@ class HomeSyncManager:
         except (ValueError, ipaddress.AddressValueError):
             pass
 
+        # If it looks like an IP (all digits and dots), reject it if not valid IP
+        if all(c.isdigit() or c == "." for c in host):
+            return False  # Looks like IP but failed IP validation above
+
         # Validate hostname (RFC 1123)
         hostname_pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
         return bool(re.match(hostname_pattern, host) and len(host) <= 253)
@@ -559,10 +565,14 @@ class HomeSyncManager:
             raise ValueError(f"SSH key path must be absolute: {ssh_config.key_path}")
 
         # Build SSH options as string (passed to rsync -e)
+        # Include port if not default (22)
+        port_opt = f"-p {ssh_config.port} " if ssh_config.port != 22 else ""
         ssh_opts = (
-            f"ssh -i {ssh_config.key_path} "
+            f"ssh {port_opt}"
+            f"-i {ssh_config.key_path} "
             f"-o StrictHostKeyChecking=no "
             f"-o UserKnownHostsFile=/dev/null "
+            f"-o IdentitiesOnly=yes "  # FIX: Prevent "too many authentication failures"
             f"-o ConnectTimeout=30"
         )
 
@@ -640,8 +650,7 @@ class HomeSyncManager:
             SyncResult with sync outcome
 
         Raises:
-            SecurityValidationError: If dangerous files detected
-            RsyncError: If rsync command fails
+            HomeSyncError: If security validation fails or rsync command fails
         """
         start_time = time.time()
         sync_dir = cls.get_sync_directory()
@@ -711,19 +720,17 @@ class HomeSyncManager:
             )
 
         except subprocess.TimeoutExpired as e:
-            raise RsyncError("Sync timed out after 5 minutes") from e
+            raise HomeSyncError("Sync timed out after 5 minutes") from e
         except subprocess.CalledProcessError as e:
-            raise RsyncError("rsync failed (see output above for details)") from e
+            raise HomeSyncError("rsync failed (see output above for details)") from e
         except Exception as e:
-            raise RsyncError(f"Sync failed: {e!s}") from e
+            raise HomeSyncError(f"Sync failed: {e!s}") from e
 
 
 # Public API
 __all__ = [
     "HomeSyncError",
     "HomeSyncManager",
-    "RsyncError",
-    "SecurityValidationError",
     "SecurityWarning",
     "SyncResult",
     "ValidationResult",
