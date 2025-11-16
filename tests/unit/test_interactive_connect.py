@@ -19,6 +19,7 @@ from click.testing import CliRunner
 
 from azlin.cli import main
 from azlin.vm_manager import VMInfo
+from tests.conftest import requires_azure_auth
 
 
 class TestInteractiveVMSelection:
@@ -70,6 +71,7 @@ class TestInteractiveVMSelection:
             assert "test-vm-2" in result.output
             assert "Create new VM" in result.output
 
+    @requires_azure_auth
     def test_connect_select_first_vm(self, runner, mock_vms):
         """Test selecting first VM from list."""
         with (
@@ -85,6 +87,7 @@ class TestInteractiveVMSelection:
             call_args = mock_connect.call_args
             assert call_args[1]["vm_identifier"] == "test-vm-1"
 
+    @requires_azure_auth
     def test_connect_select_second_vm(self, runner, mock_vms):
         """Test selecting second VM from list."""
         with (
@@ -121,6 +124,7 @@ class TestInteractiveVMSelection:
             assert "No running VMs found" in result.output
             assert "create a new VM" in result.output
 
+    @requires_azure_auth
     def test_connect_no_vms_decline_create(self, runner):
         """Test declining to create VM when none exist."""
         with (

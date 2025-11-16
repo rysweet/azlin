@@ -54,7 +54,7 @@ def protect_production_config():
     if config_existed and backup_path.exists():
         shutil.copy2(backup_path, config_path)
         backup_path.unlink()
-        print(f"\n[PYTEST] Restored config.toml from backup")
+        print("\n[PYTEST] Restored config.toml from backup")
     elif backup_path.exists():
         backup_path.unlink()
 
@@ -70,6 +70,7 @@ def set_test_mode_env():
     yield
     # Cleanup
     os.environ.pop("AZLIN_TEST_MODE", None)
+
 
 # ============================================================================
 # DIRECTORY FIXTURES

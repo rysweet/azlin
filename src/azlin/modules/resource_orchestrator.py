@@ -209,11 +209,11 @@ class ResourceOrchestrator:
 
     Example:
         >>> from azlin.modules.interaction_handler import CLIInteractionHandler
-        >>> from azlin.agentic.cost_estimator import CostEstimator
+        >>> from azlin.modules.cost_estimator import CostEstimator
         >>>
         >>> orchestrator = ResourceOrchestrator(
         ...     interaction_handler=CLIInteractionHandler(),
-        ...     cost_estimator=CostEstimator(region="westus")
+        ...     cost_estimator=CostEstimator()
         ... )
         >>>
         >>> # Ensure Bastion setup

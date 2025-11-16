@@ -49,6 +49,7 @@ class ConnectionInfo:
     resource_group: str
     ssh_user: str = "azureuser"
     ssh_key_path: Path | None = None
+    location: str | None = None  # VM region for Bastion matching
 
 
 class VMConnector:
@@ -144,7 +145,10 @@ class VMConnector:
             if not should_use_bastion and not cls.is_valid_ip(vm_identifier):
                 # Auto-detect Bastion if not connecting by IP
                 bastion_info = cls._check_bastion_routing(
-                    conn_info.vm_name, conn_info.resource_group, use_bastion
+                    conn_info.vm_name,
+                    conn_info.resource_group,
+                    use_bastion,
+                    conn_info.location,  # Pass VM location for region filtering
                 )
                 should_use_bastion = bastion_info is not None
 
@@ -395,6 +399,7 @@ class VMConnector:
                 resource_group=resource_group or "unknown",
                 ssh_user=ssh_user,
                 ssh_key_path=ssh_key_path,
+                location=None,  # No location for IP-based connections
             )
 
         # Otherwise, treat as VM name - need to resolve IP
@@ -446,6 +451,7 @@ class VMConnector:
                 resource_group=resource_group,
                 ssh_user=ssh_user,
                 ssh_key_path=ssh_key_path,
+                location=vm_info.location,  # Capture VM region for Bastion matching
             )
 
         except VMManagerError as e:
@@ -453,7 +459,11 @@ class VMConnector:
 
     @classmethod
     def _check_bastion_routing(
-        cls, vm_name: str, resource_group: str, force_bastion: bool
+        cls,
+        vm_name: str,
+        resource_group: str,
+        force_bastion: bool,
+        vm_location: str | None = None,
     ) -> BastionInfo | None:
         """Check if Bastion routing should be used for VM.
 
@@ -463,6 +473,7 @@ class VMConnector:
             vm_name: VM name
             resource_group: Resource group
             force_bastion: Force use of Bastion
+            vm_location: VM region for Bastion region filtering (optional)
 
         Returns:
             Dict with bastion name and resource_group if should use Bastion, None otherwise
@@ -496,17 +507,23 @@ class VMConnector:
 
         # Auto-detect Bastion
         try:
-            bastion_info = BastionDetector.detect_bastion_for_vm(vm_name, resource_group)
+            bastion_info = BastionDetector.detect_bastion_for_vm(
+                vm_name, resource_group, vm_location
+            )
 
             if bastion_info:
                 # Prompt user (default changed to True for security by default)
-                if click.confirm(
-                    f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
-                    default=True,
-                ):
+                try:
+                    if click.confirm(
+                        f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
+                        default=True,
+                    ):
+                        return bastion_info
+                    logger.info("User declined Bastion connection, using direct connection")
+                except click.exceptions.Abort:
+                    # Non-interactive mode - use default (True)
+                    logger.info("Non-interactive mode, using Bastion (default)")
                     return bastion_info
-
-                logger.info("User declined Bastion connection, using direct connection")
 
         except Exception as e:
             logger.debug(f"Bastion detection failed: {e}")

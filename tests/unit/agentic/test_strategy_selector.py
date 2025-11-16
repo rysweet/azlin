@@ -77,14 +77,6 @@ class TestToolDetection:
 
         assert tools["terraform"] is False
 
-    def test_detect_mcp_server_not_available(self):
-        """MCP server not available (Phase 6)."""
-        selector = StrategySelector()
-        tools = selector._detect_tools()
-
-        # Phase 2: MCP not implemented yet
-        assert tools["mcp_server"] is False
-
     @patch("shutil.which")
     @patch("subprocess.run")
     def test_tool_detection_caching(self, mock_run, mock_which):
@@ -120,7 +112,12 @@ class TestIntentClassification:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}, {}, {}, {}],  # 4 commands
+            azlin_commands=[
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+            ],  # 4 commands
         )
 
         assert selector._is_complex_intent(intent) is True
@@ -132,7 +129,7 @@ class TestIntentClassification:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         assert selector._is_complex_intent(intent) is True
@@ -144,7 +141,7 @@ class TestIntentClassification:
             intent="provision_kubernetes",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         assert selector._is_complex_intent(intent) is True
@@ -156,7 +153,7 @@ class TestIntentClassification:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],  # 1 command
+            azlin_commands=[{"command": "azlin", "args": []}],  # 1 command
         )
 
         assert selector._is_complex_intent(intent) is False
@@ -168,7 +165,7 @@ class TestIntentClassification:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         assert selector._is_infrastructure_intent(intent) is True
@@ -180,7 +177,7 @@ class TestIntentClassification:
             intent="create_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         assert selector._is_infrastructure_intent(intent) is True
@@ -192,7 +189,7 @@ class TestIntentClassification:
             intent="list_vms",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         assert selector._is_infrastructure_intent(intent) is False
@@ -208,14 +205,14 @@ class TestStrategyRanking:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         ranking = selector._rank_strategies(
             intent=intent,
             is_complex=False,
             is_infrastructure=True,
-            available_tools={"az_cli": True, "terraform": True, "mcp_server": False},
+            available_tools={"az_cli": True, "terraform": True},
             previous_failures=[],
         )
 
@@ -230,14 +227,14 @@ class TestStrategyRanking:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         ranking = selector._rank_strategies(
             intent=intent,
             is_complex=True,
             is_infrastructure=True,
-            available_tools={"az_cli": True, "terraform": True, "mcp_server": False},
+            available_tools={"az_cli": True, "terraform": True},
             previous_failures=[],
         )
 
@@ -251,14 +248,14 @@ class TestStrategyRanking:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         ranking = selector._rank_strategies(
             intent=intent,
             is_complex=True,
             is_infrastructure=True,
-            available_tools={"az_cli": True, "terraform": False, "mcp_server": False},
+            available_tools={"az_cli": True, "terraform": False},
             previous_failures=[],
         )
 
@@ -273,14 +270,14 @@ class TestStrategyRanking:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         ranking = selector._rank_strategies(
             intent=intent,
             is_complex=False,
             is_infrastructure=True,
-            available_tools={"az_cli": True, "terraform": True, "mcp_server": False},
+            available_tools={"az_cli": True, "terraform": True},
             previous_failures=[{"strategy": "azure_cli"}],
         )
 
@@ -296,14 +293,14 @@ class TestStrategyRanking:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         ranking = selector._rank_strategies(
             intent=intent,
             is_complex=False,
             is_infrastructure=True,
-            available_tools={"az_cli": True, "terraform": False, "mcp_server": False},
+            available_tools={"az_cli": True, "terraform": False},
             previous_failures=[
                 {"strategy": "azure_cli"},
                 {"strategy": "terraform"},
@@ -322,7 +319,7 @@ class TestPrerequisiteChecking:
     def test_prerequisites_azure_cli_met(self):
         """Azure CLI prerequisites met."""
         selector = StrategySelector()
-        tools = {"az_cli": True, "terraform": False, "mcp_server": False}
+        tools = {"az_cli": True, "terraform": False}
 
         met, error = selector._check_prerequisites(Strategy.AZURE_CLI, tools)
 
@@ -332,7 +329,7 @@ class TestPrerequisiteChecking:
     def test_prerequisites_azure_cli_not_met(self):
         """Azure CLI not installed."""
         selector = StrategySelector()
-        tools = {"az_cli": False, "terraform": False, "mcp_server": False}
+        tools = {"az_cli": False, "terraform": False}
 
         met, error = selector._check_prerequisites(Strategy.AZURE_CLI, tools)
 
@@ -342,7 +339,7 @@ class TestPrerequisiteChecking:
     def test_prerequisites_terraform_met(self):
         """Terraform prerequisites met."""
         selector = StrategySelector()
-        tools = {"az_cli": True, "terraform": True, "mcp_server": False}
+        tools = {"az_cli": True, "terraform": True}
 
         met, error = selector._check_prerequisites(Strategy.TERRAFORM, tools)
 
@@ -352,7 +349,7 @@ class TestPrerequisiteChecking:
     def test_prerequisites_terraform_not_installed(self):
         """Terraform not installed."""
         selector = StrategySelector()
-        tools = {"az_cli": True, "terraform": False, "mcp_server": False}
+        tools = {"az_cli": True, "terraform": False}
 
         met, error = selector._check_prerequisites(Strategy.TERRAFORM, tools)
 
@@ -379,7 +376,7 @@ class TestPrerequisiteChecking:
     def test_prerequisites_custom_code_always_met(self):
         """Custom code has no prerequisites."""
         selector = StrategySelector()
-        tools = {"az_cli": False, "terraform": False, "mcp_server": False}
+        tools = {"az_cli": False, "terraform": False}
 
         met, error = selector._check_prerequisites(Strategy.CUSTOM_CODE, tools)
 
@@ -426,7 +423,7 @@ class TestStrategySelection:
             intent="provision_aks_cluster",
             parameters={"cluster_name": "my-cluster"},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         plan = selector.select_strategy(intent)
@@ -445,7 +442,7 @@ class TestStrategySelection:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         plan = selector.select_strategy(intent)
@@ -462,7 +459,7 @@ class TestStrategySelection:
             intent="list_vms",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         duration = selector._estimate_duration(Strategy.AZURE_CLI, intent)
@@ -478,7 +475,12 @@ class TestStrategySelection:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}, {}, {}, {}],  # 4 commands
+            azlin_commands=[
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+                {"command": "azlin", "args": []},
+            ],  # 4 commands
         )
 
         duration = selector._estimate_duration(Strategy.TERRAFORM, intent)
@@ -510,7 +512,7 @@ class TestReasoningGeneration:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         reasoning = selector._build_reasoning(
@@ -532,7 +534,7 @@ class TestReasoningGeneration:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         reasoning = selector._build_reasoning(
@@ -554,7 +556,7 @@ class TestReasoningGeneration:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
 
         reasoning = selector._build_reasoning(
