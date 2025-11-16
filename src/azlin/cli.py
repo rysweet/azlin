@@ -45,6 +45,7 @@ from azlin.commands.auth import auth
 
 # Storage commands
 from azlin.commands.bastion import bastion_group
+from azlin.commands.compose import compose_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
@@ -6359,6 +6360,9 @@ main.add_command(auth)
 
 # Register bastion commands
 main.add_command(bastion_group)
+
+# Register compose commands
+main.add_command(compose_group)
 
 # Register storage commands
 main.add_command(storage_group)
