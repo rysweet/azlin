@@ -293,129 +293,24 @@ For detailed authentication setup and troubleshooting, see the [Authentication I
 
 ## Multi-Tenant Context Management
 
-azlin supports kubectl-style context management for seamless switching between multiple Azure tenants and subscriptions without manual authentication changes.
-
-### What are Contexts?
-
-A context bundles together:
-- Azure tenant ID
-- Azure subscription ID
-- Optional authentication profile
-- Resource group and region defaults
-
-This allows you to manage VMs across multiple Azure environments (dev, staging, production) or multiple customer tenants without changing environment variables or running `az account set`.
-
-### Quick Start
+kubectl-style context management for seamless switching between multiple Azure tenants and subscriptions.
 
 ```bash
-# Create contexts for different environments
-azlin context create dev \
-  --subscription xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
-  --tenant yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+# Create contexts
+azlin context create dev --subscription <uuid> --tenant <uuid>
+azlin context create prod --subscription <uuid> --tenant <uuid>
 
-azlin context create prod \
-  --subscription zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz \
-  --tenant wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww \
-  --auth-profile prod-sp
-
-# List all contexts
-azlin context list
-
-# Switch between contexts
+# Switch between them
 azlin context use dev
-azlin list  # Shows VMs in dev subscription
+azlin list  # Shows dev VMs
 
 azlin context use prod
-azlin list  # Shows VMs in prod subscription
-
-# Check current context
-azlin context current
+azlin list  # Shows prod VMs
 ```
 
-### Context Commands
+**Commands:** `list`, `current`, `use`, `create`, `delete`, `rename`, `migrate`
 
-```bash
-# List all contexts with rich table formatting
-azlin context list
-
-# Show current active context
-azlin context current
-
-# Switch to a different context
-azlin context use <context-name>
-
-# Create new context
-azlin context create <name> \
-  --subscription <uuid> \
-  --tenant <uuid> \
-  [--auth-profile <profile-name>]
-
-# Delete context
-azlin context delete <name>
-
-# Rename context
-azlin context rename <old-name> <new-name>
-
-# Migrate from legacy config format
-azlin context migrate
-```
-
-### Use Cases
-
-**Multi-Environment Teams:**
-```bash
-# Setup once
-azlin context create dev --subscription <dev-sub> --tenant <tenant>
-azlin context create staging --subscription <staging-sub> --tenant <tenant>
-azlin context create prod --subscription <prod-sub> --tenant <tenant>
-
-# Daily work: switch as needed
-azlin context use dev && azlin new feature-vm
-azlin context use staging && azlin sync feature-vm
-azlin context use prod && azlin list
-```
-
-**Multi-Customer Consultants:**
-```bash
-# Different tenants per customer
-azlin context create client-a --subscription <a-sub> --tenant <a-tenant>
-azlin context create client-b --subscription <b-sub> --tenant <b-tenant> --auth-profile client-b-sp
-
-# Switch between customers
-azlin context use client-a
-azlin new test-vm  # Creates in client-a's subscription
-```
-
-**Cross-Tenant Operations:**
-```bash
-# Work with multiple tenants without environment variable changes
-azlin context use tenant1 && azlin list
-azlin context use tenant2 && azlin list
-```
-
-### Configuration
-
-Contexts are stored in `~/.azlin/config.toml`:
-
-```toml
-# Current active context
-[contexts]
-current = "production"
-
-# Context definitions
-[contexts.definitions.production]
-subscription_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-tenant_id = "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
-auth_profile = "prod-sp"  # Optional
-
-[contexts.definitions.development]
-subscription_id = "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
-tenant_id = "wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww"
-```
-
-### Backward Compatibility
-
-Existing configs work without modification. If you have old-style config with `default_subscription_id`, run `azlin context migrate` to convert to the new format (optional, not required).
+See [Context Management Guide](docs/CONTEXT_MANAGEMENT.md) for detailed documentation and use cases.
 
 # Comprehensive Command Reference
 
