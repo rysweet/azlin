@@ -299,7 +299,7 @@ azlin supports kubectl-style context management for seamless switching between m
 
 A context bundles together:
 - Azure tenant ID
-- Azure subscription ID  
+- Azure subscription ID
 - Optional authentication profile
 - Resource group and region defaults
 
