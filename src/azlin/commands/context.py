@@ -16,6 +16,7 @@ Security:
 """
 
 import logging
+import subprocess
 import sys
 
 import click
@@ -204,10 +205,34 @@ def use_context(name: str, config: str | None):
         # Save config
         ContextManager.save(context_config, config)
 
+        # Get context details for display and Azure CLI switching
+        ctx = context_config.contexts[name]
+
+        # Switch Azure CLI to use this context's subscription
+        # This ensures all subsequent Azure commands use the correct subscription
+        try:
+            subprocess.run(
+                ["az", "account", "set", "--subscription", ctx.subscription_id],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            logger.debug(f"Azure CLI subscription set to {ctx.subscription_id}")
+        except subprocess.CalledProcessError as e:
+            console.print(
+                f"[yellow]Warning:[/yellow] Failed to update Azure CLI subscription: {e.stderr.strip()}"
+            )
+            console.print(
+                "[yellow]Some commands may use wrong subscription. Run manually:[/yellow]"
+            )
+            console.print(f"  az account set --subscription {ctx.subscription_id}")
+        except Exception as e:
+            logger.debug(f"Failed to switch Azure CLI subscription: {e}")
+
         console.print(f"[green]Switched to context:[/green] {name}")
 
         # Show context details
-        ctx = context_config.contexts[name]
         console.print(f"  Subscription ID: {ctx.subscription_id}")
         console.print(f"  Tenant ID: {ctx.tenant_id}")
         if ctx.auth_profile:
