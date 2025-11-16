@@ -21,9 +21,8 @@ from azlin.modules.cost_estimator import CostEstimator
 from azlin.modules.interaction_handler import MockInteractionHandler
 from azlin.modules.nfs_provisioner import (
     AccessStrategy,
-    NetworkConfigurationError,
     NFSProvisioner,
-    ValidationError,
+    NFSProvisionerError,
 )
 from azlin.modules.resource_orchestrator import (
     DecisionAction,
@@ -191,7 +190,7 @@ class TestNFSAccessStrategyAnalysis:
     def test_analyze_validates_inputs(self):
         """Test input validation for analysis."""
         # Test empty storage account
-        with pytest.raises(ValidationError, match="Storage account"):
+        with pytest.raises(NFSProvisionerError, match="Storage account"):
             NFSProvisioner.analyze_nfs_access(
                 storage_account="",
                 source_region="eastus",
@@ -200,7 +199,7 @@ class TestNFSAccessStrategyAnalysis:
             )
 
         # Test invalid characters
-        with pytest.raises(ValidationError, match="unsafe character"):
+        with pytest.raises(NFSProvisionerError, match="unsafe character"):
             NFSProvisioner.analyze_nfs_access(
                 storage_account="storage;account",
                 source_region="eastus",
@@ -266,7 +265,7 @@ class TestPrivateEndpointCreation:
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="az", timeout=30)
 
         # Act & Assert
-        with pytest.raises(NetworkConfigurationError, match="private endpoint"):
+        with pytest.raises(NFSProvisionerError, match="private endpoint"):
             NFSProvisioner.create_private_endpoint(
                 name="my-pe",
                 resource_group="test-rg",
@@ -280,7 +279,7 @@ class TestPrivateEndpointCreation:
     def test_create_private_endpoint_validates_inputs(self):
         """Test input validation for private endpoint creation."""
         # Test empty name
-        with pytest.raises(ValidationError, match="Private endpoint"):
+        with pytest.raises(NFSProvisionerError, match="Private endpoint"):
             NFSProvisioner.create_private_endpoint(
                 name="",
                 resource_group="test-rg",
@@ -356,7 +355,7 @@ class TestVNetPeeringCreation:
         ]
 
         # Act & Assert
-        with pytest.raises(NetworkConfigurationError, match="VNet peering"):
+        with pytest.raises(NFSProvisionerError, match="VNet peering"):
             NFSProvisioner.create_vnet_peering(
                 name="my-peering",
                 resource_group="local-rg",
@@ -417,7 +416,7 @@ class TestPrivateDNSZoneConfiguration:
         ]
 
         # Act & Assert
-        with pytest.raises(NetworkConfigurationError, match="DNS"):
+        with pytest.raises(NFSProvisionerError, match="DNS"):
             NFSProvisioner.configure_private_dns_zone(
                 resource_group="test-rg",
                 vnet_names=["vnet1"],
@@ -717,7 +716,7 @@ class TestNFSDataReplication:
     def test_replicate_nfs_data_validates_inputs(self):
         """Test input validation for replication."""
         # Test invalid storage name
-        with pytest.raises(ValidationError, match="Source storage"):
+        with pytest.raises(NFSProvisionerError, match="Source storage"):
             NFSProvisioner.replicate_nfs_data(
                 source_storage="",
                 source_resource_group="source-rg",
