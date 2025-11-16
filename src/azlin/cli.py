@@ -64,6 +64,9 @@ from azlin.commands.doit import doit_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
+# Autopilot commands
+from azlin.commands.autopilot import autopilot_group
+
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
@@ -7799,6 +7802,9 @@ main.add_command(bastion_group)
 # Register storage commands
 main.add_command(storage_group)
 main.add_command(tag_group)
+
+# Register autopilot commands
+main.add_command(autopilot_group)
 
 # Register doit commands (replace old doit if it exists)
 if "doit" in main.commands:
