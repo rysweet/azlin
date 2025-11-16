@@ -9,8 +9,10 @@ Test Philosophy:
 - Docker network configuration
 """
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
+
 from azlin.modules.compose import ComposeNetworkManager
 
 
@@ -105,7 +107,7 @@ class TestEnvironmentVariableGeneration:
 class TestDockerNetworkConfiguration:
     """Test Docker network setup on VMs."""
 
-    @patch('azlin.modules.compose.network.RemoteExecutor')
+    @patch("azlin.modules.compose.network.RemoteExecutor")
     def test_create_docker_bridge_network(self, mock_remote_executor):
         """Test creating Docker bridge network on VM."""
         network_manager = ComposeNetworkManager(resource_group="test-rg")
@@ -120,7 +122,7 @@ class TestDockerNetworkConfiguration:
         assert "docker network create" in str(call_args)
         assert "azlin-compose" in str(call_args)
 
-    @patch('azlin.modules.compose.network.RemoteExecutor')
+    @patch("azlin.modules.compose.network.RemoteExecutor")
     def test_skip_network_creation_if_exists(self, mock_remote_executor):
         """Test skip network creation if already exists."""
         network_manager = ComposeNetworkManager(resource_group="test-rg")
@@ -130,7 +132,7 @@ class TestDockerNetworkConfiguration:
         # Simulate network already exists
         mock_remote_executor.return_value.execute.return_value = Mock(
             returncode=1,  # Network exists
-            stderr="network azlin-compose already exists"
+            stderr="network azlin-compose already exists",
         )
 
         # Should not raise error

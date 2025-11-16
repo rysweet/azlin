@@ -29,11 +29,11 @@ from azlin.modules.compose.network import ComposeNetworkManager
 from azlin.modules.compose.orchestrator import ComposeOrchestrator
 
 __all__ = [
-    "ComposeOrchestrator",
     "ComposeNetworkManager",
-    "ServiceConfig",
-    "ServicePlacement",
+    "ComposeOrchestrator",
     "DeployedService",
     "DeploymentResult",
+    "ServiceConfig",
+    "ServicePlacement",
     "VMInfo",
 ]

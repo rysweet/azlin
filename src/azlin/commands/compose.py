@@ -87,10 +87,8 @@ def compose_up(compose_file: Path, resource_group: str | None):
                 console.print(
                     "[red]Error:[/red] No resource group specified and no current context set."
                 )
-                console.print(
-                    "Use --resource-group or set context with: azlin context use <name>"
-                )
-                raise click.Abort()
+                console.print("Use --resource-group or set context with: azlin context use <name>")
+                raise click.Abort
             resource_group = current_context.resource_group
 
         console.print(f"[bold]Deploying services from:[/bold] {compose_file}")
@@ -144,7 +142,9 @@ def compose_up(compose_file: Path, resource_group: str | None):
 
         # Show results
         if result.success:
-            console.print(f"[green]✓ Successfully deployed {len(result.deployed_services)} service(s)[/green]")
+            console.print(
+                f"[green]✓ Successfully deployed {len(result.deployed_services)} service(s)[/green]"
+            )
             console.print()
 
             # Show deployed services
@@ -177,12 +177,12 @@ def compose_up(compose_file: Path, resource_group: str | None):
                 console.print("[red]Failed services:[/red]")
                 for failed in result.failed_services:
                     console.print(f"  [red]✗[/red] {failed}")
-            raise click.Abort()
+            raise click.Abort
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {str(e)}")
+        console.print(f"[red]Error:[/red] {e!s}")
         logger.exception("Compose up command failed")
-        raise click.Abort()
+        raise click.Abort from e
 
 
 @compose_group.command(name="down")

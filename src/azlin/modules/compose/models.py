@@ -10,8 +10,6 @@ Philosophy:
 """
 
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -22,11 +20,11 @@ class ServiceConfig:
     image: str
     vm_selector: str
     replicas: int = 1
-    ports: List[str] = field(default_factory=list)
-    environment: Dict[str, str] = field(default_factory=dict)
-    volumes: List[str] = field(default_factory=list)
-    command: Optional[str] = None
-    healthcheck: Optional[Dict[str, str]] = None
+    ports: list[str] = field(default_factory=list)
+    environment: dict[str, str] = field(default_factory=dict)
+    volumes: list[str] = field(default_factory=list)
+    command: str | None = None
+    healthcheck: dict[str, str] | None = None
 
     def __post_init__(self):
         """Validate service configuration."""
@@ -66,7 +64,7 @@ class DeployedService:
     container_id: str
     container_name: str
     status: str  # "running", "exited", "error"
-    ports: Dict[str, str] = field(default_factory=dict)
+    ports: dict[str, str] = field(default_factory=dict)
 
     @property
     def is_healthy(self) -> bool:
@@ -79,10 +77,10 @@ class DeploymentResult:
     """Result of a compose deployment operation."""
 
     success: bool
-    deployed_services: List[DeployedService] = field(default_factory=list)
-    failed_services: List[str] = field(default_factory=list)
-    error_message: Optional[str] = None
-    warnings: List[str] = field(default_factory=list)
+    deployed_services: list[DeployedService] = field(default_factory=list)
+    failed_services: list[str] = field(default_factory=list)
+    error_message: str | None = None
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def total_services(self) -> int:
@@ -114,9 +112,9 @@ class VMInfo:
 
 
 __all__ = [
-    "ServiceConfig",
-    "ServicePlacement",
     "DeployedService",
     "DeploymentResult",
+    "ServiceConfig",
+    "ServicePlacement",
     "VMInfo",
 ]

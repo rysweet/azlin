@@ -16,7 +16,6 @@ Public API:
 """
 
 import logging
-from typing import Dict, List, Optional
 
 from azlin.modules.compose.models import DeployedService, VMInfo
 from azlin.remote_exec import RemoteExecutor
@@ -47,9 +46,7 @@ class ComposeNetworkManager:
         """
         self.resource_group = resource_group
 
-    def discover_service_ips(
-        self, deployments: Dict[str, DeployedService]
-    ) -> Dict[str, str]:
+    def discover_service_ips(self, deployments: dict[str, DeployedService]) -> dict[str, str]:
         """Discover private IPs for all deployed services.
 
         For replicated services, returns comma-separated IPs for load balancing.
@@ -60,10 +57,14 @@ class ComposeNetworkManager:
         Returns:
             Dictionary mapping service names to IP addresses
         """
-        service_ips: Dict[str, List[str]] = {}
+        service_ips: dict[str, list[str]] = {}
 
         for deployment_id, service in deployments.items():
-            service_name = getattr(service, "service_name", service_name) if hasattr(service, "service_name") else deployment_id.split("-")[0]
+            service_name = (
+                getattr(service, "service_name", deployment_id.split("-")[0])
+                if hasattr(service, "service_name")
+                else deployment_id.split("-")[0]
+            )
 
             if service_name not in service_ips:
                 service_ips[service_name] = []
@@ -81,9 +82,9 @@ class ComposeNetworkManager:
 
     def generate_env_vars(
         self,
-        service_ips: Dict[str, str],
-        user_env: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, str]:
+        service_ips: dict[str, str],
+        user_env: dict[str, str] | None = None,
+    ) -> dict[str, str]:
         """Generate environment variables for service discovery.
 
         Creates {SERVICE_NAME}_HOST variables for each service.
@@ -134,9 +135,7 @@ class ComposeNetworkManager:
             ComposeNetworkError: If network configuration fails
         """
         try:
-            remote_executor = RemoteExecutor(
-                resource_group=self.resource_group
-            )
+            remote_executor = RemoteExecutor(resource_group=self.resource_group)
 
             # Check if network already exists
             check_cmd = f"docker network inspect {network_name}"
@@ -156,12 +155,14 @@ class ComposeNetworkManager:
                 command=create_cmd,
             )
 
-            if create_result.returncode != 0:
-                # Check if error is "network already exists" (race condition)
-                if "already exists" not in create_result.stderr.lower():
-                    raise ComposeNetworkError(
-                        f"Failed to create network on {vm.name}: {create_result.stderr}"
-                    )
+            # Check if error is "network already exists" (race condition)
+            if (
+                create_result.returncode != 0
+                and "already exists" not in create_result.stderr.lower()
+            ):
+                raise ComposeNetworkError(
+                    f"Failed to create network on {vm.name}: {create_result.stderr}"
+                )
 
             logger.info(f"Configured Docker network '{network_name}' on {vm.name}")
 
@@ -171,8 +172,8 @@ class ComposeNetworkManager:
             # Containers can still communicate via private IPs
 
     def get_service_endpoints(
-        self, deployed_services: List[DeployedService]
-    ) -> Dict[str, List[str]]:
+        self, deployed_services: list[DeployedService]
+    ) -> dict[str, list[str]]:
         """Get all endpoints for each service.
 
         Useful for load balancing and service mesh configuration.
@@ -183,7 +184,7 @@ class ComposeNetworkManager:
         Returns:
             Dictionary mapping service names to list of endpoints (IP:port)
         """
-        endpoints: Dict[str, List[str]] = {}
+        endpoints: dict[str, list[str]] = {}
 
         for service in deployed_services:
             if service.service_name not in endpoints:
@@ -202,6 +203,6 @@ class ComposeNetworkManager:
 
 
 __all__ = [
-    "ComposeNetworkManager",
     "ComposeNetworkError",
+    "ComposeNetworkManager",
 ]

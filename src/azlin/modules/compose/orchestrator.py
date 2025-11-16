@@ -16,7 +16,6 @@ Public API:
 import fnmatch
 import logging
 from pathlib import Path
-from typing import Dict, List
 
 import yaml
 
@@ -77,7 +76,7 @@ class ComposeOrchestrator:
             resource_group=resource_group
         )
 
-    def parse_compose_file(self) -> Dict[str, ServiceConfig]:
+    def parse_compose_file(self) -> dict[str, ServiceConfig]:
         """Parse docker-compose.azlin.yml with VM extensions.
 
         Returns:
@@ -87,15 +86,13 @@ class ComposeOrchestrator:
             ComposeOrchestratorError: If file is invalid or missing vm: fields
         """
         if not self.compose_file.exists():
-            raise ComposeOrchestratorError(
-                f"Compose file not found: {self.compose_file}"
-            )
+            raise ComposeOrchestratorError(f"Compose file not found: {self.compose_file}")
 
         try:
-            with open(self.compose_file, "r") as f:
+            with open(self.compose_file) as f:
                 compose_data = yaml.safe_load(f)
         except yaml.YAMLError as e:
-            raise ComposeOrchestratorError(f"Invalid YAML: {e}")
+            raise ComposeOrchestratorError(f"Invalid YAML: {e}") from e
 
         if not compose_data:
             raise ComposeOrchestratorError("Compose file is empty")
@@ -107,9 +104,7 @@ class ComposeOrchestrator:
         for service_name, service_def in compose_data["services"].items():
             # Validate required vm: field
             if "vm" not in service_def:
-                raise ValueError(
-                    f"Service '{service_name}' must specify 'vm' selector"
-                )
+                raise ValueError(f"Service '{service_name}' must specify 'vm' selector")
 
             services[service_name] = ServiceConfig(
                 name=service_name,
@@ -125,11 +120,11 @@ class ComposeOrchestrator:
 
         return services
 
-    def _parse_environment(self, env: Dict | List) -> Dict[str, str]:
+    def _parse_environment(self, env: dict | list) -> dict[str, str]:
         """Parse environment variables from various formats."""
         if isinstance(env, dict):
             return {str(k): str(v) for k, v in env.items()}
-        elif isinstance(env, list):
+        if isinstance(env, list):
             # Handle ["KEY=value", "KEY2=value2"] format
             result = {}
             for item in env:
@@ -139,7 +134,7 @@ class ComposeOrchestrator:
             return result
         return {}
 
-    def resolve_vm_selector(self, selector: str) -> List[VMInfo]:
+    def resolve_vm_selector(self, selector: str) -> list[VMInfo]:
         """Resolve VM selector pattern to list of VMs.
 
         Args:
@@ -169,23 +164,19 @@ class ComposeOrchestrator:
         # Filter by selector pattern
         if "*" in selector:
             # Wildcard pattern matching
-            matching_vms = [
-                vm for vm in vm_infos if fnmatch.fnmatch(vm.name, selector)
-            ]
+            matching_vms = [vm for vm in vm_infos if fnmatch.fnmatch(vm.name, selector)]
         else:
             # Exact name match
             matching_vms = [vm for vm in vm_infos if vm.name == selector]
 
         if not matching_vms:
-            raise ComposeOrchestratorError(
-                f"No VMs found matching selector: {selector}"
-            )
+            raise ComposeOrchestratorError(f"No VMs found matching selector: {selector}")
 
         return matching_vms
 
     def plan_service_placement(
-        self, service_config: ServiceConfig, available_vms: List[VMInfo]
-    ) -> List[ServicePlacement]:
+        self, service_config: ServiceConfig, available_vms: list[VMInfo]
+    ) -> list[ServicePlacement]:
         """Plan where service replicas should be placed.
 
         Uses simple round-robin distribution across available VMs.
@@ -236,7 +227,7 @@ class ComposeOrchestrator:
                 )
 
             # Plan placements for all services
-            all_placements: List[ServicePlacement] = []
+            all_placements: list[ServicePlacement] = []
             for service_name, service_config in services.items():
                 try:
                     available_vms = self.resolve_vm_selector(service_config.vm_selector)
@@ -256,18 +247,17 @@ class ComposeOrchestrator:
                 )
 
             # Deploy services (simplified for now)
-            deployed_services = []
-            for placement in all_placements:
-                deployed_services.append(
-                    DeployedService(
-                        service_name=placement.service_name,
-                        vm_name=placement.vm_name,
-                        vm_ip=placement.vm_ip,
-                        container_id="placeholder-id",  # Will be from docker run
-                        container_name=placement.container_name,
-                        status="running",
-                    )
+            deployed_services = [
+                DeployedService(
+                    service_name=placement.service_name,
+                    vm_name=placement.vm_name,
+                    vm_ip=placement.vm_ip,
+                    container_id="placeholder-id",  # Will be from docker run
+                    container_name=placement.container_name,
+                    status="running",
                 )
+                for placement in all_placements
+            ]
 
             return DeploymentResult(
                 success=True,
@@ -281,7 +271,7 @@ class ComposeOrchestrator:
                 error_message=str(e),
             )
 
-    def check_service_health(self, deployed_services: List[DeployedService]) -> Dict[str, str]:
+    def check_service_health(self, deployed_services: list[DeployedService]) -> dict[str, str]:
         """Check health status of deployed services.
 
         Args:

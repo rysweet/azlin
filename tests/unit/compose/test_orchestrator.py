@@ -9,10 +9,12 @@ Test Philosophy:
 - Focus on public API contracts
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from azlin.modules.compose import ComposeOrchestrator, ServiceConfig, DeploymentResult
+from unittest.mock import Mock, patch
+
+import pytest
+
+from azlin.modules.compose import ComposeOrchestrator, ServiceConfig
 
 
 @pytest.mark.tdd_red
@@ -42,10 +44,7 @@ services:
         compose_file = tmp_path / "docker-compose.azlin.yml"
         compose_file.write_text(compose_content)
 
-        orchestrator = ComposeOrchestrator(
-            compose_file=compose_file,
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=compose_file, resource_group="test-rg")
 
         services = orchestrator.parse_compose_file()
 
@@ -70,10 +69,7 @@ services:
         compose_file = tmp_path / "docker-compose.yml"
         compose_file.write_text(compose_content)
 
-        orchestrator = ComposeOrchestrator(
-            compose_file=compose_file,
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=compose_file, resource_group="test-rg")
 
         with pytest.raises(ValueError, match="must specify 'vm' selector"):
             orchestrator.parse_compose_file()
@@ -85,10 +81,7 @@ services:
         compose_file = tmp_path / "invalid.yml"
         compose_file.write_text(invalid_content)
 
-        orchestrator = ComposeOrchestrator(
-            compose_file=compose_file,
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=compose_file, resource_group="test-rg")
 
         with pytest.raises(ValueError, match="Invalid YAML"):
             orchestrator.parse_compose_file()
@@ -101,12 +94,9 @@ class TestVMSelection:
 
     def test_resolve_explicit_vm_selector(self):
         """Test resolving explicit VM name."""
-        orchestrator = ComposeOrchestrator(
-            compose_file=Path("test.yml"),
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=Path("test.yml"), resource_group="test-rg")
 
-        with patch.object(orchestrator, 'vm_manager') as mock_vm_manager:
+        with patch.object(orchestrator, "vm_manager") as mock_vm_manager:
             mock_vm_manager.list_vms.return_value = [
                 Mock(name="web-server-1", private_ip="10.0.1.4"),
                 Mock(name="api-server-1", private_ip="10.0.1.5"),
@@ -119,12 +109,9 @@ class TestVMSelection:
 
     def test_resolve_wildcard_vm_selector(self):
         """Test resolving wildcard VM patterns."""
-        orchestrator = ComposeOrchestrator(
-            compose_file=Path("test.yml"),
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=Path("test.yml"), resource_group="test-rg")
 
-        with patch.object(orchestrator, 'vm_manager') as mock_vm_manager:
+        with patch.object(orchestrator, "vm_manager") as mock_vm_manager:
             mock_vm_manager.list_vms.return_value = [
                 Mock(name="api-server-1", private_ip="10.0.1.5"),
                 Mock(name="api-server-2", private_ip="10.0.1.6"),
@@ -139,10 +126,7 @@ class TestVMSelection:
 
     def test_round_robin_distribution_for_replicas(self):
         """Test service replicas distributed round-robin across matching VMs."""
-        orchestrator = ComposeOrchestrator(
-            compose_file=Path("test.yml"),
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=Path("test.yml"), resource_group="test-rg")
 
         available_vms = [
             Mock(name="api-server-1", private_ip="10.0.1.5"),
@@ -151,10 +135,7 @@ class TestVMSelection:
         ]
 
         service_config = ServiceConfig(
-            name="api",
-            image="api:latest",
-            vm_selector="api-server-*",
-            replicas=3
+            name="api", image="api:latest", vm_selector="api-server-*", replicas=3
         )
 
         placements = orchestrator.plan_service_placement(service_config, available_vms)
@@ -170,31 +151,22 @@ class TestVMSelection:
 class TestDeploymentExecution:
     """Test deployment execution and status tracking."""
 
-    @patch('azlin.modules.compose.orchestrator.BatchExecutor')
+    @patch("azlin.modules.compose.orchestrator.BatchExecutor")
     def test_deploy_services_in_parallel(self, mock_batch_executor):
         """Test services deployed in parallel across VMs."""
-        orchestrator = ComposeOrchestrator(
-            compose_file=Path("test.yml"),
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=Path("test.yml"), resource_group="test-rg")
 
         services = {
             "web": ServiceConfig(
-                name="web",
-                image="nginx:latest",
-                vm_selector="web-server-1",
-                replicas=1
+                name="web", image="nginx:latest", vm_selector="web-server-1", replicas=1
             ),
             "api": ServiceConfig(
-                name="api",
-                image="api:latest",
-                vm_selector="api-server-1",
-                replicas=1
-            )
+                name="api", image="api:latest", vm_selector="api-server-1", replicas=1
+            ),
         }
 
-        with patch.object(orchestrator, 'parse_compose_file', return_value=services):
-            with patch.object(orchestrator, 'resolve_vm_selector') as mock_resolve:
+        with patch.object(orchestrator, "parse_compose_file", return_value=services):
+            with patch.object(orchestrator, "resolve_vm_selector") as mock_resolve:
                 mock_resolve.side_effect = [
                     [Mock(name="web-server-1", private_ip="10.0.1.4")],
                     [Mock(name="api-server-1", private_ip="10.0.1.5")],
@@ -207,22 +179,16 @@ class TestDeploymentExecution:
 
     def test_deployment_failure_handling(self):
         """Test graceful handling of deployment failures."""
-        orchestrator = ComposeOrchestrator(
-            compose_file=Path("test.yml"),
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=Path("test.yml"), resource_group="test-rg")
 
         services = {
             "web": ServiceConfig(
-                name="web",
-                image="nginx:latest",
-                vm_selector="nonexistent-vm",
-                replicas=1
+                name="web", image="nginx:latest", vm_selector="nonexistent-vm", replicas=1
             )
         }
 
-        with patch.object(orchestrator, 'parse_compose_file', return_value=services):
-            with patch.object(orchestrator, 'resolve_vm_selector', return_value=[]):
+        with patch.object(orchestrator, "parse_compose_file", return_value=services):
+            with patch.object(orchestrator, "resolve_vm_selector", return_value=[]):
                 result = orchestrator.deploy()
 
                 assert result.success is False
@@ -236,14 +202,9 @@ class TestHealthChecks:
 
     def test_verify_service_health_after_deployment(self):
         """Test services are health-checked after deployment."""
-        orchestrator = ComposeOrchestrator(
-            compose_file=Path("test.yml"),
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=Path("test.yml"), resource_group="test-rg")
 
-        deployed_services = [
-            Mock(name="web", vm="web-server-1", container_id="abc123")
-        ]
+        deployed_services = [Mock(name="web", vm="web-server-1", container_id="abc123")]
 
         health_status = orchestrator.check_service_health(deployed_services)
 
@@ -251,15 +212,10 @@ class TestHealthChecks:
 
     def test_unhealthy_service_detection(self):
         """Test detection of unhealthy services."""
-        orchestrator = ComposeOrchestrator(
-            compose_file=Path("test.yml"),
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=Path("test.yml"), resource_group="test-rg")
 
-        with patch.object(orchestrator, '_check_container_health', return_value=False):
-            deployed_services = [
-                Mock(name="api", vm="api-server-1", container_id="def456")
-            ]
+        with patch.object(orchestrator, "_check_container_health", return_value=False):
+            deployed_services = [Mock(name="api", vm="api-server-1", container_id="def456")]
 
             health_status = orchestrator.check_service_health(deployed_services)
 
@@ -286,19 +242,13 @@ services:
         compose_file = tmp_path / "docker-compose.azlin.yml"
         compose_file.write_text(compose_content)
 
-        orchestrator = ComposeOrchestrator(
-            compose_file=compose_file,
-            resource_group="test-rg"
-        )
+        orchestrator = ComposeOrchestrator(compose_file=compose_file, resource_group="test-rg")
 
-        with patch.object(orchestrator, 'vm_manager') as mock_vm:
-            with patch.object(orchestrator, 'batch_executor') as mock_batch:
-                mock_vm.list_vms.return_value = [
-                    Mock(name="web-server-1", private_ip="10.0.1.4")
-                ]
+        with patch.object(orchestrator, "vm_manager") as mock_vm:
+            with patch.object(orchestrator, "batch_executor") as mock_batch:
+                mock_vm.list_vms.return_value = [Mock(name="web-server-1", private_ip="10.0.1.4")]
                 mock_batch.execute_parallel.return_value = Mock(
-                    success=True,
-                    results={"web-server-1": Mock(returncode=0)}
+                    success=True, results={"web-server-1": Mock(returncode=0)}
                 )
 
                 result = orchestrator.deploy()
