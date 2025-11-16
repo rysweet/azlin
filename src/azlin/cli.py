@@ -104,6 +104,11 @@ from azlin.modules.resource_orchestrator import (
 from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
+from azlin.modules.vscode_launcher import (
+    VSCodeLauncher,
+    VSCodeLauncherError,
+    VSCodeNotFoundError,
+)
 from azlin.prune import PruneManager
 from azlin.quota_manager import QuotaInfo, QuotaManager
 from azlin.remote_exec import (
@@ -4412,6 +4417,161 @@ def connect(
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         logger.exception("Unexpected error in connect command")
+        sys.exit(1)
+
+
+@main.command(name="code")
+@click.argument("vm_identifier", type=str)
+@click.option("--resource-group", "--rg", help="Resource group (required for VM name)", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--user", default="azureuser", help="SSH username (default: azureuser)", type=str)
+@click.option("--key", help="SSH private key path", type=click.Path(exists=True))
+@click.option("--no-extensions", is_flag=True, help="Skip extension installation (faster launch)")
+@click.option("--workspace", help="Remote workspace path (default: /home/user)", type=str)
+def code_command(
+    vm_identifier: str,
+    resource_group: str | None,
+    config: str | None,
+    user: str,
+    key: str | None,
+    no_extensions: bool,
+    workspace: str | None,
+):
+    """Launch VS Code with Remote-SSH for a VM.
+
+    One-click VS Code launch that automatically:
+    - Configures SSH connection in ~/.ssh/config
+    - Installs configured extensions from ~/.azlin/vscode/extensions.json
+    - Sets up port forwarding from ~/.azlin/vscode/ports.json
+    - Launches VS Code Remote-SSH
+
+    VM_IDENTIFIER can be:
+    - VM name (requires --resource-group or default config)
+    - Session name (will be resolved to VM name)
+    - IP address (direct connection)
+
+    Configuration:
+    Create ~/.azlin/vscode/ directory with optional files:
+    - extensions.json: {"extensions": ["ms-python.python", ...]}
+    - ports.json: {"forwards": [{"local": 3000, "remote": 3000}, ...]}
+    - settings.json: VS Code workspace settings
+
+    \b
+    Examples:
+        # Launch VS Code for VM
+        azlin code my-dev-vm
+
+        # Launch with explicit resource group
+        azlin code my-vm --rg my-resource-group
+
+        # Launch by session name
+        azlin code my-project
+
+        # Launch by IP address
+        azlin code 20.1.2.3
+
+        # Skip extension installation (faster)
+        azlin code my-vm --no-extensions
+
+        # Open specific remote directory
+        azlin code my-vm --workspace /home/azureuser/projects
+
+        # Custom SSH user
+        azlin code my-vm --user myuser
+
+        # Custom SSH key
+        azlin code my-vm --key ~/.ssh/custom_key
+    """
+    try:
+        # Resolve session name to VM name
+        vm_identifier, original_identifier = _resolve_vm_identifier(vm_identifier, config)
+
+        # Get resource group for VM name (not IP)
+        if not VMConnector.is_valid_ip(vm_identifier):
+            rg = ConfigManager.get_resource_group(resource_group, config)
+            if not rg:
+                click.echo(
+                    "Error: Resource group required for VM name.\n"
+                    "Use --resource-group or set default in ~/.azlin/config.toml",
+                    err=True,
+                )
+                sys.exit(1)
+            _verify_vm_exists(vm_identifier, original_identifier, rg)
+        else:
+            rg = resource_group
+
+        # Get VM information
+        click.echo(f"Setting up VS Code for {original_identifier}...")
+
+        if VMConnector.is_valid_ip(vm_identifier):
+            # Direct IP connection
+            vm_ip = vm_identifier
+            vm_name = f"vm-{vm_ip.replace('.', '-')}"
+        else:
+            # Get VM info from Azure
+            if not rg:
+                click.echo("Error: Resource group required", err=True)
+                sys.exit(1)
+
+            vm_info = VMManager.get_vm_info(vm_identifier, rg)
+            vm_ip = vm_info.public_ip or vm_info.private_ip
+
+            if not vm_ip:
+                click.echo(f"Error: No IP address found for VM {vm_identifier}", err=True)
+                sys.exit(1)
+
+            vm_name = vm_info.name
+
+        # Ensure SSH key exists
+        key_path = Path(key).expanduser() if key else Path.home() / ".ssh" / "azlin_key"
+        ssh_keys = SSHKeyManager.ensure_key_exists(key_path)
+
+        # Launch VS Code
+        click.echo("Configuring VS Code Remote-SSH...")
+
+        VSCodeLauncher.launch(
+            vm_name=vm_name,
+            host=vm_ip,
+            user=user,
+            key_path=ssh_keys.private_path,
+            install_extensions=not no_extensions,
+            workspace_path=workspace,
+        )
+
+        click.echo(f"\n✓ VS Code launched successfully for {original_identifier}")
+        click.echo(f"  SSH Host: azlin-{vm_name}")
+        click.echo(f"  User: {user}@{vm_ip}")
+
+        if not no_extensions:
+            click.echo("\nExtensions will be installed in VS Code.")
+            click.echo("Use --no-extensions to skip extension installation for faster launch.")
+
+        click.echo("\nTo customize:")
+        click.echo("  Extensions: ~/.azlin/vscode/extensions.json")
+        click.echo("  Port forwards: ~/.azlin/vscode/ports.json")
+        click.echo("  Settings: ~/.azlin/vscode/settings.json")
+
+    except VSCodeNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except VSCodeLauncherError as e:
+        click.echo(f"Error launching VS Code: {e}", err=True)
+        sys.exit(1)
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        sys.exit(1)
+    except SSHKeyError as e:
+        click.echo(f"SSH key error: {e}", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.exception("Unexpected error in code command")
         sys.exit(1)
 
 
