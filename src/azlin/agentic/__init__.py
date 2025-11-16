@@ -9,6 +9,7 @@ from .command_executor import CommandExecutionError, CommandExecutor, ResultVali
 from .execution_orchestrator import ExecutionOrchestrator, ExecutionOrchestratorError
 from .intent_parser import CommandPlanner, IntentParseError, IntentParser
 from .objective_manager import ObjectiveError, ObjectiveManager
+from .request_clarifier import ClarificationResult, RequestClarificationError, RequestClarifier
 from .strategies import AzureCLIStrategy, ExecutionStrategy, TerraformStrategy
 from .strategy_selector import StrategySelector
 from .types import (
@@ -27,6 +28,7 @@ __all__ = [
     # Core infrastructure (Phase 1)
     "AuditLogger",
     "AzureCLIStrategy",
+    "ClarificationResult",
     "CommandExecutionError",
     "CommandExecutor",
     "CommandPlanner",
@@ -44,6 +46,8 @@ __all__ = [
     "ObjectiveManager",
     "ObjectiveState",
     "ObjectiveStatus",
+    "RequestClarificationError",
+    "RequestClarifier",
     "ResultValidator",
     "Strategy",
     "StrategyPlan",

@@ -12,12 +12,13 @@ import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from azlin.agentic.types import (
     Intent,
     ObjectiveState,
     ObjectiveStatus,
+    WorkflowHistoryEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -211,30 +212,61 @@ class ObjectiveManager:
         """
         state = self.load(objective_id)
 
-        # Validate state transition if status is changing
-        if status is not None and status != state.status:
-            if not self._is_valid_transition(state.status, status):
-                raise ValueError(
-                    f"Invalid state transition: {state.status.value} -> {status.value}"
-                )
-            state.status = status
+        # Validate and apply status change
+        self._apply_status_change(state, status)
 
-        # Update other fields
-        for key, value in kwargs.items():
+        # Update additional fields
+        self._apply_field_updates(state, kwargs)
+
+        # Update timestamp
+        state.updated_at = datetime.now(UTC)
+
+        # Validate and persist
+        self._validate_and_persist(state)
+
+        logger.info(f"Updated objective {objective_id}: status={state.status.value}")
+        return state
+
+    def _apply_status_change(
+        self, state: ObjectiveState, new_status: ObjectiveStatus | None
+    ) -> None:
+        """Apply status change with validation.
+
+        Args:
+            state: Objective state to modify
+            new_status: New status to apply
+
+        Raises:
+            ValueError: If state transition is invalid
+        """
+        if new_status is not None and new_status != state.status:
+            if not self._is_valid_transition(state.status, new_status):
+                raise ValueError(
+                    f"Invalid state transition: {state.status.value} -> {new_status.value}"
+                )
+            state.status = new_status
+
+    def _apply_field_updates(self, state: ObjectiveState, updates: dict[str, Any]) -> None:
+        """Apply field updates to state.
+
+        Args:
+            state: Objective state to modify
+            updates: Dictionary of field updates
+        """
+        for key, value in updates.items():
             if hasattr(state, key):
                 setattr(state, key, value)
             else:
                 logger.warning(f"Unknown field ignored: {key}")
 
-        # Always update timestamp
-        state.updated_at = datetime.now(UTC)
+    def _validate_and_persist(self, state: ObjectiveState) -> None:
+        """Validate state and persist to disk.
 
-        # Validate and save
+        Args:
+            state: Objective state to validate and save
+        """
         state.validate_schema()
         self._save(state)
-
-        logger.info(f"Updated objective {objective_id}: status={state.status.value}")
-        return state
 
     def delete(self, objective_id: str) -> None:
         """Delete objective file.
@@ -306,7 +338,7 @@ class ObjectiveManager:
     def append_history(
         self,
         objective_id: str,
-        event: dict[str, Any],
+        event: dict[str, Any],  # Kept as dict for flexibility - can be WorkflowHistoryEvent
     ) -> ObjectiveState:
         """Append event to execution history.
 
@@ -329,7 +361,7 @@ class ObjectiveManager:
             ... )
         """
         state = self.load(objective_id)
-        state.execution_history.append(event)
+        state.execution_history.append(cast(WorkflowHistoryEvent, event))
         state.updated_at = datetime.now(UTC)
         self._save(state)
         return state

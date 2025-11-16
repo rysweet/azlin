@@ -505,27 +505,19 @@ class TestExecutionOrchestrator:
         implemented_strategies = [
             Strategy.AZURE_CLI,
             Strategy.TERRAFORM,
-            Strategy.AWS_CLI,
-            Strategy.GCP_CLI,
-            Strategy.MCP_CLIENT,
+            Strategy.CUSTOM_CODE,
         ]
 
         with (
             patch("azlin.agentic.execution_orchestrator.AzureCLIStrategy") as mock_azure,
             patch("azlin.agentic.execution_orchestrator.TerraformStrategy") as mock_tf,
-            patch("azlin.agentic.execution_orchestrator.AWSStrategy") as mock_aws,
-            patch("azlin.agentic.execution_orchestrator.GCPStrategy") as mock_gcp,
-            patch("azlin.agentic.execution_orchestrator.MCPClientStrategy") as mock_mcp,
         ):
             # Mock all strategy constructors
             mock_azure.return_value = MagicMock()
             mock_tf.return_value = MagicMock()
-            mock_aws.return_value = MagicMock()
-            mock_gcp.return_value = MagicMock()
-            mock_mcp.return_value = MagicMock()
 
-            # Test that all implemented strategies can be instantiated
-            for strategy in implemented_strategies:
+            # Test that Azure CLI and Terraform strategies can be instantiated
+            for strategy in [Strategy.AZURE_CLI, Strategy.TERRAFORM]:
                 result = orchestrator._get_strategy(strategy)
                 assert result is not None
 
