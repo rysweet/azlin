@@ -350,9 +350,9 @@ class SSHConnector:
         # Forward agent (for git operations on remote)
         args.extend(["-A"])  # ForwardAgent=yes
 
-        # TTY allocation (for interactive sessions vs command execution)
+        # TTY allocation (for interactive sessions)
         if remote_command:
-            args.extend(["-T"])  # Disable PTY for non-interactive command execution
+            args.extend(["-t"])  # Force TTY allocation
 
         # User@host
         args.append(f"{config.user}@{config.host}")

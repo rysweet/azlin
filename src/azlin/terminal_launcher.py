@@ -173,9 +173,17 @@ class TerminalLauncher:
 
         try:
             if platform == "darwin":
-                return cls._launch_macos(config)
+                success = cls._launch_macos(config)
+                if not success and fallback_inline:
+                    logger.info("Terminal launch failed, falling back to inline SSH connection")
+                    return cls._fallback_inline_ssh(config)
+                return success
             if platform.startswith("linux"):
-                return cls._launch_linux(config)
+                success = cls._launch_linux(config)
+                if not success and fallback_inline:
+                    logger.info("Terminal launch failed, falling back to inline SSH connection")
+                    return cls._fallback_inline_ssh(config)
+                return success
             logger.warning(f"Unsupported platform: {platform}")
             if fallback_inline:
                 return cls._fallback_inline_ssh(config)
@@ -309,9 +317,9 @@ class TerminalLauncher:
             str(config.ssh_key_path),
         ]
 
-        # Disable PTY allocation when executing commands (not interactive)
-        if config.command:
-            cmd.append("-T")  # No pseudo-terminal for command execution
+        # Force TTY allocation for commands and interactive sessions
+        if config.command or config.tmux_session:
+            cmd.append("-t")  # Force pseudo-terminal allocation
 
         cmd.append(f"{config.ssh_user}@{config.ssh_host}")
 
