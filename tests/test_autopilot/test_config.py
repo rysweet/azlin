@@ -4,10 +4,6 @@ Following TDD approach - these tests define the expected behavior
 before implementation.
 """
 
-import json
-from datetime import datetime
-from pathlib import Path
-
 import pytest
 
 from azlin.autopilot.config import AutoPilotConfig, AutoPilotConfigError, ConfigManager

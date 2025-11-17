@@ -8,10 +8,8 @@ from datetime import datetime
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
-import pytest
-
 from azlin.autopilot.config import AutoPilotConfig
-from azlin.autopilot.enforcer import Action, ActionResult, BudgetEnforcer, BudgetStatus
+from azlin.autopilot.enforcer import Action, BudgetEnforcer, BudgetStatus
 from azlin.autopilot.learner import UsagePattern, WorkHours
 
 

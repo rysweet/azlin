@@ -52,6 +52,9 @@ from azlin.click_group import AzlinGroup
 # Auth commands
 from azlin.commands.auth import auth
 
+# Autopilot commands
+from azlin.commands.autopilot import autopilot_group
+
 # Bastion commands
 # Storage commands
 from azlin.commands.bastion import bastion_group
@@ -63,9 +66,6 @@ from azlin.commands.context import context_group
 from azlin.commands.doit import doit_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
-
-# Autopilot commands
-from azlin.commands.autopilot import autopilot_group
 
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager

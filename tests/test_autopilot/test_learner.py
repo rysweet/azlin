@@ -5,11 +5,9 @@ before implementation.
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-import pytest
-
-from azlin.autopilot.learner import IdlePeriod, PatternLearner, UsagePattern, WorkHours
+from azlin.autopilot.learner import PatternLearner
 
 
 class TestWorkHoursDetection:
@@ -227,10 +225,10 @@ class TestPatternLearnerIntegration:
         learner = PatternLearner()
 
         # This would use mocked Azure APIs
-        with patch.object(learner, "_query_activity_logs") as mock_logs, patch.object(
-            learner, "_query_cpu_metrics"
-        ) as mock_cpu:
-
+        with (
+            patch.object(learner, "_query_activity_logs") as mock_logs,
+            patch.object(learner, "_query_cpu_metrics") as mock_cpu,
+        ):
             mock_logs.return_value = []
             mock_cpu.return_value = 20.0
 
