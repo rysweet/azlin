@@ -2884,7 +2884,10 @@ def list_command(
                 current_ctx = context_mgr.get_current_context()
                 if current_ctx:
                     click.echo(f"Context: {current_ctx.name}")
-            except Exception:
+                else:
+                    click.echo("DEBUG: current_ctx is None")
+            except Exception as e:
+                click.echo(f"DEBUG: Exception getting context: {e}")
                 pass  # Silently skip if context unavailable
 
             click.echo(f"Listing VMs in resource group: {rg}\n")
