@@ -185,7 +185,6 @@ class VMConnector:
 
             # If reconnect is enabled and no remote command, use direct SSH with reconnect
             # Otherwise use terminal launcher (which opens new windows)
-            logger.info(f"DEBUG: enable_reconnect={enable_reconnect}, remote_command={remote_command!r}")
             if enable_reconnect and remote_command is None:
                 # Use direct SSH connection with reconnect support
                 ssh_config = SSHConfig(

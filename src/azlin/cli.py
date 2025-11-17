@@ -4352,9 +4352,9 @@ def connect(
     """
     try:
         # Get passthrough command from context (if using -- syntax)
+        # AzlinGroup strips -- and everything after from sys.argv and stores in ctx.obj
         if ctx.obj and "passthrough_command" in ctx.obj:
             passthrough_cmd = ctx.obj["passthrough_command"]
-            logger.info(f"DEBUG: Retrieved passthrough_command from ctx: {passthrough_cmd!r}")
             # Override remote_command with the passthrough version
             remote_command = tuple(passthrough_cmd.split())
 
@@ -4373,7 +4373,6 @@ def connect(
         # Parse remote command and key path
         # SPECIAL CASE: If remote_command is a single word with no command chars,
         # treat it as tmux session name, not a remote command
-        logger.info(f"DEBUG CLI: remote_command tuple = {remote_command!r}")
         command = None
         if remote_command:
             if len(remote_command) == 1 and not any(
