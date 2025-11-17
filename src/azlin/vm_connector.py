@@ -75,6 +75,7 @@ class VMConnector:
         use_bastion: bool = False,
         bastion_name: str | None = None,
         bastion_resource_group: str | None = None,
+        skip_prompts: bool = False,
     ) -> bool:
         """Connect to a VM via SSH (with optional Bastion routing).
 
@@ -91,6 +92,7 @@ class VMConnector:
             use_bastion: Force use of Bastion tunnel (default: False)
             bastion_name: Bastion host name (optional, auto-detected if not provided)
             bastion_resource_group: Bastion resource group (optional)
+            skip_prompts: Skip all confirmation prompts (default: False)
 
         Returns:
             True if connection successful
@@ -143,7 +145,7 @@ class VMConnector:
             if not should_use_bastion and not cls.is_valid_ip(vm_identifier):
                 # Auto-detect Bastion if not connecting by IP
                 bastion_info = cls._check_bastion_routing(
-                    conn_info.vm_name, conn_info.resource_group, use_bastion
+                    conn_info.vm_name, conn_info.resource_group, use_bastion, skip_prompts
                 )
                 should_use_bastion = bastion_info is not None
 
@@ -404,7 +406,7 @@ class VMConnector:
 
     @classmethod
     def _check_bastion_routing(
-        cls, vm_name: str, resource_group: str, force_bastion: bool
+        cls, vm_name: str, resource_group: str, force_bastion: bool, skip_prompts: bool = False
     ) -> dict[str, str] | None:
         """Check if Bastion routing should be used for VM.
 
@@ -414,6 +416,7 @@ class VMConnector:
             vm_name: VM name
             resource_group: Resource group
             force_bastion: Force use of Bastion
+            skip_prompts: Skip confirmation prompts (default: False)
 
         Returns:
             Dict with bastion name and resource_group if should use Bastion, None otherwise
@@ -449,8 +452,8 @@ class VMConnector:
             bastion_info = BastionDetector.detect_bastion_for_vm(vm_name, resource_group)
 
             if bastion_info:
-                # Prompt user
-                if click.confirm(
+                # Prompt user or auto-accept if skip_prompts
+                if skip_prompts or click.confirm(
                     f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
                     default=False,
                 ):
