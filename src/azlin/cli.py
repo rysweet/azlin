@@ -1111,7 +1111,7 @@ class CLIOrchestrator:
                 local_port = bastion_mgr.get_available_port()
 
                 # Create tunnel
-                tunnel = bastion_mgr.create_tunnel(
+                _tunnel = bastion_mgr.create_tunnel(
                     bastion_name=bastion_info["name"],
                     resource_group=bastion_info["resource_group"],
                     target_vm_id=vm_details.id,  # Type narrowed by check above
@@ -4793,7 +4793,7 @@ def _execute_sync(selected_vm: VMInfo, ssh_key_pair: SSHKeyPair, dry_run: bool) 
 
             # Create tunnel
             click.echo(f"Creating Bastion tunnel through {bastion_info['name']}...")
-            tunnel = bastion_mgr.create_tunnel(
+            _tunnel = bastion_mgr.create_tunnel(
                 bastion_name=bastion_info["name"],
                 resource_group=bastion_info["resource_group"],
                 target_vm_id=vm_resource_id,
@@ -5675,8 +5675,6 @@ def _do_impl(
     Raises:
         SystemExit: On various error conditions with appropriate exit codes
     """
-    import logging
-
     logger = logging.getLogger(__name__)
 
     try:
