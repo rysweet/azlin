@@ -19,6 +19,7 @@ Public API:
     IdlePeriod: Idle period data
 """
 
+import json
 import logging
 import subprocess
 from collections import Counter
@@ -126,10 +127,7 @@ class PatternLearner:
         cpu_avg = self._query_cpu_metrics(resource_group, vm_name, days)
 
         # Determine last active time
-        if events:
-            last_active = max(e["timestamp"] for e in events)
-        else:
-            last_active = datetime.now()
+        last_active = max(e["timestamp"] for e in events) if events else datetime.now()
 
         # Generate recommendations
         recommendations = self._generate_recommendations(
@@ -317,8 +315,6 @@ class PatternLearner:
                 check=True,
             )
 
-            import json
-
             events_raw = json.loads(result.stdout)
 
             # Parse events
@@ -394,8 +390,6 @@ class PatternLearner:
                 check=True,
             )
 
-            import json
-
             metrics_data = json.loads(result.stdout)
 
             # Extract CPU values
@@ -454,8 +448,6 @@ class PatternLearner:
                 timeout=30,
                 check=True,
             )
-
-            import json
 
             vms = json.loads(result.stdout)
             return vms

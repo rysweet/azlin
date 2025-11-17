@@ -20,6 +20,7 @@ Commands:
     azlin autopilot run --dry-run
 """
 
+import contextlib
 import sys
 from datetime import datetime
 
@@ -122,6 +123,13 @@ def enable_command(budget: int, strategy: str, idle_threshold: int, cpu_threshol
         except Exception:
             console.print(
                 "\n[yellow]Warning:[/yellow] Could not load azlin config. "
+                "Run 'azlin config set resource-group <name>' first."
+            )
+            sys.exit(1)
+
+        if not resource_group:
+            console.print(
+                "\n[red]Error:[/red] No resource group configured. "
                 "Run 'azlin config set resource-group <name>' first."
             )
             sys.exit(1)
@@ -268,6 +276,13 @@ def status_command():
             console.print("\n[yellow]Warning:[/yellow] Could not load azlin config")
             sys.exit(1)
 
+        if not resource_group:
+            console.print(
+                "\n[red]Error:[/red] No resource group configured. "
+                "Run 'azlin config set resource-group <name>' first."
+            )
+            sys.exit(1)
+
         # Check budget
         console.print(f"\n[bold]Budget Status:[/bold] {resource_group}")
 
@@ -340,11 +355,8 @@ def config_command(config_set: tuple[str, ...], show: bool):
                 try:
                     key, value = setting.split("=", 1)
                     # Try to parse as int
-                    try:
+                    with contextlib.suppress(ValueError):
                         value = int(value)
-                    except ValueError:
-                        # Keep as string
-                        pass
                     updates[key] = value
                 except ValueError:
                     console.print(f"[red]Invalid setting format:[/red] {setting}")
@@ -398,6 +410,13 @@ def run_command(dry_run: bool):
         azlin_config = AzlinConfigManager.load_config()
         resource_group = azlin_config.resource_group
 
+        if not resource_group:
+            console.print(
+                "\n[red]Error:[/red] No resource group configured. "
+                "Run 'azlin config set resource-group <name>' first."
+            )
+            sys.exit(1)
+
         # Check budget
         console.print(f"[bold]Checking budget:[/bold] {resource_group}\n")
 
@@ -420,7 +439,7 @@ def run_command(dry_run: bool):
         console.print(f"Analyzed {len(patterns)} VMs")
 
         # Get recommendations
-        actions = enforcer.recommend_actions(patterns, budget_status, config)
+        actions = enforcer.recommend_actions(patterns, budget_status, config, resource_group)
 
         if not actions:
             console.print("\n[green]✓ No actions recommended[/green]\n")

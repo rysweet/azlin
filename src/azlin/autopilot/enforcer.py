@@ -33,7 +33,7 @@ from azlin.autopilot.learner import UsagePattern
 from azlin.cost_tracker import CostTracker
 from azlin.modules.notifications import NotificationHandler
 from azlin.tag_manager import TagManager
-from azlin.vm_manager import VMManager
+from azlin.vm_lifecycle_control import VMLifecycleController
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +159,7 @@ class BudgetEnforcer:
         patterns: list[UsagePattern],
         budget_status: BudgetStatus,
         config: AutoPilotConfig,
+        resource_group: str,
     ) -> list[Action]:
         """Recommend actions based on patterns and budget.
 
@@ -166,6 +167,7 @@ class BudgetEnforcer:
             patterns: VM usage patterns
             budget_status: Current budget status
             config: Autopilot configuration
+            resource_group: Resource group name
 
         Returns:
             List of recommended actions
@@ -180,24 +182,25 @@ class BudgetEnforcer:
 
         for pattern in patterns:
             # Skip if VM has protected tags
-            if self._is_protected(pattern.vm_name, config):
+            if self._is_protected(pattern.vm_name, resource_group, config):
                 logger.debug(f"Skipping protected VM: {pattern.vm_name}")
                 continue
 
             # Check for idle VMs
-            if pattern.average_idle_minutes > config.idle_threshold_minutes:
-                # Don't stop during work hours
-                if not self._is_work_hours(pattern.typical_work_hours):
-                    actions.append(
-                        Action(
-                            action_type="stop",
-                            vm_name=pattern.vm_name,
-                            reason=f"VM idle for {pattern.average_idle_minutes:.0f} minutes",
-                            estimated_savings_monthly=Decimal("50"),  # Estimate
-                            requires_confirmation=True,
-                            tags={},
-                        )
+            if (
+                pattern.average_idle_minutes > config.idle_threshold_minutes
+                and not self._is_work_hours(pattern.typical_work_hours)
+            ):
+                actions.append(
+                    Action(
+                        action_type="stop",
+                        vm_name=pattern.vm_name,
+                        reason=f"VM idle for {pattern.average_idle_minutes:.0f} minutes",
+                        estimated_savings_monthly=Decimal("50"),  # Estimate
+                        requires_confirmation=True,
+                        tags={},
                     )
+                )
 
             # Check for low CPU utilization
             if pattern.cpu_utilization_avg < config.cpu_threshold_percent:
@@ -250,7 +253,7 @@ class BudgetEnforcer:
                 message = f"[DRY-RUN] Would {action.action_type} VM: {action.vm_name}"
                 success = True
             elif action.action_type == "stop":
-                VMManager.stop_vm(action.vm_name, resource_group)
+                VMLifecycleController.stop_vm(action.vm_name, resource_group)
                 message = f"Successfully stopped VM: {action.vm_name}"
                 success = True
             elif action.action_type == "downsize":
@@ -341,11 +344,12 @@ class BudgetEnforcer:
 
         return results
 
-    def _is_protected(self, vm_name: str, config: AutoPilotConfig) -> bool:
+    def _is_protected(self, vm_name: str, resource_group: str, config: AutoPilotConfig) -> bool:
         """Check if VM is protected from autopilot actions.
 
         Args:
             vm_name: VM name
+            resource_group: Resource group name
             config: Autopilot configuration
 
         Returns:
@@ -353,7 +357,7 @@ class BudgetEnforcer:
         """
         try:
             # Check VM tags
-            tags = TagManager.get_vm_tags(vm_name)
+            tags = TagManager.get_tags(vm_name, resource_group)
 
             # Check if any protected tags present
             for tag_key, tag_value in tags.items():
