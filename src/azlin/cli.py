@@ -4513,7 +4513,13 @@ def code_command(
                 click.echo("Error: Resource group required", err=True)
                 sys.exit(1)
 
-            vm_info = VMManager.get_vm_info(vm_identifier, rg)
+            vm_info = VMManager.get_vm(vm_identifier, rg)
+            if vm_info is None:
+                click.echo(
+                    f"Error: VM '{vm_identifier}' not found in resource group '{rg}'", err=True
+                )
+                sys.exit(1)
+
             vm_ip = vm_info.public_ip or vm_info.private_ip
 
             if not vm_ip:
