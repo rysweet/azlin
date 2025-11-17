@@ -15,12 +15,15 @@ from azlin.vm_manager import VMInfo
 class TestBackwardCompatibilityW:
     """Test w command backward compatibility."""
 
-    @patch("azlin.cli.WCommandExecutor")
+    @patch("azlin.cli_helpers.get_ssh_configs_for_vms")
+    @patch("azlin.remote_exec.WCommandExecutor.execute_w_on_routes")
+    @patch("azlin.remote_exec.WCommandExecutor.format_w_output")
     @patch("azlin.cli.SSHKeyManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
     def test_w_command_works_with_public_ips_only(
-        self, mock_config_mgr, mock_vm_mgr, mock_ssh_key_mgr, mock_w_executor
+        self, mock_config_mgr, mock_vm_mgr, mock_ssh_key_mgr,
+        mock_format_w_output, mock_execute_w_on_routes, mock_get_ssh_configs
     ):
         """Test w command still works with VMs that have public IPs."""
         # Setup mocks
@@ -50,8 +53,23 @@ class TestBackwardCompatibilityW:
         mock_vm_mgr.list_vms.return_value = vms
         mock_vm_mgr.filter_by_prefix.return_value = vms
 
-        mock_w_executor.execute_w_on_vms.return_value = []
-        mock_w_executor.format_w_output.return_value = "Output"
+        # Mock SSH configs and routes
+        from azlin.modules.ssh_connector import SSHConfig
+        from azlin.modules.ssh_routing_resolver import SSHRoute
+
+        ssh_configs = [
+            SSHConfig(host="20.1.2.3", port=22, user="azureuser", key_path=Path("/home/user/.ssh/azlin_key")),
+            SSHConfig(host="20.1.2.4", port=22, user="azureuser", key_path=Path("/home/user/.ssh/azlin_key")),
+        ]
+        routes = [
+            SSHRoute(vm_name="azlin-vm-1", vm_info=vms[0], routing_method="direct", ssh_config=ssh_configs[0], skip_reason=None),
+            SSHRoute(vm_name="azlin-vm-2", vm_info=vms[1], routing_method="direct", ssh_config=ssh_configs[1], skip_reason=None),
+        ]
+        mock_get_ssh_configs.return_value = (ssh_configs, routes)
+
+        # Mock executor methods
+        mock_execute_w_on_routes.return_value = []
+        mock_format_w_output.return_value = "Output"
 
         # Import and run command
         from click.testing import CliRunner
@@ -64,12 +82,13 @@ class TestBackwardCompatibilityW:
         # Should succeed
         assert result.exit_code == 0
 
-        # Should use direct SSH (no bastion)
-        call_args = mock_w_executor.execute_w_on_vms.call_args
-        ssh_configs = call_args[0][0]
-        assert len(ssh_configs) == 2
-        assert all(config.host in ["20.1.2.3", "20.1.2.4"] for config in ssh_configs)
-        assert all(config.port == 22 for config in ssh_configs)
+        # Should use execute_w_on_routes with routes (new behavior)
+        assert mock_execute_w_on_routes.called, "execute_w_on_routes should have been called"
+        call_args = mock_execute_w_on_routes.call_args
+        called_routes = call_args[0][0]
+        assert len(called_routes) == 2
+        assert all(route.ssh_config.host in ["20.1.2.3", "20.1.2.4"] for route in called_routes)
+        assert all(route.ssh_config.port == 22 for route in called_routes)
 
     @patch("azlin.cli.WCommandExecutor")
     @patch("azlin.cli.SSHKeyManager")
