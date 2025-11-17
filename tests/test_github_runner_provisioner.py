@@ -71,7 +71,7 @@ class TestGetRegistrationToken:
         token = GitHubRunnerProvisioner.get_registration_token(
             repo_owner="testorg",
             repo_name="testrepo",
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         assert token == "AABF3JGZDX3P5PMEXLND6TS6FCWO6"  # noqa: S105
@@ -83,7 +83,7 @@ class TestGetRegistrationToken:
             call_args[0][0]
             == "https://api.github.com/repos/testorg/testrepo/actions/runners/registration-token"
         )
-        assert call_args[1]["headers"]["Authorization"] == "Bearer ghp_test_token_123"
+        assert call_args[1]["headers"]["Authorization"] == "Bearer test-token-123"
 
     @patch("requests.post")
     def test_get_registration_token_api_error(self, mock_post):
@@ -97,7 +97,7 @@ class TestGetRegistrationToken:
             GitHubRunnerProvisioner.get_registration_token(
                 repo_owner="testorg",
                 repo_name="testrepo",
-                github_token="invalid_token",  # noqa: S106
+                github_token="test-invalid-token",  # noqa: S106
             )
 
         assert "Failed to get registration token" in str(exc_info.value)
@@ -111,7 +111,7 @@ class TestGetRegistrationToken:
             GitHubRunnerProvisioner.get_registration_token(
                 repo_owner="testorg",
                 repo_name="testrepo",
-                github_token="ghp_test_token_123",  # noqa: S106
+                github_token="test-token-123",  # noqa: S106
             )
 
     def test_get_registration_token_empty_owner(self):
@@ -120,7 +120,7 @@ class TestGetRegistrationToken:
             GitHubRunnerProvisioner.get_registration_token(
                 repo_owner="",
                 repo_name="testrepo",
-                github_token="ghp_test_token_123",  # noqa: S106
+                github_token="test-token-123",  # noqa: S106
             )
 
     def test_get_registration_token_empty_token(self):
@@ -250,7 +250,7 @@ class TestDeregisterRunner:
             repo_owner="testorg",
             repo_name="testrepo",
             runner_id=12345,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         # Verify API call
@@ -259,7 +259,7 @@ class TestDeregisterRunner:
         assert (
             call_args[0][0] == "https://api.github.com/repos/testorg/testrepo/actions/runners/12345"
         )
-        assert call_args[1]["headers"]["Authorization"] == "Bearer ghp_test_token_123"
+        assert call_args[1]["headers"]["Authorization"] == "Bearer test-token-123"
 
     @patch("requests.delete")
     def test_deregister_runner_not_found(self, mock_delete):
@@ -274,7 +274,7 @@ class TestDeregisterRunner:
                 repo_owner="testorg",
                 repo_name="testrepo",
                 runner_id=99999,
-                github_token="ghp_test_token_123",  # noqa: S106
+                github_token="test-token-123",  # noqa: S106
             )
 
     @patch("requests.delete")
@@ -290,7 +290,7 @@ class TestDeregisterRunner:
                 repo_owner="testorg",
                 repo_name="testrepo",
                 runner_id=12345,
-                github_token="ghp_test_token_123",  # noqa: S106
+                github_token="test-token-123",  # noqa: S106
             )
 
 
@@ -315,7 +315,7 @@ class TestGetRunnerInfo:
             repo_owner="testorg",
             repo_name="testrepo",
             runner_id=12345,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         assert runner_info.runner_id == 12345
@@ -343,7 +343,7 @@ class TestGetRunnerInfo:
             repo_owner="testorg",
             repo_name="testrepo",
             runner_id=12345,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         assert runner_info.busy is True
@@ -360,7 +360,7 @@ class TestGetRunnerInfo:
                 repo_owner="testorg",
                 repo_name="testrepo",
                 runner_id=99999,
-                github_token="ghp_test_token_123",  # noqa: S106
+                github_token="test-token-123",  # noqa: S106
             )
 
 

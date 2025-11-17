@@ -96,7 +96,7 @@ class TestProvisionEphemeralRunner:
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
             max_job_count=1,
         )
 
@@ -130,7 +130,7 @@ class TestProvisionEphemeralRunner:
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         with pytest.raises(RunnerLifecycleError) as exc_info:
@@ -166,7 +166,7 @@ class TestProvisionEphemeralRunner:
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         with pytest.raises(RunnerLifecycleError):
@@ -210,7 +210,7 @@ class TestDestroyRunner:
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         GitHubRunnerLifecycleManager.destroy_runner(runner=runner, config=lifecycle_config)
@@ -220,7 +220,7 @@ class TestDestroyRunner:
             repo_owner="testorg",
             repo_name="testrepo",
             runner_id=12345,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
         mock_delete_vm.assert_called_once()
 
@@ -260,7 +260,7 @@ class TestDestroyRunner:
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         # Should still attempt VM deletion even if deregister fails
@@ -331,7 +331,7 @@ class TestRotateRunner:
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         # Rotate runner
@@ -381,7 +381,7 @@ class TestCheckRunnerHealth:
 
         is_healthy = GitHubRunnerLifecycleManager.check_runner_health(
             runner=runner,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         assert is_healthy is True
@@ -421,7 +421,7 @@ class TestCheckRunnerHealth:
 
         is_healthy = GitHubRunnerLifecycleManager.check_runner_health(
             runner=runner,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         assert is_healthy is False
@@ -452,7 +452,7 @@ class TestCheckRunnerHealth:
 
         is_healthy = GitHubRunnerLifecycleManager.check_runner_health(
             runner=runner,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         # Should return False on error, not raise exception

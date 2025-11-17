@@ -110,7 +110,7 @@ class TestGetQueueMetrics:
             repo_owner="testorg",
             repo_name="testrepo",
             labels=None,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         assert metrics.queued_jobs == 5
@@ -146,7 +146,7 @@ class TestGetQueueMetrics:
             repo_owner="testorg",
             repo_name="testrepo",
             labels=["linux", "docker"],  # Filter for these labels
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         # Should only count jobs with ALL specified labels
@@ -165,7 +165,7 @@ class TestGetQueueMetrics:
                 repo_owner="testorg",
                 repo_name="testrepo",
                 labels=None,
-                github_token="invalid_token",  # noqa: S106
+                github_token="test-invalid-token",  # noqa: S106
             )
 
         assert "Failed to get queue metrics" in str(exc_info.value)
@@ -182,7 +182,7 @@ class TestGetQueueMetrics:
             repo_owner="testorg",
             repo_name="testrepo",
             labels=None,
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         assert metrics.queued_jobs == 0
@@ -211,7 +211,7 @@ class TestGetPendingJobCount:
             repo_owner="testorg",
             repo_name="testrepo",
             labels=["linux"],
-            github_token="ghp_test_token_123",  # noqa: S106
+            github_token="test-token-123",  # noqa: S106
         )
 
         assert count == 5
@@ -227,7 +227,7 @@ class TestInputValidation:
                 repo_owner="",
                 repo_name="testrepo",
                 labels=None,
-                github_token="token",  # noqa: S106
+                github_token="test-token",  # noqa: S106
             )
 
     def test_empty_repo_name(self):
@@ -237,7 +237,7 @@ class TestInputValidation:
                 repo_owner="testorg",
                 repo_name="",
                 labels=None,
-                github_token="token",  # noqa: S106
+                github_token="test-token",  # noqa: S106
             )
 
     def test_empty_github_token(self):
