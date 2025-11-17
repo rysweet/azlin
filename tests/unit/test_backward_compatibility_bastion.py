@@ -22,8 +22,13 @@ class TestBackwardCompatibilityW:
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
     def test_w_command_works_with_public_ips_only(
-        self, mock_config_mgr, mock_vm_mgr, mock_ssh_key_mgr,
-        mock_format_w_output, mock_execute_w_on_routes, mock_get_ssh_configs
+        self,
+        mock_config_mgr,
+        mock_vm_mgr,
+        mock_ssh_key_mgr,
+        mock_format_w_output,
+        mock_execute_w_on_routes,
+        mock_get_ssh_configs,
     ):
         """Test w command still works with VMs that have public IPs."""
         # Setup mocks
@@ -58,12 +63,34 @@ class TestBackwardCompatibilityW:
         from azlin.modules.ssh_routing_resolver import SSHRoute
 
         ssh_configs = [
-            SSHConfig(host="20.1.2.3", port=22, user="azureuser", key_path=Path("/home/user/.ssh/azlin_key")),
-            SSHConfig(host="20.1.2.4", port=22, user="azureuser", key_path=Path("/home/user/.ssh/azlin_key")),
+            SSHConfig(
+                host="20.1.2.3",
+                port=22,
+                user="azureuser",
+                key_path=Path("/home/user/.ssh/azlin_key"),
+            ),
+            SSHConfig(
+                host="20.1.2.4",
+                port=22,
+                user="azureuser",
+                key_path=Path("/home/user/.ssh/azlin_key"),
+            ),
         ]
         routes = [
-            SSHRoute(vm_name="azlin-vm-1", vm_info=vms[0], routing_method="direct", ssh_config=ssh_configs[0], skip_reason=None),
-            SSHRoute(vm_name="azlin-vm-2", vm_info=vms[1], routing_method="direct", ssh_config=ssh_configs[1], skip_reason=None),
+            SSHRoute(
+                vm_name="azlin-vm-1",
+                vm_info=vms[0],
+                routing_method="direct",
+                ssh_config=ssh_configs[0],
+                skip_reason=None,
+            ),
+            SSHRoute(
+                vm_name="azlin-vm-2",
+                vm_info=vms[1],
+                routing_method="direct",
+                ssh_config=ssh_configs[1],
+                skip_reason=None,
+            ),
         ]
         mock_get_ssh_configs.return_value = (ssh_configs, routes)
 
