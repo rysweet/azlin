@@ -69,6 +69,7 @@ from azlin.commands.tag import tag_group
 
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
+from azlin.context_manager import ContextManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
 from azlin.distributed_top import DistributedTopError, DistributedTopExecutor
 from azlin.env_manager import EnvManager, EnvManagerError
