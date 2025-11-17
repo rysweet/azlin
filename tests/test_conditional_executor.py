@@ -6,8 +6,9 @@ Following TDD pyramid pattern:
 - E2E tests for filtering workflow
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 
 from azlin.batch_executor import (
     BatchExecutorError,
@@ -264,15 +265,14 @@ class TestConditionalExecutor:
                     is_idle=True,
                     success=True,
                 )
-            else:
-                return VMMetrics(
-                    vm_name="busy-vm",
-                    load_avg=(2.0, 2.1, 2.2),
-                    cpu_percent=80.0,
-                    memory_percent=70.0,
-                    is_idle=False,
-                    success=True,
-                )
+            return VMMetrics(
+                vm_name="busy-vm",
+                load_avg=(2.0, 2.1, 2.2),
+                cpu_percent=80.0,
+                memory_percent=70.0,
+                is_idle=False,
+                success=True,
+            )
 
         mock_collect.side_effect = mock_collect_side_effect
 
@@ -312,15 +312,14 @@ class TestConditionalExecutor:
                     is_idle=False,
                     success=True,
                 )
-            else:
-                return VMMetrics(
-                    vm_name="high-cpu",
-                    load_avg=(3.0, 3.1, 3.2),
-                    cpu_percent=90.0,
-                    memory_percent=80.0,
-                    is_idle=False,
-                    success=True,
-                )
+            return VMMetrics(
+                vm_name="high-cpu",
+                load_avg=(3.0, 3.1, 3.2),
+                cpu_percent=90.0,
+                memory_percent=80.0,
+                is_idle=False,
+                success=True,
+            )
 
         mock_collect.side_effect = mock_collect_side_effect
 

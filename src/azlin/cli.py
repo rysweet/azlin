@@ -5673,8 +5673,6 @@ def _do_impl(
     Raises:
         SystemExit: On various error conditions with appropriate exit codes
     """
-    import logging
-
     logger = logging.getLogger(__name__)
 
     try:

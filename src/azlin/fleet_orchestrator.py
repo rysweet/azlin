@@ -347,9 +347,7 @@ class ResultDiffGenerator:
     """Generate diff reports for command results across VMs."""
 
     @staticmethod
-    def generate_diff(
-        results: list[BatchOperationResult], sanitize: bool = True
-    ) -> str:
+    def generate_diff(results: list[BatchOperationResult], sanitize: bool = True) -> str:
         """Generate diff report showing differences in command outputs.
 
         Args:
@@ -437,8 +435,8 @@ class ResultDiffGenerator:
 
 __all__ = [
     "FleetOrchestratorError",
-    "WorkflowStep",
-    "WorkflowResult",
-    "WorkflowOrchestrator",
     "ResultDiffGenerator",
+    "WorkflowOrchestrator",
+    "WorkflowResult",
+    "WorkflowStep",
 ]

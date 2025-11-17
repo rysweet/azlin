@@ -164,6 +164,12 @@ def run_command(
                 console.print("Run 'azlin config set-rg <name>' or use --resource-group")
                 sys.exit(1)
 
+        # Ensure resource_group is not None after config loading
+        if resource_group is None:
+            console.print("[red]Error: No resource group configured[/red]")
+            console.print("Run 'azlin config set-rg <name>' or use --resource-group")
+            sys.exit(1)
+
         # Validate selection
         selection_count = sum([bool(tag_filter), bool(pattern), all_vms])
         if selection_count == 0:
@@ -176,8 +182,7 @@ def run_command(
             sys.exit(1)
 
         # Get VMs
-        vm_manager = VMManager(resource_group=resource_group)
-        all_vm_list = vm_manager.list_vms()
+        all_vm_list = VMManager.list_vms(resource_group)
 
         # Apply selection filter
         if tag_filter:
@@ -361,6 +366,12 @@ def run_workflow(
                 console.print("Run 'azlin config set-rg <name>' or use --resource-group")
                 sys.exit(1)
 
+        # Ensure resource_group is not None after config loading
+        if resource_group is None:
+            console.print("[red]Error: No resource group configured[/red]")
+            console.print("Run 'azlin config set-rg <name>' or use --resource-group")
+            sys.exit(1)
+
         # Load workflow
         orchestrator = WorkflowOrchestrator(max_workers=parallel)
         steps = orchestrator.load_workflow(workflow_file)
@@ -393,8 +404,7 @@ def run_workflow(
             sys.exit(1)
 
         # Get VMs
-        vm_manager = VMManager(resource_group=resource_group)
-        all_vm_list = vm_manager.list_vms()
+        all_vm_list = VMManager.list_vms(resource_group)
 
         # Apply selection filter
         if tag_filter:
