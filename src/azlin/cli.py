@@ -63,6 +63,7 @@ from azlin.commands.context import context_group
 # Doit commands
 from azlin.commands.doit import doit_group
 from azlin.commands.fleet import fleet_group
+from azlin.commands.github_runner import github_runner_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
@@ -7983,6 +7984,9 @@ main.add_command(tag_group)
 
 # Register fleet commands
 main.add_command(fleet_group)
+
+# Register GitHub runner commands
+main.add_command(github_runner_group)
 
 # Register doit commands (replace old doit if it exists)
 if "doit" in main.commands:
