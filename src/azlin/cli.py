@@ -2876,6 +2876,16 @@ def list_command(
         else:
             # Single RG listing (rg is guaranteed to be str here)
             assert rg is not None, "Resource group must be set in this branch"
+
+            # Show current context if available
+            try:
+                context_mgr = ContextManager()
+                current_ctx = context_mgr.get_current_context()
+                if current_ctx:
+                    click.echo(f"Context: {current_ctx.name}")
+            except Exception:
+                pass  # Silently skip if context unavailable
+
             click.echo(f"Listing VMs in resource group: {rg}\n")
             vms = VMManager.list_vms(rg, include_stopped=show_all)
             # Filter to azlin VMs
@@ -3051,7 +3061,10 @@ def list_command(
         if not show_all_vms:
             console.print(
                 "\n[dim]To show all VMs accessible by this subscription, run:[/dim]\n"
-                "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])"
+                "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])\n\n"
+                "[dim]To show VMs across multiple contexts, run:[/dim]\n"
+                "[cyan]  azlin list --all-contexts --rg <resource-group>[/cyan]\n"
+                "[cyan]  azlin list --contexts \"pattern*\" --rg <resource-group>[/cyan]"
             )
 
         # List Bastion hosts in the same resource group
