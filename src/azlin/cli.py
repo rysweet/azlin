@@ -4364,6 +4364,7 @@ def connect(
         # Parse remote command and key path
         # SPECIAL CASE: If remote_command is a single word with no command chars,
         # treat it as tmux session name, not a remote command
+        logger.info(f"DEBUG CLI: remote_command tuple = {remote_command!r}")
         command = None
         if remote_command:
             if len(remote_command) == 1 and not any(
