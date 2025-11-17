@@ -20,7 +20,6 @@ class ExecutionStrategy(ABC):
     Each strategy implements a different approach to executing Azure operations:
     - AzureCLIStrategy: Direct azure-cli commands
     - TerraformStrategy: Generate and apply Terraform configs
-    - MCPClientStrategy: Use Model Context Protocol
     - CustomCodeStrategy: Custom Python/shell scripts
 
     Example:

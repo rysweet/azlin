@@ -339,6 +339,14 @@ class ConfigManager:
         Raises:
             ConfigError: If saving fails or path is outside allowed directories
         """
+        # CRITICAL: Prevent tests from modifying production config (Issue #279)
+        if os.getenv("AZLIN_TEST_MODE") == "true" and custom_path is None:
+            raise ConfigError(
+                "Cannot save to production config during tests. "
+                "Tests must use custom_path with tmp_path fixture. "
+                "This protects ~/.azlin/config.toml from being overwritten."
+            )
+
         temp_path: Path | None = None
         try:
             # Determine config path
@@ -604,11 +612,12 @@ class ConfigManager:
     def get_vm_name_by_session(
         cls, session_name: str, custom_path: str | None = None, resource_group: str | None = None
     ) -> str | None:
-        """Get VM name by session name using hybrid resolution.
+        """Get VM name by session name using hybrid resolution with fallback.
 
         Resolution priority:
         1. VM cache (fast lookup with 15-minute TTL)
         2. Azure VM tags (source of truth) - checks managed-by=azlin VMs
+        2.5. Azure VM tags fallback - checks azlin-session WITHOUT managed-by requirement
         3. Local config file (backward compatibility fallback)
 
         Args:
@@ -620,6 +629,10 @@ class ConfigManager:
             VM name or None if not found
 
         Note:
+            Priority 2.5 handles VMs with azlin-session tag but missing managed-by=azlin.
+            This supports transition scenarios where session tags exist but managed-by
+            tags haven't been applied yet.
+
             Filters out self-referential entries (vm_name == session_name)
             and warns on duplicate session names pointing to different VMs.
         """
@@ -635,7 +648,7 @@ class ConfigManager:
         except Exception as e:
             logger.debug(f"Failed to check cache, continuing with tag/config lookup: {e}")
 
-        # Priority 2: Check Azure tags
+        # Priority 2: Check Azure tags (managed-by=azlin VMs)
         try:
             from azlin.tag_manager import TagManager
 
@@ -656,6 +669,30 @@ class ConfigManager:
                 return vm_info.name
         except Exception as e:
             logger.debug(f"Failed to resolve session via tags, falling back to config: {e}")
+
+        # Priority 2.5: Fallback - Check Azure tags WITHOUT managed-by requirement
+        # This handles VMs that have azlin-session tag but not managed-by=azlin
+        try:
+            from azlin.tag_manager import TagManager
+
+            vm_info = TagManager.find_vm_by_session_tag_fallback(session_name, resource_group)
+            if vm_info:
+                logger.info(
+                    f"Resolved session '{session_name}' to VM '{vm_info.name}' "
+                    f"via fallback (azlin-session tag without managed-by)"
+                )
+                # Update cache for future lookups
+                try:
+                    from azlin.vm_cache import VMCache
+
+                    cache = VMCache()
+                    cache.set(session_name, vm_info.name)
+                    logger.debug(f"Cached session '{session_name}' -> '{vm_info.name}'")
+                except Exception as cache_error:
+                    logger.debug(f"Failed to update cache: {cache_error}")
+                return vm_info.name
+        except Exception as e:
+            logger.debug(f"Fallback tag search failed, continuing to config: {e}")
 
         # Priority 3: Fall back to local config file
         try:
