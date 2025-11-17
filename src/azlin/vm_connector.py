@@ -77,6 +77,7 @@ class VMConnector:
         use_bastion: bool = False,
         bastion_name: str | None = None,
         bastion_resource_group: str | None = None,
+        skip_prompts: bool = False,
     ) -> bool:
         """Connect to a VM via SSH (with optional Bastion routing).
 
@@ -93,6 +94,7 @@ class VMConnector:
             use_bastion: Force use of Bastion tunnel (default: False)
             bastion_name: Bastion host name (optional, auto-detected if not provided)
             bastion_resource_group: Bastion resource group (optional)
+            skip_prompts: Skip all confirmation prompts (default: False)
 
         Returns:
             True if connection successful
@@ -149,6 +151,7 @@ class VMConnector:
                     conn_info.resource_group,
                     use_bastion,
                     conn_info.location,  # Pass VM location for region filtering
+                    skip_prompts,
                 )
                 should_use_bastion = bastion_info is not None
 
@@ -464,6 +467,7 @@ class VMConnector:
         resource_group: str,
         force_bastion: bool,
         vm_location: str | None = None,
+        skip_prompts: bool = False,
     ) -> BastionInfo | None:
         """Check if Bastion routing should be used for VM.
 
@@ -474,9 +478,10 @@ class VMConnector:
             resource_group: Resource group
             force_bastion: Force use of Bastion
             vm_location: VM region for Bastion region filtering (optional)
+            skip_prompts: Skip confirmation prompts (default: False)
 
         Returns:
-            Dict with bastion name and resource_group if should use Bastion, None otherwise
+            BastionInfo with bastion name, resource_group, and location if should use Bastion, None otherwise
         """
         # If forcing Bastion, skip checks
         if force_bastion:
@@ -496,23 +501,27 @@ class VMConnector:
             mapping = bastion_config.get_mapping(vm_name)
             if mapping:
                 logger.info(f"Using configured Bastion mapping for {vm_name}")
-                return {
-                    "name": mapping.bastion_name,
-                    "resource_group": mapping.bastion_resource_group,
-                    "location": None,
-                }
+                return BastionInfo(
+                    name=mapping.bastion_name,
+                    resource_group=mapping.bastion_resource_group,
+                    location=None,
+                )
 
         except Exception as e:
             logger.debug(f"Could not load Bastion config: {e}")
 
         # Auto-detect Bastion
         try:
-            bastion_info = BastionDetector.detect_bastion_for_vm(
+            bastion_info: BastionInfo | None = BastionDetector.detect_bastion_for_vm(
                 vm_name, resource_group, vm_location
             )
 
             if bastion_info:
-                # Prompt user (default changed to True for security by default)
+                # Prompt user or auto-accept if skip_prompts (default changed to True for security by default)
+                if skip_prompts:
+                    logger.info("Skipping prompts, using Bastion (default)")
+                    return bastion_info
+
                 try:
                     if click.confirm(
                         f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",

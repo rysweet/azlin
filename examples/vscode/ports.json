@@ -1,0 +1,10 @@
+{
+  "forwards": [
+    {"local": 3000, "remote": 3000},
+    {"local": 8080, "remote": 8080},
+    {"local": 8000, "remote": 8000},
+    {"local": 5432, "remote": 5432},
+    {"local": 6379, "remote": 6379},
+    {"local": 27017, "remote": 27017}
+  ]
+}

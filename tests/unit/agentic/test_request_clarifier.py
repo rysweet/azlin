@@ -434,9 +434,9 @@ class TestClarify:
         result = clarifier.clarify("create blobs", context=context, auto_confirm=True)
 
         # Verify context was included in API call
-        call_args = mock_client.messages.create.call_args
         assert context is not None
         assert result.needed is True
+        assert mock_client.messages.create.call_args is not None
 
     @patch("anthropic.Anthropic")
     @patch("click.confirm")
