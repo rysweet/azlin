@@ -11,12 +11,12 @@ Test Coverage:
 - Sorting and consistency
 """
 
-import pytest
 from unittest.mock import Mock, patch
 
-from azlin.context_selector import ContextSelector, ContextSelectorError
-from azlin.context_manager import Context, ContextConfig, ContextError
+import pytest
 
+from azlin.context_manager import Context, ContextConfig, ContextError
+from azlin.context_selector import ContextSelector, ContextSelectorError
 
 # =============================================================================
 # FIXTURES
@@ -230,7 +230,9 @@ class TestArgumentValidation:
         with patch("azlin.context_selector.ContextManager.load", return_value=config):
             # Empty string pattern is falsy, so it should be caught by the
             # "Must specify either pattern or all_contexts" check
-            with pytest.raises(ContextSelectorError, match="Must specify either pattern or all_contexts"):
+            with pytest.raises(
+                ContextSelectorError, match="Must specify either pattern or all_contexts"
+            ):
                 selector.select_contexts(pattern="")
 
 

@@ -23,7 +23,6 @@ Example Usage:
 
 import fnmatch
 import logging
-from pathlib import Path
 
 from azlin.context_manager import Context, ContextConfig, ContextError, ContextManager
 
@@ -80,14 +79,10 @@ class ContextSelector:
         """
         # Validate arguments
         if pattern and all_contexts:
-            raise ContextSelectorError(
-                "Cannot specify both pattern and all_contexts. Choose one."
-            )
+            raise ContextSelectorError("Cannot specify both pattern and all_contexts. Choose one.")
 
         if not pattern and not all_contexts:
-            raise ContextSelectorError(
-                "Must specify either pattern or all_contexts=True"
-            )
+            raise ContextSelectorError("Must specify either pattern or all_contexts=True")
 
         # Load context configuration
         try:

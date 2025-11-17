@@ -26,7 +26,6 @@ import logging
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 
 from azlin.multi_context_list import MultiContextVMResult
 from azlin.quota_manager import QuotaManager
@@ -101,7 +100,7 @@ class MultiContextDisplay:
         """
         # Create summary text
         summary_lines = [
-            f"[bold]Multi-Context VM Query Results[/bold]",
+            "[bold]Multi-Context VM Query Results[/bold]",
             f"Contexts queried: {len(result.context_results)} "
             f"([green]{result.successful_contexts} succeeded[/green], "
             f"[red]{result.failed_contexts} failed[/red])",

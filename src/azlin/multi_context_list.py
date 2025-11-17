@@ -284,9 +284,7 @@ class MultiContextVMQuery:
 
             duration = time.time() - start_time
 
-            logger.debug(
-                f"Context {context.name}: found {len(vms)} VMs in {duration:.2f}s"
-            )
+            logger.debug(f"Context {context.name}: found {len(vms)} VMs in {duration:.2f}s")
 
             return ContextVMResult(
                 context_name=context.name,
@@ -330,9 +328,7 @@ class MultiContextVMQuery:
             # Use Azure CLI to switch subscription
             cmd = ["az", "account", "set", "--subscription", context.subscription_id]
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=10, check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=True)
 
             logger.debug(f"Switched to subscription: {context.subscription_id}")
 
@@ -347,8 +343,8 @@ class MultiContextVMQuery:
 
 
 __all__ = [
-    "MultiContextVMQuery",
-    "MultiContextVMResult",
     "ContextVMResult",
     "MultiContextQueryError",
+    "MultiContextVMQuery",
+    "MultiContextVMResult",
 ]

@@ -11,23 +11,20 @@ Test Coverage:
 - Formatting methods and string generation
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-from io import StringIO
+from unittest.mock import Mock
 
+import pytest
 from rich.console import Console
 
+from azlin.context_manager import Context
 from azlin.multi_context_display import (
     MultiContextDisplay,
-    MultiContextDisplayError,
 )
 from azlin.multi_context_list import (
-    MultiContextVMResult,
     ContextVMResult,
+    MultiContextVMResult,
 )
 from azlin.vm_manager import VMInfo
-from azlin.context_manager import Context
-
 
 # =============================================================================
 # FIXTURES
@@ -181,28 +178,20 @@ class TestDisplayResults:
     def test_display_results_without_summary(self, multi_result_success, mock_console):
         """Test display_results without summary."""
         display = MultiContextDisplay(console=mock_console)
-        display.display_results(
-            multi_result_success, show_summary=False, show_errors=True
-        )
+        display.display_results(multi_result_success, show_summary=False, show_errors=True)
 
         # Summary methods should still be called for header
         # (implementation depends on _display_summary_header behavior)
         assert mock_console.print.called
 
-    def test_display_results_without_errors(
-        self, multi_result_mixed, mock_console
-    ):
+    def test_display_results_without_errors(self, multi_result_mixed, mock_console):
         """Test display_results hiding error details."""
         display = MultiContextDisplay(console=mock_console)
-        display.display_results(
-            multi_result_mixed, show_errors=False, show_summary=True
-        )
+        display.display_results(multi_result_mixed, show_errors=False, show_summary=True)
 
         assert mock_console.print.called
 
-    def test_display_results_mixed_success_and_failure(
-        self, multi_result_mixed, mock_console
-    ):
+    def test_display_results_mixed_success_and_failure(self, multi_result_mixed, mock_console):
         """Test displaying mixed results."""
         display = MultiContextDisplay(console=mock_console)
         display.display_results(multi_result_mixed)
@@ -219,9 +208,7 @@ class TestDisplayResults:
 class TestSummaryHeaderDisplay:
     """Test summary header rendering."""
 
-    def test_display_summary_header_all_success(
-        self, multi_result_success, mock_console
-    ):
+    def test_display_summary_header_all_success(self, multi_result_success, mock_console):
         """Test summary header with all successful contexts."""
         display = MultiContextDisplay(console=mock_console)
         display._display_summary_header(multi_result_success)
@@ -231,18 +218,14 @@ class TestSummaryHeaderDisplay:
         # Panel should be printed
         assert len(call_args[0]) > 0
 
-    def test_display_summary_header_mixed_results(
-        self, multi_result_mixed, mock_console
-    ):
+    def test_display_summary_header_mixed_results(self, multi_result_mixed, mock_console):
         """Test summary header with mixed results."""
         display = MultiContextDisplay(console=mock_console)
         display._display_summary_header(multi_result_mixed)
 
         assert mock_console.print.called
 
-    def test_display_summary_header_shows_context_count(
-        self, multi_result_success, mock_console
-    ):
+    def test_display_summary_header_shows_context_count(self, multi_result_success, mock_console):
         """Test that summary shows context count."""
         display = MultiContextDisplay(console=mock_console)
         display._display_summary_header(multi_result_success)
@@ -250,9 +233,7 @@ class TestSummaryHeaderDisplay:
         # Verify print was called with Panel containing summary info
         assert mock_console.print.called
 
-    def test_display_summary_header_shows_vm_counts(
-        self, multi_result_success, mock_console
-    ):
+    def test_display_summary_header_shows_vm_counts(self, multi_result_success, mock_console):
         """Test that summary shows VM counts."""
         display = MultiContextDisplay(console=mock_console)
         display._display_summary_header(multi_result_success)
@@ -317,27 +298,21 @@ class TestContextVMDisplay:
 
         assert mock_console.print.called
 
-    def test_display_context_vms_shows_context_name(
-        self, sample_context_result, mock_console
-    ):
+    def test_display_context_vms_shows_context_name(self, sample_context_result, mock_console):
         """Test that context name is shown."""
         display = MultiContextDisplay(console=mock_console)
         display._display_context_vms(sample_context_result)
 
         assert mock_console.print.called
 
-    def test_display_context_vms_shows_duration(
-        self, sample_context_result, mock_console
-    ):
+    def test_display_context_vms_shows_duration(self, sample_context_result, mock_console):
         """Test that query duration is shown."""
         display = MultiContextDisplay(console=mock_console)
         display._display_context_vms(sample_context_result)
 
         assert mock_console.print.called
 
-    def test_display_context_vms_shows_vm_count(
-        self, sample_context_result, mock_console
-    ):
+    def test_display_context_vms_shows_vm_count(self, sample_context_result, mock_console):
         """Test that VM count is shown."""
         display = MultiContextDisplay(console=mock_console)
         display._display_context_vms(sample_context_result)
@@ -378,9 +353,7 @@ class TestErrorDisplay:
 
         assert mock_console.print.called
 
-    def test_display_context_error_shows_duration(
-        self, sample_failed_context_result, mock_console
-    ):
+    def test_display_context_error_shows_duration(self, sample_failed_context_result, mock_console):
         """Test that error duration is shown."""
         display = MultiContextDisplay(console=mock_console)
         display._display_context_error(sample_failed_context_result)
@@ -403,18 +376,14 @@ class TestFooterSummaryDisplay:
 
         assert mock_console.print.called
 
-    def test_display_footer_summary_shows_totals(
-        self, multi_result_success, mock_console
-    ):
+    def test_display_footer_summary_shows_totals(self, multi_result_success, mock_console):
         """Test that footer shows total values."""
         display = MultiContextDisplay(console=mock_console)
         display._display_footer_summary(multi_result_success)
 
         assert mock_console.print.called
 
-    def test_display_footer_summary_mixed_results(
-        self, multi_result_mixed, mock_console
-    ):
+    def test_display_footer_summary_mixed_results(self, multi_result_mixed, mock_console):
         """Test footer with mixed results."""
         display = MultiContextDisplay(console=mock_console)
         display._display_footer_summary(multi_result_mixed)
@@ -430,18 +399,14 @@ class TestFooterSummaryDisplay:
 class TestErrorSummaryDisplay:
     """Test error summary display."""
 
-    def test_display_error_summary_no_failures(
-        self, multi_result_success, mock_console
-    ):
+    def test_display_error_summary_no_failures(self, multi_result_success, mock_console):
         """Test error summary when all succeeded."""
         display = MultiContextDisplay(console=mock_console)
         display.display_error_summary(multi_result_success)
 
         assert mock_console.print.called
 
-    def test_display_error_summary_with_failures(
-        self, multi_result_mixed, mock_console
-    ):
+    def test_display_error_summary_with_failures(self, multi_result_mixed, mock_console):
         """Test error summary with failures."""
         display = MultiContextDisplay(console=mock_console)
         display.display_error_summary(multi_result_mixed)

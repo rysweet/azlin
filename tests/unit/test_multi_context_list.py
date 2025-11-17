@@ -12,20 +12,18 @@ Test Coverage:
 - Per-context success/failure tracking
 """
 
-import pytest
-from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
-from concurrent.futures import Future
+from unittest.mock import Mock, patch
 
+import pytest
+
+from azlin.context_manager import Context
 from azlin.multi_context_list import (
-    MultiContextVMQuery,
-    MultiContextVMResult,
     ContextVMResult,
     MultiContextQueryError,
+    MultiContextVMQuery,
+    MultiContextVMResult,
 )
-from azlin.context_manager import Context
 from azlin.vm_manager import VMInfo, VMManagerError
-
 
 # =============================================================================
 # FIXTURES
@@ -144,11 +142,14 @@ class TestSingleContextQuery:
         """Test successful query for single context."""
         context = query_executor.contexts[0]
 
-        with patch("azlin.multi_context_list.subprocess.run"), \
-             patch("azlin.multi_context_list.VMManager.list_vms", return_value=sample_vms), \
-             patch("azlin.multi_context_list.VMManager.filter_by_prefix", return_value=sample_vms), \
-             patch("azlin.multi_context_list.VMManager.sort_by_created_time", return_value=sample_vms):
-
+        with (
+            patch("azlin.multi_context_list.subprocess.run"),
+            patch("azlin.multi_context_list.VMManager.list_vms", return_value=sample_vms),
+            patch("azlin.multi_context_list.VMManager.filter_by_prefix", return_value=sample_vms),
+            patch(
+                "azlin.multi_context_list.VMManager.sort_by_created_time", return_value=sample_vms
+            ),
+        ):
             result = query_executor._query_single_context(
                 context=context,
                 resource_group="azlin-rg",
@@ -180,12 +181,13 @@ class TestSingleContextQuery:
         """Test handling of VMManager errors."""
         context = query_executor.contexts[0]
 
-        with patch("azlin.multi_context_list.subprocess.run"), \
-             patch(
-                 "azlin.multi_context_list.VMManager.list_vms",
-                 side_effect=VMManagerError("Failed to list VMs"),
-             ):
-
+        with (
+            patch("azlin.multi_context_list.subprocess.run"),
+            patch(
+                "azlin.multi_context_list.VMManager.list_vms",
+                side_effect=VMManagerError("Failed to list VMs"),
+            ),
+        ):
             result = query_executor._query_single_context(
                 context=context,
                 resource_group="azlin-rg",
@@ -200,11 +202,14 @@ class TestSingleContextQuery:
         """Test that query duration is recorded."""
         context = query_executor.contexts[0]
 
-        with patch("azlin.multi_context_list.subprocess.run"), \
-             patch("azlin.multi_context_list.VMManager.list_vms", return_value=sample_vms), \
-             patch("azlin.multi_context_list.VMManager.filter_by_prefix", return_value=sample_vms), \
-             patch("azlin.multi_context_list.VMManager.sort_by_created_time", return_value=sample_vms):
-
+        with (
+            patch("azlin.multi_context_list.subprocess.run"),
+            patch("azlin.multi_context_list.VMManager.list_vms", return_value=sample_vms),
+            patch("azlin.multi_context_list.VMManager.filter_by_prefix", return_value=sample_vms),
+            patch(
+                "azlin.multi_context_list.VMManager.sort_by_created_time", return_value=sample_vms
+            ),
+        ):
             result = query_executor._query_single_context(
                 context=context,
                 resource_group="azlin-rg",
@@ -461,9 +466,7 @@ class TestParallelExecution:
 
     def test_query_all_contexts_success(self, query_executor, sample_vms):
         """Test successful query of all contexts."""
-        with patch.object(
-            query_executor, "_query_single_context"
-        ) as mock_query:
+        with patch.object(query_executor, "_query_single_context") as mock_query:
             # Create mock results
             mock_query.side_effect = [
                 ContextVMResult(
@@ -606,9 +609,7 @@ class TestQueryParameters:
                 duration=1.0,
             )
 
-            query_executor.query_all_contexts(
-                resource_group="azlin-rg", include_stopped=False
-            )
+            query_executor.query_all_contexts(resource_group="azlin-rg", include_stopped=False)
 
             # Args are: context, resource_group, include_stopped, filter_prefix
             call_args = mock_query.call_args_list[0][0]
@@ -625,9 +626,7 @@ class TestQueryParameters:
                 duration=1.0,
             )
 
-            query_executor.query_all_contexts(
-                resource_group="azlin-rg", filter_prefix="custom"
-            )
+            query_executor.query_all_contexts(resource_group="azlin-rg", filter_prefix="custom")
 
             # Args are: context, resource_group, include_stopped, filter_prefix
             call_args = mock_query.call_args_list[0][0]
