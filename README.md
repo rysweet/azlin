@@ -14,12 +14,6 @@ azlin new
 
 # Create VM and clone GitHub repo
 azlin new --repo https://github.com/owner/repo
-
-# Or use natural language (AI-powered)
-azlin do "create a new vm called Sam"
-uvx --from git+https://github.com/rysweet/azlin azlin do "show me all my vms"
-azlin do "sync all my vms"
-azlin do "show me the cost over the last week"
 ```
 
 ## What is azlin?
@@ -176,7 +170,7 @@ mkdir -p ~/.azlin/home
 cp ~/.bashrc ~/.vimrc ~/.gitconfig ~/.azlin/home/
 
 # Auto-syncs on VM creation and login
-azlin new  # Dotfiles automatically synced after provisioning
+azlin new # Dotfiles automatically synced after provisioning
 
 # Manual sync to specific VM
 azlin sync --vm-name my-vm
@@ -201,6 +195,29 @@ azlin cp vm1:~/results.tar.gz ./
 # Preview transfer
 azlin cp --dry-run large-dataset.zip vm1:~/
 ```
+
+### Azure Bastion (Secure Access)
+
+Connect to VMs securely without public IPs using Azure Bastion:
+
+```bash
+# List available Bastion hosts
+azlin bastion list
+
+# Connect to VM through Bastion (auto-detected)
+azlin connect my-vm --use-bastion
+
+# Configure VM to use specific Bastion
+azlin bastion configure my-vm --bastion-name my-bastion --resource-group my-rg
+```
+
+**Security Benefits**: Bastion eliminates internet-facing access to VMs, providing enhanced security through centralized access control, audit logging, and compliance with security policies requiring private-only VMs.
+
+**Cost**: ~$289/month per Bastion host (Standard SKU, shared across all VMs in the VNet).
+
+**Note**: azlin requires Standard SKU to enable CLI tunneling via `az network bastion tunnel`. Basic SKU only supports browser-based access.
+
+For complete documentation, see the [Azure Bastion](#azure-bastion-secure-vm-access) section.
 
 ## Authentication
 
@@ -274,9 +291,55 @@ azlin auth remove dev
 
 For detailed authentication setup and troubleshooting, see the [Authentication Implementation Guide](docs/AUTH_IMPLEMENTATION_GUIDE.md).
 
+## Multi-Tenant Context Management
+
+kubectl-style context management for seamless switching between multiple Azure tenants and subscriptions.
+
+```bash
+# Create contexts
+azlin context create dev --subscription <uuid> --tenant <uuid>
+azlin context create prod --subscription <uuid> --tenant <uuid>
+
+# Switch between them
+azlin context use dev
+azlin list  # Shows dev VMs
+
+azlin context use prod
+azlin list  # Shows prod VMs
+```
+
+**Commands:** `list`, `current`, `use`, `create`, `delete`, `rename`, `migrate`
+
+See [Context Management Guide](docs/CONTEXT_MANAGEMENT.md) for detailed documentation and use cases.
+
 # Comprehensive Command Reference
 
 This section provides detailed examples of all azlin commands with practical use cases.
+
+## Table of Contents
+
+- [Common Options](#common-options) - Standard options across commands
+- [Multi-Tenant Context Management](#multi-tenant-context-management) - Manage multiple Azure tenants
+- [VM Lifecycle](#vm-lifecycle) - Create, manage, and delete VMs
+- [VM Maintenance](#vm-maintenance) - Update tools and packages
+- [Connection](#connection) - Connect to VMs
+- [Azure Bastion](#azure-bastion-secure-vm-access) - Secure VM access without public IPs
+- [Monitoring](#monitoring) - Monitor VM status and processes
+- [File Operations](#file-operations) - Transfer and sync files
+- [Shared Storage](#shared-storage) - NFS storage across VMs
+- [Cost Management](#cost-management) - Track spending
+- [Batch Operations](#batch-operations) - Execute on multiple VMs
+- [SSH Key Management](#ssh-key-management) - Rotate and manage SSH keys
+- [VM Templates](#vm-templates) - Save and reuse configurations
+- [Environment Variable Management](#environment-variable-management) - Manage env vars
+- [Snapshot Management](#snapshot-management) - Backup and restore VMs
+- [Advanced Usage](#advanced-usage) - Command passthrough and config
+- [Common Workflows](#common-workflows) - Example use cases
+- [Tips & Best Practices](#tips-best-practices) - Optimization tips
+- [Quick Reference](#quick-reference) - Command cheat sheet
+- [Natural Language Commands](#natural-language-commands-ai-powered) - Use AI-powered commands
+
+---
 
 ## Common Options
 
@@ -295,187 +358,6 @@ These options are available on nearly all commands that interact with Azure reso
 - Environment: `env set`, `env list`, `env import`, etc.
 - SSH keys: `keys rotate`, `keys list`
 - Sessions: `session`, `killall`
-
-## Natural Language Commands (AI-Powered)
-
-**New in v2.1**: Use natural language to control azlin with Claude AI
-
-The `azlin do` command understands what you want and executes the appropriate commands automatically. Just describe what you need in plain English, and azlin figures out the right commands to run.
-
-### Installation & Setup
-
-```bash
-# Install via uvx (no installation needed)
-uvx --from git+https://github.com/rysweet/azlin azlin do "list all my vms"
-
-# Or install locally
-pip install git+https://github.com/rysweet/azlin
-
-# Configure your API key (required)
-export ANTHROPIC_API_KEY=sk-ant-xxxxx...
-
-# Make it permanent
-echo 'export ANTHROPIC_API_KEY=sk-ant-xxxxx...' >> ~/.bashrc
-```
-
-Get your API key from: https://console.anthropic.com/
-
-### Quick Examples from Integration Tests
-
-All of these were tested and work reliably:
-
-```bash
-# VM Provisioning (100% confidence)
-azlin do "create a new vm called Sam"
-azlin do "provision a Standard_D4s_v3 vm called ml-trainer"
-uvx --from git+https://github.com/rysweet/azlin azlin do "create a vm"
-
-# Listing VMs (100% confidence)
-azlin do "show me all my vms"
-azlin do "list all my vms"
-azlin do "what vms do I have"
-
-# Checking Status (95% confidence)
-azlin do "what is the status of my vms"
-azlin do "show me vm details"
-
-# Cost Queries (90% confidence)
-azlin do "what are my azure costs"
-azlin do "show me costs by vm"
-azlin do "what's my current azure spending"
-
-# File Operations
-azlin do "sync all my vms"
-azlin do "sync my home directory to vm Sam"
-azlin do "copy myproject to the vm"
-
-# Starting/Stopping VMs
-azlin do "start my development vm"
-azlin do "stop all test vms"
-azlin do "stop all idle vms to save costs"
-
-# Complex Multi-Step Operations
-azlin do "create 5 test vms and sync them all"
-azlin do "set up a new development environment"
-azlin do "show me my costs and stop any vms I'm not using"
-```
-
-### Resource Cleanup with Natural Language
-
-Safe, step-by-step cleanup workflow:
-
-```bash
-# Step 1: List what you have
-azlin do "show me all my vms"
-
-# Step 2: Preview deletion (dry-run)
-azlin do "delete all test vms" --dry-run
-
-# Step 3: Execute deletion (with confirmation)
-azlin do "delete all test vms"
-# Shows what will be deleted and asks "Execute these commands? [y/N]"
-
-# Step 4: Verify cleanup
-azlin do "list all vms"
-
-# Other cleanup examples
-azlin do "delete vm called experiment-123"
-azlin do "delete vms older than 7 days"
-azlin do "stop all stopped vms to deallocate them"
-```
-
-### Error Handling & Safety
-
-The system gracefully handles invalid requests:
-
-```bash
-# Invalid requests (0% confidence - no action taken)
-azlin do "make me coffee"
-# Response: Warning: Low confidence (0.0%). No commands executed.
-
-# Ambiguous requests (40% confidence - asks for clarification)
-azlin do "update something"
-# Response: Warning: Low confidence (40.0%). Continue anyway? [y/N]
-
-# Dry-run for safety
-azlin do "delete everything" --dry-run
-# Shows plan without executing anything
-```
-
-### Command Options
-
-```bash
-# Preview without executing
-azlin do "delete all old vms" --dry-run
-
-# Skip confirmation prompts (for automation)
-azlin do "create vm test-001" --yes
-
-# See detailed parsing and execution
-azlin do "create a vm" --verbose
-
-# Combine options
-azlin do "delete test vms" --dry-run --verbose
-```
-
-### Features
-
-- **High Accuracy**: 95-100% confidence on VM operations (tested)
-- **Context-Aware**: Understands your current VMs, storage, and Azure state
-- **Safe by Default**: Shows plan and asks for confirmation
-- **Dry Run Mode**: Preview actions without executing
-- **Automation Ready**: `--yes` flag skips prompts for CI/CD
-- **Verbose Mode**: See parsing details and confidence scores
-
-### Integration Testing
-
-All examples above come from real integration tests with actual Azure resources:
-
-- ✅ 7/7 integration tests passing
-- ✅ Dry-run tests (List VMs 100%, Status 100%, Create 95%)
-- ✅ Real Azure operations (List VMs, Cost queries)
-- ✅ Error handling (Invalid requests rejected gracefully)
-- ✅ Ambiguous requests (Low confidence warnings)
-
-See [docs/AZDOIT.md](docs/AZDOIT.md) for comprehensive documentation with 50+ examples.
-
-### `azlin do` - Natural language command execution
-
-Quick, stateless natural language commands powered by Claude AI.
-
-### `azlin doit` - Alternative to azlin do
-
-Advanced natural language execution with state persistence and objective tracking.
-
-### Natural Language Commands Comparison
-
-| Feature | `do` | `doit` |
-|---------|------|--------|
-| Natural language parsing | ✓ | ✓ |
-| Command execution | ✓ | ✓ |
-| State persistence | ✗ | ✓ |
-| Objective tracking | ✗ | ✓ |
-| Audit logging | ✗ | ✓ |
-| Multi-strategy (future) | ✗ | ✓ |
-| Cost estimation (future) | ✗ | ✓ |
-
-**When to use:**
-- `do` - Quick, simple natural language commands
-- `doit` - Complex objectives requiring state tracking
-
----
-
-## Command Categories
-
-- [Natural Language Commands](#natural-language-commands-ai-powered) - Use plain English with AI
-- [VM Lifecycle](#vm-lifecycle) - Create, manage, and delete VMs
-- [VM Maintenance](#vm-maintenance) - Update tools and packages
-- [Connection](#connection) - Connect to VMs
-- [Monitoring](#monitoring) - Monitor VM status and processes
-- [File Operations](#file-operations) - Transfer and sync files
-- [Cost Management](#cost-management) - Track spending
-
----
 
 ## VM Lifecycle
 
@@ -566,23 +448,27 @@ azlin clone my-vm --vm-size Standard_D4s_v3 --region westus2
 - Home directories copy in parallel (1-10 minutes depending on size)
 - Total time: ~4-15 minutes
 
-#### `azlin list` - List all VMs
+#### `azlin list` - List VMs
 
 ```bash
 # List VMs in default resource group
 azlin list
 
+# List VMs in specific resource group
+azlin list --resource-group my-custom-rg
+
 # Show ALL VMs (including stopped)
 azlin list --all
+
+# List ALL VMs across all resource groups (expensive operation)
+azlin list --show-all-vms
+azlin list -a  # Short form
 
 # Filter by tag
 azlin list --tag env=dev
 
 # Filter by tag key only
 azlin list --tag team
-
-# Specific resource group
-azlin list --resource-group my-custom-rg
 ```
 
 **Output columns:**
@@ -610,6 +496,8 @@ my-project           azlin-vm-001                        Running         20.12.3
 #### `azlin session` - Manage session names
 
 Session names are custom labels you can assign to VMs to help identify what you're working on. They appear in the `azlin list` output and make it easier to track multiple projects. You can also use session names to connect to VMs.
+
+**Note:** Session names are different from tmux session names. Session names identify VMs, while tmux session names (specified with `--tmux-session`) control which tmux session you connect to on the remote VM. By default, azlin connects to the "azlin" tmux session.
 
 ```bash
 # Create a new VM with a session name
@@ -920,33 +808,6 @@ azlin session azlin-vm-12345 myproject
 azlin connect myproject  # Much easier!
 ```
 
-
-
-### Understanding VM Identifiers
-
-Many azlin commands accept a **VM identifier** in three formats:
-
-1. **VM Name:** Full Azure VM name (e.g., `azlin-vm-12345`)
-   - Requires: `--resource-group` or default config
-   - Example: `azlin connect azlin-vm-12345 --rg my-rg`
-
-2. **Session Name:** Custom label you assigned (e.g., `my-project`)
-   - Automatically resolves to VM name
-   - Example: `azlin connect my-project`
-
-3. **IP Address:** Direct connection (e.g., `20.1.2.3`)
-   - No resource group needed
-   - Example: `azlin connect 20.1.2.3`
-
-**Commands that accept VM identifiers:**
-- `connect`, `update`, `os-update`, `stop`, `start`, `kill`, `destroy`
-
-**Tip:** Use session names for easy access:
-```bash
-azlin session azlin-vm-12345 myproject
-azlin connect myproject  # Much easier!
-```
-
 ### `azlin connect` - SSH into a VM
 
 Connect to a VM with automatic tmux session management and **auto-reconnect on disconnect** ✨.
@@ -962,6 +823,8 @@ azlin connect my-project
 azlin connect 20.12.34.56
 
 # Connect to specific tmux session
+# Note: By default, connects to existing "azlin" tmux session
+# Use --tmux-session to specify a different tmux session name
 azlin connect my-vm --tmux-session work
 
 # Connect without tmux
@@ -1013,9 +876,16 @@ Azure Bastion provides secure SSH access to VMs without public IPs, enhancing se
 - Compliance with security policies requiring private-only VMs
 
 **Cost Consideration:**
-- Bastion: ~$140/month per host
+- Bastion: ~$289/month per host (Standard SKU required for CLI access)
 - Saves: ~$3/month per VM (no public IP needed)
-- Break-even: ~47 VMs per Bastion host
+- Break-even: ~96 VMs per Bastion host
+
+**Standard SKU Requirement:**
+
+azlin uses Azure Bastion Standard SKU (not Basic) because:
+- **CLI tunneling support**: Standard SKU enables `az network bastion tunnel` for programmatic SSH access
+- **Basic SKU limitation**: Basic SKU only supports browser-based SSH through Azure Portal
+- **azlin workflow**: Requires CLI-based tunneling for automated connection management and tmux integration
 
 ### Bastion Commands
 
@@ -1918,6 +1788,213 @@ azlin snapshot sync --vm my-vm
 - Compliance/archival requirements
 
 ---
+
+## Natural Language Commands (AI-Powered)
+
+**New in v2.1**: Use natural language to control azlin with Claude AI
+
+The `azlin do` command understands what you want and executes the appropriate commands automatically. Just describe what you need in plain English, and azlin figures out the right commands to run.
+
+### Installation & Setup
+
+```bash
+# Install via uvx (no installation needed)
+uvx --from git+https://github.com/rysweet/azlin azlin do "list all my vms"
+
+# Or install locally
+pip install git+https://github.com/rysweet/azlin
+
+# Configure your API key (required)
+export ANTHROPIC_API_KEY=sk-ant-xxxxx...
+
+# Make it permanent
+echo 'export ANTHROPIC_API_KEY=sk-ant-xxxxx...' >> ~/.bashrc
+```
+
+Get your API key from: https://console.anthropic.com/
+
+### Quick Examples from Integration Tests
+
+All of these were tested and work reliably:
+
+```bash
+# VM Provisioning
+azlin do "create a new vm called Sam"
+azlin do "provision a Standard_D4s_v3 vm called ml-trainer"
+uvx --from git+https://github.com/rysweet/azlin azlin do "create a vm"
+
+# Listing VMs
+azlin do "show me all my vms"
+azlin do "list all my vms"
+azlin do "what vms do I have"
+
+# Checking Status
+azlin do "what is the status of my vms"
+azlin do "show me vm details"
+
+# Cost Queries
+azlin do "what are my azure costs"
+azlin do "show me costs by vm"
+azlin do "what's my current azure spending"
+
+# File Operations
+azlin do "sync all my vms"
+azlin do "sync my home directory to vm Sam"
+azlin do "copy myproject to the vm"
+
+# Starting/Stopping VMs
+azlin do "start my development vm"
+azlin do "stop all test vms"
+azlin do "stop all idle vms to save costs"
+
+# Complex Multi-Step Operations
+azlin do "create 5 test vms and sync them all"
+azlin do "set up a new development environment"
+azlin do "show me my costs and stop any vms I'm not using"
+```
+
+### Resource Cleanup with Natural Language
+
+Safe, step-by-step cleanup workflow:
+
+```bash
+# Step 1: List what you have
+azlin do "show me all my vms"
+
+# Step 2: Preview deletion (dry-run)
+azlin do "delete all test vms" --dry-run
+
+# Step 3: Execute deletion (with confirmation)
+azlin do "delete all test vms"
+# Shows what will be deleted and asks "Execute these commands? [y/N]"
+
+# Step 4: Verify cleanup
+azlin do "list all vms"
+
+# Other cleanup examples
+azlin do "delete vm called experiment-123"
+azlin do "delete vms older than 7 days"
+azlin do "stop all stopped vms to deallocate them"
+```
+
+### Error Handling & Safety
+
+The system gracefully handles invalid requests:
+
+```bash
+# Invalid requests (no action taken)
+azlin do "make me coffee"
+# Response: Warning: Low confidence. No commands executed.
+
+# Ambiguous requests (asks for clarification)
+azlin do "update something"
+# Response: Warning: Low confidence. Continue anyway? [y/N]
+
+# Dry-run for safety
+azlin do "delete everything" --dry-run
+# Shows plan without executing anything
+```
+
+### Command Options
+
+```bash
+# Preview without executing
+azlin do "delete all old vms" --dry-run
+
+# Skip confirmation prompts (for automation)
+azlin do "create vm test-001" --yes
+
+# See detailed parsing and execution
+azlin do "create a vm" --verbose
+
+# Combine options
+azlin do "delete test vms" --dry-run --verbose
+```
+
+### Features
+
+- **Context-Aware**: Understands your current VMs, storage, and Azure state
+- **Safe by Default**: Shows plan and asks for confirmation
+- **Dry Run Mode**: Preview actions without executing
+- **Automation Ready**: `--yes` flag skips prompts for CI/CD
+- **Verbose Mode**: See parsing details and confidence scores
+
+### Integration Testing
+
+All examples above come from real integration tests with actual Azure resources:
+
+- ✅ 7/7 integration tests passing
+- ✅ Dry-run tests (List VMs 100%, Status 100%, Create 95%)
+- ✅ Real Azure operations (List VMs, Cost queries)
+- ✅ Error handling (Invalid requests rejected gracefully)
+- ✅ Ambiguous requests (Low confidence warnings)
+
+See [docs/AZDOIT.md](docs/AZDOIT.md) for comprehensive documentation with 50+ examples.
+
+### `azlin do` - Natural language command execution
+
+Quick, stateless natural language commands powered by Claude AI.
+
+### `azlin doit` - Alternative to azlin do
+
+Advanced natural language execution with state persistence and objective tracking.
+
+### Natural Language Commands Comparison
+
+| Feature | `do` | `doit` |
+|---------|------|--------|
+| Natural language parsing | ✓ | ✓ |
+| Command execution | ✓ | ✓ |
+| State persistence | ✗ | ✓ |
+| Objective tracking | ✗ | ✓ |
+| Audit logging | ✗ | ✓ |
+| Multi-strategy (future) | ✗ | ✓ |
+| Cost estimation (future) | ✗ | ✓ |
+
+**When to use:**
+- `do` - Quick, simple natural language commands
+- `doit` - Complex objectives requiring state tracking
+
+---
+
+## Autonomous Infrastructure Deployment (R2D2 for Azure)
+
+**azlin doit** is an autonomous goal-seeking agent that deploys complex Azure infrastructure from natural language.
+
+### Quick Examples
+
+```bash
+# Deploy complete web application stack
+azlin doit deploy "App Service with Cosmos DB and Storage"
+
+# Create API platform
+azlin doit deploy "2 App Services behind API Management with shared database"
+
+# Serverless pipeline
+azlin doit deploy "Function App triggered by Storage queue saving to Cosmos DB"
+```
+
+**What the agent does:**
+- 🎯 Parses your goal into executable sub-goals
+- 🤖 Deploys resources autonomously (ReAct loop: Reason → Act → Observe → Evaluate)
+- ✅ Self-evaluates and adapts to failures
+- 📦 Generates production-ready Terraform + Bicep
+- 📚 Creates teaching materials with architecture diagrams
+
+### Management
+
+```bash
+azlin doit list                 # Show all doit-created resources
+azlin doit cleanup --force      # Delete all doit resources
+```
+
+**📖 Learn More:**
+- [Quick Start Guide](QUICKSTART_DOIT.md)
+- [Tagging & Management](DOIT_TAGGING_AND_MANAGEMENT.md)
+- [Architecture Docs](src/azlin/doit/README.md)
+
+---
+
 ## Advanced Usage
 
 ### Command Passthrough (Execute on VM)

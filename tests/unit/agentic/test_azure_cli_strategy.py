@@ -62,7 +62,7 @@ class TestCanHandle:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -79,7 +79,7 @@ class TestCanHandle:
             intent="generate_code",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -102,7 +102,7 @@ class TestCanHandle:
             intent="provision_aks_cluster",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -127,7 +127,12 @@ class TestValidate:
         strategy = AzureCLIStrategy()
         context = ExecutionContext(
             objective_id="test",
-            intent=Intent(intent="test", parameters={}, confidence=0.9, azlin_commands=[]),
+            intent=Intent(
+                intent="test",
+                parameters={},
+                confidence=0.9,
+                azlin_commands=[{"command": "azlin", "args": []}],
+            ),
             strategy=Strategy.AZURE_CLI,
         )
 
@@ -144,7 +149,12 @@ class TestValidate:
         strategy = AzureCLIStrategy()
         context = ExecutionContext(
             objective_id="test",
-            intent=Intent(intent="test", parameters={}, confidence=0.9, azlin_commands=[]),
+            intent=Intent(
+                intent="test",
+                parameters={},
+                confidence=0.9,
+                azlin_commands=[{"command": "azlin", "args": []}],
+            ),
             strategy=Strategy.AZURE_CLI,
         )
 
@@ -164,7 +174,12 @@ class TestValidate:
         strategy = AzureCLIStrategy()
         context = ExecutionContext(
             objective_id="test",
-            intent=Intent(intent="test", parameters={}, confidence=0.9, azlin_commands=[]),
+            intent=Intent(
+                intent="test",
+                parameters={},
+                confidence=0.9,
+                azlin_commands=[{"command": "azlin", "args": []}],
+            ),
             strategy=Strategy.AZURE_CLI,
         )
 
@@ -313,7 +328,7 @@ class TestCommandGeneration:
             intent="provision_vm",
             parameters={"vm_name": "test-vm"},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -335,7 +350,7 @@ class TestCommandGeneration:
             intent="list_vms",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -354,7 +369,7 @@ class TestCommandGeneration:
             intent="delete_vm",
             parameters={"vm_name": "old-vm"},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -375,7 +390,7 @@ class TestCommandGeneration:
             intent="provision_vm",
             parameters={"vm_name": "new-vm"},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -396,7 +411,7 @@ class TestCommandGeneration:
             intent="list_vms",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -525,7 +540,7 @@ class TestEstimateDuration:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -545,7 +560,7 @@ class TestEstimateDuration:
             intent="list_vms",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -565,7 +580,7 @@ class TestEstimateDuration:
             intent="delete_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[{}],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -611,7 +626,7 @@ class TestHelperMethods:
             intent="provision_vm",
             parameters={"vm_name": "test", "vm_size": "Standard_D4s_v3"},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",
@@ -634,7 +649,7 @@ class TestHelperMethods:
             intent="provision_vm",
             parameters={},
             confidence=0.9,
-            azlin_commands=[],
+            azlin_commands=[{"command": "azlin", "args": []}],
         )
         context = ExecutionContext(
             objective_id="test",

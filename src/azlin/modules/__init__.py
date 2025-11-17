@@ -14,6 +14,7 @@ Each module is a self-contained component with clear contracts:
 
 from . import (
     github_setup,
+    interaction_handler,
     notifications,
     npm_config,
     prerequisites,
@@ -24,6 +25,7 @@ from . import (
 
 __all__ = [
     "github_setup",
+    "interaction_handler",
     "notifications",
     "npm_config",
     "prerequisites",

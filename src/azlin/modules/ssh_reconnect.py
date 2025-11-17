@@ -65,8 +65,11 @@ def should_attempt_reconnect(vm_name: str) -> bool:
         Your session to my-vm was disconnected, do you want to reconnect? [Y/n]: y
         True
     """
-    message = f"Your session to {vm_name} was disconnected, do you want to reconnect?"
-    return click.confirm(message, default=True)
+    # Add visual separation and highlighting for visibility
+    click.echo("\n" + "=" * 60)
+    click.secho(f"CONNECTION LOST: Session to {vm_name} was disconnected", fg="red", bold=True)
+    click.echo("=" * 60 + "\n")
+    return click.confirm("Do you want to reconnect?", default=True)
 
 
 class SSHReconnectHandler:

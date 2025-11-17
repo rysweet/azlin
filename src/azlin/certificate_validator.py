@@ -13,23 +13,30 @@ Security:
 - No external command execution
 """
 
+import logging
 import stat
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from cryptography import x509
 
 try:
     from cryptography import x509 as _x509
-    from cryptography.hazmat.backends import default_backend
-    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.backends import default_backend as _default_backend
+    from cryptography.hazmat.primitives import hashes as _hashes
 
     x509 = _x509
+    default_backend = _default_backend
+    hashes = _hashes
 except ImportError:
     x509 = None  # Handle gracefully if cryptography not installed
+    default_backend = None  # type: ignore[assignment]
+    hashes = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -237,7 +244,7 @@ class CertificateValidator:
         Returns:
             Certificate object or None if parsing fails (x509.Certificate | None)
         """
-        if x509 is None:
+        if x509 is None or default_backend is None:
             # cryptography library not available
             return None
 
@@ -273,7 +280,7 @@ class CertificateValidator:
         expiration_date = None
         validation_status = "unknown"
 
-        if cert:
+        if cert and hashes is not None:
             try:
                 # Calculate SHA-256 fingerprint
                 fingerprint = cert.fingerprint(hashes.SHA256())
@@ -298,7 +305,8 @@ class CertificateValidator:
                 elif validation.errors:
                     validation_status = "invalid"
 
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Certificate validation check failed: {e}")
                 pass
 
         return CertificateInfo(

@@ -22,17 +22,17 @@ import click
 
 try:
     import tomli  # type: ignore[import]
-    import tomli_w
 except ImportError:
     # Fallback for older Python versions
     try:
         import tomllib as tomli  # type: ignore[import]
-
-        import tomli_w
     except ImportError as e:
-        raise ImportError(
-            "toml library not available. Install with: pip install tomli tomli-w"
-        ) from e
+        raise ImportError("toml library not available. Install with: pip install tomli") from e
+
+try:
+    import tomlkit  # type: ignore[import]
+except ImportError as e:
+    raise ImportError("tomlkit library not available. Install with: pip install tomlkit") from e
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,46 @@ class ConfigError(Exception):
     pass
 
 
+def get_default_notification_command(platform: str | None = None) -> str:
+    """Get platform-appropriate default notification command.
+
+    Args:
+        platform: Platform name (darwin, linux, wsl, windows, unknown).
+                  If None, auto-detects platform using PrerequisiteChecker.
+
+    Returns:
+        str: Platform-appropriate notification command with {} placeholder.
+
+    Examples:
+        >>> get_default_notification_command("darwin")
+        'osascript -e \\'display notification "{}" with title "Azlin"\\''
+
+        >>> get_default_notification_command("linux")
+        "notify-send 'Azlin' '{}'"
+
+        >>> get_default_notification_command()  # Auto-detects platform
+        'osascript -e \\'display notification "{}" with title "Azlin"\\''  # on macOS
+    """
+    # Auto-detect platform if not provided
+    if platform is None:
+        from azlin.modules.prerequisites import PrerequisiteChecker
+
+        platform = PrerequisiteChecker.detect_platform()
+
+    # Platform-specific notification commands
+    # All commands must include {} as message placeholder
+    platform_commands = {
+        "darwin": 'osascript -e \'display notification "{}" with title "Azlin"\'',
+        "macos": 'osascript -e \'display notification "{}" with title "Azlin"\'',  # Alias for darwin
+        "linux": "notify-send 'Azlin' '{}'",
+        "wsl": "powershell.exe -Command \"New-BurntToastNotification -Text '{}'\"",
+        "windows": "powershell -Command \"New-BurntToastNotification -Text '{}'\"",
+    }
+
+    # Return platform-specific command or fallback
+    return platform_commands.get(platform, "echo 'Notification: {}'")
+
+
 @dataclass
 class AzlinConfig:
     """Azlin configuration data."""
@@ -65,10 +105,15 @@ class AzlinConfig:
         "Standard_E16as_v5"  # Memory-optimized: 128GB RAM, 16 vCPU, 12.5 Gbps network
     )
     last_vm_name: str | None = None
-    notification_command: str = "imessR"
+    notification_command: str | None = None  # Will use default_factory, set in __post_init__
     session_names: dict[str, str] | None = None  # vm_name -> session_name mapping
     vm_storage: dict[str, str] | None = None  # vm_name -> storage_name mapping (for NFS)
     default_nfs_storage: str | None = None  # Default NFS storage for new VMs
+
+    def __post_init__(self):
+        """Set platform-appropriate default for notification_command if None."""
+        if self.notification_command is None:
+            self.notification_command = get_default_notification_command()
 
     @property
     def resource_group(self) -> str | None:
@@ -93,13 +138,28 @@ class AzlinConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AzlinConfig":
-        """Create from dictionary."""
+        """Create from dictionary.
+
+        Applies platform-appropriate notification_command default only when:
+        - notification_command is missing from data, OR
+        - notification_command is empty string
+
+        Preserves existing custom notification commands (including "imessR")
+        for backward compatibility.
+        """
+        # Get notification_command from data
+        notification_cmd = data.get("notification_command")
+
+        # Apply default only if missing or empty
+        if not notification_cmd:
+            notification_cmd = None  # Will be set by __post_init__
+
         return cls(
             default_resource_group=data.get("default_resource_group"),
             default_region=data.get("default_region", "westus2"),
             default_vm_size=data.get("default_vm_size", "Standard_E16as_v5"),
             last_vm_name=data.get("last_vm_name"),
-            notification_command=data.get("notification_command", "imessR"),
+            notification_command=notification_cmd,
             session_names=data.get("session_names", {}),
             vm_storage=data.get("vm_storage", {}),
             default_nfs_storage=data.get("default_nfs_storage"),
@@ -279,6 +339,14 @@ class ConfigManager:
         Raises:
             ConfigError: If saving fails or path is outside allowed directories
         """
+        # CRITICAL: Prevent tests from modifying production config (Issue #279)
+        if os.getenv("AZLIN_TEST_MODE") == "true" and custom_path is None:
+            raise ConfigError(
+                "Cannot save to production config during tests. "
+                "Tests must use custom_path with tmp_path fixture. "
+                "This protects ~/.azlin/config.toml from being overwritten."
+            )
+
         temp_path: Path | None = None
         try:
             # Determine config path
@@ -294,11 +362,27 @@ class ConfigManager:
                 config_path = cls.DEFAULT_CONFIG_FILE
 
             # Write TOML with secure permissions
+            # Use tomlkit to preserve comments and formatting
             # Use temporary file and atomic rename for safety
             temp_path = config_path.with_suffix(".tmp")
 
-            with open(temp_path, "wb") as f:
-                tomli_w.dump(config.to_dict(), f)
+            # Load existing file if it exists (preserves comments/formatting)
+            if config_path.exists():
+                with open(config_path) as f:
+                    doc = tomlkit.load(f)
+                # Update values from config
+                config_dict = config.to_dict()
+                for key, value in config_dict.items():
+                    doc[key] = value
+            else:
+                # Create new document
+                doc = tomlkit.document()
+                for key, value in config.to_dict().items():
+                    doc[key] = value
+
+            # Write to temp file
+            with open(temp_path, "w") as f:
+                tomlkit.dump(doc, f)
 
             # Set secure permissions before moving
             os.chmod(temp_path, 0o600)
@@ -528,11 +612,13 @@ class ConfigManager:
     def get_vm_name_by_session(
         cls, session_name: str, custom_path: str | None = None, resource_group: str | None = None
     ) -> str | None:
-        """Get VM name by session name using hybrid resolution.
+        """Get VM name by session name using hybrid resolution with fallback.
 
         Resolution priority:
-        1. Azure VM tags (source of truth) - checks managed-by=azlin VMs
-        2. Local config file (backward compatibility fallback)
+        1. VM cache (fast lookup with 15-minute TTL)
+        2. Azure VM tags (source of truth) - checks managed-by=azlin VMs
+        2.5. Azure VM tags fallback - checks azlin-session WITHOUT managed-by requirement
+        3. Local config file (backward compatibility fallback)
 
         Args:
             session_name: Session name to look up
@@ -543,10 +629,26 @@ class ConfigManager:
             VM name or None if not found
 
         Note:
+            Priority 2.5 handles VMs with azlin-session tag but missing managed-by=azlin.
+            This supports transition scenarios where session tags exist but managed-by
+            tags haven't been applied yet.
+
             Filters out self-referential entries (vm_name == session_name)
             and warns on duplicate session names pointing to different VMs.
         """
-        # Priority 1: Check Azure tags first
+        # Priority 1: Check VM cache first (fast path)
+        try:
+            from azlin.vm_cache import VMCache
+
+            cache = VMCache()
+            vm_name = cache.get(session_name)
+            if vm_name:
+                logger.debug(f"Resolved session '{session_name}' to VM '{vm_name}' via cache")
+                return vm_name
+        except Exception as e:
+            logger.debug(f"Failed to check cache, continuing with tag/config lookup: {e}")
+
+        # Priority 2: Check Azure tags (managed-by=azlin VMs)
         try:
             from azlin.tag_manager import TagManager
 
@@ -555,11 +657,44 @@ class ConfigManager:
                 logger.debug(
                     f"Resolved session '{session_name}' to VM '{vm_info.name}' via Azure tags"
                 )
+                # Update cache for future lookups
+                try:
+                    from azlin.vm_cache import VMCache
+
+                    cache = VMCache()
+                    cache.set(session_name, vm_info.name)
+                    logger.debug(f"Cached session '{session_name}' -> '{vm_info.name}'")
+                except Exception as cache_error:
+                    logger.debug(f"Failed to update cache: {cache_error}")
                 return vm_info.name
         except Exception as e:
             logger.debug(f"Failed to resolve session via tags, falling back to config: {e}")
 
-        # Priority 2: Fall back to local config file
+        # Priority 2.5: Fallback - Check Azure tags WITHOUT managed-by requirement
+        # This handles VMs that have azlin-session tag but not managed-by=azlin
+        try:
+            from azlin.tag_manager import TagManager
+
+            vm_info = TagManager.find_vm_by_session_tag_fallback(session_name, resource_group)
+            if vm_info:
+                logger.info(
+                    f"Resolved session '{session_name}' to VM '{vm_info.name}' "
+                    f"via fallback (azlin-session tag without managed-by)"
+                )
+                # Update cache for future lookups
+                try:
+                    from azlin.vm_cache import VMCache
+
+                    cache = VMCache()
+                    cache.set(session_name, vm_info.name)
+                    logger.debug(f"Cached session '{session_name}' -> '{vm_info.name}'")
+                except Exception as cache_error:
+                    logger.debug(f"Failed to update cache: {cache_error}")
+                return vm_info.name
+        except Exception as e:
+            logger.debug(f"Fallback tag search failed, continuing to config: {e}")
+
+        # Priority 3: Fall back to local config file
         try:
             config = cls.load_config(custom_path)
             if config.session_names:
@@ -584,14 +719,28 @@ class ConfigManager:
                         f"Duplicate session name '{session_name}' maps to multiple VMs: {matches}\n"
                         f"Using first match: {matches[0]}"
                     )
-                    return matches[0]
-                if len(matches) == 1:
+                    vm_name = matches[0]
+                elif len(matches) == 1:
                     logger.debug(
                         f"Resolved session '{session_name}' to VM '{matches[0]}' via local config"
                     )
-                    return matches[0]
+                    vm_name = matches[0]
+                else:
+                    return None
 
-        except ConfigError:
+                # Update cache for future lookups
+                try:
+                    from azlin.vm_cache import VMCache
+
+                    cache = VMCache()
+                    cache.set(session_name, vm_name)
+                    logger.debug(f"Cached session '{session_name}' -> '{vm_name}'")
+                except Exception as cache_error:
+                    logger.debug(f"Failed to update cache: {cache_error}")
+                return vm_name
+
+        except ConfigError as e:
+            logger.debug(f"Config error while finding resource group: {e}")
             pass
         return None
 
@@ -621,7 +770,31 @@ class ConfigManager:
             profiles = auth_config.get("profiles", {})
             return profiles.get(profile_name)
 
-        except Exception:
+        except FileNotFoundError:
+            # Config file doesn't exist
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug("Config file not found when loading auth profile")
+            return None
+
+        except (OSError, PermissionError) as e:
+            # File system errors
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to read config file for auth profile: {e}")
+            return None
+
+        except Exception as e:
+            # TOML parsing errors or unexpected issues
+            import logging
+            import os
+
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to load auth profile {profile_name}: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Auth profile load error details:", exc_info=True)
             return None
 
     @classmethod
@@ -659,11 +832,15 @@ class ConfigManager:
             # Set profile
             data["auth"]["profiles"][profile_name] = config
 
-            # Save
+            # Save with tomlkit (preserves comments)
             cls.ensure_config_dir()
             temp_path = config_path.with_suffix(".tmp")
-            with open(temp_path, "wb") as f:
-                tomli_w.dump(data, f)
+
+            # Convert dict to tomlkit document
+            doc = tomlkit.item(data)
+
+            with open(temp_path, "w") as f:
+                tomlkit.dump(doc, f)
 
             # Set secure permissions
             os.chmod(temp_path, 0o600)
@@ -709,10 +886,14 @@ class ConfigManager:
             # Delete profile
             del profiles[profile_name]
 
-            # Save
+            # Save with tomlkit (preserves comments)
             temp_path = config_path.with_suffix(".tmp")
-            with open(temp_path, "wb") as f:
-                tomli_w.dump(data, f)
+
+            # Convert dict to tomlkit document
+            doc = tomlkit.item(data)
+
+            with open(temp_path, "w") as f:
+                tomlkit.dump(doc, f)
 
             os.chmod(temp_path, 0o600)
             temp_path.replace(config_path)
@@ -749,7 +930,31 @@ class ConfigManager:
 
             return list(profiles.keys())
 
-        except Exception:
+        except FileNotFoundError:
+            # Config file doesn't exist - no profiles
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug("Config file not found when listing auth profiles")
+            return []
+
+        except (OSError, PermissionError) as e:
+            # File system errors
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to read config file for auth profiles: {e}")
+            return []
+
+        except Exception as e:
+            # TOML parsing errors or unexpected issues
+            import logging
+            import os
+
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to list auth profiles: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Auth profile list error details:", exc_info=True)
             return []
 
     # ============================================================================
@@ -1296,7 +1501,8 @@ class ConfigManager:
             available_groups = [
                 line.strip() for line in result.stdout.strip().split("\n") if line.strip()
             ]
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to list resource groups: {e}")
             pass
 
         resource_group = cls.prompt_resource_group_selection(available_groups)
@@ -1361,7 +1567,22 @@ class ConfigManager:
         try:
             tier_info = VMSizeTiers.get_tier_info(tier)
             pricing_info = {"hourly": float(tier_info["monthly_cost"]) / 730}
-        except Exception:
+        except (KeyError, ValueError, TypeError) as e:
+            # Missing or invalid cost data
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to get pricing info for tier {tier}: {e}")
+            pricing_info = {"hourly": 0.0}
+        except Exception as e:
+            # Unexpected errors
+            import logging
+            import os
+
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Unexpected error getting pricing info: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Pricing info error details:", exc_info=True)
             pricing_info = {"hourly": 0.0}
 
         return {"tier": tier, "vm_size": vm_size, "pricing_info": pricing_info}
@@ -1525,4 +1746,4 @@ class ConfigManager:
             raise
 
 
-__all__ = ["AzlinConfig", "ConfigError", "ConfigManager"]
+__all__ = ["AzlinConfig", "ConfigError", "ConfigManager", "get_default_notification_command"]

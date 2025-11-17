@@ -407,7 +407,39 @@ class VMLifecycleManager:
 
             return None
 
-        except Exception:
+        except subprocess.TimeoutExpired as e:
+            # Command timed out
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Public IP lookup timed out for NIC {nic_name}: {e}")
+            return None
+
+        except subprocess.CalledProcessError as e:
+            # Azure CLI command failed (e.g., NIC not found)
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to get public IP for NIC {nic_name}: {e}")
+            return None
+
+        except (IndexError, AttributeError, ValueError) as e:
+            # Error parsing the public IP ID
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to parse public IP ID for NIC {nic_name}: {e}")
+            return None
+
+        except Exception as e:
+            # Unexpected errors - log and return None (cleanup is best-effort)
+            import logging
+            import os
+
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Unexpected error getting public IP for NIC {nic_name}: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("Public IP lookup error details:", exc_info=True)
             return None
 
     @classmethod
