@@ -4279,6 +4279,7 @@ def _resolve_tmux_session(
 @click.option(
     "--max-retries", default=3, help="Maximum reconnection attempts (default: 3)", type=int
 )
+@click.option("--yes", "-y", is_flag=True, help="Skip all confirmation prompts (e.g., Bastion)")
 @click.argument("remote_command", nargs=-1, type=str)
 def connect(
     vm_identifier: str | None,
@@ -4290,6 +4291,7 @@ def connect(
     key: str | None,
     no_reconnect: bool,
     max_retries: int,
+    yes: bool,
     remote_command: tuple[str, ...],
 ):
     """Connect to existing VM via SSH.
@@ -4412,6 +4414,7 @@ def connect(
             ssh_key_path=key_path,
             enable_reconnect=not no_reconnect,
             max_reconnect_retries=max_retries,
+            skip_prompts=yes,
         )
 
         sys.exit(0 if success else 1)
