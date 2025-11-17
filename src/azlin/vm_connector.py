@@ -468,7 +468,7 @@ class VMConnector:
         force_bastion: bool,
         vm_location: str | None = None,
         skip_prompts: bool = False,
-    ) -> dict[str, str] | None:
+    ) -> BastionInfo | None:
         """Check if Bastion routing should be used for VM.
 
         Checks configuration and auto-detects Bastion hosts.
@@ -481,7 +481,7 @@ class VMConnector:
             skip_prompts: Skip confirmation prompts (default: False)
 
         Returns:
-            Dict with bastion name and resource_group if should use Bastion, None otherwise
+            BastionInfo with bastion name, resource_group, and location if should use Bastion, None otherwise
         """
         # If forcing Bastion, skip checks
         if force_bastion:
@@ -501,18 +501,18 @@ class VMConnector:
             mapping = bastion_config.get_mapping(vm_name)
             if mapping:
                 logger.info(f"Using configured Bastion mapping for {vm_name}")
-                return {
-                    "name": mapping.bastion_name,
-                    "resource_group": mapping.bastion_resource_group,
-                    "location": None,
-                }
+                return BastionInfo(
+                    name=mapping.bastion_name,
+                    resource_group=mapping.bastion_resource_group,
+                    location=None,
+                )
 
         except Exception as e:
             logger.debug(f"Could not load Bastion config: {e}")
 
         # Auto-detect Bastion
         try:
-            bastion_info = BastionDetector.detect_bastion_for_vm(
+            bastion_info: BastionInfo | None = BastionDetector.detect_bastion_for_vm(
                 vm_name, resource_group, vm_location
             )
 
