@@ -3245,6 +3245,15 @@ def w(resource_group: str | None, config: str | None):
         vms = VMManager.list_vms(rg, include_stopped=False)
         vms = VMManager.filter_by_prefix(vms, "azlin")
 
+        # Populate session names from tags (same logic as list command)
+        for vm in vms:
+            # Use tags already in memory instead of making N API calls
+            if vm.tags and TagManager.TAG_SESSION in vm.tags:
+                vm.session_name = vm.tags[TagManager.TAG_SESSION]
+            else:
+                # Fall back to config file
+                vm.session_name = ConfigManager.get_session_name(vm.name, config)
+
         if not vms:
             click.echo("No running VMs found.")
             return
@@ -3258,7 +3267,7 @@ def w(resource_group: str | None, config: str | None):
         # Get SSH configs with bastion support (Issue #281 fix)
         from azlin.cli_helpers import get_ssh_configs_for_vms
 
-        ssh_configs, _routes = get_ssh_configs_for_vms(
+        ssh_configs, routes = get_ssh_configs_for_vms(
             vms=running_vms,
             ssh_key_path=ssh_key_pair.private_path,
             skip_interactive=True,  # Batch operation
@@ -3272,7 +3281,7 @@ def w(resource_group: str | None, config: str | None):
         click.echo(f"Running 'w' on {len(ssh_configs)} VMs...\n")
 
         # Execute in parallel (bastion tunnels cleaned up automatically via atexit)
-        results = WCommandExecutor.execute_w_on_vms(ssh_configs, timeout=30)
+        results = WCommandExecutor.execute_w_on_routes(routes, timeout=30)
 
         # Display output
         output = WCommandExecutor.format_w_output(results)
