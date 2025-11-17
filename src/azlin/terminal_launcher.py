@@ -307,8 +307,13 @@ class TerminalLauncher:
             "UserKnownHostsFile=/dev/null",
             "-i",
             str(config.ssh_key_path),
-            f"{config.ssh_user}@{config.ssh_host}",
         ]
+
+        # Disable PTY allocation when executing commands (not interactive)
+        if config.command:
+            cmd.append("-T")  # No pseudo-terminal for command execution
+
+        cmd.append(f"{config.ssh_user}@{config.ssh_host}")
 
         # Add remote command if specified
         if config.command:
