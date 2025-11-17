@@ -398,19 +398,25 @@ class TestCommandBuildingSecurity:
         assert any("tmux" in arg and "mysession" in arg for arg in cmd)
 
     def test_ssh_command_with_both_command_and_tmux(self, temp_ssh_key):
-        """Test SSH command building with both command and tmux."""
+        """Test SSH command building with both command and tmux.
+
+        After fix #331: Command takes precedence, tmux_session is ignored.
+        This ensures commands execute directly for output capture.
+        """
         config = TerminalConfig(
             ssh_host="example.com",
             ssh_user="testuser",
             ssh_key_path=temp_ssh_key,
             command="ls -la",
-            tmux_session="mysession",
+            tmux_session="mysession",  # Ignored when command is present
         )
 
         cmd = TerminalLauncher._build_ssh_command(config)
+        remote_cmd = cmd[-1]
 
-        # Verify both are included
-        assert any("tmux" in arg and "mysession" in arg and "ls -la" in arg for arg in cmd)
+        # Verify command executes directly (no tmux)
+        assert remote_cmd == "ls -la"
+        assert "tmux" not in remote_cmd
 
 
 class TestNoOsSystemUsage:
