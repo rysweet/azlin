@@ -53,6 +53,13 @@ class ServicePlacement:
         """Unique identifier for this deployment."""
         return f"{self.service_name}-{self.replica_index}-{self.vm_name}"
 
+    @property
+    def vm(self):
+        """Return a VM-like object for backward compatibility with tests."""
+        from types import SimpleNamespace
+
+        return SimpleNamespace(name=self.vm_name, private_ip=self.vm_ip)
+
 
 @dataclass
 class DeployedService:

@@ -22,7 +22,6 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from azlin.config_manager import ConfigManager
 from azlin.modules.compose import ComposeOrchestrator
 
 logger = logging.getLogger(__name__)
@@ -79,17 +78,13 @@ def compose_up(compose_file: Path, resource_group: str | None):
     5. Performs health checks
     """
     try:
-        # Get resource group from context if not specified
+        # Resource group is required for compose operations
         if not resource_group:
-            config_manager = ConfigManager()
-            current_context = config_manager.get_current_context()
-            if not current_context or not current_context.resource_group:
-                console.print(
-                    "[red]Error:[/red] No resource group specified and no current context set."
-                )
-                console.print("Use --resource-group or set context with: azlin context use <name>")
-                raise click.Abort
-            resource_group = current_context.resource_group
+            console.print(
+                "[red]Error:[/red] Resource group must be specified with --resource-group"
+            )
+            console.print("Example: azlin compose up -f docker-compose.azlin.yml -g my-rg")
+            raise click.Abort
 
         console.print(f"[bold]Deploying services from:[/bold] {compose_file}")
         console.print(f"[bold]Resource group:[/bold] {resource_group}")
