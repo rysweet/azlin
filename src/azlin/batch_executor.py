@@ -470,11 +470,238 @@ class BatchExecutor:
             return [future.result() for future in as_completed(futures)]
 
 
+@dataclass
+class VMMetrics:
+    """VM metrics for conditional execution and smart routing."""
+
+    vm_name: str
+    load_avg: tuple[float, float, float] | None  # 1min, 5min, 15min
+    cpu_percent: float | None
+    memory_percent: float | None
+    is_idle: bool
+    success: bool
+    error: str | None = None
+
+    def meets_condition(self, condition: str) -> bool:
+        """Check if VM metrics meet specified condition.
+
+        Args:
+            condition: Condition string (e.g., 'idle', 'cpu<50', 'mem<80')
+
+        Returns:
+            True if condition is met
+
+        Raises:
+            BatchExecutorError: If condition format is invalid
+        """
+        if not self.success:
+            return False
+
+        condition = condition.lower().strip()
+
+        # Idle condition
+        if condition == "idle":
+            return self.is_idle
+
+        # CPU condition (e.g., 'cpu<50', 'cpu-below-50')
+        if condition.startswith("cpu"):
+            if self.cpu_percent is None:
+                return False
+
+            # Extract threshold
+            if "<" in condition:
+                threshold = float(condition.split("<")[1])
+            elif "below" in condition:
+                threshold = float(condition.split("-")[-1])
+            else:
+                raise BatchExecutorError(f"Invalid CPU condition format: {condition}")
+
+            return self.cpu_percent < threshold
+
+        # Memory condition (e.g., 'mem<80', 'memory-below-80')
+        if condition.startswith(("mem", "memory")):
+            if self.memory_percent is None:
+                return False
+
+            # Extract threshold
+            if "<" in condition:
+                threshold = float(condition.split("<")[1])
+            elif "below" in condition:
+                threshold = float(condition.split("-")[-1])
+            else:
+                raise BatchExecutorError(f"Invalid memory condition format: {condition}")
+
+            return self.memory_percent < threshold
+
+        raise BatchExecutorError(f"Unknown condition: {condition}")
+
+
+class MetricsCollector:
+    """Collect VM metrics for conditional execution."""
+
+    @staticmethod
+    def collect_metrics(vm: VMInfo, ssh_config: SSHConfig, timeout: int = 5) -> VMMetrics:
+        """Collect metrics from a single VM.
+
+        Args:
+            vm: VM to collect metrics from
+            ssh_config: SSH configuration
+            timeout: Timeout in seconds
+
+        Returns:
+            VMMetrics object
+        """
+        try:
+            # Collect metrics using remote command
+            # Command collects: load avg, CPU %, memory %, idle status
+            metrics_cmd = (
+                "uptime | awk '{print $(NF-2), $(NF-1), $NF}' | tr -d ',' && "
+                "top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}' && "
+                "free | grep Mem | awk '{print ($3/$2) * 100.0}' && "
+                "if [ $(w -h | wc -l) -eq 0 ]; then echo 'true'; else echo 'false'; fi"
+            )
+
+            result = RemoteExecutor.execute_command(
+                ssh_config=ssh_config, command=metrics_cmd, timeout=timeout
+            )
+
+            if not result.success:
+                return VMMetrics(
+                    vm_name=vm.name,
+                    load_avg=None,
+                    cpu_percent=None,
+                    memory_percent=None,
+                    is_idle=False,
+                    success=False,
+                    error=f"Metrics collection failed: {result.stderr}",
+                )
+
+            # Parse output
+            lines = result.stdout.strip().split("\n")
+            if len(lines) < 4:
+                return VMMetrics(
+                    vm_name=vm.name,
+                    load_avg=None,
+                    cpu_percent=None,
+                    memory_percent=None,
+                    is_idle=False,
+                    success=False,
+                    error="Incomplete metrics output",
+                )
+
+            # Parse load average
+            load_parts = lines[0].split()
+            load_avg = (float(load_parts[0]), float(load_parts[1]), float(load_parts[2]))
+
+            # Parse CPU percentage
+            cpu_percent = float(lines[1].strip())
+
+            # Parse memory percentage
+            memory_percent = float(lines[2].strip())
+
+            # Parse idle status
+            is_idle = lines[3].strip().lower() == "true"
+
+            return VMMetrics(
+                vm_name=vm.name,
+                load_avg=load_avg,
+                cpu_percent=cpu_percent,
+                memory_percent=memory_percent,
+                is_idle=is_idle,
+                success=True,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to collect metrics from {vm.name}: {e}")
+            return VMMetrics(
+                vm_name=vm.name,
+                load_avg=None,
+                cpu_percent=None,
+                memory_percent=None,
+                is_idle=False,
+                success=False,
+                error=str(e),
+            )
+
+
+class ConditionalExecutor:
+    """Execute commands conditionally based on VM metrics."""
+
+    def __init__(self, max_workers: int = 10):
+        """Initialize conditional executor.
+
+        Args:
+            max_workers: Maximum number of parallel workers
+        """
+        self.max_workers = max_workers
+
+    def filter_by_condition(
+        self, vms: list[VMInfo], condition: str, resource_group: str
+    ) -> tuple[list[VMInfo], dict[str, VMMetrics]]:
+        """Filter VMs by condition after collecting metrics.
+
+        Args:
+            vms: VMs to filter
+            condition: Condition to check (e.g., 'idle', 'cpu<50')
+            resource_group: Resource group name
+
+        Returns:
+            Tuple of (filtered VMs, metrics dict)
+        """
+        if not vms:
+            return [], {}
+
+        # Get SSH key
+        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+        # Collect metrics from all VMs in parallel
+        metrics_dict = {}
+
+        def collect_vm_metrics(vm: VMInfo) -> tuple[str, VMMetrics]:
+            """Collect metrics from single VM."""
+            if not vm.public_ip:
+                return vm.name, VMMetrics(
+                    vm_name=vm.name,
+                    load_avg=None,
+                    cpu_percent=None,
+                    memory_percent=None,
+                    is_idle=False,
+                    success=False,
+                    error="No public IP",
+                )
+
+            ssh_config = SSHConfig(
+                host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path
+            )
+
+            metrics = MetricsCollector.collect_metrics(vm, ssh_config)
+            return vm.name, metrics
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(collect_vm_metrics, vm): vm for vm in vms}
+
+            for future in as_completed(futures):
+                vm_name, metrics = future.result()
+                metrics_dict[vm_name] = metrics
+
+        # Filter VMs by condition
+        filtered_vms = []
+        for vm in vms:
+            metrics = metrics_dict.get(vm.name)
+            if metrics and metrics.success and metrics.meets_condition(condition):
+                filtered_vms.append(vm)
+
+        return filtered_vms, metrics_dict
+
+
 __all__ = [
     "BatchExecutor",
     "BatchExecutorError",
     "BatchOperationResult",
     "BatchResult",
     "BatchSelector",
+    "ConditionalExecutor",
+    "MetricsCollector",
     "TagFilter",
+    "VMMetrics",
 ]

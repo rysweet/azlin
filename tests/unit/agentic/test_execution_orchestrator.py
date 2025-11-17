@@ -502,12 +502,6 @@ class TestExecutionOrchestrator:
         orchestrator = ExecutionOrchestrator()
 
         # Test all implemented strategies can be instantiated
-        implemented_strategies = [
-            Strategy.AZURE_CLI,
-            Strategy.TERRAFORM,
-            Strategy.CUSTOM_CODE,
-        ]
-
         with (
             patch("azlin.agentic.execution_orchestrator.AzureCLIStrategy") as mock_azure,
             patch("azlin.agentic.execution_orchestrator.TerraformStrategy") as mock_tf,

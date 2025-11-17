@@ -61,6 +61,7 @@ from azlin.commands.context import context_group
 
 # Doit commands
 from azlin.commands.doit import doit_group
+from azlin.commands.fleet import fleet_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
@@ -5681,8 +5682,6 @@ def _do_impl(
     Raises:
         SystemExit: On various error conditions with appropriate exit codes
     """
-    import logging
-
     logger = logging.getLogger(__name__)
 
     try:
@@ -7808,6 +7807,9 @@ main.add_command(bastion_group)
 # Register storage commands
 main.add_command(storage_group)
 main.add_command(tag_group)
+
+# Register fleet commands
+main.add_command(fleet_group)
 
 # Register doit commands (replace old doit if it exists)
 if "doit" in main.commands:
