@@ -52,6 +52,9 @@ from azlin.click_group import AzlinGroup
 # Auth commands
 from azlin.commands.auth import auth
 
+# Autopilot commands
+from azlin.commands.autopilot import autopilot_group
+
 # Bastion commands
 # Storage commands
 from azlin.commands.bastion import bastion_group
@@ -1116,7 +1119,7 @@ class CLIOrchestrator:
                 local_port = bastion_mgr.get_available_port()
 
                 # Create tunnel
-                tunnel = bastion_mgr.create_tunnel(
+                _tunnel = bastion_mgr.create_tunnel(
                     bastion_name=bastion_info["name"],
                     resource_group=bastion_info["resource_group"],
                     target_vm_id=vm_details.id,  # Type narrowed by check above
@@ -4971,7 +4974,7 @@ def _execute_sync(selected_vm: VMInfo, ssh_key_pair: SSHKeyPair, dry_run: bool) 
 
             # Create tunnel
             click.echo(f"Creating Bastion tunnel through {bastion_info['name']}...")
-            tunnel = bastion_mgr.create_tunnel(
+            _tunnel = bastion_mgr.create_tunnel(
                 bastion_name=bastion_info["name"],
                 resource_group=bastion_info["resource_group"],
                 target_vm_id=vm_resource_id,
@@ -7981,6 +7984,9 @@ main.add_command(compose_group)
 # Register storage commands
 main.add_command(storage_group)
 main.add_command(tag_group)
+
+# Register autopilot commands
+main.add_command(autopilot_group)
 
 # Register fleet commands
 main.add_command(fleet_group)
