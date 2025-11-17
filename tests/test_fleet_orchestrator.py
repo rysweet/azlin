@@ -415,7 +415,7 @@ class TestResultDiffGenerator:
 
     def test_sanitize_output(self):
         """Test that sensitive data is sanitized in diffs."""
-        output_with_secret = "password=secret123 token=abc123"
+        output_with_secret = "password=secret123 token=abc123"  # noqa: S105
         sanitized = ResultDiffGenerator._sanitize_output(output_with_secret)
 
         assert "secret123" not in sanitized

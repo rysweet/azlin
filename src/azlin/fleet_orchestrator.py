@@ -20,15 +20,15 @@ Philosophy:
 
 import difflib
 import logging
-import yaml
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
+
 from azlin.batch_executor import (
     BatchExecutor,
     BatchOperationResult,
-    BatchResult,
     ConditionalExecutor,
     VMMetrics,
 )
@@ -135,9 +135,9 @@ class WorkflowOrchestrator:
             return steps
 
         except yaml.YAMLError as e:
-            raise FleetOrchestratorError(f"Failed to parse YAML: {e}")
+            raise FleetOrchestratorError(f"Failed to parse YAML: {e}") from e
         except Exception as e:
-            raise FleetOrchestratorError(f"Failed to load workflow: {e}")
+            raise FleetOrchestratorError(f"Failed to load workflow: {e}") from e
 
     def route_vms_by_load(
         self, vms: list[VMInfo], metrics: dict[str, VMMetrics], count: int | None = None
@@ -312,7 +312,9 @@ class WorkflowOrchestrator:
         # Handle retry on failure
         if step.retry_on_failure:
             failed_vms = [
-                vm for vm in target_vms if not any(r.vm_name == vm.name and r.success for r in batch_results)
+                vm
+                for vm in target_vms
+                if not any(r.vm_name == vm.name and r.success for r in batch_results)
             ]
 
             if failed_vms:

@@ -70,9 +70,7 @@ def fleet_group():
 @click.option("--all", "all_vms", is_flag=True, help="Run on all VMs")
 @click.option("--parallel", type=int, default=10, help="Max parallel workers (default: 10)")
 @click.option("--if-idle", is_flag=True, help="Only run on idle VMs")
-@click.option(
-    "--if-cpu-below", type=int, metavar="PERCENT", help="Only run if CPU below threshold"
-)
+@click.option("--if-cpu-below", type=int, metavar="PERCENT", help="Only run if CPU below threshold")
 @click.option(
     "--if-mem-below",
     type=int,
@@ -211,7 +209,7 @@ def run_command(
         target_vms = selected_vms
         metrics = {}
         if condition or smart_route:
-            console.print(f"[cyan]Collecting VM metrics...[/cyan]")
+            console.print("[cyan]Collecting VM metrics...[/cyan]")
             conditional_executor = ConditionalExecutor(max_workers=parallel)
 
             if condition:
@@ -219,9 +217,7 @@ def run_command(
                     selected_vms, condition, resource_group
                 )
 
-                console.print(
-                    f"[cyan]{len(filtered_vms)} VMs meet condition '{condition}'[/cyan]"
-                )
+                console.print(f"[cyan]{len(filtered_vms)} VMs meet condition '{condition}'[/cyan]")
 
                 if not filtered_vms:
                     console.print("[yellow]No VMs meet specified condition[/yellow]")
@@ -231,7 +227,9 @@ def run_command(
             else:
                 # Just collect metrics for smart routing
                 _, metrics = conditional_executor.filter_by_condition(
-                    selected_vms, "idle", resource_group  # Use idle as dummy condition
+                    selected_vms,
+                    "idle",
+                    resource_group,  # Use idle as dummy condition
                 )
 
         # Apply smart routing if requested
@@ -421,7 +419,7 @@ def run_workflow(
         console.print(f"[cyan]Selected {len(selected_vms)} VMs[/cyan]")
 
         # Execute workflow
-        console.print(f"\n[cyan]Executing workflow...[/cyan]")
+        console.print("\n[cyan]Executing workflow...[/cyan]")
 
         def progress(msg: str):
             console.print(f"  {msg}")
@@ -432,7 +430,9 @@ def run_workflow(
         console.print("\n[cyan]Workflow Results:[/cyan]")
         for result in results:
             if result.skipped:
-                console.print(f"  [yellow]{result.step_name}: Skipped ({result.skip_reason})[/yellow]")
+                console.print(
+                    f"  [yellow]{result.step_name}: Skipped ({result.skip_reason})[/yellow]"
+                )
             elif result.success:
                 console.print(f"  [green]{result.step_name}: Success[/green]")
             else:
