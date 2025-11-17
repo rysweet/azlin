@@ -2998,6 +2998,27 @@ def list_command(
         # NEW: Multi-context query mode (Issue #350)
         # Check for multi-context flags first, before single-context logic
         if all_contexts or contexts_pattern:
+            # Validate mutually exclusive flags
+            if show_all_vms:
+                click.echo(
+                    "Error: Cannot use --all-contexts or --contexts with --show-all-vms.\n"
+                    "These are mutually exclusive modes:\n"
+                    "  - Multi-context mode: Query specific RG across multiple contexts\n"
+                    "  - All-VMs mode: Query all RGs in single context\n\n"
+                    "Use one or the other, not both.",
+                    err=True,
+                )
+                sys.exit(1)
+
+            # Validate empty pattern
+            if contexts_pattern and not contexts_pattern.strip():
+                click.echo(
+                    "Error: --contexts pattern cannot be empty.\n"
+                    "Provide a glob pattern (e.g., 'prod*', '*-dev') or use --all-contexts.",
+                    err=True,
+                )
+                sys.exit(1)
+
             _handle_multi_context_list(
                 all_contexts=all_contexts,
                 contexts_pattern=contexts_pattern,
