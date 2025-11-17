@@ -8,20 +8,17 @@ Tests cover:
 - Error handling
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, MagicMock
-from dataclasses import dataclass
 
 from azlin.modules.github_runner_provisioner import (
     GitHubRunnerProvisioner,
-    RunnerConfig,
-    RunnerRegistration,
-    RunnerInfo,
-    RunnerProvisioningError,
     RegistrationTokenError,
-    RunnerRegistrationError,
+    RunnerConfig,
     RunnerDeregistrationError,
+    RunnerProvisioningError,
+    RunnerRegistrationError,
 )
 from azlin.modules.ssh_connector import SSHConfig
 
@@ -67,22 +64,25 @@ class TestGetRegistrationToken:
         mock_response.status_code = 201
         mock_response.json.return_value = {
             "token": "AABF3JGZDX3P5PMEXLND6TS6FCWO6",
-            "expires_at": "2025-11-16T10:00:00Z"
+            "expires_at": "2025-11-16T10:00:00Z",
         }
         mock_post.return_value = mock_response
 
         token = GitHubRunnerProvisioner.get_registration_token(
             repo_owner="testorg",
             repo_name="testrepo",
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
-        assert token == "AABF3JGZDX3P5PMEXLND6TS6FCWO6"
+        assert token == "AABF3JGZDX3P5PMEXLND6TS6FCWO6"  # noqa: S105
 
         # Verify API call
         mock_post.assert_called_once()
         call_args = mock_post.call_args
-        assert call_args[0][0] == "https://api.github.com/repos/testorg/testrepo/actions/runners/registration-token"
+        assert (
+            call_args[0][0]
+            == "https://api.github.com/repos/testorg/testrepo/actions/runners/registration-token"
+        )
         assert call_args[1]["headers"]["Authorization"] == "Bearer ghp_test_token_123"
 
     @patch("requests.post")
@@ -97,7 +97,7 @@ class TestGetRegistrationToken:
             GitHubRunnerProvisioner.get_registration_token(
                 repo_owner="testorg",
                 repo_name="testrepo",
-                github_token="invalid_token"
+                github_token="invalid_token",  # noqa: S106
             )
 
         assert "Failed to get registration token" in str(exc_info.value)
@@ -111,25 +111,23 @@ class TestGetRegistrationToken:
             GitHubRunnerProvisioner.get_registration_token(
                 repo_owner="testorg",
                 repo_name="testrepo",
-                github_token="ghp_test_token_123"
+                github_token="ghp_test_token_123",  # noqa: S106
             )
 
     def test_get_registration_token_empty_owner(self):
         """Test validation for empty repo owner."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="repo_owner.*cannot be empty"):
             GitHubRunnerProvisioner.get_registration_token(
                 repo_owner="",
                 repo_name="testrepo",
-                github_token="ghp_test_token_123"
+                github_token="ghp_test_token_123",  # noqa: S106
             )
 
     def test_get_registration_token_empty_token(self):
         """Test validation for empty GitHub token."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="github_token.*cannot be empty"):
             GitHubRunnerProvisioner.get_registration_token(
-                repo_owner="testorg",
-                repo_name="testrepo",
-                github_token=""
+                repo_owner="testorg", repo_name="testrepo", github_token=""
             )
 
 
@@ -141,23 +139,19 @@ class TestRegisterRunner:
         """Test successful runner registration."""
         mock_ssh_exec.return_value = "Runner successfully registered with ID: 12345"
 
-        ssh_config = SSHConfig(
-            host="10.0.0.5",
-            user="azureuser",
-            private_key_path="/path/to/key"
-        )
+        ssh_config = SSHConfig(host="10.0.0.5", user="azureuser", private_key_path="/path/to/key")
 
         config = RunnerConfig(
             repo_owner="testorg",
             repo_name="testrepo",
             runner_name="runner-001",
-            labels=["linux", "docker"]
+            labels=["linux", "docker"],
         )
 
         runner_id = GitHubRunnerProvisioner.register_runner(
             ssh_config=ssh_config,
             config=config,
-            registration_token="AABF3JGZDX3P5PMEXLND6TS6FCWO6"
+            registration_token="AABF3JGZDX3P5PMEXLND6TS6FCWO6",  # noqa: S106
         )
 
         assert runner_id == 12345
@@ -180,24 +174,20 @@ class TestRegisterRunner:
         """Test runner registration with runner group."""
         mock_ssh_exec.return_value = "Runner successfully registered with ID: 12345"
 
-        ssh_config = SSHConfig(
-            host="10.0.0.5",
-            user="azureuser",
-            private_key_path="/path/to/key"
-        )
+        ssh_config = SSHConfig(host="10.0.0.5", user="azureuser", private_key_path="/path/to/key")
 
         config = RunnerConfig(
             repo_owner="testorg",
             repo_name="testrepo",
             runner_name="runner-001",
             labels=["linux"],
-            runner_group="ci-group"
+            runner_group="ci-group",
         )
 
         runner_id = GitHubRunnerProvisioner.register_runner(
             ssh_config=ssh_config,
             config=config,
-            registration_token="TOKEN123"
+            registration_token="TOKEN123",  # noqa: S106
         )
 
         assert runner_id == 12345
@@ -212,24 +202,17 @@ class TestRegisterRunner:
         """Test SSH failure during registration."""
         mock_ssh_exec.side_effect = Exception("SSH connection failed")
 
-        ssh_config = SSHConfig(
-            host="10.0.0.5",
-            user="azureuser",
-            private_key_path="/path/to/key"
-        )
+        ssh_config = SSHConfig(host="10.0.0.5", user="azureuser", private_key_path="/path/to/key")
 
         config = RunnerConfig(
-            repo_owner="testorg",
-            repo_name="testrepo",
-            runner_name="runner-001",
-            labels=["linux"]
+            repo_owner="testorg", repo_name="testrepo", runner_name="runner-001", labels=["linux"]
         )
 
         with pytest.raises(RunnerRegistrationError):
             GitHubRunnerProvisioner.register_runner(
                 ssh_config=ssh_config,
                 config=config,
-                registration_token="TOKEN123"
+                registration_token="TOKEN123",  # noqa: S106
             )
 
     @patch("azlin.modules.ssh_connector.SSHConnector.execute_remote_command")
@@ -237,24 +220,17 @@ class TestRegisterRunner:
         """Test failure during runner configuration."""
         mock_ssh_exec.return_value = "Error: Could not configure runner"
 
-        ssh_config = SSHConfig(
-            host="10.0.0.5",
-            user="azureuser",
-            private_key_path="/path/to/key"
-        )
+        ssh_config = SSHConfig(host="10.0.0.5", user="azureuser", private_key_path="/path/to/key")
 
         config = RunnerConfig(
-            repo_owner="testorg",
-            repo_name="testrepo",
-            runner_name="runner-001",
-            labels=["linux"]
+            repo_owner="testorg", repo_name="testrepo", runner_name="runner-001", labels=["linux"]
         )
 
         with pytest.raises(RunnerRegistrationError) as exc_info:
             GitHubRunnerProvisioner.register_runner(
                 ssh_config=ssh_config,
                 config=config,
-                registration_token="TOKEN123"
+                registration_token="TOKEN123",  # noqa: S106
             )
 
         assert "Failed to register runner" in str(exc_info.value)
@@ -274,13 +250,15 @@ class TestDeregisterRunner:
             repo_owner="testorg",
             repo_name="testrepo",
             runner_id=12345,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         # Verify API call
         mock_delete.assert_called_once()
         call_args = mock_delete.call_args
-        assert call_args[0][0] == "https://api.github.com/repos/testorg/testrepo/actions/runners/12345"
+        assert (
+            call_args[0][0] == "https://api.github.com/repos/testorg/testrepo/actions/runners/12345"
+        )
         assert call_args[1]["headers"]["Authorization"] == "Bearer ghp_test_token_123"
 
     @patch("requests.delete")
@@ -296,7 +274,7 @@ class TestDeregisterRunner:
                 repo_owner="testorg",
                 repo_name="testrepo",
                 runner_id=99999,
-                github_token="ghp_test_token_123"
+                github_token="ghp_test_token_123",  # noqa: S106
             )
 
     @patch("requests.delete")
@@ -312,7 +290,7 @@ class TestDeregisterRunner:
                 repo_owner="testorg",
                 repo_name="testrepo",
                 runner_id=12345,
-                github_token="ghp_test_token_123"
+                github_token="ghp_test_token_123",  # noqa: S106
             )
 
 
@@ -329,11 +307,7 @@ class TestGetRunnerInfo:
             "name": "runner-001",
             "status": "online",
             "busy": False,
-            "labels": [
-                {"name": "self-hosted"},
-                {"name": "linux"},
-                {"name": "docker"}
-            ]
+            "labels": [{"name": "self-hosted"}, {"name": "linux"}, {"name": "docker"}],
         }
         mock_get.return_value = mock_response
 
@@ -341,7 +315,7 @@ class TestGetRunnerInfo:
             repo_owner="testorg",
             repo_name="testrepo",
             runner_id=12345,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         assert runner_info.runner_id == 12345
@@ -361,7 +335,7 @@ class TestGetRunnerInfo:
             "name": "runner-001",
             "status": "online",
             "busy": True,
-            "labels": [{"name": "self-hosted"}, {"name": "linux"}]
+            "labels": [{"name": "self-hosted"}, {"name": "linux"}],
         }
         mock_get.return_value = mock_response
 
@@ -369,7 +343,7 @@ class TestGetRunnerInfo:
             repo_owner="testorg",
             repo_name="testrepo",
             runner_id=12345,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         assert runner_info.busy is True
@@ -386,7 +360,7 @@ class TestGetRunnerInfo:
                 repo_owner="testorg",
                 repo_name="testrepo",
                 runner_id=99999,
-                github_token="ghp_test_token_123"
+                github_token="ghp_test_token_123",  # noqa: S106
             )
 
 
@@ -395,40 +369,36 @@ class TestInputValidation:
 
     def test_validate_repo_owner_invalid_chars(self):
         """Test validation rejects invalid characters in repo owner."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="repo_owner.*invalid"):
             GitHubRunnerProvisioner.get_registration_token(
                 repo_owner="test@org",
                 repo_name="testrepo",
-                github_token="token"
+                github_token="token",  # noqa: S106
             )
 
     def test_validate_repo_name_invalid_chars(self):
         """Test validation rejects invalid characters in repo name."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="repo_name.*invalid"):
             GitHubRunnerProvisioner.get_registration_token(
                 repo_owner="testorg",
                 repo_name="test repo",
-                github_token="token"
+                github_token="token",  # noqa: S106
             )
 
     def test_validate_labels_invalid_chars(self):
         """Test validation rejects invalid characters in labels."""
-        ssh_config = SSHConfig(
-            host="10.0.0.5",
-            user="azureuser",
-            private_key_path="/path/to/key"
-        )
+        ssh_config = SSHConfig(host="10.0.0.5", user="azureuser", private_key_path="/path/to/key")
 
         config = RunnerConfig(
             repo_owner="testorg",
             repo_name="testrepo",
             runner_name="runner-001",
-            labels=["linux", "invalid label!"]  # Space and special char
+            labels=["linux", "invalid label!"],  # Space and special char
         )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="label.*invalid"):
             GitHubRunnerProvisioner.register_runner(
                 ssh_config=ssh_config,
                 config=config,
-                registration_token="TOKEN123"
+                registration_token="TOKEN123",  # noqa: S106
             )

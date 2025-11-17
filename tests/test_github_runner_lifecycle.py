@@ -7,14 +7,15 @@ Tests cover:
 - Health checking
 """
 
-import pytest
 from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 
 from azlin.modules.github_runner_lifecycle import (
+    EphemeralRunner,
     GitHubRunnerLifecycleManager,
     RunnerLifecycleConfig,
-    EphemeralRunner,
     RunnerLifecycleError,
 )
 from azlin.modules.github_runner_provisioner import RunnerConfig
@@ -33,7 +34,7 @@ class TestEphemeralRunner:
             resource_group="test-rg",
             location="eastus",
             size="Standard_D2s_v3",
-            state="Running"
+            state="Running",
         )
 
         runner = EphemeralRunner(
@@ -42,7 +43,7 @@ class TestEphemeralRunner:
             runner_name="runner-001",
             created_at=datetime.now(),
             jobs_completed=0,
-            status="registered"
+            status="registered",
         )
 
         assert runner.vm_details.name == "runner-vm-001"
@@ -59,10 +60,7 @@ class TestProvisionEphemeralRunner:
     @patch("azlin.modules.github_runner_provisioner.GitHubRunnerProvisioner.get_registration_token")
     @patch("azlin.modules.github_runner_provisioner.GitHubRunnerProvisioner.register_runner")
     def test_provision_ephemeral_runner_success(
-        self,
-        mock_register,
-        mock_get_token,
-        mock_provision_vm
+        self, mock_register, mock_get_token, mock_provision_vm
     ):
         """Test successful ephemeral runner provisioning."""
         # Mock VM provisioning
@@ -73,7 +71,7 @@ class TestProvisionEphemeralRunner:
             resource_group="test-rg",
             location="eastus",
             size="Standard_D2s_v3",
-            state="Running"
+            state="Running",
         )
         mock_provision_vm.return_value = mock_vm_details
 
@@ -88,27 +86,22 @@ class TestProvisionEphemeralRunner:
             repo_owner="testorg",
             repo_name="testrepo",
             runner_name="runner-001",
-            labels=["linux", "docker"]
+            labels=["linux", "docker"],
         )
 
         vm_config = VMConfig(
-            name="runner-vm-001",
-            size="Standard_D2s_v3",
-            region="eastus",
-            resource_group="test-rg"
+            name="runner-vm-001", size="Standard_D2s_v3", region="eastus", resource_group="test-rg"
         )
 
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123",
-            max_job_count=1
+            github_token="ghp_test_token_123",  # noqa: S106
+            max_job_count=1,
         )
 
         # Provision ephemeral runner
-        runner = GitHubRunnerLifecycleManager.provision_ephemeral_runner(
-            config=lifecycle_config
-        )
+        runner = GitHubRunnerLifecycleManager.provision_ephemeral_runner(config=lifecycle_config)
 
         assert runner.vm_details.name == "runner-vm-001"
         assert runner.runner_id == 12345
@@ -127,39 +120,27 @@ class TestProvisionEphemeralRunner:
         mock_provision_vm.side_effect = Exception("VM provisioning failed")
 
         runner_config = RunnerConfig(
-            repo_owner="testorg",
-            repo_name="testrepo",
-            runner_name="runner-001",
-            labels=["linux"]
+            repo_owner="testorg", repo_name="testrepo", runner_name="runner-001", labels=["linux"]
         )
 
         vm_config = VMConfig(
-            name="runner-vm-001",
-            size="Standard_D2s_v3",
-            region="eastus",
-            resource_group="test-rg"
+            name="runner-vm-001", size="Standard_D2s_v3", region="eastus", resource_group="test-rg"
         )
 
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         with pytest.raises(RunnerLifecycleError) as exc_info:
-            GitHubRunnerLifecycleManager.provision_ephemeral_runner(
-                config=lifecycle_config
-            )
+            GitHubRunnerLifecycleManager.provision_ephemeral_runner(config=lifecycle_config)
 
         assert "Failed to provision ephemeral runner" in str(exc_info.value)
 
     @patch("azlin.vm_provisioning.VMProvisioner.provision_vm")
     @patch("azlin.modules.github_runner_provisioner.GitHubRunnerProvisioner.get_registration_token")
-    def test_provision_ephemeral_runner_token_failure(
-        self,
-        mock_get_token,
-        mock_provision_vm
-    ):
+    def test_provision_ephemeral_runner_token_failure(self, mock_get_token, mock_provision_vm):
         """Test registration token failure."""
         mock_vm_details = VMDetails(
             name="runner-vm-001",
@@ -168,36 +149,28 @@ class TestProvisionEphemeralRunner:
             resource_group="test-rg",
             location="eastus",
             size="Standard_D2s_v3",
-            state="Running"
+            state="Running",
         )
         mock_provision_vm.return_value = mock_vm_details
 
         mock_get_token.side_effect = Exception("Token generation failed")
 
         runner_config = RunnerConfig(
-            repo_owner="testorg",
-            repo_name="testrepo",
-            runner_name="runner-001",
-            labels=["linux"]
+            repo_owner="testorg", repo_name="testrepo", runner_name="runner-001", labels=["linux"]
         )
 
         vm_config = VMConfig(
-            name="runner-vm-001",
-            size="Standard_D2s_v3",
-            region="eastus",
-            resource_group="test-rg"
+            name="runner-vm-001", size="Standard_D2s_v3", region="eastus", resource_group="test-rg"
         )
 
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         with pytest.raises(RunnerLifecycleError):
-            GitHubRunnerLifecycleManager.provision_ephemeral_runner(
-                config=lifecycle_config
-            )
+            GitHubRunnerLifecycleManager.provision_ephemeral_runner(config=lifecycle_config)
 
 
 class TestDestroyRunner:
@@ -214,7 +187,7 @@ class TestDestroyRunner:
             resource_group="test-rg",
             location="eastus",
             size="Standard_D2s_v3",
-            state="Running"
+            state="Running",
         )
 
         runner = EphemeralRunner(
@@ -223,40 +196,31 @@ class TestDestroyRunner:
             runner_name="runner-001",
             created_at=datetime.now(),
             jobs_completed=1,
-            status="draining"
+            status="draining",
         )
 
         runner_config = RunnerConfig(
-            repo_owner="testorg",
-            repo_name="testrepo",
-            runner_name="runner-001",
-            labels=["linux"]
+            repo_owner="testorg", repo_name="testrepo", runner_name="runner-001", labels=["linux"]
         )
 
         vm_config = VMConfig(
-            name="runner-vm-001",
-            size="Standard_D2s_v3",
-            region="eastus",
-            resource_group="test-rg"
+            name="runner-vm-001", size="Standard_D2s_v3", region="eastus", resource_group="test-rg"
         )
 
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
-        GitHubRunnerLifecycleManager.destroy_runner(
-            runner=runner,
-            config=lifecycle_config
-        )
+        GitHubRunnerLifecycleManager.destroy_runner(runner=runner, config=lifecycle_config)
 
         # Verify deregistration and VM deletion
         mock_deregister.assert_called_once_with(
             repo_owner="testorg",
             repo_name="testrepo",
             runner_id=12345,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
         mock_delete_vm.assert_called_once()
 
@@ -273,7 +237,7 @@ class TestDestroyRunner:
             resource_group="test-rg",
             location="eastus",
             size="Standard_D2s_v3",
-            state="Running"
+            state="Running",
         )
 
         runner = EphemeralRunner(
@@ -282,34 +246,25 @@ class TestDestroyRunner:
             runner_name="runner-001",
             created_at=datetime.now(),
             jobs_completed=1,
-            status="draining"
+            status="draining",
         )
 
         runner_config = RunnerConfig(
-            repo_owner="testorg",
-            repo_name="testrepo",
-            runner_name="runner-001",
-            labels=["linux"]
+            repo_owner="testorg", repo_name="testrepo", runner_name="runner-001", labels=["linux"]
         )
 
         vm_config = VMConfig(
-            name="runner-vm-001",
-            size="Standard_D2s_v3",
-            region="eastus",
-            resource_group="test-rg"
+            name="runner-vm-001", size="Standard_D2s_v3", region="eastus", resource_group="test-rg"
         )
 
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         # Should still attempt VM deletion even if deregister fails
-        GitHubRunnerLifecycleManager.destroy_runner(
-            runner=runner,
-            config=lifecycle_config
-        )
+        GitHubRunnerLifecycleManager.destroy_runner(runner=runner, config=lifecycle_config)
 
         mock_delete_vm.assert_called_once()
 
@@ -317,7 +272,9 @@ class TestDestroyRunner:
 class TestRotateRunner:
     """Test runner rotation."""
 
-    @patch("azlin.modules.github_runner_lifecycle.GitHubRunnerLifecycleManager.provision_ephemeral_runner")
+    @patch(
+        "azlin.modules.github_runner_lifecycle.GitHubRunnerLifecycleManager.provision_ephemeral_runner"
+    )
     @patch("azlin.modules.github_runner_lifecycle.GitHubRunnerLifecycleManager.destroy_runner")
     def test_rotate_runner_success(self, mock_destroy, mock_provision):
         """Test successful runner rotation."""
@@ -329,7 +286,7 @@ class TestRotateRunner:
             resource_group="test-rg",
             location="eastus",
             size="Standard_D2s_v3",
-            state="Running"
+            state="Running",
         )
 
         old_runner = EphemeralRunner(
@@ -338,7 +295,7 @@ class TestRotateRunner:
             runner_name="runner-001",
             created_at=datetime.now(),
             jobs_completed=1,
-            status="active"
+            status="active",
         )
 
         # New runner
@@ -349,7 +306,7 @@ class TestRotateRunner:
             resource_group="test-rg",
             location="eastus",
             size="Standard_D2s_v3",
-            state="Running"
+            state="Running",
         )
 
         new_runner = EphemeralRunner(
@@ -358,35 +315,28 @@ class TestRotateRunner:
             runner_name="runner-002",
             created_at=datetime.now(),
             jobs_completed=0,
-            status="active"
+            status="active",
         )
 
         mock_provision.return_value = new_runner
 
         runner_config = RunnerConfig(
-            repo_owner="testorg",
-            repo_name="testrepo",
-            runner_name="runner-002",
-            labels=["linux"]
+            repo_owner="testorg", repo_name="testrepo", runner_name="runner-002", labels=["linux"]
         )
 
         vm_config = VMConfig(
-            name="runner-vm-002",
-            size="Standard_D2s_v3",
-            region="eastus",
-            resource_group="test-rg"
+            name="runner-vm-002", size="Standard_D2s_v3", region="eastus", resource_group="test-rg"
         )
 
         lifecycle_config = RunnerLifecycleConfig(
             runner_config=runner_config,
             vm_config=vm_config,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         # Rotate runner
         result = GitHubRunnerLifecycleManager.rotate_runner(
-            old_runner=old_runner,
-            config=lifecycle_config
+            old_runner=old_runner, config=lifecycle_config
         )
 
         assert result.runner_id == 67890
@@ -406,11 +356,7 @@ class TestCheckRunnerHealth:
         from azlin.modules.github_runner_provisioner import RunnerInfo
 
         mock_info = RunnerInfo(
-            runner_id=12345,
-            runner_name="runner-001",
-            status="online",
-            busy=False,
-            labels=["linux"]
+            runner_id=12345, runner_name="runner-001", status="online", busy=False, labels=["linux"]
         )
         mock_get_info.return_value = mock_info
 
@@ -421,7 +367,7 @@ class TestCheckRunnerHealth:
             resource_group="test-rg",
             location="eastus",
             size="Standard_D2s_v3",
-            state="Running"
+            state="Running",
         )
 
         runner = EphemeralRunner(
@@ -430,12 +376,12 @@ class TestCheckRunnerHealth:
             runner_name="runner-001",
             created_at=datetime.now(),
             jobs_completed=0,
-            status="active"
+            status="active",
         )
 
         is_healthy = GitHubRunnerLifecycleManager.check_runner_health(
             runner=runner,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         assert is_healthy is True
@@ -450,7 +396,7 @@ class TestCheckRunnerHealth:
             runner_name="runner-001",
             status="offline",
             busy=False,
-            labels=["linux"]
+            labels=["linux"],
         )
         mock_get_info.return_value = mock_info
 
@@ -461,7 +407,7 @@ class TestCheckRunnerHealth:
             resource_group="test-rg",
             location="eastus",
             size="Standard_D2s_v3",
-            state="Running"
+            state="Running",
         )
 
         runner = EphemeralRunner(
@@ -470,12 +416,12 @@ class TestCheckRunnerHealth:
             runner_name="runner-001",
             created_at=datetime.now(),
             jobs_completed=0,
-            status="active"
+            status="active",
         )
 
         is_healthy = GitHubRunnerLifecycleManager.check_runner_health(
             runner=runner,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         assert is_healthy is False
@@ -492,7 +438,7 @@ class TestCheckRunnerHealth:
             resource_group="test-rg",
             location="eastus",
             size="Standard_D2s_v3",
-            state="Running"
+            state="Running",
         )
 
         runner = EphemeralRunner(
@@ -501,12 +447,12 @@ class TestCheckRunnerHealth:
             runner_name="runner-001",
             created_at=datetime.now(),
             jobs_completed=0,
-            status="active"
+            status="active",
         )
 
         is_healthy = GitHubRunnerLifecycleManager.check_runner_health(
             runner=runner,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         # Should return False on error, not raise exception

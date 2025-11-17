@@ -7,16 +7,15 @@ Tests cover:
 - Various scaling scenarios
 """
 
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import Mock
 
+import pytest
+
+from azlin.modules.github_queue_monitor import QueueMetrics
 from azlin.modules.github_runner_autoscaler import (
     GitHubRunnerAutoScaler,
     ScalingConfig,
-    ScalingDecision,
 )
-from azlin.modules.github_queue_monitor import QueueMetrics
 
 
 class TestScalingConfig:
@@ -41,7 +40,7 @@ class TestScalingConfig:
             jobs_per_runner=3,
             scale_up_threshold=5,
             scale_down_threshold=2,
-            cooldown_seconds=600
+            cooldown_seconds=600,
         )
 
         assert config.min_runners == 2
@@ -59,21 +58,15 @@ class TestScaleUp:
             in_progress_jobs=0,
             queued_jobs=10,
             total_jobs=10,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         config = ScalingConfig(
-            min_runners=0,
-            max_runners=10,
-            jobs_per_runner=2,
-            scale_up_threshold=2
+            min_runners=0, max_runners=10, jobs_per_runner=2, scale_up_threshold=2
         )
 
         decision = GitHubRunnerAutoScaler.calculate_scaling_decision(
-            queue_metrics=metrics,
-            current_runner_count=0,
-            config=config,
-            last_scaling_action=None
+            queue_metrics=metrics, current_runner_count=0, config=config, last_scaling_action=None
         )
 
         assert decision.action == "scale_up"
@@ -88,21 +81,15 @@ class TestScaleUp:
             in_progress_jobs=4,
             queued_jobs=8,
             total_jobs=12,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         config = ScalingConfig(
-            min_runners=0,
-            max_runners=10,
-            jobs_per_runner=2,
-            scale_up_threshold=2
+            min_runners=0, max_runners=10, jobs_per_runner=2, scale_up_threshold=2
         )
 
         decision = GitHubRunnerAutoScaler.calculate_scaling_decision(
-            queue_metrics=metrics,
-            current_runner_count=2,
-            config=config,
-            last_scaling_action=None
+            queue_metrics=metrics, current_runner_count=2, config=config, last_scaling_action=None
         )
 
         assert decision.action == "scale_up"
@@ -116,20 +103,13 @@ class TestScaleUp:
             in_progress_jobs=0,
             queued_jobs=100,
             total_jobs=100,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
-        config = ScalingConfig(
-            min_runners=0,
-            max_runners=10,
-            jobs_per_runner=2
-        )
+        config = ScalingConfig(min_runners=0, max_runners=10, jobs_per_runner=2)
 
         decision = GitHubRunnerAutoScaler.calculate_scaling_decision(
-            queue_metrics=metrics,
-            current_runner_count=0,
-            config=config,
-            last_scaling_action=None
+            queue_metrics=metrics, current_runner_count=0, config=config, last_scaling_action=None
         )
 
         assert decision.action == "scale_up"
@@ -143,14 +123,11 @@ class TestScaleUp:
             in_progress_jobs=0,
             queued_jobs=10,
             total_jobs=10,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         config = ScalingConfig(
-            min_runners=0,
-            max_runners=10,
-            jobs_per_runner=2,
-            cooldown_seconds=300
+            min_runners=0, max_runners=10, jobs_per_runner=2, cooldown_seconds=300
         )
 
         # Last scaling action was 1 minute ago (within cooldown)
@@ -160,7 +137,7 @@ class TestScaleUp:
             queue_metrics=metrics,
             current_runner_count=0,
             config=config,
-            last_scaling_action=last_action
+            last_scaling_action=last_action,
         )
 
         assert decision.action == "maintain"
@@ -173,14 +150,11 @@ class TestScaleUp:
             in_progress_jobs=0,
             queued_jobs=10,
             total_jobs=10,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         config = ScalingConfig(
-            min_runners=0,
-            max_runners=10,
-            jobs_per_runner=2,
-            cooldown_seconds=300
+            min_runners=0, max_runners=10, jobs_per_runner=2, cooldown_seconds=300
         )
 
         # Last scaling action was 6 minutes ago (past cooldown)
@@ -190,7 +164,7 @@ class TestScaleUp:
             queue_metrics=metrics,
             current_runner_count=0,
             config=config,
-            last_scaling_action=last_action
+            last_scaling_action=last_action,
         )
 
         assert decision.action == "scale_up"
@@ -206,21 +180,15 @@ class TestScaleDown:
             in_progress_jobs=0,
             queued_jobs=0,
             total_jobs=0,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         config = ScalingConfig(
-            min_runners=0,
-            max_runners=10,
-            jobs_per_runner=2,
-            scale_down_threshold=0
+            min_runners=0, max_runners=10, jobs_per_runner=2, scale_down_threshold=0
         )
 
         decision = GitHubRunnerAutoScaler.calculate_scaling_decision(
-            queue_metrics=metrics,
-            current_runner_count=5,
-            config=config,
-            last_scaling_action=None
+            queue_metrics=metrics, current_runner_count=5, config=config, last_scaling_action=None
         )
 
         assert decision.action == "scale_down"
@@ -233,20 +201,13 @@ class TestScaleDown:
             in_progress_jobs=0,
             queued_jobs=0,
             total_jobs=0,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
-        config = ScalingConfig(
-            min_runners=2,
-            max_runners=10,
-            jobs_per_runner=2
-        )
+        config = ScalingConfig(min_runners=2, max_runners=10, jobs_per_runner=2)
 
         decision = GitHubRunnerAutoScaler.calculate_scaling_decision(
-            queue_metrics=metrics,
-            current_runner_count=5,
-            config=config,
-            last_scaling_action=None
+            queue_metrics=metrics, current_runner_count=5, config=config, last_scaling_action=None
         )
 
         assert decision.action == "scale_down"
@@ -259,20 +220,13 @@ class TestScaleDown:
             in_progress_jobs=0,
             queued_jobs=2,
             total_jobs=2,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
-        config = ScalingConfig(
-            min_runners=0,
-            max_runners=10,
-            jobs_per_runner=2
-        )
+        config = ScalingConfig(min_runners=0, max_runners=10, jobs_per_runner=2)
 
         decision = GitHubRunnerAutoScaler.calculate_scaling_decision(
-            queue_metrics=metrics,
-            current_runner_count=5,
-            config=config,
-            last_scaling_action=None
+            queue_metrics=metrics, current_runner_count=5, config=config, last_scaling_action=None
         )
 
         assert decision.action == "scale_down"
@@ -290,21 +244,14 @@ class TestMaintain:
             in_progress_jobs=0,
             queued_jobs=4,
             total_jobs=4,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
-        config = ScalingConfig(
-            min_runners=0,
-            max_runners=10,
-            jobs_per_runner=2
-        )
+        config = ScalingConfig(min_runners=0, max_runners=10, jobs_per_runner=2)
 
         # Current count matches target (4 jobs / 2 per runner = 2 runners)
         decision = GitHubRunnerAutoScaler.calculate_scaling_decision(
-            queue_metrics=metrics,
-            current_runner_count=2,
-            config=config,
-            last_scaling_action=None
+            queue_metrics=metrics, current_runner_count=2, config=config, last_scaling_action=None
         )
 
         assert decision.action == "maintain"
@@ -317,23 +264,20 @@ class TestMaintain:
             in_progress_jobs=0,
             queued_jobs=5,
             total_jobs=5,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         config = ScalingConfig(
             min_runners=0,
             max_runners=10,
             jobs_per_runner=2,
-            scale_up_threshold=2  # Need 2 extra pending jobs to scale
+            scale_up_threshold=2,  # Need 2 extra pending jobs to scale
         )
 
         # Target would be 3 runners (5/2 = 2.5 → 3)
         # Current is 2, difference is 1 (below threshold of 2)
         decision = GitHubRunnerAutoScaler.calculate_scaling_decision(
-            queue_metrics=metrics,
-            current_runner_count=2,
-            config=config,
-            last_scaling_action=None
+            queue_metrics=metrics, current_runner_count=2, config=config, last_scaling_action=None
         )
 
         assert decision.action == "maintain"
@@ -345,20 +289,13 @@ class TestMaintain:
             in_progress_jobs=0,
             queued_jobs=0,
             total_jobs=0,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
-        config = ScalingConfig(
-            min_runners=2,
-            max_runners=10,
-            jobs_per_runner=2
-        )
+        config = ScalingConfig(min_runners=2, max_runners=10, jobs_per_runner=2)
 
         decision = GitHubRunnerAutoScaler.calculate_scaling_decision(
-            queue_metrics=metrics,
-            current_runner_count=2,
-            config=config,
-            last_scaling_action=None
+            queue_metrics=metrics, current_runner_count=2, config=config, last_scaling_action=None
         )
 
         assert decision.action == "maintain"
@@ -371,20 +308,13 @@ class TestMaintain:
             in_progress_jobs=0,
             queued_jobs=100,
             total_jobs=100,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
-        config = ScalingConfig(
-            min_runners=0,
-            max_runners=10,
-            jobs_per_runner=2
-        )
+        config = ScalingConfig(min_runners=0, max_runners=10, jobs_per_runner=2)
 
         decision = GitHubRunnerAutoScaler.calculate_scaling_decision(
-            queue_metrics=metrics,
-            current_runner_count=10,
-            config=config,
-            last_scaling_action=None
+            queue_metrics=metrics, current_runner_count=10, config=config, last_scaling_action=None
         )
 
         assert decision.action == "maintain"
@@ -401,30 +331,30 @@ class TestEdgeCases:
             in_progress_jobs=0,
             queued_jobs=5,
             total_jobs=5,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         config = ScalingConfig()
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="current_runner_count must be non-negative"):
             GitHubRunnerAutoScaler.calculate_scaling_decision(
                 queue_metrics=metrics,
                 current_runner_count=-1,
                 config=config,
-                last_scaling_action=None
+                last_scaling_action=None,
             )
 
     def test_invalid_min_max(self):
         """Test handling of invalid min > max."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="min_runners.*cannot be greater than.*max_runners"):
             ScalingConfig(min_runners=10, max_runners=5)
 
     def test_zero_jobs_per_runner(self):
         """Test handling of zero jobs per runner."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="jobs_per_runner must be.*positive"):
             ScalingConfig(jobs_per_runner=0)
 
     def test_negative_cooldown(self):
         """Test handling of negative cooldown."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="cooldown_seconds must be non-negative"):
             ScalingConfig(cooldown_seconds=-1)
