@@ -19,8 +19,9 @@ from azlin.vm_manager import VMInfo
 class TestIssue281BugReproduction:
     """Test that directly reproduces the bug from issue #281."""
 
-    @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
-    @patch("azlin.cli.WCommandExecutor")
+    @patch("azlin.cli_helpers.get_ssh_configs_for_vms")
+    @patch("azlin.remote_exec.WCommandExecutor.execute_w_on_routes")
+    @patch("azlin.remote_exec.WCommandExecutor.format_w_output")
     @patch("azlin.cli.SSHKeyManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
@@ -29,8 +30,9 @@ class TestIssue281BugReproduction:
         mock_config_mgr,
         mock_vm_mgr,
         mock_ssh_key_mgr,
-        mock_w_executor,
-        mock_resolve_routes,
+        mock_format_w_output,
+        mock_execute_w_on_routes,
+        mock_get_ssh_configs,
     ):
         """REPRODUCTION: azlin w filters out VMs without public IPs.
 
@@ -79,36 +81,41 @@ class TestIssue281BugReproduction:
         from azlin.modules.ssh_connector import SSHConfig
         from azlin.modules.ssh_routing_resolver import SSHRoute
 
+        mock_ssh_configs = [
+            SSHConfig(
+                host="20.1.2.3",
+                port=22,
+                user="azureuser",
+                key_path=Path("/home/user/.ssh/azlin_key"),
+            ),
+            SSHConfig(
+                host="127.0.0.1",
+                port=50022,
+                user="azureuser",
+                key_path=Path("/home/user/.ssh/azlin_key"),
+            ),
+        ]
         mock_routes = [
             SSHRoute(
                 vm_name="azlin-public-vm",
                 vm_info=vms[0],
                 routing_method="direct",
-                ssh_config=SSHConfig(
-                    host="20.1.2.3",
-                    port=22,
-                    user="azureuser",
-                    key_path=Path("/home/user/.ssh/azlin_key"),
-                ),
+                ssh_config=mock_ssh_configs[0],
                 skip_reason=None,
             ),
             SSHRoute(
                 vm_name="azlin-bastion-only-vm",
                 vm_info=vms[1],
                 routing_method="bastion",
-                ssh_config=SSHConfig(
-                    host="127.0.0.1",
-                    port=50022,
-                    user="azureuser",
-                    key_path=Path("/home/user/.ssh/azlin_key"),
-                ),
+                ssh_config=mock_ssh_configs[1],
                 skip_reason=None,
             ),
         ]
-        mock_resolve_routes.return_value = mock_routes
+        mock_get_ssh_configs.return_value = (mock_ssh_configs, mock_routes)
 
-        mock_w_executor.execute_w_on_vms.return_value = []
-        mock_w_executor.format_w_output.return_value = "Output"
+        # Mock executor methods
+        mock_execute_w_on_routes.return_value = []
+        mock_format_w_output.return_value = "Output"
 
         # Execute
         from click.testing import CliRunner
@@ -118,25 +125,21 @@ class TestIssue281BugReproduction:
         runner = CliRunner()
         result = runner.invoke(w, [])
 
-        # Verify the bug
-        call_args = mock_w_executor.execute_w_on_vms.call_args
+        # Verify the bug is fixed - now using execute_w_on_routes
+        assert mock_execute_w_on_routes.called, "execute_w_on_routes should have been called"
+        call_args = mock_execute_w_on_routes.call_args
 
-        if call_args:
-            ssh_configs = call_args[0][0]
-            actual_count = len(ssh_configs)
-            expected_count = 2
+        routes = call_args[0][0]
+        actual_count = len(routes)
+        expected_count = 2
 
-            # This assertion FAILS with current code (bug reproduction)
-            # Current: 1 VM (only public)
-            # Expected: 2 VMs (public + bastion)
-            assert actual_count == expected_count, (
-                f"BUG REPRODUCED: Only {actual_count} VM(s) included, "
-                f"expected {expected_count}. "
-                f"VM without public IP was filtered out! "
-                f"Configs: {[c.host for c in ssh_configs]}"
-            )
-        else:
-            pytest.fail("execute_w_on_vms was not called - command failed earlier")
+        # This should now PASS - both VMs included via routes
+        assert actual_count == expected_count, (
+            f"Only {actual_count} VM(s) included, "
+            f"expected {expected_count}. "
+            f"VM without public IP was filtered out! "
+            f"Routes: {[r.vm_name for r in routes]}"
+        )
 
     @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
     @patch("azlin.cli.DistributedTopExecutor")

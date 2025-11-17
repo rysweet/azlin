@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from azlin.modules.ssh_connector import SSHConfig
+from azlin.modules.ssh_routing_resolver import SSHRoute
 from azlin.remote_exec import (
     RemoteExecutor,
     RemoteResult,
@@ -14,6 +15,7 @@ from azlin.remote_exec import (
     TmuxSessionExecutor,
     WCommandExecutor,
 )
+from azlin.vm_manager import VMInfo
 
 
 class TestRemoteResult:
@@ -167,6 +169,427 @@ class TestWCommandExecutor:
         assert "w output 1" in output
         assert "VM: vm-2" in output
         assert "ERROR: connection failed" in output
+
+
+@pytest.mark.unit
+class TestWCommandExecutorRoutes:
+    """Tests for WCommandExecutor.execute_w_on_routes method."""
+
+    def _create_vm_info(self, name: str, session_name: str | None = None) -> VMInfo:
+        """Helper to create VMInfo for testing."""
+        return VMInfo(
+            name=name,
+            resource_group="test-rg",
+            location="eastus",
+            power_state="VM running",
+            public_ip="1.2.3.4",
+            session_name=session_name,
+        )
+
+    def _create_ssh_config(self, host: str) -> SSHConfig:
+        """Helper to create SSHConfig for testing."""
+        return SSHConfig(host=host, user="azureuser", key_path=Path("/tmp/key"))
+
+    def _create_route(
+        self,
+        vm_name: str,
+        session_name: str | None = None,
+        ssh_config: SSHConfig | None = None,
+        routing_method: str = "direct",
+    ) -> SSHRoute:
+        """Helper to create SSHRoute for testing."""
+        vm_info = self._create_vm_info(vm_name, session_name)
+        return SSHRoute(
+            vm_name=vm_name,
+            vm_info=vm_info,
+            ssh_config=ssh_config,
+            routing_method=routing_method,  # type: ignore[arg-type]
+        )
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_basic_success(self, mock_execute):
+        """Test basic execution on routes with vm_name and session_name."""
+        # Arrange
+        mock_execute.return_value = RemoteResult(
+            vm_name="temp-name",  # Will be overridden
+            success=True,
+            stdout="w output from vm",
+            stderr="",
+            exit_code=0,
+        )
+
+        routes = [
+            self._create_route(
+                vm_name="test-vm-1",
+                session_name="session-a",
+                ssh_config=self._create_ssh_config("1.2.3.4"),
+            ),
+        ]
+
+        # Act
+        results = WCommandExecutor.execute_w_on_routes(routes)
+
+        # Assert
+        assert len(results) == 1
+        assert results[0].vm_name == "test-vm-1"
+        assert results[0].session_name == "session-a"
+        assert results[0].success is True
+        assert results[0].stdout == "w output from vm"
+        mock_execute.assert_called_once()
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_skip_unreachable(self, mock_execute):
+        """Test that routes with ssh_config=None are skipped."""
+        # Arrange
+        routes = [
+            self._create_route(
+                vm_name="reachable-vm",
+                session_name="session-1",
+                ssh_config=self._create_ssh_config("1.2.3.4"),
+            ),
+            self._create_route(
+                vm_name="unreachable-vm",
+                session_name="session-2",
+                ssh_config=None,  # Unreachable
+                routing_method="unreachable",
+            ),
+        ]
+
+        mock_execute.return_value = RemoteResult(
+            vm_name="temp", success=True, stdout="w output", stderr="", exit_code=0
+        )
+
+        # Act
+        results = WCommandExecutor.execute_w_on_routes(routes)
+
+        # Assert
+        assert len(results) == 1
+        assert results[0].vm_name == "reachable-vm"
+        # Should only call execute_command once (not for unreachable VM)
+        mock_execute.assert_called_once()
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_multiple_vms_parallel(self, mock_execute):
+        """Test parallel execution on multiple VMs."""
+        # Arrange
+        routes = [
+            self._create_route(
+                vm_name=f"vm-{i}",
+                session_name=f"session-{i}",
+                ssh_config=self._create_ssh_config(f"10.0.0.{i}"),
+            )
+            for i in range(1, 4)
+        ]
+
+        def execute_side_effect(ssh_config, command, timeout):
+            """Return different output based on host."""
+            return RemoteResult(
+                vm_name="temp",
+                success=True,
+                stdout=f"output from {ssh_config.host}",
+                stderr="",
+                exit_code=0,
+            )
+
+        mock_execute.side_effect = execute_side_effect
+
+        # Act
+        results = WCommandExecutor.execute_w_on_routes(routes)
+
+        # Assert
+        assert len(results) == 3
+        assert mock_execute.call_count == 3
+
+        # Verify all VMs got their names set correctly
+        vm_names = {r.vm_name for r in results}
+        assert vm_names == {"vm-1", "vm-2", "vm-3"}
+
+        # Verify all sessions got their names set correctly
+        session_names = {r.session_name for r in results}
+        assert session_names == {"session-1", "session-2", "session-3"}
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_session_name_none(self, mock_execute):
+        """Test handling when session_name is None."""
+        # Arrange
+        mock_execute.return_value = RemoteResult(
+            vm_name="temp", success=True, stdout="w output", stderr="", exit_code=0
+        )
+
+        routes = [
+            self._create_route(
+                vm_name="test-vm",
+                session_name=None,  # No session name
+                ssh_config=self._create_ssh_config("1.2.3.4"),
+            ),
+        ]
+
+        # Act
+        results = WCommandExecutor.execute_w_on_routes(routes)
+
+        # Assert
+        assert len(results) == 1
+        assert results[0].vm_name == "test-vm"
+        assert results[0].session_name is None
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_execution_error(self, mock_execute):
+        """Test error handling when execution fails."""
+        # Arrange
+        mock_execute.side_effect = Exception("Connection timeout")
+
+        routes = [
+            self._create_route(
+                vm_name="failing-vm",
+                session_name="session-x",
+                ssh_config=self._create_ssh_config("1.2.3.4"),
+            ),
+        ]
+
+        # Act
+        results = WCommandExecutor.execute_w_on_routes(routes)
+
+        # Assert
+        assert len(results) == 1
+        assert results[0].success is False
+        assert results[0].vm_name == "failing-vm"
+        assert results[0].session_name == "session-x"
+        assert "Connection timeout" in results[0].stderr
+        assert results[0].exit_code == -1
+        assert results[0].stdout == ""
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_mixed_success_failure(self, mock_execute):
+        """Test handling mixed success and failure results."""
+        # Arrange
+        routes = [
+            self._create_route(
+                vm_name="success-vm",
+                session_name="session-ok",
+                ssh_config=self._create_ssh_config("1.2.3.4"),
+            ),
+            self._create_route(
+                vm_name="failure-vm",
+                session_name="session-fail",
+                ssh_config=self._create_ssh_config("5.6.7.8"),
+            ),
+        ]
+
+        def execute_side_effect(ssh_config, command, timeout):
+            """Fail for specific host."""
+            if ssh_config.host == "5.6.7.8":
+                raise Exception("Connection refused")
+            return RemoteResult(
+                vm_name="temp", success=True, stdout="w output", stderr="", exit_code=0
+            )
+
+        mock_execute.side_effect = execute_side_effect
+
+        # Act
+        results = WCommandExecutor.execute_w_on_routes(routes)
+
+        # Assert
+        assert len(results) == 2
+
+        success_results = [r for r in results if r.success]
+        failure_results = [r for r in results if not r.success]
+
+        assert len(success_results) == 1
+        assert len(failure_results) == 1
+
+        assert success_results[0].vm_name == "success-vm"
+        assert success_results[0].session_name == "session-ok"
+
+        assert failure_results[0].vm_name == "failure-vm"
+        assert failure_results[0].session_name == "session-fail"
+        assert "Connection refused" in failure_results[0].stderr
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_empty_list(self, mock_execute):
+        """Test handling empty routes list."""
+        # Act
+        results = WCommandExecutor.execute_w_on_routes([])
+
+        # Assert
+        assert results == []
+        mock_execute.assert_not_called()
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_all_unreachable(self, mock_execute):
+        """Test when all routes are unreachable."""
+        # Arrange
+        routes = [
+            self._create_route(
+                vm_name="unreachable-1",
+                session_name="session-1",
+                ssh_config=None,
+                routing_method="unreachable",
+            ),
+            self._create_route(
+                vm_name="unreachable-2",
+                session_name="session-2",
+                ssh_config=None,
+                routing_method="unreachable",
+            ),
+        ]
+
+        # Act
+        results = WCommandExecutor.execute_w_on_routes(routes)
+
+        # Assert
+        assert results == []
+        mock_execute.assert_not_called()
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_custom_timeout(self, mock_execute):
+        """Test custom timeout is passed through."""
+        # Arrange
+        mock_execute.return_value = RemoteResult(
+            vm_name="temp", success=True, stdout="w output", stderr="", exit_code=0
+        )
+
+        routes = [
+            self._create_route(
+                vm_name="test-vm",
+                session_name="session-1",
+                ssh_config=self._create_ssh_config("1.2.3.4"),
+            ),
+        ]
+
+        # Act
+        WCommandExecutor.execute_w_on_routes(routes, timeout=60)
+
+        # Assert
+        mock_execute.assert_called_once()
+        call_args = mock_execute.call_args
+        assert call_args[0][1] == "w"  # Command
+        assert call_args[0][2] == 60  # Timeout
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_custom_max_workers(self, mock_execute):
+        """Test custom max_workers parameter."""
+        # Arrange
+        mock_execute.return_value = RemoteResult(
+            vm_name="temp", success=True, stdout="w output", stderr="", exit_code=0
+        )
+
+        # Create many routes to test worker limitation
+        routes = [
+            self._create_route(
+                vm_name=f"vm-{i}",
+                session_name=f"session-{i}",
+                ssh_config=self._create_ssh_config(f"10.0.0.{i}"),
+            )
+            for i in range(1, 21)  # 20 VMs
+        ]
+
+        # Act
+        results = WCommandExecutor.execute_w_on_routes(routes, max_workers=5)
+
+        # Assert
+        assert len(results) == 20
+        assert mock_execute.call_count == 20
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_preserves_route_metadata(self, mock_execute):
+        """Test that route metadata is preserved in results."""
+        # Arrange
+        mock_execute.return_value = RemoteResult(
+            vm_name="wrong-name",  # Should be overridden
+            success=True,
+            stdout="w output",
+            stderr="",
+            exit_code=0,
+            session_name="wrong-session",  # Should be overridden
+        )
+
+        routes = [
+            self._create_route(
+                vm_name="correct-vm-name",
+                session_name="correct-session-name",
+                ssh_config=self._create_ssh_config("1.2.3.4"),
+            ),
+        ]
+
+        # Act
+        results = WCommandExecutor.execute_w_on_routes(routes)
+
+        # Assert
+        assert len(results) == 1
+        # Verify route metadata overrides RemoteResult values
+        assert results[0].vm_name == "correct-vm-name"
+        assert results[0].session_name == "correct-session-name"
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_command_is_w(self, mock_execute):
+        """Test that the 'w' command is executed."""
+        # Arrange
+        mock_execute.return_value = RemoteResult(
+            vm_name="temp", success=True, stdout="w output", stderr="", exit_code=0
+        )
+
+        routes = [
+            self._create_route(
+                vm_name="test-vm",
+                session_name="session-1",
+                ssh_config=self._create_ssh_config("1.2.3.4"),
+            ),
+        ]
+
+        # Act
+        WCommandExecutor.execute_w_on_routes(routes)
+
+        # Assert
+        mock_execute.assert_called_once()
+        call_args = mock_execute.call_args
+        assert call_args[0][1] == "w"  # Verify command is 'w'
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_default_timeout(self, mock_execute):
+        """Test default timeout value."""
+        # Arrange
+        mock_execute.return_value = RemoteResult(
+            vm_name="temp", success=True, stdout="w output", stderr="", exit_code=0
+        )
+
+        routes = [
+            self._create_route(
+                vm_name="test-vm",
+                session_name="session-1",
+                ssh_config=self._create_ssh_config("1.2.3.4"),
+            ),
+        ]
+
+        # Act
+        WCommandExecutor.execute_w_on_routes(routes)  # No timeout specified
+
+        # Assert
+        mock_execute.assert_called_once()
+        call_args = mock_execute.call_args
+        assert call_args[0][2] == 30  # Default timeout
+
+    @patch("azlin.remote_exec.RemoteExecutor.execute_command")
+    def test_execute_w_on_routes_single_vm_uses_one_worker(self, mock_execute):
+        """Test that single VM uses min(1, max_workers) workers."""
+        # Arrange
+        mock_execute.return_value = RemoteResult(
+            vm_name="temp", success=True, stdout="w output", stderr="", exit_code=0
+        )
+
+        routes = [
+            self._create_route(
+                vm_name="test-vm",
+                session_name="session-1",
+                ssh_config=self._create_ssh_config("1.2.3.4"),
+            ),
+        ]
+
+        # Act
+        results = WCommandExecutor.execute_w_on_routes(routes, max_workers=10)
+
+        # Assert
+        assert len(results) == 1
+        mock_execute.assert_called_once()
 
 
 @pytest.mark.unit

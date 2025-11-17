@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 from azlin.modules.ssh_connector import SSHConfig
+from azlin.modules.ssh_routing_resolver import SSHRoute
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class RemoteResult:
     stderr: str
     exit_code: int
     duration: float = 0.0
+    session_name: str | None = None
 
     def get_output(self) -> str:
         """Get combined output."""
@@ -489,6 +491,70 @@ class WCommandExecutor:
         return RemoteExecutor.execute_parallel(ssh_configs, "w", timeout=timeout)
 
     @classmethod
+    def execute_w_on_routes(
+        cls, routes: list[SSHRoute], timeout: int = 30, max_workers: int = 10
+    ) -> list[RemoteResult]:
+        """Execute 'w' command on multiple VMs using route information.
+
+        Args:
+            routes: List of SSH routes with VM metadata
+            timeout: Timeout per VM in seconds
+            max_workers: Maximum parallel workers
+
+        Returns:
+            List of RemoteResult objects with VM names and session names
+        """
+        if not routes:
+            return []
+
+        # Filter reachable routes
+        reachable_routes = [route for route in routes if route.ssh_config is not None]
+
+        if not reachable_routes:
+            return []
+
+        results: list[RemoteResult] = []
+        num_workers = min(max_workers, len(reachable_routes))
+
+        logger.debug(f"Executing 'w' on {len(reachable_routes)} VMs with {num_workers} workers")
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Submit all tasks - ssh_config is guaranteed non-None by filter above
+            future_to_route = {
+                executor.submit(
+                    RemoteExecutor.execute_command,
+                    route.ssh_config,  # type: ignore[arg-type]
+                    "w",
+                    timeout,
+                ): route
+                for route in reachable_routes
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_route):
+                route = future_to_route[future]
+                try:
+                    result = future.result()
+                    # Override vm_name and add session_name from route
+                    result.vm_name = route.vm_name
+                    result.session_name = route.vm_info.session_name
+                    results.append(result)
+                except Exception as e:
+                    logger.error(f"Failed on {route.vm_name}: {e}")
+                    results.append(
+                        RemoteResult(
+                            vm_name=route.vm_name,
+                            success=False,
+                            stdout="",
+                            stderr=str(e),
+                            exit_code=-1,
+                            session_name=route.vm_info.session_name,
+                        )
+                    )
+
+        return results
+
+    @classmethod
     def format_w_output(cls, results: list[RemoteResult]) -> str:
         """Format 'w' command output with VM names.
 
@@ -502,7 +568,13 @@ class WCommandExecutor:
 
         for result in results:
             lines.append("=" * 60)
-            lines.append(f"VM: {result.vm_name}")
+
+            # Show session name if available
+            if result.session_name:
+                lines.append(f"VM: {result.vm_name} (Session: {result.session_name})")
+            else:
+                lines.append(f"VM: {result.vm_name}")
+
             lines.append("=" * 60)
 
             if result.success:
@@ -512,7 +584,7 @@ class WCommandExecutor:
 
             lines.append("")  # Blank line between VMs
 
-        return "\n".join(lines)
+        return "\n".join(lines).strip()
 
 
 class PSCommandExecutor:
