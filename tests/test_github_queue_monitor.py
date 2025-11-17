@@ -7,9 +7,10 @@ Tests cover:
 - Error handling
 """
 
-import pytest
 from datetime import datetime
 from unittest.mock import Mock, patch
+
+import pytest
 
 from azlin.modules.github_queue_monitor import (
     GitHubJobQueueMonitor,
@@ -25,11 +26,7 @@ class TestQueueMetrics:
         """Test creating QueueMetrics."""
         timestamp = datetime.now()
         metrics = QueueMetrics(
-            pending_jobs=5,
-            in_progress_jobs=3,
-            queued_jobs=2,
-            total_jobs=10,
-            timestamp=timestamp
+            pending_jobs=5, in_progress_jobs=3, queued_jobs=2, total_jobs=10, timestamp=timestamp
         )
 
         assert metrics.pending_jobs == 5
@@ -45,7 +42,7 @@ class TestQueueMetrics:
             in_progress_jobs=0,
             queued_jobs=0,
             total_jobs=5,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         assert metrics.needs_scaling is True
@@ -57,7 +54,7 @@ class TestQueueMetrics:
             in_progress_jobs=0,
             queued_jobs=3,
             total_jobs=3,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         assert metrics.needs_scaling is True
@@ -69,7 +66,7 @@ class TestQueueMetrics:
             in_progress_jobs=2,
             queued_jobs=0,
             total_jobs=2,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         assert metrics.needs_scaling is False
@@ -92,7 +89,7 @@ class TestGetQueueMetrics:
                 {"id": 3, "status": "queued"},
                 {"id": 4, "status": "queued"},
                 {"id": 5, "status": "queued"},
-            ]
+            ],
         }
 
         # Mock in_progress jobs response
@@ -104,7 +101,7 @@ class TestGetQueueMetrics:
                 {"id": 6, "status": "in_progress"},
                 {"id": 7, "status": "in_progress"},
                 {"id": 8, "status": "in_progress"},
-            ]
+            ],
         }
 
         mock_get.side_effect = [mock_queued_response, mock_progress_response]
@@ -113,7 +110,7 @@ class TestGetQueueMetrics:
             repo_owner="testorg",
             repo_name="testrepo",
             labels=None,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         assert metrics.queued_jobs == 5
@@ -133,30 +130,15 @@ class TestGetQueueMetrics:
         mock_queued_response.json.return_value = {
             "total_count": 10,
             "workflow_runs": [
-                {
-                    "id": 1,
-                    "status": "queued",
-                    "labels": ["self-hosted", "linux", "docker"]
-                },
-                {
-                    "id": 2,
-                    "status": "queued",
-                    "labels": ["self-hosted", "linux"]
-                },
-                {
-                    "id": 3,
-                    "status": "queued",
-                    "labels": ["self-hosted", "linux", "docker"]
-                },
-            ]
+                {"id": 1, "status": "queued", "labels": ["self-hosted", "linux", "docker"]},
+                {"id": 2, "status": "queued", "labels": ["self-hosted", "linux"]},
+                {"id": 3, "status": "queued", "labels": ["self-hosted", "linux", "docker"]},
+            ],
         }
 
         mock_progress_response = Mock()
         mock_progress_response.status_code = 200
-        mock_progress_response.json.return_value = {
-            "total_count": 0,
-            "workflow_runs": []
-        }
+        mock_progress_response.json.return_value = {"total_count": 0, "workflow_runs": []}
 
         mock_get.side_effect = [mock_queued_response, mock_progress_response]
 
@@ -164,7 +146,7 @@ class TestGetQueueMetrics:
             repo_owner="testorg",
             repo_name="testrepo",
             labels=["linux", "docker"],  # Filter for these labels
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         # Should only count jobs with ALL specified labels
@@ -183,7 +165,7 @@ class TestGetQueueMetrics:
                 repo_owner="testorg",
                 repo_name="testrepo",
                 labels=None,
-                github_token="invalid_token"
+                github_token="invalid_token",  # noqa: S106
             )
 
         assert "Failed to get queue metrics" in str(exc_info.value)
@@ -193,17 +175,14 @@ class TestGetQueueMetrics:
         """Test getting metrics when queue is empty."""
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "total_count": 0,
-            "workflow_runs": []
-        }
+        mock_response.json.return_value = {"total_count": 0, "workflow_runs": []}
         mock_get.return_value = mock_response
 
         metrics = GitHubJobQueueMonitor.get_queue_metrics(
             repo_owner="testorg",
             repo_name="testrepo",
             labels=None,
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         assert metrics.queued_jobs == 0
@@ -224,7 +203,7 @@ class TestGetPendingJobCount:
             in_progress_jobs=3,
             queued_jobs=5,
             total_jobs=8,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
         mock_get_metrics.return_value = mock_metrics
 
@@ -232,7 +211,7 @@ class TestGetPendingJobCount:
             repo_owner="testorg",
             repo_name="testrepo",
             labels=["linux"],
-            github_token="ghp_test_token_123"
+            github_token="ghp_test_token_123",  # noqa: S106
         )
 
         assert count == 5
@@ -243,30 +222,27 @@ class TestInputValidation:
 
     def test_empty_repo_owner(self):
         """Test validation rejects empty repo owner."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="repo_owner"):
             GitHubJobQueueMonitor.get_queue_metrics(
                 repo_owner="",
                 repo_name="testrepo",
                 labels=None,
-                github_token="token"
+                github_token="token",  # noqa: S106
             )
 
     def test_empty_repo_name(self):
         """Test validation rejects empty repo name."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="repo_name"):
             GitHubJobQueueMonitor.get_queue_metrics(
                 repo_owner="testorg",
                 repo_name="",
                 labels=None,
-                github_token="token"
+                github_token="token",  # noqa: S106
             )
 
     def test_empty_github_token(self):
         """Test validation rejects empty GitHub token."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="github_token"):
             GitHubJobQueueMonitor.get_queue_metrics(
-                repo_owner="testorg",
-                repo_name="testrepo",
-                labels=None,
-                github_token=""
+                repo_owner="testorg", repo_name="testrepo", labels=None, github_token=""
             )
