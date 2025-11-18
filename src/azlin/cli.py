@@ -52,6 +52,9 @@ from azlin.click_group import AzlinGroup
 # Auth commands
 from azlin.commands.auth import auth
 
+# Autopilot commands
+from azlin.commands.autopilot import autopilot_group
+
 # Bastion commands
 # Storage commands
 from azlin.commands.bastion import bastion_group
@@ -69,6 +72,7 @@ from azlin.commands.tag import tag_group
 
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
+from azlin.context_manager import ContextManager
 from azlin.context_selector import ContextSelector, ContextSelectorError
 from azlin.cost_tracker import CostTracker, CostTrackerError
 from azlin.distributed_top import DistributedTopError, DistributedTopExecutor
@@ -1122,7 +1126,7 @@ class CLIOrchestrator:
                 local_port = bastion_mgr.get_available_port()
 
                 # Create tunnel
-                tunnel = bastion_mgr.create_tunnel(
+                _tunnel = bastion_mgr.create_tunnel(
                     bastion_name=bastion_info["name"],
                     resource_group=bastion_info["resource_group"],
                     target_vm_id=vm_details.id,  # Type narrowed by check above
@@ -3062,6 +3066,16 @@ def list_command(
         else:
             # Single RG listing (rg is guaranteed to be str here)
             assert rg is not None, "Resource group must be set in this branch"
+
+            # Show current context if available
+            try:
+                context_config = ContextManager.load(config)
+                current_ctx = context_config.get_current_context()
+                if current_ctx:
+                    click.echo(f"Context: {current_ctx.name}")
+            except Exception:
+                pass  # Silently skip if context unavailable
+
             click.echo(f"Listing VMs in resource group: {rg}\n")
             vms = VMManager.list_vms(rg, include_stopped=show_all)
             # Filter to azlin VMs
@@ -3237,7 +3251,10 @@ def list_command(
         if not show_all_vms:
             console.print(
                 "\n[dim]To show all VMs accessible by this subscription, run:[/dim]\n"
-                "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])"
+                "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])\n\n"
+                "[dim]To show VMs across multiple contexts, run:[/dim]\n"
+                "[cyan]  azlin list --all-contexts --rg <resource-group>[/cyan]\n"
+                '[cyan]  azlin list --contexts "pattern*" --rg <resource-group>[/cyan]'
             )
 
         # List Bastion hosts in the same resource group
@@ -4468,7 +4485,9 @@ def _resolve_tmux_session(
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip all confirmation prompts (e.g., Bastion)")
 @click.argument("remote_command", nargs=-1, type=str)
+@click.pass_context
 def connect(
+    ctx: click.Context,
     vm_identifier: str | None,
     resource_group: str | None,
     config: str | None,
@@ -4535,6 +4554,13 @@ def connect(
         azlin connect my-vm --max-retries 5
     """
     try:
+        # Get passthrough command from context (if using -- syntax)
+        # AzlinGroup strips -- and everything after from sys.argv and stores in ctx.obj
+        if ctx.obj and "passthrough_command" in ctx.obj:
+            passthrough_cmd = ctx.obj["passthrough_command"]
+            # Override remote_command with the passthrough version
+            remote_command = tuple(passthrough_cmd.split())
+
         # Interactive VM selection if no identifier provided
         if not vm_identifier:
             rg = ConfigManager.get_resource_group(resource_group, config)
@@ -5157,7 +5183,7 @@ def _execute_sync(selected_vm: VMInfo, ssh_key_pair: SSHKeyPair, dry_run: bool) 
 
             # Create tunnel
             click.echo(f"Creating Bastion tunnel through {bastion_info['name']}...")
-            tunnel = bastion_mgr.create_tunnel(
+            _tunnel = bastion_mgr.create_tunnel(
                 bastion_name=bastion_info["name"],
                 resource_group=bastion_info["resource_group"],
                 target_vm_id=vm_resource_id,
@@ -8167,6 +8193,9 @@ main.add_command(compose_group)
 # Register storage commands
 main.add_command(storage_group)
 main.add_command(tag_group)
+
+# Register autopilot commands
+main.add_command(autopilot_group)
 
 # Register fleet commands
 main.add_command(fleet_group)
