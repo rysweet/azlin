@@ -1,17 +1,12 @@
 """Unit tests for context_manager module."""
 
-import importlib
 import os
 import subprocess as real_subprocess
 import threading
 from pathlib import Path
-from unittest.mock import MagicMock, patch, Mock
+from unittest.mock import MagicMock, patch
 
 import pytest
-
-# Import and reload to ensure we get latest version from source
-import azlin.context_manager
-importlib.reload(azlin.context_manager)
 
 from azlin.context_manager import (
     Context,
@@ -627,7 +622,13 @@ class TestEnsureSubscriptionActive:
             # Verify Azure CLI was called with correct arguments
             mock_run.assert_called_once()
             call_args = mock_run.call_args
-            assert call_args[0][0] == ["az", "account", "set", "--subscription", "12345678-1234-1234-1234-123456789abc"]
+            assert call_args[0][0] == [
+                "az",
+                "account",
+                "set",
+                "--subscription",
+                "12345678-1234-1234-1234-123456789abc",
+            ]
             assert call_args[1]["check"] is True
             assert call_args[1]["capture_output"] is True
             assert call_args[1]["timeout"] == 10
@@ -671,9 +672,7 @@ class TestEnsureSubscriptionActive:
         # Mock subprocess.run to simulate failure
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = real_subprocess.CalledProcessError(
-                returncode=1,
-                cmd=["az", "account", "set"],
-                stderr="Subscription not found"
+                returncode=1, cmd=["az", "account", "set"], stderr="Subscription not found"
             )
 
             # Should raise ContextError with details
