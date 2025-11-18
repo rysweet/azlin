@@ -385,7 +385,9 @@ class TestVMUpdaterEdgeCases:
 
             # Should fail gracefully
             assert summary.any_failed is True
-            assert all("Connection failed" in r.message or "failed" in r.message for r in summary.failed)
+            assert all(
+                "Connection failed" in r.message or "failed" in r.message for r in summary.failed
+            )
 
     def test_update_with_progress_callback(self, ssh_config, mock_executor):
         """Test update with progress callback."""
