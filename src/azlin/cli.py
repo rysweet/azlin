@@ -2849,7 +2849,17 @@ def list_command(
         azlin list --no-quota         # Skip quota information
         azlin list --no-tmux          # Skip tmux session info
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        from azlin.context_manager import ContextError
+
+        try:
+            ContextManager.ensure_subscription_active(config)
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get resource group from config or CLI
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -4367,7 +4377,17 @@ def connect(
         # Set maximum reconnection attempts
         azlin connect my-vm --max-retries 5
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        from azlin.context_manager import ContextError
+
+        try:
+            ContextManager.ensure_subscription_active(config)
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get passthrough command from context (if using -- syntax)
         # AzlinGroup strips -- and everything after from sys.argv and stores in ctx.obj
         if ctx.obj and "passthrough_command" in ctx.obj:

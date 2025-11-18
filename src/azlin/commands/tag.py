@@ -10,9 +10,11 @@ import logging
 import sys
 
 import click
+from rich.console import Console
 
 from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
+from azlin.context_manager import ContextError, ContextManager
 from azlin.tag_manager import TagManager, TagManagerError
 from azlin.vm_manager import VMManager, VMManagerError
 
@@ -74,7 +76,15 @@ def add_tags(vm_name: str, tags: tuple[str, ...], resource_group: str | None):
       $ azlin tag add my-vm project=web team=backend cost-center=eng
       $ azlin tag add my-vm description="Web server for API"
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get config
         try:
             config = ConfigManager.load_config()
@@ -147,7 +157,15 @@ def remove_tags(vm_name: str, tag_keys: tuple[str, ...], resource_group: str | N
       $ azlin tag remove my-vm environment
       $ azlin tag remove my-vm project team cost-center
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get config
         try:
             config = ConfigManager.load_config()
@@ -209,7 +227,15 @@ def list_tags(vm_name: str, resource_group: str | None):
       $ azlin tag list my-vm
       $ azlin tag list my-vm --resource-group azlin-rg
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get config
         try:
             config = ConfigManager.load_config()
