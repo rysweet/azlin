@@ -3065,7 +3065,7 @@ def list_command(
                 "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])\n\n"
                 "[dim]To show VMs across multiple contexts, run:[/dim]\n"
                 "[cyan]  azlin list --all-contexts --rg <resource-group>[/cyan]\n"
-                "[cyan]  azlin list --contexts \"pattern*\" --rg <resource-group>[/cyan]"
+                '[cyan]  azlin list --contexts "pattern*" --rg <resource-group>[/cyan]'
             )
 
         # List Bastion hosts in the same resource group
