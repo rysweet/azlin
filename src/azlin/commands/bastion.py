@@ -10,9 +10,11 @@ import logging
 import sys
 
 import click
+from rich.console import Console
 
 from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
+from azlin.context_manager import ContextError, ContextManager
 from azlin.modules.bastion_config import BastionConfig, BastionConfigError
 from azlin.modules.bastion_detector import BastionDetector, BastionDetectorError
 
@@ -63,7 +65,15 @@ def list_bastions(resource_group: str | None):
       $ azlin bastion list
       $ azlin bastion list --resource-group my-rg
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         click.echo("Listing Bastion hosts...")
 
         bastions = BastionDetector.list_bastions(resource_group)
@@ -114,7 +124,15 @@ def bastion_status(name: str, resource_group: str):
     Examples:
       $ azlin bastion status my-bastion --resource-group my-rg
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         click.echo(f"Checking Bastion host: {name}...")
 
         bastion = BastionDetector.get_bastion(name, resource_group)

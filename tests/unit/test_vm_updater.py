@@ -372,13 +372,22 @@ class TestVMUpdaterEdgeCases:
 
     def test_invalid_ssh_config(self):
         """Test with invalid SSH config."""
+        from azlin.remote_exec import RemoteExecError
+
         invalid_config = SSHConfig(host="", user="azureuser", key_path=Path("/nonexistent/key"))
 
-        updater = VMUpdater(invalid_config)
-        summary = updater.update_vm()
+        # Mock RemoteExecutor to simulate connection failure
+        with patch("azlin.vm_updater.RemoteExecutor.execute_command") as mock_exec:
+            mock_exec.side_effect = RemoteExecError("Connection failed: invalid host")
 
-        # Should fail gracefully
-        assert summary.any_failed is True
+            updater = VMUpdater(invalid_config)
+            summary = updater.update_vm()
+
+            # Should fail gracefully
+            assert summary.any_failed is True
+            assert all(
+                "Connection failed" in r.message or "failed" in r.message for r in summary.failed
+            )
 
     def test_update_with_progress_callback(self, ssh_config, mock_executor):
         """Test update with progress callback."""

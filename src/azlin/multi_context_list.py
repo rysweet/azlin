@@ -318,19 +318,26 @@ class MultiContextVMQuery:
     def _switch_subscription(self, context: Context) -> None:
         """Switch Azure CLI to the context's subscription.
 
+        Uses ContextManager's thread-safe subscription switching to prevent
+        race conditions when multiple threads query different contexts.
+
         Args:
             context: Context with subscription_id
 
         Raises:
             MultiContextQueryError: If subscription switch fails
         """
+        from azlin.context_manager import ContextManager, _subscription_lock
+
         try:
-            # Use Azure CLI to switch subscription
-            cmd = ["az", "account", "set", "--subscription", context.subscription_id]
+            # Use the shared lock to prevent race conditions across threads
+            with _subscription_lock:
+                # Use Azure CLI to switch subscription
+                cmd = ["az", "account", "set", "--subscription", context.subscription_id]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=True)
 
-            logger.debug(f"Switched to subscription: {context.subscription_id}")
+                logger.debug(f"Switched to subscription: {context.subscription_id}")
 
         except subprocess.CalledProcessError as e:
             raise MultiContextQueryError(
