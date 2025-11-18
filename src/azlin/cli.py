@@ -2857,7 +2857,7 @@ def list_command(
         try:
             ContextManager.ensure_subscription_active(config)
         except ContextError as e:
-            console.print(f"[red]Error: {e}[/red]")
+            click.echo(f"Error: {e}", err=True)
             sys.exit(1)
 
         # Get resource group from config or CLI
@@ -3941,7 +3941,7 @@ def prune(
         try:
             ContextManager.ensure_subscription_active(config)
         except ContextError as e:
-            console.print(f"[red]Error: {e}[/red]")
+            click.echo(f"Error: {e}", err=True)
             sys.exit(1)
 
         # Get resource group
@@ -4139,7 +4139,7 @@ def cost(
         try:
             ContextManager.ensure_subscription_active(config)
         except ContextError as e:
-            console.print(f"[red]Error: {e}[/red]")
+            click.echo(f"Error: {e}", err=True)
             sys.exit(1)
 
         # Get resource group
@@ -4403,7 +4403,7 @@ def connect(
         try:
             ContextManager.ensure_subscription_active(config)
         except ContextError as e:
-            console.print(f"[red]Error: {e}[/red]")
+            click.echo(f"Error: {e}", err=True)
             sys.exit(1)
 
         # Get passthrough command from context (if using -- syntax)
@@ -5715,7 +5715,7 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
         try:
             ContextManager.ensure_subscription_active(config)
         except ContextError as e:
-            console.print(f"[red]Error: {e}[/red]")
+            click.echo(f"Error: {e}", err=True)
             sys.exit(1)
 
         # Get resource group
