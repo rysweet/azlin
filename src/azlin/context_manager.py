@@ -36,6 +36,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,9 @@ except ImportError as e:
     raise ImportError("tomlkit library not available. Install with: pip install tomlkit") from e
 
 logger = logging.getLogger(__name__)
+
+# Thread lock for subscription switching to prevent race conditions
+_subscription_lock = threading.Lock()
 
 
 class ContextError(Exception):
@@ -536,6 +540,9 @@ class ContextManager:
         - Manual 'az account set' overrides azlin context
         - Different shell sessions have different Azure CLI subscriptions
 
+        Thread-safe: Uses a lock to prevent race conditions when multiple threads
+        call this method concurrently.
+
         Args:
             custom_path: Custom config file path (optional, for testing)
 
@@ -553,63 +560,64 @@ class ContextManager:
             >>>     console.print(f"[red]Error: {e}[/red]")
             >>>     sys.exit(1)
         """
-        current_ctx = None
-        try:
-            # Load context configuration
-            context_config = cls.load(custom_path)
-            current_ctx = context_config.get_current_context()
+        with _subscription_lock:
+            current_ctx = None
+            try:
+                # Load context configuration
+                context_config = cls.load(custom_path)
+                current_ctx = context_config.get_current_context()
 
-            if not current_ctx:
-                raise ContextError(
-                    "No current context set.\n"
-                    "Run 'azlin context list' to see available contexts, or\n"
-                    "Run 'azlin context use <name>' to activate a context."
+                if not current_ctx:
+                    raise ContextError(
+                        "No current context set.\n"
+                        "Run 'azlin context list' to see available contexts, or\n"
+                        "Run 'azlin context use <name>' to activate a context."
+                    )
+
+                # Switch Azure CLI subscription to match context
+                # Use capture_output to suppress stderr/stdout
+                subprocess.run(
+                    ["az", "account", "set", "--subscription", current_ctx.subscription_id],
+                    check=True,
+                    capture_output=True,
+                    timeout=10,
+                    text=True,
                 )
 
-            # Switch Azure CLI subscription to match context
-            # Use capture_output to suppress stderr/stdout
-            subprocess.run(
-                ["az", "account", "set", "--subscription", current_ctx.subscription_id],
-                check=True,
-                capture_output=True,
-                timeout=10,
-                text=True,
-            )
+                logger.debug(
+                    f"Switched Azure CLI subscription to match context '{current_ctx.name}' "
+                    f"(subscription: {current_ctx.subscription_id})"
+                )
 
-            logger.debug(
-                f"Switched Azure CLI subscription to match context '{current_ctx.name}' "
-                f"(subscription: {current_ctx.subscription_id})"
-            )
+                return current_ctx.subscription_id
 
-            return current_ctx.subscription_id
-
-        except subprocess.TimeoutExpired as e:
-            raise ContextError(
-                "Azure CLI command timed out after 10 seconds.\n"
-                "Check if Azure CLI is responding correctly."
-            ) from e
-        except subprocess.CalledProcessError as e:
-            # Parse Azure CLI error message
-            error_msg = e.stderr.strip() if e.stderr else "Unknown error"
-            ctx_name = current_ctx.name if current_ctx else "unknown"
-            ctx_sub = current_ctx.subscription_id if current_ctx else "unknown"
-            raise ContextError(
-                f"Failed to switch Azure subscription.\n"
-                f"Context: {ctx_name}\n"
-                f"Subscription: {ctx_sub}\n"
-                f"Azure CLI error: {error_msg}\n"
-                f"Ensure you are logged in: 'az login'"
-            ) from e
-        except FileNotFoundError as e:
-            raise ContextError(
-                "Azure CLI not found. Please install Azure CLI:\n"
-                "https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
-            ) from e
-        except ContextError:
-            # Re-raise context errors as-is
-            raise
-        except Exception as e:
-            raise ContextError(f"Unexpected error ensuring subscription active: {e}") from e
+            except subprocess.TimeoutExpired as e:
+                raise ContextError(
+                    "Azure CLI command timed out after 10 seconds.\n"
+                    "Check if Azure CLI is responding correctly."
+                ) from e
+            except subprocess.CalledProcessError as e:
+                # Parse Azure CLI error message
+                error_msg = e.stderr.strip() if e.stderr else "Unknown error"
+                ctx_name = current_ctx.name if current_ctx else "unknown"
+                ctx_sub = current_ctx.subscription_id if current_ctx else "unknown"
+                raise ContextError(
+                    f"Failed to switch Azure subscription.\n"
+                    f"Context: {ctx_name}\n"
+                    f"Subscription: {ctx_sub}\n"
+                    f"Azure CLI error: {error_msg}\n"
+                    f"Ensure you are logged in: 'az login'"
+                ) from e
+            except FileNotFoundError as e:
+                raise ContextError(
+                    "Azure CLI not found. Please install Azure CLI:\n"
+                    "https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+                ) from e
+            except ContextError:
+                # Re-raise context errors as-is
+                raise
+            except Exception as e:
+                raise ContextError(f"Unexpected error ensuring subscription active: {e}") from e
 
     @classmethod
     def migrate_from_legacy(cls, custom_path: str | None = None) -> bool:

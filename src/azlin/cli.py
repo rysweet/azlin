@@ -3935,6 +3935,15 @@ def prune(
         azlin prune --include-running            # Include running VMs
     """
     try:
+        # Ensure Azure CLI subscription matches current context
+        from azlin.context_manager import ContextError
+
+        try:
+            ContextManager.ensure_subscription_active(config)
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -4124,6 +4133,15 @@ def cost(
         azlin cost --rg my-resource-group --by-vm
     """
     try:
+        # Ensure Azure CLI subscription matches current context
+        from azlin.context_manager import ContextError
+
+        try:
+            ContextManager.ensure_subscription_active(config)
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -5691,6 +5709,15 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
         azlin status --vm my-vm
     """
     try:
+        # Ensure Azure CLI subscription matches current context
+        from azlin.context_manager import ContextError
+
+        try:
+            ContextManager.ensure_subscription_active(config)
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
