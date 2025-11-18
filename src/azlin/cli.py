@@ -73,6 +73,7 @@ from azlin.commands.tag import tag_group
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.context_manager import ContextManager
+from azlin.context_selector import ContextSelector, ContextSelectorError
 from azlin.cost_tracker import CostTracker, CostTrackerError
 from azlin.distributed_top import DistributedTopError, DistributedTopExecutor
 from azlin.env_manager import EnvManager, EnvManagerError
@@ -115,6 +116,11 @@ from azlin.modules.vscode_launcher import (
     VSCodeLauncher,
     VSCodeLauncherError,
     VSCodeNotFoundError,
+)
+from azlin.multi_context_display import MultiContextDisplay
+from azlin.multi_context_list import (
+    MultiContextQueryError,
+    MultiContextVMQuery,
 )
 from azlin.prune import PruneManager
 from azlin.quota_manager import QuotaInfo, QuotaManager
@@ -2808,6 +2814,132 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     return tmux_by_vm
 
 
+def _handle_multi_context_list(
+    all_contexts: bool,
+    contexts_pattern: str | None,
+    resource_group: str | None,
+    config: str | None,
+    show_all: bool,
+    tag: str | None,
+    show_quota: bool,
+    show_tmux: bool,
+) -> None:
+    """Handle multi-context VM listing.
+
+    This function orchestrates VM listing across multiple Azure contexts using
+    the context_selector, multi_context_list, and multi_context_display modules.
+
+    Args:
+        all_contexts: Query all configured contexts
+        contexts_pattern: Glob pattern for context selection
+        resource_group: Resource group to query (required for multi-context)
+        config: Config file path
+        show_all: Include stopped VMs
+        tag: Tag filter (format: key or key=value)
+        show_quota: Show quota information (not supported in multi-context)
+        show_tmux: Show tmux sessions (not supported in multi-context)
+
+    Raises:
+        SystemExit: On validation or execution errors
+    """
+    # Validate: Cannot use both flags
+    if all_contexts and contexts_pattern:
+        click.echo(
+            "Error: Cannot use both --all-contexts and --contexts. Choose one.",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Validate: Resource group is required for multi-context queries
+    # Unlike single-context mode, we can't query "all RGs" across multiple subscriptions
+    rg = ConfigManager.get_resource_group(resource_group, config)
+    if not rg:
+        click.echo(
+            "Error: Multi-context queries require a resource group.\n"
+            "Use --resource-group or set default in ~/.azlin/config.toml",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Feature limitation warnings
+    if show_quota:
+        click.echo(
+            "Warning: --show-quota is not yet supported for multi-context queries. "
+            "Quota information will be omitted.\n",
+            err=True,
+        )
+        show_quota = False  # Disable for now
+
+    if show_tmux:
+        click.echo(
+            "Warning: --show-tmux is not yet supported for multi-context queries. "
+            "Tmux session information will be omitted.\n",
+            err=True,
+        )
+        show_tmux = False  # Disable for now
+
+    # Step 1: Select contexts based on pattern or all flag
+    try:
+        selector = ContextSelector(config_path=config)
+
+        if all_contexts:
+            click.echo("Selecting all configured contexts...\n")
+            contexts = selector.select_contexts(all_contexts=True)
+        else:
+            click.echo(f"Selecting contexts matching pattern: {contexts_pattern}\n")
+            contexts = selector.select_contexts(pattern=contexts_pattern)
+
+        click.echo(f"Selected {len(contexts)} context(s): {', '.join(c.name for c in contexts)}\n")
+
+    except ContextSelectorError as e:
+        click.echo(f"Error selecting contexts: {e}", err=True)
+        sys.exit(1)
+
+    # Step 2: Query VMs across all selected contexts in parallel
+    try:
+        click.echo(f"Querying VMs in resource group '{rg}' across {len(contexts)} contexts...\n")
+
+        query = MultiContextVMQuery(contexts=contexts, max_workers=5)
+        result = query.query_all_contexts(
+            resource_group=rg,
+            include_stopped=show_all,
+            filter_prefix="azlin",  # Always filter to azlin VMs like single-context mode
+        )
+
+    except MultiContextQueryError as e:
+        click.echo(f"Error querying contexts: {e}", err=True)
+        sys.exit(1)
+
+    # Step 3: Apply tag filter if specified (post-query filtering)
+    if tag:
+        try:
+            # Filter VMs in each successful context result
+            from azlin.tag_manager import TagManager
+
+            for ctx_result in result.context_results:
+                if ctx_result.success and ctx_result.vms:
+                    ctx_result.vms = TagManager.filter_vms_by_tag(ctx_result.vms, tag)
+
+            click.echo(f"Applied tag filter: {tag}\n")
+        except Exception as e:
+            click.echo(f"Error filtering by tag: {e}", err=True)
+            sys.exit(1)
+
+    # Step 4: Display results using Rich tables
+    display = MultiContextDisplay()
+    display.display_results(result, show_errors=True, show_summary=True)
+
+    # Step 5: Check if any contexts failed and set appropriate exit code
+    if result.failed_contexts > 0:
+        click.echo(
+            f"\nWarning: {result.failed_contexts} context(s) failed to query. "
+            "See error details above.",
+            err=True,
+        )
+        # Don't exit with error - partial success is still useful
+        # User can see which contexts failed and why
+
+
 @main.command(name="list")
 @click.option("--resource-group", "--rg", help="Resource group to list VMs from", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
@@ -2822,6 +2954,18 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     help="List all VMs across all resource groups (expensive operation)",
     is_flag=True,
 )
+@click.option(
+    "--all-contexts",
+    "all_contexts",
+    help="List VMs across all configured contexts (requires context configuration)",
+    is_flag=True,
+)
+@click.option(
+    "--contexts",
+    "contexts_pattern",
+    help="List VMs from contexts matching glob pattern (e.g., 'prod*', 'dev-*')",
+    type=str,
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -2830,6 +2974,8 @@ def list_command(
     show_quota: bool,
     show_tmux: bool,
     show_all_vms: bool,
+    all_contexts: bool,
+    contexts_pattern: str | None,
 ):
     """List VMs in a resource group.
 
@@ -2848,10 +2994,51 @@ def list_command(
         azlin list -a                 # Same as --show-all-vms
         azlin list --no-quota         # Skip quota information
         azlin list --no-tmux          # Skip tmux session info
+        azlin list --all-contexts     # VMs across all configured contexts
+        azlin list --contexts "prod*" # VMs from production contexts
+        azlin list --contexts "*-dev" --all  # All VMs (including stopped) in dev contexts
     """
     console = Console()
     try:
-        # Ensure Azure CLI subscription matches current context
+        # NEW: Multi-context query mode (Issue #350)
+        # Check for multi-context flags first, before single-context logic
+        # Multi-context mode has its own subscription switching per context
+        if all_contexts or contexts_pattern:
+            # Validate mutually exclusive flags
+            if show_all_vms:
+                click.echo(
+                    "Error: Cannot use --all-contexts or --contexts with --show-all-vms.\n"
+                    "These are mutually exclusive modes:\n"
+                    "  - Multi-context mode: Query specific RG across multiple contexts\n"
+                    "  - All-VMs mode: Query all RGs in single context\n\n"
+                    "Use one or the other, not both.",
+                    err=True,
+                )
+                sys.exit(1)
+
+            # Validate empty pattern
+            if contexts_pattern and not contexts_pattern.strip():
+                click.echo(
+                    "Error: --contexts pattern cannot be empty.\n"
+                    "Provide a glob pattern (e.g., 'prod*', '*-dev') or use --all-contexts.",
+                    err=True,
+                )
+                sys.exit(1)
+
+            _handle_multi_context_list(
+                all_contexts=all_contexts,
+                contexts_pattern=contexts_pattern,
+                resource_group=resource_group,
+                config=config,
+                show_all=show_all,
+                tag=tag,
+                show_quota=show_quota,
+                show_tmux=show_tmux,
+            )
+            return  # Exit early - multi-context mode handled completely
+
+        # EXISTING: Single-context query mode continues below...
+        # Ensure Azure CLI subscription matches current context for single-context queries
         from azlin.context_manager import ContextError
 
         try:
