@@ -196,7 +196,13 @@ class TestInteractiveVMSelection:
 
     def test_connect_no_resource_group_error(self, runner):
         """Test error when no resource group configured."""
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value=None):
+        with (
+            patch(
+                "azlin.context_manager.ContextManager.ensure_subscription_active",
+                return_value="test-sub-id",
+            ),
+            patch("azlin.cli.ConfigManager.get_resource_group", return_value=None),
+        ):
             result = runner.invoke(main, ["connect"])
 
             assert result.exit_code == 1

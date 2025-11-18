@@ -731,25 +731,27 @@ class TestEnsureSubscriptionActive:
         results = []
         errors = []
 
-        def call_ensure():
-            try:
-                with patch("subprocess.run") as mock_run:
-                    mock_run.return_value = MagicMock(returncode=0)
+        # Mock subprocess.run at module level so all threads share the same mock
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            def call_ensure():
+                try:
                     result = ContextManager.ensure_subscription_active(str(config_path))
                     results.append(result)
-            except Exception as e:
-                errors.append(e)
+                except Exception as e:
+                    errors.append(e)
 
-        # Create multiple threads
-        threads = [threading.Thread(target=call_ensure) for _ in range(10)]
+            # Create multiple threads
+            threads = [threading.Thread(target=call_ensure) for _ in range(10)]
 
-        # Start all threads
-        for t in threads:
-            t.start()
+            # Start all threads
+            for t in threads:
+                t.start()
 
-        # Wait for all threads
-        for t in threads:
-            t.join()
+            # Wait for all threads
+            for t in threads:
+                t.join()
 
         # Verify no errors and all calls succeeded
         assert len(errors) == 0
