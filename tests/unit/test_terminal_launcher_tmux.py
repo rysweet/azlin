@@ -131,13 +131,14 @@ class TestTmuxReconnection:
             f"Session name '{session_name}' should appear in tmux command"
         )
 
-    def test_tmux_with_command_still_reconnects(self, temp_ssh_key):
-        """Test that tmux reconnection works even when a command is specified.
+    def test_tmux_with_command_executes_directly(self, temp_ssh_key):
+        """Test that commands execute directly without tmux wrapping.
 
         Expected behavior:
-        tmux attach-session -t mysession || tmux new-session -s mysession {command}
+        When a command is specified, execute it directly (azlin connect vm -- command)
+        This allows output capture in current terminal.
 
-        This test WILL FAIL until the fix is implemented.
+        Fix for Issue #356: Commands should not open new terminal windows.
         """
         config = TerminalConfig(
             ssh_host="example.com",
@@ -150,13 +151,10 @@ class TestTmuxReconnection:
         cmd = TerminalLauncher._build_ssh_command(config)
         remote_cmd = cmd[-1]
 
-        # Should still use attach || new pattern
-        assert "attach-session" in remote_cmd
-        assert "||" in remote_cmd
-        assert "new-session" in remote_cmd
-
-        # The user command should be included with new-session
-        assert "bash" in remote_cmd
+        # Should execute command directly (not wrapped in tmux)
+        assert remote_cmd == "bash"
+        assert "attach-session" not in remote_cmd
+        assert "new-session" not in remote_cmd
 
     def test_tmux_validation_still_applies(self, temp_ssh_key):
         """Test that session name validation is still enforced.

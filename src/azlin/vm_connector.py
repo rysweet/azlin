@@ -24,7 +24,7 @@ from azlin.connection_tracker import ConnectionTracker
 from azlin.modules.bastion_config import BastionConfig
 from azlin.modules.bastion_detector import BastionDetector
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
-from azlin.modules.ssh_connector import SSHConfig
+from azlin.modules.ssh_connector import SSHConfig, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.modules.ssh_reconnect import SSHReconnectHandler
 from azlin.terminal_launcher import TerminalConfig, TerminalLauncher, TerminalLauncherError
@@ -59,6 +59,14 @@ class VMConnector:
     - Launching tmux sessions
     - Running remote commands
     """
+
+    @staticmethod
+    def _record_connection(vm_name: str) -> None:
+        """Record successful VM connection, suppressing errors."""
+        try:
+            ConnectionTracker.record_connection(vm_name)
+        except Exception as e:
+            logger.warning(f"Failed to record connection for {vm_name}: {e}")
 
     @classmethod
     def connect(
@@ -175,10 +183,32 @@ class VMConnector:
                     f"(127.0.0.1:{ssh_port})"
                 )
 
-            # If reconnect is enabled and no remote command, use direct SSH with reconnect
-            # Otherwise use terminal launcher (which opens new windows)
-            if enable_reconnect and remote_command is None:
-                # Use direct SSH connection with reconnect support
+            # Route connection: remote command -> SSHConnector, interactive+reconnect -> SSHReconnectHandler, interactive -> TerminalLauncher
+            if remote_command is not None:
+                ssh_config = SSHConfig(
+                    host=conn_info.ip_address,
+                    user=conn_info.ssh_user,
+                    key_path=conn_info.ssh_key_path,
+                    port=ssh_port,
+                    strict_host_key_checking=False,
+                )
+
+                try:
+                    logger.info(f"Executing command on {conn_info.vm_name} ({original_ip})...")
+                    exit_code = SSHConnector.connect(
+                        config=ssh_config,
+                        remote_command=remote_command,
+                        auto_tmux=False,
+                    )
+
+                    if exit_code == 0:
+                        cls._record_connection(conn_info.vm_name)
+
+                    return exit_code == 0
+                except Exception as e:
+                    raise VMConnectorError(f"Remote command execution failed: {e}") from e
+
+            elif enable_reconnect:
                 ssh_config = SSHConfig(
                     host=conn_info.ip_address,
                     user=conn_info.ssh_user,
@@ -197,42 +227,29 @@ class VMConnector:
                         auto_tmux=use_tmux,
                     )
 
-                    # Record successful connection
                     if exit_code == 0:
-                        try:
-                            ConnectionTracker.record_connection(conn_info.vm_name)
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to record connection for {conn_info.vm_name}: {e}"
-                            )
+                        cls._record_connection(conn_info.vm_name)
 
                     return exit_code == 0
                 except Exception as e:
                     raise VMConnectorError(f"SSH connection failed: {e}") from e
+
             else:
-                # Build terminal config for new window or remote command
                 terminal_config = TerminalConfig(
                     ssh_host=conn_info.ip_address,
                     ssh_user=conn_info.ssh_user,
                     ssh_key_path=conn_info.ssh_key_path,
-                    command=remote_command,
+                    ssh_port=ssh_port,
                     title=f"azlin - {conn_info.vm_name}",
                     tmux_session=tmux_session or conn_info.vm_name if use_tmux else None,
                 )
 
-                # Launch terminal
                 try:
                     logger.info(f"Connecting to {conn_info.vm_name} ({original_ip})...")
                     success = TerminalLauncher.launch(terminal_config)
 
-                    # Record successful connection
                     if success:
-                        try:
-                            ConnectionTracker.record_connection(conn_info.vm_name)
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to record connection for {conn_info.vm_name}: {e}"
-                            )
+                        cls._record_connection(conn_info.vm_name)
 
                     return success
                 except TerminalLauncherError as e:

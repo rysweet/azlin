@@ -165,18 +165,19 @@ class TestVMConnector:
             )
 
     @patch("azlin.vm_connector.VMManager")
-    def test_resolve_connection_info_vm_no_public_ip(self, mock_vm_mgr):
-        """Test error when VM has no public IP."""
+    def test_resolve_connection_info_vm_no_ip_address(self, mock_vm_mgr):
+        """Test error when VM has neither public nor private IP."""
         vm_info = VMInfo(
             name="my-vm",
             resource_group="my-rg",
             location="westus2",
             power_state="VM running",
             public_ip=None,
+            private_ip=None,
         )
         mock_vm_mgr.get_vm.return_value = vm_info
 
-        with pytest.raises(VMConnectorError, match="has no public IP"):
+        with pytest.raises(VMConnectorError, match="has neither public nor private IP"):
             VMConnector._resolve_connection_info(
                 vm_identifier="my-vm",
                 resource_group="my-rg",
@@ -250,7 +251,7 @@ class TestVMConnector:
         # Verify reconnect was called with correct params
         call_args = mock_handler_instance.connect_with_reconnect.call_args
         assert call_args.kwargs["vm_name"] == "my-vm"
-        assert call_args.kwargs["tmux_session"] == "my-vm"
+        assert call_args.kwargs["tmux_session"] == "azlin"  # Default tmux session name
         assert call_args.kwargs["auto_tmux"] is True
 
     @patch("azlin.vm_connector.TerminalLauncher")
