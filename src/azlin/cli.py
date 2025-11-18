@@ -4299,7 +4299,9 @@ def _resolve_tmux_session(
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip all confirmation prompts (e.g., Bastion)")
 @click.argument("remote_command", nargs=-1, type=str)
+@click.pass_context
 def connect(
+    ctx: click.Context,
     vm_identifier: str | None,
     resource_group: str | None,
     config: str | None,
@@ -4366,6 +4368,13 @@ def connect(
         azlin connect my-vm --max-retries 5
     """
     try:
+        # Get passthrough command from context (if using -- syntax)
+        # AzlinGroup strips -- and everything after from sys.argv and stores in ctx.obj
+        if ctx.obj and "passthrough_command" in ctx.obj:
+            passthrough_cmd = ctx.obj["passthrough_command"]
+            # Override remote_command with the passthrough version
+            remote_command = tuple(passthrough_cmd.split())
+
         # Interactive VM selection if no identifier provided
         if not vm_identifier:
             rg = ConfigManager.get_resource_group(resource_group, config)
