@@ -171,15 +171,15 @@ class VMConnector:
                         )
                     bastion_info = BastionInfo(
                         name=bastion_name,
-                        resource_group=bastion_resource_group or resource_group,
+                        resource_group=bastion_resource_group or resource_group or "",
                         location=None,
                     )
 
                 bastion_manager, bastion_tunnel = cls._create_bastion_tunnel(
                     vm_name=conn_info.vm_name,
                     resource_group=conn_info.resource_group,
-                    bastion_name=bastion_info.name,
-                    bastion_resource_group=bastion_info.resource_group,
+                    bastion_name=bastion_info["name"],
+                    bastion_resource_group=bastion_info["resource_group"],
                 )
 
                 # Update connection info to use tunnel
@@ -187,7 +187,7 @@ class VMConnector:
                 ssh_port = bastion_tunnel.local_port
 
                 logger.info(
-                    f"Connecting through Bastion tunnel: {bastion_info.name} "
+                    f"Connecting through Bastion tunnel: {bastion_info['name']} "
                     f"(127.0.0.1:{ssh_port})"
                 )
 
@@ -492,7 +492,7 @@ class VMConnector:
 
                 try:
                     if click.confirm(
-                        f"Found Bastion host '{bastion_info.name}'. Use it for connection?",
+                        f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
                         default=True,
                     ):
                         return bastion_info
