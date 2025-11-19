@@ -7,12 +7,15 @@ Tests cover:
 - Service principal and Azure CLI authentication
 """
 
-import os
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
-from azure.core.exceptions import ClientAuthenticationError, HttpResponseError, ResourceNotFoundError
+from azure.core.exceptions import (
+    ClientAuthenticationError,
+    HttpResponseError,
+    ResourceNotFoundError,
+)
 
 from azlin.auth_models import AuthConfig, AuthMethod
 from azlin.modules.ssh_key_vault import (
@@ -144,7 +147,9 @@ class TestSSHKeyVaultManagerStoreKey:
     def temp_key_file(self, tmp_path):
         """Create temporary SSH key file."""
         key_file = tmp_path / "test_key"
-        key_file.write_text("-----BEGIN OPENSSH PRIVATE KEY-----\ntest-key-content\n-----END OPENSSH PRIVATE KEY-----\n")
+        key_file.write_text(
+            "-----BEGIN OPENSSH PRIVATE KEY-----\ntest-key-content\n-----END OPENSSH PRIVATE KEY-----\n"
+        )
         return key_file
 
     def test_store_key_success(self, temp_key_file):
@@ -335,7 +340,9 @@ class TestSSHKeyVaultManagerRetrieveKey:
 
         # Create nested path that doesn't exist
         target_path = tmp_path / "nested" / "dir" / "retrieved_key"
-        key_content = "-----BEGIN OPENSSH PRIVATE KEY-----\ntest-key\n-----END OPENSSH PRIVATE KEY-----\n"
+        key_content = (
+            "-----BEGIN OPENSSH PRIVATE KEY-----\ntest-key\n-----END OPENSSH PRIVATE KEY-----\n"
+        )
 
         mock_client = Mock()
         manager._client = mock_client
@@ -568,7 +575,9 @@ class TestSecurityRequirements:
         manager = SSHKeyVaultManager(config)
 
         target_path = tmp_path / "retrieved_key"
-        key_content = "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n"
+        key_content = (
+            "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n"
+        )
 
         mock_client = Mock()
         manager._client = mock_client
