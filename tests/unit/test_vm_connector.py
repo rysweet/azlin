@@ -166,7 +166,7 @@ class TestVMConnector:
 
     @patch("azlin.vm_connector.VMManager")
     def test_resolve_connection_info_vm_no_ip_address(self, mock_vm_mgr):
-        """Test error when VM has neither public nor private IP."""
+        """Test error when VM has no public IP address."""
         vm_info = VMInfo(
             name="my-vm",
             resource_group="my-rg",
@@ -177,7 +177,7 @@ class TestVMConnector:
         )
         mock_vm_mgr.get_vm.return_value = vm_info
 
-        with pytest.raises(VMConnectorError, match="has neither public nor private IP"):
+        with pytest.raises(VMConnectorError, match="has no public IP address"):
             VMConnector._resolve_connection_info(
                 vm_identifier="my-vm",
                 resource_group="my-rg",
@@ -251,7 +251,7 @@ class TestVMConnector:
         # Verify reconnect was called with correct params
         call_args = mock_handler_instance.connect_with_reconnect.call_args
         assert call_args.kwargs["vm_name"] == "my-vm"
-        assert call_args.kwargs["tmux_session"] == "azlin"  # Default tmux session name
+        assert call_args.kwargs["tmux_session"] == "my-vm"  # Uses vm_name as default
         assert call_args.kwargs["auto_tmux"] is True
 
     @patch("azlin.modules.ssh_connector.SSHConnector.wait_for_ssh_ready")
@@ -371,13 +371,21 @@ class TestVMConnector:
         with pytest.raises(VMConnectorError, match="SSH key error"):
             VMConnector.connect("my-vm", resource_group="my-rg")
 
-    @patch("azlin.vm_connector.TerminalLauncher")
+    @patch("azlin.modules.ssh_connector.SSHConnector.wait_for_ssh_ready")
+    @patch("azlin.modules.ssh_connector.SSHConnector.connect")
+    @patch("azlin.vm_connector.BastionDetector")
     @patch("azlin.vm_connector.SSHKeyManager")
     @patch("azlin.vm_connector.VMManager")
     def test_connect_terminal_launch_error(
-        self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal, temp_ssh_key
+        self,
+        mock_vm_mgr,
+        mock_ssh_key_mgr,
+        mock_bastion,
+        mock_ssh_connect,
+        mock_ssh_ready,
+        temp_ssh_key,
     ):
-        """Test error when terminal launch fails (with remote command, bypasses reconnect)."""
+        """Test error when remote command execution fails (uses SSHConnector, not TerminalLauncher)."""
         # Mock VM info
         vm_info = VMInfo(
             name="my-vm",
@@ -396,11 +404,17 @@ class TestVMConnector:
         )
         mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
 
-        # Mock terminal launch error
-        mock_terminal.launch.side_effect = TerminalLauncherError("Launch failed")
+        # Mock Bastion detection (return None = no Bastion)
+        mock_bastion.detect_bastion_for_vm.return_value = None
 
-        # Use remote_command to force terminal launcher path
-        with pytest.raises(VMConnectorError, match="Failed to launch terminal"):
+        # Mock SSH readiness check
+        mock_ssh_ready.return_value = True
+
+        # Mock SSHConnector.connect to raise an exception
+        mock_ssh_connect.side_effect = Exception("Connection failed")
+
+        # Use remote_command to trigger SSHConnector path
+        with pytest.raises(VMConnectorError, match="Remote command execution failed"):
             VMConnector.connect("my-vm", resource_group="my-rg", remote_command="ls -la")
 
 
