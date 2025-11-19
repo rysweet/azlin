@@ -45,7 +45,7 @@ from azlin.agentic import (
     RequestClarifier,
     ResultValidator,
 )
-from azlin.auth_config_builder import AuthConfigBuilder
+from azlin.auth_models import AuthConfig, AuthMethod
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 from azlin.click_group import AzlinGroup
@@ -443,7 +443,7 @@ class CLIOrchestrator:
                 )
 
             # Build auth config from context
-            auth_config = AuthConfigBuilder.build_from_context(current_context, self.config_file)
+            auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)  # TODO: Support SP from context
 
             # Create Key Vault manager
             manager = create_key_vault_manager(
@@ -4604,7 +4604,7 @@ def _try_fetch_key_from_vault(vm_name: str, key_path: Path, config: str | None) 
         console.print("[yellow]SSH key not found locally, checking Key Vault...[/yellow]")
 
         # Build auth config from context
-        auth_config = AuthConfigBuilder.build_from_context(current_context, config)
+        auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)  # TODO: Support SP from context
 
         # Create Key Vault manager
         manager = create_key_vault_manager(
@@ -4657,7 +4657,7 @@ def _cleanup_key_from_vault(vm_name: str, config: str | None) -> None:
         logger.info(f"Cleaning up SSH key from Key Vault for VM: {vm_name}")
 
         # Build auth config from context
-        auth_config = AuthConfigBuilder.build_from_context(current_context, config)
+        auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)  # TODO: Support SP from context
 
         # Create Key Vault manager
         manager = create_key_vault_manager(
