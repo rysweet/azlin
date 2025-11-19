@@ -112,7 +112,11 @@ from azlin.modules.resource_orchestrator import (
 )
 from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
-from azlin.modules.ssh_key_vault import KeyVaultError, create_key_vault_manager
+from azlin.modules.ssh_key_vault import (
+    KeyVaultError,
+    create_key_vault_manager,
+    create_key_vault_manager_with_auto_setup,
+)
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
 from azlin.modules.vscode_launcher import (
     VSCodeLauncher,
@@ -188,7 +192,6 @@ class CLIOrchestrator:
         no_bastion: bool = False,
         bastion_name: str | None = None,
         auto_approve: bool = False,
-        store_key: bool = False,
     ):
         """Initialize CLI orchestrator.
 
@@ -204,7 +207,9 @@ class CLIOrchestrator:
             no_bastion: Skip bastion auto-detection and always create public IP (optional)
             bastion_name: Explicit bastion host name to use (optional)
             auto_approve: Accept all defaults and confirmations (non-interactive mode)
-            store_key: Store SSH private key in Azure Key Vault (optional)
+
+        Note:
+            SSH keys are automatically stored in Azure Key Vault (transparent operation)
         """
         self.repo = repo
         self.vm_size = vm_size
@@ -217,7 +222,6 @@ class CLIOrchestrator:
         self.no_bastion = no_bastion
         self.bastion_name = bastion_name
         self.auto_approve = auto_approve
-        self.store_key = store_key
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -264,9 +268,16 @@ class CLIOrchestrator:
             self.vm_details = vm_details
             self.progress.complete(success=True, message=f"VM ready at {vm_details.public_ip}")
 
-            # STEP 4.5: Store SSH key in Key Vault (if requested)
-            if self.store_key:
-                self._store_key_in_vault(vm_name, ssh_key_pair.private_path, subscription_id)
+            # STEP 4.5: Store SSH key in Key Vault (automatic, silent)
+            tenant_id = self.auth.get_tenant_id()
+            self._store_key_in_vault_auto(
+                vm_name,
+                ssh_key_pair.private_path,
+                subscription_id,
+                tenant_id,
+                rg_name,
+                vm_details.location,
+            )
 
             # STEP 5: Wait for VM to be fully ready (cloud-init to complete)
             self.progress.start_operation(
@@ -411,63 +422,58 @@ class CLIOrchestrator:
 
         return ssh_key_pair
 
-    def _store_key_in_vault(
-        self, vm_name: str, private_key_path: Path, subscription_id: str
+    def _store_key_in_vault_auto(
+        self,
+        vm_name: str,
+        private_key_path: Path,
+        subscription_id: str,
+        tenant_id: str,
+        resource_group: str,
+        location: str,
     ) -> None:
-        """Store SSH private key in Azure Key Vault.
+        """Store SSH private key in Azure Key Vault with automatic setup.
+
+        This method automatically:
+        1. Finds or creates Key Vault in resource group
+        2. Assigns RBAC permissions to current user
+        3. Stores SSH key
 
         Args:
             vm_name: VM name (used in secret name)
             private_key_path: Path to private key file
             subscription_id: Azure subscription ID
+            tenant_id: Azure tenant ID
+            resource_group: Resource group name
+            location: Azure region
 
-        Raises:
-            KeyVaultError: If storage fails or vault not configured
+        Note:
+            - Silent operation (only logs at debug level)
+            - Does not fail provisioning if Key Vault storage fails
         """
         try:
-            self.progress.start_operation("Storing SSH key in Key Vault")
+            # Build auth config (Azure CLI by default)
+            auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)
 
-            # Load context to get key_vault_name
-            context_config = ContextManager.load(self.config_file)
-            current_context = context_config.get_current_context()
-
-            if not current_context:
-                raise KeyVaultError(
-                    "No current context set. Run 'azlin context use <name>' to activate a context."
-                )
-
-            if not current_context.key_vault_name:
-                raise KeyVaultError(
-                    f"Context '{current_context.name}' has no key_vault_name configured.\n"
-                    f"Set it with: azlin context set {current_context.name} --key-vault <vault-name>"
-                )
-
-            # Build auth config from context
-            auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)  # TODO: Support SP from context
-
-            # Create Key Vault manager
-            manager = create_key_vault_manager(
-                vault_name=current_context.key_vault_name,
-                subscription_id=current_context.subscription_id,
-                tenant_id=current_context.tenant_id,
+            # Create Key Vault manager with automatic setup
+            manager = create_key_vault_manager_with_auto_setup(
+                resource_group=resource_group,
+                location=location,
+                subscription_id=subscription_id,
+                tenant_id=tenant_id,
                 auth_config=auth_config,
             )
 
             # Store key
             manager.store_key(vm_name, private_key_path)
 
-            self.progress.complete(
-                success=True,
-                message=f"SSH key stored in vault: {current_context.key_vault_name}",
-            )
+            logger.debug(f"SSH key stored in Key Vault for VM: {vm_name}")
 
         except KeyVaultError as e:
-            self.progress.complete(success=False, message=f"Key storage failed: {e}")
-            logger.warning(f"Failed to store SSH key in Key Vault: {e}")
-            # Don't fail the entire provisioning if key storage fails
+            # Silent failure - don't block VM provisioning
+            logger.debug(f"Key Vault storage skipped: {e}")
         except Exception as e:
-            self.progress.complete(success=False, message=f"Key storage error: {e}")
-            logger.warning(f"Unexpected error storing SSH key: {e}")
+            # Silent failure - don't block VM provisioning
+            logger.debug(f"Key Vault storage error: {e}")
 
     def _check_bastion_availability(
         self, resource_group: str, vm_name: str
@@ -2582,11 +2588,6 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
     is_flag=True,
     help="Accept all defaults and confirmations (non-interactive mode)",
 )
-@click.option(
-    "--store-key",
-    is_flag=True,
-    help="Store SSH private key in Azure Key Vault (requires key_vault_name in context)",
-)
 def new_command(
     ctx: click.Context,
     repo: str | None,
@@ -2603,9 +2604,10 @@ def new_command(
     no_bastion: bool,
     bastion_name: str | None,
     yes: bool,
-    store_key: bool,
 ) -> None:
     """Provision a new Azure VM with development tools.
+
+    SSH keys are automatically stored in Azure Key Vault for cross-system access.
 
     Creates a new Ubuntu VM in Azure with all development tools pre-installed.
     Optionally connects via SSH and clones a GitHub repository.
@@ -2675,7 +2677,6 @@ def new_command(
         no_bastion=no_bastion,
         bastion_name=bastion_name,
         auto_approve=yes,
-        store_key=store_key,
     )
 
     # Update config state (resource group only, session name saved after VM creation)

@@ -9,14 +9,20 @@ Features:
 - Automatic cleanup on VM deletion
 - Zero plaintext key logging
 - Secure file permissions (0600)
+- Auto-create Key Vault if needed (transparent setup)
+- Auto-assign RBAC permissions to current user
+- Auto-detect existing Key Vault in resource group
 
 Secret Naming: azlin-{vm-name}-ssh-private
 RBAC Roles: Key Vault Secrets Officer (write), Secrets User (read)
-Integration: azlin new --store-key, connect, kill, destroy
+Integration: azlin new (auto-stores), connect (auto-retrieves), kill, destroy
 """
 
+import hashlib
+import json
 import logging
 import os
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
@@ -40,6 +46,82 @@ class KeyVaultError(Exception):
     """Raised when Key Vault operations fail."""
 
     pass
+
+
+def get_current_user_principal_id() -> str:
+    """Get current Azure CLI user's object ID (principal ID).
+
+    Returns:
+        Object ID (principal ID) of current Azure CLI user
+
+    Raises:
+        KeyVaultError: If unable to get principal ID
+    """
+    try:
+        result = subprocess.run(
+            ["az", "ad", "signed-in-user", "show", "--query", "id", "-o", "tsv"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        principal_id = result.stdout.strip()
+        if not principal_id:
+            raise KeyVaultError("Failed to get principal ID: empty response")
+        logger.debug(f"Current user principal ID: {principal_id}")
+        return principal_id
+    except subprocess.CalledProcessError as e:
+        # Might be service principal authentication
+        try:
+            # Try getting service principal info
+            result = subprocess.run(
+                ["az", "account", "show", "--query", "user.name", "-o", "tsv"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            sp_name = result.stdout.strip()
+            if sp_name:
+                # Get SP object ID
+                result = subprocess.run(
+                    ["az", "ad", "sp", "show", "--id", sp_name, "--query", "id", "-o", "tsv"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                principal_id = result.stdout.strip()
+                if principal_id:
+                    logger.debug(f"Service principal ID: {principal_id}")
+                    return principal_id
+        except Exception:
+            pass
+        raise KeyVaultError(
+            f"Failed to get current user principal ID: {e.stderr if e.stderr else str(e)}\n"
+            "Ensure you are logged in with 'az login'"
+        ) from e
+    except Exception as e:
+        raise KeyVaultError(f"Unexpected error getting principal ID: {e}") from e
+
+
+def generate_key_vault_name(subscription_id: str) -> str:
+    """Generate consistent Key Vault name for a subscription.
+
+    Args:
+        subscription_id: Azure subscription ID
+
+    Returns:
+        Key Vault name (azlin-kv-{hash})
+
+    Note:
+        - Key Vault names must be 3-24 characters
+        - Format: azlin-kv-{first 6 chars of subscription hash}
+        - Total length: 15 characters
+    """
+    # Hash subscription ID to get consistent, short identifier
+    hash_obj = hashlib.sha256(subscription_id.encode())
+    hash_hex = hash_obj.hexdigest()[:6]
+    vault_name = f"azlin-kv-{hash_hex}"
+    logger.debug(f"Generated vault name: {vault_name} for subscription: {subscription_id}")
+    return vault_name
 
 
 @dataclass
@@ -77,6 +159,7 @@ class SSHKeyVaultManager:
 
     Provides secure storage/retrieval of SSH private keys using AuthenticationChain.
     Private key content is never logged, error messages are sanitized, and files have 0600 permissions.
+    Includes automatic Key Vault creation, RBAC setup, and detection.
     """
 
     # Secret name format: azlin-{vm-name}-ssh-private
@@ -94,6 +177,232 @@ class SSHKeyVaultManager:
         """
         self.config = config
         self._client: SecretClient | None = None
+
+    @staticmethod
+    def find_key_vault_in_resource_group(resource_group: str, subscription_id: str) -> str | None:
+        """Find existing azlin Key Vault in resource group.
+
+        Args:
+            resource_group: Resource group name
+            subscription_id: Azure subscription ID
+
+        Returns:
+            Vault name if found, None otherwise
+
+        Note: Looks for vaults with name pattern 'azlin-kv-*'
+        """
+        try:
+            logger.debug(f"Searching for Key Vault in resource group: {resource_group}")
+            result = subprocess.run(
+                [
+                    "az",
+                    "keyvault",
+                    "list",
+                    "--resource-group",
+                    resource_group,
+                    "--subscription",
+                    subscription_id,
+                    "--query",
+                    "[?starts_with(name, 'azlin-kv-')].name",
+                    "-o",
+                    "json",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            vaults = json.loads(result.stdout)
+            if vaults:
+                vault_name = vaults[0]
+                logger.debug(f"Found existing Key Vault: {vault_name}")
+                return vault_name
+
+            logger.debug("No existing azlin Key Vault found")
+            return None
+
+        except subprocess.CalledProcessError as e:
+            logger.debug(f"Failed to list Key Vaults: {e.stderr if e.stderr else str(e)}")
+            return None
+        except Exception as e:
+            logger.debug(f"Error finding Key Vault: {e}")
+            return None
+
+    @staticmethod
+    def ensure_key_vault_exists(resource_group: str, location: str, subscription_id: str) -> str:
+        """Ensure Key Vault exists, creating if needed.
+
+        Args:
+            resource_group: Resource group name
+            location: Azure region
+            subscription_id: Azure subscription ID
+
+        Returns:
+            Key Vault name (existing or newly created)
+
+        Raises:
+            KeyVaultError: If creation fails
+
+        Note:
+            - Creates vault with RBAC authorization enabled
+            - Vault name: azlin-kv-{hash(subscription_id)[:6]}
+            - Silent operation (only logs at debug level)
+        """
+        # First check if vault already exists
+        existing_vault = SSHKeyVaultManager.find_key_vault_in_resource_group(
+            resource_group, subscription_id
+        )
+        if existing_vault:
+            logger.debug(f"Using existing Key Vault: {existing_vault}")
+            return existing_vault
+
+        # Generate vault name
+        vault_name = generate_key_vault_name(subscription_id)
+        logger.debug(f"Creating Key Vault: {vault_name} in {resource_group}")
+
+        try:
+            # Create Key Vault with RBAC authorization
+            subprocess.run(
+                [
+                    "az",
+                    "keyvault",
+                    "create",
+                    "--name",
+                    vault_name,
+                    "--resource-group",
+                    resource_group,
+                    "--location",
+                    location,
+                    "--subscription",
+                    subscription_id,
+                    "--enable-rbac-authorization",
+                    "true",
+                    "--no-wait",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            logger.debug(f"Key Vault creation initiated: {vault_name}")
+            return vault_name
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if e.stderr else str(e)
+            # Check if vault already exists (race condition)
+            if "already exists" in error_msg.lower():
+                logger.debug(f"Key Vault already exists: {vault_name}")
+                return vault_name
+            raise KeyVaultError(f"Failed to create Key Vault: {error_msg}") from e
+        except Exception as e:
+            raise KeyVaultError(f"Unexpected error creating Key Vault: {e}") from e
+
+    @staticmethod
+    def ensure_rbac_permissions(
+        vault_name: str, resource_group: str, subscription_id: str, principal_id: str
+    ) -> None:
+        """Ensure user has RBAC permissions on Key Vault.
+
+        Args:
+            vault_name: Key Vault name
+            resource_group: Resource group name
+            subscription_id: Azure subscription ID
+            principal_id: User/service principal object ID
+
+        Raises:
+            KeyVaultError: If permission assignment fails
+
+        Note:
+            - Assigns 'Key Vault Secrets Officer' role (write access)
+            - Checks if role already assigned (idempotent)
+            - Silent operation (only logs at debug level)
+        """
+        role = "Key Vault Secrets Officer"
+        logger.debug(f"Ensuring RBAC permissions on vault: {vault_name}")
+
+        try:
+            # Get vault scope
+            result = subprocess.run(
+                [
+                    "az",
+                    "keyvault",
+                    "show",
+                    "--name",
+                    vault_name,
+                    "--resource-group",
+                    resource_group,
+                    "--subscription",
+                    subscription_id,
+                    "--query",
+                    "id",
+                    "-o",
+                    "tsv",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            vault_scope = result.stdout.strip()
+
+            # Check if role already assigned
+            result = subprocess.run(
+                [
+                    "az",
+                    "role",
+                    "assignment",
+                    "list",
+                    "--assignee",
+                    principal_id,
+                    "--scope",
+                    vault_scope,
+                    "--role",
+                    role,
+                    "--query",
+                    "[].id",
+                    "-o",
+                    "json",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            assignments = json.loads(result.stdout)
+            if assignments:
+                logger.debug(f"RBAC permissions already assigned for: {principal_id}")
+                return
+
+            # Assign role
+            logger.debug(f"Assigning '{role}' role to: {principal_id}")
+            subprocess.run(
+                [
+                    "az",
+                    "role",
+                    "assignment",
+                    "create",
+                    "--assignee",
+                    principal_id,
+                    "--role",
+                    role,
+                    "--scope",
+                    vault_scope,
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            logger.debug("RBAC permissions assigned successfully")
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if e.stderr else str(e)
+            # Check if assignment already exists (race condition)
+            if "already exists" in error_msg.lower():
+                logger.debug("RBAC permissions already assigned")
+                return
+            raise KeyVaultError(f"Failed to assign RBAC permissions: {error_msg}") from e
+        except Exception as e:
+            raise KeyVaultError(f"Unexpected error assigning RBAC permissions: {e}") from e
 
     @property
     def client(self) -> SecretClient:
@@ -389,9 +698,84 @@ def create_key_vault_manager(
         raise KeyVaultError(safe_error) from e
 
 
+def create_key_vault_manager_with_auto_setup(
+    resource_group: str,
+    location: str,
+    subscription_id: str,
+    tenant_id: str,
+    auth_config: AuthConfig,
+) -> SSHKeyVaultManager:
+    """Create Key Vault manager with automatic setup (vault creation + RBAC).
+
+    This is the main entry point for transparent Key Vault usage. It will:
+    1. Find or create Key Vault in the resource group
+    2. Get current user principal ID
+    3. Ensure RBAC permissions are assigned
+    4. Return configured manager
+
+    Args:
+        resource_group: Resource group name
+        location: Azure region
+        subscription_id: Azure subscription ID
+        tenant_id: Azure tenant ID
+        auth_config: Authentication configuration
+
+    Returns:
+        Configured SSHKeyVaultManager ready to use
+
+    Raises:
+        KeyVaultError: If setup or authentication fails
+
+    Note:
+        - Silent operation (only logs at debug level)
+        - Idempotent (safe to call multiple times)
+        - Works with Azure CLI auth (current user) or service principal
+    """
+    try:
+        # Step 1: Ensure Key Vault exists (find or create)
+        vault_name = SSHKeyVaultManager.ensure_key_vault_exists(
+            resource_group=resource_group,
+            location=location,
+            subscription_id=subscription_id,
+        )
+
+        # Step 2: Get current user principal ID
+        principal_id = get_current_user_principal_id()
+
+        # Step 3: Ensure RBAC permissions
+        SSHKeyVaultManager.ensure_rbac_permissions(
+            vault_name=vault_name,
+            resource_group=resource_group,
+            subscription_id=subscription_id,
+            principal_id=principal_id,
+        )
+
+        # Step 4: Create manager with authentication
+        manager = create_key_vault_manager(
+            vault_name=vault_name,
+            subscription_id=subscription_id,
+            tenant_id=tenant_id,
+            auth_config=auth_config,
+        )
+
+        logger.debug(f"Key Vault manager created with auto-setup: {vault_name}")
+        return manager
+
+    except KeyVaultError:
+        raise
+    except Exception as e:
+        safe_error = LogSanitizer.create_safe_error_message(
+            e, "Failed to create Key Vault manager with auto-setup"
+        )
+        raise KeyVaultError(safe_error) from e
+
+
 __all__ = [
     "KeyVaultConfig",
     "KeyVaultError",
     "SSHKeyVaultManager",
     "create_key_vault_manager",
+    "create_key_vault_manager_with_auto_setup",
+    "generate_key_vault_name",
+    "get_current_user_principal_id",
 ]
