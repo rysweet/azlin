@@ -205,11 +205,12 @@ class VMConnector:
         )
 
         # Try to fetch SSH key from Key Vault if not present locally (automatic, silent)
-        cls._try_fetch_key_from_vault(
-            vm_name=conn_info.vm_name,
-            key_path=conn_info.ssh_key_path,
-            resource_group=conn_info.resource_group,
-        )
+        if conn_info.ssh_key_path:
+            cls._try_fetch_key_from_vault(
+                vm_name=conn_info.vm_name,
+                key_path=conn_info.ssh_key_path,
+                resource_group=conn_info.resource_group,
+            )
 
         # Ensure SSH key exists (will use fetched key if available, or generate new)
         try:
