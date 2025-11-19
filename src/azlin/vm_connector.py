@@ -19,12 +19,15 @@ from pathlib import Path
 
 import click
 
+from azlin.auth_models import AuthConfig, AuthMethod
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.connection_tracker import ConnectionTracker
+from azlin.context_manager import ContextManager
 from azlin.modules.bastion_config import BastionConfig
 from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.ssh_connector import SSHConfig, SSHConnector
+from azlin.modules.ssh_key_vault import KeyVaultError, create_key_vault_manager
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.modules.ssh_reconnect import SSHReconnectHandler
 from azlin.terminal_launcher import TerminalConfig, TerminalLauncher, TerminalLauncherError
@@ -68,6 +71,74 @@ class VMConnector:
             ConnectionTracker.record_connection(vm_name)
         except Exception as e:
             logger.warning(f"Failed to record connection for {vm_name}: {e}")
+
+    @staticmethod
+    def _try_fetch_key_from_vault(vm_name: str, key_path: Path, resource_group: str) -> bool:
+        """Try to fetch SSH key from Key Vault if local key doesn't exist.
+
+        Args:
+            vm_name: VM name
+            key_path: Path where key should be stored
+            resource_group: Resource group containing the VM
+
+        Returns:
+            True if key was fetched successfully, False otherwise
+
+        Note:
+            - Silent operation (only logs at debug level)
+            - Returns False on any error (doesn't raise)
+        """
+        # Only try if key doesn't exist locally
+        if key_path.exists():
+            return False
+
+        try:
+            logger.debug(f"Local SSH key not found, checking Key Vault for VM: {vm_name}")
+
+            # Load context to get subscription/tenant info
+            try:
+                context_config = ContextManager.load()
+                current_context = context_config.get_current_context()
+                if not current_context:
+                    logger.debug("No current context set, skipping Key Vault fetch")
+                    return False
+            except Exception as e:
+                logger.debug(f"Failed to load context: {e}")
+                return False
+
+            # Build auth config
+            auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)
+
+            # Try to find Key Vault in resource group
+            from azlin.modules.ssh_key_vault import SSHKeyVaultManager
+
+            vault_name = SSHKeyVaultManager.find_key_vault_in_resource_group(
+                resource_group=resource_group,
+                subscription_id=current_context.subscription_id,
+            )
+
+            if not vault_name:
+                logger.debug(f"No Key Vault found in resource group: {resource_group}")
+                return False
+
+            # Create manager and try to retrieve key
+            manager = create_key_vault_manager(
+                vault_name=vault_name,
+                subscription_id=current_context.subscription_id,
+                tenant_id=current_context.tenant_id,
+                auth_config=auth_config,
+            )
+
+            manager.retrieve_key(vm_name=vm_name, target_path=key_path)
+            logger.debug(f"SSH key retrieved from Key Vault: {vault_name}")
+            return True
+
+        except KeyVaultError as e:
+            logger.debug(f"Key Vault fetch skipped: {e}")
+            return False
+        except Exception as e:
+            logger.debug(f"Unexpected error fetching from Key Vault: {e}")
+            return False
 
     @classmethod
     def connect(
@@ -133,7 +204,14 @@ class VMConnector:
             vm_identifier, resource_group, ssh_user, ssh_key_path
         )
 
-        # Ensure SSH key exists
+        # Try to fetch SSH key from Key Vault if not present locally (automatic, silent)
+        cls._try_fetch_key_from_vault(
+            vm_name=conn_info.vm_name,
+            key_path=conn_info.ssh_key_path,
+            resource_group=conn_info.resource_group,
+        )
+
+        # Ensure SSH key exists (will use fetched key if available, or generate new)
         try:
             ssh_keys = SSHKeyManager.ensure_key_exists(conn_info.ssh_key_path)
             conn_info.ssh_key_path = ssh_keys.private_path
