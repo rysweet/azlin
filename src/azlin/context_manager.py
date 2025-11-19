@@ -133,6 +133,7 @@ class Context:
         tenant_id: Azure tenant ID (UUID)
         auth_profile: Optional auth profile name (references [auth.profiles])
         description: Optional human-readable description
+        key_vault_name: Optional Azure Key Vault name for SSH key storage
     """
 
     name: str
@@ -140,6 +141,7 @@ class Context:
     tenant_id: str
     auth_profile: str | None = None
     description: str | None = None
+    key_vault_name: str | None = None
 
     def __post_init__(self):
         """Validate context data after initialization."""
@@ -157,6 +159,18 @@ class Context:
                     "Profile names must be 1-64 characters: alphanumeric, hyphen, or underscore"
                 )
 
+        # Validate key_vault_name if provided
+        if self.key_vault_name is not None:
+            if not self.key_vault_name:
+                raise ContextError("key_vault_name cannot be empty string (use None instead)")
+            # Key Vault names: 3-24 chars, alphanumeric and hyphens, start with letter
+            if not re.match(r"^[a-zA-Z][a-zA-Z0-9-]{2,23}$", self.key_vault_name):
+                raise ContextError(
+                    f"Invalid key_vault_name format: {self.key_vault_name}\n"
+                    "Key Vault names must be 3-24 characters, start with a letter, "
+                    "and contain only alphanumeric characters and hyphens"
+                )
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for TOML serialization.
 
@@ -171,6 +185,8 @@ class Context:
             data["auth_profile"] = self.auth_profile
         if self.description is not None:
             data["description"] = self.description
+        if self.key_vault_name is not None:
+            data["key_vault_name"] = self.key_vault_name
         return data
 
     @classmethod
@@ -198,6 +214,7 @@ class Context:
             tenant_id=data["tenant_id"],
             auth_profile=data.get("auth_profile"),
             description=data.get("description"),
+            key_vault_name=data.get("key_vault_name"),
         )
 
 

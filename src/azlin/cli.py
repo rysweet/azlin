@@ -45,6 +45,7 @@ from azlin.agentic import (
     RequestClarifier,
     ResultValidator,
 )
+from azlin.auth_models import AuthConfig, AuthMethod
 from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 from azlin.click_group import AzlinGroup
@@ -111,6 +112,7 @@ from azlin.modules.resource_orchestrator import (
 )
 from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
+from azlin.modules.ssh_key_vault import KeyVaultError, create_key_vault_manager
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
 from azlin.modules.vscode_launcher import (
     VSCodeLauncher,
@@ -186,6 +188,7 @@ class CLIOrchestrator:
         no_bastion: bool = False,
         bastion_name: str | None = None,
         auto_approve: bool = False,
+        store_key: bool = False,
     ):
         """Initialize CLI orchestrator.
 
@@ -201,6 +204,7 @@ class CLIOrchestrator:
             no_bastion: Skip bastion auto-detection and always create public IP (optional)
             bastion_name: Explicit bastion host name to use (optional)
             auto_approve: Accept all defaults and confirmations (non-interactive mode)
+            store_key: Store SSH private key in Azure Key Vault (optional)
         """
         self.repo = repo
         self.vm_size = vm_size
@@ -213,6 +217,7 @@ class CLIOrchestrator:
         self.no_bastion = no_bastion
         self.bastion_name = bastion_name
         self.auto_approve = auto_approve
+        self.store_key = store_key
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -258,6 +263,10 @@ class CLIOrchestrator:
             vm_details = self._provision_vm(vm_name, rg_name, ssh_key_pair.public_key_content)
             self.vm_details = vm_details
             self.progress.complete(success=True, message=f"VM ready at {vm_details.public_ip}")
+
+            # STEP 4.5: Store SSH key in Key Vault (if requested)
+            if self.store_key:
+                self._store_key_in_vault(vm_name, ssh_key_pair.private_path, subscription_id)
 
             # STEP 5: Wait for VM to be fully ready (cloud-init to complete)
             self.progress.start_operation(
@@ -401,6 +410,64 @@ class CLIOrchestrator:
         self.progress.update(f"Using key: {ssh_key_pair.private_path}", ProgressStage.IN_PROGRESS)
 
         return ssh_key_pair
+
+    def _store_key_in_vault(
+        self, vm_name: str, private_key_path: Path, subscription_id: str
+    ) -> None:
+        """Store SSH private key in Azure Key Vault.
+
+        Args:
+            vm_name: VM name (used in secret name)
+            private_key_path: Path to private key file
+            subscription_id: Azure subscription ID
+
+        Raises:
+            KeyVaultError: If storage fails or vault not configured
+        """
+        try:
+            self.progress.start_operation("Storing SSH key in Key Vault")
+
+            # Load context to get key_vault_name
+            context_config = ContextManager.load(self.config_file)
+            current_context = context_config.get_current_context()
+
+            if not current_context:
+                raise KeyVaultError(
+                    "No current context set. Run 'azlin context use <name>' to activate a context."
+                )
+
+            if not current_context.key_vault_name:
+                raise KeyVaultError(
+                    f"Context '{current_context.name}' has no key_vault_name configured.\n"
+                    f"Set it with: azlin context set {current_context.name} --key-vault <vault-name>"
+                )
+
+            # Build auth config from context
+            auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)  # TODO: Support SP from context
+
+            # Create Key Vault manager
+            manager = create_key_vault_manager(
+                vault_name=current_context.key_vault_name,
+                subscription_id=current_context.subscription_id,
+                tenant_id=current_context.tenant_id,
+                auth_config=auth_config,
+            )
+
+            # Store key
+            manager.store_key(vm_name, private_key_path)
+
+            self.progress.complete(
+                success=True,
+                message=f"SSH key stored in vault: {current_context.key_vault_name}",
+            )
+
+        except KeyVaultError as e:
+            self.progress.complete(success=False, message=f"Key storage failed: {e}")
+            logger.warning(f"Failed to store SSH key in Key Vault: {e}")
+            # Don't fail the entire provisioning if key storage fails
+        except Exception as e:
+            self.progress.complete(success=False, message=f"Key storage error: {e}")
+            logger.warning(f"Unexpected error storing SSH key: {e}")
 
     def _check_bastion_availability(
         self, resource_group: str, vm_name: str
@@ -2515,6 +2582,11 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
     is_flag=True,
     help="Accept all defaults and confirmations (non-interactive mode)",
 )
+@click.option(
+    "--store-key",
+    is_flag=True,
+    help="Store SSH private key in Azure Key Vault (requires key_vault_name in context)",
+)
 def new_command(
     ctx: click.Context,
     repo: str | None,
@@ -2531,6 +2603,7 @@ def new_command(
     no_bastion: bool,
     bastion_name: str | None,
     yes: bool,
+    store_key: bool,
 ) -> None:
     """Provision a new Azure VM with development tools.
 
@@ -2602,6 +2675,7 @@ def new_command(
         no_bastion=no_bastion,
         bastion_name=bastion_name,
         auto_approve=yes,
+        store_key=store_key,
     )
 
     # Update config state (resource group only, session name saved after VM creation)
@@ -3749,6 +3823,9 @@ def kill(vm_name: str, resource_group: str | None, config: str | None, force: bo
                 for resource in result.resources_deleted:
                     click.echo(f"  - {resource}")
 
+            # Clean up SSH key from Key Vault
+            _cleanup_key_from_vault(vm_name, config)
+
             # Clean up session name mapping
             try:
                 if ConfigManager.delete_session_name(vm_name, config):
@@ -3839,7 +3916,7 @@ def _confirm_vm_deletion(vm: VMInfo) -> bool:
     return confirm in ["y", "yes"]
 
 
-def _execute_vm_deletion(vm_name: str, rg: str, force: bool) -> None:
+def _execute_vm_deletion(vm_name: str, rg: str, force: bool, config: str | None = None) -> None:
     """Execute VM deletion and display results."""
     vm = VMManager.get_vm(vm_name, rg)
 
@@ -3864,9 +3941,12 @@ def _execute_vm_deletion(vm_name: str, rg: str, force: bool) -> None:
             for resource in result.resources_deleted:
                 click.echo(f"  - {resource}")
 
+        # Clean up SSH key from Key Vault
+        _cleanup_key_from_vault(vm_name, config)
+
         # Clean up session name mapping if it exists
         try:
-            if ConfigManager.delete_session_name(vm_name):
+            if ConfigManager.delete_session_name(vm_name, config):
                 click.echo(f"Removed session name mapping for '{vm_name}'")
         except ConfigError:
             pass  # Config cleanup is non-critical
@@ -3953,7 +4033,7 @@ def destroy(
             _handle_vm_dry_run(vm_name, rg)
             return
 
-        _execute_vm_deletion(vm_name, rg, force)
+        _execute_vm_deletion(vm_name, rg, force, config)
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
@@ -4500,6 +4580,107 @@ def _resolve_tmux_session(
     return tmux_session
 
 
+def _try_fetch_key_from_vault(vm_name: str, key_path: Path, config: str | None) -> bool:
+    """Try to fetch SSH key from Azure Key Vault if local key is missing.
+
+    Args:
+        vm_name: VM name (used to lookup secret)
+        key_path: Target path for private key
+        config: Config file path
+
+    Returns:
+        True if key was fetched successfully, False otherwise
+    """
+    try:
+        # Load context to get key_vault_name
+        context_config = ContextManager.load(config)
+        current_context = context_config.get_current_context()
+
+        if not current_context or not current_context.key_vault_name:
+            logger.debug("No Key Vault configured, skipping auto-fetch")
+            return False
+
+        console = Console()
+        console.print("[yellow]SSH key not found locally, checking Key Vault...[/yellow]")
+
+        # Build auth config from context
+        auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)  # TODO: Support SP from context
+
+        # Create Key Vault manager
+        manager = create_key_vault_manager(
+            vault_name=current_context.key_vault_name,
+            subscription_id=current_context.subscription_id,
+            tenant_id=current_context.tenant_id,
+            auth_config=auth_config,
+        )
+
+        # Check if key exists in vault
+        if not manager.key_exists(vm_name):
+            logger.debug(f"SSH key not found in Key Vault for VM: {vm_name}")
+            return False
+
+        # Retrieve key
+        manager.retrieve_key(vm_name, key_path)
+        console.print(
+            f"[green]SSH key retrieved from Key Vault: {current_context.key_vault_name}[/green]"
+        )
+        return True
+
+    except KeyVaultError as e:
+        logger.warning(f"Failed to fetch SSH key from Key Vault: {e}")
+        return False
+    except Exception as e:
+        logger.warning(f"Unexpected error fetching SSH key: {e}")
+        return False
+
+
+def _cleanup_key_from_vault(vm_name: str, config: str | None) -> None:
+    """Delete SSH key from Azure Key Vault when VM is destroyed.
+
+    Args:
+        vm_name: VM name (used to lookup secret)
+        config: Config file path
+
+    Note:
+        This function logs warnings but does not raise exceptions to avoid
+        blocking VM deletion if Key Vault cleanup fails.
+    """
+    try:
+        # Load context to get key_vault_name
+        context_config = ContextManager.load(config)
+        current_context = context_config.get_current_context()
+
+        if not current_context or not current_context.key_vault_name:
+            logger.debug("No Key Vault configured, skipping cleanup")
+            return
+
+        logger.info(f"Cleaning up SSH key from Key Vault for VM: {vm_name}")
+
+        # Build auth config from context
+        auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)  # TODO: Support SP from context
+
+        # Create Key Vault manager
+        manager = create_key_vault_manager(
+            vault_name=current_context.key_vault_name,
+            subscription_id=current_context.subscription_id,
+            tenant_id=current_context.tenant_id,
+            auth_config=auth_config,
+        )
+
+        # Delete key
+        deleted = manager.delete_key(vm_name)
+        if deleted:
+            click.echo(f"SSH key deleted from Key Vault: {current_context.key_vault_name}")
+        else:
+            logger.debug(f"SSH key not found in Key Vault for VM: {vm_name}")
+
+    except KeyVaultError as e:
+        logger.warning(f"Failed to delete SSH key from Key Vault: {e}")
+        # Don't block VM deletion if Key Vault cleanup fails
+    except Exception as e:
+        logger.warning(f"Unexpected error during Key Vault cleanup: {e}")
+
+
 @main.command()
 @click.argument("vm_identifier", type=str, required=False)
 @click.option("--resource-group", "--rg", help="Resource group (required for VM name)", type=str)
@@ -4646,6 +4827,16 @@ def connect(
             _verify_vm_exists(vm_identifier, original_identifier, rg)
         else:
             rg = resource_group
+
+        # Auto-fetch SSH key from Key Vault if local key is missing
+        if key_path is None:
+            # Use default key path
+            key_path = SSHKeyManager.DEFAULT_KEY_PATH
+
+        # Check if key exists locally, if not try to fetch from vault
+        if not key_path.exists():
+            logger.debug(f"SSH key not found at {key_path}, attempting Key Vault fetch")
+            _try_fetch_key_from_vault(vm_identifier, key_path, config)
 
         # Resolve tmux session name (use original_identifier so tmux session matches user input)
         tmux_session = _resolve_tmux_session(original_identifier, tmux_session, no_tmux, config)
