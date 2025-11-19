@@ -4398,7 +4398,6 @@ def connect(
             ssh_key_path=key_path,
             enable_reconnect=not no_reconnect,
             max_reconnect_retries=max_retries,
-            skip_prompts=yes,
         )
 
         sys.exit(0 if success else 1)
