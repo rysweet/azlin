@@ -382,10 +382,10 @@ class SessionManager:
         return ""
 
     def _get_data_hash(self, data: Dict[str, Any]) -> str:
-        """Get SHA-256 hash of data."""
+        """Get MD5 hash of data."""
         try:
             content = json.dumps(data, sort_keys=True)
-            return hashlib.sha256(content.encode()).hexdigest()
+            return hashlib.md5(content.encode()).hexdigest()
         except Exception:
             return ""
 

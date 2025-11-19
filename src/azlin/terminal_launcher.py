@@ -131,6 +131,7 @@ class TerminalConfig:
     ssh_host: str
     ssh_user: str
     ssh_key_path: Path
+    ssh_port: int = 22
     command: str | None = None
     title: str | None = None
     tmux_session: str | None = None
@@ -315,6 +316,8 @@ class TerminalLauncher:
             "UserKnownHostsFile=/dev/null",
             "-i",
             str(config.ssh_key_path),
+            "-p",
+            str(config.ssh_port),
         ]
 
         # Force TTY allocation for commands and interactive sessions

@@ -132,26 +132,26 @@ class TestTmuxReconnection:
         )
 
     def test_tmux_with_command_executes_directly(self, temp_ssh_key):
-        """Test that commands execute directly without tmux when using -- syntax.
+        """Test that commands execute directly without tmux wrapping.
 
-        New behavior (after fix #331):
-        When a command is specified via `azlin connect vm -- command`,
-        it should execute directly via SSH without tmux wrapping.
+        Expected behavior:
+        When a command is specified, execute it directly (azlin connect vm -- command)
+        This allows output capture in current terminal.
 
-        This allows output capture and matches standard SSH behavior.
+        Fix for Issue #356: Commands should not open new terminal windows.
         """
         config = TerminalConfig(
             ssh_host="example.com",
             ssh_user="testuser",
             ssh_key_path=temp_ssh_key,
             command="bash",
-            tmux_session="mysession",  # Should be ignored when command is present
+            tmux_session="mysession",
         )
 
         cmd = TerminalLauncher._build_ssh_command(config)
         remote_cmd = cmd[-1]
 
-        # Should execute directly (no tmux wrapping)
+        # Should execute command directly (not wrapped in tmux)
         assert remote_cmd == "bash"
         assert "attach-session" not in remote_cmd
         assert "new-session" not in remote_cmd
