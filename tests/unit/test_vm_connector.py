@@ -165,7 +165,7 @@ class TestVMConnector:
 
     @patch("azlin.vm_connector.VMManager")
     def test_resolve_connection_info_vm_no_ip_address(self, mock_vm_mgr):
-        """Test error when VM has no public IP address."""
+        """Test error when VM has neither public nor private IP address."""
         vm_info = VMInfo(
             name="my-vm",
             resource_group="my-rg",
@@ -176,13 +176,38 @@ class TestVMConnector:
         )
         mock_vm_mgr.get_vm.return_value = vm_info
 
-        with pytest.raises(VMConnectorError, match="has no public IP address"):
+        with pytest.raises(VMConnectorError, match="has neither public nor private IP address"):
             VMConnector._resolve_connection_info(
                 vm_identifier="my-vm",
                 resource_group="my-rg",
                 ssh_user="azureuser",
                 ssh_key_path=None,
             )
+
+    @patch("azlin.vm_connector.VMManager")
+    def test_resolve_connection_info_private_ip_fallback(self, mock_vm_mgr):
+        """Test that private IP is used when VM has no public IP (Bastion-only VMs)."""
+        vm_info = VMInfo(
+            name="my-vm",
+            resource_group="my-rg",
+            location="westus2",
+            power_state="VM running",
+            public_ip=None,
+            private_ip="10.0.0.5",
+        )
+        mock_vm_mgr.get_vm.return_value = vm_info
+
+        conn_info = VMConnector._resolve_connection_info(
+            vm_identifier="my-vm",
+            resource_group="my-rg",
+            ssh_user="azureuser",
+            ssh_key_path=None,
+        )
+
+        assert conn_info.vm_name == "my-vm"
+        assert conn_info.ip_address == "10.0.0.5"
+        assert conn_info.resource_group == "my-rg"
+        assert conn_info.ssh_user == "azureuser"
 
     @patch("azlin.vm_connector.SSHReconnectHandler")
     @patch("azlin.vm_connector.SSHKeyManager")
