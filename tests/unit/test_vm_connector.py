@@ -254,11 +254,11 @@ class TestVMConnector:
         assert call_args.kwargs["tmux_session"] == "azlin"  # Default tmux session name
         assert call_args.kwargs["auto_tmux"] is True
 
-    @patch("azlin.vm_connector.TerminalLauncher")
+    @patch("azlin.modules.ssh_connector.SSHConnector")
     @patch("azlin.vm_connector.SSHKeyManager")
     @patch("azlin.vm_connector.VMManager")
-    def test_connect_with_command(self, mock_vm_mgr, mock_ssh_key_mgr, mock_terminal, temp_ssh_key):
-        """Test connecting with remote command."""
+    def test_connect_with_command(self, mock_vm_mgr, mock_ssh_key_mgr, mock_ssh_connector, temp_ssh_key):
+        """Test connecting with remote command (uses SSHConnector, not TerminalLauncher)."""
         # Mock VM info
         vm_info = VMInfo(
             name="my-vm",
@@ -277,20 +277,21 @@ class TestVMConnector:
         )
         mock_ssh_key_mgr.ensure_key_exists.return_value = ssh_keys
 
-        # Mock terminal launch
-        mock_terminal.launch.return_value = True
+        # Mock SSHConnector.connect (returns exit code)
+        mock_ssh_connector.connect.return_value = 0
 
-        # Connect with command
+        # Connect with command (should use SSHConnector, not TerminalLauncher)
         result = VMConnector.connect(
             vm_identifier="my-vm", resource_group="my-rg", remote_command="ls -la"
         )
 
         assert result is True
 
-        # Verify terminal config includes command
-        call_args = mock_terminal.launch.call_args
-        config = call_args[0][0]
-        assert config.command == "ls -la"
+        # Verify SSHConnector.connect was called with remote command
+        mock_ssh_connector.connect.assert_called_once()
+        call_kwargs = mock_ssh_connector.connect.call_args.kwargs
+        assert call_kwargs["remote_command"] == "ls -la"
+        assert call_kwargs["auto_tmux"] is False  # No tmux for commands
 
     @patch("azlin.vm_connector.SSHReconnectHandler")
     @patch("azlin.vm_connector.SSHKeyManager")
