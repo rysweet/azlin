@@ -52,20 +52,28 @@ from azlin.click_group import AzlinGroup
 # Auth commands
 from azlin.commands.auth import auth
 
+# Autopilot commands
+from azlin.commands.autopilot import autopilot_group
+
 # Bastion commands
 # Storage commands
 from azlin.commands.bastion import bastion_group
+from azlin.commands.compose import compose_group
 
 # Context commands
 from azlin.commands.context import context_group
 
 # Doit commands
 from azlin.commands.doit import doit_group
+from azlin.commands.fleet import fleet_group
+from azlin.commands.github_runner import github_runner_group
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
+from azlin.context_manager import ContextManager
+from azlin.context_selector import ContextSelector, ContextSelectorError
 from azlin.cost_tracker import CostTracker, CostTrackerError
 from azlin.distributed_top import DistributedTopError, DistributedTopExecutor
 from azlin.env_manager import EnvManager, EnvManagerError
@@ -104,6 +112,16 @@ from azlin.modules.resource_orchestrator import (
 from azlin.modules.snapshot_manager import SnapshotError, SnapshotManager
 from azlin.modules.ssh_connector import SSHConfig, SSHConnectionError, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
+from azlin.modules.vscode_launcher import (
+    VSCodeLauncher,
+    VSCodeLauncherError,
+    VSCodeNotFoundError,
+)
+from azlin.multi_context_display import MultiContextDisplay
+from azlin.multi_context_list import (
+    MultiContextQueryError,
+    MultiContextVMQuery,
+)
 from azlin.prune import PruneManager
 from azlin.quota_manager import QuotaInfo, QuotaManager
 from azlin.remote_exec import (
@@ -1108,7 +1126,7 @@ class CLIOrchestrator:
                 local_port = bastion_mgr.get_available_port()
 
                 # Create tunnel
-                tunnel = bastion_mgr.create_tunnel(
+                _tunnel = bastion_mgr.create_tunnel(
                     bastion_name=bastion_info["name"],
                     resource_group=bastion_info["resource_group"],
                     target_vm_id=vm_details.id,  # Type narrowed by check above
@@ -2796,6 +2814,132 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     return tmux_by_vm
 
 
+def _handle_multi_context_list(
+    all_contexts: bool,
+    contexts_pattern: str | None,
+    resource_group: str | None,
+    config: str | None,
+    show_all: bool,
+    tag: str | None,
+    show_quota: bool,
+    show_tmux: bool,
+) -> None:
+    """Handle multi-context VM listing.
+
+    This function orchestrates VM listing across multiple Azure contexts using
+    the context_selector, multi_context_list, and multi_context_display modules.
+
+    Args:
+        all_contexts: Query all configured contexts
+        contexts_pattern: Glob pattern for context selection
+        resource_group: Resource group to query (required for multi-context)
+        config: Config file path
+        show_all: Include stopped VMs
+        tag: Tag filter (format: key or key=value)
+        show_quota: Show quota information (not supported in multi-context)
+        show_tmux: Show tmux sessions (not supported in multi-context)
+
+    Raises:
+        SystemExit: On validation or execution errors
+    """
+    # Validate: Cannot use both flags
+    if all_contexts and contexts_pattern:
+        click.echo(
+            "Error: Cannot use both --all-contexts and --contexts. Choose one.",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Validate: Resource group is required for multi-context queries
+    # Unlike single-context mode, we can't query "all RGs" across multiple subscriptions
+    rg = ConfigManager.get_resource_group(resource_group, config)
+    if not rg:
+        click.echo(
+            "Error: Multi-context queries require a resource group.\n"
+            "Use --resource-group or set default in ~/.azlin/config.toml",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Feature limitation warnings
+    if show_quota:
+        click.echo(
+            "Warning: --show-quota is not yet supported for multi-context queries. "
+            "Quota information will be omitted.\n",
+            err=True,
+        )
+        show_quota = False  # Disable for now
+
+    if show_tmux:
+        click.echo(
+            "Warning: --show-tmux is not yet supported for multi-context queries. "
+            "Tmux session information will be omitted.\n",
+            err=True,
+        )
+        show_tmux = False  # Disable for now
+
+    # Step 1: Select contexts based on pattern or all flag
+    try:
+        selector = ContextSelector(config_path=config)
+
+        if all_contexts:
+            click.echo("Selecting all configured contexts...\n")
+            contexts = selector.select_contexts(all_contexts=True)
+        else:
+            click.echo(f"Selecting contexts matching pattern: {contexts_pattern}\n")
+            contexts = selector.select_contexts(pattern=contexts_pattern)
+
+        click.echo(f"Selected {len(contexts)} context(s): {', '.join(c.name for c in contexts)}\n")
+
+    except ContextSelectorError as e:
+        click.echo(f"Error selecting contexts: {e}", err=True)
+        sys.exit(1)
+
+    # Step 2: Query VMs across all selected contexts in parallel
+    try:
+        click.echo(f"Querying VMs in resource group '{rg}' across {len(contexts)} contexts...\n")
+
+        query = MultiContextVMQuery(contexts=contexts, max_workers=5)
+        result = query.query_all_contexts(
+            resource_group=rg,
+            include_stopped=show_all,
+            filter_prefix="azlin",  # Always filter to azlin VMs like single-context mode
+        )
+
+    except MultiContextQueryError as e:
+        click.echo(f"Error querying contexts: {e}", err=True)
+        sys.exit(1)
+
+    # Step 3: Apply tag filter if specified (post-query filtering)
+    if tag:
+        try:
+            # Filter VMs in each successful context result
+            from azlin.tag_manager import TagManager
+
+            for ctx_result in result.context_results:
+                if ctx_result.success and ctx_result.vms:
+                    ctx_result.vms = TagManager.filter_vms_by_tag(ctx_result.vms, tag)
+
+            click.echo(f"Applied tag filter: {tag}\n")
+        except Exception as e:
+            click.echo(f"Error filtering by tag: {e}", err=True)
+            sys.exit(1)
+
+    # Step 4: Display results using Rich tables
+    display = MultiContextDisplay()
+    display.display_results(result, show_errors=True, show_summary=True)
+
+    # Step 5: Check if any contexts failed and set appropriate exit code
+    if result.failed_contexts > 0:
+        click.echo(
+            f"\nWarning: {result.failed_contexts} context(s) failed to query. "
+            "See error details above.",
+            err=True,
+        )
+        # Don't exit with error - partial success is still useful
+        # User can see which contexts failed and why
+
+
 @main.command(name="list")
 @click.option("--resource-group", "--rg", help="Resource group to list VMs from", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
@@ -2810,6 +2954,18 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     help="List all VMs across all resource groups (expensive operation)",
     is_flag=True,
 )
+@click.option(
+    "--all-contexts",
+    "all_contexts",
+    help="List VMs across all configured contexts (requires context configuration)",
+    is_flag=True,
+)
+@click.option(
+    "--contexts",
+    "contexts_pattern",
+    help="List VMs from contexts matching glob pattern (e.g., 'prod*', 'dev-*')",
+    type=str,
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -2818,6 +2974,8 @@ def list_command(
     show_quota: bool,
     show_tmux: bool,
     show_all_vms: bool,
+    all_contexts: bool,
+    contexts_pattern: str | None,
 ):
     """List VMs in a resource group.
 
@@ -2836,8 +2994,59 @@ def list_command(
         azlin list -a                 # Same as --show-all-vms
         azlin list --no-quota         # Skip quota information
         azlin list --no-tmux          # Skip tmux session info
+        azlin list --all-contexts     # VMs across all configured contexts
+        azlin list --contexts "prod*" # VMs from production contexts
+        azlin list --contexts "*-dev" --all  # All VMs (including stopped) in dev contexts
     """
+    console = Console()
     try:
+        # NEW: Multi-context query mode (Issue #350)
+        # Check for multi-context flags first, before single-context logic
+        # Multi-context mode has its own subscription switching per context
+        if all_contexts or contexts_pattern:
+            # Validate mutually exclusive flags
+            if show_all_vms:
+                click.echo(
+                    "Error: Cannot use --all-contexts or --contexts with --show-all-vms.\n"
+                    "These are mutually exclusive modes:\n"
+                    "  - Multi-context mode: Query specific RG across multiple contexts\n"
+                    "  - All-VMs mode: Query all RGs in single context\n\n"
+                    "Use one or the other, not both.",
+                    err=True,
+                )
+                sys.exit(1)
+
+            # Validate empty pattern
+            if contexts_pattern and not contexts_pattern.strip():
+                click.echo(
+                    "Error: --contexts pattern cannot be empty.\n"
+                    "Provide a glob pattern (e.g., 'prod*', '*-dev') or use --all-contexts.",
+                    err=True,
+                )
+                sys.exit(1)
+
+            _handle_multi_context_list(
+                all_contexts=all_contexts,
+                contexts_pattern=contexts_pattern,
+                resource_group=resource_group,
+                config=config,
+                show_all=show_all,
+                tag=tag,
+                show_quota=show_quota,
+                show_tmux=show_tmux,
+            )
+            return  # Exit early - multi-context mode handled completely
+
+        # EXISTING: Single-context query mode continues below...
+        # Ensure Azure CLI subscription matches current context for single-context queries
+        from azlin.context_manager import ContextError
+
+        try:
+            ContextManager.ensure_subscription_active(config)
+        except ContextError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
         # Get resource group from config or CLI
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -2868,6 +3077,16 @@ def list_command(
         else:
             # Single RG listing (rg is guaranteed to be str here)
             assert rg is not None, "Resource group must be set in this branch"
+
+            # Show current context if available
+            try:
+                context_config = ContextManager.load(config)
+                current_ctx = context_config.get_current_context()
+                if current_ctx:
+                    click.echo(f"Context: {current_ctx.name}")
+            except Exception:
+                pass  # Silently skip if context unavailable
+
             click.echo(f"Listing VMs in resource group: {rg}\n")
             vms = VMManager.list_vms(rg, include_stopped=show_all)
             # Filter to azlin VMs
@@ -3043,7 +3262,10 @@ def list_command(
         if not show_all_vms:
             console.print(
                 "\n[dim]To show all VMs accessible by this subscription, run:[/dim]\n"
-                "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])"
+                "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])\n\n"
+                "[dim]To show VMs across multiple contexts, run:[/dim]\n"
+                "[cyan]  azlin list --all-contexts --rg <resource-group>[/cyan]\n"
+                '[cyan]  azlin list --contexts "pattern*" --rg <resource-group>[/cyan]'
             )
 
         # List Bastion hosts in the same resource group
@@ -3245,6 +3467,15 @@ def w(resource_group: str | None, config: str | None):
         vms = VMManager.list_vms(rg, include_stopped=False)
         vms = VMManager.filter_by_prefix(vms, "azlin")
 
+        # Populate session names from tags (same logic as list command)
+        for vm in vms:
+            # Use tags already in memory instead of making N API calls
+            if vm.tags and TagManager.TAG_SESSION in vm.tags:
+                vm.session_name = vm.tags[TagManager.TAG_SESSION]
+            else:
+                # Fall back to config file
+                vm.session_name = ConfigManager.get_session_name(vm.name, config)
+
         if not vms:
             click.echo("No running VMs found.")
             return
@@ -3258,7 +3489,7 @@ def w(resource_group: str | None, config: str | None):
         # Get SSH configs with bastion support (Issue #281 fix)
         from azlin.cli_helpers import get_ssh_configs_for_vms
 
-        ssh_configs, _routes = get_ssh_configs_for_vms(
+        ssh_configs, routes = get_ssh_configs_for_vms(
             vms=running_vms,
             ssh_key_path=ssh_key_pair.private_path,
             skip_interactive=True,  # Batch operation
@@ -3272,7 +3503,7 @@ def w(resource_group: str | None, config: str | None):
         click.echo(f"Running 'w' on {len(ssh_configs)} VMs...\n")
 
         # Execute in parallel (bastion tunnels cleaned up automatically via atexit)
-        results = WCommandExecutor.execute_w_on_vms(ssh_configs, timeout=30)
+        results = WCommandExecutor.execute_w_on_routes(routes, timeout=30)
 
         # Display output
         output = WCommandExecutor.format_w_output(results)
@@ -3891,6 +4122,15 @@ def prune(
         azlin prune --include-running            # Include running VMs
     """
     try:
+        # Ensure Azure CLI subscription matches current context
+        from azlin.context_manager import ContextError
+
+        try:
+            ContextManager.ensure_subscription_active(config)
+        except ContextError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -4080,6 +4320,15 @@ def cost(
         azlin cost --rg my-resource-group --by-vm
     """
     try:
+        # Ensure Azure CLI subscription matches current context
+        from azlin.context_manager import ContextError
+
+        try:
+            ContextManager.ensure_subscription_active(config)
+        except ContextError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -4265,7 +4514,9 @@ def _resolve_tmux_session(
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip all confirmation prompts (e.g., Bastion)")
 @click.argument("remote_command", nargs=-1, type=str)
+@click.pass_context
 def connect(
+    ctx: click.Context,
     vm_identifier: str | None,
     resource_group: str | None,
     config: str | None,
@@ -4331,7 +4582,24 @@ def connect(
         # Set maximum reconnection attempts
         azlin connect my-vm --max-retries 5
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        from azlin.context_manager import ContextError
+
+        try:
+            ContextManager.ensure_subscription_active(config)
+        except ContextError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+        # Get passthrough command from context (if using -- syntax)
+        # AzlinGroup strips -- and everything after from sys.argv and stores in ctx.obj
+        if ctx.obj and "passthrough_command" in ctx.obj:
+            passthrough_cmd = ctx.obj["passthrough_command"]
+            # Override remote_command with the passthrough version
+            remote_command = tuple(passthrough_cmd.split())
+
         # Interactive VM selection if no identifier provided
         if not vm_identifier:
             rg = ConfigManager.get_resource_group(resource_group, config)
@@ -4398,6 +4666,7 @@ def connect(
             ssh_key_path=key_path,
             enable_reconnect=not no_reconnect,
             max_reconnect_retries=max_retries,
+            skip_prompts=yes,
         )
 
         sys.exit(0 if success else 1)
@@ -4414,6 +4683,167 @@ def connect(
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         logger.exception("Unexpected error in connect command")
+        sys.exit(1)
+
+
+@main.command(name="code")
+@click.argument("vm_identifier", type=str)
+@click.option("--resource-group", "--rg", help="Resource group (required for VM name)", type=str)
+@click.option("--config", help="Config file path", type=click.Path())
+@click.option("--user", default="azureuser", help="SSH username (default: azureuser)", type=str)
+@click.option("--key", help="SSH private key path", type=click.Path(exists=True))
+@click.option("--no-extensions", is_flag=True, help="Skip extension installation (faster launch)")
+@click.option("--workspace", help="Remote workspace path (default: /home/user)", type=str)
+def code_command(
+    vm_identifier: str,
+    resource_group: str | None,
+    config: str | None,
+    user: str,
+    key: str | None,
+    no_extensions: bool,
+    workspace: str | None,
+):
+    """Launch VS Code with Remote-SSH for a VM.
+
+    One-click VS Code launch that automatically:
+    - Configures SSH connection in ~/.ssh/config
+    - Installs configured extensions from ~/.azlin/vscode/extensions.json
+    - Sets up port forwarding from ~/.azlin/vscode/ports.json
+    - Launches VS Code Remote-SSH
+
+    VM_IDENTIFIER can be:
+    - VM name (requires --resource-group or default config)
+    - Session name (will be resolved to VM name)
+    - IP address (direct connection)
+
+    Configuration:
+    Create ~/.azlin/vscode/ directory with optional files:
+    - extensions.json: {"extensions": ["ms-python.python", ...]}
+    - ports.json: {"forwards": [{"local": 3000, "remote": 3000}, ...]}
+    - settings.json: VS Code workspace settings
+
+    \b
+    Examples:
+        # Launch VS Code for VM
+        azlin code my-dev-vm
+
+        # Launch with explicit resource group
+        azlin code my-vm --rg my-resource-group
+
+        # Launch by session name
+        azlin code my-project
+
+        # Launch by IP address
+        azlin code 20.1.2.3
+
+        # Skip extension installation (faster)
+        azlin code my-vm --no-extensions
+
+        # Open specific remote directory
+        azlin code my-vm --workspace /home/azureuser/projects
+
+        # Custom SSH user
+        azlin code my-vm --user myuser
+
+        # Custom SSH key
+        azlin code my-vm --key ~/.ssh/custom_key
+    """
+    try:
+        # Resolve session name to VM name
+        vm_identifier, original_identifier = _resolve_vm_identifier(vm_identifier, config)
+
+        # Get resource group for VM name (not IP)
+        if not VMConnector.is_valid_ip(vm_identifier):
+            rg = ConfigManager.get_resource_group(resource_group, config)
+            if not rg:
+                click.echo(
+                    "Error: Resource group required for VM name.\n"
+                    "Use --resource-group or set default in ~/.azlin/config.toml",
+                    err=True,
+                )
+                sys.exit(1)
+            _verify_vm_exists(vm_identifier, original_identifier, rg)
+        else:
+            rg = resource_group
+
+        # Get VM information
+        click.echo(f"Setting up VS Code for {original_identifier}...")
+
+        if VMConnector.is_valid_ip(vm_identifier):
+            # Direct IP connection
+            vm_ip = vm_identifier
+            vm_name = f"vm-{vm_ip.replace('.', '-')}"
+        else:
+            # Get VM info from Azure
+            if not rg:
+                click.echo("Error: Resource group required", err=True)
+                sys.exit(1)
+
+            vm_info = VMManager.get_vm(vm_identifier, rg)
+            if vm_info is None:
+                click.echo(
+                    f"Error: VM '{vm_identifier}' not found in resource group '{rg}'", err=True
+                )
+                sys.exit(1)
+
+            vm_ip = vm_info.public_ip or vm_info.private_ip
+
+            if not vm_ip:
+                click.echo(f"Error: No IP address found for VM {vm_identifier}", err=True)
+                sys.exit(1)
+
+            vm_name = vm_info.name
+
+        # Ensure SSH key exists
+        key_path = Path(key).expanduser() if key else Path.home() / ".ssh" / "azlin_key"
+        ssh_keys = SSHKeyManager.ensure_key_exists(key_path)
+
+        # Launch VS Code
+        click.echo("Configuring VS Code Remote-SSH...")
+
+        VSCodeLauncher.launch(
+            vm_name=vm_name,
+            host=vm_ip,
+            user=user,
+            key_path=ssh_keys.private_path,
+            install_extensions=not no_extensions,
+            workspace_path=workspace,
+        )
+
+        click.echo(f"\n✓ VS Code launched successfully for {original_identifier}")
+        click.echo(f"  SSH Host: azlin-{vm_name}")
+        click.echo(f"  User: {user}@{vm_ip}")
+
+        if not no_extensions:
+            click.echo("\nExtensions will be installed in VS Code.")
+            click.echo("Use --no-extensions to skip extension installation for faster launch.")
+
+        click.echo("\nTo customize:")
+        click.echo("  Extensions: ~/.azlin/vscode/extensions.json")
+        click.echo("  Port forwards: ~/.azlin/vscode/ports.json")
+        click.echo("  Settings: ~/.azlin/vscode/settings.json")
+
+    except VSCodeNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except VSCodeLauncherError as e:
+        click.echo(f"Error launching VS Code: {e}", err=True)
+        sys.exit(1)
+    except VMManagerError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"Config error: {e}", err=True)
+        sys.exit(1)
+    except SSHKeyError as e:
+        click.echo(f"SSH key error: {e}", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.exception("Unexpected error in code command")
         sys.exit(1)
 
 
@@ -4792,7 +5222,7 @@ def _execute_sync(selected_vm: VMInfo, ssh_key_pair: SSHKeyPair, dry_run: bool) 
 
             # Create tunnel
             click.echo(f"Creating Bastion tunnel through {bastion_info['name']}...")
-            tunnel = bastion_mgr.create_tunnel(
+            _tunnel = bastion_mgr.create_tunnel(
                 bastion_name=bastion_info["name"],
                 resource_group=bastion_info["resource_group"],
                 target_vm_id=vm_resource_id,
@@ -5466,6 +5896,15 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
         azlin status --vm my-vm
     """
     try:
+        # Ensure Azure CLI subscription matches current context
+        from azlin.context_manager import ContextError
+
+        try:
+            ContextManager.ensure_subscription_active(config)
+        except ContextError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
@@ -5674,8 +6113,6 @@ def _do_impl(
     Raises:
         SystemExit: On various error conditions with appropriate exit codes
     """
-    import logging
-
     logger = logging.getLogger(__name__)
 
     try:
@@ -7798,9 +8235,21 @@ main.add_command(context_group)
 # Register bastion commands
 main.add_command(bastion_group)
 
+# Register compose commands
+main.add_command(compose_group)
+
 # Register storage commands
 main.add_command(storage_group)
 main.add_command(tag_group)
+
+# Register autopilot commands
+main.add_command(autopilot_group)
+
+# Register fleet commands
+main.add_command(fleet_group)
+
+# Register GitHub runner commands
+main.add_command(github_runner_group)
 
 # Register doit commands (replace old doit if it exists)
 if "doit" in main.commands:

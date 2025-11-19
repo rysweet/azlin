@@ -109,6 +109,7 @@ class AzlinConfig:
     session_names: dict[str, str] | None = None  # vm_name -> session_name mapping
     vm_storage: dict[str, str] | None = None  # vm_name -> storage_name mapping (for NFS)
     default_nfs_storage: str | None = None  # Default NFS storage for new VMs
+    github_runner_fleets: dict[str, dict[str, Any]] | None = None  # pool_name -> fleet config
 
     def __post_init__(self):
         """Set platform-appropriate default for notification_command if None."""

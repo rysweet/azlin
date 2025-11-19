@@ -22,7 +22,7 @@ import click
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.connection_tracker import ConnectionTracker
 from azlin.modules.bastion_config import BastionConfig
-from azlin.modules.bastion_detector import BastionDetector
+from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.ssh_connector import SSHConfig, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
@@ -48,6 +48,7 @@ class ConnectionInfo:
     resource_group: str
     ssh_user: str = "azureuser"
     ssh_key_path: Path | None = None
+    location: str | None = None  # VM region for Bastion matching
 
 
 class VMConnector:
@@ -83,6 +84,7 @@ class VMConnector:
         use_bastion: bool = False,
         bastion_name: str | None = None,
         bastion_resource_group: str | None = None,
+        skip_prompts: bool = False,
     ) -> bool:
         """Connect to a VM via SSH (with optional Bastion routing).
 
@@ -99,6 +101,7 @@ class VMConnector:
             use_bastion: Force use of Bastion tunnel (default: False)
             bastion_name: Bastion host name (optional, auto-detected if not provided)
             bastion_resource_group: Bastion resource group (optional)
+            skip_prompts: Skip all confirmation prompts (default: False)
 
         Returns:
             True if connection successful
@@ -151,7 +154,11 @@ class VMConnector:
             if not should_use_bastion and not cls.is_valid_ip(vm_identifier):
                 # Auto-detect Bastion if not connecting by IP
                 bastion_info = cls._check_bastion_routing(
-                    conn_info.vm_name, conn_info.resource_group, use_bastion
+                    conn_info.vm_name,
+                    conn_info.resource_group,
+                    use_bastion,
+                    conn_info.location,  # Pass VM location for region filtering
+                    skip_prompts,
                 )
                 should_use_bastion = bastion_info is not None
 
@@ -162,16 +169,17 @@ class VMConnector:
                         raise VMConnectorError(
                             "Bastion name required when using --use-bastion flag"
                         )
-                    bastion_info = {
-                        "name": bastion_name,
-                        "resource_group": bastion_resource_group or resource_group,
-                    }
+                    bastion_info = BastionInfo(
+                        name=bastion_name,
+                        resource_group=bastion_resource_group or resource_group,
+                        location=None,
+                    )
 
                 bastion_manager, bastion_tunnel = cls._create_bastion_tunnel(
                     vm_name=conn_info.vm_name,
                     resource_group=conn_info.resource_group,
-                    bastion_name=bastion_info["name"],
-                    bastion_resource_group=bastion_info["resource_group"],
+                    bastion_name=bastion_info.name,
+                    bastion_resource_group=bastion_info.resource_group,
                 )
 
                 # Update connection info to use tunnel
@@ -179,7 +187,7 @@ class VMConnector:
                 ssh_port = bastion_tunnel.local_port
 
                 logger.info(
-                    f"Connecting through Bastion tunnel: {bastion_info['name']} "
+                    f"Connecting through Bastion tunnel: {bastion_info.name} "
                     f"(127.0.0.1:{ssh_port})"
                 )
 
@@ -414,6 +422,7 @@ class VMConnector:
                 resource_group=resource_group,
                 ssh_user=ssh_user,
                 ssh_key_path=ssh_key_path,
+                location=vm_info.location,  # Capture VM region for Bastion matching
             )
 
         except VMManagerError as e:
@@ -421,8 +430,13 @@ class VMConnector:
 
     @classmethod
     def _check_bastion_routing(
-        cls, vm_name: str, resource_group: str, force_bastion: bool
-    ) -> dict[str, str] | None:
+        cls,
+        vm_name: str,
+        resource_group: str,
+        force_bastion: bool,
+        vm_location: str | None = None,
+        skip_prompts: bool = False,
+    ) -> BastionInfo | None:
         """Check if Bastion routing should be used for VM.
 
         Checks configuration and auto-detects Bastion hosts.
@@ -431,9 +445,11 @@ class VMConnector:
             vm_name: VM name
             resource_group: Resource group
             force_bastion: Force use of Bastion
+            vm_location: VM region for Bastion region filtering (optional)
+            skip_prompts: Skip confirmation prompts (default: False)
 
         Returns:
-            Dict with bastion name and resource_group if should use Bastion, None otherwise
+            BastionInfo with bastion name, resource_group, and location if should use Bastion, None otherwise
         """
         # If forcing Bastion, skip checks
         if force_bastion:
@@ -453,24 +469,37 @@ class VMConnector:
             mapping = bastion_config.get_mapping(vm_name)
             if mapping:
                 logger.info(f"Using configured Bastion mapping for {vm_name}")
-                return {
-                    "name": mapping.bastion_name,
-                    "resource_group": mapping.bastion_resource_group,
-                }
+                return BastionInfo(
+                    name=mapping.bastion_name,
+                    resource_group=mapping.bastion_resource_group,
+                    location=None,
+                )
 
         except Exception as e:
             logger.debug(f"Could not load Bastion config: {e}")
 
         # Auto-detect Bastion
         try:
-            bastion_info = BastionDetector.detect_bastion_for_vm(vm_name, resource_group)
+            bastion_info: BastionInfo | None = BastionDetector.detect_bastion_for_vm(
+                vm_name, resource_group, vm_location
+            )
 
             if bastion_info:
-                # Prompt user
-                if click.confirm(
-                    f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
-                    default=False,
-                ):
+                # Prompt user or auto-accept if skip_prompts (default changed to True for security by default)
+                if skip_prompts:
+                    logger.info("Skipping prompts, using Bastion (default)")
+                    return bastion_info
+
+                try:
+                    if click.confirm(
+                        f"Found Bastion host '{bastion_info.name}'. Use it for connection?",
+                        default=True,
+                    ):
+                        return bastion_info
+                    logger.info("User declined Bastion connection, using direct connection")
+                except click.exceptions.Abort:
+                    # Non-interactive mode - use default (True)
+                    logger.info("Non-interactive mode, using Bastion (default)")
                     return bastion_info
 
                 logger.info("User declined Bastion connection, using direct connection")

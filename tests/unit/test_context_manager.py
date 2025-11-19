@@ -1,7 +1,10 @@
 """Unit tests for context_manager module."""
 
 import os
+import subprocess as real_subprocess
+import threading
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -584,6 +587,176 @@ tenant_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
         # Should fail without custom_path
         with pytest.raises(ContextError, match="Cannot save to production config during tests"):
             ContextManager.save(config, custom_path=None)
+
+        del os.environ["AZLIN_TEST_MODE"]
+
+
+class TestEnsureSubscriptionActive:
+    """Tests for ensure_subscription_active method."""
+
+    def test_successful_subscription_switch(self, tmp_path):
+        """Test successful subscription switching when context is set."""
+        # Create config with context
+        config_path = tmp_path / "config.toml"
+        ctx = Context(
+            name="production",
+            subscription_id="12345678-1234-1234-1234-123456789abc",
+            tenant_id="87654321-4321-4321-4321-cba987654321",
+        )
+        config = ContextConfig(current="production", contexts={"production": ctx})
+
+        # Save config
+        os.environ["AZLIN_TEST_MODE"] = "true"
+        ContextManager.save(config, str(config_path))
+
+        # Mock subprocess.run to simulate successful Azure CLI command
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            # Call ensure_subscription_active
+            result = ContextManager.ensure_subscription_active(str(config_path))
+
+            # Verify subscription ID returned
+            assert result == "12345678-1234-1234-1234-123456789abc"
+
+            # Verify Azure CLI was called with correct arguments
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            assert call_args[0][0] == [
+                "az",
+                "account",
+                "set",
+                "--subscription",
+                "12345678-1234-1234-1234-123456789abc",
+            ]
+            assert call_args[1]["check"] is True
+            assert call_args[1]["capture_output"] is True
+            assert call_args[1]["timeout"] == 10
+
+        del os.environ["AZLIN_TEST_MODE"]
+
+    def test_no_context_set(self, tmp_path):
+        """Test error when no current context is set."""
+        # Create config without current context
+        config_path = tmp_path / "config.toml"
+        ctx = Context(
+            name="production",
+            subscription_id="12345678-1234-1234-1234-123456789abc",
+            tenant_id="87654321-4321-4321-4321-cba987654321",
+        )
+        config = ContextConfig(current=None, contexts={"production": ctx})
+
+        os.environ["AZLIN_TEST_MODE"] = "true"
+        ContextManager.save(config, str(config_path))
+
+        # Should raise ContextError
+        with pytest.raises(ContextError, match="No current context set"):
+            ContextManager.ensure_subscription_active(str(config_path))
+
+        del os.environ["AZLIN_TEST_MODE"]
+
+    def test_subprocess_failure(self, tmp_path):
+        """Test error handling when subprocess fails."""
+        # Create config with context
+        config_path = tmp_path / "config.toml"
+        ctx = Context(
+            name="production",
+            subscription_id="12345678-1234-1234-1234-123456789abc",
+            tenant_id="87654321-4321-4321-4321-cba987654321",
+        )
+        config = ContextConfig(current="production", contexts={"production": ctx})
+
+        os.environ["AZLIN_TEST_MODE"] = "true"
+        ContextManager.save(config, str(config_path))
+
+        # Mock subprocess.run to simulate failure
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = real_subprocess.CalledProcessError(
+                returncode=1, cmd=["az", "account", "set"], stderr="Subscription not found"
+            )
+
+            # Should raise ContextError with details
+            with pytest.raises(ContextError, match="Failed to switch Azure subscription"):
+                ContextManager.ensure_subscription_active(str(config_path))
+
+        del os.environ["AZLIN_TEST_MODE"]
+
+    def test_custom_config_path(self, tmp_path):
+        """Test using custom config path."""
+        # Create config in custom location
+        custom_dir = tmp_path / "custom"
+        custom_dir.mkdir()
+        config_path = custom_dir / "my_config.toml"
+
+        ctx = Context(
+            name="staging",
+            subscription_id="11111111-1111-1111-1111-111111111111",
+            tenant_id="22222222-2222-2222-2222-222222222222",
+        )
+        config = ContextConfig(current="staging", contexts={"staging": ctx})
+
+        os.environ["AZLIN_TEST_MODE"] = "true"
+        ContextManager.save(config, str(config_path))
+
+        # Mock subprocess.run
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            # Call with custom path
+            result = ContextManager.ensure_subscription_active(str(config_path))
+
+            # Verify correct subscription
+            assert result == "11111111-1111-1111-1111-111111111111"
+
+            # Verify Azure CLI called with correct subscription
+            call_args = mock_run.call_args
+            assert "11111111-1111-1111-1111-111111111111" in call_args[0][0]
+
+        del os.environ["AZLIN_TEST_MODE"]
+
+    def test_thread_safety(self, tmp_path):
+        """Test that concurrent calls are thread-safe."""
+        # Create config
+        config_path = tmp_path / "config.toml"
+        ctx = Context(
+            name="production",
+            subscription_id="12345678-1234-1234-1234-123456789abc",
+            tenant_id="87654321-4321-4321-4321-cba987654321",
+        )
+        config = ContextConfig(current="production", contexts={"production": ctx})
+
+        os.environ["AZLIN_TEST_MODE"] = "true"
+        ContextManager.save(config, str(config_path))
+
+        results = []
+        errors = []
+
+        # Mock subprocess.run at module level so all threads share the same mock
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            def call_ensure():
+                try:
+                    result = ContextManager.ensure_subscription_active(str(config_path))
+                    results.append(result)
+                except Exception as e:
+                    errors.append(e)
+
+            # Create multiple threads
+            threads = [threading.Thread(target=call_ensure) for _ in range(10)]
+
+            # Start all threads
+            for t in threads:
+                t.start()
+
+            # Wait for all threads
+            for t in threads:
+                t.join()
+
+        # Verify no errors and all calls succeeded
+        assert len(errors) == 0
+        assert len(results) == 10
+        assert all(r == "12345678-1234-1234-1234-123456789abc" for r in results)
 
         del os.environ["AZLIN_TEST_MODE"]
 

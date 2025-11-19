@@ -12,9 +12,11 @@ import sys
 from pathlib import Path
 
 import click
+from rich.console import Console
 
 from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
+from azlin.context_manager import ContextError, ContextManager
 from azlin.modules.nfs_mount_manager import NFSMountManager
 from azlin.modules.storage_manager import StorageManager
 from azlin.vm_manager import VMManager
@@ -92,7 +94,15 @@ def create_storage(name: str, size: int, tier: str, resource_group: str | None, 
       $ azlin storage create myteam-shared --size 100 --tier Premium
       $ azlin storage create backups --size 500 --tier Standard
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get config
         try:
             config = ConfigManager.load_config()
@@ -159,7 +169,15 @@ def list_storage(resource_group: str | None):
       $ azlin storage list
       $ azlin storage list --resource-group azlin-rg
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get config
         try:
             config = ConfigManager.load_config()
@@ -212,7 +230,15 @@ def show_status(name: str, resource_group: str | None):
     Examples:
       $ azlin storage status myteam-shared
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get config
         try:
             config = ConfigManager.load_config()
@@ -272,7 +298,15 @@ def delete_storage(name: str, resource_group: str | None, force: bool):
       $ azlin storage delete myteam-shared
       $ azlin storage delete old-storage --force
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get config
         try:
             config = ConfigManager.load_config()
@@ -347,7 +381,15 @@ def mount_storage(storage_name: str, vm: str, resource_group: str | None):
     Examples:
       $ azlin storage mount myteam-shared --vm my-dev-vm
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get config
         try:
             config = ConfigManager.load_config()
@@ -447,7 +489,15 @@ def unmount_storage(vm: str, resource_group: str | None):
     Examples:
       $ azlin storage unmount --vm my-dev-vm
     """
+    console = Console()
     try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
         # Get config
         try:
             config = ConfigManager.load_config()

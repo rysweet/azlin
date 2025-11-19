@@ -76,8 +76,14 @@ class TestUvxPackaging:
 
         This is an integration test that requires uv/uvx to be installed.
         """
+        from unittest.mock import patch
+
         # Get repo root (2 levels up from this test file)
         repo_root = Path(__file__).parents[2]
+
+        # Ensure subprocess.run is NOT mocked for this integration test
+        # Use stopall() to clear any existing patches
+        patch.stopall()
 
         # Try to run azlin --help via uvx from local directory
         result = subprocess.run(

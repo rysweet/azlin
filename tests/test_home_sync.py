@@ -346,9 +346,10 @@ MIIEpAIBAAKCAQEA...
         sync_dir.mkdir()
 
         script_file = sync_dir / "deploy.sh"
-        # Construct fake token to avoid GitGuardian false positive
+        # Use a deliberately fake token pattern that still triggers the scanner
         # This tests our scanner's ability to detect the ghp_ pattern
-        fake_token = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz"
+        # Split construction to avoid GitGuardian false positive in test code itself
+        fake_token = "g" + "hp_" + "1234567890abcdefghijklmnopqrstuvwxyz"
         script_file.write_text(
             f"""
 export GITHUB_TOKEN={fake_token}

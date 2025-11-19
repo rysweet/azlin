@@ -23,10 +23,16 @@ from azlin.tag_manager import TagManagerError
 class TestTagAddCommand:
     """Test 'azlin tag add' command - Issue #185."""
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_single_tag_success(self, mock_add_tags, mock_config_load, mock_get_vm):
+    def test_tag_add_single_tag_success(
+        self, mock_add_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test adding a single tag to a VM successfully.
 
         Expected command: azlin tag add myvm environment=production
@@ -54,10 +60,16 @@ class TestTagAddCommand:
         # Verify TagManager.add_tags was called correctly
         mock_add_tags.assert_called_once_with("myvm", "test-rg", {"environment": "production"})
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_multiple_tags_success(self, mock_add_tags, mock_config_load, mock_get_vm):
+    def test_tag_add_multiple_tags_success(
+        self, mock_add_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test adding multiple tags to a VM in a single command.
 
         Expected command: azlin tag add myvm env=prod team=backend version=1.0
@@ -87,10 +99,16 @@ class TestTagAddCommand:
             "myvm", "test-rg", {"env": "prod", "team": "backend", "version": "1.0"}
         )
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_with_spaces_in_value(self, mock_add_tags, mock_config_load, mock_get_vm):
+    def test_tag_add_with_spaces_in_value(
+        self, mock_add_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test adding tag with spaces in value.
 
         Expected command: azlin tag add myvm "description=Production Web Server"
@@ -111,10 +129,16 @@ class TestTagAddCommand:
             "myvm", "test-rg", {"description": "Production Web Server"}
         )
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_with_resource_group_flag(self, mock_add_tags, mock_config_load, mock_get_vm):
+    def test_tag_add_with_resource_group_flag(
+        self, mock_add_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test adding tags with explicit --resource-group flag.
 
         Expected command: azlin tag add myvm env=prod --resource-group custom-rg
@@ -139,9 +163,13 @@ class TestTagAddCommand:
         # Verify custom resource group was used
         mock_add_tags.assert_called_once_with("myvm", "custom-rg", {"env": "prod"})
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
-    def test_tag_add_invalid_format_no_equals(self, mock_config_load, mock_get_vm):
+    def test_tag_add_invalid_format_no_equals(self, mock_config_load, mock_get_vm, mock_ensure_sub):
         """Test adding tag with invalid format (missing =).
 
         Expected command: azlin tag add myvm invalid_tag
@@ -163,9 +191,13 @@ class TestTagAddCommand:
         assert result.exit_code != 0, "Should fail with invalid tag format"
         assert "key=value" in result.output.lower() or "invalid" in result.output.lower()
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
-    def test_tag_add_empty_key(self, mock_config_load, mock_get_vm):
+    def test_tag_add_empty_key(self, mock_config_load, mock_get_vm, mock_ensure_sub):
         """Test adding tag with empty key.
 
         Expected command: azlin tag add myvm =value
@@ -183,10 +215,16 @@ class TestTagAddCommand:
         assert result.exit_code != 0, "Should fail with empty key"
         assert "invalid" in result.output.lower() or "empty" in result.output.lower()
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_tagmanager_error(self, mock_add_tags, mock_config_load, mock_get_vm):
+    def test_tag_add_tagmanager_error(
+        self, mock_add_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test handling TagManager errors during tag add.
 
         This test verifies:
@@ -206,8 +244,12 @@ class TestTagAddCommand:
         assert result.exit_code != 0, "Should fail when TagManager raises error"
         assert "error" in result.output.lower() or "failed" in result.output.lower()
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.ConfigManager.load_config")
-    def test_tag_add_no_resource_group_in_config(self, mock_config_load):
+    def test_tag_add_no_resource_group_in_config(self, mock_config_load, mock_ensure_sub):
         """Test tag add fails gracefully when no resource group configured.
 
         This test verifies:
@@ -230,10 +272,16 @@ class TestTagAddCommand:
 class TestTagRemoveCommand:
     """Test 'azlin tag remove' command - Issue #185."""
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.remove_tags")
-    def test_tag_remove_single_key_success(self, mock_remove_tags, mock_config_load, mock_get_vm):
+    def test_tag_remove_single_key_success(
+        self, mock_remove_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test removing a single tag from a VM.
 
         Expected command: azlin tag remove myvm environment
@@ -258,11 +306,15 @@ class TestTagRemoveCommand:
         # Verify TagManager.remove_tags called with correct parameters
         mock_remove_tags.assert_called_once_with("myvm", "test-rg", ["environment"])
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.remove_tags")
     def test_tag_remove_multiple_keys_success(
-        self, mock_remove_tags, mock_config_load, mock_get_vm
+        self, mock_remove_tags, mock_config_load, mock_get_vm, mock_ensure_sub
     ):
         """Test removing multiple tags from a VM.
 
@@ -284,11 +336,15 @@ class TestTagRemoveCommand:
         # Verify all keys were passed
         mock_remove_tags.assert_called_once_with("myvm", "test-rg", ["env", "team", "version"])
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.remove_tags")
     def test_tag_remove_with_resource_group_flag(
-        self, mock_remove_tags, mock_config_load, mock_get_vm
+        self, mock_remove_tags, mock_config_load, mock_get_vm, mock_ensure_sub
     ):
         """Test removing tags with explicit --resource-group flag.
 
@@ -310,10 +366,16 @@ class TestTagRemoveCommand:
         # Verify custom resource group was used
         mock_remove_tags.assert_called_once_with("myvm", "custom-rg", ["env"])
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.remove_tags")
-    def test_tag_remove_tagmanager_error(self, mock_remove_tags, mock_config_load, mock_get_vm):
+    def test_tag_remove_tagmanager_error(
+        self, mock_remove_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test handling TagManager errors during tag remove.
 
         Expected to FAIL until command is implemented.
@@ -332,10 +394,16 @@ class TestTagRemoveCommand:
 class TestTagListCommand:
     """Test 'azlin tag list' command - Issue #185."""
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.get_tags")
-    def test_tag_list_success_with_tags(self, mock_get_tags, mock_config_load, mock_get_vm):
+    def test_tag_list_success_with_tags(
+        self, mock_get_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test listing tags from a VM with tags.
 
         Expected command: azlin tag list myvm
@@ -371,10 +439,16 @@ class TestTagListCommand:
         # Verify get_tags was called correctly
         mock_get_tags.assert_called_once_with("myvm", "test-rg")
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.get_tags")
-    def test_tag_list_vm_with_no_tags(self, mock_get_tags, mock_config_load, mock_get_vm):
+    def test_tag_list_vm_with_no_tags(
+        self, mock_get_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test listing tags from a VM with no tags.
 
         This test verifies:
@@ -397,10 +471,16 @@ class TestTagListCommand:
             or "empty" in result.output.lower()
         )
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.get_tags")
-    def test_tag_list_with_resource_group_flag(self, mock_get_tags, mock_config_load, mock_get_vm):
+    def test_tag_list_with_resource_group_flag(
+        self, mock_get_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test listing tags with explicit --resource-group flag.
 
         Expected command: azlin tag list myvm --resource-group custom-rg
@@ -419,10 +499,16 @@ class TestTagListCommand:
         # Verify custom resource group was used
         mock_get_tags.assert_called_once_with("myvm", "custom-rg")
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.get_tags")
-    def test_tag_list_tagmanager_error(self, mock_get_tags, mock_config_load, mock_get_vm):
+    def test_tag_list_tagmanager_error(
+        self, mock_get_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test handling TagManager errors during tag list.
 
         Expected to FAIL until command is implemented.
@@ -493,10 +579,16 @@ class TestTagCommandEdgeCases:
         # Should fail - need at least one key
         assert result.exit_code != 0, "Should fail when no keys provided"
 
+    @patch(
+        "azlin.context_manager.ContextManager.ensure_subscription_active",
+        return_value="test-sub-id",
+    )
     @patch("azlin.commands.tag.VMManager.get_vm")
     @patch("azlin.commands.tag.ConfigManager.load_config")
     @patch("azlin.commands.tag.TagManager.add_tags")
-    def test_tag_add_with_equals_in_value(self, mock_add_tags, mock_config_load, mock_get_vm):
+    def test_tag_add_with_equals_in_value(
+        self, mock_add_tags, mock_config_load, mock_get_vm, mock_ensure_sub
+    ):
         """Test adding tag with '=' character in the value.
 
         Expected command: azlin tag add myvm "url=https://example.com?foo=bar"
