@@ -19,7 +19,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import NoReturn
 
 from azure.core.credentials import TokenCredential
 from azure.core.exceptions import (
@@ -29,8 +29,8 @@ from azure.core.exceptions import (
 )
 from azure.keyvault.secrets import SecretClient
 
-from azlin.authentication_chain import AuthenticationChain, AuthenticationChainError
 from azlin.auth_models import AuthConfig
+from azlin.authentication_chain import AuthenticationChain, AuthenticationChainError
 from azlin.log_sanitizer import LogSanitizer
 
 logger = logging.getLogger(__name__)
@@ -80,8 +80,8 @@ class SSHKeyVaultManager:
     """
 
     # Secret name format: azlin-{vm-name}-ssh-private
-    SECRET_NAME_PREFIX = "azlin-"
-    SECRET_NAME_SUFFIX = "-ssh-private"
+    SECRET_NAME_PREFIX = "azlin-"  # noqa: S105
+    SECRET_NAME_SUFFIX = "-ssh-private"  # noqa: S105
 
     def __init__(self, config: KeyVaultConfig):
         """Initialize Key Vault manager.
@@ -112,7 +112,9 @@ class SSHKeyVaultManager:
                 )
                 logger.debug(f"Created SecretClient for vault: {self.config.vault_name}")
             except Exception as e:
-                safe_error = LogSanitizer.create_safe_error_message(e, "Failed to create SecretClient")
+                safe_error = LogSanitizer.create_safe_error_message(
+                    e, "Failed to create SecretClient"
+                )
                 raise KeyVaultError(safe_error) from e
 
         return self._client
@@ -129,7 +131,7 @@ class SSHKeyVaultManager:
         safe_name = vm_name.replace("_", "-").lower()
         return f"{self.SECRET_NAME_PREFIX}{safe_name}{self.SECRET_NAME_SUFFIX}"
 
-    def _handle_vault_exception(self, e: Exception, operation: str, secret_name: str) -> None:
+    def _handle_vault_exception(self, e: Exception, operation: str, secret_name: str) -> NoReturn:
         """Handle Key Vault exceptions with consistent error messages.
 
         Args:
@@ -144,7 +146,11 @@ class SSHKeyVaultManager:
             safe_error = LogSanitizer.create_safe_error_message(
                 e, f"Authentication failed {operation} key"
             )
-            role = "Key Vault Secrets Officer" if operation in ["storing", "deleting"] else "Key Vault Secrets User"
+            role = (
+                "Key Vault Secrets Officer"
+                if operation in ["storing", "deleting"]
+                else "Key Vault Secrets User"
+            )
             raise KeyVaultError(
                 f"{safe_error}\n"
                 f"Ensure service principal has '{role}' role on vault: {self.config.vault_name}"
@@ -153,7 +159,11 @@ class SSHKeyVaultManager:
         if isinstance(e, HttpResponseError):
             safe_error = LogSanitizer.create_safe_error_message(e, f"HTTP error {operation} key")
             if e.status_code == 403:
-                role = "Key Vault Secrets Officer" if operation in ["storing", "deleting"] else "Key Vault Secrets User"
+                role = (
+                    "Key Vault Secrets Officer"
+                    if operation in ["storing", "deleting"]
+                    else "Key Vault Secrets User"
+                )
                 raise KeyVaultError(
                     f"Permission denied {operation} key in vault: {self.config.vault_name}\n"
                     f"Ensure service principal has '{role}' role.\n"
@@ -235,13 +245,16 @@ class SSHKeyVaultManager:
         logger.info(f"Retrieving SSH key from Key Vault: {secret_name}")
         logger.debug(f"Vault: {self.config.vault_name}, VM: {vm_name}")
 
+        private_key_content: str
         try:
             # Retrieve from Key Vault
             secret = self.client.get_secret(secret_name)
-            private_key_content = secret.value
+            key_value = secret.value
 
-            if not private_key_content:
+            if not key_value:
                 raise KeyVaultError(f"Retrieved key is empty: {secret_name}")
+
+            private_key_content = key_value
 
         except ResourceNotFoundError as e:
             raise KeyVaultError(
@@ -255,7 +268,9 @@ class SSHKeyVaultManager:
         except KeyVaultError:
             raise
         except Exception as e:
-            safe_error = LogSanitizer.create_safe_error_message(e, "Unexpected error retrieving key")
+            safe_error = LogSanitizer.create_safe_error_message(
+                e, "Unexpected error retrieving key"
+            )
             raise KeyVaultError(safe_error) from e
 
         # Write to target path with secure permissions
@@ -303,6 +318,7 @@ class SSHKeyVaultManager:
             return False
         except (ClientAuthenticationError, HttpResponseError) as e:
             self._handle_vault_exception(e, "deleting", secret_name)
+            return False  # Unreachable, but satisfies type checker
         except Exception as e:
             safe_error = LogSanitizer.create_safe_error_message(e, "Unexpected error deleting key")
             raise KeyVaultError(safe_error) from e
@@ -328,6 +344,7 @@ class SSHKeyVaultManager:
             return False
         except (ClientAuthenticationError, HttpResponseError) as e:
             self._handle_vault_exception(e, "checking", secret_name)
+            return False  # Unreachable, but satisfies type checker
         except Exception as e:
             safe_error = LogSanitizer.create_safe_error_message(e, "Unexpected error checking key")
             raise KeyVaultError(safe_error) from e
@@ -353,7 +370,7 @@ def create_key_vault_manager(
     try:
         result = AuthenticationChain.authenticate(auth_config)
 
-        if not result.success:
+        if not result.success or result.credentials is None:
             raise KeyVaultError(f"Authentication failed: {result.error}")
 
         config = KeyVaultConfig(
