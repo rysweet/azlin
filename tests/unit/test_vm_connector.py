@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyPair
-from azlin.terminal_launcher import TerminalLauncherError
 from azlin.vm_connector import ConnectionInfo, VMConnector, VMConnectorError
 from azlin.vm_manager import VMInfo
 

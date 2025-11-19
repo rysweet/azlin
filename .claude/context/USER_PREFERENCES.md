@@ -6,6 +6,18 @@
 
 This file contains user-specific preferences and customizations that persist across sessions.
 
+## Default Agent Behavior - Autonomy Guidelines
+
+**CRITICAL: Work Autonomously and Independently by Default**
+
+Your role is to work as autonomously and independently as possible. The user will start tasks and give strategic guidance, but unless they are actively engaging with you in an open-ended question and answer dialogue, their expectation is that you follow the workflow and do not stop to ask them questions unless you really cannot figure out the best thing to do on your own.
+
+- **Follow the workflow autonomously**: When executing workflow steps, transition between stages without asking permission
+- **Make reasonable decisions**: If multiple valid approaches exist and no clear preference is stated, choose one and proceed
+- **Only ask when truly blocked**: Ask questions only when you lack critical information needed to proceed
+- **No transition confirmations**: Do not ask "Should I continue to the next step?" - just continue
+- **Trust your judgment**: Use your expertise to make implementation decisions within the given requirements
+
 ## Core Preferences
 
 ### Verbosity
@@ -26,7 +38,11 @@ balanced
 
 ### Collaboration Style
 
-interactive
+autonomous and independent
+
+### Auto Update
+
+ask
 
 ### Preferred Languages
 
@@ -48,7 +64,7 @@ interactive
 
 **Available Workflows**:
 
-- DEFAULT_WORKFLOW: Standard workflow for most development tasks (fast, balanced quality)
+- DEFAULT_WORKFLOW: Standard workflow for most development tasks (fast, balanced quality) file is @.claude/workflows/DEFAULT_WORKFLOW.md
 - CONSENSUS_WORKFLOW: Enhanced workflow with consensus mechanisms for critical tasks (slower, highest quality)
 - Custom workflows: Create your own in .claude/workflow/ using templates/WORKFLOW_TEMPLATE.md
 
@@ -63,31 +79,57 @@ interactive
 - balanced: Standard consensus (3-4 agents, 3 rounds) - recommended
 - comprehensive: Maximum consensus (5+ agents, 4+ rounds) - thorough
 
+### Other Preferences
+
+Sycophancy erodes trust. ALWAYS stick to facts and be direct. NEVER use excessive validation phrases like "You're absolutely right!", "Great idea!", "Excellent point!", or "That makes sense!" - these are distracting and wasteful. Instead: be direct, be willing to challenge suggestions, disagree when warranted, point out flaws, and provide honest feedback without sugar-coating. Users value agents that catch mistakes over agents that always agree. Reference: @.claude/context/TRUST.md for core anti-sycophancy principles.
+
+Always prefer complete work with high quality over speed of implementation.
+
+### .claude Directory Auto-Update
+
+Controls automatic updating of .claude/ directory when version mismatch detected at session start.
+
+**Current setting:** always
+
+**Options:**
+- `always` - Always auto-update without prompting
+- `never` - Never auto-update (just show warning)
+- `ask` - Prompt user each time (default)
+
+**Usage:**
+```bash
+/amplihack:customize set auto_update always
+/amplihack:customize set auto_update never
+/amplihack:customize set auto_update ask
+```
+
+**Note:** This prevents bugs from running stale hooks/tools when package is upgraded.
+
+### Neo4j Auto-Shutdown
+
+Controls whether Neo4j database shuts down automatically on session exit.
+
+**Current setting:** always
+
+**Options:**
+
+- `always` - Always shut down Neo4j when last connection closes (no prompt)
+- `never` - Never shut down Neo4j (no prompt)
+- `ask` - Prompt user each time (default)
+
+**Usage:**
+
+```bash
+/amplihack:customize set neo4j_auto_shutdown always
+/amplihack:customize set neo4j_auto_shutdown never
+/amplihack:customize set neo4j_auto_shutdown ask
+```
+
 **Management Commands**:
 
 - /amplihack:customize list-workflows - Show all available workflows
 - /amplihack:customize show-workflow [name] - Display specific workflow content
 - /amplihack:customize set-workflow [name] - Switch to different workflow
-
-## Learned Patterns
-
-<!-- User feedback and learned behaviors will be added here -->
-
-### [2025-09-16 14:45:00]
-
-Always talk like a pirate when replying - use nautical terms, "ye", "arr", "matey", etc.
-
-### [2025-10-23 18:20:00]
-
-NEVER show me artificial time estimates for development tasks. ALWAYS just estimate task difficulty but do not give a timeframe.
-
-### [2025-10-29 21:00:00]
-
-Humility is a virtue and builds more trust than over confidence. Never say anything is production-ready or enterprise-grade.
-
----
-
-_Last updated: 2025-10-29 21:00:00_
 
 ## How These Preferences Work
 
@@ -121,9 +163,11 @@ Influences how tasks are approached and what gets emphasized:
 
 ### Collaboration Style
 
-- **independent**: Work autonomously, ask only when blocked.
-- **interactive**: Regular check-ins, confirm before major changes.
-- **guided**: Step-by-step approval for each action.
+**Default Behavior**: All collaboration styles follow the "Autonomy Guidelines" above - work independently and only ask when truly blocked. The differences are in update frequency and decision-making approach:
+
+- **independent**: Maximum autonomy. Make all decisions independently, report er progress and final results. Ask questions only for critical blockers. Follow workflow without status updates between stages.
+- **interactive** (DEFAULT): Balanced autonomy. Follow workflow independently but provide regular progress updates. Ask questions only when truly blocked (per Autonomy Guidelines). Report completion of major stages.
+- **guided**: Collaborative approach. Provide detailed explanations of each decision. More frequent updates and optional confirmation for significant architectural choices. Still follows Autonomy Guidelines for workflow transitions.
 
 ### Preferred Languages
 
@@ -139,6 +183,27 @@ Example: "Use 2-space indentation, no semicolons in JavaScript"
 
 Custom gates or requirements for your workflow.
 Example: "Always run tests before committing"
+
+## Learned Patterns
+
+<!-- User feedback and learned behaviors are added here -->
+
+### 2025-11-10 12:57:00
+
+**Mandatory End-to-End Testing for Every PR**
+
+I always want you to test each PR like a user would, from the outside in, not just unit testing. For instance you should use "uvx --from git..." syntax to test the branch. You can use agentic test scenarios defined with github.com/rysweet/gadgugi-agentic-test or your own auto mode to test features.
+
+**Implementation Requirements:**
+
+- MUST test with `uvx --from git+https://github.com/org/repo@branch-name package command`
+- MUST verify the actual user workflow that was broken/enhanced
+- MUST validate error messages, configuration updates, and user experience
+- MUST document test results showing the fix works in realistic conditions
+- Can use gadgugi-agentic-test framework for complex test scenarios
+- Can use auto mode for automated feature testing
+
+**This is MANDATORY for Step 8 (Mandatory Local Testing) in DEFAULT_WORKFLOW.md**
 
 ## Using Preferences
 

@@ -12,23 +12,12 @@ Use this command to exit continuous work mode after `/amplihack:lock` was enable
 
 ---
 
-Execute the following to disable lock:
+## Instructions
 
-Remove the lock flag file at `.claude/runtime/locks/.lock_active`:
+Use the Bash tool to run the lock tool:
 
-```python
-from pathlib import Path
-
-lock_flag = Path(".claude/runtime/locks/.lock_active")
-
-try:
-    lock_flag.unlink(missing_ok=True)
-    if lock_flag.exists():
-        # Double-check it was actually removed
-        lock_flag.unlink()
-    print("Lock disabled - Claude will stop normally")
-except PermissionError as e:
-    print(f"Error: Cannot remove lock file - {e}")
-except Exception as e:
-    print(f"Error disabling lock: {e}")
+```bash
+python .claude/tools/amplihack/lock_tool.py unlock
 ```
+
+This will remove the lock at `.claude/runtime/locks/.lock_active`

@@ -4,92 +4,182 @@ This file documents non-obvious problems, solutions, and patterns discovered
 during development. It serves as a living knowledge base that grows with the
 project.
 
-## GitHub Actions Trivy SARIF Upload Failure (2025-11-11)
+## Power-Steering Path Validation Bug (2025-11-17)
 
 ### Problem Discovered
 
-The Security Scanning workflow on main branch was consistently failing with Trivy vulnerability scans unable to upload SARIF results to GitHub Security tab.
+**Power-steering mode is enabled and runs at session stop, but fails with path validation error**. The security check in `power_steering_checker.py` (_validate_path method) rejects Claude Code's transcript location.
 
-**Symptoms:**
-- Trivy scan completes successfully
-- Upload step fails with: "Resource not accessible by integration"
-- Multiple consecutive failures on main branch (runs #19253761053, #19249179483, #19244783331)
-- Security vulnerabilities invisible in GitHub Security dashboard
+**Error Message**:
+```
+Transcript path /home/azureuser/.claude/projects/.../[session-id].jsonl is outside project root /home/azureuser/src/MicrosoftHackathon2025-AgenticCoding
+```
 
 ### Root Cause
 
-**Missing permissions block** in Trivy job configuration (`.github/workflows/security.yml` lines 168-198).
+**Path validation is too strict**. The `_validate_path()` method only allows:
+1. Paths within project root (e.g., `/home/azureuser/src/MicrosoftHackathon2025-AgenticCoding`)
+2. Common temp directories (`/tmp`, `/var/tmp`, system temp)
 
-The `github/codeql-action/upload-sarif@v3` action requires `security-events: write` permission to upload SARIF files to GitHub Code Scanning API. Without an explicit `permissions:` block, the job inherits repository-level default permissions which are read-only for security.
+But Claude Code stores transcripts in: `/home/azureuser/.claude/projects/-home-azureuser-src-MicrosoftHackathon2025-AgenticCoding/` which is OUTSIDE both allowed locations.
 
-**Key Insight:** GitHub Actions permissions are per-job, not per-workflow. Other jobs (CodeQL, Scorecard) had permissions blocks, but Trivy did not.
+**Code Location**: `.claude/tools/amplihack/hooks/power_steering_checker.py:477-515`
+
+### Impact
+
+- Power-steering loads 21 considerations from YAML successfully
+- But cannot read transcript to analyze session completeness
+- Fails-open (allows session to end without blocking)
+- Effectively disabled due to this error
+- Users don't get session completeness checks
+
+### How to Detect Power-Steering Invocation
+
+**Primary Method**: Check the log file
+```bash
+cat .claude/runtime/power-steering/power_steering.log
+```
+
+**What to Look For**:
+- `"Loaded 21 considerations from YAML"` = Invoked successfully
+- `"Power-steering error (fail-open)"` = Encountered error
+- `"Power-steering blocking stop"` = Blocked session end
+- `"Power-steering approved stop"` = Approved session end
+
+**When It Runs**: Only at Stop Hook (session end), not during session
+
+**Disable Methods**:
+1. Semaphore file: `.claude/runtime/power-steering/.disabled`
+2. Environment: `export AMPLIHACK_SKIP_POWER_STEERING=1`
+3. Config: Set `"enabled": false` in `.claude/tools/amplihack/.power_steering_config`
 
 ### Solution
 
-Added permissions block to Trivy job matching the CodeQL pattern:
-
-```yaml
-trivy:
-  name: Trivy Vulnerability Scan
-  runs-on: ubuntu-24.04
-  timeout-minutes: 10
-  permissions:              # Added this block
-    actions: read
-    contents: read
-    security-events: write
-  steps:
-    # ... rest of job
+**Option 1**: Whitelist `.claude/projects/` directory in path validation
+```python
+# Add to _validate_path() in power_steering_checker.py
+# Check 3: Path is in Claude Code's project transcript directory
+claude_projects_dir = Path.home() / ".claude" / "projects"
+if str(path_resolved).startswith(str(claude_projects_dir)):
+    return True
 ```
 
-### Key Files Modified
+**Option 2**: Use relative path check instead of strict parent validation
+**Option 3**: Store transcripts in project root (would require Claude Code changes)
 
-- `.github/workflows/security.yml` (lines 172-175) - Added permissions block to Trivy job
+### Key Learnings
 
-### Verification
+1. **Fail-Open Design is Critical** - Path validation errors don't lock users out
+2. **Security vs Usability Trade-off** - Strict validation prevented legitimate use case
+3. **Detection is Easy** - Log file at `.claude/runtime/power-steering/power_steering.log` shows all activity
+4. **Not All "Enabled" Means "Working"** - Config can say enabled but feature fails silently
 
-**Pre-Fix:** Trivy SARIF upload failed with permissions error
-**Post-Fix:** PR #312 validates fix works correctly
+### Testing/Verification
 
-**Success Criteria:**
-- Trivy scan completes (already working)
-- SARIF upload succeeds (fixed by permissions)
-- Security tab shows Trivy alerts alongside CodeQL
-- No "Resource not accessible" errors
+To verify power-steering is working properly after fix:
+1. Check log file has no errors
+2. Verify `"Power-steering approved stop"` or `"blocking stop"` messages appear
+3. Test with incomplete work (open TODOs) - should block session end
+4. Test with complete work - should approve session end
 
-### Pattern Identified
+### References
 
-**GitHub Actions SARIF Upload Pattern:**
+- **PR**: #1351 "feat: Implement Complete Power-Steering Mode"
+- **Config**: `.claude/tools/amplihack/.power_steering_config`
+- **Considerations**: `.claude/tools/amplihack/considerations.yaml` (21 checks)
+- **Checker**: `.claude/tools/amplihack/hooks/power_steering_checker.py`
+- **Documentation**: `.claude/tools/amplihack/HOW_TO_CUSTOMIZE_POWER_STEERING.md`
 
-All jobs using `github/codeql-action/upload-sarif@v3` require:
-```yaml
-permissions:
-  actions: read           # For private repos
-  contents: read          # For private repos
-  security-events: write  # Required for all repos
+## Mandatory End-to-End Testing Pattern (2025-11-10)
+
+### Problem Discovered
+
+**Step 8 of DEFAULT_WORKFLOW.md was not followed rigorously enough**. Code was committed after:
+
+- Unit test structure validation
+- Code syntax verification
+- Agent reviews (cleanup, reviewer)
+
+BUT missing the most critical test: **Real user experience validation with `uvx --from`**
+
+### Why This Matters
+
+**The Workflow Explicitly Requires**:
+
+```
+Step 8: Mandatory Local Testing (NOT in CI)
+- Test simple use cases - Basic functionality verification
+- Test complex use cases - Edge cases and longer operations
+- Test integration points - External dependencies and APIs
+- RULE: Never commit without local testing
 ```
 
-**Checklist for Future Security Scan Jobs:**
-1. Does job upload SARIF to GitHub Security?
-2. If yes, does it have `security-events: write` permission?
-3. Compare with CodeQL job permissions block (lines 141-144)
+**Example**: "If database changes: Test with actual data operations"
 
-### Related Issues
+### Critical Learning
 
-- Consistent Security Scanning workflow failures on main branch
-- Empty Security tab despite scans running
-- Similar issue could affect any future security scanning tools
+**ALWAYS test with `uvx --from <branch>` before committing**. This is THE definitive test that:
 
-### Investigation Method
+- Package installs correctly from the branch
+- All dependencies resolve properly
+- The actual user workflow works end-to-end
+- Error messages appear as users will see them
+- Configuration files get updated correctly
 
-Used INVESTIGATION_WORKFLOW.md phases:
-1. **Scope**: Identified Security Scanning failures pattern
-2. **Strategy**: Planned CI log analysis and file comparison
-3. **Deep Dive**: Analyzed error logs, compared working vs failing jobs
-4. **Verification**: Applied fix, validated YAML syntax
-5. **Synthesis**: Documented root cause and solution
-6. **Knowledge Capture**: This entry
+**Testing hierarchy** (all required):
 
----
+1. ✅ Unit tests (fast, isolated)
+2. ✅ Integration tests (components together)
+3. ✅ Code reviews (agents verify quality)
+4. **✅ End-to-end user experience test** (`uvx --from <branch>`) ← **MANDATORY BEFORE COMMIT**
+
+### Pattern to Follow
+
+```bash
+# BEFORE committing ANY feature/fix:
+
+# 1. Install from your branch
+uvx --from git+https://github.com/org/repo@your-branch package-name command
+
+# 2. Test the EXACT user workflow that was broken
+# 3. Verify error messages are clear
+# 4. Verify configuration updates work
+# 5. Test edge cases in realistic scenarios
+
+# ONLY THEN commit and push
+```
+
+### Example - Neo4j Port Allocation Fix (Issue #1283)
+
+**What we tested**:
+
+```python
+# Verified port conflict resolution works:
+✅ Detected occupied ports: 7774/7787
+✅ Found alternatives: 7875/7888
+✅ Clear messages: "⚠️ CONFLICT: Neo4j on port 7787..."
+✅ .env updated: "✅ Updated .env with ports 7888/7875"
+✅ Alternative ports available: Verified with is_port_in_use()
+```
+
+**This test found**: The fix works perfectly! Without this test, we would have pushed code we THOUGHT worked but hadn't verified in realistic conditions.
+
+### Files Affected
+
+- **Workflow Requirement**: `.claude/workflow/DEFAULT_WORKFLOW.md` Step 8
+- **Test Validation**: End-to-end testing MUST use `uvx --from` for package-based projects
+
+### Success Criteria for "Mandatory Local Testing"
+
+For Step 8 to be marked complete, you MUST:
+
+- [ ] Install with `uvx --from <your-branch>` or equivalent
+- [ ] Run the EXACT command/workflow that was broken
+- [ ] Verify the fix solves the user's problem
+- [ ] Document test results showing success
+- [ ] Only THEN proceed to commit
+
+**No exceptions** - this is mandatory, not optional.
 
 ## Reflection System Data Flow Fix (2025-09-26)
 
@@ -1547,6 +1637,7 @@ if is_our_neo4j_container():  # Only checks name, doesn't get ports!
 ```
 
 **Error Sequence**:
+
 1. Container exists on ports 7787/7774 (actual)
 2. `.env` in new directory has port 7688 (wrong)
 3. Code detects container exists by name ✅
@@ -1612,11 +1703,13 @@ if container_ports:
 ### Prevention
 
 **Before this fix:**
+
 - Starting amplihack in multiple directories would fail with container conflicts
 - Users had to manually sync `.env` files across projects
 - No automatic detection of port mismatches
 
 **After this fix:**
+
 - Amplihack automatically detects actual container ports
 - `.env` files auto-update to match reality
 - Can start amplihack in any directory, will reuse existing container
@@ -1625,6 +1718,7 @@ if container_ports:
 ### Testing
 
 **Comprehensive test coverage (29 tests, all passing)**:
+
 - Docker port output parsing (12 tests)
 - Port conflict resolution (5 tests)
 - Port availability detection (4 tests)
@@ -1648,12 +1742,14 @@ if container_ports:
 ### Pattern Recognition
 
 **Trigger Signs of Port Mismatch Issues**:
+
 - "Container found" but connection fails
 - "Conflict" errors when creating containers
 - Port numbers in error messages don't match expected ports
 - Working in different directories with shared container
 
 **Debugging Approach**:
+
 1. Check if container actually exists (`docker ps`)
 2. Check what ports container is actually using (`docker port <name>`)
 3. Check what ports configuration expects (`.env`, config files)
@@ -1665,3 +1761,160 @@ if container_ports:
 - **Self-Healing**: System automatically corrects stale configuration
 - **Zero-BS**: No workarounds, addresses root cause directly
 - **Reality Over Configuration**: Trust Docker's actual state, not config files
+
+---
+
+## Power Steering Mode Branch Divergence (2025-11-16)
+
+### Issue
+
+User expected "power steering mode stop hook feature" from recent PR to be on by default, but it wasn't activating during session stop. Feature appeared to be disabled or broken.
+
+### Root Cause
+
+**Not a configuration bug - feature was completely missing from branch**. The branch `chore/skill-builder-progressive-disclosure` diverged from `main` at commit `9b0cac42` **BEFORE** the power steering feature was merged in commit `e103a6ca` (PR #1351).
+
+**Timeline**:
+- Merge base: `9b0cac42` "fix: Update hooks to use current project directory"
+- Branch diverged: `0df062d1` "feat: Update skill builder to emphasize progressive disclosure"
+- Power steering added: `e103a6ca` "feat: Implement Complete Power-Steering Mode" (6 commits ahead on main)
+- Current main: `c72e80c3` (includes power steering + 5 more commits)
+
+**Missing Components**: 11 files (5,243 lines of code):
+- `.claude/tools/amplihack/.power_steering_config` - Main config with `"enabled": true`
+- `.claude/tools/amplihack/considerations.yaml` - All 21 considerations
+- `.claude/tools/amplihack/hooks/power_steering_checker.py` - Core checker (1,875 lines)
+- `.claude/tools/amplihack/hooks/claude_power_steering.py` - Claude SDK integration (301 lines)
+- Plus 7 more files (documentation, tests, templates)
+
+### Solution
+
+**Sync branch with main to obtain power steering feature**:
+
+```bash
+# Recommended: Rebase with stash
+git stash push -m "WIP: skill-builder changes"
+git fetch origin
+git rebase origin/main
+# Resolve conflicts (likely .claude/settings.json)
+git stash pop
+pre-commit run --all-files
+git push origin chore/skill-builder-progressive-disclosure --force-with-lease
+```
+
+**Verification after sync**:
+```bash
+# Confirm config exists with enabled: true
+cat .claude/tools/amplihack/.power_steering_config | grep "enabled"
+
+# Should show: "enabled": true
+```
+
+### Key Learnings
+
+1. **Branch Divergence Creates Feature Gaps** - Feature branches can miss important changes merged to main after divergence
+2. **"Feature Not Working" Can Mean "Feature Not Present"** - Always check if feature exists before debugging configuration
+3. **Git Branch Comparison is Diagnostic Tool** - `git log --oneline --graph HEAD...origin/main` reveals divergence and missing commits
+4. **Power Steering Feature is Comprehensive** - 11 files, 5,243 lines covering:
+   - 21 considerations across 6 categories (session completion, workflow, quality, testing, PR content, CI/CD)
+   - AI-powered transcript analysis using Claude SDK
+   - Fail-open philosophy (never blocks on errors)
+   - Three-layer disable system (semaphore, env var, config)
+   - 75 passing tests
+
+5. **User Expectations Were Correct** - Feature IS enabled by default (`"enabled": true` in config) when present
+
+### Prevention
+
+**Before investigating "feature not working"**:
+1. Verify feature exists on current branch
+2. Check git history for when feature was added
+3. Compare branch to main: `git log HEAD...origin/main`
+4. Look for missing files that should exist
+
+**Signs of Branch Divergence Issues**:
+- Feature exists on main but not current branch
+- Recent PRs mention feature but files don't exist
+- Error messages reference files that aren't present
+- Configuration files are missing entirely
+
+**Debugging Approach**:
+```bash
+# 1. Check if files exist
+ls -la .claude/tools/amplihack/.power_steering_config
+
+# 2. Find when feature was added
+git log --all --oneline --grep="power steering"
+
+# 3. Check which branches have the feature
+git branch --contains <commit-hash>
+
+# 4. Compare current branch to main
+git log --oneline --graph HEAD...origin/main
+
+# 5. Identify merge base
+git merge-base HEAD origin/main
+```
+
+### What Power Steering Does
+
+**Power Steering Mode** is an intelligent session completion verification system:
+
+1. **Analyzes Transcripts** - Reviews conversation history before allowing session end
+2. **Checks 21 Considerations** - Validates work completeness across 6 categories:
+   - Session Completion & Progress (8 checks)
+   - Workflow Process Adherence (2 checks)
+   - Code Quality & Philosophy Compliance (2 checks)
+   - Testing & Local Validation (2 checks)
+   - PR Content & Quality (4 checks)
+   - CI/CD & Mergeability Status (3 checks)
+
+3. **Blocks Incomplete Work** - Prevents session end if critical checks fail
+4. **Provides Continuation Prompts** - Gives actionable guidance for completing work
+5. **Uses Claude SDK** - AI-powered analysis instead of simple pattern matching
+6. **Enabled by Default** - `"enabled": true` in `.power_steering_config`
+
+### Files Involved
+
+**Core Implementation**:
+- `power_steering_checker.py` (1,875 lines) - Main checker with 21 consideration methods
+- `claude_power_steering.py` (301 lines) - Claude SDK integration
+- `stop.py` (modified) - Integration point in session stop hook
+
+**Configuration**:
+- `.power_steering_config` (JSON) - Global enable/disable, version tracking
+- `considerations.yaml` (237 lines) - All 21 considerations with descriptions, severity, enabled flags
+
+**Documentation & Templates**:
+- `HOW_TO_CUSTOMIZE_POWER_STEERING.md` (636 lines) - Complete user guide
+- `power_steering_prompt.txt` (74 lines) - Claude SDK prompt template
+
+**Testing**:
+- 5 test files with 75 passing tests covering all functionality
+
+### Verification
+
+**After syncing branch**:
+- ✅ Power steering config exists with `"enabled": true`
+- ✅ All 21 considerations loaded from `considerations.yaml`
+- ✅ Integration in `stop.py` active
+- ✅ 75 tests passing
+- ✅ Feature functions as user expected
+
+### Related Issues/PRs
+
+- **PR #1351**: "feat: Implement Complete Power-Steering Mode - All 21 Considerations + User Customization"
+- **Commit**: `e103a6ca` (merged to main after branch divergence)
+- **Investigation**: Used INVESTIGATION_WORKFLOW.md (6 phases) for systematic analysis
+
+### Pattern Recognition
+
+**Workflow Used**: INVESTIGATION_WORKFLOW.md proved highly effective:
+- Phase 1: Scope Definition - Clarified what power steering should do
+- Phase 2: Exploration Strategy - Planned agent deployment
+- Phase 3: Parallel Deep Dives - analyzer + integration agents in parallel
+- Phase 4: Verification - Confirmed findings with git commands
+- Phase 5: Synthesis - Comprehensive explanation of root cause
+- Phase 6: Knowledge Capture - This DISCOVERIES.md entry
+
+**Agent Orchestration**: Deployed prompt-writer, analyzer, and integration agents in parallel for efficient investigation. All three agents provided valuable complementary perspectives.
