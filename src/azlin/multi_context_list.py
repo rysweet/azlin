@@ -327,7 +327,7 @@ class MultiContextVMQuery:
         Raises:
             MultiContextQueryError: If subscription switch fails
         """
-        from azlin.context_manager import ContextManager, _subscription_lock
+        from azlin.context_manager import _subscription_lock
 
         try:
             # Use the shared lock to prevent race conditions across threads

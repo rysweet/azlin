@@ -259,7 +259,15 @@ class TestVMConnector:
     @patch("azlin.vm_connector.BastionDetector")
     @patch("azlin.vm_connector.SSHKeyManager")
     @patch("azlin.vm_connector.VMManager")
-    def test_connect_with_command(self, mock_vm_mgr, mock_ssh_key_mgr, mock_bastion, mock_ssh_connect, mock_ssh_ready, temp_ssh_key):
+    def test_connect_with_command(
+        self,
+        mock_vm_mgr,
+        mock_ssh_key_mgr,
+        mock_bastion,
+        mock_ssh_connect,
+        mock_ssh_ready,
+        temp_ssh_key,
+    ):
         """Test connecting with remote command (uses SSHConnector, not TerminalLauncher)."""
         # Mock VM info
         vm_info = VMInfo(
