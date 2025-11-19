@@ -22,13 +22,12 @@ import click
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.connection_tracker import ConnectionTracker
 from azlin.modules.bastion_config import BastionConfig
-from azlin.modules.bastion_detector import BastionDetector, BastionInfo
+from azlin.modules.bastion_detector import BastionDetector
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
-from azlin.modules.ssh_connector import SSHConfig
+from azlin.modules.ssh_connector import SSHConfig, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.modules.ssh_reconnect import SSHReconnectHandler
 from azlin.terminal_launcher import TerminalConfig, TerminalLauncher, TerminalLauncherError
-from azlin.vm_cache import VMCache
 from azlin.vm_manager import VMManager, VMManagerError
 
 logger = logging.getLogger(__name__)
@@ -49,7 +48,6 @@ class ConnectionInfo:
     resource_group: str
     ssh_user: str = "azureuser"
     ssh_key_path: Path | None = None
-    location: str | None = None  # VM region for Bastion matching
 
 
 class VMConnector:
@@ -61,6 +59,14 @@ class VMConnector:
     - Launching tmux sessions
     - Running remote commands
     """
+
+    @staticmethod
+    def _record_connection(vm_name: str) -> None:
+        """Record successful VM connection, suppressing errors."""
+        try:
+            ConnectionTracker.record_connection(vm_name)
+        except Exception as e:
+            logger.warning(f"Failed to record connection for {vm_name}: {e}")
 
     @classmethod
     def connect(
@@ -77,7 +83,6 @@ class VMConnector:
         use_bastion: bool = False,
         bastion_name: str | None = None,
         bastion_resource_group: str | None = None,
-        skip_prompts: bool = False,
     ) -> bool:
         """Connect to a VM via SSH (with optional Bastion routing).
 
@@ -94,7 +99,6 @@ class VMConnector:
             use_bastion: Force use of Bastion tunnel (default: False)
             bastion_name: Bastion host name (optional, auto-detected if not provided)
             bastion_resource_group: Bastion resource group (optional)
-            skip_prompts: Skip all confirmation prompts (default: False)
 
         Returns:
             True if connection successful
@@ -147,11 +151,7 @@ class VMConnector:
             if not should_use_bastion and not cls.is_valid_ip(vm_identifier):
                 # Auto-detect Bastion if not connecting by IP
                 bastion_info = cls._check_bastion_routing(
-                    conn_info.vm_name,
-                    conn_info.resource_group,
-                    use_bastion,
-                    conn_info.location,  # Pass VM location for region filtering
-                    skip_prompts,
+                    conn_info.vm_name, conn_info.resource_group, use_bastion
                 )
                 should_use_bastion = bastion_info is not None
 
@@ -183,10 +183,32 @@ class VMConnector:
                     f"(127.0.0.1:{ssh_port})"
                 )
 
-            # If reconnect is enabled and no remote command, use direct SSH with reconnect
-            # Otherwise use terminal launcher (which opens new windows)
-            if enable_reconnect and remote_command is None:
-                # Use direct SSH connection with reconnect support
+            # Route connection: remote command -> SSHConnector, interactive+reconnect -> SSHReconnectHandler, interactive -> TerminalLauncher
+            if remote_command is not None:
+                ssh_config = SSHConfig(
+                    host=conn_info.ip_address,
+                    user=conn_info.ssh_user,
+                    key_path=conn_info.ssh_key_path,
+                    port=ssh_port,
+                    strict_host_key_checking=False,
+                )
+
+                try:
+                    logger.info(f"Executing command on {conn_info.vm_name} ({original_ip})...")
+                    exit_code = SSHConnector.connect(
+                        config=ssh_config,
+                        remote_command=remote_command,
+                        auto_tmux=False,
+                    )
+
+                    if exit_code == 0:
+                        cls._record_connection(conn_info.vm_name)
+
+                    return exit_code == 0
+                except Exception as e:
+                    raise VMConnectorError(f"Remote command execution failed: {e}") from e
+
+            elif enable_reconnect:
                 ssh_config = SSHConfig(
                     host=conn_info.ip_address,
                     user=conn_info.ssh_user,
@@ -201,91 +223,36 @@ class VMConnector:
                     exit_code = handler.connect_with_reconnect(
                         config=ssh_config,
                         vm_name=conn_info.vm_name,
-                        tmux_session=tmux_session or "azlin",
+                        tmux_session=tmux_session or conn_info.vm_name if use_tmux else "azlin",
                         auto_tmux=use_tmux,
                     )
 
-                    # Record successful connection
                     if exit_code == 0:
-                        try:
-                            ConnectionTracker.record_connection(conn_info.vm_name)
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to record connection for {conn_info.vm_name}: {e}"
-                            )
-
-                    # Invalidate cache on connection failure (if using session name)
-                    if exit_code != 0 and tmux_session and tmux_session != conn_info.vm_name:
-                        try:
-                            cache = VMCache()
-                            cache.delete(tmux_session)
-                            logger.debug(
-                                f"Invalidated cache entry for session '{tmux_session}' after connection failure"
-                            )
-                        except Exception as e:
-                            logger.debug(f"Failed to invalidate cache: {e}")
+                        cls._record_connection(conn_info.vm_name)
 
                     return exit_code == 0
                 except Exception as e:
-                    # Invalidate cache on connection exception (if using session name)
-                    if tmux_session and tmux_session != conn_info.vm_name:
-                        try:
-                            cache = VMCache()
-                            cache.delete(tmux_session)
-                            logger.debug(
-                                f"Invalidated cache entry for session '{tmux_session}' after connection exception"
-                            )
-                        except Exception as cache_error:
-                            logger.debug(f"Failed to invalidate cache: {cache_error}")
                     raise VMConnectorError(f"SSH connection failed: {e}") from e
+
             else:
-                # Build terminal config for new window or remote command
                 terminal_config = TerminalConfig(
                     ssh_host=conn_info.ip_address,
                     ssh_user=conn_info.ssh_user,
                     ssh_key_path=conn_info.ssh_key_path,
-                    command=remote_command,
+                    ssh_port=ssh_port,
                     title=f"azlin - {conn_info.vm_name}",
                     tmux_session=tmux_session or conn_info.vm_name if use_tmux else None,
                 )
 
-                # Launch terminal
                 try:
                     logger.info(f"Connecting to {conn_info.vm_name} ({original_ip})...")
                     success = TerminalLauncher.launch(terminal_config)
 
-                    # Record successful connection
                     if success:
-                        try:
-                            ConnectionTracker.record_connection(conn_info.vm_name)
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to record connection for {conn_info.vm_name}: {e}"
-                            )
-                    else:
-                        # Invalidate cache on connection failure (if using session name)
-                        if tmux_session and tmux_session != conn_info.vm_name:
-                            try:
-                                cache = VMCache()
-                                cache.delete(tmux_session)
-                                logger.debug(
-                                    f"Invalidated cache entry for session '{tmux_session}' after connection failure"
-                                )
-                            except Exception as e:
-                                logger.debug(f"Failed to invalidate cache: {e}")
+                        cls._record_connection(conn_info.vm_name)
 
                     return success
                 except TerminalLauncherError as e:
-                    # Invalidate cache on connection exception (if using session name)
-                    if tmux_session and tmux_session != conn_info.vm_name:
-                        try:
-                            cache = VMCache()
-                            cache.delete(tmux_session)
-                            logger.debug(
-                                f"Invalidated cache entry for session '{tmux_session}' after connection exception"
-                            )
-                        except Exception as cache_error:
-                            logger.debug(f"Failed to invalidate cache: {cache_error}")
                     raise VMConnectorError(f"Failed to launch terminal: {e}") from e
 
         finally:
@@ -402,7 +369,6 @@ class VMConnector:
                 resource_group=resource_group or "unknown",
                 ssh_user=ssh_user,
                 ssh_key_path=ssh_key_path,
-                location=None,  # No location for IP-based connections
             )
 
         # Otherwise, treat as VM name - need to resolve IP
@@ -436,25 +402,18 @@ class VMConnector:
                     f"VM is not running (state: {vm_info.power_state}). Connection may fail."
                 )
 
-            # Get IP address (public or private - Bastion routing will handle both)
-            ip_address = vm_info.public_ip or vm_info.private_ip
-
-            if not ip_address:
-                raise VMConnectorError(f"VM {vm_name} has neither public nor private IP address.")
-
-            # Log when VM is private-only (helps with debugging bastion connections)
-            if not vm_info.public_ip and vm_info.private_ip:
-                logger.info(
-                    f"VM {vm_name} is private-only (no public IP), will use Bastion if available"
+            # Get IP address
+            if not vm_info.public_ip:
+                raise VMConnectorError(
+                    f"VM {vm_name} has no public IP address. Ensure VM has a public IP configured."
                 )
 
             return ConnectionInfo(
                 vm_name=vm_name,
-                ip_address=ip_address,
+                ip_address=vm_info.public_ip,
                 resource_group=resource_group,
                 ssh_user=ssh_user,
                 ssh_key_path=ssh_key_path,
-                location=vm_info.location,  # Capture VM region for Bastion matching
             )
 
         except VMManagerError as e:
@@ -462,13 +421,8 @@ class VMConnector:
 
     @classmethod
     def _check_bastion_routing(
-        cls,
-        vm_name: str,
-        resource_group: str,
-        force_bastion: bool,
-        vm_location: str | None = None,
-        skip_prompts: bool = False,
-    ) -> BastionInfo | None:
+        cls, vm_name: str, resource_group: str, force_bastion: bool
+    ) -> dict[str, str] | None:
         """Check if Bastion routing should be used for VM.
 
         Checks configuration and auto-detects Bastion hosts.
@@ -477,11 +431,9 @@ class VMConnector:
             vm_name: VM name
             resource_group: Resource group
             force_bastion: Force use of Bastion
-            vm_location: VM region for Bastion region filtering (optional)
-            skip_prompts: Skip confirmation prompts (default: False)
 
         Returns:
-            BastionInfo with bastion name, resource_group, and location if should use Bastion, None otherwise
+            Dict with bastion name and resource_group if should use Bastion, None otherwise
         """
         # If forcing Bastion, skip checks
         if force_bastion:
@@ -501,38 +453,27 @@ class VMConnector:
             mapping = bastion_config.get_mapping(vm_name)
             if mapping:
                 logger.info(f"Using configured Bastion mapping for {vm_name}")
-                return BastionInfo(
-                    name=mapping.bastion_name,
-                    resource_group=mapping.bastion_resource_group,
-                    location=None,
-                )
+                return {
+                    "name": mapping.bastion_name,
+                    "resource_group": mapping.bastion_resource_group,
+                }
 
         except Exception as e:
             logger.debug(f"Could not load Bastion config: {e}")
 
         # Auto-detect Bastion
         try:
-            bastion_info: BastionInfo | None = BastionDetector.detect_bastion_for_vm(
-                vm_name, resource_group, vm_location
-            )
+            bastion_info = BastionDetector.detect_bastion_for_vm(vm_name, resource_group)
 
             if bastion_info:
-                # Prompt user or auto-accept if skip_prompts (default changed to True for security by default)
-                if skip_prompts:
-                    logger.info("Skipping prompts, using Bastion (default)")
+                # Prompt user
+                if click.confirm(
+                    f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
+                    default=False,
+                ):
                     return bastion_info
 
-                try:
-                    if click.confirm(
-                        f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
-                        default=True,
-                    ):
-                        return bastion_info
-                    logger.info("User declined Bastion connection, using direct connection")
-                except click.exceptions.Abort:
-                    # Non-interactive mode - use default (True)
-                    logger.info("Non-interactive mode, using Bastion (default)")
-                    return bastion_info
+                logger.info("User declined Bastion connection, using direct connection")
 
         except Exception as e:
             logger.debug(f"Bastion detection failed: {e}")

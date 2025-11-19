@@ -131,6 +131,7 @@ class TerminalConfig:
     ssh_host: str
     ssh_user: str
     ssh_key_path: Path
+    ssh_port: int = 22
     command: str | None = None
     title: str | None = None
     tmux_session: str | None = None
@@ -307,18 +308,23 @@ class TerminalLauncher:
             "UserKnownHostsFile=/dev/null",
             "-i",
             str(config.ssh_key_path),
+            "-p",
+            str(config.ssh_port),
             f"{config.ssh_user}@{config.ssh_host}",
         ]
 
         # Add remote command if specified
         if config.command:
-            # When a remote command is specified, execute it directly
-            # without wrapping in tmux (users expect direct output capture)
-            # This fixes: azlin connect vm -- command should not use tmux
-            cmd.append(config.command)
+            # If command includes tmux, wrap it
+            if config.tmux_session:
+                # Try to attach to existing session, create new one if it doesn't exist
+                remote_cmd = f"tmux attach-session -t {config.tmux_session} || tmux new-session -s {config.tmux_session} {config.command}"
+            else:
+                remote_cmd = config.command
+
+            cmd.append(remote_cmd)
         elif config.tmux_session:
-            # Interactive mode: attach to or create tmux session
-            # This is used when: azlin connect vm (no command specified)
+            # Just tmux session, no command
             remote_cmd = f"tmux attach-session -t {config.tmux_session} || tmux new-session -s {config.tmux_session}"
             cmd.append(remote_cmd)
 
