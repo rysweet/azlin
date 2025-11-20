@@ -1316,12 +1316,10 @@ class CLIOrchestrator:
 
         # Cross-region validation for Priority 2
         if storage.region.lower() != self.region.lower():
-            logger.warning(
-                f"Config default storage '{storage_name}' is in region '{storage.region}', "
-                f"but VM will be in region '{self.region}'. "
-                f"Cross-region NFS storage is not supported. Falling back to auto-detection."
+            logger.info(
+                f"Default storage '{storage_name}' is in {storage.region}, "
+                f"VM will be in {self.region}. Cross-region mount will be configured."
             )
-            return None
 
         return storage
 
