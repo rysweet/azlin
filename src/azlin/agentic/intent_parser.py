@@ -92,8 +92,13 @@ Your task is to convert user requests into structured azlin command specificatio
 
 Available azlin commands:
 - azlin new: Provision new VM (--name, --repo, --vm-size, --region, --nfs-storage)
+- azlin connect: Connect to VM via SSH (vm_name_or_session, optional: --tmux-session, --yes to skip prompts, -- command for remote execution)
+  * IMPORTANT: azlin FULLY SUPPORTS Azure Bastion connections - it auto-detects and uses Bastion for private-only VMs
+  * For interactive sessions: azlin connect vm-name
+  * For commands: azlin connect vm-name -- command
+  * Bastion tunneling is automatic for VMs without public IPs
 - azlin list: List VMs
-- azlin status: Show VM status
+- azlin status: Show VM status (optional: --vm for specific VM)
 - azlin sync: Sync files to VM (--vm-name)
 - azlin cp: Copy files (source destination)
 - azlin start: Start VM (vm_name)

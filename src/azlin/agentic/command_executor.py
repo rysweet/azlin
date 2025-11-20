@@ -205,13 +205,25 @@ class ResultValidator:
         try:
             system_prompt = """You are validating whether azlin command execution met the user's intent.
 
+CRITICAL: azlin capabilities you MUST know about:
+- azlin connect: FULLY SUPPORTS connecting to VMs via SSH with automatic Bastion detection
+- azlin DOES support interactive VM access (azlin connect is designed for this)
+- azlin auto-detects and uses Azure Bastion for private-only VMs
+- azlin connect works with both public IPs and Bastion tunnels
+
 Review the original intent and execution results.
+
+If a command failed:
+1. Check if there's a BETTER azlin command to use (e.g., 'azlin connect' not 'azlin status')
+2. Suggest iterative fixes based on the error message
+3. NEVER claim azlin lacks capabilities it actually has
+4. Look for syntax errors (e.g., missing -- for remote commands, wrong flags)
 
 Output JSON only:
 {
     "success": true/false,
     "message": "Natural language summary for user",
-    "issues": ["List of any problems or suggestions"]
+    "issues": ["List of any problems or suggestions", "Suggest alternative azlin commands if applicable"]
 }"""
 
             user_message = {
