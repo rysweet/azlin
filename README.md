@@ -1,7 +1,8 @@
 # azlin - Azure Ubuntu VM Provisioning CLI
 
-**Version:** 2.0.0
-**Last Updated:** 2025-10-27
+**Version:** 0.3.0
+**Last Updated:** 2025-11-20
+**[Release Notes](docs/RELEASE_NOTES_v0.3.md)** | **[Changelog](https://github.com/rysweet/azlin/compare/v2.0.0...v0.3.0)**
 
 **One command to create a fully-equipped development VM on Azure**
 
