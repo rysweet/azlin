@@ -4572,12 +4572,14 @@ def _resolve_tmux_session(
 ) -> str | None:
     """Resolve tmux session name from provided value.
 
-    Only returns a tmux session name if explicitly provided via --tmux-session.
-    Otherwise returns None to use the default behavior (connect to existing session).
+    Returns the explicit --tmux-session value if provided.
+    Otherwise defaults to 'azlin' to provide consistent tmux session naming.
 
     Note: Session name (from config) is used to identify the VM, NOT as the tmux session name.
     """
-    return tmux_session
+    if no_tmux:
+        return None
+    return tmux_session if tmux_session else "azlin"
 
 
 def _try_fetch_key_from_vault(vm_name: str, key_path: Path, config: str | None) -> bool:
