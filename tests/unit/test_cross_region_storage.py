@@ -436,9 +436,7 @@ class TestEdgeCases:
             assert result is not None
             assert result.name == "storage-eastus"
 
-    def test_priority2_with_only_cross_region_storage_succeeds(
-        self, storage_westus, caplog
-    ):
+    def test_priority2_with_only_cross_region_storage_succeeds(self, storage_westus, caplog):
         """Priority 2 should succeed even when only cross-region storage exists."""
         orchestrator = CLIOrchestrator(region="eastus")
 
