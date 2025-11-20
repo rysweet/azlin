@@ -131,10 +131,10 @@ class TestPriority2ConfigDefault:
             assert result.name == "storage-eastus"
             assert result.region == "eastus"
 
-    def test_config_cross_region_falls_back_to_priority3(
+    def test_config_cross_region_succeeds_with_info_log(
         self, storage_eastus, storage_westus, caplog
     ):
-        """Priority 2: Config default in different region should fall back to Priority 3."""
+        """Priority 2: Config default in different region should succeed with info log."""
         orchestrator = CLIOrchestrator(region="eastus")
 
         mock_config = MagicMock()
@@ -144,14 +144,14 @@ class TestPriority2ConfigDefault:
             mock_list.return_value = [storage_westus, storage_eastus]
 
             result = orchestrator._resolve_nfs_storage("test-rg", mock_config)
-            # Should auto-detect storage-eastus instead
+            # Should use storage-westus (cross-region now supported)
             assert result is not None
-            assert result.name == "storage-eastus"
-            assert result.region == "eastus"
+            assert result.name == "storage-westus"
+            assert result.region == "westus"
 
-            # Should log warning about cross-region
+            # Should log info about cross-region mount
             assert any(
-                "Config default storage 'storage-westus' is in region 'westus'" in record.message
+                "Cross-region mount will be configured" in record.message
                 for record in caplog.records
             )
 
@@ -345,19 +345,20 @@ class TestTryLookupStorageByNameMethod:
             assert result is not None
             assert result.name == "storage-eastus"
 
-    def test_try_lookup_cross_region_returns_none(self, storage_westus, caplog):
-        """Should return None with warning when storage is cross-region."""
+    def test_try_lookup_cross_region_returns_storage(self, storage_westus, caplog):
+        """Should return storage with info log when storage is cross-region."""
         orchestrator = CLIOrchestrator(region="eastus")
 
         with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
             mock_list.return_value = [storage_westus]
 
             result = orchestrator._try_lookup_storage_by_name("test-rg", "storage-westus")
-            assert result is None
+            assert result is not None
+            assert result.name == "storage-westus"
 
-            # Should log warning
+            # Should log info about cross-region mount
             assert any(
-                "Config default storage 'storage-westus' is in region 'westus'" in record.message
+                "Cross-region mount will be configured" in record.message
                 for record in caplog.records
             )
 
@@ -435,10 +436,10 @@ class TestEdgeCases:
             assert result is not None
             assert result.name == "storage-eastus"
 
-    def test_priority2_fallback_to_priority3_with_no_same_region_storage(
+    def test_priority2_with_only_cross_region_storage_succeeds(
         self, storage_westus, caplog
     ):
-        """Priority 2 fallback when only cross-region storage exists should return None."""
+        """Priority 2 should succeed even when only cross-region storage exists."""
         orchestrator = CLIOrchestrator(region="eastus")
 
         mock_config = MagicMock()
@@ -448,12 +449,14 @@ class TestEdgeCases:
             mock_list.return_value = [storage_westus]
 
             result = orchestrator._resolve_nfs_storage("test-rg", mock_config)
-            # Priority 2 rejects cross-region, Priority 3 finds no same-region storage
-            assert result is None
+            # Priority 2 now accepts cross-region storage
+            assert result is not None
+            assert result.name == "storage-westus"
+            assert result.region == "westus"
 
-            # Should log warning about cross-region from Priority 2
+            # Should log info about cross-region mount from Priority 2
             assert any(
-                "Config default storage 'storage-westus' is in region 'westus'" in record.message
+                "Cross-region mount will be configured" in record.message
                 for record in caplog.records
             )
 
