@@ -1,6 +1,6 @@
 #cloud-config
-# Install ripgrep on VM startup
-# This script runs asynchronously and doesn't block VM initialization
+# Install ripgrep during VM first boot
+# Runs during cloud-init final stage before VM is fully ready
 
 package_update: true
 
