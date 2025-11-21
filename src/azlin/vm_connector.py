@@ -93,17 +93,17 @@ class VMConnector:
             return False
 
         try:
-            logger.debug(f"Local SSH key not found, checking Key Vault for VM: {vm_name}")
+            logger.info(f"Local SSH key not found, checking Key Vault for VM: {vm_name}")
 
             # Load context to get subscription/tenant info
             try:
                 context_config = ContextManager.load()
                 current_context = context_config.get_current_context()
                 if not current_context:
-                    logger.debug("No current context set, skipping Key Vault fetch")
+                    logger.info("No current context set, skipping Key Vault fetch")
                     return False
             except Exception as e:
-                logger.debug(f"Failed to load context: {e}")
+                logger.info(f"Failed to load context: {e}")
                 return False
 
             # Build auth config
@@ -118,7 +118,7 @@ class VMConnector:
             )
 
             if not vault_name:
-                logger.debug(f"No Key Vault found in resource group: {resource_group}")
+                logger.info(f"No Key Vault found in resource group: {resource_group}")
                 return False
 
             # Create manager and try to retrieve key
@@ -130,14 +130,19 @@ class VMConnector:
             )
 
             manager.retrieve_key(vm_name=vm_name, target_path=key_path)
-            logger.debug(f"SSH key retrieved from Key Vault: {vault_name}")
+            logger.info(f"SSH key retrieved from Key Vault: {vault_name}")
             return True
 
         except KeyVaultError as e:
-            logger.debug(f"Key Vault fetch skipped: {e}")
+            # Check if it's a "not found" vs auth error
+            error_str = str(e).lower()
+            if "not found" in error_str or "does not exist" in error_str:
+                logger.info(f"SSH key not found in Key Vault for VM: {vm_name}")
+            else:
+                logger.warning(f"Could not access Key Vault: {e}")
             return False
         except Exception as e:
-            logger.debug(f"Unexpected error fetching from Key Vault: {e}")
+            logger.warning(f"Unexpected error fetching from Key Vault: {e}")
             return False
 
     @classmethod
@@ -204,20 +209,35 @@ class VMConnector:
             vm_identifier, resource_group, ssh_user, ssh_key_path
         )
 
-        # Try to fetch SSH key from Key Vault if not present locally (automatic, silent)
+        # Try to fetch SSH key from Key Vault if not present locally
         if conn_info.ssh_key_path:
-            cls._try_fetch_key_from_vault(
+            vault_fetched = cls._try_fetch_key_from_vault(
                 vm_name=conn_info.vm_name,
                 key_path=conn_info.ssh_key_path,
                 resource_group=conn_info.resource_group,
             )
 
-        # Ensure SSH key exists (will use fetched key if available, or generate new)
-        try:
-            ssh_keys = SSHKeyManager.ensure_key_exists(conn_info.ssh_key_path)
+            # Track if key existed before ensure_key_exists() for accurate logging
+            key_existed_before = conn_info.ssh_key_path.exists()
+
+            # Ensure SSH key exists (handles validation, permissions, and generation)
+            try:
+                ssh_keys = SSHKeyManager.ensure_key_exists(conn_info.ssh_key_path)
+            except SSHKeyError as e:
+                raise VMConnectorError(f"SSH key error: {e}") from e
+
+            # Provide clear feedback about key source
+            if vault_fetched:
+                logger.info("Using SSH key retrieved from Key Vault")
+            elif key_existed_before:
+                logger.info("Using existing local SSH key")
+            else:
+                logger.info(f"Generated new SSH key for VM: {conn_info.vm_name}")
+
             conn_info.ssh_key_path = ssh_keys.private_path
-        except SSHKeyError as e:
-            raise VMConnectorError(f"SSH key error: {e}") from e
+        else:
+            # No ssh_key_path specified (shouldn't happen, but handle gracefully)
+            raise VMConnectorError("No SSH key path specified")
 
         # Bastion routing logic
         bastion_tunnel = None
