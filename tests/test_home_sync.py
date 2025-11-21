@@ -209,14 +209,10 @@ class TestPatternMatching:
         azure_dir = sync_dir / ".azure"
         azure_dir.mkdir()
 
-        # Dangerous Azure files that should be blocked
+        # Dangerous Azure files that should be blocked (service principals only)
         blocked_azure_files = [
-            "accessTokens.json",
-            "msal_token_cache.json",
-            "msal_token_cache.bin.json",
             "service_principal.json",
-            "my_token.json",
-            "azure_secret.json",
+            "service_principal_prod.json",
             "credentials.json",
         ]
 
@@ -224,13 +220,32 @@ class TestPatternMatching:
             file_path = azure_dir / filename
             file_path.write_text('{"token": "secret"}')
 
-            # Should NOT be whitelisted
-            assert not HomeSyncManager._is_path_allowed(file_path, sync_dir), (
-                f"{filename} should not be whitelisted"
-            )
             # Should be blocked
             assert HomeSyncManager._is_path_blocked(file_path, sync_dir), (
                 f"{filename} should be blocked"
+            )
+
+    def test_azure_token_cache_files_allowed(self, tmp_path):
+        """Test that Azure OAuth token caches are allowed (time-limited, needed for az CLI)."""
+        sync_dir = tmp_path / "sync"
+        sync_dir.mkdir()
+        azure_dir = sync_dir / ".azure"
+        azure_dir.mkdir()
+
+        # OAuth token cache files that should be allowed (time-limited, not persistent creds)
+        allowed_azure_files = [
+            "msal_token_cache.json",
+            "tokenCache.json",
+            "token_cache.json",
+        ]
+
+        for filename in allowed_azure_files:
+            file_path = azure_dir / filename
+            file_path.write_text('{"token": "oauth_token"}')
+
+            # Should be whitelisted
+            assert HomeSyncManager._is_path_allowed(file_path, sync_dir), (
+                f"{filename} should be allowed"
             )
 
 
