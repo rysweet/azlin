@@ -129,6 +129,8 @@ resource "azurerm_linux_virtual_machine" "test" {
     public_key = var.ssh_public_key
   }
 
+  custom_data = base64encode(file("${path.module}/cloud-init.yml"))
+
   os_disk {
     name                 = "test-azdoit-vm-1-osdisk"
     caching              = "ReadWrite"
