@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from azlin.azure_cli_visibility import AzureCLIExecutor
+from azlin.quota_error_handler import QuotaErrorHandler
 
 logger = logging.getLogger(__name__)
 
@@ -856,6 +857,15 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
             except subprocess.CalledProcessError as e:
                 error_msg = e.stderr if e.stderr else str(e)
                 last_error = error_msg
+
+                # Check for quota errors first
+                if QuotaErrorHandler.is_quota_error(error_msg):
+                    details = QuotaErrorHandler.parse_quota_error(error_msg, config.size, region)
+                    if details:
+                        formatted_msg = QuotaErrorHandler.format_quota_error(
+                            details, self.VALID_VM_SIZES
+                        )
+                        raise ProvisioningError(formatted_msg) from e
 
                 # Check if this is a SKU/capacity error
                 if self._parse_sku_error(error_msg):
