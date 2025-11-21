@@ -1,0 +1,8 @@
+#cloud-config
+# Install ripgrep during VM first boot
+# Runs during cloud-init final stage before VM is fully ready
+
+package_update: true
+
+runcmd:
+  - apt-get install -y ripgrep
