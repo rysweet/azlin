@@ -118,11 +118,8 @@ class HomeSyncManager:
         ".config/gcloud/credentials*",
         ".config/gcloud/access_tokens.db",
         # Azure - USER REQUEST: Allow .azure/ directory for VM authentication
-        # Only block obviously dangerous files, allow tokens/cache for az CLI
+        # Only block service principals (real credentials), allow token caches (time-limited OAuth)
         ".azure/service_principal*.json",  # Keep blocking service principals
-        ".azure/*Token*.json",  # Block access tokens
-        ".azure/*token*.json",  # Block token files (case variations)
-        ".azure/*secret*.json",  # Block secret files
         # Generic credential files
         "*.key",
         "*.pem",
@@ -132,7 +129,7 @@ class HomeSyncManager:
         "credentials.*",
         "*credentials*",
         ".env",
-        ".env.*",
+        ".env.*",  # Block all .env variants (whitelist overrides for templates)
         # Caches and databases
         "*.db",
         "*.sqlite",
@@ -145,7 +142,8 @@ class HomeSyncManager:
         ".config/**/*cache*",
         ".config/**/*Cache*",
         # Development toolchains and package managers (PERFORMANCE: Blocks 2GB+ of files)
-        ".rustup/**",  # Rust toolchains - 1.3GB
+        ".rustup/toolchains/**",  # Rust toolchains - 1.3GB (allow settings.toml)
+        ".rustup/downloads/**",  # Rust downloads
         ".cargo/registry/**",  # Cargo registry cache
         ".cargo/git/**",  # Cargo git cache
         ".npm/**",  # npm cache - 283MB
@@ -166,10 +164,22 @@ class HomeSyncManager:
         ".ssh/config",
         ".ssh/known_hosts",
         ".ssh/*.pub",
-        # Azure config files (NOT tokens/secrets)
+        # Azure config files and token caches (OAuth tokens, time-limited)
         ".azure/azureProfile.json",
         ".azure/config",
         ".azure/clouds.config",
+        ".azure/msal_token_cache.json",
+        ".azure/tokenCache.json",
+        ".azure/token_cache*",
+        # Rust configuration (not binaries)
+        ".rustup/settings.toml",
+        # Environment template files (documentation, not real secrets)
+        ".env.example",
+        ".env.*.example",
+        ".env.*.template",
+        ".env.*.sample",
+        ".env.security-template",
+        ".env.passthrough.example",
     ]
 
     # SECURITY LAYER 2: Dangerous symlink targets
@@ -483,7 +493,8 @@ class HomeSyncManager:
             ".chrome/",
             "",
             "# Development toolchains (PERFORMANCE: Blocks 2GB+)",
-            ".rustup/",
+            ".rustup/toolchains/",
+            ".rustup/downloads/",
             ".cargo/registry/",
             ".cargo/git/",
             ".npm/",
