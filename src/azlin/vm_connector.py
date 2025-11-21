@@ -210,6 +210,8 @@ class VMConnector:
         )
 
         # Try to fetch SSH key from Key Vault if not present locally
+        # (only if ssh_key_path is specified)
+        vault_fetched = False
         if conn_info.ssh_key_path:
             vault_fetched = cls._try_fetch_key_from_vault(
                 vm_name=conn_info.vm_name,
@@ -217,27 +219,25 @@ class VMConnector:
                 resource_group=conn_info.resource_group,
             )
 
-            # Track if key existed before ensure_key_exists() for accurate logging
-            key_existed_before = conn_info.ssh_key_path.exists()
+        # Track if key existed before ensure_key_exists() for accurate logging
+        key_existed_before = conn_info.ssh_key_path and conn_info.ssh_key_path.exists()
 
-            # Ensure SSH key exists (handles validation, permissions, and generation)
-            try:
-                ssh_keys = SSHKeyManager.ensure_key_exists(conn_info.ssh_key_path)
-            except SSHKeyError as e:
-                raise VMConnectorError(f"SSH key error: {e}") from e
+        # Ensure SSH key exists (handles validation, permissions, and generation)
+        # If ssh_key_path is None, SSHKeyManager will use default (~/.ssh/azlin_key)
+        try:
+            ssh_keys = SSHKeyManager.ensure_key_exists(conn_info.ssh_key_path)
+        except SSHKeyError as e:
+            raise VMConnectorError(f"SSH key error: {e}") from e
 
-            # Provide clear feedback about key source
-            if vault_fetched:
-                logger.info("Using SSH key retrieved from Key Vault")
-            elif key_existed_before:
-                logger.info("Using existing local SSH key")
-            else:
-                logger.info(f"Generated new SSH key for VM: {conn_info.vm_name}")
-
-            conn_info.ssh_key_path = ssh_keys.private_path
+        # Provide clear feedback about key source
+        if vault_fetched:
+            logger.info("Using SSH key retrieved from Key Vault")
+        elif key_existed_before:
+            logger.info("Using existing local SSH key")
         else:
-            # No ssh_key_path specified (shouldn't happen, but handle gracefully)
-            raise VMConnectorError("No SSH key path specified")
+            logger.info(f"Generated new SSH key for VM: {conn_info.vm_name}")
+
+        conn_info.ssh_key_path = ssh_keys.private_path
 
         # Bastion routing logic
         bastion_tunnel = None
