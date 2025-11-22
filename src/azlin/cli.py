@@ -261,8 +261,37 @@ class CLIOrchestrator:
 
             # STEP 4: Provision VM
             timestamp = int(time.time())
-            vm_name = f"azlin-vm-{timestamp}"
             rg_name = self.resource_group or f"azlin-rg-{timestamp}"
+
+            # Determine VM name: use session name if provided and valid
+            if self.session_name:
+                # Validate against Azure VM naming rules
+                is_valid, error_msg = VMProvisioner.validate_azure_vm_name(self.session_name)
+                if not is_valid:
+                    self.progress.complete(success=False)
+                    raise ValueError(
+                        f"Session name '{self.session_name}' is not valid as Azure VM name: {error_msg}\n"
+                        f"Azure VM naming rules:\n"
+                        f"  - Length: 1-64 characters\n"
+                        f"  - Allowed: alphanumeric, hyphen (-), period (.)\n"
+                        f"  - Must start with alphanumeric character\n"
+                        f"  - Cannot end with hyphen or period"
+                    )
+
+                # Check if VM with this name already exists
+                if VMProvisioner.check_vm_exists(self.session_name, rg_name):
+                    self.progress.complete(success=False)
+                    raise ValueError(
+                        f"VM with name '{self.session_name}' already exists in resource group '{rg_name}'. "
+                        f"Please choose a different session name or delete the existing VM."
+                    )
+
+                vm_name = self.session_name
+                logger.info(f"Using session name as VM name: {vm_name}")
+            else:
+                # Backward compatible: generate timestamp-based name
+                vm_name = f"azlin-vm-{timestamp}"
+                logger.info(f"No session name provided, using generated name: {vm_name}")
             self.progress.start_operation(f"Provisioning VM: {vm_name}", estimated_seconds=300)
             vm_details = self._provision_vm(vm_name, rg_name, ssh_key_pair.public_key_content)
             self.vm_details = vm_details
