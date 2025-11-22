@@ -5,6 +5,7 @@ This module provides commands for managing shared Azure Files NFS storage:
 - List storage accounts
 - Show storage status and usage
 - Mount and unmount NFS shares on VMs
+- Mount and unmount SMB shares locally on macOS
 """
 
 import logging
@@ -16,8 +17,10 @@ from rich.console import Console
 
 from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
-from azlin.context_manager import ContextError, ContextManager
+from azlin.context_manager import Context, ContextError, ContextManager
+from azlin.modules.local_smb_mount import LocalSMBMount
 from azlin.modules.nfs_mount_manager import NFSMountManager
+from azlin.modules.storage_key_manager import StorageKeyManager
 from azlin.modules.storage_manager import StorageManager
 from azlin.vm_manager import VMManager
 
@@ -562,6 +565,228 @@ def unmount_storage(vm: str, resource_group: str | None):
 
     except Exception as e:
         click.echo(f"Error unmounting storage: {e}", err=True)
+        sys.exit(1)
+
+
+@storage_group.group(name="mount")
+def mount_group():
+    """Mount storage (VM or local)."""
+    pass
+
+
+@mount_group.command(name="local")
+@click.option(
+    "--mount-point",
+    type=click.Path(path_type=Path),
+    default="~/azure",
+    help="Local directory to mount to (default: ~/azure)",
+)
+@click.option("--storage-account", help="Storage account name (overrides config)")
+@click.option("--share-name", default="home", help="Share name (default: home)")
+@click.option("--resource-group", "--rg", help="Azure resource group")
+def mount_local(
+    mount_point: Path,
+    storage_account: str | None,
+    share_name: str,
+    resource_group: str | None,
+):
+    """Mount Azure Files SMB share locally on macOS.
+
+    Mounts an Azure Files share to your local macOS machine using SMB.
+    The storage account key is retrieved from Azure and used for authentication.
+
+    By default, uses default_nfs_storage from config. You can override with
+    --storage-account.
+
+    \b
+    Requirements:
+      - macOS only
+      - Azure authentication configured (az login)
+      - Mount point directory exists or can be created
+
+    \b
+    Examples:
+      # Mount default storage to ~/azure
+      $ azlin storage mount local
+
+      # Mount specific storage to custom location
+      $ azlin storage mount local --storage-account myaccount --mount-point ~/mydata
+
+      # Mount different share
+      $ azlin storage mount local --share-name backups
+    """
+    console = Console()
+    try:
+        # Ensure Azure CLI subscription matches current context
+        try:
+            ContextManager.ensure_subscription_active()
+        except ContextError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
+        # Get config
+        try:
+            config = ConfigManager.load_config()
+            rg = resource_group or config.default_resource_group
+        except ConfigError:
+            click.echo(
+                "Error: No config found. Run 'azlin new' first or specify --resource-group.",
+                err=True,
+            )
+            sys.exit(1)
+
+        if not rg:
+            click.echo("Error: Resource group required.", err=True)
+            sys.exit(1)
+
+        # Determine storage account name
+        if not storage_account:
+            # Use default from config
+            storage_account = config.default_nfs_storage
+            if not storage_account:
+                click.echo(
+                    "Error: No storage account specified and no default_nfs_storage in config.\n"
+                    "Use --storage-account or set default_nfs_storage in ~/.azlin/config.toml",
+                    err=True,
+                )
+                sys.exit(1)
+            click.echo(f"Using default storage account: {storage_account}")
+
+        # Get current context for subscription ID
+        try:
+            current_context = ContextManager.get_current_context()
+            subscription_id = current_context.subscription_id
+        except ContextError as e:
+            click.echo(f"Error: Could not get current context: {e}", err=True)
+            sys.exit(1)
+
+        click.echo(f"Mounting Azure Files share locally...")
+        click.echo(f"  Storage Account: {storage_account}")
+        click.echo(f"  Share: {share_name}")
+        click.echo(f"  Mount Point: {mount_point}")
+        click.echo(f"  Resource Group: {rg}")
+
+        # Get storage account keys from Azure
+        click.echo("\nRetrieving storage account keys from Azure...")
+        try:
+            keys = StorageKeyManager.get_storage_keys(
+                storage_account_name=storage_account,
+                resource_group=rg,
+                subscription_id=subscription_id,
+            )
+        except Exception as e:
+            click.echo(f"Error retrieving storage keys: {e}", err=True)
+            click.echo(
+                "\nMake sure:\n"
+                "  1. You're authenticated with Azure (az login)\n"
+                "  2. The storage account exists\n"
+                "  3. You have permission to access storage keys",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Mount using SMB
+        click.echo("Mounting SMB share...")
+        try:
+            result = LocalSMBMount.mount(
+                storage_account=storage_account,
+                share_name=share_name,
+                storage_key=keys.key1,  # Use primary key
+                mount_point=mount_point,
+            )
+
+            if result.success:
+                click.echo(f"\n✓ Successfully mounted to: {result.mount_point}")
+                click.echo(f"  SMB Share: {result.smb_share}")
+                click.echo(
+                    f"\nYou can now access your Azure Files at: {result.mount_point}"
+                )
+            else:
+                click.echo("\nMount failed:", err=True)
+                if result.errors:
+                    for error in result.errors:
+                        click.echo(f"  - {error}", err=True)
+                sys.exit(1)
+
+        except Exception as e:
+            click.echo(f"Error mounting share: {e}", err=True)
+            sys.exit(1)
+
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@storage_group.group(name="unmount")
+def unmount_group():
+    """Unmount storage (VM or local)."""
+    pass
+
+
+@unmount_group.command(name="local")
+@click.option(
+    "--mount-point",
+    type=click.Path(path_type=Path),
+    default="~/azure",
+    help="Local mount point to unmount (default: ~/azure)",
+)
+@click.option("--force", is_flag=True, help="Force unmount even if busy")
+def unmount_local(mount_point: Path, force: bool):
+    """Unmount Azure Files SMB share from local macOS machine.
+
+    Unmounts a previously mounted Azure Files share from your local machine.
+
+    \b
+    Examples:
+      # Unmount default location
+      $ azlin storage unmount local
+
+      # Unmount specific location
+      $ azlin storage unmount local --mount-point ~/mydata
+
+      # Force unmount if busy
+      $ azlin storage unmount local --force
+    """
+    console = Console()
+    try:
+        click.echo(f"Unmounting Azure Files share from: {mount_point}")
+
+        # Check if mounted
+        try:
+            mount_info = LocalSMBMount.get_mount_info(mount_point)
+
+            if not mount_info.is_mounted:
+                click.echo(f"Mount point is not currently mounted: {mount_point}")
+                return
+
+        except Exception as e:
+            click.echo(f"Warning: Could not check mount status: {e}")
+
+        # Unmount
+        try:
+            result = LocalSMBMount.unmount(mount_point=mount_point, force=force)
+
+            if result.success:
+                if result.was_mounted:
+                    click.echo(f"✓ Successfully unmounted from: {result.mount_point}")
+                else:
+                    click.echo(f"Mount point was not mounted: {result.mount_point}")
+            else:
+                click.echo("\nUnmount failed:", err=True)
+                if result.errors:
+                    for error in result.errors:
+                        click.echo(f"  - {error}", err=True)
+                click.echo(
+                    "\nTip: Try --force to force unmount if the share is busy", err=True
+                )
+                sys.exit(1)
+
+        except Exception as e:
+            click.echo(f"Error unmounting share: {e}", err=True)
+            sys.exit(1)
+
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
 
