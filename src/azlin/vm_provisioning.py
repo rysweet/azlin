@@ -757,6 +757,7 @@ packages:
   - wget
   - build-essential
   - software-properties-common
+  - ripgrep
 
 runcmd:
   # Python 3.12+ from deadsnakes PPA
