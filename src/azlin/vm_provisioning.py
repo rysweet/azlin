@@ -12,6 +12,7 @@ Security:
 
 import json
 import logging
+import re
 import subprocess
 import threading
 from collections.abc import Callable
@@ -426,6 +427,83 @@ class VMProvisioner:
             True if valid
         """
         return region.lower() in self.VALID_REGIONS
+
+    @staticmethod
+    def validate_azure_vm_name(name: str) -> tuple[bool, str]:
+        """Validate name against Azure VM naming rules.
+
+        Azure VM naming requirements:
+        - Length: 1-64 characters
+        - Allowed: alphanumeric, hyphen (-), period (.)
+        - Must start with alphanumeric character
+        - Cannot end with hyphen or period
+
+        Args:
+            name: Proposed VM name
+
+        Returns:
+            Tuple of (is_valid, error_message)
+            - (True, "") if valid
+            - (False, "reason") if invalid
+        """
+        # Length check
+        if not name:
+            return False, "VM name cannot be empty"
+        if len(name) > 64:
+            return False, f"VM name too long ({len(name)} chars, max 64)"
+
+        # Character check (alphanumeric, hyphen, period only)
+        if not re.match(r"^[a-zA-Z0-9.-]+$", name):
+            return False, "VM name can only contain alphanumeric characters, hyphens, and periods"
+
+        # Start character check (must be alphanumeric)
+        if not name[0].isalnum():
+            return False, f"VM name must start with alphanumeric character (not '{name[0]}')"
+
+        # End character check (cannot be hyphen or period)
+        if name[-1] in ("-", "."):
+            return False, f"VM name cannot end with '{name[-1]}'"
+
+        return True, ""
+
+    @staticmethod
+    def check_vm_exists(vm_name: str, resource_group: str) -> bool:
+        """Check if VM exists in resource group.
+
+        Args:
+            vm_name: VM name to check
+            resource_group: Resource group name
+
+        Returns:
+            True if VM exists, False otherwise
+
+        Note:
+            Returns False if resource group doesn't exist (not an error)
+            Uses Azure CLI with minimal output for fast check
+        """
+        try:
+            executor = AzureCLIExecutor(show_progress=False, timeout=10)
+            result = executor.execute(
+                [
+                    "az",
+                    "vm",
+                    "show",
+                    "--name",
+                    vm_name,
+                    "--resource-group",
+                    resource_group,
+                    "--query",
+                    "name",  # Minimal output for speed
+                    "--output",
+                    "tsv",
+                ]
+            )
+            # VM exists if command succeeds
+            return result["success"]
+        except Exception as e:
+            # Any error means VM doesn't exist or isn't accessible
+            logger.debug(f"VM existence check returned false: {e}")
+            return False
 
     def _parse_sku_error(self, error_message: str) -> bool:
         """Check if error is SKU/capacity related.
