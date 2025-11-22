@@ -588,7 +588,7 @@ class CLIOrchestrator:
                     f"  - No Bastion: Public IP (direct SSH, less secure)\n"
                     f"\nUse Bastion for secure access (recommended)?"
                 )
-                if click.confirm(message, default=True):
+                if self.auto_approve or click.confirm(message, default=True):
                     self.progress.update(
                         f"Using Bastion: {bastion_info['name']}", ProgressStage.IN_PROGRESS
                     )
@@ -617,7 +617,7 @@ class CLIOrchestrator:
                     f"  - No: Less secure (public IP, direct internet access)\n"
                     f"\nCreate VM with Bastion access?"
                 )
-                if not click.confirm(message, default=True):
+                if not self.auto_approve and not click.confirm(message, default=True):
                     # User declined - abort per security policy
                     self.progress.update("User declined Bastion creation", ProgressStage.FAILED)
                     click.echo(
