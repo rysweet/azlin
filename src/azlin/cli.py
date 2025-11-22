@@ -507,7 +507,7 @@ class CLIOrchestrator:
                 f"This exposes your VM directly to the internet, which is LESS SECURE.\n"
                 f"Continue with public IP?"
             )
-            if not click.confirm(warning_message, default=False):
+            if not self.auto_approve and not click.confirm(warning_message, default=False):
                 self.progress.update("User cancelled VM creation", ProgressStage.WARNING)
                 raise click.Abort
 
