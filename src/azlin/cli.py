@@ -3161,9 +3161,10 @@ def list_command(
                 pass  # Silently skip if context unavailable
 
             click.echo(f"Listing VMs in resource group: {rg}\n")
-            vms = VMManager.list_vms(rg, include_stopped=show_all)
-            # Filter to azlin VMs
-            vms = VMManager.filter_by_prefix(vms, "azlin")
+            # Use tag-based query to include custom-named VMs (Issue #385 support)
+            vms = TagManager.list_managed_vms(resource_group=rg)
+            if not show_all:
+                vms = [vm for vm in vms if vm.is_running()]
 
         # Filter by tag if specified
         if tag:
