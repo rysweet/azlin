@@ -17,7 +17,7 @@ from rich.console import Console
 
 from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
-from azlin.context_manager import Context, ContextError, ContextManager
+from azlin.context_manager import ContextError, ContextManager
 from azlin.modules.local_smb_mount import LocalSMBMount
 from azlin.modules.nfs_mount_manager import NFSMountManager
 from azlin.modules.storage_key_manager import StorageKeyManager
@@ -661,7 +661,7 @@ def mount_local(
             click.echo(f"Error: Could not get current context: {e}", err=True)
             sys.exit(1)
 
-        click.echo(f"Mounting Azure Files share locally...")
+        click.echo("Mounting Azure Files share locally...")
         click.echo(f"  Storage Account: {storage_account}")
         click.echo(f"  Share: {share_name}")
         click.echo(f"  Mount Point: {mount_point}")
@@ -699,9 +699,7 @@ def mount_local(
             if result.success:
                 click.echo(f"\n✓ Successfully mounted to: {result.mount_point}")
                 click.echo(f"  SMB Share: {result.smb_share}")
-                click.echo(
-                    f"\nYou can now access your Azure Files at: {result.mount_point}"
-                )
+                click.echo(f"\nYou can now access your Azure Files at: {result.mount_point}")
             else:
                 click.echo("\nMount failed:", err=True)
                 if result.errors:
@@ -777,9 +775,7 @@ def unmount_local(mount_point: Path, force: bool):
                 if result.errors:
                     for error in result.errors:
                         click.echo(f"  - {error}", err=True)
-                click.echo(
-                    "\nTip: Try --force to force unmount if the share is busy", err=True
-                )
+                click.echo("\nTip: Try --force to force unmount if the share is busy", err=True)
                 sys.exit(1)
 
         except Exception as e:
