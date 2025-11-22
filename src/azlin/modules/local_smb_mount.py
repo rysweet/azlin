@@ -283,19 +283,16 @@ class LocalSMBMount:
 
             if result.returncode == 0:
                 logger.info(f"Successfully mounted SMB share at: {mount_point}")
-                return MountResult(
-                    success=True, mount_point=str(mount_point), smb_share=smb_url
-                )
-            else:
-                # Mount failed
-                error_msg = result.stderr.decode() if result.stderr else "Unknown error"
-                logger.error(f"Mount failed: {error_msg}")
-                return MountResult(
-                    success=False,
-                    mount_point=str(mount_point),
-                    smb_share=smb_url,
-                    errors=[f"Mount failed: {error_msg}"],
-                )
+                return MountResult(success=True, mount_point=str(mount_point), smb_share=smb_url)
+            # Mount failed
+            error_msg = result.stderr.decode() if result.stderr else "Unknown error"
+            logger.error(f"Mount failed: {error_msg}")
+            return MountResult(
+                success=False,
+                mount_point=str(mount_point),
+                smb_share=smb_url,
+                errors=[f"Mount failed: {error_msg}"],
+            )
 
         except Exception as e:
             logger.error(f"Exception during mount operation: {e}")
@@ -345,9 +342,7 @@ class LocalSMBMount:
 
         if not is_mounted:
             logger.info(f"Mount point is not currently mounted: {mount_point}")
-            return UnmountResult(
-                success=True, mount_point=str(mount_point), was_mounted=False
-            )
+            return UnmountResult(success=True, mount_point=str(mount_point), was_mounted=False)
 
         try:
             # Build unmount command
@@ -361,18 +356,15 @@ class LocalSMBMount:
 
             if result.returncode == 0:
                 logger.info(f"Successfully unmounted: {mount_point}")
-                return UnmountResult(
-                    success=True, mount_point=str(mount_point), was_mounted=True
-                )
-            else:
-                error_msg = result.stderr if result.stderr else "Unknown error"
-                logger.error(f"Unmount failed: {error_msg}")
-                return UnmountResult(
-                    success=False,
-                    mount_point=str(mount_point),
-                    was_mounted=True,
-                    errors=[f"Unmount failed: {error_msg}"],
-                )
+                return UnmountResult(success=True, mount_point=str(mount_point), was_mounted=True)
+            error_msg = result.stderr if result.stderr else "Unknown error"
+            logger.error(f"Unmount failed: {error_msg}")
+            return UnmountResult(
+                success=False,
+                mount_point=str(mount_point),
+                was_mounted=True,
+                errors=[f"Unmount failed: {error_msg}"],
+            )
 
         except Exception as e:
             logger.error(f"Exception during unmount operation: {e}")
@@ -400,11 +392,7 @@ class LocalSMBMount:
             mount_point_str = str(mount_point.resolve())
 
             # Check if our mount point appears in the mount list
-            for line in result.stdout.splitlines():
-                if f" on {mount_point_str} " in line:
-                    return True
-
-            return False
+            return any(f" on {mount_point_str} " in line for line in result.stdout.splitlines())
 
         except Exception as e:
             logger.warning(f"Failed to check mount status: {e}")
@@ -433,9 +421,7 @@ class LocalSMBMount:
         if is_mounted:
             # Try to get the SMB share URL from mount output
             try:
-                result = subprocess.run(
-                    ["mount"], capture_output=True, text=True, check=True
-                )
+                result = subprocess.run(["mount"], capture_output=True, text=True, check=True)
                 mount_point_str = str(mount_point)
 
                 for line in result.stdout.splitlines():
@@ -449,18 +435,16 @@ class LocalSMBMount:
             except Exception as e:
                 logger.warning(f"Failed to get mount share info: {e}")
 
-        return MountInfo(
-            mount_point=str(mount_point), smb_share=smb_share, is_mounted=is_mounted
-        )
+        return MountInfo(mount_point=str(mount_point), smb_share=smb_share, is_mounted=is_mounted)
 
 
 __all__ = [
     "LocalSMBMount",
+    "LocalSMBMountError",
+    "MountInfo",
+    "MountPointError",
     "MountResult",
     "UnmountResult",
-    "MountInfo",
-    "LocalSMBMountError",
     "UnsupportedPlatformError",
     "ValidationError",
-    "MountPointError",
 ]

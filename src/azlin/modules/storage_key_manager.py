@@ -169,6 +169,10 @@ class StorageKeyManager:
             )
 
             # Extract keys from result
+            if keys_result.keys is None:
+                raise StorageKeyError(
+                    f"No keys returned for storage account: {storage_account_name}"
+                )
             keys_list = list(keys_result.keys)
             if len(keys_list) < 2:
                 raise StorageKeyError(
@@ -185,9 +189,7 @@ class StorageKeyManager:
                 )
 
             # SECURITY: Log success but never log the keys themselves
-            logger.info(
-                f"Successfully retrieved storage keys for account: {storage_account_name}"
-            )
+            logger.info(f"Successfully retrieved storage keys for account: {storage_account_name}")
 
             return StorageKeys(key1=key1, key2=key2)
 
@@ -205,15 +207,14 @@ class StorageKeyManager:
                 f"Error type: {type(e).__name__}"
             )
             raise StorageKeyError(
-                f"Failed to retrieve storage keys for account: {storage_account_name}. "
-                f"Error: {e}"
+                f"Failed to retrieve storage keys for account: {storage_account_name}. Error: {e}"
             ) from e
 
 
 __all__ = [
-    "StorageKeyManager",
-    "StorageKeys",
     "StorageKeyError",
+    "StorageKeyManager",
     "StorageKeyNotFoundError",
+    "StorageKeys",
     "ValidationError",
 ]
