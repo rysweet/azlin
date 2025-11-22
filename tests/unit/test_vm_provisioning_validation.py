@@ -19,8 +19,6 @@ Coverage:
 
 from unittest.mock import Mock, patch
 
-import pytest
-
 from azlin.vm_provisioning import VMProvisioner
 
 
