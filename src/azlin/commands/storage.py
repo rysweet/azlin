@@ -654,7 +654,8 @@ def mount_local(
 
         # Get current context for subscription ID
         try:
-            current_context = ContextManager.get_current_context()
+            context_config = ContextManager.load(config)
+            current_context = context_config.get_current_context()
             subscription_id = current_context.subscription_id
         except ContextError as e:
             click.echo(f"Error: Could not get current context: {e}", err=True)
