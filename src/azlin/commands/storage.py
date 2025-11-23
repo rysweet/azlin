@@ -568,13 +568,13 @@ def unmount_storage(vm: str, resource_group: str | None):
         sys.exit(1)
 
 
-@storage_group.group(name="mount")
-def mount_group():
-    """Mount storage (VM or local)."""
+@storage_group.group(name="mount-file")
+def mount_file_group():
+    """Mount file storage locally."""
     pass
 
 
-@mount_group.command(name="local")
+@mount_file_group.command(name="local")
 @click.option(
     "--mount-point",
     type=click.Path(path_type=Path),
@@ -716,13 +716,13 @@ def mount_local(
         sys.exit(1)
 
 
-@storage_group.group(name="unmount")
-def unmount_group():
-    """Unmount storage (VM or local)."""
+@storage_group.group(name="unmount-file")
+def unmount_file_group():
+    """Unmount file storage from local machine."""
     pass
 
 
-@unmount_group.command(name="local")
+@unmount_file_group.command(name="local")
 @click.option(
     "--mount-point",
     type=click.Path(path_type=Path),
