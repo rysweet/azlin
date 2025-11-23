@@ -120,10 +120,10 @@ class TestConfigManager:
 class TestSessionNameValidation:
     """Tests for session name validation (Issue #160)."""
 
-    def test_validate_rejects_self_referential(self):
-        """Test validation rejects self-referential mappings."""
-        with pytest.raises(ConfigError, match="Self-referential session name not allowed"):
-            ConfigManager._validate_session_mapping("simserv", "simserv", {})
+    def test_validate_allows_self_referential(self):
+        """Test validation allows self-referential mappings (Issue #385)."""
+        # Should not raise - self-referential is now allowed for custom VM names
+        ConfigManager._validate_session_mapping("simserv", "simserv", {})
 
     def test_validate_rejects_duplicate_session_names(self):
         """Test validation rejects duplicate session names."""
@@ -167,11 +167,14 @@ class TestSessionNameValidation:
         ConfigManager._validate_session_mapping("vm3", "dev", existing)
         ConfigManager._validate_session_mapping("vm1", "prod-updated", existing)
 
-    def test_set_session_name_rejects_self_referential(self, tmp_path):
-        """Test set_session_name rejects self-referential mappings."""
+    def test_set_session_name_allows_self_referential(self, tmp_path):
+        """Test set_session_name allows self-referential mappings (Issue #385)."""
         config_file = tmp_path / "config.toml"
-        with pytest.raises(ConfigError, match="Self-referential session name not allowed"):
-            ConfigManager.set_session_name("simserv", "simserv", str(config_file))
+        # Should not raise - self-referential is now allowed for custom VM names
+        ConfigManager.set_session_name("simserv", "simserv", str(config_file))
+        # Verify the mapping was created
+        result = ConfigManager.get_session_name("simserv", str(config_file))
+        assert result == "simserv"
 
     def test_set_session_name_rejects_duplicates(self, tmp_path):
         """Test set_session_name rejects duplicate session names."""
@@ -193,19 +196,14 @@ class TestSessionNameValidation:
         result = ConfigManager.get_session_name("vm1", str(config_file))
         assert result == "production"
 
-    def test_get_vm_name_by_session_filters_self_referential(self, tmp_path, caplog):
-        """Test get_vm_name_by_session filters out self-referential entries."""
-        import logging
-
-        caplog.set_level(logging.WARNING)
-
+    def test_get_vm_name_by_session_includes_self_referential(self, tmp_path):
+        """Test get_vm_name_by_session includes self-referential entries (Issue #385)."""
         config_file = tmp_path / "config.toml"
         # Manually create config with self-referential entry
         config = AzlinConfig(session_names={"simserv": "simserv", "vm1": "prod"})
         ConfigManager.save_config(config, str(config_file))
 
-        # Lookup should filter out self-referential entry
-        # Pass resource_group="" to force config-only lookup (tags require RG)
+        # Lookup should now INCLUDE self-referential entry
         # Mock both tag search methods and VMCache to force config fallback
         mock_tag_manager = MagicMock()
         mock_tag_manager.get_vm_by_session.return_value = None
@@ -221,8 +219,8 @@ class TestSessionNameValidation:
             result = ConfigManager.get_vm_name_by_session(
                 "simserv", str(config_file), resource_group="test-rg"
             )
-            assert result is None
-            assert "Ignoring invalid self-referential session mapping" in caplog.text
+            # Self-referential should now return the VM name
+            assert result == "simserv"
 
     def test_get_vm_name_by_session_warns_on_duplicates(self, tmp_path, caplog):
         """Test get_vm_name_by_session warns on duplicate session names."""
@@ -289,16 +287,15 @@ class TestSessionNameValidation:
         assert result == "myvm"
 
     def test_bug_scenario_simserv_self_referential(self, tmp_path):
-        """Test the original bug scenario: simserv -> simserv causes connection failure."""
+        """Test the original bug scenario: simserv -> simserv now allowed (Issue #385)."""
         config_file = tmp_path / "config.toml"
 
-        # Attempt to create self-referential mapping (should be rejected now)
-        with pytest.raises(ConfigError, match="Self-referential session name not allowed"):
-            ConfigManager.set_session_name("simserv", "simserv", str(config_file))
+        # Self-referential mapping is now allowed for custom VM names
+        ConfigManager.set_session_name("simserv", "simserv", str(config_file))
 
-        # Verify no mapping was created
+        # Verify mapping was created
         result = ConfigManager.get_session_name("simserv", str(config_file))
-        assert result is None
+        assert result == "simserv"
 
 
 # ============================================================================
