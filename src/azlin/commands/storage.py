@@ -44,12 +44,10 @@ class MountGroup(click.Group):
             if len(sys.argv) > mount_idx + 1:
                 next_arg = sys.argv[mount_idx + 1]
 
-                # If next_arg is not a known subcommand name
-                if next_arg not in ("vm", "local", "--help", "-h"):
-                    # Check if --vm is present, indicating backward compat syntax
-                    if "--vm" in sys.argv:
-                        # Inject "vm" as the subcommand after "mount"
-                        sys.argv.insert(mount_idx + 1, "vm")
+                # If next_arg is not a known subcommand name and --vm is present (backward compat)
+                if next_arg not in ("vm", "local", "--help", "-h") and "--vm" in sys.argv:
+                    # Inject "vm" as the subcommand after "mount"
+                    sys.argv.insert(mount_idx + 1, "vm")
         except (ValueError, IndexError):
             pass
 
@@ -567,8 +565,6 @@ def mount_local_storage(mount_point: str, storage: str | None):
     click.echo(f"  Mount point: {mount_point}")
     if storage:
         click.echo(f"  Storage: {storage}")
-
-
 
 
 @storage_group.command(name="unmount")
