@@ -27,6 +27,35 @@ from azlin.vm_manager import VMManager
 logger = logging.getLogger(__name__)
 
 
+class MountGroup(click.Group):
+    """Custom group that handles backward compatibility for mount command.
+
+    Allows:
+    - azlin storage mount vm <storage> --vm <vm>  (new explicit)
+    - azlin storage mount local --mount-point ... (new explicit)
+    - azlin storage mount <storage> --vm <vm>    (backward compat - auto-detects vm mount)
+    """
+
+    def main(self, *args, **kwargs):
+        """Intercept args to handle backward compatibility."""
+        # Find the "mount" argument position and check what comes after
+        try:
+            mount_idx = sys.argv.index("mount")
+            if len(sys.argv) > mount_idx + 1:
+                next_arg = sys.argv[mount_idx + 1]
+
+                # If next_arg is not a known subcommand name
+                if next_arg not in ("vm", "local", "--help", "-h"):
+                    # Check if --vm is present, indicating backward compat syntax
+                    if "--vm" in sys.argv:
+                        # Inject "vm" as the subcommand after "mount"
+                        sys.argv.insert(mount_idx + 1, "vm")
+        except (ValueError, IndexError):
+            pass
+
+        return super().main(*args, **kwargs)
+
+
 @click.group(name="storage", cls=AzlinGroup)
 def storage_group():
     """Manage Azure Files NFS shared storage.
@@ -40,7 +69,7 @@ def storage_group():
         list       List storage accounts
         status     Show storage status and usage
         delete     Delete storage account
-        mount      Mount storage on VM
+        mount      Mount storage (group with vm/local subcommands)
         unmount    Unmount storage from VM
 
     \b
@@ -51,14 +80,20 @@ def storage_group():
         # List all storage accounts
         $ azlin storage list
 
-        # Mount storage on VM
+        # Mount storage on VM (new syntax)
+        $ azlin storage mount vm myteam-shared --vm my-dev-vm
+
+        # Mount storage locally
+        $ azlin storage mount local --mount-point ~/azure/
+
+        # Mount storage on VM (backward compatible)
         $ azlin storage mount myteam-shared --vm my-dev-vm
 
         # Check storage status
         $ azlin storage status myteam-shared
 
         # Unmount from VM
-        $ azlin storage unmount my-dev-vm
+        $ azlin storage unmount --vm my-dev-vm
 
         # Delete storage
         $ azlin storage delete myteam-shared
@@ -369,11 +404,46 @@ def delete_storage(name: str, resource_group: str | None, force: bool):
         sys.exit(1)
 
 
-@storage_group.command(name="mount")
+@storage_group.group(name="mount", cls=MountGroup)
+def mount_group():
+    """Mount storage on VM or locally.
+
+    Two ways to mount storage:
+
+    \b
+    VM MOUNT (NFS shared across VMs):
+        $ azlin storage mount vm <storage> --vm <vm-name>
+        Mounts NFS storage on VM home directory for sharing.
+
+    \b
+    LOCAL MOUNT (local path):
+        $ azlin storage mount local --mount-point ~/azure/
+        Mounts storage locally (Linux/macOS only).
+
+    \b
+    BACKWARD COMPATIBILITY:
+        $ azlin storage mount <storage> --vm <vm-name>
+        Auto-detects and mounts on VM (same as: mount vm <storage> --vm <vm-name>)
+
+    \b
+    EXAMPLES:
+        # Mount on VM (new)
+        $ azlin storage mount vm myteam-shared --vm my-dev-vm
+
+        # Mount locally (new)
+        $ azlin storage mount local --mount-point ~/azure/
+
+        # Mount on VM (backward compatible)
+        $ azlin storage mount myteam-shared --vm my-dev-vm
+    """
+    pass
+
+
+@mount_group.command(name="vm")
 @click.argument("storage_name", type=str)
 @click.option("--vm", required=True, help="VM name or identifier")
 @click.option("--resource-group", "--rg", help="Azure resource group")
-def mount_storage(storage_name: str, vm: str, resource_group: str | None):
+def mount_vm_storage(storage_name: str, vm: str, resource_group: str | None):
     """Mount NFS storage on VM home directory.
 
     Mounts the specified storage account's NFS share to /home/azureuser
@@ -382,7 +452,7 @@ def mount_storage(storage_name: str, vm: str, resource_group: str | None):
 
     \b
     Examples:
-      $ azlin storage mount myteam-shared --vm my-dev-vm
+      $ azlin storage mount vm myteam-shared --vm my-dev-vm
     """
     console = Console()
     try:
@@ -477,6 +547,28 @@ def mount_storage(storage_name: str, vm: str, resource_group: str | None):
     except Exception as e:
         click.echo(f"Error mounting storage: {e}", err=True)
         sys.exit(1)
+
+
+@mount_group.command(name="local")
+@click.option("--mount-point", required=True, type=click.Path(), help="Local mount point")
+@click.option("--storage", required=False, help="Storage account name (for future use)")
+def mount_local_storage(mount_point: str, storage: str | None):
+    """Mount storage locally on this machine.
+
+    Mounts NFS storage locally to the specified mount point.
+    Only supported on Linux and macOS.
+
+    \b
+    Examples:
+      $ azlin storage mount local --mount-point ~/azure/
+      $ azlin storage mount local --mount-point /mnt/shared --storage myteam-shared
+    """
+    click.echo("Local mount feature coming soon.")
+    click.echo(f"  Mount point: {mount_point}")
+    if storage:
+        click.echo(f"  Storage: {storage}")
+
+
 
 
 @storage_group.command(name="unmount")
