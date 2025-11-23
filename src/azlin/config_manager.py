@@ -500,12 +500,15 @@ class ConfigManager:
             2. No duplicate session names (session_name already maps to different VM)
             3. Azure naming rules (1-64 chars, alphanumeric + hyphen/underscore)
         """
-        # Rule 1: No self-referential mappings
+        # Rule 1: Allow self-referential mappings for custom-named VMs (Issue #385)
+        # When vm_name == session_name, this is actually unambiguous and correct
+        # for custom-named VMs like "amplihack" where the name IS the identifier
         if vm_name == session_name:
-            raise ConfigError(
-                f"Self-referential session name not allowed: {vm_name} -> {session_name}\n"
-                f"Session name must be different from VM name to avoid connection ambiguity."
+            logger.debug(
+                f"Self-referential session name (custom-named VM): {vm_name} -> {session_name}"
             )
+            # Don't save to config (redundant), but don't raise error either
+            return
 
         # Rule 2: No duplicate session names
         for existing_vm, existing_session in existing_mappings.items():
@@ -704,13 +707,8 @@ class ConfigManager:
 
                 # Reverse lookup: find VM name for this session name
                 for vm_name, sess_name in config.session_names.items():
-                    # Skip self-referential entries (invalid mappings)
-                    if vm_name == sess_name:
-                        logger.warning(
-                            f"Ignoring invalid self-referential session mapping: {vm_name} -> {sess_name}"
-                        )
-                        continue
-
+                    # Allow self-referential entries (custom-named VMs, Issue #385)
+                    # if vm_name == sess_name, it's valid and should match when searching for that session
                     if sess_name == session_name:
                         matches.append(vm_name)
 
