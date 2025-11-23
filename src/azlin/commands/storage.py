@@ -431,9 +431,8 @@ def mount_storage(storage_name: str, vm: str, resource_group: str | None):
             )
             sys.exit(1)
 
-        if not vm_obj.public_ip:
-            click.echo(f"Error: VM '{vm}' has no public IP address", err=True)
-            sys.exit(1)
+        # Public IP check removed - Bastion VMs use private IPs (Issue #372)
+        # Connection handling (public vs Bastion) is done by NFSMountManager
 
         # Get SSH key
         ssh_key_path = Path.home() / ".ssh" / "azlin"
@@ -527,9 +526,8 @@ def unmount_storage(vm: str, resource_group: str | None):
             )
             sys.exit(1)
 
-        if not vm_obj.public_ip:
-            click.echo(f"Error: VM '{vm}' has no public IP address", err=True)
-            sys.exit(1)
+        # Public IP check removed - Bastion VMs use private IPs (Issue #372)
+        # Connection handling (public vs Bastion) is done by NFSMountManager
 
         # Get SSH key
         ssh_key_path = Path.home() / ".ssh" / "azlin"
