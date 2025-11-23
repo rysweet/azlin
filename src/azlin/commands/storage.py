@@ -502,8 +502,10 @@ def mount_vm_storage(storage_name: str, vm: str, resource_group: str | None):
             )
             sys.exit(1)
 
-        if not vm_obj.public_ip:
-            click.echo(f"Error: VM '{vm}' has no public IP address", err=True)
+        # Use public IP if available, otherwise private IP for Bastion-only VMs (Issue #372)
+        vm_ip = vm_obj.public_ip or vm_obj.private_ip
+        if not vm_ip:
+            click.echo(f"Error: VM '{vm}' has no IP address (neither public nor private)", err=True)
             sys.exit(1)
 
         # Get SSH key
@@ -516,10 +518,10 @@ def mount_vm_storage(storage_name: str, vm: str, resource_group: str | None):
         click.echo("Mounting storage on VM...")
         click.echo(f"  Storage: {storage_name}")
         click.echo(f"  Endpoint: {storage.nfs_endpoint}")
-        click.echo(f"  VM: {vm_obj.name} ({vm_obj.public_ip})")
+        click.echo(f"  VM: {vm_obj.name} ({vm_ip})")
 
         result = NFSMountManager.mount_storage(
-            vm_ip=vm_obj.public_ip,
+            vm_ip=vm_ip,
             ssh_key=ssh_key_path,
             nfs_endpoint=storage.nfs_endpoint,
         )
@@ -618,8 +620,10 @@ def unmount_storage(vm: str, resource_group: str | None):
             )
             sys.exit(1)
 
-        if not vm_obj.public_ip:
-            click.echo(f"Error: VM '{vm}' has no public IP address", err=True)
+        # Use public IP if available, otherwise private IP for Bastion-only VMs (Issue #372)
+        vm_ip = vm_obj.public_ip or vm_obj.private_ip
+        if not vm_ip:
+            click.echo(f"Error: VM '{vm}' has no IP address (neither public nor private)", err=True)
             sys.exit(1)
 
         # Get SSH key
@@ -630,10 +634,10 @@ def unmount_storage(vm: str, resource_group: str | None):
 
         # Unmount storage
         click.echo("Unmounting storage from VM...")
-        click.echo(f"  VM: {vm_obj.name} ({vm_obj.public_ip})")
+        click.echo(f"  VM: {vm_obj.name} ({vm_ip})")
 
         result = NFSMountManager.unmount_storage(
-            vm_ip=vm_obj.public_ip,
+            vm_ip=vm_ip,
             ssh_key=ssh_key_path,
         )
 
