@@ -114,15 +114,15 @@ class NotificationHandler:
                 args = [notification_cmd_template, message]
 
             # Execute notification command
-            subprocess.run(args, capture_output=True, text=True, timeout=10, check=True)
+            result = subprocess.run(args, capture_output=True, text=True, timeout=10, check=False)
 
-            logger.info("Notification sent successfully")
-
-            return NotificationResult(sent=True, message=message, error=None)
-
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else str(e)
-            logger.warning(f"Failed to send notification: {error_msg}")
+            if result.returncode == 0:
+                logger.info("Notification sent successfully")
+                return NotificationResult(sent=True, message=message, error=None)
+            else:
+                # Notification failed, but this is non-critical - just log at debug level
+                error_msg = result.stderr.strip() if result.stderr else f"Exit code {result.returncode}"
+                logger.debug(f"Notification failed (non-critical): {error_msg}")
 
             return NotificationResult(sent=False, message=message, error=error_msg)
 
