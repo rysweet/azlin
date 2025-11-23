@@ -526,12 +526,13 @@ class TestStorageCommandSyntax:
     # -------------------------------------------------------------------------
 
     def test_storage_mount_requires_name(self):
-        """Test 'azlin storage mount' without storage name fails."""
+        """Test 'azlin storage mount' shows help for mount group."""
         runner = CliRunner()
         result = runner.invoke(main, ["storage", "mount"])
 
+        # Mount is now a group with subcommands, so it shows help, not "missing argument"
         assert result.exit_code != 0
-        assert "missing argument" in result.output.lower()
+        assert "commands:" in result.output.lower() or "usage:" in result.output.lower()
 
     def test_storage_mount_requires_vm_option(self):
         """Test 'azlin storage mount mystore' without --vm fails."""
