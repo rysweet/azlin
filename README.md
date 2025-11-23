@@ -1,8 +1,8 @@
 # azlin - Azure Ubuntu VM Provisioning CLI
 
-**Version:** 0.3.1
-**Last Updated:** 2025-11-20
-**[📝 Release Notes](docs/RELEASE_NOTES_v0.3.1.md)** | **[📊 Changelog](https://github.com/rysweet/azlin/compare/v0.3.0...v0.3.1)** | **[🚀 Latest Release](https://github.com/rysweet/azlin/releases/tag/v0.3.1)**
+**Version:** 0.3.2
+**Last Updated:** 2025-11-23
+**[📝 Release Notes](https://github.com/rysweet/azlin/releases/tag/v0.3.2)** | **[📊 Changelog](https://github.com/rysweet/azlin/compare/v0.3.1...v0.3.2)** | **[🚀 Latest Release](https://github.com/rysweet/azlin/releases/tag/v0.3.2)**
 
 **One command to create a fully-equipped development VM on Azure**
 
@@ -10,11 +10,17 @@
 # Run directly from GitHub (no installation needed)
 uvx --from git+https://github.com/rysweet/azlin azlin new
 
-# Create VM with dev tools
-azlin new
+# Create VM with custom name (NEW in v0.3.2!)
+azlin new --name myproject
+
+# Fully automated provisioning (NEW in v0.3.2!)
+azlin new --name myvm --yes  # Zero prompts!
 
 # Create VM and clone GitHub repo
 azlin new --repo https://github.com/owner/repo
+
+# Mount Azure Files locally on macOS (NEW in v0.3.2!)
+azlin storage mount local --mount-point ~/azure/
 ```
 
 ## What is azlin?
@@ -30,6 +36,33 @@ azlin automates the tedious process of setting up Azure Ubuntu VMs for developme
 
 **Total time**: 4-7 minutes from command to working development environment.
 
+## ✨ What's New in v0.3.2
+
+### Custom VM Names
+Give your VMs meaningful names instead of timestamps:
+```bash
+azlin new --name myproject   # VM named "myproject"
+azlin connect myproject      # Connect by name
+azlin list                   # See custom names
+```
+
+### Complete --yes Automation
+Full CI/CD automation - ALL prompts now respect `--yes`:
+```bash
+azlin new --name ci-vm --yes  # Zero interaction required!
+```
+
+### Mount Local for macOS
+Access Azure Files from your Mac via Finder:
+```bash
+azlin storage mount local --mount-point ~/azure/
+# Your Azure Files now accessible locally!
+```
+
+### Python 3.13 & Ripgrep
+- All new VMs get Python 3.13+
+- ripgrep (rg) pre-installed for fast search
+
 ## Development Tools Installed
 
 Every azlin VM comes pre-configured with:
@@ -39,7 +72,7 @@ Every azlin VM comes pre-configured with:
 3. **GitHub CLI (gh)** - GitHub integration
 4. **Git** - Version control
 5. **Node.js** - JavaScript runtime with user-local npm configuration
-6. **Python 3.12+** - Python runtime + pip (latest stable version from deadsnakes PPA)
+6. **Python 3.13+** - Python runtime + pip (latest stable version from deadsnakes PPA)
 7. **Rust** - Systems programming language
 8. **Golang** - Go programming language
 9. **.NET 10 RC** - .NET development framework
