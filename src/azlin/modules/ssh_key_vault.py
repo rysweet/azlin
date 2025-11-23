@@ -63,12 +63,19 @@ def get_current_user_principal_id() -> str:
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
         principal_id = result.stdout.strip()
         if not principal_id:
             raise KeyVaultError("Failed to get principal ID: empty response")
         logger.debug(f"Current user principal ID: {principal_id}")
         return principal_id
+    except subprocess.TimeoutExpired:
+        logger.warning("Azure CLI command timed out after 30 seconds: get signed-in user")
+        raise KeyVaultError(
+            "Azure CLI command timed out while getting user principal ID. "
+            "Check your network connection and Azure CLI authentication."
+        )
     except subprocess.CalledProcessError as e:
         # Might be service principal authentication
         try:
@@ -78,6 +85,7 @@ def get_current_user_principal_id() -> str:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
             sp_name = result.stdout.strip()
             if sp_name:
@@ -87,11 +95,17 @@ def get_current_user_principal_id() -> str:
                     capture_output=True,
                     text=True,
                     check=True,
+                    timeout=30,
                 )
                 principal_id = result.stdout.strip()
                 if principal_id:
                     logger.debug(f"Service principal ID: {principal_id}")
                     return principal_id
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "Azure CLI command timed out after 30 seconds: get service principal info"
+            )
+            pass
         except Exception:
             pass
         raise KeyVaultError(
@@ -210,6 +224,7 @@ class SSHKeyVaultManager:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
 
             vaults = json.loads(result.stdout)
@@ -221,6 +236,11 @@ class SSHKeyVaultManager:
             logger.debug("No existing azlin Key Vault found")
             return None
 
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                f"Azure CLI command timed out after 30 seconds: list Key Vaults in {resource_group}"
+            )
+            return None
         except subprocess.CalledProcessError as e:
             logger.debug(f"Failed to list Key Vaults: {e.stderr if e.stderr else str(e)}")
             return None
@@ -282,11 +302,20 @@ class SSHKeyVaultManager:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
 
             logger.debug(f"Key Vault creation initiated: {vault_name}")
             return vault_name
 
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                f"Azure CLI command timed out after 30 seconds: create Key Vault {vault_name}"
+            )
+            raise KeyVaultError(
+                f"Azure CLI command timed out while creating Key Vault: {vault_name}. "
+                "The vault may still be creating in the background. Try again in a few moments."
+            )
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
             # Check if vault already exists (race condition)
@@ -341,6 +370,7 @@ class SSHKeyVaultManager:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
             vault_scope = result.stdout.strip()
 
@@ -365,6 +395,7 @@ class SSHKeyVaultManager:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
 
             assignments = json.loads(result.stdout)
@@ -390,10 +421,19 @@ class SSHKeyVaultManager:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
 
             logger.debug("RBAC permissions assigned successfully")
 
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                f"Azure CLI command timed out after 30 seconds: RBAC operations for {vault_name}"
+            )
+            raise KeyVaultError(
+                f"Azure CLI command timed out while managing RBAC permissions for Key Vault: {vault_name}. "
+                "Check your network connection and try again."
+            )
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
             # Check if assignment already exists (race condition)
