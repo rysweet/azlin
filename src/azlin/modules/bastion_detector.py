@@ -172,6 +172,7 @@ class BastionDetector:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
 
             bastions = json.loads(result.stdout)
@@ -179,6 +180,9 @@ class BastionDetector:
 
             return bastions
 
+        except subprocess.TimeoutExpired:
+            logger.warning("Bastion detection timed out after 30 seconds, skipping auto-detection")
+            return []
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr)
             logger.error(f"Failed to list Bastion hosts: {safe_error}")
@@ -221,6 +225,7 @@ class BastionDetector:
                 capture_output=True,
                 text=True,
                 check=False,  # Don't raise on error
+                timeout=30,
             )
 
             if result.returncode != 0:
@@ -236,6 +241,9 @@ class BastionDetector:
 
             return bastion
 
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Bastion query timed out after 30 seconds for {bastion_name}, skipping")
+            return None
         except json.JSONDecodeError as e:
             raise BastionDetectorError(f"Failed to parse Bastion details: {e}") from e
         except Exception as e:
