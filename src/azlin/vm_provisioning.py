@@ -692,8 +692,8 @@ runcmd:
   # OPTIMIZATION: Single apt update for both deadsnakes and GitHub CLI
   - apt update
 
-  # Install Python 3.12 packages
-  - apt install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils
+  # Install Python 3.13 packages
+  - apt install -y python3.13 python3.13-venv python3.13-dev python3.13-distutils
 
   # Install GitHub CLI (separate command for explicit error handling)
   - |
@@ -703,9 +703,9 @@ runcmd:
       echo "WARNING: GitHub CLI (gh) installation failed - check repository setup"
     fi
 
-  - update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
-  - update-alternatives --set python3 /usr/bin/python3.12
-  - curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
+  - update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1
+  - update-alternatives --set python3 /usr/bin/python3.13
+  - curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13
 
   # Azure CLI
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
