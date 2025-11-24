@@ -2925,6 +2925,7 @@ def _handle_multi_context_list(
     tag: str | None,
     show_quota: bool,
     show_tmux: bool,
+    wide_mode: bool = False,
 ) -> None:
     """Handle multi-context VM listing.
 
@@ -2940,6 +2941,7 @@ def _handle_multi_context_list(
         tag: Tag filter (format: key or key=value)
         show_quota: Show quota information (not supported in multi-context)
         show_tmux: Show tmux sessions (not supported in multi-context)
+        wide_mode: Prevent VM name truncation in table output
 
     Raises:
         SystemExit: On validation or execution errors
@@ -3029,7 +3031,7 @@ def _handle_multi_context_list(
 
     # Step 4: Display results using Rich tables
     display = MultiContextDisplay()
-    display.display_results(result, show_errors=True, show_summary=True)
+    display.display_results(result, show_errors=True, show_summary=True, wide_mode=wide_mode)
 
     # Step 5: Check if any contexts failed and set appropriate exit code
     if result.failed_contexts > 0:
@@ -3068,6 +3070,13 @@ def _handle_multi_context_list(
     help="List VMs from contexts matching glob pattern (e.g., 'prod*', 'dev-*')",
     type=str,
 )
+@click.option(
+    "--wide",
+    "-w",
+    "wide_mode",
+    help="Prevent VM name truncation in table output",
+    is_flag=True,
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -3078,6 +3087,7 @@ def list_command(
     show_all_vms: bool,
     all_contexts: bool,
     contexts_pattern: str | None,
+    wide_mode: bool = False,
 ):
     """List VMs in a resource group.
 
@@ -3136,6 +3146,7 @@ def list_command(
                 tag=tag,
                 show_quota=show_quota,
                 show_tmux=show_tmux,
+                wide_mode=wide_mode,
             )
             return  # Exit early - multi-context mode handled completely
 
@@ -3286,8 +3297,12 @@ def list_command(
         table = Table(title="Azure VMs", show_header=True, header_style="bold")
 
         # Add columns
-        table.add_column("Session Name", style="cyan", width=20)
-        table.add_column("VM Name", style="white", width=30)
+        if wide_mode:
+            table.add_column("Session Name", style="cyan", no_wrap=True)
+            table.add_column("VM Name", style="white", no_wrap=True)
+        else:
+            table.add_column("Session Name", style="cyan", width=20)
+            table.add_column("VM Name", style="white", width=30)
         table.add_column("Status", width=10)
         table.add_column("IP", style="yellow", width=15)
         table.add_column("Region", width=10)
