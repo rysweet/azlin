@@ -580,9 +580,14 @@ def mount_local_storage(mount_point: str, storage: str | None):
         # Get config
         try:
             config = ConfigManager.load_config()
+            rg = config.default_resource_group
         except ConfigError as e:
             click.echo(f"Error: {e}", err=True)
             click.echo("Run 'azlin new' to initialize config", err=True)
+            sys.exit(1)
+
+        if not rg:
+            click.echo("Error: Resource group required. Set default_resource_group in config.", err=True)
             sys.exit(1)
 
         # Determine storage account to use
@@ -608,13 +613,13 @@ def mount_local_storage(mount_point: str, storage: str | None):
         # List storage accounts to get the storage info
         console.print(f"[blue]Looking up storage account: {storage_name}[/blue]")
         try:
-            accounts = StorageManager.list_storage(config.default_resource_group)
+            accounts = StorageManager.list_storage(rg)
             storage_obj = next((a for a in accounts if a.name == storage_name), None)
 
             if not storage_obj:
                 click.echo(
                     f"Error: Storage account '{storage_name}' not found in "
-                    f"resource group '{config.default_resource_group}'",
+                    f"resource group '{rg}'",
                     err=True,
                 )
                 sys.exit(1)
@@ -656,10 +661,13 @@ def mount_local_storage(mount_point: str, storage: str | None):
 
         # Get storage keys
         console.print("[blue]Retrieving storage account keys...[/blue]")
+        if not subscription_id:
+            click.echo("Error: Could not determine subscription ID", err=True)
+            sys.exit(1)
         try:
             keys = StorageKeyManager.get_storage_keys(
                 storage_account_name=storage_name,
-                resource_group=config.default_resource_group,
+                resource_group=rg,
                 subscription_id=subscription_id,
             )
         except StorageKeyError as e:
