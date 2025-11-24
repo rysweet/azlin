@@ -332,12 +332,9 @@ class BastionManager:
         try:
             # Start tunnel process with timeout protection (Issue #402)
             # Use thread-based timeout since Popen has no native timeout parameter
-            logger.info(f"[DEBUG] About to call _create_popen_with_timeout (timeout={timeout})")
             process = self._create_popen_with_timeout(cmd, timeout=timeout)
-            logger.info("[DEBUG] Popen created successfully")
 
             # Create tunnel object
-            logger.info("[DEBUG] Creating BastionTunnel object")
             tunnel = BastionTunnel(
                 bastion_name=bastion_name,
                 resource_group=resource_group,
@@ -351,11 +348,8 @@ class BastionManager:
             self.active_tunnels.append(tunnel)
 
             # Wait for tunnel to be ready if requested
-            logger.info(f"[DEBUG] wait_for_ready={wait_for_ready}, about to wait for tunnel")
             if wait_for_ready:
-                logger.info(f"[DEBUG] Calling _wait_for_tunnel_ready (timeout={timeout})")
                 self._wait_for_tunnel_ready(tunnel, timeout)
-                logger.info("[DEBUG] _wait_for_tunnel_ready completed")
 
             logger.info(f"Bastion tunnel created on 127.0.0.1:{local_port}")
             return tunnel
@@ -380,10 +374,8 @@ class BastionManager:
             BastionManagerError: If tunnel fails to become ready
         """
         start_time = time.time()
-        logger.info(f"[DEBUG] Starting wait loop, timeout={timeout}")
 
         while time.time() - start_time < timeout:
-            logger.debug(f"[DEBUG] Wait loop iteration, elapsed={time.time() - start_time:.1f}s")
             # Check if process died
             if not tunnel.is_active():
                 # Get error output
@@ -406,17 +398,15 @@ class BastionManager:
                 raise BastionManagerError(f"Tunnel process failed: {safe_error}")
 
             # Try to connect to local port
-            logger.debug(f"[DEBUG] Trying to connect to tunnel port {tunnel.local_port}")
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                     sock.settimeout(1)
                     sock.connect(("127.0.0.1", tunnel.local_port))
                     # Connection successful - tunnel is ready
-                    logger.info(f"[DEBUG] Tunnel ready on port {tunnel.local_port}")
+                    logger.debug(f"Tunnel ready on port {tunnel.local_port}")
                     return
-            except (TimeoutError, ConnectionRefusedError, OSError) as e:
+            except (TimeoutError, ConnectionRefusedError, OSError):
                 # Not ready yet, wait and retry
-                logger.debug(f"[DEBUG] Connection failed: {e}, retrying...")
                 time.sleep(1)
                 continue
 
