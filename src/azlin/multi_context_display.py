@@ -147,8 +147,10 @@ class MultiContextDisplay:
 
         # Add columns (similar to existing list command)
         if wide_mode:
+            table.add_column("Session Name", style="cyan", no_wrap=True)
             table.add_column("VM Name", style="white", no_wrap=True)
         else:
+            table.add_column("Session Name", style="cyan", width=20)
             table.add_column("VM Name", style="white", width=30)
         table.add_column("Status", width=10)
         table.add_column("IP", style="yellow", width=15)
@@ -159,9 +161,12 @@ class MultiContextDisplay:
         # Add VM rows
         if not ctx_result.vms:
             # Empty context
-            table.add_row("[dim]No VMs found[/dim]", "", "", "", "", "")
+            table.add_row("[dim]No VMs found[/dim]", "", "", "", "", "", "")
         else:
             for vm in ctx_result.vms:
+                # Get session name (use vm.session_name if available)
+                session_display = vm.session_name if vm.session_name else "-"
+
                 status = vm.get_status_display()
 
                 # Color code status
@@ -180,6 +185,7 @@ class MultiContextDisplay:
                 vcpu_display = str(vcpus) if vcpus > 0 else "-"
 
                 table.add_row(
+                    session_display,
                     vm.name,
                     status_display,
                     ip,
