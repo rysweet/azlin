@@ -634,8 +634,10 @@ def mount_local_storage(mount_point: str, storage: str | None):
                 sys.exit(1)
 
             nfs_parts = storage_obj.nfs_endpoint.split(":")
-            share_path = nfs_parts[1]  # "/sharename"
-            share_name = share_path.lstrip("/")  # "sharename"
+            share_path = nfs_parts[1]  # "/sharename" or "/sharename/subdir"
+            # For SMB, extract first directory component only (Azure Files share name)
+            path_components = share_path.strip("/").split("/")
+            share_name = path_components[0]  # First component = share name
 
             if not share_name:
                 click.echo(
