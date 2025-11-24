@@ -10,11 +10,11 @@ Replace the sections below with information about your project.
 
 ---
 
-## Project: [Your Project Name]
+## Project: azlin
 
 ## Overview
 
-[Brief description of what your project does]
+**Version:** 0.3.1 **Last Updated:** 2025-11-20
 
 ## Architecture
 
@@ -26,10 +26,12 @@ Replace the sections below with information about your project.
 
 ### Technology Stack
 
-- **Language**: [Primary language(s)]
+- **Language**: Python
+- **Language**: JavaScript/TypeScript
+- **Language**: Rust
+- **Language**: Go
 - **Framework**: [Main framework if applicable]
 - **Database**: [Database system if applicable]
-- **Other Tools**: [Key dependencies or tools]
 
 ## Development Guidelines
 

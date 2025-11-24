@@ -188,6 +188,7 @@ class CLIOrchestrator:
         auto_connect: bool = True,
         config_file: str | None = None,
         nfs_storage: str | None = None,
+        no_nfs: bool = False,
         session_name: str | None = None,
         no_bastion: bool = False,
         bastion_name: str | None = None,
@@ -203,6 +204,7 @@ class CLIOrchestrator:
             auto_connect: Whether to auto-connect via SSH
             config_file: Configuration file path (optional)
             nfs_storage: NFS storage account name to mount as home directory (optional)
+            no_nfs: Skip NFS storage mounting (use local home directory only)
             session_name: Session name for VM tags (optional)
             no_bastion: Skip bastion auto-detection and always create public IP (optional)
             bastion_name: Explicit bastion host name to use (optional)
@@ -218,6 +220,7 @@ class CLIOrchestrator:
         self.auto_connect = auto_connect
         self.config_file = config_file
         self.nfs_storage = nfs_storage
+        self.no_nfs = no_nfs
         self.session_name = session_name
         self.no_bastion = no_bastion
         self.bastion_name = bastion_name
@@ -316,18 +319,22 @@ class CLIOrchestrator:
             self.progress.complete(success=True, message="All development tools installed")
 
             # STEP 5.5: Resolve and mount NFS storage if configured (BEFORE home sync)
-            # Load config for NFS defaults
-            try:
-                azlin_config = ConfigManager.load_config(self.config_file)
-            except ConfigError:
-                azlin_config = AzlinConfig()
+            if self.no_nfs:
+                logger.info("Skipping NFS storage mount (--no-nfs flag set)")
+                click.echo("VM will use local home directory only (NFS disabled)")
+            else:
+                # Load config for NFS defaults
+                try:
+                    azlin_config = ConfigManager.load_config(self.config_file)
+                except ConfigError:
+                    azlin_config = AzlinConfig()
 
-            resolved_storage = self._resolve_nfs_storage(rg_name, azlin_config)
+                resolved_storage = self._resolve_nfs_storage(rg_name, azlin_config)
 
-            if resolved_storage:
-                self.progress.start_operation(f"Mounting NFS storage: {resolved_storage.name}")
-                self._mount_nfs_storage(vm_details, ssh_key_pair.private_path, resolved_storage)
-                self.progress.complete(success=True, message="NFS storage mounted")
+                if resolved_storage:
+                    self.progress.start_operation(f"Mounting NFS storage: {resolved_storage.name}")
+                    self._mount_nfs_storage(vm_details, ssh_key_pair.private_path, resolved_storage)
+                    self.progress.complete(success=True, message="NFS storage mounted")
 
             # Always sync home directory (provides initial dotfiles even with NFS)
             # NFS provides persistence, ~/.azlin/home provides initial configuration
@@ -2606,6 +2613,11 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
 @click.option(
+    "--no-nfs",
+    is_flag=True,
+    help="Skip NFS storage mounting (use local home directory only)",
+)
+@click.option(
     "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
 )
 @click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
@@ -2628,6 +2640,7 @@ def new_command(
     config: str | None,
     template: str | None,
     nfs_storage: str | None,
+    no_nfs: bool,
     no_bastion: bool,
     bastion_name: str | None,
     yes: bool,
@@ -2700,6 +2713,7 @@ def new_command(
         auto_connect=not no_auto_connect,
         config_file=config,
         nfs_storage=nfs_storage,
+        no_nfs=no_nfs,
         session_name=name,
         no_bastion=no_bastion,
         bastion_name=bastion_name,

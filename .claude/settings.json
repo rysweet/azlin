@@ -1,4 +1,40 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash",
+      "TodoWrite",
+      "WebFetch",
+      "WebSearch",
+      "Grep",
+      "Glob",
+      "Read",
+      "Edit",
+      "MultiEdit",
+      "Write",
+      "NotebookEdit",
+      "BashOutput",
+      "KillShell",
+      "SlashCommand",
+      "mcp__ide__getDiagnostics",
+      "mcp__ide__executeCode"
+    ],
+    "deny": [],
+    "defaultMode": "bypassPermissions",
+    "additionalDirectories": [
+      ".claude",
+      "Specs",
+      ".git",
+      "src",
+      "tests",
+      "docs"
+    ]
+  },
+  "enableAllProjectMcpServers": false,
+  "enabledMcpjsonServers": [],
+  "statusLine": {
+    "type": "command",
+    "command": "$CLAUDE_PROJECT_DIR/.claude/tools/statusline.sh"
+  },
   "hooks": {
     "SessionStart": [
       {
