@@ -154,7 +154,7 @@ class SessionManager:
         vm = matching_vms[0]
 
         # Validate VM is running
-        if vm.power_state != "running":
+        if vm.power_state != "VM running":
             raise SessionNotFoundError(f"VM '{vm.name}' is not running (state: {vm.power_state})")
 
         # Validate IP exists

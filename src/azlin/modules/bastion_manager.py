@@ -21,6 +21,7 @@ import logging
 import os
 import socket
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -159,6 +160,53 @@ class BastionManager:
                 f"Invalid port number for {field_name}: {port}\nPort must be between 1 and 65535"
             )
 
+    def _create_popen_with_timeout(self, cmd: list[str], timeout: int = 30) -> subprocess.Popen:
+        """Create subprocess.Popen with timeout enforcement using threading.
+
+        Args:
+            cmd: Command to execute
+            timeout: Timeout in seconds
+
+        Returns:
+            subprocess.Popen object
+
+        Raises:
+            BastionManagerError: If Popen creation times out or fails
+        """
+        process_container: list[subprocess.Popen | None] = [None]
+        exception_container: list[Exception | None] = [None]
+
+        def run_popen():
+            try:
+                process_container[0] = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            except Exception as e:
+                exception_container[0] = e
+
+        thread = threading.Thread(target=run_popen, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
+
+        if thread.is_alive():
+            # Thread still running after timeout
+            logger.error(f"Popen timed out after {timeout}s for command: {cmd[0:4]}")
+            raise BastionManagerError(
+                f"Bastion tunnel creation timed out after {timeout} seconds. "
+                "This may indicate network issues or Azure CLI authentication problems."
+            )
+
+        if exception_container[0]:
+            raise exception_container[0]
+
+        if process_container[0] is None:
+            raise BastionManagerError("Failed to create subprocess (unknown error)")
+
+        return process_container[0]
+
     @staticmethod
     def _validate_inputs(
         bastion_name: str, resource_group: str, target_vm_id: str, local_port: int, remote_port: int
@@ -282,13 +330,9 @@ class BastionManager:
         ]
 
         try:
-            # Start tunnel process (no shell=True for security)
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            # Start tunnel process with timeout protection (Issue #402)
+            # Use thread-based timeout since Popen has no native timeout parameter
+            process = self._create_popen_with_timeout(cmd, timeout=timeout)
 
             # Create tunnel object
             tunnel = BastionTunnel(
