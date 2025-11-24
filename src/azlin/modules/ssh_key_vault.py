@@ -70,12 +70,12 @@ def get_current_user_principal_id() -> str:
             raise KeyVaultError("Failed to get principal ID: empty response")
         logger.debug(f"Current user principal ID: {principal_id}")
         return principal_id
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         logger.warning("Azure CLI command timed out after 30 seconds: get signed-in user")
         raise KeyVaultError(
             "Azure CLI command timed out while getting user principal ID. "
             "Check your network connection and Azure CLI authentication."
-        )
+        ) from e
     except subprocess.CalledProcessError as e:
         # Might be service principal authentication
         try:
@@ -308,14 +308,14 @@ class SSHKeyVaultManager:
             logger.debug(f"Key Vault creation initiated: {vault_name}")
             return vault_name
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             logger.warning(
                 f"Azure CLI command timed out after 30 seconds: create Key Vault {vault_name}"
             )
             raise KeyVaultError(
                 f"Azure CLI command timed out while creating Key Vault: {vault_name}. "
                 "The vault may still be creating in the background. Try again in a few moments."
-            )
+            ) from e
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
             # Check if vault already exists (race condition)
@@ -426,14 +426,14 @@ class SSHKeyVaultManager:
 
             logger.debug("RBAC permissions assigned successfully")
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             logger.warning(
                 f"Azure CLI command timed out after 30 seconds: RBAC operations for {vault_name}"
             )
             raise KeyVaultError(
                 f"Azure CLI command timed out while managing RBAC permissions for Key Vault: {vault_name}. "
                 "Check your network connection and try again."
-            )
+            ) from e
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
             # Check if assignment already exists (race condition)
