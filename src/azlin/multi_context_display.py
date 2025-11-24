@@ -65,6 +65,7 @@ class MultiContextDisplay:
         result: MultiContextVMResult,
         show_errors: bool = True,
         show_summary: bool = True,
+        wide_mode: bool = False,
     ) -> None:
         """Display multi-context VM query results.
 
@@ -72,6 +73,7 @@ class MultiContextDisplay:
             result: Multi-context query results
             show_errors: Display error details for failed contexts
             show_summary: Display summary statistics
+            wide_mode: Prevent VM name truncation in table output
 
         Example:
             >>> display = MultiContextDisplay()
@@ -84,7 +86,7 @@ class MultiContextDisplay:
         # Display VMs grouped by context
         for ctx_result in result.context_results:
             if ctx_result.success:
-                self._display_context_vms(ctx_result)
+                self._display_context_vms(ctx_result, wide_mode=wide_mode)
             elif show_errors:
                 self._display_context_error(ctx_result)
 
@@ -122,11 +124,12 @@ class MultiContextDisplay:
         self.console.print(panel)
         self.console.print()  # Spacing
 
-    def _display_context_vms(self, ctx_result) -> None:
+    def _display_context_vms(self, ctx_result, wide_mode: bool = False) -> None:
         """Display VMs for a single context.
 
         Args:
             ctx_result: ContextVMResult with VMs to display
+            wide_mode: Prevent VM name truncation in table output
         """
         # Create table title with context info
         title = (
@@ -143,7 +146,12 @@ class MultiContextDisplay:
         )
 
         # Add columns (similar to existing list command)
-        table.add_column("VM Name", style="white", width=30)
+        if wide_mode:
+            table.add_column("Session Name", style="cyan", no_wrap=True)
+            table.add_column("VM Name", style="white", no_wrap=True)
+        else:
+            table.add_column("Session Name", style="cyan", width=20)
+            table.add_column("VM Name", style="white", width=30)
         table.add_column("Status", width=10)
         table.add_column("IP", style="yellow", width=15)
         table.add_column("Region", width=10)
@@ -153,9 +161,12 @@ class MultiContextDisplay:
         # Add VM rows
         if not ctx_result.vms:
             # Empty context
-            table.add_row("[dim]No VMs found[/dim]", "", "", "", "", "")
+            table.add_row("[dim]No VMs found[/dim]", "", "", "", "", "", "")
         else:
             for vm in ctx_result.vms:
+                # Get session name (use vm.session_name if available)
+                session_display = vm.session_name if vm.session_name else "-"
+
                 status = vm.get_status_display()
 
                 # Color code status
@@ -174,6 +185,7 @@ class MultiContextDisplay:
                 vcpu_display = str(vcpus) if vcpus > 0 else "-"
 
                 table.add_row(
+                    session_display,
                     vm.name,
                     status_display,
                     ip,

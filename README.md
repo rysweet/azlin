@@ -503,6 +503,14 @@ azlin list --tag env=dev
 
 # Filter by tag key only
 azlin list --tag team
+
+# Prevent VM name truncation (wide mode)
+azlin list --wide
+azlin list -w  # Short form
+
+# Wide mode with other options
+azlin list --wide --all
+azlin list -w --tag env=prod
 ```
 
 **Output columns:**
@@ -512,6 +520,8 @@ azlin list --tag team
 - IP - Public IP address
 - REGION - Azure region
 - SIZE - VM size (e.g., Standard_D2s_v3)
+
+**Wide mode:** By default, Session Name and VM Name columns are truncated to 20 and 30 characters respectively for compact display. Use `--wide` or `-w` to disable truncation and show full names - useful for long VM names or detailed session names.
 
 **Filtering:**
 - Default: Shows only running VMs
