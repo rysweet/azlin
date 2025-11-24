@@ -18,9 +18,13 @@ from rich.console import Console
 from azlin.click_group import AzlinGroup
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.context_manager import ContextError, ContextManager
-from azlin.modules.local_smb_mount import LocalSMBMount
+from azlin.modules.local_smb_mount import (
+    LocalSMBMount,
+    LocalSMBMountError,
+    UnsupportedPlatformError,
+)
 from azlin.modules.nfs_mount_manager import NFSMountManager
-from azlin.modules.storage_key_manager import StorageKeyManager
+from azlin.modules.storage_key_manager import StorageKeyError, StorageKeyManager
 from azlin.modules.storage_manager import StorageManager
 from azlin.vm_manager import VMManager
 
@@ -551,22 +555,159 @@ def mount_vm_storage(storage_name: str, vm: str, resource_group: str | None):
 
 @mount_group.command(name="local")
 @click.option("--mount-point", required=True, type=click.Path(), help="Local mount point")
-@click.option("--storage", required=False, help="Storage account name (for future use)")
+@click.option(
+    "--storage",
+    required=False,
+    help="Storage account name (uses default if not provided)",
+)
 def mount_local_storage(mount_point: str, storage: str | None):
     """Mount storage locally on this machine.
 
-    Mounts NFS storage locally to the specified mount point.
-    Only supported on Linux and macOS.
+    Mounts Azure Files SMB storage locally to the specified mount point.
+    Only supported on macOS.
 
     \b
     Examples:
       $ azlin storage mount local --mount-point ~/azure/
       $ azlin storage mount local --mount-point /mnt/shared --storage myteam-shared
     """
-    click.echo("Local mount feature coming soon.")
-    click.echo(f"  Mount point: {mount_point}")
-    if storage:
-        click.echo(f"  Storage: {storage}")
+    console = Console()
+
+    try:
+        # Platform check - LocalSMBMount will raise if not macOS
+        # but we'll catch it explicitly for better error messages
+
+        # Get config
+        try:
+            config = ConfigManager.load_config()
+            rg = config.default_resource_group
+        except ConfigError as e:
+            click.echo(f"Error: {e}", err=True)
+            click.echo("Run 'azlin new' to initialize config", err=True)
+            sys.exit(1)
+
+        if not rg:
+            click.echo(
+                "Error: Resource group required. Set default_resource_group in config.", err=True
+            )
+            sys.exit(1)
+
+        # Determine storage account to use
+        storage_name = storage or config.default_nfs_storage
+        if not storage_name:
+            click.echo(
+                "Error: No storage account specified and no default configured",
+                err=True,
+            )
+            click.echo(
+                "Either provide --storage option or set default_nfs_storage in config",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Get subscription ID
+        try:
+            subscription_id = VMManager.get_subscription_id()
+        except Exception as e:
+            click.echo(f"Error getting subscription ID: {e}", err=True)
+            sys.exit(1)
+
+        # List storage accounts to get the storage info
+        console.print(f"[blue]Looking up storage account: {storage_name}[/blue]")
+        try:
+            accounts = StorageManager.list_storage(rg)
+            storage_obj = next((a for a in accounts if a.name == storage_name), None)
+
+            if not storage_obj:
+                click.echo(
+                    f"Error: Storage account '{storage_name}' not found in resource group '{rg}'",
+                    err=True,
+                )
+                sys.exit(1)
+
+        except Exception as e:
+            click.echo(f"Error listing storage accounts: {e}", err=True)
+            sys.exit(1)
+
+        # Parse NFS endpoint to extract share name
+        # Format: "storageaccount.file.core.windows.net:/sharename"
+        try:
+            if not storage_obj.nfs_endpoint or ":" not in storage_obj.nfs_endpoint:
+                click.echo(
+                    f"Error: Invalid NFS endpoint format: {storage_obj.nfs_endpoint}",
+                    err=True,
+                )
+                sys.exit(1)
+
+            nfs_parts = storage_obj.nfs_endpoint.split(":")
+            share_path = nfs_parts[1]  # "/sharename" or "/sharename/subdir"
+            # For SMB, extract first directory component only (Azure Files share name)
+            path_components = share_path.strip("/").split("/")
+            share_name = path_components[0]  # First component = share name
+
+            if not share_name:
+                click.echo(
+                    f"Error: Could not extract share name from NFS endpoint: "
+                    f"{storage_obj.nfs_endpoint}",
+                    err=True,
+                )
+                sys.exit(1)
+
+        except IndexError:
+            click.echo(
+                f"Error: Invalid NFS endpoint format: {storage_obj.nfs_endpoint}",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Get storage keys
+        console.print("[blue]Retrieving storage account keys...[/blue]")
+        if not subscription_id:
+            click.echo("Error: Could not determine subscription ID", err=True)
+            sys.exit(1)
+        try:
+            keys = StorageKeyManager.get_storage_keys(
+                storage_account_name=storage_name,
+                resource_group=rg,
+                subscription_id=subscription_id,
+            )
+        except StorageKeyError as e:
+            click.echo(f"Error getting storage keys: {e}", err=True)
+            sys.exit(1)
+
+        # Mount the share
+        console.print(f"[blue]Mounting {storage_name}/{share_name} to {mount_point}...[/blue]")
+        try:
+            mount_point_path = Path(mount_point).expanduser()
+            result = LocalSMBMount.mount(
+                storage_account=storage_name,
+                share_name=share_name,
+                storage_key=keys.key1,
+                mount_point=mount_point_path,
+            )
+
+            if result.success:
+                console.print(
+                    f"[green]✓ Mounted {storage_name}/{share_name} to {mount_point}[/green]"
+                )
+            else:
+                click.echo("Error: Mount operation failed", err=True)
+                if result.errors:
+                    for error in result.errors:
+                        click.echo(f"  {error}", err=True)
+                sys.exit(1)
+
+        except UnsupportedPlatformError as e:
+            click.echo(f"Error: {e}", err=True)
+            click.echo("Local mount is only supported on macOS", err=True)
+            sys.exit(1)
+        except LocalSMBMountError as e:
+            click.echo(f"Error mounting share: {e}", err=True)
+            sys.exit(1)
+
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
 
 @storage_group.command(name="unmount")
