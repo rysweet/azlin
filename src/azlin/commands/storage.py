@@ -587,7 +587,9 @@ def mount_local_storage(mount_point: str, storage: str | None):
             sys.exit(1)
 
         if not rg:
-            click.echo("Error: Resource group required. Set default_resource_group in config.", err=True)
+            click.echo(
+                "Error: Resource group required. Set default_resource_group in config.", err=True
+            )
             sys.exit(1)
 
         # Determine storage account to use
@@ -618,8 +620,7 @@ def mount_local_storage(mount_point: str, storage: str | None):
 
             if not storage_obj:
                 click.echo(
-                    f"Error: Storage account '{storage_name}' not found in "
-                    f"resource group '{rg}'",
+                    f"Error: Storage account '{storage_name}' not found in resource group '{rg}'",
                     err=True,
                 )
                 sys.exit(1)
