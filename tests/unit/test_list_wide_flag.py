@@ -23,7 +23,6 @@ from azlin.multi_context_display import MultiContextDisplay
 from azlin.multi_context_list import ContextVMResult, MultiContextVMResult
 from azlin.vm_manager import VMInfo
 
-
 # =============================================================================
 # FIXTURES
 # =============================================================================
