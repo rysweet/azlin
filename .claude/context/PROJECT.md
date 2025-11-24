@@ -14,7 +14,7 @@ Replace the sections below with information about your project.
 
 ## Overview
 
-**Version:** 0.3.1 **Last Updated:** 2025-11-20
+**Version:** 0.3.2 **Last Updated:** 2025-11-23
 
 ## Architecture
 

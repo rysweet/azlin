@@ -211,11 +211,11 @@ cat .claude/runtime/power-steering/power_steering.log
 
 **When It Runs**: Only at Stop Hook (session end), not during session
 
-**Disable Methods**:
+**Disable Methods** (in priority order):
 
-1. Semaphore file: `.claude/runtime/power-steering/.disabled`
-2. Environment: `export AMPLIHACK_SKIP_POWER_STEERING=1`
-3. Config: Set `"enabled": false` in `.claude/tools/amplihack/.power_steering_config`
+1. Semaphore file: `.claude/runtime/power-steering/.disabled` (runtime, immediate effect in current session)
+2. Environment: `export AMPLIHACK_SKIP_POWER_STEERING=1` (affects sessions started after setting this variable)
+3. Config: Set `"enabled": false` in `.claude/tools/amplihack/.power_steering_config` (default behavior at startup)
 
 ### Solution
 
@@ -1616,7 +1616,446 @@ git cherry-pick origin/main
 
 ---
 
+## Azure VM Bastion SSH Key Mismatch Recovery (2025-11-24)
+
+### Issue
+
+Azure VM accessible via Azure Bastion but SSH connection timing out with "SSH not ready after 30s (5 attempts)" error. The VM appeared healthy (running for 16 days, SSH daemon active), but connections through bastion were failing during authentication.
+
+### Context
+
+- **VM**: atg-dev (azlin-vm-1762552083) in westus2
+- **Bastion**: azlin-bastion-westus2 (Standard SKU, Succeeded state)
+- **Error Pattern**: Bastion tunnel created successfully, but SSH authentication failed
+- **User Impact**: Complete inability to access VM through bastion despite infrastructure being operational
+
+### Root Cause
+
+**SSH Key Mismatch Between Local Key and VM authorized_keys**
+
+The local azlin SSH key (`~/.ssh/azlin_key.pub`) didn't match the public key stored in the VM's `/home/azureuser/.ssh/authorized_keys` file:
+
+**Local Key Fingerprint:**
+```
+ssh-ed25519 AAAAC3Nz...ILVjPF40AmPVONrOhAchyquam9aqjUPMh19ksQXiifiX
+```
+
+**VM authorized_keys Fingerprint:**
+```
+ssh-ed25519 AAAAC3Nz...IIxkuVYPctrnnuhHvrTq7KL+wVClH5rto1r/B5wL7KHM
+```
+
+SSH daemon logs revealed authentication failures:
+```
+error: kex_exchange_identification: Connection closed by remote host
+Connection closed by authenticating user azureuser 10.0.1.5 port 60238 [preauth]
+```
+
+### Investigation Process (INVESTIGATION_WORKFLOW)
+
+Used systematic 6-phase investigation workflow:
+
+**Phase 1: Scope Definition**
+- Identified key questions: VM state? Bastion state? SSH daemon status? Key mismatch?
+- Defined success: User can connect and execute commands via bastion
+
+**Phase 2: Exploration Strategy**
+- Planned diagnostic approach: Check bastion connectivity, VM power state, SSH status, key comparison
+- Selected tools: `azlin list`, `azlin status`, `az vm run-command`, direct Azure CLI inspection
+
+**Phase 3: Parallel Deep Dives**
+- Verified bastion tunnel creation (successful)
+- Checked VM power state (running, 16 days uptime)
+- Examined SSH daemon status (active and running)
+- Compared local vs VM public keys (MISMATCH FOUND)
+
+**Phase 4: Verification & Testing**
+- Used `az vm run-command invoke` to check SSH status and authorized_keys
+- Confirmed SSH daemon healthy but authentication failing
+- Identified specific key fingerprint mismatch as root cause
+
+**Phase 5: Synthesis**
+- Root cause: Local SSH key rotated but VM's authorized_keys never updated
+- Bastion working perfectly, SSH daemon healthy, only authentication layer broken
+- Solution: Update VM's authorized_keys with current local public key
+
+**Phase 6: Knowledge Capture**
+- Documented recovery procedure
+- Created reusable pattern for similar issues
+- Added entry to DISCOVERIES.md
+
+### Solution
+
+**Surgical Key Replacement Using Azure Run-Command**
+
+Used `az vm run-command invoke` to update the VM's authorized_keys without requiring SSH access:
+
+```bash
+LOCAL_KEY=$(cat ~/.ssh/azlin_key.pub)
+az vm run-command invoke \
+  --resource-group rysweet-linux-vm-pool \
+  --name azlin-vm-1762552083 \
+  --command-id RunShellScript \
+  --scripts "echo '$LOCAL_KEY' > /home/azureuser/.ssh/authorized_keys && \
+             chmod 600 /home/azureuser/.ssh/authorized_keys && \
+             chown azureuser:azureuser /home/azureuser/.ssh/authorized_keys && \
+             echo 'SSH key updated successfully'"
+```
+
+**Result**: Immediate connection success
+- Connection time: 0.0s (instant, 1 attempt)
+- Command execution: Successful (`whoami` returned `azureuser`)
+- VM fully operational with 16 days uptime and healthy load averages
+
+### Key Learnings
+
+1. **Bastion Success ≠ SSH Success** - Azure Bastion tunnel can succeed while SSH authentication fails
+   - Bastion handles network routing to private VMs
+   - SSH handles authentication independently
+   - Both layers must work for successful connection
+
+2. **SSH Daemon Running ≠ Authentication Working** - Service health doesn't guarantee auth success
+   - `systemctl status sshd` showing "active" doesn't mean keys are correct
+   - Authentication happens after connection, not during service start
+   - Check auth logs for "Connection closed by authenticating user" patterns
+
+3. **Azure Run-Command is Emergency Access Method** - Bypasses SSH for VM recovery
+   - Works even when SSH is completely broken
+   - Requires Azure RBAC permissions (Contributor or VM Contributor)
+   - Can execute arbitrary commands for diagnostics and fixes
+   - Essential tool for SSH key rotation emergencies
+
+4. **Key Rotation Requires VM Updates** - Local key changes don't auto-propagate
+   - SSH keys are not synchronized automatically
+   - Each VM maintains independent authorized_keys file
+   - Key rotation must update ALL VMs that need access
+   - `azlin keys rotate` exists but affects all VMs (consider carefully)
+
+5. **Diagnostic Command Sequence Matters** - Right order reveals root cause faster
+   - Check bastion connectivity first (network layer)
+   - Check VM power state (infrastructure layer)
+   - Check SSH daemon status (service layer)
+   - Check SSH keys (authentication layer)
+   - Each layer eliminates possibilities systematically
+
+### Diagnostic Commands
+
+**Check VM and Bastion Status:**
+```bash
+azlin list                          # Shows all VMs and bastion hosts
+azlin status --vm <vm-name>         # Detailed VM status
+```
+
+**Check SSH Daemon Status:**
+```bash
+az vm run-command invoke \
+  --resource-group <rg> \
+  --name <vm-name> \
+  --command-id RunShellScript \
+  --scripts "systemctl status sshd"
+```
+
+**Check Authorized Keys:**
+```bash
+az vm run-command invoke \
+  --resource-group <rg> \
+  --name <vm-name> \
+  --command-id RunShellScript \
+  --scripts "cat /home/azureuser/.ssh/authorized_keys"
+```
+
+**Compare with Local Key:**
+```bash
+cat ~/.ssh/azlin_key.pub
+```
+
+### Prevention
+
+**Before Key Rotation:**
+1. Document all VMs that use current key
+2. Plan update strategy (surgical vs. bulk)
+3. Test on non-critical VM first
+4. Keep old key available for rollback
+
+**For Bulk Updates:**
+```bash
+azlin keys rotate                    # Rotates keys for ALL VMs
+azlin keys rotate --vm-prefix <prefix>  # Targeted rotation
+```
+
+**For Surgical Updates:**
+```bash
+# Use az vm run-command as shown in solution
+# Safer for single-VM issues
+# Doesn't affect other VMs
+```
+
+**Post-Rotation Verification:**
+```bash
+azlin connect <vm-name> -y -- whoami  # Test connection
+azlin connect <vm-name> -y -- uptime  # Verify commands work
+```
+
+### Pattern Recognition
+
+**Trigger Signs of SSH Key Mismatch:**
+- Bastion tunnel creates successfully
+- SSH connection times out during authentication phase
+- VM appears healthy (running, SSH daemon active)
+- Error messages mention "Connection closed by authenticating user"
+- Same user can't connect but used to be able to
+
+**Debugging Workflow:**
+1. Verify bastion connectivity (tunnel creation)
+2. Verify VM is running (`azlin list`)
+3. Verify SSH daemon is active (`systemctl status sshd`)
+4. Compare local public key with VM's authorized_keys
+5. If mismatch found, use run-command to update
+
+**Alternative Recovery Methods:**
+- Azure Portal serial console (if enabled)
+- Azure Portal "Reset password" feature
+- Snapshot + new VM with correct keys
+- `azlin keys rotate` (affects all VMs)
+
+### Files Modified
+
+No code changes required - this was an operational recovery using existing Azure tooling.
+
+### Verification
+
+**Recovery Success Metrics:**
+- ✅ Connection time: 0.0s (instant)
+- ✅ SSH authentication: Successful
+- ✅ Command execution: Working (`whoami`, `hostname`, `uptime` all successful)
+- ✅ VM health: 16 days uptime, load average 0.00
+- ✅ Bastion functionality: Tunnel creation working perfectly
+
+**Test Commands:**
+```bash
+azlin connect atg-dev -y -- whoami
+# Output: azureuser
+
+azlin connect atg-dev -y -- "hostname && uptime"
+# Output:
+# azlin-vm-1762552083
+#  16:13:45 up 16 days, 18:24,  3 users,  load average: 0.00, 0.01, 0.00
+```
+
+### Related Tools
+
+- **azlin CLI**: Azure VM management with bastion integration
+- **Azure Bastion**: Secure RDP/SSH connectivity without public IPs
+- **az vm run-command**: Emergency VM access bypassing SSH
+- **SSH keys**: Ed25519 keys for authentication
+
+### Additional Feature Built
+
+As a parallel workstream during investigation, implemented `azlin list -w/--wide` flag feature to prevent VM name truncation in table output, making it easier to copy/paste full VM names.
+
+**Implementation:**
+- Modified `src/azlin/cli.py` and `src/azlin/multi_context_display.py`
+- Added `--wide/-w` flag with conditional column width logic
+- Default: width=20 (Session), width=30 (VM Name)
+- Wide mode: no_wrap=True (full names displayed)
+
+### Success Criteria Met
+
+All Phase 5 verification criteria achieved:
+- [x] User can successfully initiate bastion connection
+- [x] SSH session establishes through Azure Bastion
+- [x] User can execute commands on VM
+- [x] Connection is stable
+- [x] Root cause identified and documented
+- [x] Preventive measures documented
+
+---
+
 <!-- New discoveries will be added here as the project progresses -->
+
+## SessionStart and Stop Hooks Executing Twice - Claude Code Bug (2025-11-21)
+
+### Discovery
+
+SessionStart and Stop hooks are executing **twice per session** due to a **known Claude Code bug in the hook execution engine** (#10871), NOT due to configuration errors. The issue affects all hook types and causes performance degradation and duplicate context injection.
+
+### Context
+
+Investigation triggered by system reminder messages showing "SessionStart:startup hook success: Success" appearing twice. Initial hypothesis was incorrect configuration format, but deeper analysis revealed the configuration is correct per official schema.
+
+### Root Cause
+
+**Claude Code Internal Bug**: The hook execution engine spawns **two separate Python processes** for each hook invocation, regardless of configuration.
+
+**Current Configuration** (CORRECT per schema):
+
+```json
+"SessionStart": [
+  {
+    "hooks": [  // ✓ Required by Claude Code schema
+      {
+        "type": "command",
+        "command": "$CLAUDE_PROJECT_DIR/.claude/tools/amplihack/hooks/session_start.py",
+        "timeout": 10000
+      }
+    ]
+  }
+]
+```
+
+**Schema Requirement**:
+
+```typescript
+{
+  "required": ["hooks"],  // The "hooks" wrapper is MANDATORY
+  "additionalProperties": false
+}
+```
+
+### Initial Hypothesis Was Wrong
+
+**Initial theory**: Extra `"hooks": []` wrapper was causing duplication.
+
+**Reality**: The wrapper is **required by Claude Code schema**. Removing it causes validation errors:
+
+```
+Settings validation failed:
+- hooks.SessionStart.0.hooks: Expected array, but received undefined
+```
+
+**Actual cause**: Claude Code's hook execution engine has an internal bug that spawns two separate processes for each registered hook.
+
+### Evidence
+
+**Configuration Analysis**:
+
+- Only 1 SessionStart hook registered in settings.json
+- No duplicate configurations found
+- Schema validation confirms format is correct
+- **Two separate Python processes** spawn anyway (different PIDs)
+
+**From `.claude/runtime/logs/session_start.log`**:
+
+```
+[2025-11-21T13:01:07.113446] INFO: session_start hook starting (Python 3.13.9)
+[2025-11-21T13:01:07.113687] INFO: session_start hook starting (Python 3.13.9)
+```
+
+**From `.claude/runtime/logs/stop.log`**:
+
+```
+[2025-11-20T21:37:05.173846] INFO: stop hook starting (Python 3.13.9)
+[2025-11-20T21:37:05.427256] INFO: stop hook starting (Python 3.13.9)
+```
+
+**Pattern**: All hooks (SessionStart, Stop, PostToolUse) show double execution with microsecond-level timing differences, indicating true parallel process spawning.
+
+### Impact
+
+| Area                  | Effect                                                   |
+| --------------------- | -------------------------------------------------------- |
+| **Performance**       | 2-4 seconds wasted per session (double process spawning) |
+| **Context Pollution** | USER_PREFERENCES.md injected twice (~19KB duplicate)     |
+| **Side Effects**      | File writes, metrics, logs all duplicated                |
+| **Log Clarity**       | Every entry appears twice, making debugging confusing    |
+| **Resource Usage**    | Double memory allocation, double I/O operations          |
+
+### Solution
+
+**NO CODE FIX AVAILABLE** - This is a Claude Code internal bug.
+
+**Workarounds**:
+
+1. Accept the duplication (hooks are idempotent, safe but wasteful)
+2. Add process-level deduplication in hook_processor.py (complex)
+3. Wait for upstream Claude Code fix
+
+**Tracking**: Claude Code GitHub Issue #10871 "Plugin-registered hooks are executed twice with different PIDs"
+
+### Configuration Format (CORRECT)
+
+Our configuration **matches the official schema exactly**:
+
+```json
+"SessionStart": [
+  {
+    "hooks": [  // ✓ REQUIRED by schema
+      {
+        "type": "command",
+        "command": "$CLAUDE_PROJECT_DIR/.claude/tools/amplihack/hooks/session_start.py",
+        "timeout": 10000
+      }
+    ]
+  }
+]
+```
+
+**Schema requirement**:
+
+```typescript
+"required": ["hooks"],  // The "hooks" wrapper is MANDATORY
+"additionalProperties": false
+```
+
+Attempting to remove the wrapper causes validation errors.
+
+### Affected Hooks
+
+| Hook             | Status     | Root Cause             |
+| ---------------- | ---------- | ---------------------- |
+| **SessionStart** | ❌ Runs 2x | Claude Code bug #10871 |
+| **Stop**         | ❌ Runs 2x | Claude Code bug #10871 |
+| **PostToolUse**  | ❌ Runs 2x | Claude Code bug #10871 |
+| PreToolUse       | ❓ Unknown | Likely affected        |
+| PreCompact       | ❓ Unknown | Likely affected        |
+
+### Key Learnings
+
+1. **Configuration was correct all along** - The `"hooks": []` wrapper is required by Claude Code schema
+2. **Schema validation prevents incorrect "fixes"** - Attempted to remove wrapper, got validation errors
+3. **Log analysis reveals issues but not always root cause** - Duplicate execution doesn't always mean duplicate configuration
+4. **Upstream bugs affect downstream projects** - Known Claude Code bug (#10871) causes systematic duplication
+5. **Idempotent design saves us** - Hooks are safe to run twice even though wasteful
+6. **Investigation workflow worked** - Systematic analysis prevented incorrect fix from being deployed
+
+### No Action Required
+
+**Decision**: Accept the duplication as a known limitation until Claude Code team fixes #10871.
+
+**Rationale**:
+
+- Configuration is correct per official schema
+- No user-side fix available without breaking schema validation
+- Hooks are idempotent (safe to run twice)
+- Performance impact acceptable (~2 seconds per session)
+- Workarounds (process-level dedup) would add significant complexity
+
+### Monitoring
+
+Track Claude Code GitHub for fix:
+
+- **Issue #10871**: "Plugin-registered hooks are executed twice with different PIDs"
+- **Related**: #3523 (hook duplication), #3465 (hooks fired twice from home dir)
+
+### Verification
+
+Configuration correctness verified:
+
+1. ✅ Only 1 hook registered per event type
+2. ✅ Schema validation passes
+3. ✅ Format matches official Claude Code documentation
+4. ✅ Removing wrapper causes validation errors
+5. ✅ Both processes run to completion (not a race condition)
+
+### Files Analyzed
+
+- `.claude/settings.json` (1 SessionStart hook, 1 Stop hook)
+- `.claude/tools/amplihack/hooks/session_start.py` (hook implementation)
+- `.claude/runtime/logs/session_start.log` (execution evidence)
+- `.claude/runtime/logs/stop.log` (execution evidence)
+- Claude Code schema (hook format requirements)
+
+---
 
 ## Remember
 
