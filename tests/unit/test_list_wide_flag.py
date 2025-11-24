@@ -232,13 +232,12 @@ class TestListCommandWideFlag:
         runner = CliRunner()
 
         # Mock all the dependencies to focus on flag parsing
-        with (
-            patch("azlin.cli.ContextManager"),
-            patch("azlin.cli.ConfigManager"),
-            patch("azlin.cli.TagManager"),
-            patch("azlin.cli.VMManager"),
-            patch("azlin.cli.Console"),
-        ):
+        with patch("azlin.cli.ContextManager"), \
+             patch("azlin.cli.ConfigManager"), \
+             patch("azlin.cli.TagManager"), \
+             patch("azlin.cli.VMManager"), \
+             patch("azlin.cli.Console"):
+
             # This should not error on flag parsing
             result = runner.invoke(list_command, ["--wide"])
 
@@ -250,13 +249,12 @@ class TestListCommandWideFlag:
         """Test that -w flag is accepted by CLI."""
         runner = CliRunner()
 
-        with (
-            patch("azlin.cli.ContextManager"),
-            patch("azlin.cli.ConfigManager"),
-            patch("azlin.cli.TagManager"),
-            patch("azlin.cli.VMManager"),
-            patch("azlin.cli.Console"),
-        ):
+        with patch("azlin.cli.ContextManager"), \
+             patch("azlin.cli.ConfigManager"), \
+             patch("azlin.cli.TagManager"), \
+             patch("azlin.cli.VMManager"), \
+             patch("azlin.cli.Console"):
+
             result = runner.invoke(list_command, ["-w"])
 
             # Check that -w is not an "unknown option"
@@ -266,13 +264,12 @@ class TestListCommandWideFlag:
         """Test that --wide works with other list options."""
         runner = CliRunner()
 
-        with (
-            patch("azlin.cli.ContextManager"),
-            patch("azlin.cli.ConfigManager"),
-            patch("azlin.cli.TagManager"),
-            patch("azlin.cli.VMManager"),
-            patch("azlin.cli.Console"),
-        ):
+        with patch("azlin.cli.ContextManager"), \
+             patch("azlin.cli.ConfigManager"), \
+             patch("azlin.cli.TagManager"), \
+             patch("azlin.cli.VMManager"), \
+             patch("azlin.cli.Console"):
+
             # Test with multiple flags
             result = runner.invoke(list_command, ["--wide", "--all"])
 
