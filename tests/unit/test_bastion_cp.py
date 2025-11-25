@@ -243,7 +243,7 @@ class TestSessionManagerBastionDetection:
         session, bastion_manager = SessionManager.get_vm_session(
             session_name="test-vm",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         # Assert
@@ -300,7 +300,7 @@ class TestSessionManagerBastionDetection:
         session, bastion_manager = SessionManager.get_vm_session(
             session_name="test-vm",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         # Assert
@@ -350,7 +350,7 @@ class TestSessionManagerBastionDetection:
             SessionManager.get_vm_session(
                 session_name="test-vm",
                 resource_group="test-rg",
-                vm_manager=mock_vm_manager,
+                vm_manager=mock_vm_manager,  # type: ignore[arg-type]
             )
 
     @patch("azlin.modules.file_transfer.session_manager.VMManager")
@@ -403,7 +403,7 @@ class TestSessionManagerBastionDetection:
         session, bastion_manager = SessionManager.get_vm_session(
             session_name="test-vm",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         # Assert - Verify tunnel creation parameters
@@ -470,7 +470,7 @@ class TestSessionManagerBastionDetection:
         session, _ = SessionManager.get_vm_session(
             session_name="test-vm",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         # Assert - Port is in ephemeral range
@@ -753,7 +753,7 @@ class TestBastionCpIntegration:
         session, bastion_manager = SessionManager.get_vm_session(
             session_name="test-vm",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         source = TransferEndpoint(path=Path("/local/file.txt"), session=None)
@@ -834,7 +834,7 @@ class TestBastionCpIntegration:
         session, bastion_manager = SessionManager.get_vm_session(
             session_name="test-vm",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         source = TransferEndpoint(path=Path("/local/file.txt"), session=None)
@@ -905,14 +905,14 @@ class TestBastionCpIntegration:
         session1, bastion1 = SessionManager.get_vm_session(
             session_name="vm-public",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         mock_vm_manager.list_vms.return_value = [mock_vm2]
         session2, bastion2 = SessionManager.get_vm_session(
             session_name="vm-bastion",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         # Assert - VM1 uses direct connection
@@ -962,7 +962,7 @@ class TestBastionCpEdgeCases:
             SessionManager.get_vm_session(
                 session_name="isolated-vm",
                 resource_group="test-rg",
-                vm_manager=mock_vm_manager,
+                vm_manager=mock_vm_manager,  # type: ignore[arg-type]
             )
 
         # Error message should be clear and actionable
@@ -1004,7 +1004,7 @@ class TestBastionCpEdgeCases:
             SessionManager.get_vm_session(
                 session_name="test-vm",
                 resource_group="test-rg",
-                vm_manager=mock_vm_manager,
+                vm_manager=mock_vm_manager,  # type: ignore[arg-type]
             )
 
     @patch("azlin.modules.file_transfer.session_manager.BastionDetector")
@@ -1039,7 +1039,7 @@ class TestBastionCpEdgeCases:
             SessionManager.get_vm_session(
                 session_name="test-vm",
                 resource_group="test-rg",
-                vm_manager=mock_vm_manager,
+                vm_manager=mock_vm_manager,  # type: ignore[arg-type]
             )
 
     @patch("azlin.modules.file_transfer.session_manager.BastionDetector")
@@ -1114,14 +1114,14 @@ class TestBastionCpEdgeCases:
         session1, bastion1 = SessionManager.get_vm_session(
             session_name="vm1",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         mock_vm_manager.list_vms.return_value = [mock_vm2]
         session2, bastion2 = SessionManager.get_vm_session(
             session_name="vm2",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         # Assert - Each VM has different tunnel port
@@ -1188,7 +1188,7 @@ class TestBastionCpEdgeCases:
         session, _ = SessionManager.get_vm_session(
             session_name="test-vm",
             resource_group="test-rg",
-            vm_manager=mock_vm_manager,
+            vm_manager=mock_vm_manager,  # type: ignore[arg-type]
         )
 
         # Assert - ssh_host MUST be localhost
