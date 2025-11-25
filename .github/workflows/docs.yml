@@ -53,9 +53,8 @@ jobs:
 
       - name: Build documentation
         run: |
-          # Update mkdocs.yml to point to docs-site
-          sed -i 's/docs_dir: docs/docs_dir: docs-site/' mkdocs.yml || echo "docs_dir: docs-site" >> mkdocs.yml
-          mkdocs build --strict
+          # mkdocs.yml already has docs_dir: docs-site configured, so just build
+          mkdocs build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
