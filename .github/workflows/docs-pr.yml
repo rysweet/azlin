@@ -36,7 +36,7 @@ jobs:
 
       - name: Build documentation
         run: |
-          sed -i 's/docs_dir: docs/docs_dir: docs-site/' mkdocs.yml || echo "docs_dir: docs-site" >> mkdocs.yml
+          # docs_dir is already set to docs-site in mkdocs.yml
           mkdocs build --strict
 
       - name: Upload preview

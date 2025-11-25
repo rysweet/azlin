@@ -237,7 +237,7 @@ class HelpExtractor:
                     desc = desc_match.group(1).strip()[:100] if desc_match else ""
                     if len(desc) >= 100:
                         desc += "..."
-                except:
+                except Exception:
                     desc = ""
 
                 md += f"- [`azlin {group_name} {cmd_name}`]({cmd_name}.md)"
@@ -261,10 +261,11 @@ Complete reference for all azlin commands.
 """
 
         # List all command group directories
-        groups = []
-        for group_dir in sorted(self.output_dir.iterdir()):
-            if group_dir.is_dir() and group_dir.name != "__pycache__":
-                groups.append(group_dir.name)
+        groups = [
+            group_dir.name
+            for group_dir in sorted(self.output_dir.iterdir())
+            if group_dir.is_dir() and group_dir.name != "__pycache__"
+        ]
 
         for group in groups:
             title = group.title().replace("-", " ").replace("_", " ")

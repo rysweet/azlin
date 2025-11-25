@@ -39,7 +39,7 @@ class DocGenerator:
                 return i + 1, "\n".join(lines[i:end])
         return 0, ""
 
-    def create_page(self, path: Path, title: str, content: str, front_matter: dict = None):
+    def create_page(self, path: Path, title: str, content: str, front_matter: dict | None = None):
         """Create a documentation page."""
         path.parent.mkdir(parents=True, exist_ok=True)
 
