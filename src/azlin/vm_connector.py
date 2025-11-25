@@ -74,10 +74,13 @@ class VMConnector:
 
     @staticmethod
     def _try_fetch_key_from_vault(vm_name: str, key_path: Path, resource_group: str) -> bool:
-        """Try to fetch SSH key from Key Vault if local key doesn't exist.
+        """Try to fetch SSH key from Key Vault.
+
+        Always queries Key Vault for the VM-specific key, regardless of local key existence.
+        This ensures correct key retrieval when connecting to different VMs.
 
         Args:
-            vm_name: VM name
+            vm_name: VM name (used to construct Key Vault secret name)
             key_path: Path where key should be stored
             resource_group: Resource group containing the VM
 
@@ -85,15 +88,15 @@ class VMConnector:
             True if key was fetched successfully, False otherwise
 
         Note:
-            - Silent operation (only logs at debug level)
+            - Key Vault is the source of truth for VM-specific keys
+            - Local key is overwritten with Key Vault key if found
             - Returns False on any error (doesn't raise)
-        """
-        # Only try if key doesn't exist locally
-        if key_path.exists():
-            return False
 
+        Issue #417: Previously skipped Key Vault when local key existed,
+        breaking multi-VM connection scenarios.
+        """
         try:
-            logger.info(f"Local SSH key not found, checking Key Vault for VM: {vm_name}")
+            logger.info(f"Checking Key Vault for SSH key: {vm_name}")
 
             # Load context to get subscription/tenant info
             try:
