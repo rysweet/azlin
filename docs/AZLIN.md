@@ -165,7 +165,7 @@ azlin new --name gpu-trainer --vm-size Standard_NC6
 
 **What gets installed**:
 - Docker, Azure CLI, GitHub CLI, Git
-- Node.js, Python 3.12+, Rust, Golang, .NET 10
+- Node.js, Python 3.13+, Rust, Golang, .NET 10
 - GitHub Copilot CLI, OpenAI Codex CLI, Claude Code CLI
 - tmux, vim, and essential utilities
 

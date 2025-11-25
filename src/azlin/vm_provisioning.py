@@ -226,7 +226,7 @@ class VMProvisioner:
     3. GitHub CLI
     4. Git
     5. Node.js & npm
-    6. Python 3.12+ (from deadsnakes PPA)
+    6. Python 3.13+ (from deadsnakes PPA)
     7. Rust
     8. Golang
     9. .NET 10 RC
@@ -760,7 +760,7 @@ packages:
   - ripgrep
 
 runcmd:
-  # Python 3.12+ from deadsnakes PPA
+  # Python 3.13+ from deadsnakes PPA
   - add-apt-repository -y ppa:deadsnakes/ppa
 
   # GitHub CLI repository setup
