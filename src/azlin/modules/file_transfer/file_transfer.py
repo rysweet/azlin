@@ -1,11 +1,11 @@
 """Secure file transfer operations."""
 
 import ipaddress
+import re
 import subprocess
-from collections.abc import Callable
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from .exceptions import InvalidTransferError, TransferError
 from .session_manager import VMSession
@@ -23,8 +23,8 @@ class TransferEndpoint:
         if self.session is None:
             # Local path
             return str(self.path)
-        # Remote path: user@host:path
-        return f"{self.session.user}@{self.session.public_ip}:{self.path}"
+        # Remote path: user@host:path (use ssh_host property for bastion support)
+        return f"{self.session.user}@{self.session.ssh_host}:{self.path}"
 
 
 @dataclass
@@ -46,15 +46,12 @@ class FileTransfer:
         cls,
         source: TransferEndpoint,
         dest: TransferEndpoint,
-        progress_callback: Callable[..., Any] | None = None,
     ) -> TransferResult:
-        """
-        Transfer files from source to destination.
+        """Transfer files from source to destination.
 
         Args:
             source: Validated source endpoint
             dest: Validated destination endpoint
-            progress_callback: Optional progress callback
 
         Returns:
             TransferResult with statistics
@@ -68,16 +65,10 @@ class FileTransfer:
             - Validates IP addresses
             - No user input in shell commands
         """
-        # Validate transfer direction
         if source.session is None and dest.session is None:
             raise InvalidTransferError("Both source and destination are local. Use 'cp' instead.")
 
-        # Build rsync command
         cmd = cls.build_rsync_command(source, dest)
-
-        # Execute rsync with validated arguments
-        import time
-
         start_time = time.time()
 
         try:
@@ -86,12 +77,20 @@ class FileTransfer:
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
-                check=True,
+                check=False,  # Handle returncode manually
             )
 
             duration = time.time() - start_time
 
-            # Parse rsync output for statistics
+            if result.returncode != 0:
+                return TransferResult(
+                    success=False,
+                    files_transferred=0,
+                    bytes_transferred=0,
+                    duration_seconds=duration,
+                    errors=[f"rsync failed: {result.stderr}"],
+                )
+
             stats = cls.parse_rsync_output(result.stdout)
 
             return TransferResult(
@@ -102,23 +101,12 @@ class FileTransfer:
                 errors=[],
             )
 
-        except subprocess.CalledProcessError as e:
-            duration = time.time() - start_time
-            return TransferResult(
-                success=False,
-                files_transferred=0,
-                bytes_transferred=0,
-                duration_seconds=duration,
-                errors=[f"rsync failed: {e.stderr}"],
-            )
-
         except subprocess.TimeoutExpired as e:
             raise TransferError("Transfer timed out after 5 minutes") from e
 
     @classmethod
     def build_rsync_command(cls, source: TransferEndpoint, dest: TransferEndpoint) -> list[str]:
-        """
-        Build rsync command with validated arguments.
+        """Build rsync command with validated arguments.
 
         Returns:
             Command as argument list (NOT shell string)
@@ -134,8 +122,8 @@ class FileTransfer:
         remote_session = source.session or dest.session
 
         if remote_session is not None:
-            # Validate IP address format
-            cls.validate_ip_address(remote_session.public_ip)
+            # Validate IP address format (use ssh_host which is either public_ip or 127.0.0.1)
+            cls.validate_ip_address(remote_session.ssh_host)
 
             # Build SSH command as SINGLE argument
             ssh_cmd = (
@@ -145,6 +133,10 @@ class FileTransfer:
                 f"-o UserKnownHostsFile=/dev/null "
                 f"-o ConnectTimeout=10"
             )
+
+            # Add custom port for bastion tunnels
+            if remote_session.ssh_port != 22:
+                ssh_cmd += f" -p {remote_session.ssh_port}"
 
             # Add SSH command to rsync
             cmd.extend(["-e", ssh_cmd])
@@ -157,8 +149,7 @@ class FileTransfer:
 
     @classmethod
     def validate_ip_address(cls, ip: str) -> None:
-        """
-        Validate IP address format.
+        """Validate IP address format.
 
         Raises:
             TransferError: Invalid IP address
@@ -171,10 +162,6 @@ class FileTransfer:
     @classmethod
     def parse_rsync_output(cls, output: str) -> dict[str, int]:
         """Parse rsync output for statistics."""
-        import re
-
-        # Look for rsync summary line
-        # "sent 1,234 bytes  received 56 bytes  1,290.00 bytes/sec"
         files = 0
         bytes_transferred = 0
 

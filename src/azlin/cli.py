@@ -5574,6 +5574,7 @@ def cp(
         azlin cp vm1:~/src vm2:~/dest       # Remote to remote (not supported)
         azlin cp --dry-run test.txt vm1:~/  # Show transfer plan
     """
+    src_manager, dst_manager = None, None
     try:
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
@@ -5595,7 +5596,10 @@ def cp(
                 click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
                 sys.exit(1)
 
-            vm_session = SessionManager.get_vm_session(source_session_name, rg, VMManager)
+            # Get session (returns tuple now)
+            vm_session, src_manager = SessionManager.get_vm_session(
+                source_session_name, rg, VMManager
+            )
 
             # Parse remote path (allow relative to home)
             source_path = PathParser.parse_and_validate(
@@ -5618,7 +5622,10 @@ def cp(
                 click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
                 sys.exit(1)
 
-            vm_session = SessionManager.get_vm_session(dest_session_name, rg, VMManager)
+            # Get session (returns tuple now)
+            vm_session, dst_manager = SessionManager.get_vm_session(
+                dest_session_name, rg, VMManager
+            )
 
             # Parse remote path (allow relative to home)
             dest_path = PathParser.parse_and_validate(
@@ -5676,6 +5683,12 @@ def cp(
         click.echo(f"Unexpected error: {e}", err=True)
         logger.exception("Unexpected error in cp command")
         sys.exit(1)
+    finally:
+        # Cleanup bastion tunnels
+        if src_manager:
+            src_manager.close_all_tunnels()
+        if dst_manager:
+            dst_manager.close_all_tunnels()
 
 
 def _validate_and_resolve_source_vm(source_vm: str, rg: str, config: str | None) -> VMInfo:
