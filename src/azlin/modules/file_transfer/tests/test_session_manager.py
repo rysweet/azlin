@@ -230,5 +230,7 @@ class TestGetVMSession:
 
         with pytest.raises(SessionNotFoundError, match="no bastion is available"):
             session, bastion_manager = SessionManager.get_vm_session(
-                "test-vm", "test-rg", vm_manager  # type: ignore[arg-type]
+                "test-vm",
+                "test-rg",
+                vm_manager,  # type: ignore[arg-type]
             )

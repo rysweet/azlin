@@ -241,7 +241,11 @@ class SessionManager:
         # Create bastion tunnel
         # Get VM resource ID - support both Mock VMs (with .id) and real VMInfo
         vm_id = getattr(vm, "id", None)
-        vm_resource_id = vm_id if isinstance(vm_id, str) else VMManager.get_vm_resource_id(vm.name, resource_group)
+        vm_resource_id = (
+            vm_id
+            if isinstance(vm_id, str)
+            else VMManager.get_vm_resource_id(vm.name, resource_group)
+        )
         if not vm_resource_id:
             raise SessionNotFoundError(f"Could not get resource ID for VM: {vm.name}")
 
