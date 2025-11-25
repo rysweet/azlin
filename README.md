@@ -1,5 +1,7 @@
 # azlin - Azure Ubuntu VM Provisioning CLI
 
+**[📚 Full Documentation](https://rysweet.github.io/azlin/)** | **[🚀 Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[💬 Discussions](https://github.com/rysweet/azlin/discussions)**
+
 **Version:** 0.3.2
 **Last Updated:** 2025-11-23
 **[📝 Release Notes](https://github.com/rysweet/azlin/releases/tag/v0.3.2)** | **[📊 Changelog](https://github.com/rysweet/azlin/compare/v0.3.1...v0.3.2)** | **[🚀 Latest Release](https://github.com/rysweet/azlin/releases/tag/v0.3.2)**

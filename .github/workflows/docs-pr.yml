@@ -1,0 +1,58 @@
+name: Documentation Preview
+
+on:
+  pull_request:
+    paths:
+      - 'docs-site/**'
+      - 'mkdocs.yml'
+      - 'scripts/extract_help.py'
+      - '.github/workflows/docs-pr.yml'
+
+jobs:
+  # Build docs for PR preview
+  build-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install mkdocs-material
+          pip install mkdocs-git-revision-date-localized-plugin
+          pip install mkdocs-minify-plugin
+          pip install pymdown-extensions
+
+      - name: Generate command documentation
+        run: |
+          python scripts/extract_help.py --output docs-site/commands/ --mock
+        continue-on-error: true
+
+      - name: Build documentation
+        run: |
+          sed -i 's/docs_dir: docs/docs_dir: docs-site/' mkdocs.yml || echo "docs_dir: docs-site" >> mkdocs.yml
+          mkdocs build --strict
+
+      - name: Upload preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-preview
+          path: site/
+          retention-days: 7
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Documentation preview built successfully! Download the artifact to view locally.'
+            })

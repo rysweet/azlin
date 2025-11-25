@@ -1,0 +1,433 @@
+# Site Information
+site_name: azlin Documentation
+site_url: https://rysweet.github.io/azlin/
+site_author: Ryan Sweet
+site_description: >-
+  Comprehensive documentation for azlin - Azure VM fleet management CLI.
+  Provision, manage, and monitor development VMs with one command.
+
+# Repository
+repo_name: rysweet/azlin
+repo_url: https://github.com/rysweet/azlin
+edit_uri: edit/main/docs/
+
+# Copyright
+copyright: Copyright &copy; 2025 Ryan Sweet
+
+# Configuration
+theme:
+  name: material
+  # custom_dir: docs-site/overrides  # Uncomment when overrides are ready
+
+  # Color scheme
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+  # Features
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - content.tooltips
+    - navigation.expand
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.instant.progress
+    - navigation.path
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+    - toc.integrate
+
+  # Fonts
+  font:
+    text: Roboto
+    code: Roboto Mono
+
+  # Icons
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+
+# Plugins
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+      lang: en
+
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
+      htmlmin_opts:
+        remove_comments: true
+
+# Markdown Extensions
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+  # Python Markdown Extensions
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.critic
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: rysweet
+      repo: azlin
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.snippets:
+      check_paths: true
+
+# Extra CSS and JavaScript
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+# Extra Configuration
+extra:
+  version:
+    provider: mike
+    default: latest
+
+  # Social links
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/rysweet/azlin
+      name: GitHub Repository
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/azlin/
+      name: PyPI Package
+
+  # Status badges
+  status:
+    new: New Feature
+    deprecated: Deprecated
+    experimental: Experimental
+
+# Navigation Structure
+nav:
+  - Home: index.md
+
+  - Getting Started:
+    - getting-started/index.md
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+    - First VM: getting-started/first-vm.md
+    - Basic Concepts: getting-started/concepts.md
+
+  - Authentication:
+    - authentication/index.md
+    - Azure CLI Auth: authentication/azure-cli.md
+    - Service Principal: authentication/service-principal.md
+    - Authentication Profiles: authentication/profiles.md
+    - Multi-Tenant Context: authentication/multi-tenant.md
+
+  - VM Lifecycle:
+    - vm-lifecycle/index.md
+    - Creating VMs: vm-lifecycle/creating.md
+    - Listing VMs: vm-lifecycle/listing.md
+    - Connecting: vm-lifecycle/connecting.md
+    - Session Management: vm-lifecycle/sessions.md
+    - Start/Stop: vm-lifecycle/start-stop.md
+    - Cloning VMs: vm-lifecycle/cloning.md
+    - Deleting VMs: vm-lifecycle/deleting.md
+
+  - Storage & NFS:
+    - storage/index.md
+    - Creating Storage: storage/creating.md
+    - Mounting Storage: storage/mounting.md
+    - Mount Local (macOS): storage/mount-local.md
+    - Storage Status: storage/status.md
+    - Shared Home Directories: storage/shared-home.md
+
+  - File Transfer:
+    - file-transfer/index.md
+    - Copy Command: file-transfer/copy.md
+    - Home Directory Sync: file-transfer/sync.md
+    - Dotfiles Management: file-transfer/dotfiles.md
+
+  - Environment Management:
+    - environment/index.md
+    - Setting Variables: environment/set.md
+    - Listing Variables: environment/list.md
+    - Import/Export: environment/import-export.md
+    - Best Practices: environment/best-practices.md
+
+  - Snapshots & Backups:
+    - snapshots/index.md
+    - Creating Snapshots: snapshots/create.md
+    - Restoring Snapshots: snapshots/restore.md
+    - Scheduled Backups: snapshots/scheduled.md
+    - Snapshot Management: snapshots/management.md
+
+  - Azure Bastion:
+    - bastion/index.md
+    - What is Bastion: bastion/overview.md
+    - Bastion Setup: bastion/setup.md
+    - Connecting via Bastion: bastion/connecting.md
+    - Security Benefits: bastion/security.md
+    - Cost Analysis: bastion/cost.md
+
+  - Monitoring:
+    - monitoring/index.md
+    - Status Command: monitoring/status.md
+    - Distributed Top: monitoring/top.md
+    - W Command: monitoring/w.md
+    - PS Command: monitoring/ps.md
+    - Logs Viewer: monitoring/logs.md
+    - Cost Tracking: monitoring/cost.md
+
+  - Batch Operations:
+    - batch/index.md
+    - Batch Command: batch/command.md
+    - Fleet Management: batch/fleet.md
+    - Parallel Execution: batch/parallel.md
+    - Selectors: batch/selectors.md
+
+  - AI Features:
+    - ai/index.md
+    - Do Command: ai/do.md
+    - Natural Language: ai/natural-language.md
+    - Azdoit: ai/azdoit.md
+    - Autopilot: ai/autopilot.md
+
+  - Advanced Topics:
+    - advanced/index.md
+    - Templates: advanced/templates.md
+    - SSH Key Management: advanced/ssh-keys.md
+    - Tags: advanced/tags.md
+    - Multi-Context: advanced/multi-context.md
+    - GitHub Runners: advanced/github-runners.md
+    - Docker Compose: advanced/compose.md
+    - Quota Management: advanced/quotas.md
+    - Pruning VMs: advanced/pruning.md
+
+  - Command Reference:
+    - commands/index.md
+    - VM Commands:
+      - commands/vm/index.md
+      - commands/vm/new.md
+      - commands/vm/clone.md
+      - commands/vm/list.md
+      - commands/vm/connect.md
+      - commands/vm/start.md
+      - commands/vm/stop.md
+      - commands/vm/status.md
+      - commands/vm/session.md
+      - commands/vm/tag.md
+      - commands/vm/update.md
+      - commands/vm/destroy.md
+      - commands/vm/kill.md
+      - commands/vm/killall.md
+    - Auth Commands:
+      - commands/auth/index.md
+      - commands/auth/setup.md
+      - commands/auth/list.md
+      - commands/auth/show.md
+      - commands/auth/test.md
+      - commands/auth/remove.md
+    - Context Commands:
+      - commands/context/index.md
+      - commands/context/create.md
+      - commands/context/use.md
+      - commands/context/list.md
+      - commands/context/show.md
+      - commands/context/delete.md
+      - commands/context/rename.md
+      - commands/context/migrate.md
+    - Storage Commands:
+      - commands/storage/index.md
+      - commands/storage/create.md
+      - commands/storage/mount.md
+      - commands/storage/unmount.md
+      - commands/storage/list.md
+      - commands/storage/status.md
+      - commands/storage/delete.md
+    - Batch Commands:
+      - commands/batch/index.md
+      - commands/batch/command.md
+      - commands/batch/sync.md
+      - commands/batch/start.md
+      - commands/batch/stop.md
+      - commands/batch/update.md
+    - Environment Commands:
+      - commands/env/index.md
+      - commands/env/set.md
+      - commands/env/list.md
+      - commands/env/delete.md
+      - commands/env/export.md
+      - commands/env/import.md
+      - commands/env/clear.md
+    - Snapshot Commands:
+      - commands/snapshot/index.md
+      - commands/snapshot/create.md
+      - commands/snapshot/list.md
+      - commands/snapshot/restore.md
+      - commands/snapshot/delete.md
+    - Template Commands:
+      - commands/template/index.md
+      - commands/template/create.md
+      - commands/template/list.md
+      - commands/template/import.md
+      - commands/template/export.md
+      - commands/template/delete.md
+    - Keys Commands:
+      - commands/keys/index.md
+      - commands/keys/rotate.md
+      - commands/keys/list.md
+      - commands/keys/export.md
+      - commands/keys/backup.md
+    - Bastion Commands:
+      - commands/bastion/index.md
+      - commands/bastion/create.md
+      - commands/bastion/configure.md
+      - commands/bastion/list.md
+      - commands/bastion/status.md
+      - commands/bastion/delete.md
+    - IP Commands:
+      - commands/ip/index.md
+      - commands/ip/check.md
+    - AI Commands:
+      - commands/ai/index.md
+      - Natural Language:
+        - commands/ai/do.md
+      - Infrastructure Deployment:
+        - commands/doit/index.md
+        - commands/doit/deploy.md
+        - commands/doit/list.md
+        - commands/doit/show.md
+        - commands/doit/status.md
+        - commands/doit/cleanup.md
+        - commands/doit/examples.md
+      - Autonomous Optimization:
+        - commands/autopilot/index.md
+        - commands/autopilot/enable.md
+        - commands/autopilot/disable.md
+        - commands/autopilot/status.md
+        - commands/autopilot/config.md
+        - commands/autopilot/run.md
+    - Compose Commands:
+      - commands/compose/index.md
+      - commands/compose/up.md
+      - commands/compose/down.md
+      - commands/compose/ps.md
+    - GitHub Runner Commands:
+      - commands/github-runner/index.md
+      - commands/github-runner/enable.md
+      - commands/github-runner/disable.md
+      - commands/github-runner/status.md
+      - commands/github-runner/scale.md
+    - Utility Commands:
+      - commands/util/index.md
+      - commands/util/cp.md
+      - commands/util/sync.md
+      - commands/util/ps.md
+      - commands/util/w.md
+      - commands/util/top.md
+      - commands/util/cost.md
+      - commands/util/update.md
+      - commands/util/os-update.md
+      - commands/util/prune.md
+      - commands/util/code.md
+      - commands/util/help.md
+
+  - Development:
+    - development/index.md
+    - Architecture: development/architecture.md
+    - Contributing: development/contributing.md
+    - Testing: development/testing.md
+    - Release Process: development/release.md
+
+  - API Reference:
+    - api/index.md
+    - Core Modules: api/core.md
+    - VM Management: api/vm-management.md
+    - Storage: api/storage.md
+    - Authentication: api/authentication.md
+
+  - Troubleshooting:
+    - troubleshooting/index.md
+    - Common Issues: troubleshooting/common-issues.md
+    - Authentication Errors: troubleshooting/auth-errors.md
+    - Connection Issues: troubleshooting/connection.md
+    - Quota Errors: troubleshooting/quota.md
+    - Debug Mode: troubleshooting/debug.md
+
+  - FAQ: faq.md
+  - Changelog: changelog.md
+  - License: license.md
+
+# Documentation directory
+docs_dir: docs-site
+
+# Validation
+strict: true
