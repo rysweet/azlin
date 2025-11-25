@@ -12,9 +12,6 @@ from azlin.vm_manager import VMManager
 
 from .exceptions import InvalidSessionNameError, MultipleSessionsError, SessionNotFoundError
 
-if TYPE_CHECKING:
-    pass
-
 logger = logging.getLogger(__name__)
 
 # Constants

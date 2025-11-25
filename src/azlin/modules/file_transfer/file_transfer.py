@@ -68,6 +68,13 @@ class FileTransfer:
         if source.session is None and dest.session is None:
             raise InvalidTransferError("Both source and destination are local. Use 'cp' instead.")
 
+        # Validate not both remote (VM-to-VM not supported)
+        if source.session is not None and dest.session is not None:
+            raise InvalidTransferError(
+                "VM-to-VM transfers not supported. "
+                "Transfer to local machine first, then to destination VM."
+            )
+
         cmd = cls.build_rsync_command(source, dest)
         start_time = time.time()
 
