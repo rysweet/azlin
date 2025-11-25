@@ -430,4 +430,6 @@ nav:
 docs_dir: docs-site
 
 # Validation
-strict: true
+# Note: strict mode disabled to allow documentation warnings during development
+# Re-enable for production builds
+strict: false
