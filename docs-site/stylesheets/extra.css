@@ -1,0 +1,35 @@
+/* Custom styles for azlin documentation */
+
+:root {
+    --md-primary-fg-color: #2196F3;
+    --md-accent-fg-color: #FF5722;
+}
+
+.md-typeset h1 {
+    font-weight: 700;
+}
+
+.md-typeset code {
+    background-color: var(--md-code-bg-color);
+    border-radius: 0.2rem;
+    padding: 0.1rem 0.3rem;
+}
+
+/* Command examples */
+.md-typeset .admonition.tip {
+    border-left-color: #00c853;
+}
+
+/* Grid cards */
+.grid.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin: 1rem 0;
+}
+
+.grid.cards > * {
+    border: 1px solid var(--md-default-fg-color--lightest);
+    border-radius: 0.2rem;
+    padding: 1rem;
+}
