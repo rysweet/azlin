@@ -222,6 +222,34 @@ class VMConnector:
                 resource_group=conn_info.resource_group,
             )
 
+        # Auto-sync SSH key to VM if enabled and key was fetched from vault
+        if vault_fetched:
+            try:
+                config = ConfigManager.load_config()
+
+                # Only attempt auto-sync if enabled in config
+                if config.ssh_auto_sync_keys:
+                    from azlin.modules.vm_key_sync import VMKeySync
+
+                    logger.info(f"Auto-syncing SSH key to VM authorized_keys: {conn_info.vm_name}")
+
+                    # Derive public key from private key
+                    public_key = SSHKeyManager.get_public_key(conn_info.ssh_key_path)
+
+                    # Instantiate VMKeySync with config dict
+                    sync_manager = VMKeySync(config.to_dict())
+
+                    # Call instance method without config parameter
+                    sync_manager.ensure_key_authorized(
+                        vm_name=conn_info.vm_name,
+                        resource_group=conn_info.resource_group,
+                        public_key=public_key,
+                    )
+                    logger.info("SSH key auto-sync completed successfully")
+            except Exception as e:
+                # Log warning but don't block connection
+                logger.warning(f"Auto-sync SSH key failed: {e}, attempting connection anyway")
+
         # Track if key existed before ensure_key_exists() for accurate logging
         key_existed_before = conn_info.ssh_key_path and conn_info.ssh_key_path.exists()
 

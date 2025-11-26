@@ -111,6 +111,17 @@ class AzlinConfig:
     default_nfs_storage: str | None = None  # Default NFS storage for new VMs
     github_runner_fleets: dict[str, dict[str, Any]] | None = None  # pool_name -> fleet config
 
+    # SSH key synchronization settings (Issue #419)
+    ssh_auto_sync_keys: bool = True  # Auto-sync SSH keys from Key Vault to VM
+    ssh_sync_timeout: int = 30  # Timeout for key sync operations (seconds)
+    ssh_sync_method: str = "auto"  # auto, run-command, ssh, skip
+
+    # Resource group discovery settings (Issue #419)
+    resource_group_auto_detect: bool = True  # Auto-detect resource groups
+    resource_group_cache_ttl: int = 900  # Cache TTL in seconds (15 minutes)
+    resource_group_query_timeout: int = 30  # Azure query timeout (seconds)
+    resource_group_fallback_to_default: bool = True  # Use default RG on failure
+
     def __post_init__(self):
         """Set platform-appropriate default for notification_command if None."""
         if self.notification_command is None:
@@ -164,6 +175,15 @@ class AzlinConfig:
             session_names=data.get("session_names", {}),
             vm_storage=data.get("vm_storage", {}),
             default_nfs_storage=data.get("default_nfs_storage"),
+            # SSH key sync settings
+            ssh_auto_sync_keys=data.get("ssh_auto_sync_keys", True),
+            ssh_sync_timeout=data.get("ssh_sync_timeout", 30),
+            ssh_sync_method=data.get("ssh_sync_method", "auto"),
+            # Resource group discovery settings
+            resource_group_auto_detect=data.get("resource_group_auto_detect", True),
+            resource_group_cache_ttl=data.get("resource_group_cache_ttl", 900),
+            resource_group_query_timeout=data.get("resource_group_query_timeout", 30),
+            resource_group_fallback_to_default=data.get("resource_group_fallback_to_default", True),
         )
 
 

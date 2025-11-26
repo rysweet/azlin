@@ -287,6 +287,64 @@ class SSHKeyManager:
         except Exception as e:
             raise SSHKeyError(f"Failed to read public key: {e}") from e
 
+    @staticmethod
+    def get_public_key(private_key_path: Path | str | None) -> str:
+        """
+        Derive public key from private key using ssh-keygen.
+
+        Args:
+            private_key_path: Path to private key
+
+        Returns:
+            str: Public key content (single line)
+
+        Raises:
+            SSHKeyError: If private key path is None or public key derivation fails
+
+        Example:
+            >>> pub_key = SSHKeyManager.get_public_key(Path.home() / ".ssh" / "id_rsa")
+            >>> print(pub_key)
+            ssh-rsa AAAAB3NzaC1yc2EA... user@host
+        """
+        if private_key_path is None:
+            raise SSHKeyError("Private key path cannot be None")
+
+        key_path = Path(private_key_path).expanduser().resolve()
+
+        if not key_path.exists():
+            raise SSHKeyError(f"Private key not found: {key_path}")
+
+        try:
+            # Use ssh-keygen -y to derive public key from private key
+            result = subprocess.run(
+                ["ssh-keygen", "-y", "-f", str(key_path)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+
+            public_key = result.stdout.strip()
+
+            if not public_key:
+                raise SSHKeyError("ssh-keygen produced empty output")
+
+            logger.debug(f"Derived public key from {key_path}")
+            return public_key
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr if e.stderr else str(e)
+            logger.error(f"ssh-keygen failed: {error_msg}")
+            raise SSHKeyError(f"Failed to derive public key: {error_msg}") from e
+
+        except subprocess.TimeoutExpired as e:
+            logger.error("ssh-keygen timed out")
+            raise SSHKeyError("Public key derivation timed out") from e
+
+        except FileNotFoundError as e:
+            logger.error("ssh-keygen not found in PATH")
+            raise SSHKeyError("ssh-keygen not found. Please install OpenSSH client.") from e
+
 
 # Convenience functions for CLI use
 def ensure_ssh_key(key_path: Path | None = None) -> SSHKeyPair:

@@ -36,3 +36,13 @@ repos:
           - pyyaml>=6.0.0
           - rich>=13.7.0
           - tomlkit>=0.12.0
+
+  # SSH Key Operations Audit - Ensure append-only behavior (Issue #419)
+  - repo: local
+    hooks:
+      - id: audit-key-operations
+        name: Audit SSH key operations (append-only)
+        entry: python3 scripts/audit_key_operations.py
+        language: system
+        files: \.(py|sh|bash)$
+        exclude: (^\.claude/|^tests/|scripts/test_audit_key_operations\.py|src/azlin/cli\.py|src/azlin/modules/nfs_mount_manager\.py)

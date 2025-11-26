@@ -381,7 +381,10 @@ class TestRedirectIntegration:
                                         "type": "tool_use",
                                         "id": "tool_2",
                                         "name": "Write",
-                                        "input": {"file_path": "/tmp/test.py", "content": "print('hello')"},
+                                        "input": {
+                                            "file_path": "/tmp/test.py",
+                                            "content": "print('hello')",
+                                        },
                                     },
                                 ]
                             },
@@ -447,7 +450,9 @@ class TestRedirectIntegration:
                         {
                             "type": "assistant",
                             "message": {
-                                "content": [{"type": "text", "text": "Python is a programming language"}]
+                                "content": [
+                                    {"type": "text", "text": "Python is a programming language"}
+                                ]
                             },
                         }
                     )
