@@ -143,6 +143,33 @@ class TestSymlinkValidation:
                 target_file.unlink()
 
 
+class TestLocalPathHandling:
+    """Test local path handling (is_local=True)."""
+
+    def test_local_path_resolves_from_cwd(self, monkeypatch, tmp_path):
+        """Local relative paths should resolve from current working directory."""
+        monkeypatch.chdir(tmp_path)
+        path = PathParser.parse_and_validate("test.txt", is_local=True)
+        assert path == tmp_path / "test.txt"
+
+    def test_local_path_allows_absolute_paths(self, tmp_path):
+        """Local paths should allow absolute paths."""
+        abs_path = tmp_path / "test.txt"
+        path = PathParser.parse_and_validate(str(abs_path), is_local=True)
+        assert path == abs_path
+
+    def test_local_path_allows_outside_home(self, tmp_path):
+        """Local paths should allow paths outside HOME directory."""
+        # tmp_path is outside HOME
+        path = PathParser.parse_and_validate(str(tmp_path / "test.txt"), is_local=True)
+        assert path == tmp_path / "test.txt"
+
+    def test_local_path_still_validates_shell_metacharacters(self):
+        """Local paths should still block shell metacharacters."""
+        with pytest.raises(InvalidPathError, match="shell metacharacters"):
+            PathParser.parse_and_validate("test;rm.txt", is_local=True)
+
+
 class TestSanitizeForDisplay:
     """Test path sanitization for display."""
 

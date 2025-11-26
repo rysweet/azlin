@@ -5586,8 +5586,8 @@ def cp(
         source_session_name, source_path_str = SessionManager.parse_session_path(source)
 
         if source_session_name is None:
-            # Local source
-            source_path = PathParser.parse_and_validate(source_path_str, allow_absolute=False)
+            # Local source - resolve from cwd, allow absolute paths
+            source_path = PathParser.parse_and_validate(source_path_str, is_local=True)
             source_endpoint = TransferEndpoint(path=source_path, session=None)
         else:
             # Remote source
@@ -5612,8 +5612,8 @@ def cp(
         dest_session_name, dest_path_str = SessionManager.parse_session_path(destination)
 
         if dest_session_name is None:
-            # Local destination
-            dest_path = PathParser.parse_and_validate(dest_path_str, allow_absolute=False)
+            # Local destination - resolve from cwd, allow absolute paths
+            dest_path = PathParser.parse_and_validate(dest_path_str, is_local=True)
             dest_endpoint = TransferEndpoint(path=dest_path, session=None)
         else:
             # Remote destination
