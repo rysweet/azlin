@@ -272,7 +272,7 @@ class VMKeySync:
                         self._append_via_ssh(vm_name, public_key, ssh_user, timeout)
                         return
                     except Exception as ssh_error:
-                        raise VMKeySyncError(f"Both methods failed: {e}, {ssh_error}")
+                        raise VMKeySyncError(f"Both methods failed: {e}, {ssh_error}") from ssh_error
                 raise
         elif method == "run-command":
             self._append_via_run_command(vm_name, resource_group, public_key, ssh_user, timeout)

@@ -91,9 +91,11 @@ def scan_file(file_path: Path) -> list[Violation]:
 
             # Check each unsafe pattern
             for pattern, reason in UNSAFE_PATTERNS:
-                for match in re.finditer(pattern, line):
-                    if not is_comment_only(line, match.start()):
-                        violations.append(Violation(file_path, line_num, line, reason))
+                violations.extend(
+                    Violation(file_path, line_num, line, reason)
+                    for match in re.finditer(pattern, line)
+                    if not is_comment_only(line, match.start())
+                )
 
     except Exception as e:
         print(f"Warning: Could not scan {file_path}: {e}", file=sys.stderr)
