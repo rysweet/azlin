@@ -1056,3 +1056,171 @@ class TestKeyVaultSSHKeyRetrieval:
         call_args = mock_try_fetch.call_args
         assert call_args.kwargs["vm_name"] == "20.1.2.3"
         assert call_args.kwargs["key_path"] == temp_ssh_key
+
+
+class TestTryFetchKeyFromVault:
+    """Tests for _try_fetch_key_from_vault method.
+
+    Issue #417: Key Vault retrieval was skipped when local key exists,
+    breaking multi-VM connection scenarios.
+    """
+
+    @patch("azlin.vm_connector.create_key_vault_manager")
+    @patch("azlin.vm_connector.ContextManager")
+    def test_fetch_from_vault_when_local_key_exists(
+        self,
+        mock_context_mgr,
+        mock_create_kv_manager,
+        temp_ssh_key,
+    ):
+        """Test that Key Vault is queried even when local key already exists.
+
+        Bug #417: Previously, _try_fetch_key_from_vault() would return False
+        immediately if any local key existed, skipping Key Vault entirely.
+
+        After fix: Key Vault should always be queried to get the correct
+        VM-specific key, regardless of local key existence.
+        """
+        # Setup: Local key exists (this is the bug scenario)
+        assert temp_ssh_key.exists(), "Test requires local key to exist"
+
+        # Mock context
+        mock_context = MagicMock()
+        mock_context.subscription_id = "test-sub-id"
+        mock_context.tenant_id = "test-tenant-id"
+        mock_context_config = MagicMock()
+        mock_context_config.get_current_context.return_value = mock_context
+        mock_context_mgr.load.return_value = mock_context_config
+
+        # Mock SSHKeyVaultManager.find_key_vault_in_resource_group
+        with patch(
+            "azlin.modules.ssh_key_vault.SSHKeyVaultManager.find_key_vault_in_resource_group"
+        ) as mock_find_kv:
+            mock_find_kv.return_value = "test-vault"
+
+            # Mock the Key Vault manager
+            mock_kv_manager = MagicMock()
+            mock_create_kv_manager.return_value = mock_kv_manager
+
+            # Call the method with a LOCAL KEY THAT EXISTS
+            result = VMConnector._try_fetch_key_from_vault(
+                vm_name="test-vm",
+                key_path=temp_ssh_key,
+                resource_group="test-rg",
+            )
+
+            # EXPECTED BEHAVIOR (after fix):
+            # - Key Vault should be queried even though local key exists
+            # - retrieve_key should be called to get VM-specific key
+            mock_find_kv.assert_called_once_with(
+                resource_group="test-rg",
+                subscription_id="test-sub-id",
+            )
+            mock_kv_manager.retrieve_key.assert_called_once_with(
+                vm_name="test-vm",
+                target_path=temp_ssh_key,
+            )
+            assert result is True
+
+    @patch("azlin.vm_connector.create_key_vault_manager")
+    @patch("azlin.vm_connector.ContextManager")
+    def test_fetch_from_vault_when_no_local_key(
+        self,
+        mock_context_mgr,
+        mock_create_kv_manager,
+    ):
+        """Test that Key Vault is queried when no local key exists."""
+        # Setup: No local key exists
+        with tempfile.NamedTemporaryFile(delete=True) as f:
+            key_path = Path(f.name)
+        # File is now deleted
+
+        assert not key_path.exists(), "Test requires no local key"
+
+        # Mock context
+        mock_context = MagicMock()
+        mock_context.subscription_id = "test-sub-id"
+        mock_context.tenant_id = "test-tenant-id"
+        mock_context_config = MagicMock()
+        mock_context_config.get_current_context.return_value = mock_context
+        mock_context_mgr.load.return_value = mock_context_config
+
+        # Mock SSHKeyVaultManager.find_key_vault_in_resource_group
+        with patch(
+            "azlin.modules.ssh_key_vault.SSHKeyVaultManager.find_key_vault_in_resource_group"
+        ) as mock_find_kv:
+            mock_find_kv.return_value = "test-vault"
+
+            # Mock the Key Vault manager
+            mock_kv_manager = MagicMock()
+            mock_create_kv_manager.return_value = mock_kv_manager
+
+            result = VMConnector._try_fetch_key_from_vault(
+                vm_name="test-vm",
+                key_path=key_path,
+                resource_group="test-rg",
+            )
+
+            # Key Vault should be queried
+            mock_find_kv.assert_called_once()
+            mock_kv_manager.retrieve_key.assert_called_once()
+            assert result is True
+
+    @patch("azlin.vm_connector.ContextManager")
+    def test_fetch_from_vault_fallback_on_no_context(
+        self,
+        mock_context_mgr,
+        temp_ssh_key,
+    ):
+        """Test graceful fallback when no Azure context is set."""
+        # Mock no context
+        mock_context_config = MagicMock()
+        mock_context_config.get_current_context.return_value = None
+        mock_context_mgr.load.return_value = mock_context_config
+
+        result = VMConnector._try_fetch_key_from_vault(
+            vm_name="test-vm",
+            key_path=temp_ssh_key,
+            resource_group="test-rg",
+        )
+
+        # Should return False gracefully (no crash)
+        assert result is False
+
+    @patch("azlin.vm_connector.create_key_vault_manager")
+    @patch("azlin.vm_connector.ContextManager")
+    def test_fetch_from_vault_handles_keyvault_error(
+        self,
+        mock_context_mgr,
+        mock_create_kv_manager,
+        temp_ssh_key,
+    ):
+        """Test graceful handling of Key Vault errors."""
+        from azlin.modules.ssh_key_vault import KeyVaultError
+
+        # Mock context
+        mock_context = MagicMock()
+        mock_context.subscription_id = "test-sub-id"
+        mock_context.tenant_id = "test-tenant-id"
+        mock_context_config = MagicMock()
+        mock_context_config.get_current_context.return_value = mock_context
+        mock_context_mgr.load.return_value = mock_context_config
+
+        with patch(
+            "azlin.modules.ssh_key_vault.SSHKeyVaultManager.find_key_vault_in_resource_group"
+        ) as mock_find_kv:
+            mock_find_kv.return_value = "test-vault"
+
+            # Mock Key Vault manager to raise error
+            mock_kv_manager = MagicMock()
+            mock_kv_manager.retrieve_key.side_effect = KeyVaultError("Key not found")
+            mock_create_kv_manager.return_value = mock_kv_manager
+
+            result = VMConnector._try_fetch_key_from_vault(
+                vm_name="test-vm",
+                key_path=temp_ssh_key,
+                resource_group="test-rg",
+            )
+
+            # Should return False gracefully on error
+            assert result is False
