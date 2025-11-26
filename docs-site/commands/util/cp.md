@@ -340,11 +340,125 @@ for vm in $(azlin list --tag app=api --format json | jq -r '.[].name'); do
 done
 ```
 
+## Azure Bastion Support
+
+`azlin cp` automatically detects and uses Azure Bastion for VMs without public IP addresses, providing the same seamless experience as `azlin connect`. No configuration or special flags required.
+
+### How It Works
+
+When you copy files to/from a VM, `azlin cp`:
+
+1. **Checks for public IP** - If VM has public IP, uses direct connection (fastest)
+2. **Auto-detects Bastion** - If no public IP, searches for Azure Bastion in resource group
+3. **Creates secure tunnel** - Automatically establishes tunnel through Bastion (localhost:50000-60000)
+4. **Transfers files** - Routes rsync through tunnel transparently
+5. **Cleans up** - Automatically closes tunnel when transfer completes
+
+**No user action required** - Works identically to VMs with public IPs.
+
+### Bastion Examples
+
+#### Copy to Bastion-Only VM
+
+```bash
+# VM has no public IP, but Bastion exists in resource group
+azlin cp dataset.tar.gz secure-vm:~/data/
+```
+
+**Output:**
+```
+VM secure-vm has no public IP, checking for Bastion...
+✓ Found Bastion: azlin-bastion-eastus
+Creating Bastion tunnel...
+✓ Bastion tunnel established: azlin-bastion-eastus -> 127.0.0.1:52341
+
+Copying to secure-vm (via Bastion)...
+  Source: /Users/ryan/dataset.tar.gz
+  Destination: /home/azureuser/data/dataset.tar.gz
+
+Transferring...
+dataset.tar.gz: 100% [===================] 2.1 MB/s
+
+✓ Transfer complete!
+  Files: 1
+  Size: 450 MB
+  Time: 3m 35s
+  Connection: Bastion (azlin-bastion-eastus)
+
+Cleaning up Bastion tunnel...
+✓ Tunnel closed
+```
+
+#### Deploy to Zero-Trust Environment
+
+```bash
+# All VMs in production have no public IPs
+azlin cp -r ./app/ prod-api-1:~/app/
+azlin cp -r ./app/ prod-api-2:~/app/
+azlin cp -r ./app/ prod-api-3:~/app/
+
+# Bastion automatically used for all transfers
+# No configuration changes needed
+```
+
+### Performance Comparison
+
+| Connection Type | Typical Speed | Use Case |
+|----------------|---------------|----------|
+| **Direct (public IP)** | 10-50 MB/s | Development VMs, temporary instances |
+| **Bastion tunnel** | 2-20 MB/s | Production VMs, compliance requirements |
+
+**Notes:**
+- Bastion adds 10-30% overhead vs direct connection
+- Regional Bastion (same region as VM) performs best
+- Cross-region Bastion adds additional latency
+- Security benefits often outweigh performance impact
+
+### Bastion Troubleshooting
+
+#### No Bastion Found
+
+**Problem:** "VM has no public IP and no bastion is available"
+
+**Solution:**
+```bash
+# Check if Bastion exists in resource group
+az network bastion list \
+  --resource-group your-resource-group \
+  --query "[].{name:name, location:location, state:provisioningState}" \
+  --output table
+
+# If no Bastion exists, see setup guide:
+# https://rysweet.github.io/azlin/bastion/setup/
+```
+
+#### Slow Transfer via Bastion
+
+**Problem:** Transfer much slower than expected
+
+**Solutions:**
+```bash
+# 1. Check Bastion and VM are in same region
+az vm show --resource-group rg --name vm --query location
+az network bastion show --resource-group rg --name bastion --query location
+
+# 2. Use compression for large files
+gzip large-file.dat
+azlin cp large-file.dat.gz vm:~/
+
+# 3. Use archives instead of many small files
+tar -czf project.tar.gz ./project/
+azlin cp project.tar.gz vm:~/
+azlin connect vm "tar -xzf ~/project.tar.gz"
+```
+
 ## Related Commands
 
 - [`azlin sync`](sync.md) - Sync dotfiles from ~/.azlin/home/
-- [`azlin connect`](../vm/connect.md) - SSH to VM
+- [`azlin connect`](../vm/connect.md) - SSH to VM (also supports Bastion)
 - [`azlin storage mount`](../storage/mount.md) - Mount shared NFS storage
+- [`azlin bastion create`](../bastion/create.md) - Set up Azure Bastion
+- [`azlin bastion status`](../bastion/status.md) - Check Bastion availability
 
 ## Deep Links
 

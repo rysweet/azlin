@@ -5574,6 +5574,7 @@ def cp(
         azlin cp vm1:~/src vm2:~/dest       # Remote to remote (not supported)
         azlin cp --dry-run test.txt vm1:~/  # Show transfer plan
     """
+    src_manager, dst_manager = None, None
     try:
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
@@ -5585,8 +5586,8 @@ def cp(
         source_session_name, source_path_str = SessionManager.parse_session_path(source)
 
         if source_session_name is None:
-            # Local source
-            source_path = PathParser.parse_and_validate(source_path_str, allow_absolute=False)
+            # Local source - resolve from cwd, allow absolute paths
+            source_path = PathParser.parse_and_validate(source_path_str, is_local=True)
             source_endpoint = TransferEndpoint(path=source_path, session=None)
         else:
             # Remote source
@@ -5595,7 +5596,10 @@ def cp(
                 click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
                 sys.exit(1)
 
-            vm_session = SessionManager.get_vm_session(source_session_name, rg, VMManager)
+            # Get session (returns tuple now)
+            vm_session, src_manager = SessionManager.get_vm_session(
+                source_session_name, rg, VMManager
+            )
 
             # Parse remote path (allow relative to home)
             source_path = PathParser.parse_and_validate(
@@ -5608,8 +5612,8 @@ def cp(
         dest_session_name, dest_path_str = SessionManager.parse_session_path(destination)
 
         if dest_session_name is None:
-            # Local destination
-            dest_path = PathParser.parse_and_validate(dest_path_str, allow_absolute=False)
+            # Local destination - resolve from cwd, allow absolute paths
+            dest_path = PathParser.parse_and_validate(dest_path_str, is_local=True)
             dest_endpoint = TransferEndpoint(path=dest_path, session=None)
         else:
             # Remote destination
@@ -5618,7 +5622,10 @@ def cp(
                 click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
                 sys.exit(1)
 
-            vm_session = SessionManager.get_vm_session(dest_session_name, rg, VMManager)
+            # Get session (returns tuple now)
+            vm_session, dst_manager = SessionManager.get_vm_session(
+                dest_session_name, rg, VMManager
+            )
 
             # Parse remote path (allow relative to home)
             dest_path = PathParser.parse_and_validate(
@@ -5676,6 +5683,12 @@ def cp(
         click.echo(f"Unexpected error: {e}", err=True)
         logger.exception("Unexpected error in cp command")
         sys.exit(1)
+    finally:
+        # Cleanup bastion tunnels
+        if src_manager:
+            src_manager.close_all_tunnels()
+        if dst_manager:
+            dst_manager.close_all_tunnels()
 
 
 def _validate_and_resolve_source_vm(source_vm: str, rg: str, config: str | None) -> VMInfo:

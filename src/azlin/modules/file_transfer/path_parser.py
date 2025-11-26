@@ -30,7 +30,11 @@ class PathParser:
 
     @classmethod
     def parse_and_validate(
-        cls, path_str: str, allow_absolute: bool = False, base_dir: Path | None = None
+        cls,
+        path_str: str,
+        allow_absolute: bool = False,
+        base_dir: Path | None = None,
+        is_local: bool = False,
     ) -> Path:
         """
         Parse and validate a path string with comprehensive security checks.
@@ -38,7 +42,9 @@ class PathParser:
         Args:
             path_str: User-provided path string
             allow_absolute: Whether to allow absolute paths
-            base_dir: Base directory for relative paths (default: HOME_DIR)
+            base_dir: Base directory for relative paths (default: cwd for local, HOME_DIR for remote)
+            is_local: If True, path is on local machine (relaxed security, cwd-based)
+                      If False, path is on remote VM (strict HOME_DIR boundary)
 
         Returns:
             Validated Path object (always absolute)
@@ -51,7 +57,7 @@ class PathParser:
         Security:
             1. Normalizes path (removes .., ., //)
             2. Resolves symlinks
-            3. Validates against boundary
+            3. Validates against boundary (remote only)
             4. Checks for credential files
         """
         if not path_str or not path_str.strip():
@@ -72,14 +78,16 @@ class PathParser:
             raise InvalidPathError(f"Invalid path format: {e}") from e
 
         # Check for absolute path if not allowed
-        if path.is_absolute() and not allow_absolute:
+        # Local paths always allow absolute (user has full local filesystem access)
+        if path.is_absolute() and not allow_absolute and not is_local:
             raise InvalidPathError(
                 "Absolute paths not allowed. Use relative paths or session:path notation"
             )
 
         # Make relative paths absolute
         if not path.is_absolute():
-            base = base_dir or cls.HOME_DIR
+            # Local paths: resolve from cwd; Remote paths: resolve from base_dir or HOME_DIR
+            base = base_dir or Path.cwd() if is_local else base_dir or cls.HOME_DIR
             path = base / path
 
         # Normalize: remove .., ., //
@@ -89,7 +97,9 @@ class PathParser:
             raise InvalidPathError(f"Cannot normalize path: {e}") from e
 
         # Check for path traversal by verifying it's within allowed boundaries
-        if not cls._is_within_allowed_boundaries(normalized):
+        # Only enforce HOME_DIR boundary for remote paths (security)
+        # Local paths can access any directory the user has permissions for
+        if not is_local and not cls._is_within_allowed_boundaries(normalized):
             raise PathTraversalError(f"Path escapes allowed directory: {normalized}")
 
         # Check for explicit .. in parts (defense in depth)
