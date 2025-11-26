@@ -20,7 +20,6 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ class KeySyncResult:
 
     synced: bool
     already_present: bool
-    error: Optional[str] = None
+    error: str | None = None
     method: str = "none"
     duration_ms: int = 0
 
@@ -50,7 +49,7 @@ class VMKeySyncError(Exception):
 class VMKeySync:
     """Manages SSH key synchronization between Key Vault and VMs."""
 
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: dict | None = None):
         """Initialize key sync manager.
 
         Args:
@@ -156,7 +155,7 @@ class VMKeySync:
                 error_msg = "Sync operation timed out"
                 method = "timeout"
             else:
-                error_msg = f"Network error: {str(e)}"
+                error_msg = f"Network error: {e!s}"
                 method = "network-error"
 
             logger.warning(f"{error_msg} for VM {vm_name}")
@@ -313,12 +312,11 @@ class VMKeySync:
 
             if "VM Agent" in error_msg or "not responding" in error_msg:
                 raise VMKeySyncError("VM Agent not responding")
-            elif "Permission" in error_msg or "Insufficient" in error_msg:
+            if "Permission" in error_msg or "Insufficient" in error_msg:
                 raise VMKeySyncError("Permission denied - need VM Contributor role")
-            elif "not in running state" in error_msg:
+            if "not in running state" in error_msg:
                 raise VMKeySyncError("VM not running")
-            else:
-                raise VMKeySyncError(f"Failed to append key: {error_msg}")
+            raise VMKeySyncError(f"Failed to append key: {error_msg}")
 
         # Verify success
         try:
@@ -329,7 +327,7 @@ class VMKeySync:
                         code = item.get("code", "")
                         if (
                             "succeeded" not in code.lower()
-                            and "ProvisioningState/succeeded" != code
+                            and code != "ProvisioningState/succeeded"
                         ):
                             message = item.get("message", "Unknown error")
                             raise VMKeySyncError(f"Command failed: {message}")
@@ -357,7 +355,7 @@ class VMKeySync:
         if result.returncode != 0:
             raise VMKeySyncError(f"SSH append failed: {result.stderr.strip()}")
 
-    def _extract_fingerprint(self, public_key: str) -> Optional[str]:
+    def _extract_fingerprint(self, public_key: str) -> str | None:
         """Extract key fingerprint from public key.
 
         Args:

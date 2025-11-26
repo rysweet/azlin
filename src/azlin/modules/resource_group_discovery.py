@@ -17,7 +17,6 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ class ResourceGroupInfo:
 
     vm_name: str
     resource_group: str
-    session_name: Optional[str] = None
+    session_name: str | None = None
     source: str = "unknown"  # cache, tags, config, default
     confidence: str = "low"  # high, medium, low
     cached: bool = False
@@ -48,7 +47,7 @@ class ResourceGroupDiscoveryError(Exception):
 class ResourceGroupDiscovery:
     """Discovers VM resource groups automatically."""
 
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: dict | None = None):
         """Initialize resource group discovery.
 
         Args:
@@ -71,8 +70,8 @@ class ResourceGroupDiscovery:
         vm_identifier: str,
         use_cache: bool = True,
         force_refresh: bool = False,
-        subscription_id: Optional[str] = None,
-    ) -> Optional[ResourceGroupInfo]:
+        subscription_id: str | None = None,
+    ) -> ResourceGroupInfo | None:
         """Find resource group for a VM by name or session identifier.
 
         Args:
@@ -110,8 +109,8 @@ class ResourceGroupDiscovery:
             return self._try_fallbacks(vm_identifier)
 
     def query_all_resource_groups(
-        self, vm_identifier: str, subscription_id: Optional[str] = None
-    ) -> Optional[ResourceGroupInfo]:
+        self, vm_identifier: str, subscription_id: str | None = None
+    ) -> ResourceGroupInfo | None:
         """Query Azure for VMs matching the identifier.
 
         Searches by VM name or azlin-session tag.
@@ -131,10 +130,10 @@ class ResourceGroupDiscovery:
         # Build Azure CLI query
         query = (
             "[?tags.\"managed-by\"=='azlin' && "
-            "(name=='{0}' || tags.\"azlin-session\"=='{0}')]"
-            ".{{name:name, resourceGroup:resourceGroup, "
-            'sessionName:tags."azlin-session"}}'
-        ).format(vm_identifier)
+            f"(name=='{vm_identifier}' || tags.\"azlin-session\"=='{vm_identifier}')]"
+            ".{name:name, resourceGroup:resourceGroup, "
+            'sessionName:tags."azlin-session"}'
+        )
 
         cmd = ["az", "vm", "list", "--query", query, "--output", "json"]
 
@@ -148,11 +147,10 @@ class ResourceGroupDiscovery:
                 error_msg = result.stderr.strip()
                 if "az login" in error_msg.lower():
                     raise ResourceGroupDiscoveryError("Not logged in to Azure CLI")
-                elif "permission" in error_msg.lower():
+                if "permission" in error_msg.lower():
                     raise ResourceGroupDiscoveryError("Insufficient permissions to list VMs")
-                else:
-                    logger.warning(f"Azure query failed: {error_msg}")
-                    return None
+                logger.warning(f"Azure query failed: {error_msg}")
+                return None
 
             vms = json.loads(result.stdout)
 
@@ -191,7 +189,7 @@ class ResourceGroupDiscovery:
             logger.warning(f"Failed to parse Azure response: {e}")
             return None
 
-    def _get_from_cache(self, vm_identifier: str) -> Optional[ResourceGroupInfo]:
+    def _get_from_cache(self, vm_identifier: str) -> ResourceGroupInfo | None:
         """Get resource group info from cache if valid.
 
         Args:
@@ -264,7 +262,7 @@ class ResourceGroupDiscovery:
             return {"version": 1, "entries": {}}
 
         try:
-            with open(self.cache_path, "r") as f:
+            with open(self.cache_path) as f:
                 cache = json.load(f)
 
             # Validate version
@@ -277,7 +275,7 @@ class ResourceGroupDiscovery:
 
             return cache
 
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.warning(f"Cache corrupted, rebuilding: {e}")
             return {"version": 1, "entries": {}}
 
@@ -325,7 +323,7 @@ class ResourceGroupDiscovery:
         if entries_to_remove:
             logger.debug(f"Cleaned up {len(entries_to_remove)} old cache entries")
 
-    def _try_fallbacks(self, vm_identifier: str) -> Optional[ResourceGroupInfo]:
+    def _try_fallbacks(self, vm_identifier: str) -> ResourceGroupInfo | None:
         """Try fallback methods when Azure query fails or returns no results."""
         # Use default resource group if configured and fallback enabled
         fallback_enabled = self.config.get("resource_group", {}).get("fallback_to_default", True)
@@ -342,7 +340,7 @@ class ResourceGroupDiscovery:
 
         return None
 
-    def invalidate_cache(self, vm_identifier: Optional[str] = None):
+    def invalidate_cache(self, vm_identifier: str | None = None):
         """Invalidate cache entries.
 
         Args:

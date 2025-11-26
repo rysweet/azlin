@@ -18,8 +18,6 @@ Usage:
 import re
 import sys
 from pathlib import Path
-from typing import List, Tuple
-
 
 # Patterns that indicate UNSAFE operations (file replacement)
 UNSAFE_PATTERNS = [
@@ -75,12 +73,12 @@ def is_comment_only(line: str, position: int) -> bool:
     return False
 
 
-def scan_file(file_path: Path) -> List[Violation]:
+def scan_file(file_path: Path) -> list[Violation]:
     """Scan a single file for unsafe key operations."""
     violations = []
 
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(file_path, encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
 
         for line_num, line in enumerate(lines, start=1):
@@ -103,7 +101,7 @@ def scan_file(file_path: Path) -> List[Violation]:
     return violations
 
 
-def scan_directory(directory: Path, recursive: bool = True) -> List[Violation]:
+def scan_directory(directory: Path, recursive: bool = True) -> list[Violation]:
     """Scan directory for unsafe key operations."""
     extensions = {".py", ".sh", ".bash"}
     glob_method = directory.rglob if recursive else directory.glob

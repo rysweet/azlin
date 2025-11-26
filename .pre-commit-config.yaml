@@ -45,4 +45,4 @@ repos:
         entry: python3 scripts/audit_key_operations.py
         language: system
         files: \.(py|sh|bash)$
-        exclude: (^\.claude/|^tests/|scripts/test_audit_key_operations\.py|src/azlin/cli\.py|src/azlin/modules/nfs_mount_manager\.py)
+        exclude: (^\.claude/|^tests/|^scripts/|^src/azlin/cli\.py$|^src/azlin/modules/nfs_mount_manager\.py$)

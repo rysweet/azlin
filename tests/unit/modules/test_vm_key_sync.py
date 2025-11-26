@@ -1,16 +1,13 @@
 """Unit tests for vm_key_sync module - GENERATED WITH WORKING IMPLEMENTATIONS"""
 
 import json
-import os
 import subprocess
-import time
-from pathlib import Path
-from unittest.mock import Mock, patch, call, mock_open
+from unittest.mock import Mock, mock_open, patch
+
 import pytest
 
 from azlin.modules.vm_key_sync import (
     VMKeySync,
-    KeySyncResult,
     VMKeySyncError,
 )
 
