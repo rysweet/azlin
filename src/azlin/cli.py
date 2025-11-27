@@ -4865,6 +4865,31 @@ def connect(
         # Get resource group for VM name (not IP)
         if not VMConnector.is_valid_ip(vm_identifier):
             rg = ConfigManager.get_resource_group(resource_group, config)
+
+            # Auto-detect resource group if not provided and feature is enabled
+            if not rg:
+                from azlin.modules.resource_group_discovery import ResourceGroupDiscovery
+
+                try:
+                    azlin_config = ConfigManager.load_config(config)
+
+                    # Only attempt auto-detection if enabled in config
+                    if azlin_config.resource_group_auto_detect:
+                        logger.info(f"Auto-detecting resource group for VM: {vm_identifier}")
+                        discovery = ResourceGroupDiscovery(azlin_config.__dict__)
+                        discovered_rg = discovery.find_vm_resource_group(vm_identifier)
+                        if discovered_rg:
+                            logger.info(
+                                f"Auto-detected resource group: {discovered_rg.resource_group}"
+                            )
+                            rg = discovered_rg.resource_group
+                        else:
+                            logger.debug(f"Auto-detection failed for VM: {vm_identifier}")
+                except Exception as e:
+                    logger.warning(f"Auto-detect resource group failed: {e}")
+                    # Fall through to existing error handling
+
+            # If still no resource group, show error
             if not rg:
                 click.echo(
                     "Error: Resource group required for VM name.\n"

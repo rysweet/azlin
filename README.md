@@ -327,6 +327,101 @@ azlin auth remove dev
 
 For detailed authentication setup and troubleshooting, see the [Authentication Implementation Guide](docs/AUTH_IMPLEMENTATION_GUIDE.md).
 
+## Smart Connection Behaviors
+
+azlin automatically handles connection complexities so you can focus on your work. Two powerful features eliminate common connection issues:
+
+### Auto-Sync SSH Keys
+
+azlin automatically synchronizes SSH keys from Azure Key Vault to your VMs before connecting. No more "Permission denied" errors from key mismatches.
+
+```bash
+# Just connect - azlin handles the rest
+azlin connect my-vm
+
+# Output:
+# Fetching SSH key from Key Vault... ✓
+# Auto-syncing key to VM... ✓
+# SSH key synchronized to VM
+# Connecting to my-vm...
+# Connected!
+```
+
+**What it does:**
+- Fetches the correct SSH key from Key Vault (source of truth)
+- Checks if the key exists in the VM's authorized_keys
+- Appends the key if missing (never replaces existing keys)
+- Proceeds with connection
+
+**Benefits:**
+- Eliminates key mismatch connection failures
+- Automatic key synchronization on first connection
+- Safe append-only operations (preserves existing keys)
+- Works automatically - no manual intervention
+
+### Auto-Detect Resource Group
+
+azlin automatically discovers which resource group contains your VM. No need to remember or specify `--resource-group` every time.
+
+```bash
+# Connect without resource group
+azlin connect my-vm
+
+# Output:
+# Resource group not specified, attempting auto-discovery...
+# Discovered VM 'my-vm' in resource group 'rg-prod' ✓
+# Connecting to my-vm...
+# Connected!
+```
+
+**What it does:**
+- Queries Azure for VMs matching your identifier (name or session)
+- Caches the result for 15 minutes (fast subsequent connections)
+- Automatically handles resource group changes
+- Falls back gracefully if discovery fails
+
+**Benefits:**
+- No more "VM not found" errors when VMs move
+- Seamless resource group changes (cache auto-invalidates)
+- Fast connections (cache hits in <100ms)
+- Works across all your resource groups
+
+### Configuration
+
+Both features are enabled by default and work transparently. You can configure them in `~/.azlin/config.toml`:
+
+```toml
+[ssh]
+auto_sync_keys = true        # Enable automatic key sync
+sync_timeout = 30            # Sync operation timeout
+
+[resource_group]
+auto_detect = true           # Enable automatic RG discovery
+cache_ttl = 900              # Cache for 15 minutes
+```
+
+### CLI Overrides
+
+Disable features for specific connections:
+
+```bash
+# Disable auto-sync for this connection
+azlin connect my-vm --no-auto-sync-keys
+
+# Disable auto-detect (requires --resource-group)
+azlin connect my-vm --no-auto-detect-rg --resource-group my-rg
+
+# Force cache refresh
+azlin connect my-vm --force-rg-refresh
+```
+
+### Documentation
+
+- **Auto-Sync SSH Keys**: [docs/features/auto-sync-keys.md](docs/features/auto-sync-keys.md)
+- **Auto-Detect Resource Group**: [docs/features/auto-detect-rg.md](docs/features/auto-detect-rg.md)
+- **Configuration Reference**: [docs/reference/config-default-behaviors.md](docs/reference/config-default-behaviors.md)
+- **Troubleshooting**: [docs/how-to/troubleshoot-connection-issues.md](docs/how-to/troubleshoot-connection-issues.md)
+
 ## Multi-Tenant Context Management
 
 kubectl-style context management for seamless switching between multiple Azure tenants and subscriptions.
