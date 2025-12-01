@@ -301,6 +301,9 @@ class VMProvisioner:
     }
 
     # Valid Azure regions whitelist
+    # All regions supported by azlin VM provisioning
+    # Note: COMMON_REGIONS (config_manager.py) must be subset of VALID_REGIONS
+    # This constraint is enforced by tests/unit/test_region_consistency.py
     VALID_REGIONS: ClassVar[set[str]] = {
         "eastus",
         "eastus2",
@@ -310,6 +313,7 @@ class VMProvisioner:
         "centralus",
         "northcentralus",
         "southcentralus",
+        "westcentralus",  # Issue #421 fix
         "northeurope",
         "westeurope",
         "uksouth",
