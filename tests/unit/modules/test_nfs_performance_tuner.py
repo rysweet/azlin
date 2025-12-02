@@ -344,6 +344,7 @@ class TestNFSPerformanceTunerMountOptions:
     def test_multi_vm_mount_options(self):
         """Test multi-VM mount options have short attribute cache."""
         from azlin.modules.nfs_performance_tuner import PROFILES
+
         options = PROFILES["multi-vm"]
         assert "actimeo=1" in options
         assert "rsize=1048576" in options
@@ -352,6 +353,7 @@ class TestNFSPerformanceTunerMountOptions:
     def test_read_heavy_mount_options(self):
         """Test read-heavy mount options have aggressive caching."""
         from azlin.modules.nfs_performance_tuner import PROFILES
+
         options = PROFILES["read-heavy"]
         assert "ac" in options
         assert "acregmin" in options or "actimeo" in options
@@ -360,6 +362,7 @@ class TestNFSPerformanceTunerMountOptions:
     def test_write_heavy_mount_options(self):
         """Test write-heavy mount options optimize writes."""
         from azlin.modules.nfs_performance_tuner import PROFILES
+
         options = PROFILES["write-heavy"]
         assert "wsize=1048576" in options
         assert "async" in options or "noac" in options
@@ -367,6 +370,7 @@ class TestNFSPerformanceTunerMountOptions:
     def test_balanced_mount_options(self):
         """Test balanced mount options for mixed workload."""
         from azlin.modules.nfs_performance_tuner import PROFILES
+
         options = PROFILES["mixed"]
         assert "rsize=1048576" in options
         assert "wsize=1048576" in options
@@ -375,6 +379,7 @@ class TestNFSPerformanceTunerMountOptions:
     def test_mount_options_always_include_base(self):
         """Test all mount options include base requirements."""
         from azlin.modules.nfs_performance_tuner import PROFILES
+
         for workload in ["multi-vm", "read-heavy", "write-heavy", "mixed"]:
             options = PROFILES[workload]
             assert "vers=4.1" in options

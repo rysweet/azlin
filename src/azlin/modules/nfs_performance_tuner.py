@@ -25,10 +25,10 @@ except ImportError:
 
 
 __all__ = [
+    "PROFILES",
     "NFSPerformanceAnalysis",
     "NFSPerformanceTuner",
     "NFSTuningRecommendation",
-    "PROFILES",
 ]
 
 
