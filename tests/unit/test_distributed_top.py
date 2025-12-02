@@ -232,7 +232,8 @@ class TestDistributedTopExecutor:
         table = executor._create_dashboard_table(metrics)
 
         assert table.title == "Distributed VM Metrics (updates every 10s)"
-        assert len(table.columns) == 6  # VM, Status, Load, CPU, Memory, Top Process
+        # 7 columns: VM, Region, Status, Load, CPU, Memory, Top Process
+        assert len(table.columns) == 7
 
     @patch("azlin.distributed_top.subprocess.run")
     @patch("azlin.distributed_top.time.sleep")
