@@ -615,7 +615,7 @@ class TestNotificationSecurity:
         import os
 
         # Set token in environment
-        os.environ["WEBHOOK_TOKEN"] = "test-token-123"
+        os.environ["WEBHOOK_TOKEN"] = "test-token-123"  # noqa: S105
 
         alert = Alert(
             rule_name="high_cpu",
@@ -644,7 +644,7 @@ class TestNotificationSecurity:
         """Webhook tokens are never logged."""
         import os
 
-        os.environ["WEBHOOK_TOKEN"] = "secret-token-456"
+        os.environ["WEBHOOK_TOKEN"] = "secret-token-456"  # noqa: S105
 
         alert = Alert(
             rule_name="high_cpu",

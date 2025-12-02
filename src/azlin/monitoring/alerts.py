@@ -18,7 +18,7 @@ import os
 import re
 import smtplib
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from enum import Enum
@@ -51,7 +51,7 @@ class AlertRule:
     comparison: str  # ">", "<", ">=", "<=", "=="
     severity: AlertSeverity
     enabled: bool = True
-    notification_channels: list[str] = None
+    notification_channels: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         """Validate rule after initialization."""
@@ -73,10 +73,6 @@ class AlertRule:
             raise ValueError(
                 f"Invalid threshold for percentage metric: {self.threshold}. Must be 0-100."
             )
-
-        # Initialize notification channels if None
-        if self.notification_channels is None:
-            self.notification_channels = []
 
 
 @dataclass
