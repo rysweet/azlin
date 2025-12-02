@@ -5,10 +5,11 @@ Test coverage: Registry operations with validation, analytics, and file system.
 These tests follow TDD - they should FAIL initially until implementation is complete.
 """
 
-import pytest
-from pathlib import Path
-from datetime import datetime
 import tempfile
+from datetime import datetime
+from pathlib import Path
+
+import pytest
 
 
 class TestRegistryValidationIntegration:
@@ -17,7 +18,7 @@ class TestRegistryValidationIntegration:
     def test_registry_validates_on_register(self):
         """Test registry automatically validates templates on registration."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry(auto_validate=True)
 
@@ -39,7 +40,7 @@ class TestRegistryValidationIntegration:
     def test_registry_with_custom_validators(self):
         """Test registry with custom validation rules."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         def custom_validator(template):
             if "production" in template.metadata.tags:
@@ -69,9 +70,9 @@ class TestRegistryAnalyticsIntegration:
 
     def test_registry_tracks_usage_automatically(self):
         """Test registry automatically tracks template usage."""
-        from azlin.templates.marketplace import TemplateRegistry
         from azlin.templates.analytics import AnalyticsTracker
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -99,9 +100,9 @@ class TestRegistryAnalyticsIntegration:
 
     def test_popular_templates_based_on_analytics(self):
         """Test getting popular templates based on analytics data."""
-        from azlin.templates.marketplace import TemplateRegistry
         from azlin.templates.analytics import AnalyticsTracker
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -138,7 +139,7 @@ class TestRegistryFilesystemIntegration:
     def test_registry_persists_to_disk(self):
         """Test registry persists templates to disk."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             registry_path = Path(tmpdir) / "registry"
@@ -170,7 +171,7 @@ class TestRegistryFilesystemIntegration:
     def test_registry_import_export_workflow(self):
         """Test complete import/export workflow with file system."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create and export
@@ -265,7 +266,6 @@ class TestVersioningAnalyticsIntegration:
     def test_analytics_tracks_version_usage(self):
         """Test analytics tracks which template versions are used."""
         from azlin.templates.analytics import AnalyticsTracker
-        from azlin.templates.versioning import TemplateVersion
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -300,9 +300,9 @@ class TestVersioningAnalyticsIntegration:
 
     def test_version_deprecation_workflow(self):
         """Test marking versions as deprecated and tracking usage."""
-        from azlin.templates.marketplace import TemplateRegistry
         from azlin.templates.analytics import AnalyticsTracker
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -338,10 +338,10 @@ class TestMultiComponentIntegration:
 
     def test_complete_template_registration_workflow(self):
         """Test complete workflow: validate, compose, register, track."""
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
-        from azlin.templates.validation import TemplateValidator
-        from azlin.templates.marketplace import TemplateRegistry
         from azlin.templates.analytics import AnalyticsTracker
+        from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.validation import TemplateValidator
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create template
@@ -384,9 +384,9 @@ class TestMultiComponentIntegration:
 
     def test_template_update_propagation(self):
         """Test template updates propagate across all systems."""
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
-        from azlin.templates.marketplace import TemplateRegistry
         from azlin.templates.analytics import AnalyticsTracker
+        from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -440,9 +440,10 @@ class TestConcurrencyIntegration:
 
     def test_concurrent_registrations(self):
         """Test multiple concurrent template registrations."""
-        from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
         import threading
+
+        from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -472,8 +473,9 @@ class TestConcurrencyIntegration:
 
     def test_concurrent_analytics_recording(self):
         """Test concurrent analytics recording."""
-        from azlin.templates.analytics import AnalyticsTracker
         import threading
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -504,7 +506,7 @@ class TestErrorRecoveryIntegration:
     def test_rollback_on_validation_failure(self):
         """Test transaction rollback when validation fails."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry(auto_validate=True, transactional=True)
 
@@ -544,9 +546,9 @@ class TestErrorRecoveryIntegration:
 
     def test_analytics_failure_doesnt_block_registry(self):
         """Test registry operations continue even if analytics fails."""
-        from azlin.templates.marketplace import TemplateRegistry
         from azlin.templates.analytics import AnalyticsTracker
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         # Create tracker with invalid DB path
         tracker = AnalyticsTracker(db_path=Path("/invalid/path/analytics.db"))

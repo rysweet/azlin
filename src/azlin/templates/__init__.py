@@ -15,55 +15,46 @@ Philosophy:
 Public API:
 """
 
-from azlin.templates.versioning import (
-    TemplateVersion,
-    TemplateMetadata,
-    ChangeRecord,
-    ChangeHistory,
-    VersionedTemplate,
+from azlin.templates.analytics import (
+    AnalyticsDB,
+    AnalyticsReporter,
+    AnalyticsTracker,
 )
-
-from azlin.templates.marketplace import (
-    TemplateRegistry,
-)
-
 from azlin.templates.composition import (
     CompositeTemplate,
     TemplateResolver,
 )
-
+from azlin.templates.marketplace import (
+    TemplateRegistry,
+)
 from azlin.templates.validation import (
-    TemplateValidator,
     AzureValidator,
     TemplateLinter,
+    TemplateValidator,
     ValidationResult,
 )
-
-from azlin.templates.analytics import (
-    AnalyticsDB,
-    AnalyticsTracker,
-    AnalyticsReporter,
+from azlin.templates.versioning import (
+    ChangeHistory,
+    ChangeRecord,
+    TemplateMetadata,
+    TemplateVersion,
+    VersionedTemplate,
 )
 
 __all__ = [
-    # Versioning
-    "TemplateVersion",
-    "TemplateMetadata",
-    "ChangeRecord",
-    "ChangeHistory",
-    "VersionedTemplate",
-    # Marketplace
-    "TemplateRegistry",
-    # Composition
-    "CompositeTemplate",
-    "TemplateResolver",
-    # Validation
-    "TemplateValidator",
-    "AzureValidator",
-    "TemplateLinter",
-    "ValidationResult",
-    # Analytics
     "AnalyticsDB",
-    "AnalyticsTracker",
     "AnalyticsReporter",
+    "AnalyticsTracker",
+    "AzureValidator",
+    "ChangeHistory",
+    "ChangeRecord",
+    "CompositeTemplate",
+    "TemplateLinter",
+    "TemplateMetadata",
+    "TemplateRegistry",
+    "TemplateResolver",
+    "TemplateValidator",
+    "TemplateVersion",
+    "ValidationResult",
+    "VersionedTemplate",
 ]

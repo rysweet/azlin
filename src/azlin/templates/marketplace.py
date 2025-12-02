@@ -12,13 +12,12 @@ Philosophy:
 - Simple but complete implementation
 """
 
+import fnmatch
+import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
-import json
-import fnmatch
 
-from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+from azlin.templates.versioning import TemplateMetadata, VersionedTemplate
 
 
 @dataclass
@@ -33,8 +32,8 @@ class TemplateRegistry:
 
     def __init__(self):
         """Initialize empty registry."""
-        self._templates: Dict[str, VersionedTemplate] = {}
-        self._ratings: Dict[str, Dict[str, int]] = {}  # {template_name: {user_id: rating}}
+        self._templates: dict[str, VersionedTemplate] = {}
+        self._ratings: dict[str, dict[str, int]] = {}  # {template_name: {user_id: rating}}
 
     def count(self) -> int:
         """Return number of registered templates."""
@@ -60,7 +59,7 @@ class TemplateRegistry:
         self._templates[name] = template
         self._ratings[name] = {}
 
-    def get(self, name: str) -> Optional[VersionedTemplate]:
+    def get(self, name: str) -> VersionedTemplate | None:
         """Retrieve template by name.
 
         Args:
@@ -86,16 +85,16 @@ class TemplateRegistry:
 
         self._templates[name] = new_template
 
-    def list_all(self) -> List[VersionedTemplate]:
+    def list_all(self) -> list[VersionedTemplate]:
         """List all registered templates."""
         return list(self._templates.values())
 
     def search(
         self,
-        name_pattern: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        author: Optional[str] = None
-    ) -> List[VersionedTemplate]:
+        name_pattern: str | None = None,
+        tags: list[str] | None = None,
+        author: str | None = None
+    ) -> list[VersionedTemplate]:
         """Search templates by criteria.
 
         Args:
@@ -145,7 +144,7 @@ class TemplateRegistry:
         # Update or add rating (users can update their ratings)
         self._ratings[template_name][user_id] = rating
 
-    def get_rating_stats(self, template_name: str) -> Dict[str, float]:
+    def get_rating_stats(self, template_name: str) -> dict[str, float]:
         """Get rating statistics for a template.
 
         Args:
@@ -167,7 +166,7 @@ class TemplateRegistry:
             "count": len(rating_values)
         }
 
-    def get_top_rated(self, limit: int = 10) -> List[VersionedTemplate]:
+    def get_top_rated(self, limit: int = 10) -> list[VersionedTemplate]:
         """Get top-rated templates.
 
         Args:

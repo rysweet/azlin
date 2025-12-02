@@ -13,10 +13,9 @@ Philosophy:
 - Immutable version objects (new instances on change)
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
-import re
 
 
 @dataclass(frozen=True)
@@ -91,10 +90,10 @@ class TemplateMetadata:
     description: str
     author: str
     created_at: datetime
-    tags: List[str] = field(default_factory=list)
-    dependencies: Dict[str, str] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
+    dependencies: dict[str, str] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serialize metadata to dictionary."""
         return {
             "name": self.name,
@@ -107,7 +106,7 @@ class TemplateMetadata:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "TemplateMetadata":
+    def from_dict(cls, data: dict) -> "TemplateMetadata":
         """Deserialize metadata from dictionary."""
         return cls(
             name=data["name"],
@@ -140,7 +139,7 @@ class ChangeRecord:
                 f"Must be one of {self.VALID_TYPES}"
             )
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serialize change record to dictionary."""
         return {
             "version": str(self.version),
@@ -156,7 +155,7 @@ class ChangeHistory:
 
     def __init__(self):
         """Initialize empty change history."""
-        self._changes: List[ChangeRecord] = []
+        self._changes: list[ChangeRecord] = []
 
     def append(self, record: ChangeRecord) -> None:
         """Add a change record to history."""
@@ -170,17 +169,17 @@ class ChangeHistory:
         """Get change record by index."""
         return self._changes[index]
 
-    def get_changes_for_version(self, version: TemplateVersion) -> List[ChangeRecord]:
+    def get_changes_for_version(self, version: TemplateVersion) -> list[ChangeRecord]:
         """Get all changes for a specific version."""
         return [c for c in self._changes if c.version == version]
 
-    def get_latest(self) -> Optional[ChangeRecord]:
+    def get_latest(self) -> ChangeRecord | None:
         """Get the most recent change record."""
         if not self._changes:
             return None
         return self._changes[-1]
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serialize change history to dictionary."""
         return {
             "changes": [c.to_dict() for c in self._changes]
@@ -192,7 +191,7 @@ class VersionedTemplate:
     """Template with versioning and change tracking."""
 
     metadata: TemplateMetadata
-    content: Dict
+    content: dict
     change_history: ChangeHistory = field(default_factory=ChangeHistory)
 
     def update_version(
@@ -233,9 +232,9 @@ class VersionedTemplate:
 
 
 __all__ = [
-    "TemplateVersion",
-    "TemplateMetadata",
-    "ChangeRecord",
     "ChangeHistory",
+    "ChangeRecord",
+    "TemplateMetadata",
+    "TemplateVersion",
     "VersionedTemplate",
 ]

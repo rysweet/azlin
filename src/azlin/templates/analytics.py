@@ -11,13 +11,13 @@ Philosophy:
 - Privacy-focused with opt-out and anonymization
 """
 
+import hashlib
+import json
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-import sqlite3
-import json
-import hashlib
+from typing import Any
 
 
 @dataclass
@@ -27,7 +27,7 @@ class UsageEvent:
     template_name: str
     user_id: str
     timestamp: datetime
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -48,9 +48,9 @@ class TemplateReport:
     unique_users: int
     average_duration: float = 0.0
     success_rate: float = 0.0
-    usage_by_region: Dict[str, int] = field(default_factory=dict)
+    usage_by_region: dict[str, int] = field(default_factory=dict)
 
-    def to_json(self) -> Dict:
+    def to_json(self) -> dict:
         """Export report to JSON."""
         return {
             "template_name": self.template_name,
@@ -67,7 +67,7 @@ class SummaryReport:
     """Summary report for all templates."""
     total_templates: int
     total_uses: int
-    templates: List[TemplateStats] = field(default_factory=list)
+    templates: list[TemplateStats] = field(default_factory=list)
 
 
 class AnalyticsDB:
@@ -154,7 +154,7 @@ class AnalyticsDB:
         try:
             self.conn.execute("SELECT 1")
             return True
-        except:
+        except Exception:
             return False
 
     def close(self) -> None:
@@ -162,7 +162,7 @@ class AnalyticsDB:
         if self.conn:
             self.conn.close()
 
-    def get_tables(self) -> List[str]:
+    def get_tables(self) -> list[str]:
         """Get list of tables in database."""
         cursor = self.conn.cursor()
         cursor.execute("""
@@ -172,7 +172,7 @@ class AnalyticsDB:
         """)
         return [row[0] for row in cursor.fetchall()]
 
-    def execute_query(self, query: str) -> List[Dict]:
+    def execute_query(self, query: str) -> list[dict]:
         """Execute a query and return results."""
         cursor = self.conn.cursor()
         cursor.execute(query)
@@ -186,7 +186,7 @@ class AnalyticsTracker:
         self,
         db_path: Path,
         anonymize_users: bool = False,
-        retention_days: Optional[int] = None
+        retention_days: int | None = None
     ):
         """Initialize analytics tracker.
 
@@ -252,8 +252,8 @@ class AnalyticsTracker:
         template_name: str,
         user_id: str,
         timestamp: datetime,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> Optional[int]:
+        metadata: dict[str, Any] | None = None
+    ) -> int | None:
         """Record a template usage event.
 
         Args:
@@ -290,7 +290,7 @@ class AnalyticsTracker:
 
         return event_id
 
-    def bulk_record_usage(self, events: List[Tuple[str, str, datetime]]) -> None:
+    def bulk_record_usage(self, events: list[tuple[str, str, datetime]]) -> None:
         """Bulk insert usage events for performance.
 
         Args:
@@ -309,14 +309,14 @@ class AnalyticsTracker:
 
         self.db.conn.commit()
 
-    def get_usage_event(self, event_id: int) -> UsageEvent:
+    def get_usage_event(self, event_id: int) -> UsageEvent | None:
         """Get usage event by ID.
 
         Args:
             event_id: Event ID
 
         Returns:
-            UsageEvent instance
+            UsageEvent instance or None if not found
         """
         cursor = self.db.conn.cursor()
         cursor.execute("""
@@ -332,12 +332,13 @@ class AnalyticsTracker:
                 timestamp=datetime.fromisoformat(row["timestamp"]),
                 metadata=json.loads(row["metadata"] or "{}")
             )
+        return None
 
     def get_usage_count(
         self,
         template_name: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
+        start_date: datetime | None = None,
+        end_date: datetime | None = None
     ) -> int:
         """Get usage count for a template.
 
@@ -383,7 +384,7 @@ class AnalyticsTracker:
         result = cursor.fetchone()
         return result["count"] if result else 0
 
-    def get_most_used_templates(self, limit: int = 10) -> List[TemplateStats]:
+    def get_most_used_templates(self, limit: int = 10) -> list[TemplateStats]:
         """Get most used templates.
 
         Args:
@@ -410,7 +411,7 @@ class AnalyticsTracker:
 
         return results
 
-    def get_trending_templates(self, days: int = 7, limit: int = 10) -> List[TemplateStats]:
+    def get_trending_templates(self, days: int = 7, limit: int = 10) -> list[TemplateStats]:
         """Get trending templates (increasing usage).
 
         Args:
@@ -441,7 +442,7 @@ class AnalyticsTracker:
 
         return results
 
-    def get_usage_by_region(self, template_name: str) -> Dict[str, int]:
+    def get_usage_by_region(self, template_name: str) -> dict[str, int]:
         """Get usage statistics by region.
 
         Args:
@@ -522,7 +523,7 @@ class AnalyticsTracker:
 
         return sum(durations) / len(durations)
 
-    def get_user_history(self, user_id: str) -> List[UsageEvent]:
+    def get_user_history(self, user_id: str) -> list[UsageEvent]:
         """Get user's template usage history.
 
         Args:
@@ -553,7 +554,7 @@ class AnalyticsTracker:
 
         return results
 
-    def get_user_favorites(self, user_id: str, limit: int = 5) -> List[TemplateStats]:
+    def get_user_favorites(self, user_id: str, limit: int = 5) -> list[TemplateStats]:
         """Get user's most frequently used templates.
 
         Args:
@@ -585,7 +586,7 @@ class AnalyticsTracker:
 
         return results
 
-    def get_user_timeline(self, user_id: str, days: int = 30) -> List[UsageEvent]:
+    def get_user_timeline(self, user_id: str, days: int = 30) -> list[UsageEvent]:
         """Get user's activity timeline.
 
         Args:
@@ -698,10 +699,10 @@ class AnalyticsReporter:
 
 __all__ = [
     "AnalyticsDB",
-    "AnalyticsTracker",
     "AnalyticsReporter",
-    "UsageEvent",
-    "TemplateStats",
+    "AnalyticsTracker",
+    "SummaryReport",
     "TemplateReport",
-    "SummaryReport"
+    "TemplateStats",
+    "UsageEvent"
 ]

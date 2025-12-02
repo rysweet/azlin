@@ -5,9 +5,10 @@ Test coverage: Template marketplace/sharing (registry, discovery)
 These tests follow TDD - they should FAIL initially until implementation is complete.
 """
 
-import pytest
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+import pytest
 
 
 class TestTemplateRegistry:
@@ -25,7 +26,7 @@ class TestTemplateRegistry:
     def test_registry_register_template(self):
         """Test registering a new template."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -50,7 +51,7 @@ class TestTemplateRegistry:
     def test_registry_register_duplicate_name(self):
         """Test registering template with duplicate name raises error."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -84,7 +85,7 @@ class TestTemplateRegistry:
     def test_registry_get_template(self):
         """Test retrieving template by name."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -117,7 +118,7 @@ class TestTemplateRegistry:
     def test_registry_update_template_version(self):
         """Test updating template to new version."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -152,7 +153,7 @@ class TestTemplateRegistry:
     def test_registry_list_all_templates(self):
         """Test listing all registered templates."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -181,7 +182,7 @@ class TestTemplateDiscovery:
     def test_search_by_name(self):
         """Test searching templates by name."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -212,7 +213,7 @@ class TestTemplateDiscovery:
     def test_search_by_tag(self):
         """Test searching templates by tag."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -251,7 +252,7 @@ class TestTemplateDiscovery:
     def test_search_by_author(self):
         """Test searching templates by author."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -277,7 +278,7 @@ class TestTemplateDiscovery:
     def test_search_multiple_criteria(self):
         """Test searching with multiple criteria."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -319,9 +320,10 @@ class TestTemplateSharing:
 
     def test_export_template_to_file(self):
         """Test exporting template to file."""
-        from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
         import tempfile
+
+        from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -348,10 +350,10 @@ class TestTemplateSharing:
 
     def test_import_template_from_file(self):
         """Test importing template from file."""
-        from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
-        import tempfile
         import json
+        import tempfile
+
+        from azlin.templates.marketplace import TemplateRegistry
 
         with tempfile.TemporaryDirectory() as tmpdir:
             import_path = Path(tmpdir) / "vm-basic.json"
@@ -379,8 +381,9 @@ class TestTemplateSharing:
 
     def test_import_invalid_template_file(self):
         """Test importing invalid template file raises error."""
-        from azlin.templates.marketplace import TemplateRegistry
         import tempfile
+
+        from azlin.templates.marketplace import TemplateRegistry
 
         with tempfile.TemporaryDirectory() as tmpdir:
             invalid_path = Path(tmpdir) / "invalid.json"
@@ -393,8 +396,9 @@ class TestTemplateSharing:
 
     def test_export_nonexistent_template(self):
         """Test exporting nonexistent template raises error."""
-        from azlin.templates.marketplace import TemplateRegistry
         import tempfile
+
+        from azlin.templates.marketplace import TemplateRegistry
 
         registry = TemplateRegistry()
 
@@ -411,7 +415,7 @@ class TestTemplateRating:
     def test_rate_template(self):
         """Test rating a template."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -436,7 +440,7 @@ class TestTemplateRating:
     def test_multiple_ratings_average(self):
         """Test average rating calculation with multiple ratings."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -463,7 +467,7 @@ class TestTemplateRating:
     def test_rate_invalid_value(self):
         """Test rating with invalid value raises error."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -489,7 +493,7 @@ class TestTemplateRating:
     def test_user_can_update_rating(self):
         """Test user can update their rating."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -515,7 +519,7 @@ class TestTemplateRating:
     def test_get_top_rated_templates(self):
         """Test getting top-rated templates."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 

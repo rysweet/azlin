@@ -11,17 +11,16 @@ Philosophy:
 - Deep merge for nested structures
 """
 
-from typing import Dict, Any, List, Optional, Set
 import copy
 
-from azlin.templates.versioning import VersionedTemplate, TemplateVersion
 from azlin.templates.marketplace import TemplateRegistry
+from azlin.templates.versioning import TemplateVersion, VersionedTemplate
 
 
 class CompositeTemplate:
     """Template with inheritance support."""
 
-    def __init__(self, child: Dict, parent: Optional[Dict] = None):
+    def __init__(self, child: dict, parent: dict | None = None):
         """Initialize composite template.
 
         Args:
@@ -44,7 +43,7 @@ class CompositeTemplate:
         if parent and self._has_circular_inheritance(child, parent):
             raise ValueError("Circular inheritance detected")
 
-    def _has_circular_inheritance(self, child: Dict, parent: Dict) -> bool:
+    def _has_circular_inheritance(self, child: dict, parent: dict) -> bool:
         """Check for circular inheritance.
 
         Args:
@@ -62,7 +61,7 @@ class CompositeTemplate:
 
         return False
 
-    def _deep_merge(self, base: Dict, override: Dict) -> Dict:
+    def _deep_merge(self, base: dict, override: dict) -> dict:
         """Deep merge two dictionaries (override takes precedence).
 
         Args:
@@ -84,7 +83,7 @@ class CompositeTemplate:
 
         return result
 
-    def _merge_resources(self, parent_resources: List[Dict], child_resources: List[Dict]) -> List[Dict]:
+    def _merge_resources(self, parent_resources: list[dict], child_resources: list[dict]) -> list[dict]:
         """Merge resources from parent and child (child overrides by name).
 
         Args:
@@ -124,7 +123,7 @@ class CompositeTemplate:
         # Combine named and unnamed resources
         return list(merged_by_name.values()) + unnamed_resources
 
-    def resolve(self) -> Dict:
+    def resolve(self) -> dict:
         """Resolve composite template by merging parent and child.
 
         Returns:
@@ -186,28 +185,27 @@ class TemplateResolver:
         if constraint.startswith(">="):
             required = TemplateVersion.from_string(constraint[2:])
             return version >= required
-        elif constraint.startswith(">"):
+        if constraint.startswith(">"):
             required = TemplateVersion.from_string(constraint[1:])
             return version > required
-        elif constraint.startswith("<="):
+        if constraint.startswith("<="):
             required = TemplateVersion.from_string(constraint[2:])
             return version <= required
-        elif constraint.startswith("<"):
+        if constraint.startswith("<"):
             required = TemplateVersion.from_string(constraint[1:])
             return version < required
-        elif constraint.startswith("==") or "==" in constraint:
+        if constraint.startswith("==") or "==" in constraint:
             required = TemplateVersion.from_string(constraint.replace("==", ""))
             return version == required
-        else:
-            # Assume exact match
-            required = TemplateVersion.from_string(constraint)
-            return version == required
+        # Assume exact match
+        required = TemplateVersion.from_string(constraint)
+        return version == required
 
     def _resolve_single_dependency(
         self,
         dep_name: str,
         constraint: str,
-        visited: Set[str]
+        visited: set[str]
     ) -> VersionedTemplate:
         """Resolve a single dependency.
 
@@ -265,8 +263,8 @@ class TemplateResolver:
             return template
 
         # Resolve all dependencies (including transitive)
-        resolved_deps_map: Dict[str, VersionedTemplate] = {}
-        resolving: Set[str] = set()  # Track what's currently being resolved for circular detection
+        resolved_deps_map: dict[str, VersionedTemplate] = {}
+        resolving: set[str] = set()  # Track what's currently being resolved for circular detection
 
         def resolve_recursive(dep_name: str, constraint: str):
             """Recursively resolve a dependency and its sub-dependencies."""

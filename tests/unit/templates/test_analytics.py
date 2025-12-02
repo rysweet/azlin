@@ -5,9 +5,10 @@ Test coverage: Template usage analytics (SQLite tracking)
 These tests follow TDD - they should FAIL initially until implementation is complete.
 """
 
-import pytest
 from datetime import datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 
 class TestAnalyticsDatabase:
@@ -15,8 +16,9 @@ class TestAnalyticsDatabase:
 
     def test_database_initialization(self):
         """Test creating analytics database."""
-        from azlin.templates.analytics import AnalyticsDB
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsDB
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "analytics.db"
@@ -27,8 +29,9 @@ class TestAnalyticsDatabase:
 
     def test_database_schema_creation(self):
         """Test database schema is created properly."""
-        from azlin.templates.analytics import AnalyticsDB
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsDB
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db = AnalyticsDB(Path(tmpdir) / "analytics.db")
@@ -41,8 +44,9 @@ class TestAnalyticsDatabase:
 
     def test_database_connection_pooling(self):
         """Test database connection pooling for performance."""
-        from azlin.templates.analytics import AnalyticsDB
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsDB
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db = AnalyticsDB(Path(tmpdir) / "analytics.db", pool_size=5)
@@ -55,8 +59,9 @@ class TestAnalyticsDatabase:
 
     def test_database_close(self):
         """Test properly closing database connection."""
-        from azlin.templates.analytics import AnalyticsDB
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsDB
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db = AnalyticsDB(Path(tmpdir) / "analytics.db")
@@ -70,8 +75,9 @@ class TestUsageTracking:
 
     def test_record_template_use(self):
         """Test recording a template usage event."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -87,8 +93,9 @@ class TestUsageTracking:
 
     def test_record_usage_with_metadata(self):
         """Test recording usage with additional metadata."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -110,8 +117,9 @@ class TestUsageTracking:
 
     def test_get_usage_count(self):
         """Test getting usage count for a template."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -129,8 +137,9 @@ class TestUsageTracking:
 
     def test_get_usage_count_by_date_range(self):
         """Test getting usage count within date range."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -155,8 +164,9 @@ class TestUsageTracking:
 
     def test_get_unique_users(self):
         """Test getting unique user count for a template."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -175,8 +185,9 @@ class TestUsageStatistics:
 
     def test_get_most_used_templates(self):
         """Test getting most used templates."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -197,8 +208,9 @@ class TestUsageStatistics:
 
     def test_get_trending_templates(self):
         """Test getting trending templates (increasing usage)."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -222,8 +234,9 @@ class TestUsageStatistics:
 
     def test_get_usage_by_region(self):
         """Test getting usage statistics by region."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -249,8 +262,9 @@ class TestUsageStatistics:
 
     def test_get_success_rate(self):
         """Test calculating template success rate."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -275,8 +289,9 @@ class TestUsageStatistics:
 
     def test_get_average_duration(self):
         """Test calculating average template execution duration."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -299,8 +314,9 @@ class TestUserActivityTracking:
 
     def test_get_user_template_history(self):
         """Test getting user's template usage history."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -317,8 +333,9 @@ class TestUserActivityTracking:
 
     def test_get_user_favorite_templates(self):
         """Test getting user's most frequently used templates."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -336,8 +353,9 @@ class TestUserActivityTracking:
 
     def test_get_user_activity_timeline(self):
         """Test getting user's activity over time."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -359,8 +377,9 @@ class TestAnalyticsReporting:
 
     def test_generate_template_report(self):
         """Test generating comprehensive template report."""
-        from azlin.templates.analytics import AnalyticsReporter
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsReporter
 
         with tempfile.TemporaryDirectory() as tmpdir:
             reporter = AnalyticsReporter(db_path=Path(tmpdir) / "analytics.db")
@@ -377,8 +396,9 @@ class TestAnalyticsReporting:
 
     def test_generate_summary_report(self):
         """Test generating summary report for all templates."""
-        from azlin.templates.analytics import AnalyticsReporter
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsReporter
 
         with tempfile.TemporaryDirectory() as tmpdir:
             reporter = AnalyticsReporter(db_path=Path(tmpdir) / "analytics.db")
@@ -394,8 +414,9 @@ class TestAnalyticsReporting:
 
     def test_export_report_to_json(self):
         """Test exporting report to JSON format."""
-        from azlin.templates.analytics import AnalyticsReporter
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsReporter
 
         with tempfile.TemporaryDirectory() as tmpdir:
             reporter = AnalyticsReporter(db_path=Path(tmpdir) / "analytics.db")
@@ -411,8 +432,9 @@ class TestAnalyticsReporting:
 
     def test_export_report_to_csv(self):
         """Test exporting report to CSV format."""
-        from azlin.templates.analytics import AnalyticsReporter
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsReporter
 
         with tempfile.TemporaryDirectory() as tmpdir:
             reporter = AnalyticsReporter(db_path=Path(tmpdir) / "analytics.db")
@@ -434,8 +456,9 @@ class TestAnalyticsPrivacy:
 
     def test_anonymize_user_data(self):
         """Test anonymizing user data for privacy."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(
@@ -452,8 +475,9 @@ class TestAnalyticsPrivacy:
 
     def test_data_retention_policy(self):
         """Test automatic data cleanup based on retention policy."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(
@@ -473,8 +497,9 @@ class TestAnalyticsPrivacy:
 
     def test_opt_out_tracking(self):
         """Test user opt-out from tracking."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -493,9 +518,10 @@ class TestAnalyticsPerformance:
 
     def test_bulk_insert_performance(self):
         """Test performance of bulk insert operations."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
         import time
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -516,9 +542,10 @@ class TestAnalyticsPerformance:
 
     def test_query_performance_with_indexes(self):
         """Test query performance with proper indexing."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
         import time
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -541,9 +568,10 @@ class TestAnalyticsPerformance:
 
     def test_aggregation_performance(self):
         """Test performance of aggregation queries."""
-        from azlin.templates.analytics import AnalyticsTracker
         import tempfile
         import time
+
+        from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")

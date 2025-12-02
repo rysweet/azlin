@@ -12,10 +12,9 @@ Philosophy:
 - Clear error messages with actionable guidance
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Callable, Any
 import re
-import json
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -23,19 +22,19 @@ class LintIssue:
     """Individual lint issue with severity."""
     message: str
     severity: str  # "critical", "warning", "info"
-    location: Optional[str] = None
+    location: str | None = None
 
 
 @dataclass
 class ValidationResult:
     """Result of template validation."""
     is_valid: bool
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    issues_detailed: List[LintIssue] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    issues_detailed: list[LintIssue] = field(default_factory=list)
 
     @property
-    def issues(self) -> List[str]:
+    def issues(self) -> list[str]:
         """Alias for warnings for linting results."""
         return self.warnings
 
@@ -61,7 +60,7 @@ class ValidationResult:
 
         return "\n".join(lines)
 
-    def to_json(self) -> Dict:
+    def to_json(self) -> dict:
         """Export result to JSON format.
 
         Returns:
@@ -84,9 +83,9 @@ class TemplateValidator:
 
     def __init__(
         self,
-        custom_rules: Optional[List[Callable]] = None,
+        custom_rules: list[Callable] | None = None,
         strict: bool = False,
-        disabled_checks: Optional[List[str]] = None
+        disabled_checks: list[str] | None = None
     ):
         """Initialize validator.
 
@@ -99,7 +98,7 @@ class TemplateValidator:
         self.strict = strict
         self.disabled_checks = disabled_checks or []
 
-    def _validate_version_format(self, version_str: str) -> Optional[str]:
+    def _validate_version_format(self, version_str: str) -> str | None:
         """Validate version string format.
 
         Args:
@@ -113,7 +112,7 @@ class TemplateValidator:
             return f"Invalid version format: '{version_str}'. Expected 'major.minor.patch'"
         return None
 
-    def _validate_metadata(self, metadata: Dict) -> List[str]:
+    def _validate_metadata(self, metadata: dict) -> list[str]:
         """Validate metadata section.
 
         Args:
@@ -147,7 +146,7 @@ class TemplateValidator:
 
         return errors
 
-    def _validate_content(self, content: Dict) -> List[str]:
+    def _validate_content(self, content: dict) -> list[str]:
         """Validate content section.
 
         Args:
@@ -164,7 +163,7 @@ class TemplateValidator:
 
         return errors
 
-    def _check_warnings(self, template: Dict) -> List[str]:
+    def _check_warnings(self, template: dict) -> list[str]:
         """Check for non-critical warnings.
 
         Args:
@@ -187,7 +186,7 @@ class TemplateValidator:
 
         return warnings
 
-    def validate(self, template: Dict) -> ValidationResult:
+    def validate(self, template: dict) -> ValidationResult:
         """Validate template against schema.
 
         Args:
@@ -258,7 +257,7 @@ class AzureValidator:
         "Standard_B1s", "Standard_B2s", "Standard_F2s_v2"
     ]
 
-    def validate_azure_resources(self, template: Dict) -> ValidationResult:
+    def validate_azure_resources(self, template: dict) -> ValidationResult:
         """Validate Azure resource types and SKU compatibility.
 
         Args:
@@ -299,7 +298,7 @@ class AzureValidator:
         is_valid = len(errors) == 0
         return ValidationResult(is_valid=is_valid, errors=errors)
 
-    def validate_azure_config(self, template: Dict) -> ValidationResult:
+    def validate_azure_config(self, template: dict) -> ValidationResult:
         """Validate Azure configuration (locations, VM sizes).
 
         Args:
@@ -331,7 +330,7 @@ class AzureValidator:
         is_valid = len(errors) == 0
         return ValidationResult(is_valid=is_valid, errors=errors)
 
-    def validate_azure_naming(self, template: Dict) -> ValidationResult:
+    def validate_azure_naming(self, template: dict) -> ValidationResult:
         """Validate Azure naming conventions.
 
         Args:
@@ -371,7 +370,7 @@ class TemplateLinter:
         """Initialize linter."""
         pass
 
-    def _check_resource_naming(self, template: Dict) -> List[LintIssue]:
+    def _check_resource_naming(self, template: dict) -> list[LintIssue]:
         """Check resource naming conventions.
 
         Args:
@@ -396,7 +395,7 @@ class TemplateLinter:
 
         return issues
 
-    def _check_missing_tags(self, template: Dict) -> List[LintIssue]:
+    def _check_missing_tags(self, template: dict) -> list[LintIssue]:
         """Check for missing tags.
 
         Args:
@@ -418,7 +417,7 @@ class TemplateLinter:
 
         return issues
 
-    def _check_description_quality(self, template: Dict) -> List[LintIssue]:
+    def _check_description_quality(self, template: dict) -> list[LintIssue]:
         """Check description quality.
 
         Args:
@@ -440,7 +439,7 @@ class TemplateLinter:
 
         return issues
 
-    def _check_parameter_defaults(self, template: Dict) -> List[LintIssue]:
+    def _check_parameter_defaults(self, template: dict) -> list[LintIssue]:
         """Check for missing parameter defaults.
 
         Args:
@@ -464,7 +463,7 @@ class TemplateLinter:
 
         return issues
 
-    def _check_unused_variables(self, template: Dict) -> List[LintIssue]:
+    def _check_unused_variables(self, template: dict) -> list[LintIssue]:
         """Check for unused variables.
 
         Args:
@@ -487,7 +486,7 @@ class TemplateLinter:
 
         return issues
 
-    def _check_security_best_practices(self, template: Dict) -> List[LintIssue]:
+    def _check_security_best_practices(self, template: dict) -> list[LintIssue]:
         """Check security best practices.
 
         Args:
@@ -525,7 +524,7 @@ class TemplateLinter:
 
         return issues
 
-    def lint(self, template: Dict) -> ValidationResult:
+    def lint(self, template: dict) -> ValidationResult:
         """Run all lint checks.
 
         Args:
@@ -555,9 +554,9 @@ class TemplateLinter:
 
 
 __all__ = [
-    "ValidationResult",
-    "TemplateValidator",
     "AzureValidator",
+    "LintIssue",
     "TemplateLinter",
-    "LintIssue"
+    "TemplateValidator",
+    "ValidationResult"
 ]

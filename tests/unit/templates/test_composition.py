@@ -5,8 +5,9 @@ Test coverage: Composite templates (inheritance via `extends` keyword)
 These tests follow TDD - they should FAIL initially until implementation is complete.
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
 
 
 class TestTemplateInheritance:
@@ -372,7 +373,7 @@ class TestDependencyResolution:
         """Test resolving template with single dependency."""
         from azlin.templates.composition import TemplateResolver
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -412,7 +413,7 @@ class TestDependencyResolution:
         """Test resolving template with multiple dependencies."""
         from azlin.templates.composition import TemplateResolver
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -468,7 +469,7 @@ class TestDependencyResolution:
         """Test resolving template with missing dependency raises error."""
         from azlin.templates.composition import TemplateResolver
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -493,7 +494,7 @@ class TestDependencyResolution:
         """Test resolving template with version conflict."""
         from azlin.templates.composition import TemplateResolver
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -532,7 +533,7 @@ class TestDependencyResolution:
         """Test resolving transitive (nested) dependencies."""
         from azlin.templates.composition import TemplateResolver
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 

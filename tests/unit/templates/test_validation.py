@@ -5,8 +5,6 @@ Test coverage: Validation and linting (JSON Schema + Azure-specific)
 These tests follow TDD - they should FAIL initially until implementation is complete.
 """
 
-import pytest
-from pathlib import Path
 
 
 class TestJSONSchemaValidation:

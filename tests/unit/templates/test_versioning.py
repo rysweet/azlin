@@ -5,9 +5,9 @@ Test coverage: Template versioning (metadata-based, change tracking)
 These tests follow TDD - they should FAIL initially until implementation is complete.
 """
 
-import pytest
 from datetime import datetime
-from pathlib import Path
+
+import pytest
 
 
 class TestTemplateVersion:
@@ -368,7 +368,7 @@ class TestVersionedTemplate:
 
     def test_versioned_template_creation(self):
         """Test creating a versioned template."""
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         metadata = TemplateMetadata(
             name="vm-basic",
@@ -388,7 +388,7 @@ class TestVersionedTemplate:
 
     def test_versioned_template_update_version(self):
         """Test updating template version with change tracking."""
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         metadata = TemplateMetadata(
             name="vm-basic",
@@ -416,7 +416,7 @@ class TestVersionedTemplate:
 
     def test_versioned_template_validation(self):
         """Test template validation before version update."""
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         metadata = TemplateMetadata(
             name="vm-basic",

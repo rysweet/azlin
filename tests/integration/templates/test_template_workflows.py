@@ -5,10 +5,9 @@ Test coverage: End-to-end template workflows combining multiple features.
 These tests follow TDD - they should FAIL initially until implementation is complete.
 """
 
-import pytest
-from pathlib import Path
-from datetime import datetime
 import tempfile
+from datetime import datetime
+from pathlib import Path
 
 
 class TestTemplateCreationWorkflow:
@@ -16,9 +15,9 @@ class TestTemplateCreationWorkflow:
 
     def test_create_and_register_new_template(self):
         """Test creating new template and registering in marketplace."""
-        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
         from azlin.templates.marketplace import TemplateRegistry
         from azlin.templates.validation import TemplateValidator
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         # Create template
         metadata = TemplateMetadata(
@@ -54,8 +53,8 @@ class TestTemplateCreationWorkflow:
 
     def test_create_template_with_validation_failure(self):
         """Test template creation workflow with validation failure."""
-        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
         from azlin.templates.validation import TemplateValidator
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         # Create invalid template (missing required fields)
         template = VersionedTemplate(
@@ -82,8 +81,8 @@ class TestTemplateVersioningWorkflow:
 
     def test_update_template_version_with_tracking(self):
         """Test updating template version with automatic change tracking."""
-        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
         from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -118,8 +117,8 @@ class TestTemplateVersioningWorkflow:
 
     def test_version_rollback_workflow(self):
         """Test rolling back to previous template version."""
-        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
         from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -166,7 +165,7 @@ class TestTemplateCompositionWorkflow:
         """Test creating composite template from base template."""
         from azlin.templates.composition import CompositeTemplate, TemplateResolver
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 
@@ -215,7 +214,6 @@ class TestTemplateCompositionWorkflow:
         """Test multi-level template composition."""
         from azlin.templates.composition import CompositeTemplate
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
 
         registry = TemplateRegistry()
 
@@ -254,7 +252,7 @@ class TestTemplateValidationWorkflow:
 
     def test_validate_and_lint_template(self):
         """Test running both validation and linting."""
-        from azlin.templates.validation import TemplateValidator, TemplateLinter
+        from azlin.templates.validation import TemplateLinter, TemplateValidator
 
         template = {
             "metadata": {
@@ -315,9 +313,9 @@ class TestTemplateMarketplaceWorkflow:
 
     def test_discover_and_use_template(self):
         """Test discovering template in marketplace and using it."""
-        from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
         from azlin.templates.analytics import AnalyticsTracker
+        from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             registry = TemplateRegistry()
@@ -357,7 +355,7 @@ class TestTemplateMarketplaceWorkflow:
     def test_share_and_import_template_workflow(self):
         """Test sharing template and importing it elsewhere."""
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Author creates and exports template
@@ -393,7 +391,7 @@ class TestTemplateAnalyticsWorkflow:
 
     def test_track_template_usage_lifecycle(self):
         """Test tracking complete template usage lifecycle."""
-        from azlin.templates.analytics import AnalyticsTracker, AnalyticsReporter
+        from azlin.templates.analytics import AnalyticsReporter, AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -423,10 +421,11 @@ class TestTemplateAnalyticsWorkflow:
 
     def test_trending_templates_workflow(self):
         """Test identifying and displaying trending templates."""
+        from datetime import timedelta
+
         from azlin.templates.analytics import AnalyticsTracker
         from azlin.templates.marketplace import TemplateRegistry
-        from azlin.templates.versioning import VersionedTemplate, TemplateMetadata, TemplateVersion
-        from datetime import timedelta
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
@@ -469,10 +468,10 @@ class TestEndToEndTemplateWorkflow:
 
     def test_complete_template_lifecycle(self):
         """Test complete template lifecycle from creation to usage."""
-        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
-        from azlin.templates.validation import TemplateValidator, TemplateLinter
-        from azlin.templates.marketplace import TemplateRegistry
         from azlin.templates.analytics import AnalyticsTracker
+        from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.validation import TemplateLinter, TemplateValidator
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # 1. Create template
@@ -540,8 +539,8 @@ class TestEndToEndTemplateWorkflow:
 
     def test_collaborative_template_development(self):
         """Test collaborative template development workflow."""
-        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
         from azlin.templates.marketplace import TemplateRegistry
+        from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         registry = TemplateRegistry()
 

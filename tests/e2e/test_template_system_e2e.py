@@ -5,12 +5,10 @@ Test coverage: Complete template system lifecycle from CLI to execution.
 These tests follow TDD - they should FAIL initially until implementation is complete.
 """
 
-import pytest
-from pathlib import Path
-import subprocess
 import json
+import subprocess
 import tempfile
-from datetime import datetime
+from pathlib import Path
 
 
 class TestTemplateSystemE2E:
