@@ -43,9 +43,7 @@ class MetricsStorage:
     - Automatic cleanup on store operations
     """
 
-    def __init__(
-        self, db_path: Path | None = None, retention_days: int = 90
-    ) -> None:
+    def __init__(self, db_path: Path | None = None, retention_days: int = 90) -> None:
         """Initialize metrics storage.
 
         Args:

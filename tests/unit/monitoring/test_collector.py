@@ -132,9 +132,7 @@ class TestGetAuthToken:
         with pytest.raises(RuntimeError) as exc_info:
             collector._get_auth_token()
 
-        assert "expired" in str(exc_info.value).lower() or "login" in str(
-            exc_info.value
-        ).lower()
+        assert "expired" in str(exc_info.value).lower() or "login" in str(exc_info.value).lower()
 
 
 class TestCollectMetrics:
@@ -142,9 +140,7 @@ class TestCollectMetrics:
 
     @patch("requests.get")
     @patch.object(MetricsCollector, "_get_auth_token")
-    def test_collects_cpu_metric(
-        self, mock_auth, mock_requests, collector, mock_azure_response
-    ):
+    def test_collects_cpu_metric(self, mock_auth, mock_requests, collector, mock_azure_response):
         """CPU metric is collected from Azure Monitor API."""
         mock_auth.return_value = "test-token"
         mock_requests.return_value = Mock(
@@ -170,30 +166,22 @@ class TestCollectMetrics:
             if "cpu" in url.lower():
                 return Mock(
                     status_code=200,
-                    json=lambda: {
-                        "value": [{"timeseries": [{"data": [{"average": 45.2}]}]}]
-                    },
+                    json=lambda: {"value": [{"timeseries": [{"data": [{"average": 45.2}]}]}]},
                 )
-            elif "memory" in url.lower():
+            if "memory" in url.lower():
                 return Mock(
                     status_code=200,
-                    json=lambda: {
-                        "value": [{"timeseries": [{"data": [{"average": 62.1}]}]}]
-                    },
+                    json=lambda: {"value": [{"timeseries": [{"data": [{"average": 62.1}]}]}]},
                 )
-            elif "disk" in url.lower():
+            if "disk" in url.lower():
                 return Mock(
                     status_code=200,
-                    json=lambda: {
-                        "value": [{"timeseries": [{"data": [{"total": 12345678}]}]}]
-                    },
+                    json=lambda: {"value": [{"timeseries": [{"data": [{"total": 12345678}]}]}]},
                 )
-            elif "network" in url.lower():
+            if "network" in url.lower():
                 return Mock(
                     status_code=200,
-                    json=lambda: {
-                        "value": [{"timeseries": [{"data": [{"total": 1234567}]}]}]
-                    },
+                    json=lambda: {"value": [{"timeseries": [{"data": [{"total": 1234567}]}]}]},
                 )
             return Mock(status_code=404)
 

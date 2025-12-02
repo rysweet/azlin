@@ -18,9 +18,7 @@ from azlin.monitoring.collector import VMMetric
 @pytest.fixture
 def temp_rules_config():
     """Create temporary rules configuration file."""
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yaml", delete=False
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         f.write(
             """
 rules:

@@ -61,9 +61,7 @@ class TestMetricsStorageInit:
         cursor = conn.cursor()
 
         # Check metrics table exists
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='metrics'"
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='metrics'")
         assert cursor.fetchone() is not None
 
         conn.close()
@@ -76,9 +74,7 @@ class TestMetricsStorageInit:
         cursor = conn.cursor()
 
         # Check table exists
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='metrics'"
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='metrics'")
         assert cursor.fetchone() is not None
 
         # Check columns exist

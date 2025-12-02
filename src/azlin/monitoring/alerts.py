@@ -102,9 +102,7 @@ class AlertEngine:
         Args:
             rules_config: Path to YAML rules configuration file
         """
-        self.rules_config = (
-            rules_config or Path.home() / ".azlin" / "alert_rules.yaml"
-        )
+        self.rules_config = rules_config or Path.home() / ".azlin" / "alert_rules.yaml"
 
         # Create default config if missing
         if not self.rules_config.exists():
@@ -204,9 +202,7 @@ class AlertEngine:
 
         return rules
 
-    def _evaluate_condition(
-        self, value: float, threshold: float, comparison: str
-    ) -> bool:
+    def _evaluate_condition(self, value: float, threshold: float, comparison: str) -> bool:
         """Evaluate alert condition.
 
         Args:
@@ -286,9 +282,7 @@ class AlertEngine:
                     continue
 
                 # Evaluate condition
-                if self._evaluate_condition(
-                    metric_value, rule.threshold, rule.comparison
-                ):
+                if self._evaluate_condition(metric_value, rule.threshold, rule.comparison):
                     # Check suppression
                     if self._is_suppressed(rule.name, metric.vm_name):
                         continue
@@ -318,9 +312,7 @@ class AlertEngine:
 
         return alerts
 
-    def send_notification(
-        self, alert: Alert, channel: str, max_retries: int = 3
-    ) -> bool:
+    def send_notification(self, alert: Alert, channel: str, max_retries: int = 3) -> bool:
         """Send alert notification via specified channel.
 
         Args:

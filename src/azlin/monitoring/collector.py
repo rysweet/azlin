@@ -87,9 +87,7 @@ class MetricsCollector:
                     "Azure CLI authentication required. Please run 'az login' first."
                 ) from e
             if "expired" in e.stderr.lower():
-                raise RuntimeError(
-                    "Azure CLI token expired. Please run 'az login' again."
-                ) from e
+                raise RuntimeError("Azure CLI token expired. Please run 'az login' again.") from e
             raise RuntimeError(f"Failed to get Azure CLI token: {e.stderr}") from e
         except json.JSONDecodeError as e:
             # JSON decode error usually means not logged in (empty stdout)
@@ -148,9 +146,7 @@ class MetricsCollector:
 
         return sanitized
 
-    def _fetch_metric(
-        self, vm_name: str, metric_type: str, auth_token: str
-    ) -> float | None:
+    def _fetch_metric(self, vm_name: str, metric_type: str, auth_token: str) -> float | None:
         """Fetch a single metric from Azure Monitor API.
 
         Args:
@@ -181,7 +177,9 @@ class MetricsCollector:
             "api-version": "2018-01-01",
             "metricnames": metric_name,
             "timespan": "PT5M",  # Last 5 minutes
-            "aggregation": "average" if "percent" in metric_type or "memory" in metric_type else "total",
+            "aggregation": "average"
+            if "percent" in metric_type or "memory" in metric_type
+            else "total",
         }
 
         # Build full URL with query params for better testability
@@ -199,10 +197,14 @@ class MetricsCollector:
         # Check for error status codes first
         if response.status_code == 404:
             # Create a proper exception for 404
-            raise requests.HTTPError(f"404 Client Error: Not Found for url: {full_url}", response=response)
+            raise requests.HTTPError(
+                f"404 Client Error: Not Found for url: {full_url}", response=response
+            )
         if response.status_code == 429:
             # Create a proper exception for 429
-            raise requests.HTTPError(f"429 Client Error: Too Many Requests for url: {full_url}", response=response)
+            raise requests.HTTPError(
+                f"429 Client Error: Too Many Requests for url: {full_url}", response=response
+            )
         if response.status_code == 200:
             data = response.json()
             if data.get("value") and data["value"][0].get("timeseries"):
@@ -280,7 +282,7 @@ class MetricsCollector:
         except requests.Timeout:
             error_message = "Request timeout"
         except requests.RequestException as e:
-            if hasattr(e, 'response') and hasattr(e.response, 'status_code'):
+            if hasattr(e, "response") and hasattr(e.response, "status_code"):
                 if e.response.status_code == 404:
                     error_message = "VM not found"
                 elif e.response.status_code == 429:
@@ -312,10 +314,10 @@ class MetricsCollector:
             timestamp=timestamp,
             cpu_percent=cpu_percent,
             memory_percent=memory_percent,
-            disk_read_bytes=disk_read_bytes,
-            disk_write_bytes=disk_write_bytes,
-            network_in_bytes=network_in_bytes,
-            network_out_bytes=network_out_bytes,
+            disk_read_bytes=int(disk_read_bytes) if disk_read_bytes is not None else None,
+            disk_write_bytes=int(disk_write_bytes) if disk_write_bytes is not None else None,
+            network_in_bytes=int(network_in_bytes) if network_in_bytes is not None else None,
+            network_out_bytes=int(network_out_bytes) if network_out_bytes is not None else None,
             success=True,
         )
 
