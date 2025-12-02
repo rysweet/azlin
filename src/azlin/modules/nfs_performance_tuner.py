@@ -188,10 +188,7 @@ class NFSPerformanceTuner:
 
         # Determine workload type
         if workload_type == "auto":
-            if len(analysis.connected_vms) > 1:
-                detected_workload = "multi-vm"
-            else:
-                detected_workload = "mixed"  # Default for single VM
+            detected_workload = "multi-vm" if len(analysis.connected_vms) > 1 else "mixed"
         else:
             detected_workload = workload_type
 

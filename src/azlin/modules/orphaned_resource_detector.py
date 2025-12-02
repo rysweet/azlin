@@ -30,7 +30,7 @@ except ImportError:
     StorageManager = None
 
 try:
-    from azlin.modules.config_manager import ConfigManager
+    from azlin.config_manager import ConfigManager
 except ImportError:
     ConfigManager = None
 
@@ -605,7 +605,7 @@ class OrphanedResourceDetector:
                         if StorageManager:
                             # Use StorageManager to delete storage account
                             StorageManager.delete_storage(
-                                storage_name=storage.name, resource_group=resource_group, force=True
+                                name=storage.name, resource_group=resource_group, force=True
                             )
                             deleted_storage.append(storage.name)
                             total_size += storage.size_gb

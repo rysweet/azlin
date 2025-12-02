@@ -439,6 +439,7 @@ class StorageCostAdvisor:
                         total += size_gb * STANDARD_DISK_COST
 
                 return total
+            return 0.0
         except Exception:
             return 0.0
 
@@ -454,6 +455,7 @@ class StorageCostAdvisor:
                 snapshots = json.loads(result.stdout)
                 total = sum(snap.get("diskSizeGb", 0) * SNAPSHOT_COST for snap in snapshots)
                 return total
+            return 0.0
         except Exception:
             return 0.0
 

@@ -367,7 +367,7 @@ class StorageQuotaManager:
         if scope == "vm":
             # Calculate VM-specific usage
             # Storage accounts mounted on VM
-            if StorageManager:
+            if StorageManager and resource_group:
                 try:
                     storage_list = StorageManager.list_storage(resource_group=resource_group)
                     for storage in storage_list:
