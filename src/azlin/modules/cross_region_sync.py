@@ -219,8 +219,6 @@ class CrossRegionSync:
         if source_vm == target_vm:
             raise ValueError("source_vm and target_vm cannot be the same")
 
-        start_time = time.time()
-
         # Estimate size
         size_bytes = await self.estimate_transfer_size(source_vm, paths)
 
