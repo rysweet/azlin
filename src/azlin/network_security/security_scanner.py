@@ -34,7 +34,7 @@ import logging
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class SecurityFinding:
     title: str
     description: str
     remediation: str
-    compliance_impact: List[str]
+    compliance_impact: list[str]
 
     def is_blocking(self) -> bool:
         """Check if finding blocks deployment.
@@ -102,7 +102,7 @@ class SecurityScanner:
         """
         self.subscription_id = subscription_id
 
-    def scan_nsg(self, nsg_name: str, resource_group: str) -> List[SecurityFinding]:
+    def scan_nsg(self, nsg_name: str, resource_group: str) -> list[SecurityFinding]:
         """Scan NSG for security issues.
 
         Performs comprehensive NSG scanning including:
@@ -123,7 +123,16 @@ class SecurityScanner:
         findings = []
 
         # Get NSG configuration
-        cmd = ["az", "network", "nsg", "show", "--name", nsg_name, "--resource-group", resource_group]
+        cmd = [
+            "az",
+            "network",
+            "nsg",
+            "show",
+            "--name",
+            nsg_name,
+            "--resource-group",
+            resource_group,
+        ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
@@ -139,7 +148,7 @@ class SecurityScanner:
 
         return findings
 
-    def _query_security_center(self, resource_id: str) -> List[SecurityFinding]:
+    def _query_security_center(self, resource_id: str) -> list[SecurityFinding]:
         """Query Azure Security Center for security recommendations.
 
         Args:
@@ -151,7 +160,14 @@ class SecurityScanner:
         findings = []
 
         # Use Azure CLI to get security assessments
-        cmd = ["az", "security", "assessment", "list", "--query", f"[?resourceDetails.id=='{resource_id}']"]
+        cmd = [
+            "az",
+            "security",
+            "assessment",
+            "list",
+            "--query",
+            f"[?resourceDetails.id=='{resource_id}']",
+        ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
@@ -199,7 +215,7 @@ class SecurityScanner:
         }
         return severity_map.get(azure_severity, ScanSeverity.INFO)
 
-    def _local_nsg_validation(self, nsg_config: Dict[str, Any]) -> List[SecurityFinding]:
+    def _local_nsg_validation(self, nsg_config: dict[str, Any]) -> list[SecurityFinding]:
         """Perform local validation of NSG rules.
 
         This provides immediate feedback without waiting for Azure Security Center.
@@ -286,7 +302,7 @@ class SecurityScanner:
 
         return findings
 
-    def scan_vm(self, vm_name: str, resource_group: str) -> List[SecurityFinding]:
+    def scan_vm(self, vm_name: str, resource_group: str) -> list[SecurityFinding]:
         """Scan VM for security issues.
 
         Args:
@@ -347,8 +363,8 @@ class SecurityScanner:
         return findings
 
     def pre_deployment_scan(
-        self, resource_group: str, template: Dict[str, Any]
-    ) -> Tuple[bool, List[SecurityFinding]]:
+        self, resource_group: str, template: dict[str, Any]
+    ) -> tuple[bool, list[SecurityFinding]]:
         """Scan resources before deployment.
 
         Performs pre-deployment validation to catch security issues before
@@ -379,7 +395,7 @@ class SecurityScanner:
                 # Convert validation findings to SecurityFindings
                 for finding in validation_result.critical_issues:
                     # Handle both PolicyFinding objects and dict format
-                    if hasattr(finding, 'name'):
+                    if hasattr(finding, "name"):
                         # PolicyFinding object
                         finding_name = finding.name
                         finding_message = finding.message
@@ -387,10 +403,12 @@ class SecurityScanner:
                         finding_compliance = finding.compliance_impact
                     else:
                         # Dict format (for testing/mocking)
-                        finding_name = finding.get('name', 'unknown')
-                        finding_message = finding.get('message') or finding.get('title', 'Security issue')
-                        finding_remediation = finding.get('remediation', 'Review NSG configuration')
-                        finding_compliance = finding.get('compliance_impact', [])
+                        finding_name = finding.get("name", "unknown")
+                        finding_message = finding.get("message") or finding.get(
+                            "title", "Security issue"
+                        )
+                        finding_remediation = finding.get("remediation", "Review NSG configuration")
+                        finding_compliance = finding.get("compliance_impact", [])
 
                     findings.append(
                         SecurityFinding(
@@ -411,7 +429,7 @@ class SecurityScanner:
 
         return can_deploy, findings
 
-    def _arm_resource_to_nsg_template(self, resource: Dict[str, Any]) -> Dict[str, Any]:
+    def _arm_resource_to_nsg_template(self, resource: dict[str, Any]) -> dict[str, Any]:
         """Convert ARM template resource to NSG template format.
 
         Args:
@@ -451,4 +469,4 @@ class SecurityScanner:
         }
 
 
-__all__ = ["SecurityScanner", "SecurityFinding", "ScanSeverity", "SecurityScannerError"]
+__all__ = ["ScanSeverity", "SecurityFinding", "SecurityScanner", "SecurityScannerError"]

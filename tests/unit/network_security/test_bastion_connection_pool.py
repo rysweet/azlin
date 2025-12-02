@@ -12,11 +12,12 @@ Coverage targets:
 - Eviction policies
 """
 
-import pytest
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, MagicMock
 import threading
 import time
+from datetime import datetime, timedelta
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Mark all tests as TDD RED phase (expected to fail)
 pytestmark = [pytest.mark.unit, pytest.mark.tdd_red]
@@ -27,15 +28,13 @@ class TestPooledTunnelDataclass:
 
     def test_pooled_tunnel_creation(self):
         """PooledTunnel should be created with required fields."""
-        from azlin.network_security.bastion_connection_pool import PooledTunnel
         from azlin.bastion_manager import BastionTunnel
+        from azlin.network_security.bastion_connection_pool import PooledTunnel
 
         mock_tunnel = Mock(spec=BastionTunnel)
         now = datetime.now()
 
-        pooled = PooledTunnel(
-            tunnel=mock_tunnel, created_at=now, last_used=now, idle_timeout=300
-        )
+        pooled = PooledTunnel(tunnel=mock_tunnel, created_at=now, last_used=now, idle_timeout=300)
 
         assert pooled.tunnel == mock_tunnel
         assert pooled.created_at == now
@@ -45,8 +44,8 @@ class TestPooledTunnelDataclass:
 
     def test_is_expired_returns_true_when_idle_timeout_exceeded(self):
         """PooledTunnel should be expired when idle timeout exceeded."""
-        from azlin.network_security.bastion_connection_pool import PooledTunnel
         from azlin.bastion_manager import BastionTunnel
+        from azlin.network_security.bastion_connection_pool import PooledTunnel
 
         mock_tunnel = Mock(spec=BastionTunnel)
         now = datetime.now()
@@ -63,8 +62,8 @@ class TestPooledTunnelDataclass:
 
     def test_is_expired_returns_false_when_within_idle_timeout(self):
         """PooledTunnel should not be expired when within idle timeout."""
-        from azlin.network_security.bastion_connection_pool import PooledTunnel
         from azlin.bastion_manager import BastionTunnel
+        from azlin.network_security.bastion_connection_pool import PooledTunnel
 
         mock_tunnel = Mock(spec=BastionTunnel)
         now = datetime.now()
@@ -81,8 +80,8 @@ class TestPooledTunnelDataclass:
 
     def test_is_healthy_delegates_to_manager(self):
         """PooledTunnel.is_healthy should delegate to BastionManager."""
+        from azlin.bastion_manager import BastionManager, BastionTunnel
         from azlin.network_security.bastion_connection_pool import PooledTunnel
-        from azlin.bastion_manager import BastionTunnel, BastionManager
 
         mock_tunnel = Mock(spec=BastionTunnel)
         mock_manager = Mock(spec=BastionManager)
@@ -106,8 +105,8 @@ class TestBastionConnectionPoolCreation:
 
     def test_pool_creation_with_defaults(self):
         """Pool should be created with default configuration."""
-        from azlin.network_security.bastion_connection_pool import BastionConnectionPool
         from azlin.bastion_manager import BastionManager
+        from azlin.network_security.bastion_connection_pool import BastionConnectionPool
 
         mock_manager = Mock(spec=BastionManager)
         pool = BastionConnectionPool(mock_manager)
@@ -119,13 +118,11 @@ class TestBastionConnectionPoolCreation:
 
     def test_pool_creation_with_custom_limits(self):
         """Pool should accept custom max_tunnels and idle_timeout."""
-        from azlin.network_security.bastion_connection_pool import BastionConnectionPool
         from azlin.bastion_manager import BastionManager
+        from azlin.network_security.bastion_connection_pool import BastionConnectionPool
 
         mock_manager = Mock(spec=BastionManager)
-        pool = BastionConnectionPool(
-            mock_manager, max_tunnels=5, idle_timeout=600
-        )
+        pool = BastionConnectionPool(mock_manager, max_tunnels=5, idle_timeout=600)
 
         assert pool.max_tunnels == 5
         assert pool.idle_timeout == 600
@@ -137,8 +134,8 @@ class TestBastionConnectionPoolTunnelReuse:
     @patch("azlin.bastion_manager.BastionManager")
     def test_get_or_create_tunnel_creates_new_when_pool_empty(self, mock_manager_class):
         """When pool is empty, new tunnel should be created."""
-        from azlin.network_security.bastion_connection_pool import BastionConnectionPool
         from azlin.bastion_manager import BastionTunnel
+        from azlin.network_security.bastion_connection_pool import BastionConnectionPool
 
         mock_manager = Mock()
         mock_tunnel = Mock(spec=BastionTunnel)
@@ -161,11 +158,11 @@ class TestBastionConnectionPoolTunnelReuse:
     @patch("azlin.bastion_manager.BastionManager")
     def test_get_or_create_tunnel_reuses_healthy_tunnel(self, mock_manager_class):
         """Healthy tunnel in pool should be reused."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         mock_tunnel = Mock(spec=BastionTunnel)
@@ -196,15 +193,13 @@ class TestBastionConnectionPoolTunnelReuse:
         mock_manager.create_tunnel.assert_not_called()  # No new tunnel created
 
     @patch("azlin.bastion_manager.BastionManager")
-    def test_get_or_create_tunnel_recreates_unhealthy_tunnel(
-        self, mock_manager_class
-    ):
+    def test_get_or_create_tunnel_recreates_unhealthy_tunnel(self, mock_manager_class):
         """Unhealthy tunnel should be closed and recreated."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         old_tunnel = Mock(spec=BastionTunnel)
@@ -245,11 +240,11 @@ class TestBastionConnectionPoolLimits:
     @patch("azlin.bastion_manager.BastionManager")
     def test_pool_enforces_max_tunnels_limit(self, mock_manager_class):
         """Pool should not exceed max_tunnels limit."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         pool = BastionConnectionPool(mock_manager, max_tunnels=2)
@@ -283,11 +278,11 @@ class TestBastionConnectionPoolLimits:
     @patch("azlin.bastion_manager.BastionManager")
     def test_evict_idle_tunnel_removes_oldest(self, mock_manager_class):
         """Eviction should remove the oldest idle tunnel."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         pool = BastionConnectionPool(mock_manager, max_tunnels=3)
@@ -322,11 +317,11 @@ class TestBastionConnectionPoolCleanup:
     @patch("azlin.bastion_manager.BastionManager")
     def test_cleanup_expired_removes_expired_tunnels(self, mock_manager_class):
         """Expired tunnels should be removed from pool."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         pool = BastionConnectionPool(mock_manager, idle_timeout=300)
@@ -360,15 +355,13 @@ class TestBastionConnectionPoolCleanup:
         assert mock_manager.close_tunnel.call_count == 2
 
     @patch("azlin.bastion_manager.BastionManager")
-    def test_cleanup_expired_returns_zero_when_none_expired(
-        self, mock_manager_class
-    ):
+    def test_cleanup_expired_returns_zero_when_none_expired(self, mock_manager_class):
         """Cleanup should return 0 when no tunnels are expired."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         pool = BastionConnectionPool(mock_manager, idle_timeout=300)
@@ -397,11 +390,11 @@ class TestBastionConnectionPoolCloseAll:
     @patch("azlin.bastion_manager.BastionManager")
     def test_close_all_closes_all_tunnels(self, mock_manager_class):
         """close_all should close all tunnels and clear pool."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         pool = BastionConnectionPool(mock_manager)
@@ -432,10 +425,10 @@ class TestBastionConnectionPoolThreadSafety:
     @patch("azlin.bastion_manager.BastionManager")
     def test_concurrent_get_or_create_is_thread_safe(self, mock_manager_class):
         """Multiple threads should be able to safely access pool."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         mock_manager.get_available_port.return_value = 50000
@@ -469,11 +462,11 @@ class TestBastionCleanupDaemon:
 
     def test_daemon_starts_and_stops(self):
         """Cleanup daemon should start and stop cleanly."""
+        from azlin.bastion_manager import BastionManager
         from azlin.network_security.bastion_connection_pool import (
             BastionCleanupDaemon,
             BastionConnectionPool,
         )
-        from azlin.bastion_manager import BastionManager
 
         mock_manager = Mock(spec=BastionManager)
         pool = BastionConnectionPool(mock_manager)
@@ -489,12 +482,12 @@ class TestBastionCleanupDaemon:
 
     def test_daemon_cleans_up_expired_tunnels_periodically(self):
         """Daemon should periodically cleanup expired tunnels."""
+        from azlin.bastion_manager import BastionManager, BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionCleanupDaemon,
             BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionManager, BastionTunnel
 
         mock_manager = Mock(spec=BastionManager)
         pool = BastionConnectionPool(mock_manager, idle_timeout=1)

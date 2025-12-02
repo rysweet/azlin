@@ -31,15 +31,16 @@ Example:
 import logging
 import threading
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class SecurityError(Exception):
     """Raised when a security violation is detected in tunnel configuration."""
+
     pass
 
 
@@ -112,7 +113,7 @@ class BastionConnectionPool:
         self.manager = bastion_manager
         self.max_tunnels = max_tunnels
         self.idle_timeout = idle_timeout
-        self.pool: Dict[Tuple[str, str, int], PooledTunnel] = {}
+        self.pool: dict[tuple[str, str, int], PooledTunnel] = {}
         self._lock = threading.Lock()
 
     def get_or_create_tunnel(
@@ -162,11 +163,10 @@ class BastionConnectionPool:
                         f"age={(datetime.now() - pooled.created_at).total_seconds():.0f}s)"
                     )
                     return pooled
-                else:
-                    # Unhealthy - remove and recreate
-                    logger.warning(f"Tunnel {key} unhealthy, recreating")
-                    self.manager.close_tunnel(pooled.tunnel)
-                    del self.pool[key]
+                # Unhealthy - remove and recreate
+                logger.warning(f"Tunnel {key} unhealthy, recreating")
+                self.manager.close_tunnel(pooled.tunnel)
+                del self.pool[key]
 
             # Create new tunnel (SLOW PATH)
             if len(self.pool) >= self.max_tunnels:
@@ -282,7 +282,7 @@ class BastionConnectionPool:
                 self.manager.close_tunnel(pooled.tunnel)
             self.pool.clear()
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Get pool statistics.
 
         Returns:
@@ -313,7 +313,7 @@ class BastionCleanupDaemon:
         self.pool = pool
         self.interval = interval
         self.running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         """Start cleanup daemon in background thread."""
@@ -322,7 +322,9 @@ class BastionCleanupDaemon:
             return
 
         self.running = True
-        self._thread = threading.Thread(target=self._cleanup_loop, daemon=True, name="BastionCleanup")
+        self._thread = threading.Thread(
+            target=self._cleanup_loop, daemon=True, name="BastionCleanup"
+        )
         self._thread.start()
         logger.info(f"Bastion cleanup daemon started (interval={self.interval}s)")
 
@@ -357,4 +359,4 @@ class BastionCleanupDaemon:
                 time.sleep(1)
 
 
-__all__ = ["BastionConnectionPool", "PooledTunnel", "BastionCleanupDaemon", "SecurityError"]
+__all__ = ["BastionCleanupDaemon", "BastionConnectionPool", "PooledTunnel", "SecurityError"]

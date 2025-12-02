@@ -19,7 +19,7 @@ Example:
     ...     print(f"Found {len(violations)} policy violations")
 """
 
-from typing import Any, Callable, Dict, List
+from typing import Any
 
 
 class SecurityPolicy:
@@ -34,7 +34,7 @@ class SecurityPolicy:
         self.forbidden_rules = self._define_forbidden_rules()
         self.required_rules = self._define_required_rules()
 
-    def _define_forbidden_rules(self) -> List[Dict[str, Any]]:
+    def _define_forbidden_rules(self) -> list[dict[str, Any]]:
         """Define forbidden rules that must not exist in NSG templates.
 
         Returns:
@@ -47,7 +47,8 @@ class SecurityPolicy:
                     str(rule.get("destination_port_range")) == "22"
                     and rule.get("source_address_prefix") in ["Internet", "*", "0.0.0.0/0"]
                     and rule.get("access") == "Allow"
-                    and rule.get("direction", "Inbound") == "Inbound"  # Default to Inbound if missing
+                    and rule.get("direction", "Inbound")
+                    == "Inbound"  # Default to Inbound if missing
                 ),
                 "severity": "CRITICAL",
                 "message": "SSH must not be exposed to internet. Use Bastion instead.",
@@ -60,7 +61,8 @@ class SecurityPolicy:
                     str(rule.get("destination_port_range")) == "3389"
                     and rule.get("source_address_prefix") in ["Internet", "*", "0.0.0.0/0"]
                     and rule.get("access") == "Allow"
-                    and rule.get("direction", "Inbound") == "Inbound"  # Default to Inbound if missing
+                    and rule.get("direction", "Inbound")
+                    == "Inbound"  # Default to Inbound if missing
                 ),
                 "severity": "CRITICAL",
                 "message": "RDP must not be exposed to internet.",
@@ -73,7 +75,8 @@ class SecurityPolicy:
                     str(rule.get("destination_port_range")) in ["22", "3389", "23", "21"]
                     and rule.get("source_address_prefix") == "*"
                     and rule.get("access") == "Allow"
-                    and rule.get("direction", "Inbound") == "Inbound"  # Default to Inbound if missing
+                    and rule.get("direction", "Inbound")
+                    == "Inbound"  # Default to Inbound if missing
                 ),
                 "severity": "CRITICAL",
                 "message": "Management ports must not accept connections from any source (*)",
@@ -82,7 +85,7 @@ class SecurityPolicy:
             },
         ]
 
-    def _define_required_rules(self) -> List[Dict[str, Any]]:
+    def _define_required_rules(self) -> list[dict[str, Any]]:
         """Define required rules that must exist in NSG templates.
 
         Returns:
@@ -106,7 +109,7 @@ class SecurityPolicy:
             }
         ]
 
-    def check_forbidden_rules(self, rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def check_forbidden_rules(self, rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Check if any forbidden rules exist.
 
         Args:
@@ -133,7 +136,7 @@ class SecurityPolicy:
 
         return violations
 
-    def check_required_rules(self, rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def check_required_rules(self, rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Check if all required rules exist.
 
         Args:

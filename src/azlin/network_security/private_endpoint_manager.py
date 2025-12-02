@@ -31,7 +31,6 @@ Example:
 
 import logging
 import subprocess
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -143,9 +142,7 @@ class PrivateEndpointManager:
 
         return self._get_endpoint_id(endpoint_name, resource_group)
 
-    def create_private_dns_zone(
-        self, zone_name: str, resource_group: str, vnet_name: str
-    ) -> None:
+    def create_private_dns_zone(self, zone_name: str, resource_group: str, vnet_name: str) -> None:
         """Create Private DNS zone for private endpoint name resolution.
 
         Private DNS zones provide DNS resolution for private endpoints so that

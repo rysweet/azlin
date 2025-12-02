@@ -10,8 +10,9 @@ Coverage targets:
 - Private DNS zone configuration
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, call
 
 # Mark all tests as TDD RED phase (expected to fail)
 pytestmark = [pytest.mark.unit, pytest.mark.tdd_red]
@@ -42,9 +43,7 @@ class TestVPNManagerPointToSiteVPN:
         manager = VPNManager(resource_group="test-rg")
 
         with patch.object(manager, "_get_gateway_id", return_value="/gateway/id"):
-            manager.create_point_to_site_vpn(
-                vnet_name="test-vnet", vpn_gateway_name="test-vpn-gw"
-            )
+            manager.create_point_to_site_vpn(vnet_name="test-vnet", vpn_gateway_name="test-vpn-gw")
 
         # Verify gateway subnet creation
         calls = [c[0][0] for c in mock_run.call_args_list]
@@ -60,15 +59,11 @@ class TestVPNManagerPointToSiteVPN:
         manager = VPNManager(resource_group="test-rg")
 
         with patch.object(manager, "_get_gateway_id", return_value="/gateway/id"):
-            manager.create_point_to_site_vpn(
-                vnet_name="test-vnet", vpn_gateway_name="test-vpn-gw"
-            )
+            manager.create_point_to_site_vpn(vnet_name="test-vnet", vpn_gateway_name="test-vpn-gw")
 
         # Verify VPN gateway creation
         calls = [c[0][0] for c in mock_run.call_args_list]
-        assert any(
-            "vnet-gateway" in " ".join(c) and "create" in " ".join(c) for c in calls
-        )
+        assert any("vnet-gateway" in " ".join(c) and "create" in " ".join(c) for c in calls)
 
     @patch("subprocess.run")
     def test_create_p2s_vpn_uses_no_wait_for_gateway(self, mock_run):
@@ -80,9 +75,7 @@ class TestVPNManagerPointToSiteVPN:
         manager = VPNManager(resource_group="test-rg")
 
         with patch.object(manager, "_get_gateway_id", return_value="/gateway/id"):
-            manager.create_point_to_site_vpn(
-                vnet_name="test-vnet", vpn_gateway_name="test-vpn-gw"
-            )
+            manager.create_point_to_site_vpn(vnet_name="test-vnet", vpn_gateway_name="test-vpn-gw")
 
         # Verify --no-wait flag is used
         calls = [c[0][0] for c in mock_run.call_args_list]
@@ -98,9 +91,7 @@ class TestVPNManagerPointToSiteVPN:
         manager = VPNManager(resource_group="test-rg")
 
         with patch.object(manager, "_get_gateway_id", return_value="/gateway/id"):
-            manager.create_point_to_site_vpn(
-                vnet_name="test-vnet", vpn_gateway_name="test-vpn-gw"
-            )
+            manager.create_point_to_site_vpn(vnet_name="test-vnet", vpn_gateway_name="test-vpn-gw")
 
         # Verify OpenVPN protocol configuration
         calls = [c[0][0] for c in mock_run.call_args_list]
@@ -225,9 +216,7 @@ class TestPrivateEndpointCreation:
 
         manager = PrivateEndpointManager()
 
-        with patch.object(
-            manager, "_get_endpoint_id", return_value="/endpoint/id"
-        ):
+        with patch.object(manager, "_get_endpoint_id", return_value="/endpoint/id"):
             manager.create_private_endpoint(
                 endpoint_name="test-pe",
                 resource_group="test-rg",
@@ -239,10 +228,7 @@ class TestPrivateEndpointCreation:
 
         # Verify subnet update to disable policies
         calls = [c[0][0] for c in mock_run.call_args_list]
-        assert any(
-            "--disable-private-endpoint-network-policies" in " ".join(c)
-            for c in calls
-        )
+        assert any("--disable-private-endpoint-network-policies" in " ".join(c) for c in calls)
 
     @patch("subprocess.run")
     def test_create_private_endpoint_creates_endpoint(self, mock_run):
@@ -255,9 +241,7 @@ class TestPrivateEndpointCreation:
 
         manager = PrivateEndpointManager()
 
-        with patch.object(
-            manager, "_get_endpoint_id", return_value="/endpoint/id"
-        ):
+        with patch.object(manager, "_get_endpoint_id", return_value="/endpoint/id"):
             manager.create_private_endpoint(
                 endpoint_name="test-pe",
                 resource_group="test-rg",
@@ -269,10 +253,7 @@ class TestPrivateEndpointCreation:
 
         # Verify private endpoint creation
         calls = [c[0][0] for c in mock_run.call_args_list]
-        assert any(
-            "private-endpoint" in " ".join(c) and "create" in " ".join(c)
-            for c in calls
-        )
+        assert any("private-endpoint" in " ".join(c) and "create" in " ".join(c) for c in calls)
 
     @patch("subprocess.run")
     def test_create_private_endpoint_uses_correct_group_id(self, mock_run):
@@ -286,9 +267,7 @@ class TestPrivateEndpointCreation:
         manager = PrivateEndpointManager()
 
         # Test Key Vault group_id
-        with patch.object(
-            manager, "_get_endpoint_id", return_value="/endpoint/id"
-        ):
+        with patch.object(manager, "_get_endpoint_id", return_value="/endpoint/id"):
             manager.create_private_endpoint(
                 endpoint_name="kv-pe",
                 resource_group="test-rg",
@@ -350,9 +329,7 @@ class TestPrivateDNSZoneConfiguration:
         # Verify private DNS zone creation
         calls = [c[0][0] for c in mock_run.call_args_list]
         assert any(
-            "private-dns" in " ".join(c)
-            and "zone" in " ".join(c)
-            and "create" in " ".join(c)
+            "private-dns" in " ".join(c) and "zone" in " ".join(c) and "create" in " ".join(c)
             for c in calls
         )
 
@@ -400,8 +377,7 @@ class TestPrivateDNSZoneConfiguration:
         # Verify registration-enabled is false
         calls = [c[0][0] for c in mock_run.call_args_list]
         assert any(
-            "--registration-enabled" in " ".join(c) and "false" in " ".join(c)
-            for c in calls
+            "--registration-enabled" in " ".join(c) and "false" in " ".join(c) for c in calls
         )
 
     @patch("subprocess.run")
@@ -432,10 +408,10 @@ class TestVPNPrivateEndpointIntegration:
     @patch("subprocess.run")
     def test_secure_infrastructure_setup_workflow(self, mock_run):
         """Complete secure infrastructure should include VPN + private endpoints."""
-        from azlin.network_security.vpn_manager import VPNManager
         from azlin.network_security.private_endpoint_manager import (
             PrivateEndpointManager,
         )
+        from azlin.network_security.vpn_manager import VPNManager
 
         mock_run.return_value = Mock(returncode=0)
 

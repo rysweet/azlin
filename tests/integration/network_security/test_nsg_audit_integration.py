@@ -10,11 +10,11 @@ Coverage targets:
 - Compliance event tracking
 """
 
-import pytest
 import json
-from pathlib import Path
-from unittest.mock import Mock, patch
 from datetime import datetime
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Mark all tests as integration and TDD RED phase
 pytestmark = [pytest.mark.integration, pytest.mark.tdd_red]
@@ -24,15 +24,13 @@ class TestNSGTemplateApplicationWithAudit:
     """Test NSG template application with audit logging."""
 
     @patch("subprocess.run")
-    def test_successful_template_application_logs_audit_event(
-        self, mock_run, tmp_path
-    ):
+    def test_successful_template_application_logs_audit_event(self, mock_run, tmp_path):
         """Successful NSG template application should log audit event."""
         from azlin.network_security.nsg_manager import NSGManager
         from azlin.network_security.nsg_validator import NSGValidator
         from azlin.network_security.security_audit import (
-            SecurityAuditLogger,
             AuditEventType,
+            SecurityAuditLogger,
         )
 
         mock_run.return_value = Mock(returncode=0, stdout="{}")
@@ -95,8 +93,8 @@ default_rules:
         from azlin.network_security.nsg_manager import NSGManager
         from azlin.network_security.nsg_validator import NSGValidator
         from azlin.network_security.security_audit import (
-            SecurityAuditLogger,
             AuditEventType,
+            SecurityAuditLogger,
         )
 
         # Create template with dangerous rule
@@ -262,9 +260,9 @@ default_rules:
     def test_compliance_report_includes_nsg_events(self, tmp_path):
         """Compliance reports should include NSG application events."""
         from azlin.network_security.security_audit import (
-            SecurityAuditLogger,
             AuditEvent,
             AuditEventType,
+            SecurityAuditLogger,
         )
 
         logger = SecurityAuditLogger()
@@ -353,9 +351,7 @@ default_rules:
         manager = NSGManager(validator, logger)
 
         # Compare NSG
-        comparison = manager.compare_nsg(
-            template_path=str(template_path), nsg_name="test-nsg"
-        )
+        comparison = manager.compare_nsg(template_path=str(template_path), nsg_name="test-nsg")
 
         # Verify drift detected
         assert comparison.has_drift is True
@@ -367,8 +363,8 @@ default_rules:
         from azlin.network_security.nsg_manager import NSGManager
         from azlin.network_security.nsg_validator import NSGValidator
         from azlin.network_security.security_audit import (
-            SecurityAuditLogger,
             AuditEventType,
+            SecurityAuditLogger,
         )
 
         # Mock drifted config

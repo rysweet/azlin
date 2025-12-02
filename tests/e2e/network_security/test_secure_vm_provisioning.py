@@ -11,9 +11,10 @@ Coverage targets:
 - VPN + private endpoint secure infrastructure
 """
 
-import pytest
-from unittest.mock import Mock, patch
 from datetime import datetime
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Mark all tests as E2E and TDD RED phase
 pytestmark = [pytest.mark.e2e, pytest.mark.tdd_red]
@@ -25,16 +26,16 @@ class TestSecureVMProvisioningWorkflow:
     @patch("subprocess.run")
     def test_complete_secure_vm_provisioning_workflow(self, mock_run, tmp_path):
         """Complete workflow: NSG validation → VM creation → Bastion tunnel → Audit."""
-        from azlin.network_security.nsg_manager import NSGManager
-        from azlin.network_security.nsg_validator import NSGValidator
+        from azlin.bastion_manager import BastionManager
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
         )
+        from azlin.network_security.nsg_manager import NSGManager
+        from azlin.network_security.nsg_validator import NSGValidator
         from azlin.network_security.security_audit import (
-            SecurityAuditLogger,
             AuditEventType,
+            SecurityAuditLogger,
         )
-        from azlin.bastion_manager import BastionManager
 
         mock_run.return_value = Mock(returncode=0, stdout="{}")
 
@@ -90,7 +91,7 @@ default_rules:
         )
 
         # Verify NSG application succeeded
-        assert result.success is True
+        assert result["status"] == "success"
 
         # Step 3: Create VM (mocked)
         # In real workflow, VM would be created here
@@ -103,6 +104,7 @@ default_rules:
             with patch.object(bastion_manager, "check_tunnel_health", return_value=True):
                 mock_tunnel = Mock()
                 mock_tunnel.local_port = 50000
+                mock_tunnel.local_address = "localhost"  # Security check requirement
                 mock_create.return_value = mock_tunnel
 
                 pooled_tunnel = pool.get_or_create_tunnel(
@@ -130,8 +132,8 @@ default_rules:
     @patch("subprocess.run")
     def test_security_scan_blocks_insecure_deployment(self, mock_run, tmp_path):
         """Security scan should block deployment with critical findings."""
-        from azlin.network_security.security_scanner import SecurityScanner
         from azlin.network_security.nsg_validator import NSGValidator
+        from azlin.network_security.security_scanner import SecurityScanner
 
         # Create insecure NSG template
         template = {
@@ -158,9 +160,7 @@ default_rules:
 
         scanner = SecurityScanner(subscription_id="test-sub")
 
-        with patch(
-            "azlin.network_security.nsg_validator.NSGValidator"
-        ) as mock_validator_class:
+        with patch("azlin.network_security.nsg_validator.NSGValidator") as mock_validator_class:
             mock_validator = Mock(spec=NSGValidator)
             mock_validator.validate_template.return_value = Mock(
                 critical_issues=[
@@ -191,9 +191,9 @@ class TestComplianceReportingWorkflow:
     def test_generate_compliance_report_for_period(self):
         """Generate compliance report for specific time period."""
         from azlin.network_security.security_audit import (
-            SecurityAuditLogger,
             AuditEvent,
             AuditEventType,
+            SecurityAuditLogger,
         )
 
         logger = SecurityAuditLogger()
@@ -267,15 +267,14 @@ class TestSecureInfrastructureSetup:
     @patch("subprocess.run")
     def test_complete_secure_infrastructure_workflow(self, mock_run):
         """Complete workflow: VPN + Private Endpoints + Private DNS + Audit."""
-        from azlin.network_security.vpn_manager import VPNManager
         from azlin.network_security.private_endpoint_manager import (
             PrivateEndpointManager,
         )
         from azlin.network_security.security_audit import (
-            SecurityAuditLogger,
             AuditEvent,
-            AuditEventType,
+            SecurityAuditLogger,
         )
+        from azlin.network_security.vpn_manager import VPNManager
 
         mock_run.return_value = Mock(returncode=0, stdout="{}")
 
@@ -367,9 +366,9 @@ class TestAuditLogIntegrity:
     def test_audit_log_integrity_workflow(self):
         """Complete workflow: Log events → Verify integrity → Detect tampering."""
         from azlin.network_security.security_audit import (
-            SecurityAuditLogger,
             AuditEvent,
             AuditEventType,
+            SecurityAuditLogger,
         )
 
         logger = SecurityAuditLogger()
@@ -399,12 +398,13 @@ class TestAuditLogIntegrity:
 
     def test_detect_tampered_audit_log(self, tmp_path):
         """Integrity verification should detect tampered events."""
+        import json
+
         from azlin.network_security.security_audit import (
-            SecurityAuditLogger,
             AuditEvent,
             AuditEventType,
+            SecurityAuditLogger,
         )
-        import json
 
         logger = SecurityAuditLogger()
 
@@ -424,7 +424,7 @@ class TestAuditLogIntegrity:
         logger.log_event(event)
 
         # Manually tamper with audit log (change user)
-        with open(logger.AUDIT_FILE, "r") as f:
+        with open(logger.AUDIT_FILE) as f:
             lines = f.readlines()
 
         # Modify first line (change user)

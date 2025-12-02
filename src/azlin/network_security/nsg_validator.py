@@ -23,8 +23,8 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
 from enum import Enum
+from typing import Any
 
 
 class RuleSeverity(str, Enum):
@@ -44,9 +44,9 @@ class PolicyFinding:
     name: str
     severity: str
     message: str
-    rule_name: Optional[str] = None
-    remediation: Optional[str] = None
-    compliance_impact: List[str] = field(default_factory=list)
+    rule_name: str | None = None
+    remediation: str | None = None
+    compliance_impact: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -54,13 +54,13 @@ class ValidationResult:
     """Result of NSG template validation."""
 
     is_valid: bool
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    findings: List[PolicyFinding] = field(default_factory=list)
-    compliance_tags: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    findings: list[PolicyFinding] = field(default_factory=list)
+    compliance_tags: list[str] = field(default_factory=list)
 
     @property
-    def critical_issues(self) -> List[PolicyFinding]:
+    def critical_issues(self) -> list[PolicyFinding]:
         """Get only critical severity findings."""
         return [f for f in self.findings if f.severity == RuleSeverity.CRITICAL]
 
@@ -103,7 +103,7 @@ class NSGValidator:
 
         self.policy = SecurityPolicy()
 
-    def validate_template(self, template: Dict[str, Any]) -> ValidationResult:
+    def validate_template(self, template: dict[str, Any]) -> ValidationResult:
         """Validate NSG template comprehensively.
 
         Performs all validation checks and returns consolidated results.
@@ -143,9 +143,7 @@ class NSGValidator:
 
         # 5. Check deny-by-default requirement
         if not self.check_deny_default(template):
-            errors.append(
-                "Missing deny-all default rule for inbound traffic (priority 4096)"
-            )
+            errors.append("Missing deny-all default rule for inbound traffic (priority 4096)")
             findings.append(
                 PolicyFinding(
                     name="missing-deny-default",
@@ -187,7 +185,10 @@ class NSGValidator:
         )
 
         # Determine overall validity
-        is_valid = len(errors) == 0 and len([f for f in findings if f.severity == RuleSeverity.CRITICAL]) == 0
+        is_valid = (
+            len(errors) == 0
+            and len([f for f in findings if f.severity == RuleSeverity.CRITICAL]) == 0
+        )
 
         return ValidationResult(
             is_valid=is_valid,
@@ -197,7 +198,7 @@ class NSGValidator:
             compliance_tags=list(compliance_tags),
         )
 
-    def _validate_schema(self, template: Dict[str, Any]) -> List[str]:
+    def _validate_schema(self, template: dict[str, Any]) -> list[str]:
         """Validate template schema (structure and types).
 
         Args:
@@ -237,7 +238,7 @@ class NSGValidator:
 
         return errors
 
-    def _validate_rule_schema(self, rule: Dict[str, Any], index: int) -> List[str]:
+    def _validate_rule_schema(self, rule: dict[str, Any], index: int) -> list[str]:
         """Validate individual NSG rule schema.
 
         Args:
@@ -303,7 +304,7 @@ class NSGValidator:
 
         return errors
 
-    def _check_conflicts(self, template: Dict[str, Any]) -> List[str]:
+    def _check_conflicts(self, template: dict[str, Any]) -> list[str]:
         """Check for conflicting rules (duplicate priorities).
 
         Args:
@@ -338,7 +339,7 @@ class NSGValidator:
 
         return errors
 
-    def check_deny_default(self, template: Dict[str, Any]) -> bool:
+    def check_deny_default(self, template: dict[str, Any]) -> bool:
         """Check if template has deny-by-default rule for inbound traffic.
 
         Args:
@@ -360,7 +361,7 @@ class NSGValidator:
 
         return False
 
-    def check_dangerous_rules(self, template: Dict[str, Any]) -> List[PolicyFinding]:
+    def check_dangerous_rules(self, template: dict[str, Any]) -> list[PolicyFinding]:
         """Flag dangerous NSG rules.
 
         Checks for:
@@ -430,7 +431,7 @@ class NSGValidator:
 
         return findings
 
-    def check_policy_compliance(self, template: Dict[str, Any]) -> List[str]:
+    def check_policy_compliance(self, template: dict[str, Any]) -> list[str]:
         """Map NSG rules to compliance frameworks.
 
         Args:
@@ -473,4 +474,4 @@ class NSGValidator:
         return list(compliance_tags)
 
 
-__all__ = ["NSGValidator", "ValidationResult", "PolicyFinding", "RuleSeverity"]
+__all__ = ["NSGValidator", "PolicyFinding", "RuleSeverity", "ValidationResult"]

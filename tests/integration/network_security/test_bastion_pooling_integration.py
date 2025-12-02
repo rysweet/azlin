@@ -11,11 +11,12 @@ Coverage targets:
 - Resource leak prevention
 """
 
-import pytest
-import time
 import threading
+import time
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
+
+import pytest
 
 # Mark all tests as integration and TDD RED phase
 pytestmark = [pytest.mark.integration, pytest.mark.tdd_red]
@@ -27,12 +28,12 @@ class TestBastionPoolWithDaemon:
     @patch("azlin.bastion_manager.BastionManager")
     def test_daemon_cleans_expired_tunnels_from_pool(self, mock_manager_class):
         """Daemon should automatically remove expired tunnels from pool."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
-            BastionConnectionPool,
             BastionCleanupDaemon,
+            BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         pool = BastionConnectionPool(mock_manager, idle_timeout=1)  # 1 second timeout
@@ -64,12 +65,12 @@ class TestBastionPoolWithDaemon:
     @patch("azlin.bastion_manager.BastionManager")
     def test_daemon_leaves_active_tunnels_alone(self, mock_manager_class):
         """Daemon should not remove active tunnels."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
-            BastionConnectionPool,
             BastionCleanupDaemon,
+            BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         pool = BastionConnectionPool(mock_manager, idle_timeout=10)  # 10 second timeout
@@ -103,14 +104,12 @@ class TestBastionPoolTunnelReuse:
     """Test tunnel reuse across multiple SSH operations."""
 
     @patch("subprocess.run")
-    def test_multiple_ssh_operations_reuse_same_tunnel(
-        self, mock_run
-    ):
+    def test_multiple_ssh_operations_reuse_same_tunnel(self, mock_run):
         """Multiple SSH operations to same VM should reuse tunnel."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         mock_tunnel = Mock(spec=BastionTunnel)
@@ -162,11 +161,10 @@ class TestBastionPoolHealthMonitoring:
     @patch("azlin.bastion_manager.BastionManager")
     def test_unhealthy_tunnel_recreated_automatically(self, mock_manager_class):
         """Unhealthy tunnel should be detected and recreated."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
-            PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         old_tunnel = Mock(spec=BastionTunnel)
@@ -215,11 +213,11 @@ class TestBastionPoolResourceLeakPrevention:
     @patch("azlin.bastion_manager.BastionManager")
     def test_close_all_on_exit_prevents_leaks(self, mock_manager_class):
         """close_all should cleanup all tunnels to prevent leaks."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         pool = BastionConnectionPool(mock_manager)
@@ -252,11 +250,11 @@ class TestBastionPoolResourceLeakPrevention:
     @patch("azlin.bastion_manager.BastionManager")
     def test_eviction_closes_tunnel_to_prevent_leak(self, mock_manager_class):
         """Evicted tunnels should be properly closed."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
             PooledTunnel,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         pool = BastionConnectionPool(mock_manager, max_tunnels=2)
@@ -297,10 +295,10 @@ class TestBastionPoolConcurrentAccess:
     @patch("azlin.bastion_manager.BastionManager")
     def test_concurrent_tunnel_requests_thread_safe(self, mock_manager_class):
         """Pool should handle concurrent requests safely."""
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
         )
-        from azlin.bastion_manager import BastionTunnel
 
         mock_manager = Mock()
         mock_manager.get_available_port.return_value = 50000
@@ -357,11 +355,12 @@ class TestBastionPoolPerformanceImprovement:
     @patch("azlin.bastion_manager.BastionManager")
     def test_tunnel_reuse_faster_than_recreation(self, mock_manager_class):
         """Reusing tunnel should be significantly faster than creating new."""
+        import time
+
+        from azlin.bastion_manager import BastionTunnel
         from azlin.network_security.bastion_connection_pool import (
             BastionConnectionPool,
         )
-        from azlin.bastion_manager import BastionTunnel
-        import time
 
         mock_manager = Mock()
         mock_tunnel = Mock(spec=BastionTunnel)

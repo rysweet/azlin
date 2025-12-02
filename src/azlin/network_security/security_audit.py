@@ -30,16 +30,15 @@ Example:
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-import uuid
-import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -79,23 +78,27 @@ class AuditEvent:
     resource: str
     action: str
     outcome: str  # "success" or "failure"
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
     severity: str = "info"  # "info", "warning", "critical"
-    compliance_tags: List[str] = field(default_factory=list)
+    compliance_tags: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization.
 
         Returns:
             Dictionary representation with ISO timestamp in UTC
         """
         # Ensure timezone-aware timestamp (treat naive as UTC)
-        timestamp = self.timestamp.replace(tzinfo=UTC) if self.timestamp.tzinfo is None else self.timestamp
+        timestamp = (
+            self.timestamp.replace(tzinfo=UTC) if self.timestamp.tzinfo is None else self.timestamp
+        )
 
         return {
             "event_id": self.event_id,
             "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
-            "event_type": self.event_type.value if isinstance(self.event_type, Enum) else self.event_type,
+            "event_type": self.event_type.value
+            if isinstance(self.event_type, Enum)
+            else self.event_type,
             "user": self.user,
             "resource": self.resource,
             "action": self.action,
@@ -173,7 +176,7 @@ class SecurityAuditLogger:
         if self._should_backup():
             self._backup_audit_log()
 
-    def _compute_checksum(self, event_dict: Dict[str, Any]) -> str:
+    def _compute_checksum(self, event_dict: dict[str, Any]) -> str:
         """Compute SHA256 integrity checksum for event.
 
         The checksum is computed over all event fields EXCEPT the checksum itself.
@@ -194,7 +197,7 @@ class SecurityAuditLogger:
         # Compute SHA256
         return hashlib.sha256(event_json.encode()).hexdigest()
 
-    def verify_integrity(self) -> Tuple[bool, List[str]]:
+    def verify_integrity(self) -> tuple[bool, list[str]]:
         """Verify audit log integrity by checking all checksums.
 
         Returns:
@@ -253,13 +256,13 @@ class SecurityAuditLogger:
 
     def query_events(
         self,
-        event_type: Optional[AuditEventType] = None,
-        user: Optional[str] = None,
-        resource: Optional[str] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        severity: Optional[str] = None,
-    ) -> List[AuditEvent]:
+        event_type: AuditEventType | None = None,
+        user: str | None = None,
+        resource: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        severity: str | None = None,
+    ) -> list[AuditEvent]:
         """Query audit events with filters.
 
         Args:
@@ -294,11 +297,21 @@ class SecurityAuditLogger:
                         continue
 
                     # Parse timestamp
-                    event_time = datetime.fromisoformat(event_dict["timestamp"].replace("Z", "+00:00"))
+                    event_time = datetime.fromisoformat(
+                        event_dict["timestamp"].replace("Z", "+00:00")
+                    )
 
                     # Normalize timezone-naive datetimes to UTC for comparison
-                    start_time_normalized = start_time.replace(tzinfo=UTC) if start_time and start_time.tzinfo is None else start_time
-                    end_time_normalized = end_time.replace(tzinfo=UTC) if end_time and end_time.tzinfo is None else end_time
+                    start_time_normalized = (
+                        start_time.replace(tzinfo=UTC)
+                        if start_time and start_time.tzinfo is None
+                        else start_time
+                    )
+                    end_time_normalized = (
+                        end_time.replace(tzinfo=UTC)
+                        if end_time and end_time.tzinfo is None
+                        else end_time
+                    )
 
                     if start_time_normalized and event_time < start_time_normalized:
                         continue
@@ -328,7 +341,7 @@ class SecurityAuditLogger:
 
     def generate_compliance_report(
         self, framework: str, start_date: datetime, end_date: datetime
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate compliance report for audits.
 
         Args:
@@ -378,4 +391,4 @@ class SecurityAuditLogger:
         return report
 
 
-__all__ = ["SecurityAuditLogger", "AuditEvent", "AuditEventType"]
+__all__ = ["AuditEvent", "AuditEventType", "SecurityAuditLogger"]

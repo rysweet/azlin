@@ -4,15 +4,19 @@ This module provides NSGManager class for applying NSG templates to Azure
 with validation, audit logging, and compliance tracking.
 """
 
+import os
 import subprocess
-from pathlib import Path
-from typing import Dict, Any, Optional
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
 import yaml
 
 from azlin.network_security.nsg_validator import NSGValidator
 from azlin.network_security.security_audit import (
-    SecurityAuditLogger,
+    AuditEvent,
     AuditEventType,
+    SecurityAuditLogger,
 )
 
 
@@ -21,8 +25,8 @@ class NSGManager:
 
     def __init__(
         self,
-        validator: Optional[NSGValidator] = None,
-        audit_logger: Optional[SecurityAuditLogger] = None,
+        validator: NSGValidator | None = None,
+        audit_logger: SecurityAuditLogger | None = None,
     ):
         """Initialize NSG Manager.
 
@@ -39,8 +43,8 @@ class NSGManager:
         nsg_name: str,
         resource_group: str,
         dry_run: bool = False,
-        compliance_framework: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        compliance_framework: str | None = None,
+    ) -> dict[str, Any]:
         """Apply NSG template to Azure with validation and audit logging.
 
         Args:
@@ -64,9 +68,14 @@ class NSGManager:
 
         if not validation_result.is_valid:
             # Log validation failure
-            self.audit_logger.log_event(
+            event = AuditEvent(
+                event_id=str(uuid.uuid4()),
+                timestamp=datetime.now(UTC),
                 event_type=AuditEventType.NSG_VALIDATION_FAIL,
+                user=os.environ.get("USER", "unknown"),
                 resource=nsg_name,
+                action="validate_nsg_template",
+                outcome="failure",
                 details={
                     "template_path": template_path,
                     "resource_group": resource_group,
@@ -80,25 +89,30 @@ class NSGManager:
                     ],
                 },
                 severity="critical",
-                outcome="failure",
             )
+            self.audit_logger.log_event(event)
             raise Exception(
                 f"NSG template validation failed with {len(validation_result.findings)} findings"
             )
 
         # Dry run - validation only
         if dry_run:
-            self.audit_logger.log_event(
+            event = AuditEvent(
+                event_id=str(uuid.uuid4()),
+                timestamp=datetime.now(UTC),
                 event_type=AuditEventType.NSG_VALIDATION_PASS,
+                user=os.environ.get("USER", "unknown"),
                 resource=nsg_name,
+                action="validate_nsg_template_dry_run",
+                outcome="success",
                 details={
                     "template_path": template_path,
                     "resource_group": resource_group,
                     "dry_run": True,
                 },
                 severity="info",
-                outcome="success",
             )
+            self.audit_logger.log_event(event)
             return {
                 "status": "dry_run_success",
                 "nsg_name": nsg_name,
@@ -110,7 +124,7 @@ class NSGManager:
             self._apply_to_azure(nsg_name, resource_group, template)
 
             # Log successful application
-            event_details: Dict[str, Any] = {
+            event_details: dict[str, Any] = {
                 "template_path": template_path,
                 "resource_group": resource_group,
                 "rules_count": len(template.get("security_rules", [])),
@@ -119,13 +133,18 @@ class NSGManager:
             if compliance_framework:
                 event_details["compliance_framework"] = compliance_framework
 
-            self.audit_logger.log_event(
+            event = AuditEvent(
+                event_id=str(uuid.uuid4()),
+                timestamp=datetime.now(UTC),
                 event_type=AuditEventType.NSG_RULE_APPLY,
+                user=os.environ.get("USER", "unknown"),
                 resource=nsg_name,
+                action="apply_nsg_template",
+                outcome="success",
                 details=event_details,
                 severity="info",
-                outcome="success",
             )
+            self.audit_logger.log_event(event)
 
             return {
                 "status": "success",
@@ -135,22 +154,25 @@ class NSGManager:
 
         except subprocess.CalledProcessError as e:
             # Log application failure
-            self.audit_logger.log_event(
+            event = AuditEvent(
+                event_id=str(uuid.uuid4()),
+                timestamp=datetime.now(UTC),
                 event_type=AuditEventType.NSG_RULE_APPLY,
+                user=os.environ.get("USER", "unknown"),
                 resource=nsg_name,
+                action="apply_nsg_template",
+                outcome="failure",
                 details={
                     "template_path": template_path,
                     "resource_group": resource_group,
                     "error": str(e),
                 },
                 severity="critical",
-                outcome="failure",
             )
+            self.audit_logger.log_event(event)
             raise
 
-    def compare_nsg(
-        self, nsg_name: str, resource_group: str, template_path: str
-    ) -> Dict[str, Any]:
+    def compare_nsg(self, nsg_name: str, resource_group: str, template_path: str) -> dict[str, Any]:
         """Compare deployed NSG with template to detect drift.
 
         Args:
@@ -172,24 +194,29 @@ class NSGManager:
 
         if drift_detected:
             # Log configuration drift
-            self.audit_logger.log_event(
+            event = AuditEvent(
+                event_id=str(uuid.uuid4()),
+                timestamp=datetime.now(UTC),
                 event_type=AuditEventType.CONFIGURATION_DRIFT,
+                user=os.environ.get("USER", "unknown"),
                 resource=nsg_name,
+                action="compare_nsg_configuration",
+                outcome="drift_detected",
                 details={
                     "resource_group": resource_group,
                     "template_path": template_path,
                     "drift_details": drift_detected,
                 },
                 severity="warning",
-                outcome="drift_detected",
             )
+            self.audit_logger.log_event(event)
 
         return {
             "drift_detected": bool(drift_detected),
             "differences": drift_detected if drift_detected else {},
         }
 
-    def _load_template(self, template_path: str) -> Dict[str, Any]:
+    def _load_template(self, template_path: str) -> dict[str, Any]:
         """Load YAML template from file.
 
         Args:
@@ -198,12 +225,10 @@ class NSGManager:
         Returns:
             Parsed template as dict
         """
-        with open(template_path, "r") as f:
+        with open(template_path) as f:
             return yaml.safe_load(f)
 
-    def _apply_to_azure(
-        self, nsg_name: str, resource_group: str, template: Dict[str, Any]
-    ) -> None:
+    def _apply_to_azure(self, nsg_name: str, resource_group: str, template: dict[str, Any]) -> None:
         """Apply NSG configuration to Azure using Azure CLI.
 
         Args:
@@ -231,9 +256,7 @@ class NSGManager:
         for rule in template.get("security_rules", []):
             self._apply_rule(nsg_name, resource_group, rule)
 
-    def _apply_rule(
-        self, nsg_name: str, resource_group: str, rule: Dict[str, Any]
-    ) -> None:
+    def _apply_rule(self, nsg_name: str, resource_group: str, rule: dict[str, Any]) -> None:
         """Apply single security rule to NSG.
 
         Args:
@@ -272,7 +295,7 @@ class NSGManager:
         ]
         subprocess.run(cmd, check=True, capture_output=True, text=True)
 
-    def _get_deployed_nsg(self, nsg_name: str, resource_group: str) -> Dict[str, Any]:
+    def _get_deployed_nsg(self, nsg_name: str, resource_group: str) -> dict[str, Any]:
         """Get deployed NSG configuration from Azure.
 
         Args:
@@ -298,8 +321,8 @@ class NSGManager:
         return json.loads(result.stdout)
 
     def _detect_drift(
-        self, expected: Dict[str, Any], actual: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        self, expected: dict[str, Any], actual: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Detect configuration drift between expected and actual NSG.
 
         Args:
@@ -309,15 +332,11 @@ class NSGManager:
         Returns:
             Dict describing drift, or None if no drift
         """
-        drift: Dict[str, Any] = {}
+        drift: dict[str, Any] = {}
 
         # Compare security rules
-        expected_rules = {
-            r["name"]: r for r in expected.get("security_rules", [])
-        }
-        actual_rules = {
-            r["name"]: r for r in actual.get("securityRules", [])
-        }
+        expected_rules = {r["name"]: r for r in expected.get("security_rules", [])}
+        actual_rules = {r["name"]: r for r in actual.get("securityRules", [])}
 
         # Check for missing rules
         missing = set(expected_rules.keys()) - set(actual_rules.keys())

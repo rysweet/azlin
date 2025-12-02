@@ -12,7 +12,6 @@ Coverage targets:
 """
 
 import pytest
-from typing import Any, Dict, List
 
 # Mark all tests as TDD RED phase (expected to fail)
 pytestmark = [pytest.mark.unit, pytest.mark.tdd_red]
@@ -54,7 +53,7 @@ class TestNSGValidatorSchemaValidation:
                     "source_address_prefix": "*",
                     "destination_address_prefix": "*",
                     "justification": "Default deny all inbound",
-                }
+                },
             ],
             "default_rules": {"outbound": "Allow", "inbound": "Deny"},
         }

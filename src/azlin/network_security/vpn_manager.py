@@ -26,7 +26,6 @@ Example:
 
 import logging
 import subprocess
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

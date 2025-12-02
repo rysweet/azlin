@@ -11,10 +11,10 @@ Coverage targets:
 - Azure Security Center integration (mocked)
 """
 
-import pytest
 import json
-from unittest.mock import Mock, patch, MagicMock
-from typing import List, Dict, Any
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Mark all tests as TDD RED phase (expected to fail)
 pytestmark = [pytest.mark.unit, pytest.mark.tdd_red]
@@ -26,8 +26,8 @@ class TestSecurityFindingDataclass:
     def test_security_finding_creation(self):
         """SecurityFinding should be created with all required fields."""
         from azlin.network_security.security_scanner import (
-            SecurityFinding,
             ScanSeverity,
+            SecurityFinding,
         )
 
         finding = SecurityFinding(
@@ -48,8 +48,8 @@ class TestSecurityFindingDataclass:
     def test_is_blocking_returns_true_for_critical(self):
         """Critical findings should be blocking."""
         from azlin.network_security.security_scanner import (
-            SecurityFinding,
             ScanSeverity,
+            SecurityFinding,
         )
 
         finding = SecurityFinding(
@@ -68,8 +68,8 @@ class TestSecurityFindingDataclass:
     def test_is_blocking_returns_true_for_high(self):
         """High severity findings should be blocking."""
         from azlin.network_security.security_scanner import (
-            SecurityFinding,
             ScanSeverity,
+            SecurityFinding,
         )
 
         finding = SecurityFinding(
@@ -88,8 +88,8 @@ class TestSecurityFindingDataclass:
     def test_is_blocking_returns_false_for_medium_and_lower(self):
         """Medium and lower severity findings should not be blocking."""
         from azlin.network_security.security_scanner import (
-            SecurityFinding,
             ScanSeverity,
+            SecurityFinding,
         )
 
         for severity in [ScanSeverity.MEDIUM, ScanSeverity.LOW, ScanSeverity.INFO]:
@@ -142,9 +142,7 @@ class TestSecurityScannerNSGScanning:
 
         with patch.object(scanner, "_query_security_center", return_value=[]):
             with patch.object(scanner, "_local_nsg_validation", return_value=[]):
-                findings = scanner.scan_nsg(
-                    nsg_name="test-nsg", resource_group="test-rg"
-                )
+                findings = scanner.scan_nsg(nsg_name="test-nsg", resource_group="test-rg")
 
         # Verify Azure CLI was called
         mock_run.assert_called()
@@ -176,8 +174,8 @@ class TestSecurityScannerLocalNSGValidation:
     def test_local_validation_detects_ssh_from_internet(self):
         """Local validation should detect SSH exposed to internet."""
         from azlin.network_security.security_scanner import (
-            SecurityScanner,
             ScanSeverity,
+            SecurityScanner,
         )
 
         scanner = SecurityScanner(subscription_id="test-sub")
@@ -204,8 +202,8 @@ class TestSecurityScannerLocalNSGValidation:
     def test_local_validation_detects_rdp_from_internet(self):
         """Local validation should detect RDP exposed to internet."""
         from azlin.network_security.security_scanner import (
-            SecurityScanner,
             ScanSeverity,
+            SecurityScanner,
         )
 
         scanner = SecurityScanner(subscription_id="test-sub")
@@ -232,8 +230,8 @@ class TestSecurityScannerLocalNSGValidation:
     def test_local_validation_detects_missing_deny_default(self):
         """Local validation should detect missing deny-all default rule."""
         from azlin.network_security.security_scanner import (
-            SecurityScanner,
             ScanSeverity,
+            SecurityScanner,
         )
 
         scanner = SecurityScanner(subscription_id="test-sub")
@@ -338,8 +336,8 @@ class TestSecurityScannerAzureSecurityCenter:
     def test_map_severity_converts_azure_severity_to_scan_severity(self):
         """_map_severity should convert Azure severity to ScanSeverity enum."""
         from azlin.network_security.security_scanner import (
-            SecurityScanner,
             ScanSeverity,
+            SecurityScanner,
         )
 
         scanner = SecurityScanner(subscription_id="test-sub")
@@ -358,8 +356,8 @@ class TestSecurityScannerVMScanning:
     def test_scan_vm_detects_public_ip(self, mock_run):
         """scan_vm should flag VMs with public IPs."""
         from azlin.network_security.security_scanner import (
-            SecurityScanner,
             ScanSeverity,
+            SecurityScanner,
         )
 
         vm_config = {
@@ -420,13 +418,9 @@ class TestSecurityScannerPreDeploymentScanning:
             ]
         }
 
-        with patch(
-            "azlin.network_security.nsg_validator.NSGValidator"
-        ) as mock_validator_class:
+        with patch("azlin.network_security.nsg_validator.NSGValidator") as mock_validator_class:
             mock_validator = Mock()
-            mock_validator.validate_template.return_value = Mock(
-                critical_issues=[]
-            )
+            mock_validator.validate_template.return_value = Mock(critical_issues=[])
             mock_validator_class.return_value = mock_validator
 
             can_deploy, findings = scanner.pre_deployment_scan(
@@ -438,8 +432,8 @@ class TestSecurityScannerPreDeploymentScanning:
     def test_pre_deployment_scan_blocks_on_critical_findings(self):
         """Pre-deployment scan should block deployment on critical findings."""
         from azlin.network_security.security_scanner import (
-            SecurityScanner,
             ScanSeverity,
+            SecurityScanner,
         )
 
         scanner = SecurityScanner(subscription_id="test-sub")
@@ -454,9 +448,7 @@ class TestSecurityScannerPreDeploymentScanning:
             ]
         }
 
-        with patch(
-            "azlin.network_security.nsg_validator.NSGValidator"
-        ) as mock_validator_class:
+        with patch("azlin.network_security.nsg_validator.NSGValidator") as mock_validator_class:
             from azlin.network_security.nsg_validator import PolicyFinding
 
             mock_validator = Mock()
@@ -497,13 +489,9 @@ class TestSecurityScannerPreDeploymentScanning:
             ]
         }
 
-        with patch(
-            "azlin.network_security.nsg_validator.NSGValidator"
-        ) as mock_validator_class:
+        with patch("azlin.network_security.nsg_validator.NSGValidator") as mock_validator_class:
             mock_validator = Mock()
-            mock_validator.validate_template.return_value = Mock(
-                critical_issues=[]
-            )
+            mock_validator.validate_template.return_value = Mock(critical_issues=[])
             mock_validator_class.return_value = mock_validator
 
             can_deploy, findings = scanner.pre_deployment_scan(
