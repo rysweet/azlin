@@ -19,11 +19,6 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import azlin.azure_client
-    import azlin.ssh_client
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +90,7 @@ class HealthMonitor:
         """Lazy-load Azure client."""
         if self._azure_client is None:
             # Import here to allow for mocking in tests
-            import azlin.azure_client
+            import azlin.azure_client  # type: ignore[import-not-found]
 
             self._azure_client = azlin.azure_client.AzureClient()
         return self._azure_client
@@ -104,7 +99,7 @@ class HealthMonitor:
         """Lazy-load SSH client."""
         if self._ssh_client is None:
             # Import here to allow for mocking in tests
-            import azlin.ssh_client
+            import azlin.ssh_client  # type: ignore[import-not-found]
 
             self._ssh_client = azlin.ssh_client.SSHClient()
         return self._ssh_client

@@ -15,10 +15,6 @@ Public API (Studs):
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import azlin.azure_client
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +64,7 @@ class SelfHealer:
     def _get_azure_client(self):
         """Lazy-load Azure client."""
         if self._azure_client is None:
-            from azlin.azure_client import AzureClient
+            from azlin.azure_client import AzureClient  # type: ignore[import-not-found]
 
             self._azure_client = AzureClient()
         return self._azure_client
