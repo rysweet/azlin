@@ -22,7 +22,7 @@ from azlin.costs.actions import (
     VMScheduleAction,
     ResourceDeleteAction,
     ActionSafetyCheck,
-    ActionApprovalRequired,
+    ActionApprovalRequiredError,
     ActionRollback,
 )
 
@@ -135,10 +135,8 @@ class TestVMResizeAction:
             estimated_savings=Decimal("100.00"),
         )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="invalid"):
             action.execute()
-
-        assert "invalid" in str(exc_info.value).lower()
 
     @patch("azlin.costs.actions.VMManager")
     def test_resize_action_handles_running_vms(self, mock_vm_manager_class):
@@ -171,10 +169,8 @@ class TestVMResizeAction:
             estimated_savings=Decimal("-200.00"),  # Negative savings
         )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="increase cost"):
             action.execute()
-
-        assert "increase cost" in str(exc_info.value).lower()
 
     @patch("azlin.costs.actions.VMManager")
     def test_resize_action_supports_rollback(self, mock_vm_manager_class):
@@ -230,7 +226,7 @@ class TestVMScheduleAction:
     @patch("azlin.costs.actions.VMScheduler")
     def test_schedule_action_validates_time_range(self, mock_scheduler):
         """Test schedule action validates start time before stop time."""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="start"):
             VMScheduleAction(
                 resource_name="test-vm",
                 resource_group="test-rg",
@@ -239,8 +235,6 @@ class TestVMScheduleAction:
                 stop_time=time(8, 0),  # Before start time!
                 estimated_savings=Decimal("100.00"),
             )
-
-        assert "start" in str(exc_info.value).lower()
 
     @patch("azlin.costs.actions.VMScheduler")
     def test_schedule_action_supports_weekend_only(self, mock_scheduler_class):
@@ -346,7 +340,7 @@ class TestResourceDeleteAction:
         )
 
         # Execute without approval - should fail
-        with pytest.raises(ActionApprovalRequired) as exc_info:
+        with pytest.raises(ActionApprovalRequiredError) as exc_info:
             action.execute()
 
         assert "approval" in str(exc_info.value).lower()
@@ -390,10 +384,8 @@ class TestResourceDeleteAction:
 
         action.approve()
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="production"):
             action.execute()
-
-        assert "production" in str(exc_info.value).lower()
 
     @patch("azlin.costs.actions.ResourceManager")
     def test_delete_action_supports_soft_delete(self, mock_resource_manager_class):

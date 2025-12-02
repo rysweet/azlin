@@ -176,7 +176,7 @@ class CostDashboard:
             self.cache.set(self.resource_group, metrics)
             return metrics
         except Exception as e:
-            raise CostDashboardError(f"Failed to fetch cost data: {e}")
+            raise CostDashboardError(f"Failed to fetch cost data: {e}") from e
 
     def _fetch_metrics(self) -> DashboardMetrics:
         """Fetch metrics from Azure Cost Management API."""
@@ -225,7 +225,7 @@ class CostDashboard:
                 previous_day_cost=previous_day_cost,
             )
         except Exception as e:
-            raise CostDashboardError(f"Failed to parse cost data: {e}")
+            raise CostDashboardError(f"Failed to parse cost data: {e}") from e
 
     def _fetch_previous_day_cost(self) -> Optional[Decimal]:
         """Fetch previous day cost for trend calculation."""
@@ -299,7 +299,7 @@ class AzureCostManagementClient:
         self.credential = credential
         self.usage = self
 
-    def list(self, resource_group: str = None):
+    def list(self, resource_group: Optional[str] = None):
         """Mock list method."""
         # Return mock data for testing
         return [

@@ -14,10 +14,11 @@ Public API:
     VMScheduleAction: VM scheduling
     ResourceDeleteAction: Resource deletion
     ActionSafetyCheck: Safety validation
-    ActionApprovalRequired: Approval exception
+    ActionApprovalRequiredError: Approval exception
     ActionRollback: Rollback support
 """
 
+import contextlib
 from dataclasses import dataclass
 from datetime import datetime, time
 from decimal import Decimal
@@ -34,7 +35,7 @@ class ActionStatus(Enum):
     FAILED = "failed"
 
 
-class ActionApprovalRequired(Exception):
+class ActionApprovalRequiredError(Exception):
     """Raised when action requires approval."""
 
     pass
@@ -357,7 +358,7 @@ class ResourceDeleteAction(AutomatedAction):
 
         # Check approval
         if self.requires_approval and not self._approved:
-            raise ActionApprovalRequired("Deletion requires explicit approval")
+            raise ActionApprovalRequiredError("Deletion requires explicit approval")
 
         # Check for production environment
         tags = self.resource_manager.get_resource_tags(self.resource_group, self.resource_name)
@@ -470,10 +471,8 @@ class ActionExecutor:
 
     def _send_notification(self, results: List[ActionResult]) -> None:
         """Send completion notification."""
-        try:
+        with contextlib.suppress(Exception):
             self.notification_fn(f"Completed {len(results)} actions")
-        except Exception:
-            pass
 
     def calculate_total_savings(self, results: List[ActionResult]) -> Decimal:
         """Calculate total savings from completed actions."""
@@ -578,6 +577,6 @@ __all__ = [
     "VMScheduleAction",
     "ResourceDeleteAction",
     "ActionSafetyCheck",
-    "ActionApprovalRequired",
+    "ActionApprovalRequiredError",
     "ActionRollback",
 ]
