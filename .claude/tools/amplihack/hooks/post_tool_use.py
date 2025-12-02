@@ -9,7 +9,7 @@ Includes automatic context management via context-management skill.
 # Import the base processor
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 from hook_processor import HookProcessor
@@ -30,7 +30,7 @@ class PostToolUseHook(HookProcessor):
     def __init__(self):
         super().__init__("post_tool_use")
 
-    def save_tool_metric(self, tool_name: str, duration_ms: Optional[int] = None):
+    def save_tool_metric(self, tool_name: str, duration_ms: int | None = None):
         """Save tool usage metric with structured data.
 
         Args:
@@ -43,7 +43,7 @@ class PostToolUseHook(HookProcessor):
 
         self.save_metric("tool_usage", tool_name, metadata)
 
-    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Process post tool use event.
 
         Args:

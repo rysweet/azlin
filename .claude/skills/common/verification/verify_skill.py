@@ -17,10 +17,9 @@ Examples:
 import importlib
 import subprocess
 import sys
-from typing import List, Tuple
 
 
-def check_python_package(package: str) -> Tuple[bool, str]:
+def check_python_package(package: str) -> tuple[bool, str]:
     """Check if Python package is installed.
 
     Args:
@@ -37,7 +36,7 @@ def check_python_package(package: str) -> Tuple[bool, str]:
         return False, "Not installed"
 
 
-def check_system_command(command: str) -> Tuple[bool, str]:
+def check_system_command(command: str) -> tuple[bool, str]:
     """Check if system command is available.
 
     Args:
@@ -70,9 +69,9 @@ def check_system_command(command: str) -> Tuple[bool, str]:
 
 def verify_skill(
     skill_name: str,
-    python_packages_required: List[str],
-    python_packages_optional: List[str],
-    system_commands_optional: List[str],
+    python_packages_required: list[str],
+    python_packages_optional: list[str],
+    system_commands_optional: list[str],
 ) -> bool:
     """Verify all dependencies for a skill.
 
@@ -176,7 +175,7 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: python verify_skill.py <skill|all>")
         print("\nAvailable skills:")
-        for skill in SKILLS.keys():
+        for skill in SKILLS:
             print(f"  - {skill}")
         print("\nOr use 'all' to verify all skills")
         sys.exit(1)
@@ -220,7 +219,7 @@ def main():
     else:
         print(f"Error: Unknown skill '{skill}'")
         print("\nAvailable skills:")
-        for skill_name in SKILLS.keys():
+        for skill_name in SKILLS:
             print(f"  - {skill_name}")
         sys.exit(1)
 

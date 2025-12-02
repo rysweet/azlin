@@ -19,13 +19,12 @@ Public API (the "studs" that other modules connect to):
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 __all__ = [
     "VersionInfo",
+    "check_version_mismatch",
     "get_package_version",
     "get_project_version",
-    "check_version_mismatch",
 ]
 
 
@@ -42,7 +41,7 @@ class VersionInfo:
     """
 
     package_commit: str
-    project_commit: Optional[str]
+    project_commit: str | None
     is_mismatched: bool
     package_path: Path
     project_path: Path
@@ -92,7 +91,7 @@ def get_package_version() -> str:
         return "unknown"
 
 
-def get_project_version(project_path: Path) -> Optional[str]:
+def get_project_version(project_path: Path) -> str | None:
     """Read project version from .claude/.version file.
 
     Args:

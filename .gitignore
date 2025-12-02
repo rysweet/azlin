@@ -647,3 +647,7 @@ TESTING_EVIDENCE.md
 !docs/**/ANALYSIS*.md
 !docs/**/INVESTIGATION*.md
 coverage.json
+
+# Test artifacts
+keys.tar.gz
+template.yaml
