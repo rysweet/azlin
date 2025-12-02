@@ -277,13 +277,14 @@ class BudgetAlertManager:
     def _send_email_notification(self, alert: BudgetAlert) -> None:
         """Send email notification for alert."""
         # Import here to avoid circular dependency
-        try:
-            from azlin.costs.notifications import send_email
+        if self.notify_email:
+            try:
+                from azlin.costs.notifications import send_email
 
-            body = alert.format_message()
-            send_email(self.notify_email, f"Budget Alert: {alert.threshold_name}", body)
-        except ImportError:
-            pass  # Email module not available
+                body = alert.format_message()
+                send_email(self.notify_email, f"Budget Alert: {alert.threshold_name}", body)
+            except ImportError:
+                pass  # Email module not available
 
     def get_alert_history(self, threshold_name: str) -> list[BudgetAlert]:
         """Get alert history for threshold."""

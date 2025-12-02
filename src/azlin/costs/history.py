@@ -212,8 +212,8 @@ class CostHistory:
         if not entries:
             return Decimal("0")
 
-        total = sum(e.total_cost for e in entries)
-        return total / len(entries)
+        total = sum((e.total_cost for e in entries), Decimal("0"))
+        return Decimal(total) / Decimal(len(entries))
 
     def get_total_cost(self, days: int = 7) -> Decimal:
         """Calculate total cost for time period."""
@@ -221,7 +221,7 @@ class CostHistory:
         start_date = end_date - timedelta(days=days - 1)
         entries = self.store.get_range(start_date, end_date)
 
-        return sum(e.total_cost for e in entries)
+        return Decimal(sum((e.total_cost for e in entries), Decimal("0")))
 
 
 @dataclass

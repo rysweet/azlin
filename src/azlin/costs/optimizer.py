@@ -340,7 +340,7 @@ class CostOptimizer:
 
     def calculate_total_savings(self, recommendations: list[OptimizationRecommendation]) -> Decimal:
         """Calculate total savings from all recommendations."""
-        return sum(r.estimated_savings for r in recommendations)
+        return Decimal(sum((r.estimated_savings for r in recommendations), Decimal("0")))
 
     def filter_by_priority(
         self, recommendations: list[OptimizationRecommendation], priority: RecommendationPriority

@@ -245,8 +245,9 @@ class CostDashboard:
         if not daily_costs:
             return Decimal("0")
 
-        total = sum(daily_costs[-days:])
-        return total / len(daily_costs[-days:])
+        recent_costs = daily_costs[-days:]
+        total = sum(recent_costs, Decimal("0"))
+        return Decimal(total) / Decimal(len(recent_costs))
 
     def calculate_monthly_projection(self, daily_avg: Decimal) -> Decimal:
         """Project monthly cost from daily average."""
