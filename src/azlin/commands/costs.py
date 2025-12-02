@@ -16,7 +16,6 @@ import click
 from rich.console import Console
 
 from azlin.click_group import AzlinGroup
-from azlin.config_manager import ConfigError, ConfigManager
 from azlin.costs import (
     ActionExecutor,
     ActionStatus,
@@ -86,8 +85,7 @@ def costs_dashboard(resource_group: str, refresh: bool):
 
         # Get metrics (respects cache unless refresh=True)
         metrics = dashboard.get_dashboard_metrics(
-            resource_group_name=resource_group,
-            force_refresh=refresh
+            resource_group_name=resource_group, force_refresh=refresh
         )
 
         console.print(f"\n[bold cyan]Cost Dashboard - {resource_group}[/bold cyan]")
@@ -98,7 +96,7 @@ def costs_dashboard(resource_group: str, refresh: bool):
         console.print(f"[bold]Daily Trend:[/bold] {metrics.daily_trend}")
 
         if metrics.resources:
-            console.print(f"\n[bold]Top Resources by Cost:[/bold]")
+            console.print("\n[bold]Top Resources by Cost:[/bold]")
             for resource in metrics.resources[:10]:
                 console.print(f"  {resource.name}: ${resource.cost:.2f}")
 
@@ -130,8 +128,7 @@ def costs_history(resource_group: str, days: int):
 
         # Get history
         entries = history.get_cost_history(
-            resource_group_name=resource_group,
-            time_range=time_range
+            resource_group_name=resource_group, time_range=time_range
         )
 
         console.print(f"\n[bold cyan]Cost History - {resource_group}[/bold cyan]")
@@ -144,7 +141,7 @@ def costs_history(resource_group: str, days: int):
         total = sum(e.cost for e in entries)
         console.print(f"[bold]Total Cost:[/bold] ${total:.2f}")
         console.print(f"[bold]Number of Days:[/bold] {len(entries)}")
-        console.print(f"[bold]Average per Day:[/bold] ${total/max(1,len(entries)):.2f}\n")
+        console.print(f"[bold]Average per Day:[/bold] ${total / max(1, len(entries)):.2f}\n")
 
         # Show daily breakdown
         console.print("[bold]Daily Breakdown:[/bold]")
@@ -181,17 +178,13 @@ def costs_budget(action: str, resource_group: str, amount: float | None, thresho
                 sys.exit(1)
 
             # Create budget threshold
-            threshold_obj = BudgetThreshold(
-                amount=amount,
-                alert_percentage=threshold or 80
-            )
+            threshold_obj = BudgetThreshold(amount=amount, alert_percentage=threshold or 80)
 
-            budget_mgr.set_budget(
-                resource_group_name=resource_group,
-                threshold=threshold_obj
-            )
+            budget_mgr.set_budget(resource_group_name=resource_group, threshold=threshold_obj)
 
-            console.print(f"[green]✓[/green] Budget set to ${amount:.2f} with {threshold or 80}% alert threshold")
+            console.print(
+                f"[green]✓[/green] Budget set to ${amount:.2f} with {threshold or 80}% alert threshold"
+            )
 
         elif action == "show":
             budget = budget_mgr.get_budget(resource_group)
@@ -241,7 +234,9 @@ def costs_recommend(resource_group: str, priority: str | None):
             priority_enum = RecommendationPriority[priority.upper()]
             recommendations = [r for r in recommendations if r.priority == priority_enum]
 
-        console.print(f"\n[bold cyan]Cost Optimization Recommendations - {resource_group}[/bold cyan]\n")
+        console.print(
+            f"\n[bold cyan]Cost Optimization Recommendations - {resource_group}[/bold cyan]\n"
+        )
 
         if not recommendations:
             console.print("[green]No recommendations at this time[/green]")
@@ -251,7 +246,7 @@ def costs_recommend(resource_group: str, priority: str | None):
             priority_color = {
                 RecommendationPriority.HIGH: "red",
                 RecommendationPriority.MEDIUM: "yellow",
-                RecommendationPriority.LOW: "blue"
+                RecommendationPriority.LOW: "blue",
             }.get(rec.priority, "white")
 
             console.print(f"[bold]{i}. {rec.title}[/bold]")
@@ -310,7 +305,9 @@ def costs_actions(action: str, resource_group: str, priority: str | None, dry_ru
                 return
 
             if dry_run:
-                console.print(f"\n[bold yellow]DRY RUN - No actions will be executed[/bold yellow]\n")
+                console.print(
+                    "\n[bold yellow]DRY RUN - No actions will be executed[/bold yellow]\n"
+                )
             else:
                 console.print(f"\n[bold cyan]Executing Actions - {resource_group}[/bold cyan]\n")
 

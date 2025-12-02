@@ -323,9 +323,7 @@ class TrendAnalyzer:
         # Simple anomaly detection: costs > 3x mean
         threshold = mean * 3
 
-        for entry in self.entries:
-            if entry.total_cost > threshold:
-                anomalies.append(entry)
+        anomalies = [entry for entry in self.entries if entry.total_cost > threshold]
 
         return anomalies
 

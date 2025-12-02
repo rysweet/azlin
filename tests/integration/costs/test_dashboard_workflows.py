@@ -11,10 +11,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
-import pytest
-
-from azlin.costs.dashboard import CostDashboard
 from azlin.costs.budget import BudgetAlertManager, BudgetThreshold
+from azlin.costs.dashboard import CostDashboard
 from azlin.costs.history import CostHistory
 from azlin.costs.optimizer import CostOptimizer
 
@@ -170,9 +168,7 @@ class TestBudgetHistoryIntegration:
 
         # Check budget with historical context
         current_cost = Decimal("120.00")
-        alerts = budget_manager.check_budgets(
-            {"Dev": current_cost}, historical_context=history
-        )
+        alerts = budget_manager.check_budgets({"Dev": current_cost}, historical_context=history)
 
         # Alert should include trend information
         assert len(alerts) == 1
@@ -192,9 +188,7 @@ class TestBudgetHistoryIntegration:
 
         # Forecast should predict when budget will be breached
         current_total = Decimal("400.00")
-        forecast = budget_manager.forecast_breach_date(
-            current_total, threshold.limit, history
-        )
+        forecast = budget_manager.forecast_breach_date(current_total, threshold.limit, history)
 
         # At $10/day, should breach in ~10 days
         expected_date = datetime.now().date() + timedelta(days=10)

@@ -352,13 +352,15 @@ class TestCostOptimizer:
     @patch("azlin.costs.optimizer.OversizedVMDetector")
     @patch("azlin.costs.optimizer.IdleResourceDetector")
     @patch("azlin.costs.optimizer.SchedulingOpportunity")
-    def test_optimizer_aggregates_recommendations(
-        self, mock_schedule, mock_idle, mock_oversized
-    ):
+    def test_optimizer_aggregates_recommendations(self, mock_schedule, mock_idle, mock_oversized):
         """Test optimizer aggregates recommendations from all sources."""
-        mock_oversized.return_value.analyze_all.return_value = [Mock(estimated_savings=Decimal("100"))]
+        mock_oversized.return_value.analyze_all.return_value = [
+            Mock(estimated_savings=Decimal("100"))
+        ]
         mock_idle.return_value.analyze_all.return_value = [Mock(estimated_savings=Decimal("50"))]
-        mock_schedule.return_value.analyze_all.return_value = [Mock(estimated_savings=Decimal("75"))]
+        mock_schedule.return_value.analyze_all.return_value = [
+            Mock(estimated_savings=Decimal("75"))
+        ]
 
         optimizer = CostOptimizer(resource_group="test-rg")
         recommendations = optimizer.analyze()

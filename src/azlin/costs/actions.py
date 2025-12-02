@@ -297,7 +297,9 @@ class VMScheduleAction(AutomatedAction):
 
     def _remove_schedule(self) -> None:
         """Remove schedule from VM."""
-        self.vm_scheduler.remove_schedule(resource_group=self.resource_group, vm_name=self.resource_name)
+        self.vm_scheduler.remove_schedule(
+            resource_group=self.resource_group, vm_name=self.resource_name
+        )
 
     @staticmethod
     def create_business_hours_schedule():
@@ -330,7 +332,7 @@ class ResourceDeleteAction(AutomatedAction):
     ):
         """Initialize resource delete action."""
         # Remove requires_approval from kwargs to prevent duplicate
-        kwargs.pop('requires_approval', None)
+        kwargs.pop("requires_approval", None)
 
         super().__init__(
             action_type="resource_delete",

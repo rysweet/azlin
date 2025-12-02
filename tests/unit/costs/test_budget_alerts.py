@@ -337,7 +337,9 @@ class TestBudgetAlertManager:
         """Test manager checks cost against all thresholds."""
         thresholds = [
             BudgetThreshold(name="Dev", limit=Decimal("1000.00"), warning_percentage=Decimal("80")),
-            BudgetThreshold(name="Prod", limit=Decimal("5000.00"), warning_percentage=Decimal("80")),
+            BudgetThreshold(
+                name="Prod", limit=Decimal("5000.00"), warning_percentage=Decimal("80")
+            ),
         ]
 
         manager = BudgetAlertManager(thresholds)

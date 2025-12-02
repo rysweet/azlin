@@ -497,9 +497,7 @@ class TestActionExecutor:
 
     def test_executor_runs_multiple_actions_sequentially(self):
         """Test executor runs actions one at a time."""
-        actions = [
-            Mock(spec=AutomatedAction, resource_name=f"vm-{i}") for i in range(3)
-        ]
+        actions = [Mock(spec=AutomatedAction, resource_name=f"vm-{i}") for i in range(3)]
 
         for action in actions:
             action.execute.return_value = ActionResult(status=ActionStatus.COMPLETED)
@@ -556,7 +554,7 @@ class TestActionExecutor:
         for i, action in enumerate(actions):
             action.execute.return_value = ActionResult(
                 status=ActionStatus.COMPLETED,
-                actual_savings=Decimal(["100.00", "50.00", "75.00"][i])
+                actual_savings=Decimal(["100.00", "50.00", "75.00"][i]),
             )
 
         executor = ActionExecutor()

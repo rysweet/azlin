@@ -209,7 +209,9 @@ class SchedulingOpportunity:
 
         # Check for development VMs
         if environment == "dev" and running_24x7:
-            savings = self.calculate_business_hours_savings(vm_info.get("cost_per_hour", Decimal("0")))
+            savings = self.calculate_business_hours_savings(
+                vm_info.get("cost_per_hour", Decimal("0"))
+            )
 
             return OptimizationRecommendation(
                 resource_name=vm_info["name"],
@@ -224,7 +226,9 @@ class SchedulingOpportunity:
 
         # Check for training VMs
         if "training" in purpose.lower() and running_24x7:
-            savings = self._calculate_weekend_only_savings(vm_info.get("cost_per_hour", Decimal("0")))
+            savings = self._calculate_weekend_only_savings(
+                vm_info.get("cost_per_hour", Decimal("0"))
+            )
 
             return OptimizationRecommendation(
                 resource_name=vm_info["name"],
@@ -321,15 +325,15 @@ class CostOptimizer:
         recommendations = []
 
         # Run oversized VM detection
-        if hasattr(self.oversized_detector, 'analyze_all'):
+        if hasattr(self.oversized_detector, "analyze_all"):
             recommendations.extend(self.oversized_detector.analyze_all())
 
         # Run idle resource detection
-        if hasattr(self.idle_detector, 'analyze_all'):
+        if hasattr(self.idle_detector, "analyze_all"):
             recommendations.extend(self.idle_detector.analyze_all())
 
         # Run scheduling opportunity detection
-        if hasattr(self.scheduling_detector, 'analyze_all'):
+        if hasattr(self.scheduling_detector, "analyze_all"):
             recommendations.extend(self.scheduling_detector.analyze_all())
 
         return recommendations

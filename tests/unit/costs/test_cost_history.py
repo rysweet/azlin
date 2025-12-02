@@ -149,7 +149,9 @@ class TestCostHistoryStore:
         ]
 
         for date in dates:
-            entry = CostHistoryEntry(resource_group="test-rg", date=date, total_cost=Decimal("100.00"))
+            entry = CostHistoryEntry(
+                resource_group="test-rg", date=date, total_cost=Decimal("100.00")
+            )
             store.add(entry)
 
         all_entries = store.get_all()
@@ -250,8 +252,7 @@ class TestCostHistory:
     def test_history_records_daily_snapshot(self, mock_dashboard, tmp_path):
         """Test history records daily cost snapshot."""
         mock_dashboard.return_value.get_current_metrics.return_value = Mock(
-            total_cost=Decimal("150.00"),
-            resource_breakdown=[]
+            total_cost=Decimal("150.00"), resource_breakdown=[]
         )
 
         # Use temporary store path to ensure clean state
@@ -310,7 +311,9 @@ class TestCostHistory:
 
         for i in range(7):
             date = datetime.now().date() - timedelta(days=i)
-            entry = CostHistoryEntry(resource_group="test-rg", date=date, total_cost=Decimal("100.00"))
+            entry = CostHistoryEntry(
+                resource_group="test-rg", date=date, total_cost=Decimal("100.00")
+            )
             history.store.add(entry)
 
         avg = history.get_average_daily_cost(days=7)

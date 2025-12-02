@@ -65,6 +65,7 @@ class TestCostDashboardCache:
 
         # Wait for expiration
         import time
+
         time.sleep(1.1)
 
         assert cache.get("rg-test") is None
@@ -297,10 +298,16 @@ class TestResourceCostBreakdown:
     def test_breakdown_comparison(self):
         """Test breakdown objects can be compared by cost."""
         b1 = ResourceCostBreakdown(
-            resource_type="VM", resource_name="vm-1", cost=Decimal("100.00"), percentage=Decimal("50.0")
+            resource_type="VM",
+            resource_name="vm-1",
+            cost=Decimal("100.00"),
+            percentage=Decimal("50.0"),
         )
         b2 = ResourceCostBreakdown(
-            resource_type="VM", resource_name="vm-2", cost=Decimal("150.00"), percentage=Decimal("50.0")
+            resource_type="VM",
+            resource_name="vm-2",
+            cost=Decimal("150.00"),
+            percentage=Decimal("50.0"),
         )
 
         assert b2 > b1
@@ -325,7 +332,9 @@ class TestResourceCostBreakdown:
 class TestDashboardIntegrationPoints:
     """Tests for dashboard integration with other modules."""
 
-    @pytest.mark.skip(reason="CostTracker integration not yet implemented - deferred to post-release")
+    @pytest.mark.skip(
+        reason="CostTracker integration not yet implemented - deferred to post-release"
+    )
     @patch("azlin.costs.dashboard.CostTracker")
     def test_dashboard_integrates_with_cost_tracker(self, mock_tracker):
         """Test dashboard uses CostTracker for VM-specific costs."""

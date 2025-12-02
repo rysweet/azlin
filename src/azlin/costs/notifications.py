@@ -28,11 +28,7 @@ def send_email(recipient: str, subject: str, body: str) -> None:
         your email service (SendGrid, AWS SES, Azure Communication Services, etc.)
     """
     # Log the notification (for testing and debugging)
-    logger.info(
-        f"Email notification sent to {recipient}:\n"
-        f"Subject: {subject}\n"
-        f"Body: {body}"
-    )
+    logger.info(f"Email notification sent to {recipient}:\nSubject: {subject}\nBody: {body}")
 
     # In production, would call email service:
     # email_service.send(
@@ -53,10 +49,7 @@ def send_webhook(url: str, payload: dict) -> None:
         This is a placeholder implementation. In production, integrate with
         requests library or httpx.
     """
-    logger.info(
-        f"Webhook notification sent to {url}:\n"
-        f"Payload: {payload}"
-    )
+    logger.info(f"Webhook notification sent to {url}:\nPayload: {payload}")
 
     # In production, would call webhook:
     # import requests

@@ -8,9 +8,7 @@ Tests complete user workflows from command-line to Azure operations.
 """
 
 import subprocess
-from datetime import datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest

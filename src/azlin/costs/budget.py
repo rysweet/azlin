@@ -121,7 +121,11 @@ class BudgetAlertTrigger:
             if elapsed.total_seconds() < self.cooldown_minutes * 60:
                 return None
 
-        percentage_used = (current_cost / self.threshold.limit) * 100 if self.threshold.limit > 0 else Decimal("0")
+        percentage_used = (
+            (current_cost / self.threshold.limit) * 100
+            if self.threshold.limit > 0
+            else Decimal("0")
+        )
 
         # Determine severity
         severity = None
