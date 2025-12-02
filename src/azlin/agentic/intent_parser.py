@@ -110,6 +110,15 @@ Available azlin commands:
 - azlin storage status: Show storage status (name)
 - azlin update: Update VM tools (vm_name)
 
+PRONOUN RESOLUTION:
+When the user uses pronouns like "it", "that", or "those", resolve them using the session context:
+- Check "last_entities" in context for the most recent entity of each type
+- Check "recent_commands" to understand what the user was doing
+- Common cases:
+  * "start it" after creating a VM → resolve "it" to the last VM name
+  * "sync that" after mentioning a VM → resolve "that" to the VM name
+  * "delete those" after listing VMs → may need clarification
+
 Output Format (JSON only, no explanation):
 {
     "intent": "provision_vm | list_vms | sync_vms | cost_report | ...",
@@ -133,6 +142,8 @@ Output Format (JSON only, no explanation):
 CRITICAL:
 - Always include exact azlin command syntax in "azlin_commands"
 - Use --name for VM names, never positional arguments
+- Resolve pronouns using session context (last_entities, recent_commands)
+- If pronoun cannot be resolved, set confidence < 0.7 and explain in "explanation"
 - If request is ambiguous, include multiple possible interpretations
 - Set confidence < 0.7 if uncertain"""
 
