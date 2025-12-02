@@ -36,7 +36,7 @@ class DaemonStatus:
     running: bool
     pid: int | None = None
     uptime: timedelta | None = None
-    monitored_vms: list[str] = None
+    monitored_vms: list[str] | None = None
 
 
 class LifecycleDaemon:
@@ -227,7 +227,8 @@ class LifecycleDaemon:
                         status = self.lifecycle_manager.get_monitoring_status(vm_name)
                         if status.enabled:
                             min_interval = min(min_interval, status.config.check_interval_seconds)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"Failed to get monitoring status for {vm_name}: {e}")
                         continue
 
                 logger.debug(f"Sleeping for {min_interval} seconds until next check")

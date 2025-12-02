@@ -11,6 +11,7 @@ Public API (Studs):
     ControllerError - Daemon control errors
 """
 
+import contextlib
 import logging
 import os
 import signal
@@ -269,11 +270,9 @@ class DaemonController:
 
         if follow:
             # Follow logs with tail -f
-            try:
+            # User can press Ctrl+C to stop following logs - exit gracefully
+            with contextlib.suppress(KeyboardInterrupt):
                 subprocess.run(["tail", "-f", str(self.log_file)])
-            except KeyboardInterrupt:
-                # User pressed Ctrl+C to stop following logs - exit gracefully
-                pass
         else:
             # Show last N lines
             try:

@@ -15,6 +15,10 @@ Public API (Studs):
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import azlin.azure_client
 
 logger = logging.getLogger(__name__)
 

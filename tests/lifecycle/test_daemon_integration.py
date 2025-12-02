@@ -343,12 +343,12 @@ log_file = "{log_file!s}"
         controller = controller_env["controller"]
 
         # Import is done inside start_daemon, so we need to patch it there
-        with patch("azlin.lifecycle.lifecycle_daemon.LifecycleDaemon") as MockDaemon:
-            mock_daemon = MockDaemon.return_value
+        with patch("azlin.lifecycle.lifecycle_daemon.LifecycleDaemon") as mock_daemon_cls:
+            mock_daemon = mock_daemon_cls.return_value
 
             controller.start_daemon(foreground=True)
 
-            MockDaemon.assert_called_once_with(controller.config_path)
+            mock_daemon_cls.assert_called_once_with(controller.config_path)
             mock_daemon.start.assert_called_once()
 
     def test_start_daemon_background_spawns_process(self, controller_env):

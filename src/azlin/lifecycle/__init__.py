@@ -51,34 +51,29 @@ from .self_healer import (
 )
 
 __all__ = [
-    # Configuration
-    "LifecycleManager",
-    "MonitoringConfig",
-    "MonitoringStatus",
-    "LifecycleConfigError",
     "LIFECYCLE_CONFIG_PATH",
-    "VALID_RESTART_POLICIES",
     "VALID_HOOK_TYPES",
-    # Health Monitoring
+    "VALID_RESTART_POLICIES",
+    "ControllerError",
+    "DaemonController",
+    "DaemonError",
+    "DaemonStatus",
+    "HealthCheckError",
+    "HealthFailure",
     "HealthMonitor",
     "HealthStatus",
-    "VMState",
-    "VMMetrics",
-    "HealthFailure",
-    "HealthCheckError",
-    # Self-Healing
-    "SelfHealer",
-    "RestartResult",
-    "SelfHealingError",
-    # Hooks
+    "HookExecutionError",
     "HookExecutor",
     "HookResult",
     "HookType",
-    "HookExecutionError",
-    # Daemon
+    "LifecycleConfigError",
     "LifecycleDaemon",
-    "DaemonController",
-    "DaemonStatus",
-    "DaemonError",
-    "ControllerError",
+    "LifecycleManager",
+    "MonitoringConfig",
+    "MonitoringStatus",
+    "RestartResult",
+    "SelfHealer",
+    "SelfHealingError",
+    "VMMetrics",
+    "VMState",
 ]
