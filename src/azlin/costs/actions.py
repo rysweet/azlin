@@ -409,11 +409,14 @@ class ActionSafetyCheck:
     """Safety validation for actions."""
 
     resource_manager: Optional["ResourceManager"] = None
+    _running_actions: Dict[str, AutomatedAction] = None
 
     def __post_init__(self):
         """Initialize resource manager after dataclass init."""
         if self.resource_manager is None:
             self.resource_manager = ResourceManager()
+        if self._running_actions is None:
+            self._running_actions = {}
 
     def validate(self, action: AutomatedAction) -> "SafetyResult":
         """Validate action safety."""
@@ -422,7 +425,15 @@ class ActionSafetyCheck:
             return SafetyResult(safe=False, reason="Resource not found")
 
         # Check for duplicate actions
-        # (In real implementation, would check running action registry)
+        resource_key = f"{action.resource_group}/{action.resource_name}"
+        if resource_key in self._running_actions:
+            existing = self._running_actions[resource_key]
+            if existing.status == ActionStatus.RUNNING:
+                return SafetyResult(safe=False, reason="Action already running on this resource")
+
+        # Track this action for duplicate detection
+        # (will be registered as running when mark_running() is called)
+        self._running_actions[resource_key] = action
 
         # Validate cost savings
         if action.estimated_savings < 0:

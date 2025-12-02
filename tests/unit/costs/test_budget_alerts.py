@@ -357,7 +357,7 @@ class TestBudgetAlertManager:
         history = manager.get_alert_history("Dev")
         assert len(history) >= 2
 
-    @patch("azlin.costs.budget.send_email")
+    @patch("azlin.costs.notifications.send_email")
     def test_manager_sends_email_notifications(self, mock_email):
         """Test manager sends email notifications for alerts."""
         threshold = BudgetThreshold(name="Prod", limit=Decimal("5000.00"))
@@ -367,7 +367,7 @@ class TestBudgetAlertManager:
 
         mock_email.assert_called_once()
         call_args = mock_email.call_args[0]
-        assert "exceeded" in call_args[1].lower()  # Email body contains "exceeded"
+        assert "exceeded" in call_args[2].lower()  # Email body contains "exceeded"
 
     def test_manager_supports_custom_notification_handlers(self):
         """Test manager supports custom notification callbacks."""
