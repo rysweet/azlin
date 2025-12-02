@@ -110,7 +110,7 @@ class CrossRegionSync:
             raise ValueError("paths list cannot be empty")
 
         # Get VM IP address from config
-        vm_ip = self.config_manager.get_vm_ip(vm_name)
+        vm_ip = self.config_manager.get_vm_ip(vm_name)  # type: ignore[attr-defined]
         if not vm_ip:
             raise ValueError(f"No IP address found for VM: {vm_name}")
 
@@ -245,8 +245,8 @@ class CrossRegionSync:
         start_time = time.time()
 
         # Get VM IPs
-        source_ip = self.config_manager.get_vm_ip(source_vm)
-        target_ip = self.config_manager.get_vm_ip(target_vm)
+        source_ip = self.config_manager.get_vm_ip(source_vm)  # type: ignore[attr-defined]
+        target_ip = self.config_manager.get_vm_ip(target_vm)  # type: ignore[attr-defined]
 
         if not source_ip or not target_ip:
             return SyncResult(
@@ -260,8 +260,8 @@ class CrossRegionSync:
             )
 
         # Get regions
-        source_region = self.config_manager.get_vm_region(source_vm) or "unknown"
-        target_region = self.config_manager.get_vm_region(target_vm) or "unknown"
+        source_region = self.config_manager.get_vm_region(source_vm) or "unknown"  # type: ignore[attr-defined]
+        target_region = self.config_manager.get_vm_region(target_vm) or "unknown"  # type: ignore[attr-defined]
 
         total_files = 0
         total_bytes = 0
@@ -352,8 +352,8 @@ class CrossRegionSync:
         start_time = time.time()
 
         # Get VM IPs
-        source_ip = self.config_manager.get_vm_ip(source_vm)
-        target_ip = self.config_manager.get_vm_ip(target_vm)
+        source_ip = self.config_manager.get_vm_ip(source_vm)  # type: ignore[attr-defined]
+        target_ip = self.config_manager.get_vm_ip(target_vm)  # type: ignore[attr-defined]
 
         if not source_ip or not target_ip:
             return SyncResult(
@@ -367,11 +367,11 @@ class CrossRegionSync:
             )
 
         # Get regions
-        source_region = self.config_manager.get_vm_region(source_vm) or "unknown"
-        target_region = self.config_manager.get_vm_region(target_vm) or "unknown"
+        source_region = self.config_manager.get_vm_region(source_vm) or "unknown"  # type: ignore[attr-defined]
+        target_region = self.config_manager.get_vm_region(target_vm) or "unknown"  # type: ignore[attr-defined]
 
         # Get or create staging container
-        storage_account = self.config_manager.get_storage_account()
+        storage_account = self.config_manager.get_storage_account()  # type: ignore[attr-defined]
         container_name = f"azlin-sync-staging-{int(time.time())}"
 
         total_files = 0

@@ -22,8 +22,8 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from azlin.config_manager import ConfigManager
-    from azlin.models import VMConfig
+    from azlin.config_manager import ConfigManager  # type: ignore[import]
+    from azlin.models import VMConfig  # type: ignore[import]
 
 
 class DeploymentStatus(Enum):
@@ -189,7 +189,7 @@ class ParallelDeployer:
                         duration_seconds=0.0,
                     )
                 )
-            elif result.status == DeploymentStatus.SUCCESS:
+            elif result.status == DeploymentStatus.SUCCESS:  # type: ignore[union-attr]
                 successful.append(result)
             else:
                 failed.append(result)
