@@ -291,8 +291,9 @@ class RegionContext:
                     self._regions[region] = metadata
                     synced_count += 1
 
-                except Exception:
+                except Exception as e:
                     # Skip VMs that fail to parse
+                    print(f"Warning: Failed to parse VM metadata: {e}")
                     continue
 
             return synced_count

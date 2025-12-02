@@ -356,7 +356,7 @@ class RegionFailover:
         confidence = confidence_map.get(failure_type, 0.20)
 
         # Threshold for auto-failover
-        AUTO_THRESHOLD = 0.85
+        auto_threshold = 0.85
 
         # Determine if should auto-failover based on mode and confidence
         should_auto = False
@@ -369,7 +369,7 @@ class RegionFailover:
             should_auto = False
             reason = f"MANUAL mode: Require confirmation (confidence: {confidence:.0%})"
         else:  # HYBRID
-            should_auto = confidence >= AUTO_THRESHOLD
+            should_auto = confidence >= auto_threshold
             if should_auto:
                 reason = f"{failure_type.value} - clear failure (confidence: {confidence:.0%})"
             else:

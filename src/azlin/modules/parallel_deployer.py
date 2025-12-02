@@ -122,7 +122,7 @@ class ParallelDeployer:
             raise ValueError("regions list cannot be empty")
 
         # Validate region names (basic check)
-        VALID_REGIONS = [
+        valid_regions = [
             "eastus",
             "eastus2",
             "westus",
@@ -157,7 +157,7 @@ class ParallelDeployer:
             "indiacentral",
         ]
 
-        invalid_regions = [r for r in regions if r not in VALID_REGIONS]
+        invalid_regions = [r for r in regions if r not in valid_regions]
         if invalid_regions:
             raise ValueError(f"Invalid region names: {invalid_regions}")
 

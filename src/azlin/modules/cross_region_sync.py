@@ -144,8 +144,9 @@ class CrossRegionSync:
                     size_str = output.split()[0]
                     total_bytes += int(size_str)
 
-            except Exception:
+            except Exception as e:
                 # Continue on errors, accumulate what we can
+                print(f"Warning: Failed to get size for {path}: {e}")
                 continue
 
         return total_bytes
@@ -170,9 +171,9 @@ class CrossRegionSync:
             raise ValueError("estimated_size_bytes cannot be negative")
 
         # Threshold: 100MB
-        THRESHOLD = 100 * 1024 * 1024
+        threshold = 100 * 1024 * 1024
 
-        if estimated_size_bytes < THRESHOLD:
+        if estimated_size_bytes < threshold:
             return SyncStrategy.RSYNC
         return SyncStrategy.AZURE_BLOB
 
