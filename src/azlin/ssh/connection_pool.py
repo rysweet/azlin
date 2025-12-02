@@ -14,7 +14,7 @@ Public API (the "studs"):
 
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -86,10 +86,8 @@ class SSHConnection:
         if self.client is None:
             self.client = paramiko.SSHClient()
             # Security: Load known hosts first
-            try:
+            with suppress(Exception):  # System host keys may not exist
                 self.client.load_system_host_keys()
-            except Exception:
-                pass  # System host keys may not exist
 
             # Azure VMs have dynamic IPs and ephemeral hosts - AutoAddPolicy is acceptable
             # in this infrastructure context. In production, consider using a custom policy
@@ -268,7 +266,7 @@ class SSHConnectionPool:
         # Find oldest connection (filter out None last_used)
         oldest_key = min(
             self.pool.keys(),
-            key=lambda k: self.pool[k].last_used if self.pool[k].last_used is not None else 0.0,
+            key=lambda k: self.pool[k].last_used or float("inf"),
         )
         self._close_connection(oldest_key)
         self._stats["connections_evicted"] += 1
@@ -354,7 +352,7 @@ class SSHConnectionPool:
                 conn.close()
             self.pool.clear()
 
-    def get_stats(self) -> dict[str, any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get pool statistics.
 
         Returns:

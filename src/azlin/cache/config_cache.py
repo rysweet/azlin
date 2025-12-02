@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import tomli  # noqa: F401 (used in try/except at runtime)
+    import tomli  # noqa: F401 (used in try/except at runtime)  # type: ignore[import-not-found]
 
 
 @dataclass
@@ -139,7 +139,7 @@ class CachedConfigManager:
         try:
             # Try TOML first (most common for azlin)
             try:
-                import tomli
+                import tomli  # type: ignore[import-not-found]
 
                 with open(config_path, "rb") as f:
                     return tomli.load(f)
