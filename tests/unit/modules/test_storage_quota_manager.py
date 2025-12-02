@@ -207,21 +207,21 @@ class TestStorageQuotaManagerSetQuota:
         with pytest.raises(ValueError, match="Invalid scope"):
             StorageQuotaManager.set_quota(scope="invalid", name="test", quota_gb=100)
 
-    @patch("azlin.modules.storage_quota_manager.Path")
-    def test_set_quota_creates_config_file(self, mock_path):
+    def test_set_quota_creates_config_file(self):
         """Test set_quota creates ~/.azlin/quotas.json."""
-        mock_file = MagicMock()
-        mock_path.return_value = mock_file
-        mock_file.exists.return_value = False
-        mock_file.parent.mkdir = Mock()
-        mock_file.write_text = Mock()
+        # Create a mock for the QUOTA_FILE class variable
+        with patch.object(StorageQuotaManager, 'QUOTA_FILE') as mock_file:
+            mock_parent = MagicMock()
+            mock_file.parent = mock_parent
+            mock_file.exists.return_value = False
+            mock_file.write_text = Mock()
 
-        StorageQuotaManager.set_quota(scope="vm", name="test-vm", quota_gb=500)
+            StorageQuotaManager.set_quota(scope="vm", name="test-vm", quota_gb=500)
 
-        # Verify directory creation
-        mock_file.parent.mkdir.assert_called_once()
-        # Verify file write
-        mock_file.write_text.assert_called_once()
+            # Verify directory creation
+            mock_parent.mkdir.assert_called_once_with(parents=True, exist_ok=True)
+            # Verify file write
+            mock_file.write_text.assert_called_once()
 
     @patch("azlin.modules.storage_quota_manager.Path")
     def test_set_quota_updates_existing_quota(self, mock_path):
@@ -478,19 +478,17 @@ class TestStorageQuotaManagerListQuotas:
         # Should return list of QuotaStatus for all quotas
         assert len(result) == 4  # 2 VMs + 1 team + 1 project
 
-    @patch("azlin.modules.storage_quota_manager.Path")
-    def test_list_quotas_empty(self, mock_path):
+    def test_list_quotas_empty(self):
         """Test list_quotas with no configured quotas."""
-        mock_file = MagicMock()
-        mock_path.return_value = mock_file
-        mock_file.exists.return_value = False
+        with patch.object(StorageQuotaManager, 'QUOTA_FILE') as mock_file:
+            mock_file.exists.return_value = False
 
-        result = StorageQuotaManager.list_quotas()
+            result = StorageQuotaManager.list_quotas()
 
-        assert result == []
+            assert result == []
 
-    @patch("azlin.modules.storage_quota_manager.Path")
-    def test_list_quotas_filtered_by_resource_group(self, mock_path):
+    @patch("azlin.modules.storage_quota_manager.subprocess.run")
+    def test_list_quotas_filtered_by_resource_group(self, mock_subprocess):
         """Test list_quotas filtered to specific resource group."""
         quotas = {
             "vm": {
@@ -514,15 +512,17 @@ class TestStorageQuotaManagerListQuotas:
             },
         }
 
-        mock_file = MagicMock()
-        mock_path.return_value = mock_file
-        mock_file.exists.return_value = True
-        mock_file.read_text.return_value = json.dumps(quotas)
+        with patch.object(StorageQuotaManager, 'QUOTA_FILE') as mock_file:
+            mock_file.exists.return_value = True
+            mock_file.read_text.return_value = json.dumps(quotas)
 
-        result = StorageQuotaManager.list_quotas(resource_group="azlin-dev-rg")
+            # Mock Azure CLI calls to return empty results
+            mock_subprocess.return_value = Mock(returncode=0, stdout="[]")
 
-        # Should only return quotas for azlin-dev-rg
-        assert len(result) == 1
+            result = StorageQuotaManager.list_quotas(resource_group="azlin-dev-rg")
+
+            # Should only return quotas for azlin-dev-rg
+            assert len(result) == 1
 
 
 class TestStorageQuotaManagerEdgeCases:
@@ -548,16 +548,14 @@ class TestStorageQuotaManagerEdgeCases:
         # Should handle error gracefully and return 0 for failed resource types
         # Or raise clear error message
 
-    @patch("azlin.modules.storage_quota_manager.Path")
-    def test_corrupted_quota_config_file(self, mock_path):
+    def test_corrupted_quota_config_file(self):
         """Test handling of corrupted quotas.json file."""
-        mock_file = MagicMock()
-        mock_path.return_value = mock_file
-        mock_file.exists.return_value = True
-        mock_file.read_text.return_value = "invalid json{{"
+        with patch.object(StorageQuotaManager, 'QUOTA_FILE') as mock_file:
+            mock_file.exists.return_value = True
+            mock_file.read_text.return_value = "invalid json{{"
 
-        with pytest.raises(ValueError, match="Corrupted quota configuration"):
-            StorageQuotaManager.list_quotas()
+            with pytest.raises(ValueError, match="Corrupted quota configuration"):
+                StorageQuotaManager.list_quotas()
 
 
 class TestStorageQuotaManagerPerformance:

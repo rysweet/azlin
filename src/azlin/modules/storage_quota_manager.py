@@ -295,11 +295,14 @@ class StorageQuotaManager:
         for scope in quotas:
             for name in quotas[scope]:
                 # Filter by resource group if specified
-                if resource_group and scope == "team" and name != resource_group:
-                    # For team scope, filter by name
-                    continue
-                # For VM scope, we'd need to query which VMs are in the RG
-                # For now, include all VMs (could enhance later)
+                if resource_group:
+                    # For team scope, filter by name matching resource group
+                    if scope == "team" and name != resource_group:
+                        continue
+                    # For VM and project scopes, skip when filtering by resource group
+                    # (would need to query Azure to know which VMs are in which RG)
+                    elif scope in ("vm", "project"):
+                        continue
 
                 try:
                     status = cls.get_quota(scope=scope, name=name, resource_group=resource_group)
