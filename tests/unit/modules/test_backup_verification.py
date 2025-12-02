@@ -391,9 +391,11 @@ class TestVerifyAllBackups:
         )
 
         assert len(results) == 3
-        assert results[0].success is True
-        assert results[1].success is False
-        assert results[2].success is True
+        # Due to ThreadPoolExecutor with as_completed(), results may come back in any order
+        successes = [r for r in results if r.success]
+        failures = [r for r in results if not r.success]
+        assert len(successes) == 2
+        assert len(failures) == 1
 
     @patch("azlin.modules.backup_verification.BackupManager.list_backups")
     @patch("azlin.modules.backup_verification.VerificationManager.verify_backup")
