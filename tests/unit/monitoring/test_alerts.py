@@ -149,11 +149,9 @@ class TestAlertEngineInit:
 """
             )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match=r"(?i)invalid"):
             engine = AlertEngine(rules_config=temp_rules_config)
             engine.load_rules()
-
-        assert "invalid" in str(exc_info.value).lower()
 
 
 class TestAlertRuleDefinition:
@@ -190,7 +188,7 @@ class TestAlertRuleDefinition:
             assert rule.comparison == op
 
         # Invalid operator
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"(?i)comparison"):
             AlertRule(
                 name="test",
                 metric="cpu_percent",
@@ -220,7 +218,7 @@ class TestAlertRuleDefinition:
             "../../../etc/passwd",
         ]
         for metric in invalid_metrics:
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match=r"(?i)metric"):
                 AlertRule(
                     name="test",
                     metric=metric,
@@ -244,7 +242,7 @@ class TestAlertRuleDefinition:
 
         # Invalid thresholds
         for threshold in [-10.0, 150.0]:
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match=r"(?i)threshold"):
                 AlertRule(
                     name="test",
                     metric="cpu_percent",

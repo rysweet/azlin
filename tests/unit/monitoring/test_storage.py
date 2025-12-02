@@ -521,11 +521,8 @@ class TestErrorHandling:
         temp_db.write_bytes(b"INVALID DATABASE CONTENT")
 
         # Attempting to initialize should raise clear error
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(Exception, match=r"(?i)database"):
             storage = MetricsStorage(db_path=temp_db)
-
-        # Error message should be user-friendly
-        assert "database" in str(exc_info.value).lower()
 
     def test_handles_disk_full_gracefully(self, storage, sample_metric):
         """Disk full errors are handled gracefully."""

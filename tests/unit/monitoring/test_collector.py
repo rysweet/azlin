@@ -406,19 +406,15 @@ class TestInputValidation:
             "vm'OR'1'='1",
         ]
         for name in invalid_names:
-            with pytest.raises(ValueError) as exc_info:
+            with pytest.raises(ValueError, match=r"(?i)invalid"):
                 collector._validate_vm_name(name)
-            assert "invalid" in str(exc_info.value).lower()
 
     def test_validates_vm_name_length(self, collector):
         """VM name must not exceed maximum length."""
         # Too long (> 64 characters)
         long_name = "a" * 65
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match=r"(?i)(too long|length)"):
             collector._validate_vm_name(long_name)
-        assert "too long" in str(exc_info.value).lower() or "length" in str(
-            exc_info.value
-        ).lower()
 
     def test_prevents_command_injection_in_vm_name(self, collector):
         """VM name with shell metacharacters is rejected."""
@@ -429,7 +425,7 @@ class TestInputValidation:
             "vm|cat /etc/passwd",
         ]
         for name in malicious_names:
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match=r"(?i)invalid"):
                 collector._validate_vm_name(name)
 
 
