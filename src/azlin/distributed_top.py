@@ -39,7 +39,6 @@ class VMMetrics:
     """Metrics collected from a VM."""
 
     vm_name: str
-    region: str | None = None
     success: bool
     load_avg: tuple[float, float, float] | None  # 1min, 5min, 15min
     cpu_percent: float | None
@@ -47,6 +46,7 @@ class VMMetrics:
     memory_total_mb: int | None
     memory_percent: float | None
     top_processes: list[dict[str, str]] | None  # List of {pid, user, cpu, mem, command}
+    region: str | None = None
     error_message: str | None = None
     timestamp: float = 0.0
 
