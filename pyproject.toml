@@ -41,6 +41,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.11.0",
     "pytest-xdist>=3.3.0",
@@ -70,7 +71,9 @@ markers = [
     "command_new: Tests for 'azlin new' command",
     "command_list: Tests for 'azlin list' command",
     "command_connect: Tests for 'azlin connect' command",
+    "asyncio: Async tests",
 ]
+asyncio_mode = "auto"
 addopts = "-ra -q"
 log_level = "INFO"  # Capture INFO level logs in caplog for testing
 
