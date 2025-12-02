@@ -339,39 +339,44 @@ class TestNFSPerformanceTunerTestPerformance:
 
 
 class TestNFSPerformanceTunerMountOptions:
-    """Test mount option generation for different workloads."""
+    """Test mount option profiles for different workloads."""
 
     def test_multi_vm_mount_options(self):
         """Test multi-VM mount options have short attribute cache."""
-        options = NFSPerformanceTuner._get_mount_options("multi-vm")
+        from azlin.modules.nfs_performance_tuner import PROFILES
+        options = PROFILES["multi-vm"]
         assert "actimeo=1" in options
         assert "rsize=1048576" in options
         assert "wsize=1048576" in options
 
     def test_read_heavy_mount_options(self):
         """Test read-heavy mount options have aggressive caching."""
-        options = NFSPerformanceTuner._get_mount_options("read-heavy")
+        from azlin.modules.nfs_performance_tuner import PROFILES
+        options = PROFILES["read-heavy"]
         assert "ac" in options
         assert "acregmin" in options or "actimeo" in options
         assert "rsize=1048576" in options
 
     def test_write_heavy_mount_options(self):
         """Test write-heavy mount options optimize writes."""
-        options = NFSPerformanceTuner._get_mount_options("write-heavy")
+        from azlin.modules.nfs_performance_tuner import PROFILES
+        options = PROFILES["write-heavy"]
         assert "wsize=1048576" in options
         assert "async" in options or "noac" in options
 
     def test_balanced_mount_options(self):
         """Test balanced mount options for mixed workload."""
-        options = NFSPerformanceTuner._get_mount_options("mixed")
+        from azlin.modules.nfs_performance_tuner import PROFILES
+        options = PROFILES["mixed"]
         assert "rsize=1048576" in options
         assert "wsize=1048576" in options
         assert "hard" in options
 
     def test_mount_options_always_include_base(self):
         """Test all mount options include base requirements."""
+        from azlin.modules.nfs_performance_tuner import PROFILES
         for workload in ["multi-vm", "read-heavy", "write-heavy", "mixed"]:
-            options = NFSPerformanceTuner._get_mount_options(workload)
+            options = PROFILES[workload]
             assert "vers=4.1" in options
             assert "proto=tcp" in options
             assert "hard" in options
