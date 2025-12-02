@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 @dataclass
 class LintIssue:
     """Individual lint issue with severity."""
+
     message: str
     severity: str  # "critical", "warning", "info"
     location: str | None = None
@@ -28,6 +29,7 @@ class LintIssue:
 @dataclass
 class ValidationResult:
     """Result of template validation."""
+
     is_valid: bool
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -71,7 +73,7 @@ class ValidationResult:
             "errors": self.errors,
             "warnings": self.warnings,
             "error_count": len(self.errors),
-            "warning_count": len(self.warnings)
+            "warning_count": len(self.warnings),
         }
 
 
@@ -85,7 +87,7 @@ class TemplateValidator:
         self,
         custom_rules: list[Callable] | None = None,
         strict: bool = False,
-        disabled_checks: list[str] | None = None
+        disabled_checks: list[str] | None = None,
     ):
         """Initialize validator.
 
@@ -224,11 +226,7 @@ class TemplateValidator:
 
         is_valid = len(errors) == 0
 
-        return ValidationResult(
-            is_valid=is_valid,
-            errors=errors,
-            warnings=warnings
-        )
+        return ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings)
 
 
 class AzureValidator:
@@ -242,19 +240,30 @@ class AzureValidator:
         "Microsoft.ContainerService/",
         "Microsoft.KeyVault/",
         "Microsoft.Web/",
-        "Microsoft.Sql/"
+        "Microsoft.Sql/",
     ]
 
     # Valid Azure locations (subset for testing)
     VALID_LOCATIONS = [
-        "eastus", "westus", "centralus", "northeurope", "westeurope",
-        "eastasia", "southeastasia", "japaneast", "australiaeast"
+        "eastus",
+        "westus",
+        "centralus",
+        "northeurope",
+        "westeurope",
+        "eastasia",
+        "southeastasia",
+        "japaneast",
+        "australiaeast",
     ]
 
     # Valid VM sizes (subset)
     VALID_VM_SIZES = [
-        "Standard_D2s_v3", "Standard_D4s_v3", "Standard_D8s_v3",
-        "Standard_B1s", "Standard_B2s", "Standard_F2s_v2"
+        "Standard_D2s_v3",
+        "Standard_D4s_v3",
+        "Standard_D8s_v3",
+        "Standard_B1s",
+        "Standard_B2s",
+        "Standard_F2s_v2",
     ]
 
     def validate_azure_resources(self, template: dict) -> ValidationResult:
@@ -275,8 +284,7 @@ class AzureValidator:
 
             # Validate resource type prefix
             is_valid_type = any(
-                resource_type.startswith(prefix)
-                for prefix in self.VALID_RESOURCE_PREFIXES
+                resource_type.startswith(prefix) for prefix in self.VALID_RESOURCE_PREFIXES
             )
 
             if not is_valid_type:
@@ -355,9 +363,7 @@ class AzureValidator:
 
             # Check length (simplified - actual limits vary by resource type)
             if len(name) > 64:
-                errors.append(
-                    f"Azure naming convention violation: '{name}' exceeds 64 characters"
-                )
+                errors.append(f"Azure naming convention violation: '{name}' exceeds 64 characters")
 
         is_valid = len(errors) == 0
         return ValidationResult(is_valid=is_valid, errors=errors)
@@ -388,10 +394,11 @@ class TemplateLinter:
 
             # Check for uppercase in names (should be lowercase)
             if name and name != name.lower():
-                issues.append(LintIssue(
-                    message=f"Resource name '{name}' should use lowercase",
-                    severity="warning"
-                ))
+                issues.append(
+                    LintIssue(
+                        message=f"Resource name '{name}' should use lowercase", severity="warning"
+                    )
+                )
 
         return issues
 
@@ -410,10 +417,12 @@ class TemplateLinter:
 
         for resource in resources:
             if "tags" not in resource:
-                issues.append(LintIssue(
-                    message=f"Resource '{resource.get('name', 'unknown')}' missing tags",
-                    severity="info"
-                ))
+                issues.append(
+                    LintIssue(
+                        message=f"Resource '{resource.get('name', 'unknown')}' missing tags",
+                        severity="info",
+                    )
+                )
 
         return issues
 
@@ -432,10 +441,12 @@ class TemplateLinter:
 
         # Check if description is too short
         if description and len(description) < 10:
-            issues.append(LintIssue(
-                message="Description is too short (should be at least 10 characters)",
-                severity="info"
-            ))
+            issues.append(
+                LintIssue(
+                    message="Description is too short (should be at least 10 characters)",
+                    severity="info",
+                )
+            )
 
         return issues
 
@@ -455,11 +466,17 @@ class TemplateLinter:
         for param_name, param_value in parameters.items():
             # If parameter is a dict with type but no default
             if isinstance(param_value, dict):
-                if "type" in param_value and "default" not in param_value and "defaultValue" not in param_value:
-                    issues.append(LintIssue(
-                        message=f"Parameter '{param_name}' missing default value",
-                        severity="info"
-                    ))
+                if (
+                    "type" in param_value
+                    and "default" not in param_value
+                    and "defaultValue" not in param_value
+                ):
+                    issues.append(
+                        LintIssue(
+                            message=f"Parameter '{param_name}' missing default value",
+                            severity="info",
+                        )
+                    )
 
         return issues
 
@@ -478,11 +495,10 @@ class TemplateLinter:
 
         # Simple check: just flag all variables as unused
         # (Real implementation would scan resources for variable references)
-        for var_name in variables.keys():
-            issues.append(LintIssue(
-                message=f"Variable '{var_name}' may be unused",
-                severity="info"
-            ))
+        for var_name in variables:
+            issues.append(
+                LintIssue(message=f"Variable '{var_name}' may be unused", severity="info")
+            )
 
         return issues
 
@@ -501,13 +517,14 @@ class TemplateLinter:
         # Check for hardcoded passwords in parameters
         parameters = content.get("parameters", {})
         for param_name, param_value in parameters.items():
-            if "password" in param_name.lower():
-                if isinstance(param_value, dict):
-                    if "defaultValue" in param_value:
-                        issues.append(LintIssue(
+            if "password" in param_name.lower() and isinstance(param_value, dict):
+                if "defaultValue" in param_value:
+                    issues.append(
+                        LintIssue(
                             message=f"Security risk: Parameter '{param_name}' has hardcoded password",
-                            severity="critical"
-                        ))
+                            severity="critical",
+                        )
+                    )
 
         # Check for hardcoded passwords in resources
         resources = content.get("resources", [])
@@ -517,10 +534,12 @@ class TemplateLinter:
 
             if "adminPassword" in os_profile:
                 if isinstance(os_profile["adminPassword"], str) and os_profile["adminPassword"]:
-                    issues.append(LintIssue(
-                        message="Security risk: Hardcoded password in resource properties",
-                        severity="critical"
-                    ))
+                    issues.append(
+                        LintIssue(
+                            message="Security risk: Hardcoded password in resource properties",
+                            severity="critical",
+                        )
+                    )
 
         return issues
 
@@ -549,14 +568,8 @@ class TemplateLinter:
         return ValidationResult(
             is_valid=True,  # Linting doesn't affect validity
             warnings=warnings,
-            issues_detailed=all_issues
+            issues_detailed=all_issues,
         )
 
 
-__all__ = [
-    "AzureValidator",
-    "LintIssue",
-    "TemplateLinter",
-    "TemplateValidator",
-    "ValidationResult"
-]
+__all__ = ["AzureValidator", "LintIssue", "TemplateLinter", "TemplateValidator", "ValidationResult"]

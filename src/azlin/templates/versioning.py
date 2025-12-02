@@ -135,8 +135,7 @@ class ChangeRecord:
         """Validate change type after initialization."""
         if self.change_type not in self.VALID_TYPES:
             raise ValueError(
-                f"Invalid change type: {self.change_type}. "
-                f"Must be one of {self.VALID_TYPES}"
+                f"Invalid change type: {self.change_type}. Must be one of {self.VALID_TYPES}"
             )
 
     def to_dict(self) -> dict:
@@ -181,9 +180,7 @@ class ChangeHistory:
 
     def to_dict(self) -> dict:
         """Serialize change history to dictionary."""
-        return {
-            "changes": [c.to_dict() for c in self._changes]
-        }
+        return {"changes": [c.to_dict() for c in self._changes]}
 
 
 @dataclass
@@ -195,11 +192,7 @@ class VersionedTemplate:
     change_history: ChangeHistory = field(default_factory=ChangeHistory)
 
     def update_version(
-        self,
-        new_version: TemplateVersion,
-        author: str,
-        change_type: str,
-        description: str
+        self, new_version: TemplateVersion, author: str, change_type: str, description: str
     ) -> None:
         """Update template version with change tracking.
 
@@ -223,7 +216,7 @@ class VersionedTemplate:
             timestamp=datetime.now(),
             author=author,
             change_type=change_type,
-            description=description
+            description=description,
         )
 
         # Update version and add to history

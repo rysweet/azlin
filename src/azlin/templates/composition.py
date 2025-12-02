@@ -83,7 +83,9 @@ class CompositeTemplate:
 
         return result
 
-    def _merge_resources(self, parent_resources: list[dict], child_resources: list[dict]) -> list[dict]:
+    def _merge_resources(
+        self, parent_resources: list[dict], child_resources: list[dict]
+    ) -> list[dict]:
         """Merge resources from parent and child (child overrides by name).
 
         Args:
@@ -202,10 +204,7 @@ class TemplateResolver:
         return version == required
 
     def _resolve_single_dependency(
-        self,
-        dep_name: str,
-        constraint: str,
-        visited: set[str]
+        self, dep_name: str, constraint: str, visited: set[str]
     ) -> VersionedTemplate:
         """Resolve a single dependency.
 
@@ -316,14 +315,14 @@ class TemplateResolver:
             # Merge each dependency's content
             composite = CompositeTemplate(
                 child={"metadata": dep.metadata.to_dict(), "content": dep.content},
-                parent={"metadata": {}, "content": merged_content}
+                parent={"metadata": {}, "content": merged_content},
             )
             merged_content = composite.resolve()["content"]
 
         # Finally merge template on top
         composite = CompositeTemplate(
             child={"metadata": template.metadata.to_dict(), "content": template.content},
-            parent={"metadata": {}, "content": merged_content}
+            parent={"metadata": {}, "content": merged_content},
         )
 
         resolved_dict = composite.resolve()
@@ -332,7 +331,7 @@ class TemplateResolver:
         return VersionedTemplate(
             metadata=template.metadata,
             content=resolved_dict["content"],
-            change_history=template.change_history
+            change_history=template.change_history,
         )
 
 

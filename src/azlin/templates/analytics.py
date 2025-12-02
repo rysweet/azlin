@@ -23,6 +23,7 @@ from typing import Any
 @dataclass
 class UsageEvent:
     """Single template usage event."""
+
     event_id: int
     template_name: str
     user_id: str
@@ -33,6 +34,7 @@ class UsageEvent:
 @dataclass
 class TemplateStats:
     """Statistics for a template."""
+
     name: str
     usage_count: int
     unique_users: int = 0
@@ -43,6 +45,7 @@ class TemplateStats:
 @dataclass
 class TemplateReport:
     """Comprehensive template report."""
+
     template_name: str
     total_uses: int
     unique_users: int
@@ -58,13 +61,14 @@ class TemplateReport:
             "unique_users": self.unique_users,
             "average_duration": self.average_duration,
             "success_rate": self.success_rate,
-            "usage_by_region": self.usage_by_region
+            "usage_by_region": self.usage_by_region,
         }
 
 
 @dataclass
 class SummaryReport:
     """Summary report for all templates."""
+
     total_templates: int
     total_uses: int
     templates: list[TemplateStats] = field(default_factory=list)
@@ -183,10 +187,7 @@ class AnalyticsTracker:
     """Track template usage analytics."""
 
     def __init__(
-        self,
-        db_path: Path,
-        anonymize_users: bool = False,
-        retention_days: int | None = None
+        self, db_path: Path, anonymize_users: bool = False, retention_days: int | None = None
     ):
         """Initialize analytics tracker.
 
@@ -220,11 +221,14 @@ class AnalyticsTracker:
             True if user opted out
         """
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT opt_out FROM user_activity
             WHERE user_id = ? AND opt_out = 1
             LIMIT 1
-        """, (user_id,))
+        """,
+            (user_id,),
+        )
 
         result = cursor.fetchone()
         return result is not None
@@ -240,10 +244,13 @@ class AnalyticsTracker:
             user_id = self._anonymize_user_id(user_id)
 
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT OR REPLACE INTO user_activity (user_id, template_name, opt_out)
             VALUES (?, '', ?)
-        """, (user_id, 1 if opt_out else 0))
+        """,
+            (user_id, 1 if opt_out else 0),
+        )
 
         self.db.conn.commit()
 
@@ -252,7 +259,7 @@ class AnalyticsTracker:
         template_name: str,
         user_id: str,
         timestamp: datetime,
-        metadata: dict[str, Any] | None = None
+        metadata: dict[str, Any] | None = None,
     ) -> int | None:
         """Record a template usage event.
 
@@ -275,15 +282,13 @@ class AnalyticsTracker:
 
         # Insert usage event
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO usage_events (template_name, user_id, timestamp, metadata)
             VALUES (?, ?, ?, ?)
-        """, (
-            template_name,
-            user_id,
-            timestamp.isoformat(),
-            json.dumps(metadata or {})
-        ))
+        """,
+            (template_name, user_id, timestamp.isoformat(), json.dumps(metadata or {})),
+        )
 
         event_id = cursor.lastrowid
         self.db.conn.commit()
@@ -302,10 +307,13 @@ class AnalyticsTracker:
             if self.anonymize_users:
                 user_id = self._anonymize_user_id(user_id)
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO usage_events (template_name, user_id, timestamp, metadata)
                 VALUES (?, ?, ?, ?)
-            """, (template_name, user_id, timestamp.isoformat(), "{}"))
+            """,
+                (template_name, user_id, timestamp.isoformat(), "{}"),
+            )
 
         self.db.conn.commit()
 
@@ -319,9 +327,12 @@ class AnalyticsTracker:
             UsageEvent instance or None if not found
         """
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT * FROM usage_events WHERE event_id = ?
-        """, (event_id,))
+        """,
+            (event_id,),
+        )
 
         row = cursor.fetchone()
         if row:
@@ -330,7 +341,7 @@ class AnalyticsTracker:
                 template_name=row["template_name"],
                 user_id=row["user_id"],
                 timestamp=datetime.fromisoformat(row["timestamp"]),
-                metadata=json.loads(row["metadata"] or "{}")
+                metadata=json.loads(row["metadata"] or "{}"),
             )
         return None
 
@@ -338,7 +349,7 @@ class AnalyticsTracker:
         self,
         template_name: str,
         start_date: datetime | None = None,
-        end_date: datetime | None = None
+        end_date: datetime | None = None,
     ) -> int:
         """Get usage count for a template.
 
@@ -353,15 +364,21 @@ class AnalyticsTracker:
         cursor = self.db.conn.cursor()
 
         if start_date and end_date:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COUNT(*) as count FROM usage_events
                 WHERE template_name = ? AND timestamp >= ? AND timestamp <= ?
-            """, (template_name, start_date.isoformat(), end_date.isoformat()))
+            """,
+                (template_name, start_date.isoformat(), end_date.isoformat()),
+            )
         else:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COUNT(*) as count FROM usage_events
                 WHERE template_name = ?
-            """, (template_name,))
+            """,
+                (template_name,),
+            )
 
         result = cursor.fetchone()
         return result["count"] if result else 0
@@ -376,10 +393,13 @@ class AnalyticsTracker:
             Number of unique users
         """
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT COUNT(DISTINCT user_id) as count FROM usage_events
             WHERE template_name = ?
-        """, (template_name,))
+        """,
+            (template_name,),
+        )
 
         result = cursor.fetchone()
         return result["count"] if result else 0
@@ -394,20 +414,20 @@ class AnalyticsTracker:
             List of TemplateStats sorted by usage count
         """
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT template_name, COUNT(*) as usage_count
             FROM usage_events
             GROUP BY template_name
             ORDER BY usage_count DESC
             LIMIT ?
-        """, (limit,))
+        """,
+            (limit,),
+        )
 
         results = []
         for row in cursor.fetchall():
-            results.append(TemplateStats(
-                name=row["template_name"],
-                usage_count=row["usage_count"]
-            ))
+            results.append(TemplateStats(name=row["template_name"], usage_count=row["usage_count"]))
 
         return results
 
@@ -424,21 +444,21 @@ class AnalyticsTracker:
         cutoff = datetime.now() - timedelta(days=days)
 
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT template_name, COUNT(*) as usage_count
             FROM usage_events
             WHERE timestamp >= ?
             GROUP BY template_name
             ORDER BY usage_count DESC
             LIMIT ?
-        """, (cutoff.isoformat(), limit))
+        """,
+            (cutoff.isoformat(), limit),
+        )
 
         results = []
         for row in cursor.fetchall():
-            results.append(TemplateStats(
-                name=row["template_name"],
-                usage_count=row["usage_count"]
-            ))
+            results.append(TemplateStats(name=row["template_name"], usage_count=row["usage_count"]))
 
         return results
 
@@ -452,10 +472,13 @@ class AnalyticsTracker:
             Dictionary mapping region to usage count
         """
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT metadata FROM usage_events
             WHERE template_name = ?
-        """, (template_name,))
+        """,
+            (template_name,),
+        )
 
         region_counts = {}
         for row in cursor.fetchall():
@@ -476,10 +499,13 @@ class AnalyticsTracker:
             Success rate as percentage (0-100)
         """
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT metadata FROM usage_events
             WHERE template_name = ?
-        """, (template_name,))
+        """,
+            (template_name,),
+        )
 
         total = 0
         successes = 0
@@ -505,10 +531,13 @@ class AnalyticsTracker:
             Average duration in seconds
         """
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT metadata FROM usage_events
             WHERE template_name = ?
-        """, (template_name,))
+        """,
+            (template_name,),
+        )
 
         durations = []
 
@@ -536,21 +565,26 @@ class AnalyticsTracker:
             user_id = self._anonymize_user_id(user_id)
 
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT * FROM usage_events
             WHERE user_id = ?
             ORDER BY timestamp DESC
-        """, (user_id,))
+        """,
+            (user_id,),
+        )
 
         results = []
         for row in cursor.fetchall():
-            results.append(UsageEvent(
-                event_id=row["event_id"],
-                template_name=row["template_name"],
-                user_id=row["user_id"],
-                timestamp=datetime.fromisoformat(row["timestamp"]),
-                metadata=json.loads(row["metadata"] or "{}")
-            ))
+            results.append(
+                UsageEvent(
+                    event_id=row["event_id"],
+                    template_name=row["template_name"],
+                    user_id=row["user_id"],
+                    timestamp=datetime.fromisoformat(row["timestamp"]),
+                    metadata=json.loads(row["metadata"] or "{}"),
+                )
+            )
 
         return results
 
@@ -568,21 +602,21 @@ class AnalyticsTracker:
             user_id = self._anonymize_user_id(user_id)
 
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT template_name, COUNT(*) as usage_count
             FROM usage_events
             WHERE user_id = ?
             GROUP BY template_name
             ORDER BY usage_count DESC
             LIMIT ?
-        """, (user_id, limit))
+        """,
+            (user_id, limit),
+        )
 
         results = []
         for row in cursor.fetchall():
-            results.append(TemplateStats(
-                name=row["template_name"],
-                usage_count=row["usage_count"]
-            ))
+            results.append(TemplateStats(name=row["template_name"], usage_count=row["usage_count"]))
 
         return results
 
@@ -602,21 +636,26 @@ class AnalyticsTracker:
         cutoff = datetime.now() - timedelta(days=days)
 
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT * FROM usage_events
             WHERE user_id = ? AND timestamp >= ?
             ORDER BY timestamp ASC
-        """, (user_id, cutoff.isoformat()))
+        """,
+            (user_id, cutoff.isoformat()),
+        )
 
         results = []
         for row in cursor.fetchall():
-            results.append(UsageEvent(
-                event_id=row["event_id"],
-                template_name=row["template_name"],
-                user_id=row["user_id"],
-                timestamp=datetime.fromisoformat(row["timestamp"]),
-                metadata=json.loads(row["metadata"] or "{}")
-            ))
+            results.append(
+                UsageEvent(
+                    event_id=row["event_id"],
+                    template_name=row["template_name"],
+                    user_id=row["user_id"],
+                    timestamp=datetime.fromisoformat(row["timestamp"]),
+                    metadata=json.loads(row["metadata"] or "{}"),
+                )
+            )
 
         return results
 
@@ -628,10 +667,13 @@ class AnalyticsTracker:
         cutoff = datetime.now() - timedelta(days=self.retention_days)
 
         cursor = self.db.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             DELETE FROM usage_events
             WHERE timestamp < ?
-        """, (cutoff.isoformat(),))
+        """,
+            (cutoff.isoformat(),),
+        )
 
         self.db.conn.commit()
 
@@ -662,7 +704,7 @@ class AnalyticsReporter:
             unique_users=self.tracker.get_unique_users(template_name),
             average_duration=self.tracker.get_average_duration(template_name),
             success_rate=self.tracker.get_success_rate(template_name),
-            usage_by_region=self.tracker.get_usage_by_region(template_name)
+            usage_by_region=self.tracker.get_usage_by_region(template_name),
         )
 
     def generate_summary_report(self) -> SummaryReport:
@@ -676,9 +718,7 @@ class AnalyticsReporter:
         total_uses = sum(t.usage_count for t in templates)
 
         return SummaryReport(
-            total_templates=len(templates),
-            total_uses=total_uses,
-            templates=templates
+            total_templates=len(templates), total_uses=total_uses, templates=templates
         )
 
     def export_summary_to_csv(self, output_path: Path) -> None:
@@ -704,5 +744,5 @@ __all__ = [
     "SummaryReport",
     "TemplateReport",
     "TemplateStats",
-    "UsageEvent"
+    "UsageEvent",
 ]

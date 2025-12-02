@@ -23,6 +23,7 @@ from azlin.templates.versioning import TemplateMetadata, VersionedTemplate
 @dataclass
 class RatingStats:
     """Rating statistics for a template."""
+
     average: float
     count: int
 
@@ -93,7 +94,7 @@ class TemplateRegistry:
         self,
         name_pattern: str | None = None,
         tags: list[str] | None = None,
-        author: str | None = None
+        author: str | None = None,
     ) -> list[VersionedTemplate]:
         """Search templates by criteria.
 
@@ -161,10 +162,7 @@ class TemplateRegistry:
         rating_values = list(ratings.values())
         average = sum(rating_values) / len(rating_values)
 
-        return {
-            "average": average,
-            "count": len(rating_values)
-        }
+        return {"average": average, "count": len(rating_values)}
 
     def get_top_rated(self, limit: int = 10) -> list[VersionedTemplate]:
         """Get top-rated templates.
@@ -206,7 +204,7 @@ class TemplateRegistry:
         data = {
             "metadata": template.metadata.to_dict(),
             "content": template.content,
-            "change_history": template.change_history.to_dict()
+            "change_history": template.change_history.to_dict(),
         }
 
         # Write to file
@@ -231,10 +229,7 @@ class TemplateRegistry:
 
             # Reconstruct template
             metadata = TemplateMetadata.from_dict(data["metadata"])
-            template = VersionedTemplate(
-                metadata=metadata,
-                content=data["content"]
-            )
+            template = VersionedTemplate(metadata=metadata, content=data["content"])
 
             # Register template
             self.register(template)
