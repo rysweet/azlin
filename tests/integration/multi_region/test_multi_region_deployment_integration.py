@@ -12,14 +12,9 @@ Test coverage:
 - Complete deployment flow with mocked Azure
 """
 
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
 import pytest
-import json
 
 # Modules under test (will be implemented)
-from azlin.modules.parallel_deployer import ParallelDeployer, DeploymentStatus
-from azlin.modules.region_context import RegionContext
 # from azlin.config_manager import ConfigManager
 
 
@@ -33,7 +28,7 @@ class TestMultiRegionDeploymentIntegration:
 
     @pytest.mark.asyncio
     async def test_deploy_to_multiple_regions_with_config_storage(self):
-        """Test deploying to multiple regions and storing in config."""        # # Setup mocks
+        """Test deploying to multiple regions and storing in config."""  # # Setup mocks
         # mock_config_manager = Mock()
         # mock_config_manager.save_config = Mock()
         # mock_config_manager.get_config = Mock(return_value={})
@@ -65,7 +60,7 @@ class TestMultiRegionDeploymentIntegration:
 
     @pytest.mark.asyncio
     async def test_deploy_with_region_context_integration(self):
-        """Test deployment with RegionContext metadata updates."""        # mock_config_manager = Mock()
+        """Test deployment with RegionContext metadata updates."""  # mock_config_manager = Mock()
         # mock_config_manager.get_config = Mock(return_value={"regions": []})
         #
         # region_context = RegionContext(config_manager=mock_config_manager)
@@ -97,7 +92,7 @@ class TestMultiRegionDeploymentIntegration:
 
     @pytest.mark.asyncio
     async def test_deploy_with_partial_failure_continues_others(self):
-        """Test that one region failure doesn't stop other deployments."""        # mock_config_manager = Mock()
+        """Test that one region failure doesn't stop other deployments."""  # mock_config_manager = Mock()
         # deployer = ParallelDeployer(config_manager=mock_config_manager)
         #
         # # Mock responses: success, failure, success
@@ -125,7 +120,7 @@ class TestMultiRegionDeploymentIntegration:
 
     @pytest.mark.asyncio
     async def test_deploy_respects_max_concurrent_with_real_delays(self):
-        """Test that max_concurrent is respected with actual asyncio delays."""        # mock_config_manager = Mock()
+        """Test that max_concurrent is respected with actual asyncio delays."""  # mock_config_manager = Mock()
         # deployer = ParallelDeployer(config_manager=mock_config_manager, max_concurrent=2)
         #
         # # Track concurrent executions
@@ -166,7 +161,7 @@ class TestAzureTagIntegration:
 
     @pytest.mark.asyncio
     async def test_add_region_creates_azure_tags(self):
-        """Test that adding a region creates Azure tags."""        # mock_config_manager = Mock()
+        """Test that adding a region creates Azure tags."""  # mock_config_manager = Mock()
         # region_context = RegionContext(config_manager=mock_config_manager)
         #
         # # Mock Azure CLI tag creation
@@ -187,7 +182,7 @@ class TestAzureTagIntegration:
 
     @pytest.mark.asyncio
     async def test_sync_from_azure_updates_local_config(self):
-        """Test that syncing from Azure updates local config."""        # mock_config_manager = Mock()
+        """Test that syncing from Azure updates local config."""  # mock_config_manager = Mock()
         # mock_config_manager.get_config = Mock(return_value={"regions": []})
         # mock_config_manager.save_config = Mock()
         #
@@ -233,7 +228,7 @@ class TestAzureTagIntegration:
 
     @pytest.mark.asyncio
     async def test_remove_region_cleans_up_azure_tags(self):
-        """Test that removing a region cleans up Azure tags."""        # mock_config_manager = Mock()
+        """Test that removing a region cleans up Azure tags."""  # mock_config_manager = Mock()
         # region_context = RegionContext(config_manager=mock_config_manager)
         #
         # # Add region first
@@ -261,7 +256,7 @@ class TestErrorHandlingIntegration:
 
     @pytest.mark.asyncio
     async def test_deploy_azure_api_rate_limit_retries(self):
-        """Test retry logic for Azure API rate limits."""        # mock_config_manager = Mock()
+        """Test retry logic for Azure API rate limits."""  # mock_config_manager = Mock()
         # deployer = ParallelDeployer(config_manager=mock_config_manager)
         #
         # # Mock Azure CLI responses: rate limit, rate limit, success
@@ -283,7 +278,7 @@ class TestErrorHandlingIntegration:
 
     @pytest.mark.asyncio
     async def test_deploy_azure_permission_denied_no_retry(self):
-        """Test that permission errors don't trigger retries."""        # mock_config_manager = Mock()
+        """Test that permission errors don't trigger retries."""  # mock_config_manager = Mock()
         # deployer = ParallelDeployer(config_manager=mock_config_manager)
         #
         # # Mock Azure CLI response: permission denied
@@ -302,7 +297,7 @@ class TestErrorHandlingIntegration:
 
     @pytest.mark.asyncio
     async def test_deploy_timeout_handling_per_region(self):
-        """Test timeout handling for individual regions."""        # mock_config_manager = Mock()
+        """Test timeout handling for individual regions."""  # mock_config_manager = Mock()
         # deployer = ParallelDeployer(config_manager=mock_config_manager)
         #
         # async def slow_provision(region):
@@ -335,7 +330,7 @@ class TestConfigPersistenceIntegration:
 
     @pytest.mark.asyncio
     async def test_deploy_persists_metadata_after_each_region(self):
-        """Test that metadata is persisted after each region deploys."""        # mock_config_manager = Mock()
+        """Test that metadata is persisted after each region deploys."""  # mock_config_manager = Mock()
         # save_calls = []
         # mock_config_manager.save_config = lambda: save_calls.append(len(save_calls))
         #
@@ -354,7 +349,7 @@ class TestConfigPersistenceIntegration:
 
     @pytest.mark.asyncio
     async def test_region_context_sync_updates_stale_metadata(self):
-        """Test that sync updates stale metadata from Azure."""        # mock_config_manager = Mock()
+        """Test that sync updates stale metadata from Azure."""  # mock_config_manager = Mock()
         # mock_config_manager.get_config = Mock(return_value={
         #     "regions": [{
         #         "region": "eastus",

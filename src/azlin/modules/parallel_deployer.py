@@ -15,12 +15,11 @@ Public API (the "studs"):
 
 import asyncio
 import json
-import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from azlin.config_manager import ConfigManager
@@ -29,6 +28,7 @@ if TYPE_CHECKING:
 
 class DeploymentStatus(Enum):
     """Status of a single region deployment."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     SUCCESS = "success"
@@ -38,20 +38,22 @@ class DeploymentStatus(Enum):
 @dataclass
 class DeploymentResult:
     """Result of deploying to a single region."""
+
     region: str
     status: DeploymentStatus
     vm_name: str
-    public_ip: Optional[str] = None
-    error: Optional[str] = None
+    public_ip: str | None = None
+    error: str | None = None
     duration_seconds: float = 0.0
 
 
 @dataclass
 class MultiRegionResult:
     """Aggregated results from multi-region deployment."""
+
     total_regions: int
-    successful: List[DeploymentResult]
-    failed: List[DeploymentResult]
+    successful: list[DeploymentResult]
+    failed: list[DeploymentResult]
     total_duration_seconds: float
 
     @property
@@ -77,11 +79,7 @@ class ParallelDeployer:
         print(f"Success rate: {result.success_rate:.1%}")
     """
 
-    def __init__(
-        self,
-        config_manager: 'ConfigManager',
-        max_concurrent: int = 10
-    ):
+    def __init__(self, config_manager: "ConfigManager", max_concurrent: int = 10):
         """Initialize parallel deployer.
 
         Args:
@@ -99,9 +97,7 @@ class ParallelDeployer:
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
     async def deploy_to_regions(
-        self,
-        regions: List[str],
-        vm_config: 'VMConfig'
+        self, regions: list[str], vm_config: "VMConfig"
     ) -> MultiRegionResult:
         """Deploy VMs to multiple regions in parallel.
 
@@ -127,15 +123,38 @@ class ParallelDeployer:
 
         # Validate region names (basic check)
         VALID_REGIONS = [
-            "eastus", "eastus2", "westus", "westus2", "westus3", "centralus",
-            "northcentralus", "southcentralus",
-            "northeurope", "westeurope", "uksouth", "ukwest",
-            "southeastasia", "eastasia", "australiaeast", "australiasoutheast",
-            "japaneast", "japanwest", "koreacentral", "koreasouth",
-            "canadacentral", "canadaeast",
-            "brazilsouth", "southafricanorth", "southafricawest",
-            "switzerlandnorth", "germanywestcentral", "norwayeast",
-            "westcentralus", "francecentral", "uaenorth", "indiacentral"
+            "eastus",
+            "eastus2",
+            "westus",
+            "westus2",
+            "westus3",
+            "centralus",
+            "northcentralus",
+            "southcentralus",
+            "northeurope",
+            "westeurope",
+            "uksouth",
+            "ukwest",
+            "southeastasia",
+            "eastasia",
+            "australiaeast",
+            "australiasoutheast",
+            "japaneast",
+            "japanwest",
+            "koreacentral",
+            "koreasouth",
+            "canadacentral",
+            "canadaeast",
+            "brazilsouth",
+            "southafricanorth",
+            "southafricawest",
+            "switzerlandnorth",
+            "germanywestcentral",
+            "norwayeast",
+            "westcentralus",
+            "francecentral",
+            "uaenorth",
+            "indiacentral",
         ]
 
         invalid_regions = [r for r in regions if r not in VALID_REGIONS]
@@ -161,13 +180,15 @@ class ParallelDeployer:
         for result in results:
             if isinstance(result, Exception):
                 # Handle unexpected exceptions
-                failed.append(DeploymentResult(
-                    region="unknown",
-                    status=DeploymentStatus.FAILED,
-                    vm_name="unknown",
-                    error=f"Unexpected error: {str(result)}",
-                    duration_seconds=0.0
-                ))
+                failed.append(
+                    DeploymentResult(
+                        region="unknown",
+                        status=DeploymentStatus.FAILED,
+                        vm_name="unknown",
+                        error=f"Unexpected error: {result!s}",
+                        duration_seconds=0.0,
+                    )
+                )
             elif result.status == DeploymentStatus.SUCCESS:
                 successful.append(result)
             else:
@@ -181,7 +202,7 @@ class ParallelDeployer:
             total_regions=len(regions),
             successful=successful,
             failed=failed,
-            total_duration_seconds=total_duration
+            total_duration_seconds=total_duration,
         )
 
         # Raise error if ALL regions failed
@@ -190,11 +211,7 @@ class ParallelDeployer:
 
         return multi_result
 
-    async def _deploy_single_region(
-        self,
-        region: str,
-        vm_config: 'VMConfig'
-    ) -> DeploymentResult:
+    async def _deploy_single_region(self, region: str, vm_config: "VMConfig") -> DeploymentResult:
         """Deploy VM to a single region (internal method).
 
         Delegates to existing vm_provisioning.py module via subprocess.
@@ -217,7 +234,7 @@ class ParallelDeployer:
                 vm_name = f"azlin-{region}-{timestamp}"
 
                 # Get resource group from vm_config or use default
-                resource_group = getattr(vm_config, 'resource_group', None)
+                resource_group = getattr(vm_config, "resource_group", None)
                 if not resource_group:
                     # Try to get from config_manager
                     resource_group = self.config_manager.get_resource_group()
@@ -227,33 +244,42 @@ class ParallelDeployer:
 
                 # Build az vm create command
                 cmd = [
-                    "az", "vm", "create",
-                    "--resource-group", resource_group,
-                    "--name", vm_name,
-                    "--location", region,
-                    "--image", getattr(vm_config, 'image', 'Ubuntu2204'),
-                    "--size", getattr(vm_config, 'size', 'Standard_D2s_v3'),
-                    "--admin-username", getattr(vm_config, 'admin_username', 'azureuser'),
+                    "az",
+                    "vm",
+                    "create",
+                    "--resource-group",
+                    resource_group,
+                    "--name",
+                    vm_name,
+                    "--location",
+                    region,
+                    "--image",
+                    getattr(vm_config, "image", "Ubuntu2204"),
+                    "--size",
+                    getattr(vm_config, "size", "Standard_D2s_v3"),
+                    "--admin-username",
+                    getattr(vm_config, "admin_username", "azureuser"),
                     "--generate-ssh-keys",
-                    "--output", "json"
+                    "--output",
+                    "json",
                 ]
 
                 # Add SSH public key if provided
-                if hasattr(vm_config, 'ssh_public_key') and vm_config.ssh_public_key:
+                if hasattr(vm_config, "ssh_public_key") and vm_config.ssh_public_key:
                     cmd.extend(["--ssh-key-values", vm_config.ssh_public_key])
 
                 # Add tags for tracking
-                cmd.extend([
-                    "--tags",
-                    f"azlin:region={region}",
-                    f"azlin:created={datetime.now().isoformat()}"
-                ])
+                cmd.extend(
+                    [
+                        "--tags",
+                        f"azlin:region={region}",
+                        f"azlin:created={datetime.now().isoformat()}",
+                    ]
+                )
 
                 # Execute az vm create asynchronously
                 process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
 
                 stdout, stderr = await process.communicate()
@@ -267,29 +293,29 @@ class ParallelDeployer:
                         status=DeploymentStatus.FAILED,
                         vm_name=vm_name,
                         error=f"az vm create failed: {error_msg}",
-                        duration_seconds=duration
+                        duration_seconds=duration,
                     )
 
                 # Parse JSON output to get public IP
                 vm_info = json.loads(stdout.decode())
-                public_ip = vm_info.get('publicIpAddress', None)
+                public_ip = vm_info.get("publicIpAddress", None)
 
                 return DeploymentResult(
                     region=region,
                     status=DeploymentStatus.SUCCESS,
                     vm_name=vm_name,
                     public_ip=public_ip,
-                    duration_seconds=duration
+                    duration_seconds=duration,
                 )
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 duration = time.time() - start_time
                 return DeploymentResult(
                     region=region,
                     status=DeploymentStatus.FAILED,
                     vm_name=f"vm-{region}-failed",
                     error="Deployment timed out",
-                    duration_seconds=duration
+                    duration_seconds=duration,
                 )
             except Exception as e:
                 duration = time.time() - start_time
@@ -298,13 +324,8 @@ class ParallelDeployer:
                     status=DeploymentStatus.FAILED,
                     vm_name=f"vm-{region}-failed",
                     error=str(e),
-                    duration_seconds=duration
+                    duration_seconds=duration,
                 )
 
 
-__all__ = [
-    "ParallelDeployer",
-    "DeploymentResult",
-    "DeploymentStatus",
-    "MultiRegionResult"
-]
+__all__ = ["DeploymentResult", "DeploymentStatus", "MultiRegionResult", "ParallelDeployer"]

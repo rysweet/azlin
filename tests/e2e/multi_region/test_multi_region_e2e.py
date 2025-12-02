@@ -15,15 +15,14 @@ Test coverage:
 - Performance benchmarks
 """
 
-import asyncio
 import os
+
 import pytest
-from datetime import datetime
 
 # Skip all E2E tests by default unless AZLIN_RUN_E2E_TESTS is set
 pytestmark = pytest.mark.skipif(
     os.environ.get("AZLIN_RUN_E2E_TESTS") != "true",
-    reason="E2E tests are expensive and slow. Set AZLIN_RUN_E2E_TESTS=true to run."
+    reason="E2E tests are expensive and slow. Set AZLIN_RUN_E2E_TESTS=true to run.",
 )
 
 
@@ -416,7 +415,7 @@ def e2e_test_config():
         "vm_size": "Standard_B2s",
         "image": "Ubuntu2204",
         "regions": ["eastus", "westus2", "westeurope"],
-        "cleanup_after_test": True
+        "cleanup_after_test": True,
     }
 
 
