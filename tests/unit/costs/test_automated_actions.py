@@ -135,7 +135,7 @@ class TestVMResizeAction:
             estimated_savings=Decimal("100.00"),
         )
 
-        with pytest.raises(ValueError, match="invalid"):
+        with pytest.raises(ValueError, match="(?i)invalid"):
             action.execute()
 
     @patch("azlin.costs.actions.VMManager")
@@ -169,7 +169,7 @@ class TestVMResizeAction:
             estimated_savings=Decimal("-200.00"),  # Negative savings
         )
 
-        with pytest.raises(ValueError, match="increase cost"):
+        with pytest.raises(ValueError, match="(?i)increase cost"):
             action.execute()
 
     @patch("azlin.costs.actions.VMManager")
@@ -226,7 +226,7 @@ class TestVMScheduleAction:
     @patch("azlin.costs.actions.VMScheduler")
     def test_schedule_action_validates_time_range(self, mock_scheduler):
         """Test schedule action validates start time before stop time."""
-        with pytest.raises(ValueError, match="start"):
+        with pytest.raises(ValueError, match="(?i)start"):
             VMScheduleAction(
                 resource_name="test-vm",
                 resource_group="test-rg",
@@ -384,7 +384,7 @@ class TestResourceDeleteAction:
 
         action.approve()
 
-        with pytest.raises(ValueError, match="production"):
+        with pytest.raises(ValueError, match="(?i)production"):
             action.execute()
 
     @patch("azlin.costs.actions.ResourceManager")

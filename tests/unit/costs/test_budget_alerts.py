@@ -60,7 +60,7 @@ class TestBudgetThreshold:
 
     def test_threshold_validates_percentages(self):
         """Test threshold validates percentage ranges."""
-        with pytest.raises(ValueError, match="percentage"):
+        with pytest.raises(ValueError, match="(?i)percentage"):
             BudgetThreshold(
                 name="Invalid",
                 limit=Decimal("1000.00"),
@@ -69,7 +69,7 @@ class TestBudgetThreshold:
 
     def test_threshold_enforces_warning_before_critical(self):
         """Test warning percentage must be less than critical."""
-        with pytest.raises(ValueError, match="warning"):
+        with pytest.raises(ValueError, match="(?i)warning"):
             BudgetThreshold(
                 name="Invalid",
                 limit=Decimal("1000.00"),

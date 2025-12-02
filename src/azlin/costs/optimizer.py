@@ -321,13 +321,16 @@ class CostOptimizer:
         recommendations = []
 
         # Run oversized VM detection
-        # (In real implementation, would fetch VM metrics from Azure)
+        if hasattr(self.oversized_detector, 'analyze_all'):
+            recommendations.extend(self.oversized_detector.analyze_all())
 
         # Run idle resource detection
-        # (In real implementation, would fetch resource inventory)
+        if hasattr(self.idle_detector, 'analyze_all'):
+            recommendations.extend(self.idle_detector.analyze_all())
 
         # Run scheduling opportunity detection
-        # (In real implementation, would analyze VM usage patterns)
+        if hasattr(self.scheduling_detector, 'analyze_all'):
+            recommendations.extend(self.scheduling_detector.analyze_all())
 
         return recommendations
 

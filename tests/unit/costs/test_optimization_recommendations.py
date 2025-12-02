@@ -217,8 +217,9 @@ class TestSchedulingOpportunity:
 
         assert recommendation is not None
         assert "schedule" in recommendation.action.lower()
-        # Should save ~16 hours/day (weekends + nights)
-        assert recommendation.estimated_savings > Decimal("180.00")  # Monthly
+        # Should save 118 idle hours/week * 4.3 weeks = ~507 hours/month
+        # $0.252/hour * 507 hours = $127.76/month
+        assert recommendation.estimated_savings > Decimal("120.00")  # Monthly
 
     def test_opportunity_calculates_business_hours_savings(self):
         """Test calculates savings from business hours schedule (8am-6pm, weekdays)."""

@@ -249,14 +249,16 @@ class TestCostHistory:
         assert history.resource_group == "test-rg"
 
     @patch("azlin.costs.dashboard.CostDashboard")
-    def test_history_records_daily_snapshot(self, mock_dashboard):
+    def test_history_records_daily_snapshot(self, mock_dashboard, tmp_path):
         """Test history records daily cost snapshot."""
         mock_dashboard.return_value.get_current_metrics.return_value = Mock(
             total_cost=Decimal("150.00"),
             resource_breakdown=[]
         )
 
-        history = CostHistory(resource_group="test-rg")
+        # Use temporary store path to ensure clean state
+        store_path = tmp_path / "cost_history.json"
+        history = CostHistory(resource_group="test-rg", store_path=store_path)
         history.record_daily_snapshot()
 
         assert history.store.count() == 1
