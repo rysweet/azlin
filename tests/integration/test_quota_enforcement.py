@@ -10,7 +10,6 @@ from unittest.mock import Mock, patch
 import pytest
 
 try:
-    from azlin.commands.storage import StorageCommands
     from azlin.modules.storage_manager import StorageManager
     from azlin.modules.storage_quota_manager import StorageQuotaManager
 except ImportError:

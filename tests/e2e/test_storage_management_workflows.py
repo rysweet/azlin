@@ -11,7 +11,6 @@ from unittest.mock import Mock, patch
 import pytest
 
 try:
-    from azlin.commands.storage import StorageCommands
     from azlin.modules.nfs_performance_tuner import NFSPerformanceTuner
     from azlin.modules.orphaned_resource_detector import OrphanedResourceDetector
     from azlin.modules.storage_cost_advisor import StorageCostAdvisor

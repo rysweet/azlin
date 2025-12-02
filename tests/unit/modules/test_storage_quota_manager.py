@@ -210,7 +210,7 @@ class TestStorageQuotaManagerSetQuota:
     def test_set_quota_creates_config_file(self):
         """Test set_quota creates ~/.azlin/quotas.json."""
         # Create a mock for the QUOTA_FILE class variable
-        with patch.object(StorageQuotaManager, 'QUOTA_FILE') as mock_file:
+        with patch.object(StorageQuotaManager, "QUOTA_FILE") as mock_file:
             mock_parent = MagicMock()
             mock_file.parent = mock_parent
             mock_file.exists.return_value = False
@@ -480,7 +480,7 @@ class TestStorageQuotaManagerListQuotas:
 
     def test_list_quotas_empty(self):
         """Test list_quotas with no configured quotas."""
-        with patch.object(StorageQuotaManager, 'QUOTA_FILE') as mock_file:
+        with patch.object(StorageQuotaManager, "QUOTA_FILE") as mock_file:
             mock_file.exists.return_value = False
 
             result = StorageQuotaManager.list_quotas()
@@ -512,7 +512,7 @@ class TestStorageQuotaManagerListQuotas:
             },
         }
 
-        with patch.object(StorageQuotaManager, 'QUOTA_FILE') as mock_file:
+        with patch.object(StorageQuotaManager, "QUOTA_FILE") as mock_file:
             mock_file.exists.return_value = True
             mock_file.read_text.return_value = json.dumps(quotas)
 
@@ -550,7 +550,7 @@ class TestStorageQuotaManagerEdgeCases:
 
     def test_corrupted_quota_config_file(self):
         """Test handling of corrupted quotas.json file."""
-        with patch.object(StorageQuotaManager, 'QUOTA_FILE') as mock_file:
+        with patch.object(StorageQuotaManager, "QUOTA_FILE") as mock_file:
             mock_file.exists.return_value = True
             mock_file.read_text.return_value = "invalid json{{"
 

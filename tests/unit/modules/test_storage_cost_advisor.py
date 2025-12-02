@@ -180,7 +180,7 @@ class TestStorageCostAdvisorGetRecommendations:
 
         assert isinstance(recommendations, list)
         # Should have recommendations from multiple categories
-        categories = set(rec.category for rec in recommendations)
+        categories = {rec.category for rec in recommendations}
         assert "tier" in categories or "orphaned" in categories
 
     def test_get_recommendations_sorted_by_priority(self):

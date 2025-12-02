@@ -10,7 +10,6 @@ from unittest.mock import Mock, patch
 import pytest
 
 try:
-    from azlin.modules.orphaned_resource_detector import OrphanedResourceDetector
     from azlin.modules.storage_cost_advisor import StorageCostAdvisor
     from azlin.modules.storage_tier_optimizer import StorageTierOptimizer
 except ImportError:
@@ -48,7 +47,7 @@ class TestCostOptimizationWorkflow:
 
         # Should have recommendations from both sources
         assert len(recommendations) >= 2
-        categories = set(rec.category for rec in recommendations)
+        categories = {rec.category for rec in recommendations}
         assert "tier" in categories
         assert "orphaned" in categories
 
