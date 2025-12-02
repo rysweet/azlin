@@ -65,6 +65,7 @@ from azlin.commands.compose import compose_group
 from azlin.commands.context import context_group
 
 # Doit commands
+from azlin.commands.costs import costs_group
 from azlin.commands.doit import doit_group
 from azlin.commands.fleet import fleet_group
 from azlin.commands.github_runner import github_runner_group
@@ -8518,6 +8519,9 @@ main.add_command(compose_group)
 # Register storage commands
 main.add_command(storage_group)
 main.add_command(tag_group)
+
+# Register costs commands
+main.add_command(costs_group)
 
 # Register autopilot commands
 main.add_command(autopilot_group)
