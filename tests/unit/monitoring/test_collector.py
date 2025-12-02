@@ -99,7 +99,7 @@ class TestGetAuthToken:
 
         token = collector._get_auth_token()
 
-        assert token == "test-token-123"
+        assert token == "test-token-123"  # noqa: S105
         mock_run.assert_called_once()
         # Verify correct az command was called
         assert "az" in mock_run.call_args[0][0]
