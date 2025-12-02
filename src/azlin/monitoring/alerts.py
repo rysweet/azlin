@@ -13,6 +13,7 @@ Public API (the "studs"):
     AlertSeverity: Alert severity levels (info, warning, critical)
 """
 
+import contextlib
 import os
 import re
 import smtplib
@@ -22,7 +23,6 @@ from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import requests
 import yaml
@@ -51,7 +51,7 @@ class AlertRule:
     comparison: str  # ">", "<", ">=", "<=", "=="
     severity: AlertSeverity
     enabled: bool = True
-    notification_channels: List[str] = None
+    notification_channels: list[str] = None
 
     def __post_init__(self):
         """Validate rule after initialization."""
@@ -69,11 +69,10 @@ class AlertRule:
             )
 
         # Validate threshold range for percentage metrics
-        if "percent" in self.metric:
-            if not 0.0 <= self.threshold <= 100.0:
-                raise ValueError(
-                    f"Invalid threshold for percentage metric: {self.threshold}. Must be 0-100."
-                )
+        if "percent" in self.metric and not 0.0 <= self.threshold <= 100.0:
+            raise ValueError(
+                f"Invalid threshold for percentage metric: {self.threshold}. Must be 0-100."
+            )
 
         # Initialize notification channels if None
         if self.notification_channels is None:
@@ -101,7 +100,7 @@ class AlertEngine:
     via configured channels (email, Slack, webhooks).
     """
 
-    def __init__(self, rules_config: Optional[Path] = None) -> None:
+    def __init__(self, rules_config: Path | None = None) -> None:
         """Initialize alert engine.
 
         Args:
@@ -116,7 +115,7 @@ class AlertEngine:
             self._create_default_config()
 
         # Alert suppression tracking (rule_name + vm_name -> last_alert_time)
-        self._alert_history: Dict[str, datetime] = {}
+        self._alert_history: dict[str, datetime] = {}
 
         # Suppression period (15 minutes)
         self._suppression_period = timedelta(minutes=15)
@@ -172,7 +171,7 @@ class AlertEngine:
         with open(self.rules_config, "w") as f:
             yaml.dump(default_config, f, default_flow_style=False)
 
-    def load_rules(self) -> List[AlertRule]:
+    def load_rules(self) -> list[AlertRule]:
         """Load alert rules from configuration file.
 
         Returns:
@@ -185,7 +184,7 @@ class AlertEngine:
             with open(self.rules_config) as f:
                 config = yaml.safe_load(f)
         except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML configuration: {e}")
+            raise ValueError(f"Invalid YAML configuration: {e}") from e
 
         rules = []
         for rule_data in config.get("rules", []):
@@ -205,7 +204,7 @@ class AlertEngine:
                 )
                 rules.append(rule)
             except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid rule configuration: {e}")
+                raise ValueError(f"Invalid rule configuration: {e}") from e
 
         return rules
 
@@ -224,16 +223,15 @@ class AlertEngine:
         """
         if comparison == ">":
             return value > threshold
-        elif comparison == "<":
+        if comparison == "<":
             return value < threshold
-        elif comparison == ">=":
+        if comparison == ">=":
             return value >= threshold
-        elif comparison == "<=":
+        if comparison == "<=":
             return value <= threshold
-        elif comparison == "==":
+        if comparison == "==":
             return value == threshold
-        else:
-            return False
+        return False
 
     def _is_suppressed(self, rule_name: str, vm_name: str) -> bool:
         """Check if alert is suppressed (recently triggered).
@@ -264,7 +262,7 @@ class AlertEngine:
         key = f"{rule_name}:{vm_name}"
         self._alert_history[key] = datetime.now()
 
-    def evaluate_rules(self, metrics: List[VMMetric]) -> List[Alert]:
+    def evaluate_rules(self, metrics: list[VMMetric]) -> list[Alert]:
         """Evaluate alert rules against collected metrics.
 
         Args:
@@ -343,12 +341,11 @@ class AlertEngine:
             try:
                 if channel == "email":
                     return self._send_email_notification(alert)
-                elif channel == "slack":
+                if channel == "slack":
                     return self._send_slack_notification(alert)
-                elif channel == "webhook":
+                if channel == "webhook":
                     return self._send_webhook_notification(alert)
-                else:
-                    return False
+                return False
 
             except Exception as e:
                 if attempt < max_retries - 1:
@@ -395,10 +392,8 @@ class AlertEngine:
             smtp.send_message(msg)
             return True
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 smtp.quit()
-            except:
-                pass  # Ignore errors on cleanup
 
     def _send_slack_notification(self, alert: Alert) -> bool:
         """Send Slack notification via webhook.
@@ -478,4 +473,4 @@ class AlertEngine:
         return True
 
 
-__all__ = ["AlertEngine", "AlertRule", "Alert", "AlertSeverity"]
+__all__ = ["Alert", "AlertEngine", "AlertRule", "AlertSeverity"]

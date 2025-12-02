@@ -15,9 +15,7 @@ import json
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
 
 import requests
 
@@ -87,20 +85,19 @@ class MetricsCollector:
             if "az login" in e.stderr.lower() or "not logged in" in e.stderr.lower():
                 raise RuntimeError(
                     "Azure CLI authentication required. Please run 'az login' first."
-                )
-            elif "expired" in e.stderr.lower():
+                ) from e
+            if "expired" in e.stderr.lower():
                 raise RuntimeError(
                     "Azure CLI token expired. Please run 'az login' again."
-                )
-            else:
-                raise RuntimeError(f"Failed to get Azure CLI token: {e.stderr}")
+                ) from e
+            raise RuntimeError(f"Failed to get Azure CLI token: {e.stderr}") from e
         except json.JSONDecodeError as e:
             # JSON decode error usually means not logged in (empty stdout)
             raise RuntimeError(
                 "Azure CLI authentication required. Please run 'az login' first."
-            )
+            ) from e
         except Exception as e:
-            raise RuntimeError(f"Unexpected error getting auth token: {e}")
+            raise RuntimeError(f"Unexpected error getting auth token: {e}") from e
 
     def _validate_vm_name(self, vm_name: str) -> None:
         """Validate VM name for security.
@@ -153,7 +150,7 @@ class MetricsCollector:
 
     def _fetch_metric(
         self, vm_name: str, metric_type: str, auth_token: str
-    ) -> Optional[float]:
+    ) -> float | None:
         """Fetch a single metric from Azure Monitor API.
 
         Args:
@@ -203,10 +200,10 @@ class MetricsCollector:
         if response.status_code == 404:
             # Create a proper exception for 404
             raise requests.HTTPError(f"404 Client Error: Not Found for url: {full_url}", response=response)
-        elif response.status_code == 429:
+        if response.status_code == 429:
             # Create a proper exception for 429
             raise requests.HTTPError(f"429 Client Error: Too Many Requests for url: {full_url}", response=response)
-        elif response.status_code == 200:
+        if response.status_code == 200:
             data = response.json()
             if data.get("value") and data["value"][0].get("timeseries"):
                 timeseries = data["value"][0]["timeseries"][0]
@@ -322,7 +319,7 @@ class MetricsCollector:
             success=True,
         )
 
-    def collect_all_metrics(self, vm_names: List[str]) -> List[VMMetric]:
+    def collect_all_metrics(self, vm_names: list[str]) -> list[VMMetric]:
         """Collect metrics from multiple VMs in parallel.
 
         Args:

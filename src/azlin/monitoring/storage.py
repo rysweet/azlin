@@ -15,7 +15,6 @@ import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
 
 
 @dataclass
@@ -24,14 +23,14 @@ class VMMetric:
 
     vm_name: str
     timestamp: datetime
-    cpu_percent: Optional[float]
-    memory_percent: Optional[float]
-    disk_read_bytes: Optional[int]
-    disk_write_bytes: Optional[int]
-    network_in_bytes: Optional[int]
-    network_out_bytes: Optional[int]
+    cpu_percent: float | None
+    memory_percent: float | None
+    disk_read_bytes: int | None
+    disk_write_bytes: int | None
+    network_in_bytes: int | None
+    network_out_bytes: int | None
     success: bool
-    error_message: Optional[str] = None
+    error_message: str | None = None
     aggregation_level: str = "raw"
 
 
@@ -45,7 +44,7 @@ class MetricsStorage:
     """
 
     def __init__(
-        self, db_path: Optional[Path] = None, retention_days: int = 90
+        self, db_path: Path | None = None, retention_days: int = 90
     ) -> None:
         """Initialize metrics storage.
 
@@ -163,7 +162,7 @@ class MetricsStorage:
         conn.commit()
         conn.close()
 
-    def store_metrics(self, metrics: List[VMMetric]) -> None:
+    def store_metrics(self, metrics: list[VMMetric]) -> None:
         """Store multiple metrics in a single transaction.
 
         Args:
@@ -214,7 +213,7 @@ class MetricsStorage:
         start_time: datetime,
         end_time: datetime,
         aggregation: str = "raw",
-    ) -> List[VMMetric]:
+    ) -> list[VMMetric]:
         """Query metrics for a VM within a time range.
 
         Args:

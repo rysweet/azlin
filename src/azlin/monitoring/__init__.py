@@ -16,16 +16,16 @@ Public API:
     AlertSeverity: Alert severity levels
 """
 
+from azlin.monitoring.alerts import Alert, AlertEngine, AlertRule, AlertSeverity
 from azlin.monitoring.collector import MetricsCollector, VMMetric
 from azlin.monitoring.storage import MetricsStorage
-from azlin.monitoring.alerts import Alert, AlertEngine, AlertRule, AlertSeverity
 
 __all__ = [
-    "MetricsStorage",
-    "MetricsCollector",
-    "VMMetric",
-    "AlertEngine",
     "Alert",
+    "AlertEngine",
     "AlertRule",
     "AlertSeverity",
+    "MetricsCollector",
+    "MetricsStorage",
+    "VMMetric",
 ]
