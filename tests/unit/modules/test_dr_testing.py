@@ -9,6 +9,7 @@ Testing pyramid:
 """
 
 import sqlite3
+import subprocess
 from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
@@ -134,9 +135,7 @@ class TestDRTestManagerInit:
         # Verify tables exist
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='dr_tests'"
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='dr_tests'")
         result = cursor.fetchone()
         conn.close()
 
@@ -171,7 +170,9 @@ class TestRunDRTest:
 
         # Mock RTO timing - 10 minutes
         # Create an iterator that alternates between start time and end time
-        time_values = iter([1000.0, 1600.0] + [1600.0] * 100)  # Provide many values for logger calls
+        time_values = iter(
+            [1000.0, 1600.0] + [1600.0] * 100
+        )  # Provide many values for logger calls
         mock_time.side_effect = lambda: next(time_values)
 
         # Mock Azure CLI responses for full restore workflow
@@ -225,9 +226,9 @@ class TestRunDRTest:
         manager = DRTestManager(storage_path=db_path)
 
         # Mock restore failure
-        mock_run.return_value = Mock(
+        mock_run.side_effect = subprocess.CalledProcessError(
             returncode=1,
-            stdout="",
+            cmd=["az", "disk", "create"],
             stderr="QuotaExceeded: VM quota exceeded in test region",
         )
 
@@ -326,9 +327,9 @@ class TestRunDRTest:
                     stderr="",
                 )
             if "ssh" in cmd:  # SSH connectivity test fails
-                return Mock(
+                raise subprocess.CalledProcessError(
                     returncode=255,
-                    stdout="",
+                    cmd=cmd,
                     stderr="Connection refused",
                 )
             if "delete" in cmd:  # Cleanup
@@ -431,9 +432,9 @@ class TestRunDRTest:
             if "ssh" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             if "delete" in cmd:  # Cleanup fails
-                return Mock(
+                raise subprocess.CalledProcessError(
                     returncode=1,
-                    stdout="",
+                    cmd=cmd,
                     stderr="ResourceInUse",
                 )
             return Mock(returncode=0, stdout="{}", stderr="")
@@ -811,7 +812,7 @@ class TestErrorHandling:
 
     @patch("subprocess.run")
     def test_run_dr_test_azure_cli_not_found(self, mock_run, tmp_path):
-        """Test error when Azure CLI is not available."""
+        """Test DR test when Azure CLI is not available."""
         db_path = tmp_path / "dr_tests.db"
         manager = DRTestManager(storage_path=db_path)
 
@@ -825,8 +826,12 @@ class TestErrorHandling:
             test_resource_group="test-rg-dr",
         )
 
-        with pytest.raises(DRTestError, match="Azure CLI not found"):
-            manager.run_dr_test(config)
+        result = manager.run_dr_test(config)
+
+        # Test should fail with error message about Azure CLI
+        assert result.success is False
+        assert result.restore_succeeded is False
+        assert "Azure CLI not found" in result.error_message
 
     def test_get_test_history_database_corruption(self, tmp_path):
         """Test error handling for corrupted database."""

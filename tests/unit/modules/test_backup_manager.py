@@ -56,17 +56,19 @@ class TestBackupScheduleDataclass:
 
     def test_backup_schedule_from_tag_value(self):
         """Test deserialization from JSON tag value."""
-        tag_value = json.dumps({
-            "enabled": True,
-            "daily_retention": 7,
-            "weekly_retention": 4,
-            "monthly_retention": 12,
-            "last_daily": "2025-12-01T10:00:00+00:00",
-            "last_weekly": None,
-            "last_monthly": None,
-            "cross_region_enabled": True,
-            "target_region": "westus2",
-        })
+        tag_value = json.dumps(
+            {
+                "enabled": True,
+                "daily_retention": 7,
+                "weekly_retention": 4,
+                "monthly_retention": 12,
+                "last_daily": "2025-12-01T10:00:00+00:00",
+                "last_weekly": None,
+                "last_monthly": None,
+                "cross_region_enabled": True,
+                "target_region": "westus2",
+            }
+        )
 
         schedule = BackupSchedule.from_tag_value(tag_value)
 
@@ -84,10 +86,12 @@ class TestBackupScheduleDataclass:
 
     def test_backup_schedule_from_missing_fields(self):
         """Test defaults for missing optional fields."""
-        tag_value = json.dumps({
-            "enabled": True,
-            "daily_retention": 7,
-        })
+        tag_value = json.dumps(
+            {
+                "enabled": True,
+                "daily_retention": 7,
+            }
+        )
 
         schedule = BackupSchedule.from_tag_value(tag_value)
 
@@ -526,13 +530,15 @@ class TestCleanupExpiredBackups:
         now = datetime.now(UTC)
         backups = []
         for i in range(10):
-            backups.append(BackupInfo(
-                snapshot_name=f"vm1-backup-daily-{i}",
-                vm_name="test-vm",
-                resource_group="test-rg",
-                creation_time=now - timedelta(days=i),
-                retention_tier="daily",
-            ))
+            backups.append(
+                BackupInfo(
+                    snapshot_name=f"vm1-backup-daily-{i}",
+                    vm_name="test-vm",
+                    resource_group="test-rg",
+                    creation_time=now - timedelta(days=i),
+                    retention_tier="daily",
+                )
+            )
         mock_list.return_value = backups
 
         result = BackupManager.cleanup_expired_backups(
@@ -561,13 +567,15 @@ class TestCleanupExpiredBackups:
         now = datetime.now(UTC)
         backups = []
         for i in range(6):
-            backups.append(BackupInfo(
-                snapshot_name=f"vm1-backup-weekly-{i}",
-                vm_name="test-vm",
-                resource_group="test-rg",
-                creation_time=now - timedelta(weeks=i),
-                retention_tier="weekly",
-            ))
+            backups.append(
+                BackupInfo(
+                    snapshot_name=f"vm1-backup-weekly-{i}",
+                    vm_name="test-vm",
+                    resource_group="test-rg",
+                    creation_time=now - timedelta(weeks=i),
+                    retention_tier="weekly",
+                )
+            )
         mock_list.return_value = backups
 
         result = BackupManager.cleanup_expired_backups(
@@ -593,13 +601,15 @@ class TestCleanupExpiredBackups:
         now = datetime.now(UTC)
         backups = []
         for i in range(3):
-            backups.append(BackupInfo(
-                snapshot_name=f"vm1-backup-daily-{i}",
-                vm_name="test-vm",
-                resource_group="test-rg",
-                creation_time=now - timedelta(days=i),
-                retention_tier="daily",
-            ))
+            backups.append(
+                BackupInfo(
+                    snapshot_name=f"vm1-backup-daily-{i}",
+                    vm_name="test-vm",
+                    resource_group="test-rg",
+                    creation_time=now - timedelta(days=i),
+                    retention_tier="daily",
+                )
+            )
         mock_list.return_value = backups
 
         result = BackupManager.cleanup_expired_backups(
@@ -772,13 +782,15 @@ class TestErrorHandling:
         now = datetime.now(UTC)
         backups = []
         for i in range(10):
-            backups.append(BackupInfo(
-                snapshot_name=f"vm1-backup-daily-{i}",
-                vm_name="test-vm",
-                resource_group="test-rg",
-                creation_time=now - timedelta(days=i),
-                retention_tier="daily",
-            ))
+            backups.append(
+                BackupInfo(
+                    snapshot_name=f"vm1-backup-daily-{i}",
+                    vm_name="test-vm",
+                    resource_group="test-rg",
+                    creation_time=now - timedelta(days=i),
+                    retention_tier="daily",
+                )
+            )
         mock_list.return_value = backups
 
         # First deletion fails, others succeed

@@ -111,9 +111,7 @@ class TestReplicationManagerInit:
 
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='index'"
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='index'")
         indexes = [row[0] for row in cursor.fetchall()]
         conn.close()
 
@@ -243,6 +241,7 @@ class TestReplicateAllPending:
 
         # Mock 3 unreplicated backups
         from azlin.modules.backup_manager import BackupInfo
+
         backups = [
             BackupInfo(
                 snapshot_name=f"vm1-backup-daily-{i}",
@@ -295,6 +294,7 @@ class TestReplicateAllPending:
         manager = ReplicationManager(storage_path=db_path)
 
         from azlin.modules.backup_manager import BackupInfo
+
         backups = [
             BackupInfo(
                 snapshot_name=f"vm1-backup-daily-{i}",
@@ -332,6 +332,7 @@ class TestReplicateAllPending:
         manager = ReplicationManager(storage_path=db_path)
 
         from azlin.modules.backup_manager import BackupInfo
+
         backups = [
             BackupInfo(
                 snapshot_name=f"vm1-backup-daily-{i}",
@@ -672,6 +673,7 @@ class TestBoundaryConditions:
         manager = ReplicationManager(storage_path=db_path)
 
         from azlin.modules.backup_manager import BackupInfo
+
         backups = [
             BackupInfo(
                 snapshot_name=f"vm1-backup-daily-{i}",

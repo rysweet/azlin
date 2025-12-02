@@ -89,7 +89,9 @@ class TestCompleteBackupDRWorkflow:
             size_gb=128,
         )
 
-        with patch("azlin.modules.backup_manager.BackupManager._create_backup_snapshot") as mock_backup:
+        with patch(
+            "azlin.modules.backup_manager.BackupManager._create_backup_snapshot"
+        ) as mock_backup:
             mock_backup.return_value = "test-vm-backup-daily-20251201-100000"
 
             backup_info = BackupManager.trigger_backup(
@@ -232,9 +234,7 @@ class TestFailureRecoveryWorkflow:
     @patch("subprocess.run")
     @patch("azlin.modules.backup_manager.BackupManager._set_vm_tag")
     @patch("azlin.modules.backup_manager.BackupManager._get_vm_tag")
-    def test_replication_failure_recovery(
-        self, mock_get_tag, mock_set_tag, mock_run, tmp_path
-    ):
+    def test_replication_failure_recovery(self, mock_get_tag, mock_set_tag, mock_run, tmp_path):
         """Test workflow recovery when replication fails then succeeds.
 
         Simulates:
@@ -256,7 +256,9 @@ class TestFailureRecoveryWorkflow:
         )
         mock_get_tag.return_value = schedule.to_tag_value()
 
-        with patch("azlin.modules.backup_manager.BackupManager._create_backup_snapshot") as mock_backup:
+        with patch(
+            "azlin.modules.backup_manager.BackupManager._create_backup_snapshot"
+        ) as mock_backup:
             mock_backup.return_value = "test-vm-backup-daily-20251201-100000"
 
             backup_info = BackupManager.trigger_backup(

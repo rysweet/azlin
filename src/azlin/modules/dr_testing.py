@@ -653,6 +653,8 @@ class DRTestManager:
             raise DRTestError(f"Failed to cleanup test VM: {e.stderr}") from e
         except subprocess.TimeoutExpired as e:
             raise DRTestError("Test VM cleanup timed out") from e
+        except FileNotFoundError as e:
+            raise DRTestError("Azure CLI not found. Please install Azure CLI.") from e
 
     def _insert_test_result(self, result: DRTestResult) -> int:
         """Insert DR test result into database.

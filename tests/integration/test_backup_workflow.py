@@ -57,7 +57,9 @@ class TestBackupToReplicationWorkflow:
             )
             mock_get_tag.return_value = schedule.to_tag_value()
 
-            with patch("azlin.modules.backup_manager.BackupManager._create_backup_snapshot") as mock_backup:
+            with patch(
+                "azlin.modules.backup_manager.BackupManager._create_backup_snapshot"
+            ) as mock_backup:
                 mock_backup.return_value = "test-vm-backup-daily-20251201-100000"
 
                 # Trigger backup
@@ -231,9 +233,7 @@ class TestBackupCleanupWithReplicationTracking:
     @patch("azlin.modules.backup_manager.BackupManager._get_vm_tag")
     @patch("azlin.modules.backup_manager.BackupManager.list_backups")
     @patch("azlin.modules.backup_manager.SnapshotManager.delete_snapshot")
-    def test_cleanup_only_replicated_backups(
-        self, mock_delete, mock_list, mock_get_tag, tmp_path
-    ):
+    def test_cleanup_only_replicated_backups(self, mock_delete, mock_list, mock_get_tag, tmp_path):
         """Test cleanup only deletes backups that are replicated."""
         # Configure backup with cross-region
         schedule = BackupSchedule(
