@@ -12,7 +12,7 @@ import pytest
 try:
     from azlin.commands.storage import StorageCommands
     from azlin.modules.storage_manager import StorageManager
-    from azlin.modules.storage_quota_manager import QuotaConfig, StorageQuotaManager
+    from azlin.modules.storage_quota_manager import StorageQuotaManager
 except ImportError:
     pytest.skip("Modules not implemented yet", allow_module_level=True)
 

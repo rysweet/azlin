@@ -426,7 +426,7 @@ class OrphanedResourceDetector:
                 # Check if marked as shared
                 if ConfigManager and hasattr(ConfigManager, "is_shared_storage"):
                     try:
-                        if ConfigManager.is_shared_storage(storage.name):
+                        if ConfigManager.is_shared_storage(storage.name):  # type: ignore[attr-defined]
                             continue
                     except Exception:
                         pass

@@ -295,18 +295,17 @@ class StorageQuotaManager:
         for scope in quotas:
             for name in quotas[scope]:
                 # Filter by resource group if specified
-                if resource_group:
+                if resource_group and scope == "team" and name != resource_group:
                     # For team scope, filter by name
-                    if scope == "team" and name != resource_group:
-                        continue
-                    # For VM scope, we'd need to query which VMs are in the RG
-                    # For now, include all VMs (could enhance later)
+                    continue
+                # For VM scope, we'd need to query which VMs are in the RG
+                # For now, include all VMs (could enhance later)
 
                 try:
                     status = cls.get_quota(scope=scope, name=name, resource_group=resource_group)
                     result.append(status)
-                except Exception:
-                    # Skip quotas that can't be queried
+                except Exception:  # noqa: S112
+                    # Skip quotas that can't be queried (expected for missing configs)
                     continue
 
         return result
@@ -330,7 +329,7 @@ class StorageQuotaManager:
             content = cls.QUOTA_FILE.read_text()
             return json.loads(content)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Corrupted quota configuration: {e}")
+            raise ValueError(f"Corrupted quota configuration: {e}") from e
 
     @classmethod
     def _save_quotas(cls, quotas: dict) -> None:

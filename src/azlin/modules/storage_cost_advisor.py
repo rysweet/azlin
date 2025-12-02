@@ -273,23 +273,23 @@ class StorageCostAdvisor:
             try:
                 tier_recs = StorageTierOptimizer.audit_all_storage(resource_group=resource_group)
 
-                for tier_rec in tier_recs:
-                    if tier_rec.annual_savings > 100:  # Only significant savings
-                        recommendations.append(
-                            CostRecommendation(
-                                category="tier",
-                                resource_name=tier_rec.storage_name,
-                                resource_type="storage_account",
-                                action=f"Migrate to {tier_rec.recommended_tier} tier",
-                                current_cost_per_month=tier_rec.current_cost_per_month,
-                                potential_cost_per_month=tier_rec.potential_cost_per_month,
-                                monthly_savings=tier_rec.annual_savings / 12,
-                                annual_savings=tier_rec.annual_savings,
-                                effort="medium",
-                                risk="low",
-                                priority=2,
-                            )
-                        )
+                recommendations.extend(
+                    CostRecommendation(
+                        category="tier",
+                        resource_name=tier_rec.storage_name,
+                        resource_type="storage_account",
+                        action=f"Migrate to {tier_rec.recommended_tier} tier",
+                        current_cost_per_month=tier_rec.current_cost_per_month,
+                        potential_cost_per_month=tier_rec.potential_cost_per_month,
+                        monthly_savings=tier_rec.annual_savings / 12,
+                        annual_savings=tier_rec.annual_savings,
+                        effort="medium",
+                        risk="low",
+                        priority=2,
+                    )
+                    for tier_rec in tier_recs
+                    if tier_rec.annual_savings > 100  # Only significant savings
+                )
             except Exception:
                 pass
 
@@ -383,25 +383,30 @@ class StorageCostAdvisor:
 
         if output_format == "csv":
             lines = ["Category,Resource,Action,Monthly Savings,Annual Savings,Priority"]
-            for r in recommendations:
-                lines.append(
-                    f"{r.category},{r.resource_name},{r.action},{r.monthly_savings:.2f},{r.annual_savings:.2f},{r.priority}"
-                )
+            lines.extend(
+                f"{r.category},{r.resource_name},{r.action},{r.monthly_savings:.2f},{r.annual_savings:.2f},{r.priority}"
+                for r in recommendations
+            )
             return "\n".join(lines)
 
-        # text
-        lines = [
-            f"Storage Cost Analysis: {resource_group}",
-            "=" * 50,
-            f"Total Monthly Cost: ${analysis.total_cost:.2f}",
-            "",
-            "Recommendations:",
-        ]
+        if output_format == "text":
+            # text format
+            lines = [
+                f"Storage Cost Analysis: {resource_group}",
+                "=" * 50,
+                f"Total Monthly Cost: ${analysis.total_cost:.2f}",
+                "",
+                "Recommendations:",
+            ]
 
-        for i, rec in enumerate(recommendations[:5], 1):
-            lines.append(f"{i}. {rec.action} - ${rec.annual_savings:.2f}/year")
+            for i, rec in enumerate(recommendations[:5], 1):
+                lines.append(f"{i}. {rec.action} - ${rec.annual_savings:.2f}/year")
 
-        return "\n".join(lines)
+            return "\n".join(lines)
+
+        raise ValueError(
+            f"Invalid output format: {output_format}. Must be 'text', 'json', or 'csv'"
+        )
 
     # Private helper methods
 

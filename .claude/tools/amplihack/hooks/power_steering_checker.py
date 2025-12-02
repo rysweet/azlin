@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 import yaml
 
@@ -89,9 +89,9 @@ class CheckerResult:
 class ConsiderationAnalysis:
     """Results of analyzing all considerations."""
 
-    results: Dict[str, CheckerResult] = field(default_factory=dict)
-    failed_blockers: List[CheckerResult] = field(default_factory=list)
-    failed_warnings: List[CheckerResult] = field(default_factory=list)
+    results: dict[str, CheckerResult] = field(default_factory=dict)
+    failed_blockers: list[CheckerResult] = field(default_factory=list)
+    failed_warnings: list[CheckerResult] = field(default_factory=list)
 
     @property
     def has_blockers(self) -> bool:
@@ -107,10 +107,10 @@ class ConsiderationAnalysis:
             else:
                 self.failed_warnings.append(result)
 
-    def group_by_category(self) -> Dict[str, List[CheckerResult]]:
+    def group_by_category(self) -> dict[str, list[CheckerResult]]:
         """Group failed considerations by category."""
         # For Phase 1, use simplified categories based on consideration ID prefix
-        grouped: Dict[str, List[CheckerResult]] = {}
+        grouped: dict[str, list[CheckerResult]] = {}
         for result in self.failed_blockers + self.failed_warnings:
             # Simple category derivation from ID
             if "workflow" in result.consideration_id or "philosophy" in result.consideration_id:
@@ -132,9 +132,9 @@ class PowerSteeringRedirect:
 
     redirect_number: int
     timestamp: str  # ISO format
-    failed_considerations: List[str]  # IDs of failed checks
+    failed_considerations: list[str]  # IDs of failed checks
     continuation_prompt: str
-    work_summary: Optional[str] = None
+    work_summary: str | None = None
 
 
 @dataclass
@@ -142,9 +142,9 @@ class PowerSteeringResult:
     """Final decision from power-steering analysis."""
 
     decision: Literal["approve", "block"]
-    reasons: List[str]
-    continuation_prompt: Optional[str] = None
-    summary: Optional[str] = None
+    reasons: list[str]
+    continuation_prompt: str | None = None
+    summary: str | None = None
 
 
 class PowerSteeringChecker:
@@ -223,7 +223,7 @@ class PowerSteeringChecker:
         },
     ]
 
-    def __init__(self, project_root: Optional[Path] = None):
+    def __init__(self, project_root: Path | None = None):
         """Initialize power-steering checker.
 
         Args:
@@ -273,7 +273,7 @@ class PowerSteeringChecker:
 
         raise ValueError("Could not find project root with .claude marker")
 
-    def _validate_config_integrity(self, config: Dict) -> bool:
+    def _validate_config_integrity(self, config: dict) -> bool:
         """Validate configuration integrity (security check).
 
         Args:
@@ -304,7 +304,7 @@ class PowerSteeringChecker:
 
         return True
 
-    def _load_config(self) -> Dict[str, Any]:
+    def _load_config(self) -> dict[str, Any]:
         """Load configuration from file with defaults.
 
         Returns:
@@ -342,7 +342,7 @@ class PowerSteeringChecker:
 
         return defaults
 
-    def _load_considerations_yaml(self) -> List[Dict[str, Any]]:
+    def _load_considerations_yaml(self) -> list[dict[str, Any]]:
         """Load considerations from YAML file with fallback to Phase 1.
 
         Returns:
@@ -429,7 +429,7 @@ class PowerSteeringChecker:
         self,
         transcript_path: Path,
         session_id: str,
-        progress_callback: Optional[callable] = None,
+        progress_callback: callable | None = None,
     ) -> PowerSteeringResult:
         """Main entry point - analyze transcript and make decision.
 
@@ -670,7 +670,7 @@ class PowerSteeringChecker:
         session_dir = self.runtime_dir / session_id
         return session_dir / "redirects.jsonl"
 
-    def _load_redirects(self, session_id: str) -> List[PowerSteeringRedirect]:
+    def _load_redirects(self, session_id: str) -> list[PowerSteeringRedirect]:
         """Load redirect history for a session.
 
         Args:
@@ -713,9 +713,9 @@ class PowerSteeringChecker:
     def _save_redirect(
         self,
         session_id: str,
-        failed_considerations: List[str],
+        failed_considerations: list[str],
         continuation_prompt: str,
-        work_summary: Optional[str] = None,
+        work_summary: str | None = None,
     ) -> None:
         """Save a redirect record to persistent storage.
 
@@ -765,7 +765,7 @@ class PowerSteeringChecker:
             # Fail-open: Don't block user if we can't save redirect
             self._log(f"Failed to save redirect: {e}", "ERROR")
 
-    def _load_transcript(self, transcript_path: Path) -> List[Dict]:
+    def _load_transcript(self, transcript_path: Path) -> list[dict]:
         """Load transcript from JSONL file with size limits.
 
         Args:
@@ -835,7 +835,7 @@ class PowerSteeringChecker:
         write_edit_operations: int,
         read_grep_operations: int,
         question_count: int,
-        user_messages: List[Dict],
+        user_messages: list[dict],
     ) -> bool:
         """Check if transcript shows informational session indicators.
 
@@ -901,7 +901,7 @@ class PowerSteeringChecker:
         # Multiple Read/Grep without modifications
         return read_grep_operations >= 2 and write_edit_operations == 0
 
-    def detect_session_type(self, transcript: List[Dict]) -> str:
+    def detect_session_type(self, transcript: list[dict]) -> str:
         """Detect session type for selective consideration application.
 
         Session Types:
@@ -1013,7 +1013,7 @@ class PowerSteeringChecker:
         # Default to INFORMATIONAL if unclear (fail-open, conservative)
         return "INFORMATIONAL"
 
-    def get_applicable_considerations(self, session_type: str) -> List[Dict[str, Any]]:
+    def get_applicable_considerations(self, session_type: str) -> list[dict[str, Any]]:
         """Get considerations applicable to a specific session type.
 
         Args:
@@ -1043,7 +1043,7 @@ class PowerSteeringChecker:
 
         return applicable
 
-    def _is_qa_session(self, transcript: List[Dict]) -> bool:
+    def _is_qa_session(self, transcript: list[dict]) -> bool:
         """Detect if session is interactive Q&A (skip power-steering).
 
         Heuristics:
@@ -1101,10 +1101,10 @@ class PowerSteeringChecker:
 
     def _analyze_considerations(
         self,
-        transcript: List[Dict],
+        transcript: list[dict],
         session_id: str,
         session_type: str = None,
-        progress_callback: Optional[callable] = None,
+        progress_callback: callable | None = None,
     ) -> ConsiderationAnalysis:
         """Analyze transcript against all enabled considerations.
 
@@ -1231,7 +1231,7 @@ class PowerSteeringChecker:
         return analysis
 
     def _run_heuristic_checker(
-        self, consideration: Dict[str, Any], transcript: List[Dict], session_id: str
+        self, consideration: dict[str, Any], transcript: list[dict], session_id: str
     ) -> bool:
         """Run heuristic checker for a consideration.
 
@@ -1267,7 +1267,7 @@ class PowerSteeringChecker:
     # Phase 1: Top 5 Critical Checkers
     # ========================================================================
 
-    def _check_todos_complete(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_todos_complete(self, transcript: list[dict], session_id: str) -> bool:
         """Check if all TODO items completed.
 
         Args:
@@ -1308,7 +1308,7 @@ class PowerSteeringChecker:
 
         return True  # All todos completed
 
-    def _check_dev_workflow_complete(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_dev_workflow_complete(self, transcript: list[dict], session_id: str) -> bool:
         """Check if full DEFAULT_WORKFLOW followed.
 
         Heuristics:
@@ -1347,7 +1347,7 @@ class PowerSteeringChecker:
 
         return True
 
-    def _check_philosophy_compliance(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_philosophy_compliance(self, transcript: list[dict], session_id: str) -> bool:
         """Check for PHILOSOPHY adherence (zero-BS).
 
         Heuristics:
@@ -1398,7 +1398,7 @@ class PowerSteeringChecker:
 
         return True
 
-    def _check_local_testing(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_local_testing(self, transcript: list[dict], session_id: str) -> bool:
         """Check if agent tested locally.
 
         Heuristics:
@@ -1466,7 +1466,7 @@ class PowerSteeringChecker:
         # No tests found or tests failed
         return False
 
-    def _check_ci_status(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_ci_status(self, transcript: list[dict], session_id: str) -> bool:
         """Check if CI passing/mergeable.
 
         Heuristics:
@@ -1527,7 +1527,7 @@ class PowerSteeringChecker:
     # ========================================================================
 
     def _generic_analyzer(
-        self, transcript: List[Dict], session_id: str, consideration: Dict[str, Any]
+        self, transcript: list[dict], session_id: str, consideration: dict[str, Any]
     ) -> bool:
         """Generic analyzer for considerations without specific checkers.
 
@@ -1578,7 +1578,7 @@ class PowerSteeringChecker:
 
         return True  # Phase 2: Always satisfied (fail-open)
 
-    def _check_agent_unnecessary_questions(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_agent_unnecessary_questions(self, transcript: list[dict], session_id: str) -> bool:
         """Check if agent asked unnecessary questions instead of proceeding.
 
         Detects questions that could have been inferred from context.
@@ -1608,7 +1608,7 @@ class PowerSteeringChecker:
 
         return True
 
-    def _check_objective_completion(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_objective_completion(self, transcript: list[dict], session_id: str) -> bool:
         """Check if original user objective was fully accomplished.
 
         Looks for completion indicators in later messages.
@@ -1652,7 +1652,7 @@ class PowerSteeringChecker:
 
         return False  # No completion indicators found
 
-    def _check_documentation_updates(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_documentation_updates(self, transcript: list[dict], session_id: str) -> bool:
         """Check if relevant documentation files were updated.
 
         Looks for Write/Edit operations on documentation files.
@@ -1693,7 +1693,7 @@ class PowerSteeringChecker:
 
         return True
 
-    def _check_tutorial_needed(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_tutorial_needed(self, transcript: list[dict], session_id: str) -> bool:
         """Check if new feature needs tutorial/how-to.
 
         Detects new user-facing features that should have examples.
@@ -1738,7 +1738,7 @@ class PowerSteeringChecker:
 
         return has_tutorial
 
-    def _check_presentation_needed(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_presentation_needed(self, transcript: list[dict], session_id: str) -> bool:
         """Check if work needs presentation deck.
 
         Detects high-impact work that should be presented to stakeholders.
@@ -1754,7 +1754,7 @@ class PowerSteeringChecker:
         # Could be enhanced to detect high-impact work patterns
         return True
 
-    def _check_feature_docs_discoverable(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_feature_docs_discoverable(self, transcript: list[dict], session_id: str) -> bool:
         """Check if feature documentation is discoverable from multiple paths.
 
         Verifies new features have documentation discoverable from README and docs/ directory.
@@ -1863,7 +1863,7 @@ class PowerSteeringChecker:
             # Fail-open: Return True on errors to avoid blocking users
             return True
 
-    def _is_docs_only_session(self, transcript: List[Dict]) -> bool:
+    def _is_docs_only_session(self, transcript: list[dict]) -> bool:
         """Check if session only modified documentation files.
 
         Helper method to detect docs-only sessions where no code files were touched.
@@ -1903,7 +1903,7 @@ class PowerSteeringChecker:
             # Fail-open: Return False on errors (assume code might be modified)
             return False
 
-    def _check_next_steps(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_next_steps(self, transcript: list[dict], session_id: str) -> bool:
         """Check if next steps were identified and documented.
 
         Looks for TODO items or documented follow-up tasks.
@@ -1949,7 +1949,7 @@ class PowerSteeringChecker:
 
         return False
 
-    def _check_docs_organization(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_docs_organization(self, transcript: list[dict], session_id: str) -> bool:
         """Check if investigation/session docs are organized properly.
 
         Verifies documentation is in correct directories.
@@ -1982,7 +1982,7 @@ class PowerSteeringChecker:
 
         return True
 
-    def _check_investigation_docs(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_investigation_docs(self, transcript: list[dict], session_id: str) -> bool:
         """Check if investigation findings were documented.
 
         Ensures exploration work is captured in persistent documentation.
@@ -2032,7 +2032,7 @@ class PowerSteeringChecker:
 
         return doc_created
 
-    def _check_shortcuts(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_shortcuts(self, transcript: list[dict], session_id: str) -> bool:
         """Check if any quality shortcuts were taken.
 
         Identifies compromises like skipped error handling or incomplete validation.
@@ -2073,7 +2073,7 @@ class PowerSteeringChecker:
 
         return True
 
-    def _check_interactive_testing(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_interactive_testing(self, transcript: list[dict], session_id: str) -> bool:
         """Check if agent tested interactively beyond automated tests.
 
         Looks for manual verification, edge case testing, UI validation.
@@ -2119,7 +2119,7 @@ class PowerSteeringChecker:
 
         return False
 
-    def _check_unrelated_changes(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_unrelated_changes(self, transcript: list[dict], session_id: str) -> bool:
         """Check if there are unrelated changes in PR.
 
         Detects scope creep and unrelated modifications.
@@ -2159,7 +2159,7 @@ class PowerSteeringChecker:
 
         return True
 
-    def _check_root_pollution(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_root_pollution(self, transcript: list[dict], session_id: str) -> bool:
         """Check if PR polluted project root with new files.
 
         Flags new top-level files that should be in subdirectories.
@@ -2204,7 +2204,7 @@ class PowerSteeringChecker:
 
         return True
 
-    def _check_pr_description(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_pr_description(self, transcript: list[dict], session_id: str) -> bool:
         """Check if PR description is clear and complete.
 
         Verifies PR has summary, test plan, and context.
@@ -2241,7 +2241,7 @@ class PowerSteeringChecker:
 
         return has_all_sections
 
-    def _check_review_responses(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_review_responses(self, transcript: list[dict], session_id: str) -> bool:
         """Check if PR review comments were addressed.
 
         Verifies reviewer feedback was acknowledged and resolved.
@@ -2284,7 +2284,7 @@ class PowerSteeringChecker:
 
         return has_responses
 
-    def _check_branch_rebase(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_branch_rebase(self, transcript: list[dict], session_id: str) -> bool:
         """Check if branch needs rebase on main.
 
         Verifies branch is up to date with main.
@@ -2312,7 +2312,7 @@ class PowerSteeringChecker:
         # Default to satisfied if no information
         return True
 
-    def _check_ci_precommit_mismatch(self, transcript: List[Dict], session_id: str) -> bool:
+    def _check_ci_precommit_mismatch(self, transcript: list[dict], session_id: str) -> bool:
         """Check for CI failures contradicting passing pre-commit.
 
         Identifies divergence between local pre-commit and CI checks.
@@ -2354,10 +2354,10 @@ class PowerSteeringChecker:
 
     def _emit_progress(
         self,
-        progress_callback: Optional[callable],
+        progress_callback: callable | None,
         event_type: str,
         message: str,
-        details: Optional[Dict] = None,
+        details: dict | None = None,
     ) -> None:
         """Emit progress event to callback if provided.
 
@@ -2417,7 +2417,7 @@ class PowerSteeringChecker:
         return "\n".join(prompt_parts)
 
     def _generate_summary(
-        self, transcript: List[Dict], analysis: ConsiderationAnalysis, session_id: str
+        self, transcript: list[dict], analysis: ConsiderationAnalysis, session_id: str
     ) -> str:
         """Generate session summary for successful completion.
 
@@ -2499,7 +2499,7 @@ class PowerSteeringChecker:
 
 
 def check_session(
-    transcript_path: Path, session_id: str, project_root: Optional[Path] = None
+    transcript_path: Path, session_id: str, project_root: Path | None = None
 ) -> PowerSteeringResult:
     """Convenience function to check session completeness.
 

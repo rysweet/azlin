@@ -344,8 +344,9 @@ class TestStorageCostAdvisorGenerateReport:
 
         # Should be valid JSON
         data = json.loads(report)
-        assert "total_cost" in data
-        assert data["total_cost"] == 538.13
+        assert "analysis" in data
+        assert "total_cost" in data["analysis"]
+        assert data["analysis"]["total_cost"] == 538.13
 
     def test_generate_report_csv_format(self):
         """Test CSV report generation."""

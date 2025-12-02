@@ -10,10 +10,9 @@ Philosophy:
 
 import shutil
 from pathlib import Path
-from typing import Optional
 
 
-def find_latest_backup(project_path: Path) -> Optional[Path]:
+def find_latest_backup(project_path: Path) -> Path | None:
     """Find the most recent .claude.backup.* directory.
 
     Args:
@@ -43,7 +42,7 @@ def find_latest_backup(project_path: Path) -> Optional[Path]:
 
 
 def rollback_update(
-    project_path: Optional[Path] = None, backup_path: Optional[Path] = None
+    project_path: Path | None = None, backup_path: Path | None = None
 ) -> bool:
     """Restore .claude directory from backup.
 

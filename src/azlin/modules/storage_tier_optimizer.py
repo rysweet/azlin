@@ -143,10 +143,7 @@ class StorageTierOptimizer:
         tier = getattr(status, "tier", "Standard")
         size_gb = getattr(status, "size_gb", 0)
 
-        if tier == "Premium":
-            current_cost = size_gb * PREMIUM_COST
-        else:
-            current_cost = size_gb * STANDARD_COST
+        current_cost = size_gb * PREMIUM_COST if tier == "Premium" else size_gb * STANDARD_COST
 
         return TierAnalysis(
             storage_name=storage_name,
@@ -245,7 +242,8 @@ class StorageTierOptimizer:
                         storage_name=storage.name, resource_group=resource_group
                     )
                     recommendations.append(rec)
-                except Exception:
+                except Exception:  # noqa: S112
+                    # Skip storage that can't be analyzed (expected for inaccessible resources)
                     continue
 
             return recommendations
