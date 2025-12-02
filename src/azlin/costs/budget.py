@@ -167,7 +167,8 @@ class BudgetForecast:
         if not self.daily_costs:
             return Decimal("0")
 
-        return sum(self.daily_costs) / len(self.daily_costs)
+        total = sum(self.daily_costs, Decimal("0"))
+        return Decimal(total) / Decimal(len(self.daily_costs))
 
     def project_30_days(self) -> Decimal:
         """Project cost for next 30 days."""
@@ -188,8 +189,10 @@ class BudgetForecast:
 
         # Compare first half to second half
         mid = len(self.daily_costs) // 2
-        first_half_avg = sum(self.daily_costs[:mid]) / mid if mid > 0 else Decimal("0")
-        second_half_avg = sum(self.daily_costs[mid:]) / (len(self.daily_costs) - mid)
+        first_half_total = sum(self.daily_costs[:mid], Decimal("0"))
+        first_half_avg = Decimal(first_half_total) / Decimal(mid) if mid > 0 else Decimal("0")
+        second_half_total = sum(self.daily_costs[mid:], Decimal("0"))
+        second_half_avg = Decimal(second_half_total) / Decimal(len(self.daily_costs) - mid)
 
         if second_half_avg > first_half_avg * Decimal("1.1"):
             return "increasing"
@@ -203,8 +206,10 @@ class BudgetForecast:
             return Decimal("0")
 
         mid = len(self.daily_costs) // 2
-        first_half_avg = sum(self.daily_costs[:mid]) / mid if mid > 0 else Decimal("0")
-        second_half_avg = sum(self.daily_costs[mid:]) / (len(self.daily_costs) - mid)
+        first_half_total = sum(self.daily_costs[:mid], Decimal("0"))
+        first_half_avg = Decimal(first_half_total) / Decimal(mid) if mid > 0 else Decimal("0")
+        second_half_total = sum(self.daily_costs[mid:], Decimal("0"))
+        second_half_avg = Decimal(second_half_total) / Decimal(len(self.daily_costs) - mid)
 
         if first_half_avg == 0:
             return Decimal("0")

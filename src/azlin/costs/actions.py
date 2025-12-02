@@ -423,8 +423,14 @@ class ActionSafetyCheck:
     def validate(self, action: AutomatedAction) -> "SafetyResult":
         """Validate action safety."""
         # Check resource exists
-        if not self.resource_manager.resource_exists(action.resource_group, action.resource_name):
+        if self.resource_manager and not self.resource_manager.resource_exists(
+            action.resource_group, action.resource_name
+        ):
             return SafetyResult(safe=False, reason="Resource not found")
+
+        # Ensure _running_actions is initialized
+        if self._running_actions is None:
+            self._running_actions = {}
 
         # Check for duplicate actions
         resource_key = f"{action.resource_group}/{action.resource_name}"

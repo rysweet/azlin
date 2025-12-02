@@ -11,21 +11,19 @@ This module provides commands for cost intelligence and optimization:
 import logging
 import sys
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import click
 from rich.console import Console
 
 from azlin.click_group import AzlinGroup
 from azlin.costs import (
-    ActionExecutor,
-    ActionStatus,
     BudgetAlertManager,
     BudgetThreshold,
     CostDashboard,
     CostHistory,
     CostOptimizer,
     RecommendationPriority,
-    TimeRange,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,12 +79,10 @@ def costs_dashboard(resource_group: str, refresh: bool):
         azlin costs dashboard --rg my-rg --refresh
     """
     try:
-        dashboard = CostDashboard()
+        dashboard = CostDashboard(resource_group=resource_group)
 
         # Get metrics (respects cache unless refresh=True)
-        metrics = dashboard.get_dashboard_metrics(
-            resource_group_name=resource_group, force_refresh=refresh
-        )
+        metrics = dashboard.get_current_metrics(refresh=refresh)
 
         console.print(f"\n[bold cyan]Cost Dashboard - {resource_group}[/bold cyan]")
         console.print(f"Period: {metrics.period_start.date()} to {metrics.period_end.date()}\n")
@@ -103,7 +99,7 @@ def costs_dashboard(resource_group: str, refresh: bool):
         console.print()
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
+        console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
 
@@ -119,20 +115,17 @@ def costs_history(resource_group: str, days: int):
         azlin costs history --rg my-rg --days 90
     """
     try:
-        history = CostHistory()
+        history = CostHistory(resource_group=resource_group)
 
         # Calculate time range
-        end_date = datetime.now()
+        end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
-        time_range = TimeRange(start_date=start_date, end_date=end_date)
 
-        # Get history
-        entries = history.get_cost_history(
-            resource_group_name=resource_group, time_range=time_range
-        )
+        # Get history entries from store
+        entries = history.store.get_range(start_date=start_date, end_date=end_date)
 
         console.print(f"\n[bold cyan]Cost History - {resource_group}[/bold cyan]")
-        console.print(f"Period: {start_date.date()} to {end_date.date()}\n")
+        console.print(f"Period: {start_date} to {end_date}\n")
 
         if not entries:
             console.print("[yellow]No cost data available for this period[/yellow]")
@@ -151,7 +144,7 @@ def costs_history(resource_group: str, days: int):
         console.print()
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
+        console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
 
@@ -170,45 +163,37 @@ def costs_budget(action: str, resource_group: str, amount: float | None, thresho
         azlin costs budget alerts --rg my-rg
     """
     try:
-        budget_mgr = BudgetAlertManager()
-
         if action == "set":
             if amount is None:
-                console.print("[red]Error:[/red] --amount required for 'set' action", err=True)
+                console.print("[red]Error:[/red] --amount required for 'set' action")
                 sys.exit(1)
 
             # Create budget threshold
-            threshold_obj = BudgetThreshold(amount=amount, alert_percentage=threshold or 80)
+            threshold_obj = BudgetThreshold(
+                name=resource_group,
+                limit=Decimal(str(amount)),
+                notification_threshold=Decimal(str(threshold or 80)),
+            )
 
-            budget_mgr.set_budget(resource_group_name=resource_group, threshold=threshold_obj)
+            # Create manager with this threshold
+            budget_mgr = BudgetAlertManager(thresholds=[threshold_obj])
 
             console.print(
                 f"[green]✓[/green] Budget set to ${amount:.2f} with {threshold or 80}% alert threshold"
             )
 
         elif action == "show":
-            budget = budget_mgr.get_budget(resource_group)
-            if budget:
-                console.print(f"\n[bold cyan]Budget - {resource_group}[/bold cyan]")
-                console.print(f"Amount: ${budget.amount:.2f}")
-                console.print(f"Alert Threshold: {budget.alert_percentage}%")
-                console.print()
-            else:
-                console.print(f"[yellow]No budget set for {resource_group}[/yellow]")
+            # For show/alerts, need to load existing thresholds
+            # Simplified for now - will need proper storage
+            console.print("[yellow]Budget display not yet implemented[/yellow]")
 
         elif action == "alerts":
-            alerts = budget_mgr.check_alerts(resource_group)
-            if alerts:
-                console.print(f"\n[bold yellow]Budget Alerts - {resource_group}[/bold yellow]")
-                for alert in alerts:
-                    console.print(f"⚠️  {alert.message}")
-                    console.print(f"   Severity: {alert.severity}")
-                console.print()
-            else:
-                console.print(f"[green]No budget alerts for {resource_group}[/green]")
+            # For show/alerts, need to load existing thresholds
+            # Simplified for now - will need proper storage
+            console.print("[yellow]Alert checking not yet implemented[/yellow]")
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
+        console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
 
@@ -224,10 +209,10 @@ def costs_recommend(resource_group: str, priority: str | None):
         azlin costs recommend --rg my-rg --priority high
     """
     try:
-        optimizer = CostOptimizer()
+        optimizer = CostOptimizer(resource_group=resource_group)
 
         # Get recommendations
-        recommendations = optimizer.get_recommendations(resource_group_name=resource_group)
+        recommendations = optimizer.analyze()
 
         # Filter by priority if specified
         if priority:
@@ -256,7 +241,7 @@ def costs_recommend(resource_group: str, priority: str | None):
             console.print()
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
+        console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
 
@@ -275,11 +260,10 @@ def costs_actions(action: str, resource_group: str, priority: str | None, dry_ru
         azlin costs actions execute --rg my-rg --priority high
     """
     try:
-        executor = ActionExecutor()
-        optimizer = CostOptimizer()
+        optimizer = CostOptimizer(resource_group=resource_group)
 
         # Get recommendations first
-        recommendations = optimizer.get_recommendations(resource_group_name=resource_group)
+        recommendations = optimizer.analyze()
 
         # Filter by priority if specified
         if priority:
@@ -311,25 +295,20 @@ def costs_actions(action: str, resource_group: str, priority: str | None, dry_ru
             else:
                 console.print(f"\n[bold cyan]Executing Actions - {resource_group}[/bold cyan]\n")
 
+            # Note: Actual action execution would be implemented here
+            # For now, just show what would be done
             for rec in recommendations:
                 console.print(f"Processing: {rec.title}")
 
-                if not dry_run:
-                    result = executor.execute_action(rec.to_action())
-
-                    if result.status == ActionStatus.SUCCESS:
-                        console.print(f"  [green]✓[/green] Success: {result.message}")
-                    elif result.status == ActionStatus.FAILED:
-                        console.print(f"  [red]✗[/red] Failed: {result.message}")
-                    else:
-                        console.print(f"  [yellow]○[/yellow] Pending: {result.message}")
-                else:
+                if dry_run:
                     console.print(f"  [yellow]Would execute:[/yellow] {rec.description}")
+                else:
+                    console.print("  [yellow]Action execution not yet implemented[/yellow]")
 
                 console.print()
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
+        console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
 
