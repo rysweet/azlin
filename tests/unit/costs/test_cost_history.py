@@ -18,8 +18,8 @@ from azlin.costs.history import (
     CostHistoryEntry,
     CostHistoryStore,
     CostTrend,
-    TrendAnalyzer,
     TimeRange,
+    TrendAnalyzer,
 )
 
 
@@ -231,13 +231,11 @@ class TestTimeRange:
 
     def test_time_range_validates_dates(self):
         """Test time range validates start before end."""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="(?i)start"):
             TimeRange.custom(
                 start_date=datetime(2024, 2, 1).date(),
                 end_date=datetime(2024, 1, 1).date(),  # Before start
             )
-
-        assert "start" in str(exc_info.value).lower()
 
 
 class TestCostHistory:

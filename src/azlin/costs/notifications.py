@@ -10,7 +10,6 @@ Public API:
     send_webhook: Send webhook notification
 """
 
-from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)

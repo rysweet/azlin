@@ -7,9 +7,9 @@ These tests follow TDD approach - ALL tests should FAIL initially until
 the dashboard implementation is complete.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 

@@ -9,7 +9,7 @@ the budget alert implementation is complete.
 
 from datetime import datetime, timedelta
 from decimal import Decimal
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 

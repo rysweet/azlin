@@ -14,10 +14,10 @@ Public API:
     BudgetViolation: Budget breach tracking
 """
 
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Callable, Dict, List, Optional
 
 
 class BudgetThreshold:
@@ -83,7 +83,7 @@ class BudgetAlert:
             f"{self.percentage_used:.1f}% (${self.current_cost:.2f} / ${self.limit:.2f})"
         )
 
-    def get_recommendations(self) -> List[str]:
+    def get_recommendations(self) -> list[str]:
         """Get cost reduction recommendations."""
         recommendations = []
 
@@ -111,9 +111,9 @@ class BudgetAlertTrigger:
         """Initialize trigger with threshold and optional cooldown."""
         self.threshold = threshold
         self.cooldown_minutes = cooldown_minutes
-        self._last_triggered: Optional[datetime] = None
+        self._last_triggered: datetime | None = None
 
-    def evaluate(self, current_cost: Decimal) -> Optional[BudgetAlert]:
+    def evaluate(self, current_cost: Decimal) -> BudgetAlert | None:
         """Evaluate current cost against thresholds."""
         # Check cooldown
         if self._last_triggered and self.cooldown_minutes > 0:
@@ -153,7 +153,7 @@ class BudgetAlertTrigger:
 class BudgetForecast:
     """Budget forecasting from historical data."""
 
-    def __init__(self, daily_costs: List[Decimal]):
+    def __init__(self, daily_costs: list[Decimal]):
         """Initialize forecast with historical daily costs."""
         self.daily_costs = daily_costs
         self.days = len(daily_costs)
@@ -189,10 +189,9 @@ class BudgetForecast:
 
         if second_half_avg > first_half_avg * Decimal("1.1"):
             return "increasing"
-        elif second_half_avg < first_half_avg * Decimal("0.9"):
+        if second_half_avg < first_half_avg * Decimal("0.9"):
             return "decreasing"
-        else:
-            return "stable"
+        return "stable"
 
     def get_trend_percentage(self) -> Decimal:
         """Calculate trend percentage change."""
@@ -225,18 +224,18 @@ class BudgetAlertManager:
 
     def __init__(
         self,
-        thresholds: List[BudgetThreshold],
-        notify_email: Optional[str] = None,
-        notification_handler: Optional[Callable] = None,
+        thresholds: list[BudgetThreshold],
+        notify_email: str | None = None,
+        notification_handler: Callable | None = None,
     ):
         """Initialize manager with thresholds and notification options."""
         self.thresholds = thresholds
         self.notify_email = notify_email
         self.notification_handler = notification_handler
-        self._alert_history: Dict[str, List[BudgetAlert]] = {}
+        self._alert_history: dict[str, list[BudgetAlert]] = {}
         self._triggers = {t.name: BudgetAlertTrigger(t) for t in thresholds}
 
-    def check_budgets(self, current_costs: Dict[str, Decimal]) -> List[BudgetAlert]:
+    def check_budgets(self, current_costs: dict[str, Decimal]) -> list[BudgetAlert]:
         """Check costs against all thresholds."""
         alerts = []
 
@@ -277,7 +276,7 @@ class BudgetAlertManager:
         except ImportError:
             pass  # Email module not available
 
-    def get_alert_history(self, threshold_name: str) -> List[BudgetAlert]:
+    def get_alert_history(self, threshold_name: str) -> list[BudgetAlert]:
         """Get alert history for threshold."""
         return self._alert_history.get(threshold_name, [])
 
@@ -292,7 +291,7 @@ class BudgetViolation:
     overage: Decimal
     overage_percentage: Decimal
     detected_at: datetime
-    resolved_at: Optional[datetime] = None
+    resolved_at: datetime | None = None
 
     def is_resolved(self) -> bool:
         """Check if violation is resolved."""

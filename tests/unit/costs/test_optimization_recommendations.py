@@ -11,16 +11,14 @@ from datetime import datetime, time, timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
-import pytest
-
 from azlin.costs.optimizer import (
+    CostOptimizer,
+    IdleResourceDetector,
     OptimizationRecommendation,
     OptimizationRule,
     OversizedVMDetector,
-    IdleResourceDetector,
-    SchedulingOpportunity,
-    CostOptimizer,
     RecommendationPriority,
+    SchedulingOpportunity,
 )
 
 

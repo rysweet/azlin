@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, time
 from decimal import Decimal
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 class ActionStatus(Enum):
@@ -47,8 +47,8 @@ class ActionResult:
 
     status: ActionStatus
     message: str = ""
-    actual_savings: Optional[Decimal] = None
-    error: Optional[str] = None
+    actual_savings: Decimal | None = None
+    error: str | None = None
     dry_run: bool = False
     changes_applied: bool = False
 
@@ -95,8 +95,8 @@ class AutomatedAction:
         self.dry_run = dry_run
 
         self.status = ActionStatus.PENDING
-        self.started_at: Optional[datetime] = None
-        self.completed_at: Optional[datetime] = None
+        self.started_at: datetime | None = None
+        self.completed_at: datetime | None = None
         self._approved = False
 
     def is_dry_run(self) -> bool:
@@ -408,8 +408,8 @@ class ResourceDeleteAction(AutomatedAction):
 class ActionSafetyCheck:
     """Safety validation for actions."""
 
-    resource_manager: Optional["ResourceManager"] = None
-    _running_actions: Dict[str, AutomatedAction] = None
+    resource_manager: "ResourceManager | None" = None
+    _running_actions: dict[str, "AutomatedAction"] | None = None
 
     def __post_init__(self):
         """Initialize resource manager after dataclass init."""
@@ -458,7 +458,7 @@ class ActionExecutor:
         self.notify_on_completion = notify_on_completion
         self.notification_fn = notification_fn or send_notification
 
-    def execute_actions(self, actions: List[AutomatedAction]) -> List[ActionResult]:
+    def execute_actions(self, actions: list[AutomatedAction]) -> list[ActionResult]:
         """Execute list of actions sequentially."""
         results = []
 
@@ -480,12 +480,12 @@ class ActionExecutor:
 
         return results
 
-    def _send_notification(self, results: List[ActionResult]) -> None:
+    def _send_notification(self, results: list[ActionResult]) -> None:
         """Send completion notification."""
         with contextlib.suppress(Exception):
             self.notification_fn(f"Completed {len(results)} actions")
 
-    def calculate_total_savings(self, results: List[ActionResult]) -> Decimal:
+    def calculate_total_savings(self, results: list[ActionResult]) -> Decimal:
         """Calculate total savings from completed actions."""
         total = Decimal("0")
 
@@ -557,11 +557,11 @@ class ResourceManager:
         """Check if resource exists."""
         return True
 
-    def get_resource_tags(self, resource_group: str, resource_name: str) -> Dict[str, str]:
+    def get_resource_tags(self, resource_group: str, resource_name: str) -> dict[str, str]:
         """Get resource tags."""
         return {}
 
-    def tag_resource(self, resource_group: str, resource_name: str, tags: Dict[str, str]) -> None:
+    def tag_resource(self, resource_group: str, resource_name: str, tags: dict[str, str]) -> None:
         """Tag resource."""
         pass
 
@@ -580,14 +580,14 @@ def send_notification(message: str) -> None:
 
 
 __all__ = [
-    "AutomatedAction",
+    "ActionApprovalRequiredError",
     "ActionExecutor",
     "ActionResult",
+    "ActionRollback",
+    "ActionSafetyCheck",
     "ActionStatus",
+    "AutomatedAction",
+    "ResourceDeleteAction",
     "VMResizeAction",
     "VMScheduleAction",
-    "ResourceDeleteAction",
-    "ActionSafetyCheck",
-    "ActionApprovalRequiredError",
-    "ActionRollback",
 ]

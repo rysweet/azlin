@@ -7,23 +7,22 @@ These tests follow TDD approach - ALL tests should FAIL initially until
 the automated actions implementation is complete.
 """
 
-from datetime import datetime, time, timedelta
+from datetime import time
 from decimal import Decimal
-from unittest.mock import Mock, MagicMock, patch, call
+from unittest.mock import Mock, patch
 
 import pytest
 
 from azlin.costs.actions import (
-    AutomatedAction,
+    ActionApprovalRequiredError,
     ActionExecutor,
     ActionResult,
+    ActionSafetyCheck,
     ActionStatus,
+    AutomatedAction,
+    ResourceDeleteAction,
     VMResizeAction,
     VMScheduleAction,
-    ResourceDeleteAction,
-    ActionSafetyCheck,
-    ActionApprovalRequiredError,
-    ActionRollback,
 )
 
 

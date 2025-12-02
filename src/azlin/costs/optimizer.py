@@ -16,11 +16,11 @@ Public API:
 """
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 from decimal import Decimal
 from enum import Enum
-from typing import Callable, Dict, List, Optional
 
 
 class RecommendationPriority(Enum):
@@ -41,9 +41,9 @@ class OptimizationRecommendation:
     reason: str
     estimated_savings: Decimal
     priority: RecommendationPriority
-    details: Dict = field(default_factory=dict)
-    suggested_size: Optional[str] = None
-    schedule: Optional[str] = None
+    details: dict = field(default_factory=dict)
+    suggested_size: str | None = None
+    schedule: str | None = None
 
     def format(self) -> str:
         """Format recommendation for CLI display."""
@@ -71,7 +71,7 @@ class OversizedVMDetector:
             "Standard_D4s_v5": "Standard_D2s_v5",
         }
 
-    def analyze_vm(self, vm_name: str, vm_metrics: Dict) -> Optional[OptimizationRecommendation]:
+    def analyze_vm(self, vm_name: str, vm_metrics: dict) -> OptimizationRecommendation | None:
         """Analyze VM for downsizing opportunities."""
         cpu_avg = vm_metrics.get("cpu_avg", 0)
         memory_avg = vm_metrics.get("memory_avg", 0)
@@ -118,7 +118,7 @@ class IdleResourceDetector:
         """Initialize detector with retention policy."""
         self.snapshot_retention_days = snapshot_retention_days
 
-    def analyze_stopped_vm(self, vm_info: Dict) -> Optional[OptimizationRecommendation]:
+    def analyze_stopped_vm(self, vm_info: dict) -> OptimizationRecommendation | None:
         """Analyze stopped VMs for deletion opportunities."""
         power_state = vm_info.get("power_state", "")
         last_started = vm_info.get("last_started")
@@ -141,7 +141,7 @@ class IdleResourceDetector:
 
         return None
 
-    def analyze_disk(self, disk_info: Dict) -> Optional[OptimizationRecommendation]:
+    def analyze_disk(self, disk_info: dict) -> OptimizationRecommendation | None:
         """Analyze disks for unattached resources."""
         attached_to = disk_info.get("attached_to")
 
@@ -157,7 +157,7 @@ class IdleResourceDetector:
 
         return None
 
-    def analyze_snapshot(self, snapshot_info: Dict) -> Optional[OptimizationRecommendation]:
+    def analyze_snapshot(self, snapshot_info: dict) -> OptimizationRecommendation | None:
         """Analyze snapshots for old/outdated ones."""
         created_date = snapshot_info.get("created_date")
 
@@ -176,7 +176,7 @@ class IdleResourceDetector:
 
         return None
 
-    def analyze_public_ip(self, ip_info: Dict) -> Optional[OptimizationRecommendation]:
+    def analyze_public_ip(self, ip_info: dict) -> OptimizationRecommendation | None:
         """Analyze public IPs for unassigned ones."""
         assigned_to = ip_info.get("assigned_to")
 
@@ -196,7 +196,7 @@ class IdleResourceDetector:
 class SchedulingOpportunity:
     """Detector for VM scheduling opportunities."""
 
-    def analyze_vm(self, vm_info: Dict) -> Optional[OptimizationRecommendation]:
+    def analyze_vm(self, vm_info: dict) -> OptimizationRecommendation | None:
         """Analyze VM for scheduling opportunities."""
         tags = vm_info.get("tags", {})
         environment = tags.get("environment", "")
@@ -276,9 +276,9 @@ class OptimizationRule:
         name: str,
         condition: Callable,
         action: str,
-        savings_calculator: Optional[Callable] = None,
+        savings_calculator: Callable | None = None,
         enabled: bool = True,
-        parameters: Optional[Dict] = None,
+        parameters: dict | None = None,
     ):
         """Initialize rule with condition and action."""
         self.name = name
@@ -288,7 +288,7 @@ class OptimizationRule:
         self.enabled = enabled
         self.parameters = parameters or {}
 
-    def applies(self, data: Dict) -> bool:
+    def applies(self, data: dict) -> bool:
         """Check if rule condition applies."""
         if not self.enabled:
             return False
@@ -316,7 +316,7 @@ class CostOptimizer:
         self.idle_detector = IdleResourceDetector()
         self.scheduling_detector = SchedulingOpportunity()
 
-    def analyze(self) -> List[OptimizationRecommendation]:
+    def analyze(self) -> list[OptimizationRecommendation]:
         """Run all detectors and aggregate recommendations."""
         recommendations = []
 
@@ -334,17 +334,17 @@ class CostOptimizer:
 
         return recommendations
 
-    def calculate_total_savings(self, recommendations: List[OptimizationRecommendation]) -> Decimal:
+    def calculate_total_savings(self, recommendations: list[OptimizationRecommendation]) -> Decimal:
         """Calculate total savings from all recommendations."""
         return sum(r.estimated_savings for r in recommendations)
 
     def filter_by_priority(
-        self, recommendations: List[OptimizationRecommendation], priority: RecommendationPriority
-    ) -> List[OptimizationRecommendation]:
+        self, recommendations: list[OptimizationRecommendation], priority: RecommendationPriority
+    ) -> list[OptimizationRecommendation]:
         """Filter recommendations by priority."""
         return [r for r in recommendations if r.priority == priority]
 
-    def export_to_json(self, recommendations: List[OptimizationRecommendation]) -> str:
+    def export_to_json(self, recommendations: list[OptimizationRecommendation]) -> str:
         """Export recommendations as JSON."""
         data = [
             {
@@ -365,17 +365,17 @@ class CostOptimizer:
 class VMManager:
     """Mock VM manager."""
 
-    def get_all_vms(self, resource_group: str) -> List[Dict]:
+    def get_all_vms(self, resource_group: str) -> list[dict]:
         """Get all VMs in resource group."""
         return []
 
 
 __all__ = [
+    "CostOptimizer",
+    "IdleResourceDetector",
     "OptimizationRecommendation",
     "OptimizationRule",
     "OversizedVMDetector",
-    "IdleResourceDetector",
-    "SchedulingOpportunity",
-    "CostOptimizer",
     "RecommendationPriority",
+    "SchedulingOpportunity",
 ]

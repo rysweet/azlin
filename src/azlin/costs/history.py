@@ -19,7 +19,6 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Dict, List, Optional
 
 
 @dataclass
@@ -29,7 +28,7 @@ class CostHistoryEntry:
     resource_group: str
     date: date
     total_cost: Decimal
-    resource_breakdown: Dict[str, Decimal] = field(default_factory=dict)
+    resource_breakdown: dict[str, Decimal] = field(default_factory=dict)
 
     def __lt__(self, other):
         """Compare by date for sorting."""
@@ -55,10 +54,10 @@ class CostHistoryEntry:
 class CostHistoryStore:
     """Persistent storage for cost history."""
 
-    def __init__(self, store_path: Optional[Path] = None):
+    def __init__(self, store_path: Path | None = None):
         """Initialize store with optional file path."""
         self.store_path = store_path or Path.home() / ".azlin" / "costs" / "history.json"
-        self._entries: List[CostHistoryEntry] = []
+        self._entries: list[CostHistoryEntry] = []
 
     def is_empty(self) -> bool:
         """Check if store is empty."""
@@ -80,11 +79,11 @@ class CostHistoryStore:
         self._entries.append(entry)
         self._entries.sort()  # Keep chronologically sorted
 
-    def get_range(self, start_date: date, end_date: date) -> List[CostHistoryEntry]:
+    def get_range(self, start_date: date, end_date: date) -> list[CostHistoryEntry]:
         """Get entries within date range."""
         return [e for e in self._entries if start_date <= e.date <= end_date]
 
-    def get_all(self) -> List[CostHistoryEntry]:
+    def get_all(self) -> list[CostHistoryEntry]:
         """Get all entries in chronological order."""
         return sorted(self._entries)
 
@@ -166,7 +165,7 @@ class TimeRange:
 class CostHistory:
     """Main cost history interface."""
 
-    def __init__(self, resource_group: str, store_path: Optional[Path] = None):
+    def __init__(self, resource_group: str, store_path: Path | None = None):
         """Initialize history with storage."""
         self.resource_group = resource_group
         self.store = CostHistoryStore(store_path)
@@ -189,17 +188,17 @@ class CostHistory:
         self.store.add(entry)
         self.store.save()
 
-    def get_last_30_days(self) -> List[CostHistoryEntry]:
+    def get_last_30_days(self) -> list[CostHistoryEntry]:
         """Get last 30 days of history."""
         time_range = TimeRange.last_30_days()
         return self.store.get_range(time_range.start_date, time_range.end_date)
 
-    def get_last_60_days(self) -> List[CostHistoryEntry]:
+    def get_last_60_days(self) -> list[CostHistoryEntry]:
         """Get last 60 days of history."""
         time_range = TimeRange.last_60_days()
         return self.store.get_range(time_range.start_date, time_range.end_date)
 
-    def get_last_90_days(self) -> List[CostHistoryEntry]:
+    def get_last_90_days(self) -> list[CostHistoryEntry]:
         """Get last 90 days of history."""
         time_range = TimeRange.last_90_days()
         return self.store.get_range(time_range.start_date, time_range.end_date)
@@ -256,7 +255,7 @@ class CostTrend:
 class TrendAnalyzer:
     """Cost trend analysis engine."""
 
-    def __init__(self, entries: List[CostHistoryEntry]):
+    def __init__(self, entries: list[CostHistoryEntry]):
         """Initialize analyzer with history entries."""
         self.entries = sorted(entries)
 
@@ -310,7 +309,7 @@ class TrendAnalyzer:
         """Calculate daily rate of change."""
         return self._calculate_slope()
 
-    def detect_anomalies(self) -> List[CostHistoryEntry]:
+    def detect_anomalies(self) -> list[CostHistoryEntry]:
         """Identify cost anomalies (spikes/drops)."""
         if len(self.entries) < 3:
             return []
@@ -343,6 +342,6 @@ __all__ = [
     "CostHistoryEntry",
     "CostHistoryStore",
     "CostTrend",
-    "TrendAnalyzer",
     "TimeRange",
+    "TrendAnalyzer",
 ]

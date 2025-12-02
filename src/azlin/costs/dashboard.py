@@ -15,11 +15,9 @@ Public API:
 
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from pathlib import Path
-from typing import Dict, List, Optional
 
 try:
     from azure.identity import DefaultAzureCredential
@@ -67,9 +65,9 @@ class DashboardMetrics:
     total_cost: Decimal
     daily_cost: Decimal
     monthly_projection: Decimal
-    resource_breakdown: List[ResourceCostBreakdown]
+    resource_breakdown: list[ResourceCostBreakdown]
     last_updated: datetime
-    previous_day_cost: Optional[Decimal] = None
+    previous_day_cost: Decimal | None = None
 
     def get_cost_trend(self) -> str:
         """Calculate cost trend (increasing/decreasing)."""
@@ -78,10 +76,9 @@ class DashboardMetrics:
 
         if self.daily_cost > self.previous_day_cost:
             return "increasing"
-        elif self.daily_cost < self.previous_day_cost:
+        if self.daily_cost < self.previous_day_cost:
             return "decreasing"
-        else:
-            return "stable"
+        return "stable"
 
     def get_cost_change_percent(self) -> Decimal:
         """Calculate percentage change from previous day."""
@@ -91,7 +88,7 @@ class DashboardMetrics:
         change = self.daily_cost - self.previous_day_cost
         return (change / self.previous_day_cost) * 100
 
-    def get_top_resources(self, n: int) -> List[ResourceCostBreakdown]:
+    def get_top_resources(self, n: int) -> list[ResourceCostBreakdown]:
         """Get top N resources by cost."""
         sorted_resources = sorted(self.resource_breakdown, reverse=True)
         return sorted_resources[:n]
@@ -103,7 +100,7 @@ class CostDashboardCache:
     def __init__(self, ttl_seconds: int = 300):
         """Initialize cache with TTL."""
         self.ttl_seconds = ttl_seconds
-        self._cache: Dict[str, tuple[DashboardMetrics, float]] = {}
+        self._cache: dict[str, tuple[DashboardMetrics, float]] = {}
 
     def is_empty(self) -> bool:
         """Check if cache is empty."""
@@ -113,7 +110,7 @@ class CostDashboardCache:
         """Store metrics in cache with timestamp."""
         self._cache[key] = (metrics, time.time())
 
-    def get(self, key: str) -> Optional[DashboardMetrics]:
+    def get(self, key: str) -> DashboardMetrics | None:
         """Retrieve metrics from cache if not expired."""
         if key not in self._cache:
             return None
@@ -227,7 +224,7 @@ class CostDashboard:
         except Exception as e:
             raise CostDashboardError(f"Failed to parse cost data: {e}") from e
 
-    def _fetch_previous_day_cost(self) -> Optional[Decimal]:
+    def _fetch_previous_day_cost(self) -> Decimal | None:
         """Fetch previous day cost for trend calculation."""
         try:
             daily_costs = self._fetch_daily_costs()
@@ -237,7 +234,7 @@ class CostDashboard:
         except Exception:
             return None
 
-    def _fetch_daily_costs(self) -> List[Decimal]:
+    def _fetch_daily_costs(self) -> list[Decimal]:
         """Fetch daily costs for trend analysis."""
         # Mock implementation - in reality would query Azure API
         return [Decimal("10.50")] * 7
@@ -257,11 +254,11 @@ class CostDashboard:
 
     def filter_by_resource_type(
         self, metrics: DashboardMetrics, resource_type: str
-    ) -> List[ResourceCostBreakdown]:
+    ) -> list[ResourceCostBreakdown]:
         """Filter cost breakdown by resource type."""
         return [r for r in metrics.resource_breakdown if r.resource_type == resource_type]
 
-    def get_vm_costs(self) -> Dict[str, Decimal]:
+    def get_vm_costs(self) -> dict[str, Decimal]:
         """Get VM-specific costs using CostTracker."""
         try:
             from azlin.cost_estimator import estimate_vm_costs
@@ -299,7 +296,7 @@ class AzureCostManagementClient:
         self.credential = credential
         self.usage = self
 
-    def list(self, resource_group: Optional[str] = None):
+    def list(self, resource_group: str | None = None):
         """Mock list method."""
         # Return mock data for testing
         return [
