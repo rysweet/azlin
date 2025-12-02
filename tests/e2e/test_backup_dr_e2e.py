@@ -8,7 +8,7 @@ Testing pyramid:
 - 10% E2E tests (complete workflows) ← THIS FILE
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 
 import pytest
