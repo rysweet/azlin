@@ -53,6 +53,7 @@ class MountGroup(click.Group):
                     # Inject "vm" as the subcommand after "mount"
                     sys.argv.insert(mount_idx + 1, "vm")
         except (ValueError, IndexError):
+            # Ignore errors when parsing argv for backward compat - command may not be "mount"
             pass
 
         return super().main(*args, **kwargs)
@@ -979,7 +980,6 @@ def unmount_local(mount_point: Path, force: bool):
       # Force unmount if busy
       $ azlin storage unmount local --force
     """
-    console = Console()
     try:
         click.echo(f"Unmounting Azure Files share from: {mount_point}")
 
