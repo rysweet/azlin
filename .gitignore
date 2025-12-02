@@ -646,3 +646,4 @@ TESTING_EVIDENCE.md
 !docs/**/*SUMMARY*.md
 !docs/**/ANALYSIS*.md
 !docs/**/INVESTIGATION*.md
+coverage.json
