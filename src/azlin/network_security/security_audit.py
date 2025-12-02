@@ -128,6 +128,16 @@ class SecurityAuditLogger:
         """Initialize audit logger and ensure directory structure."""
         self._ensure_audit_structure()
 
+        # SECURITY: Verify log integrity at startup
+        is_valid, corrupted = self.verify_integrity()
+        if not is_valid:
+            logger.critical(
+                f"AUDIT LOG TAMPERING DETECTED! {len(corrupted)} corrupted events. "
+                f"System security may be compromised. Event IDs: {corrupted}"
+            )
+            # Don't raise exception - allow system to start but log critical warning
+            # Production systems should consider: raise SecurityError("Audit log integrity violation")
+
     def _ensure_audit_structure(self) -> None:
         """Create audit directory structure with secure permissions."""
         # Create directories
