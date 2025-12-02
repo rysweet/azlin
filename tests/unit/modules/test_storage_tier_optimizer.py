@@ -346,15 +346,15 @@ class TestStorageTierOptimizerCostCalculations:
     def test_cost_calculation_premium_tier(self):
         """Test Premium tier cost calculation ($0.1536/GB/month)."""
         size_gb = 100
-        expected_cost = size_gb * 0.1536
+        _ = size_gb * 0.1536  # expected_cost
         # Test through analyze_storage
-        pass
+        # TODO: Implement test
 
     def test_cost_calculation_standard_tier(self):
         """Test Standard tier cost calculation ($0.04/GB/month)."""
         size_gb = 100
-        expected_cost = size_gb * 0.04
-        pass
+        _ = size_gb * 0.04  # expected_cost
+        # TODO: Implement test
 
     def test_savings_calculation_accuracy(self):
         """Test annual savings calculation is accurate."""

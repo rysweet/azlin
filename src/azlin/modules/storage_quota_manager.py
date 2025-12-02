@@ -376,6 +376,7 @@ class StorageQuotaManager:
                         storage_accounts.append(storage.name)
                         total_gb += storage.size_gb
                 except Exception:
+                    # Ignore storage enumeration errors - continue with available data
                     pass
 
             # Managed disks attached to VM
@@ -400,6 +401,7 @@ class StorageQuotaManager:
                         storage_accounts.append(storage.name)
                         total_gb += storage.size_gb
                 except Exception:
+                    # Ignore storage enumeration errors - continue with available data
                     pass
 
             # All disks in RG
@@ -445,6 +447,7 @@ class StorageQuotaManager:
                 disk_names = [disk["name"] for disk in disks_data]
                 return total_gb, disk_names
         except Exception:
+            # Ignore Azure CLI errors - return empty results
             pass
 
         return 0.0, []
@@ -474,6 +477,7 @@ class StorageQuotaManager:
                 snapshot_names = [snap["name"] for snap in snapshots_data]
                 return total_gb, snapshot_names
         except Exception:
+            # Ignore Azure CLI errors - return empty results
             pass
 
         return 0.0, []
@@ -499,6 +503,7 @@ class StorageQuotaManager:
                 disk_names = [disk["name"] for disk in disks_data]
                 return total_gb, disk_names
         except Exception:
+            # Ignore Azure CLI errors - return empty results
             pass
 
         return 0.0, []
@@ -524,6 +529,7 @@ class StorageQuotaManager:
                 snapshot_names = [snap["name"] for snap in snapshots_data]
                 return total_gb, snapshot_names
         except Exception:
+            # Ignore Azure CLI errors - return empty results
             pass
 
         return 0.0, []

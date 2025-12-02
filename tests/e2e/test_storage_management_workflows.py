@@ -289,7 +289,7 @@ class TestCleanupWithCostReporting:
             Mock(returncode=0),
         ]
 
-        report = OrphanedResourceDetector.scan_all(resource_group="test-rg")
+        _ = OrphanedResourceDetector.scan_all(resource_group="test-rg")  # report
 
         # 3. Cleanup
         cleanup_result = OrphanedResourceDetector.cleanup_orphaned(

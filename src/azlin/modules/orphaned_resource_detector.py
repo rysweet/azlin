@@ -429,6 +429,7 @@ class OrphanedResourceDetector:
                         if ConfigManager.is_shared_storage(storage.name):  # type: ignore[attr-defined]
                             continue
                     except Exception:
+                        # Ignore config errors - treat as not shared
                         pass
 
                 # Calculate age

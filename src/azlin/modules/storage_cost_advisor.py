@@ -266,6 +266,7 @@ class StorageCostAdvisor:
                         )
                     )
             except Exception:
+                # Ignore orphaned resource detection errors - continue with other recommendations
                 pass
 
         # 2. Tier optimization recommendations
@@ -291,6 +292,7 @@ class StorageCostAdvisor:
                     if tier_rec.annual_savings > 100  # Only significant savings
                 )
             except Exception:
+                # Ignore tier optimization errors - continue with other recommendations
                 pass
 
         # Sort by annual savings (highest first)
