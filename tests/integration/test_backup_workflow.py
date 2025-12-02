@@ -9,15 +9,11 @@ Testing pyramid:
 """
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from unittest.mock import Mock, patch
-
-import pytest
 
 from azlin.modules.backup_manager import BackupManager, BackupSchedule
 from azlin.modules.backup_replication import ReplicationManager
 from azlin.modules.backup_verification import VerificationManager
-
 
 # ============================================================================
 # INTEGRATION TESTS (30% of test suite)
@@ -137,13 +133,13 @@ class TestBackupToVerificationWorkflow:
                     stdout='{"id": "/subscriptions/.../test-disk", "diskSizeGb": 128}',
                     stderr="",
                 )
-            elif "disk" in cmd and "show" in cmd:
+            if "disk" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"diskSizeGb": 128, "diskState": "Attached"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "delete" in cmd:
+            if "disk" in cmd and "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -201,13 +197,13 @@ class TestReplicationToVerificationWorkflow:
                     stdout='{"id": "/subscriptions/.../test-disk", "diskSizeGb": 128}',
                     stderr="",
                 )
-            elif "disk" in cmd and "show" in cmd:
+            if "disk" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"diskSizeGb": 128, "diskState": "Attached"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "delete" in cmd:
+            if "disk" in cmd and "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -436,13 +432,13 @@ class TestParallelVerificationBatching:
                     stdout='{"id": "/subscriptions/.../test-disk", "diskSizeGb": 128}',
                     stderr="",
                 )
-            elif "disk" in cmd and "show" in cmd:
+            if "disk" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"diskSizeGb": 128, "diskState": "Attached"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "delete" in cmd:
+            if "disk" in cmd and "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 

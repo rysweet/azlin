@@ -10,8 +10,7 @@ Testing pyramid:
 
 import sqlite3
 from datetime import UTC, datetime
-from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -20,7 +19,6 @@ from azlin.modules.backup_replication import (
     ReplicationJob,
     ReplicationManager,
 )
-
 
 # ============================================================================
 # UNIT TESTS (60% of test suite)

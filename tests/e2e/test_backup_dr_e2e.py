@@ -9,7 +9,6 @@ Testing pyramid:
 """
 
 from datetime import UTC, datetime
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -18,7 +17,6 @@ from azlin.modules.backup_manager import BackupManager
 from azlin.modules.backup_replication import ReplicationManager
 from azlin.modules.backup_verification import VerificationManager
 from azlin.modules.dr_testing import DRTestConfig, DRTestManager
-
 
 # ============================================================================
 # E2E TESTS (10% of test suite)
@@ -143,13 +141,13 @@ class TestCompleteBackupDRWorkflow:
                     stdout='{"id": "/subscriptions/.../test-disk", "diskSizeGb": 128}',
                     stderr="",
                 )
-            elif "disk" in cmd and "show" in cmd:
+            if "disk" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"diskSizeGb": 128, "diskState": "Attached"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "delete" in cmd:
+            if "disk" in cmd and "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -186,21 +184,19 @@ class TestCompleteBackupDRWorkflow:
                     stdout='{"id": "/subscriptions/.../test-disk"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "create" in cmd:
+            if "vm" in cmd and "create" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"id": "/subscriptions/.../test-vm"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "show" in cmd:
+            if "vm" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"provisioningState": "Succeeded", "powerState": "VM running"}',
                     stderr="",
                 )
-            elif "ssh" in cmd:
-                return Mock(returncode=0, stdout="", stderr="")
-            elif "delete" in cmd:
+            if "ssh" in cmd or "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -316,13 +312,13 @@ class TestFailureRecoveryWorkflow:
                         stdout='{"id": "/subscriptions/.../test-disk", "diskSizeGb": 128}',
                         stderr="",
                     )
-                elif "disk" in cmd and "show" in cmd:
+                if "disk" in cmd and "show" in cmd:
                     return Mock(
                         returncode=0,
                         stdout='{"diskSizeGb": 128, "diskState": "Attached"}',
                         stderr="",
                     )
-                elif "disk" in cmd and "delete" in cmd:
+                if "disk" in cmd and "delete" in cmd:
                     return Mock(returncode=0, stdout="", stderr="")
                 return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -471,19 +467,19 @@ class TestRegionOutageFailoverWorkflow:
                     stdout='{"id": "/subscriptions/.../prod-disk"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "create" in cmd:
+            if "vm" in cmd and "create" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"id": "/subscriptions/.../prod-vm"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "show" in cmd:
+            if "vm" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"provisioningState": "Succeeded", "powerState": "VM running"}',
                     stderr="",
                 )
-            elif "ssh" in cmd:
+            if "ssh" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -537,13 +533,13 @@ class TestPerformanceTargets:
                     stdout='{"id": "/subscriptions/.../test-disk", "diskSizeGb": 128}',
                     stderr="",
                 )
-            elif "disk" in cmd and "show" in cmd:
+            if "disk" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"diskSizeGb": 128, "diskState": "Attached"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "delete" in cmd:
+            if "disk" in cmd and "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -574,21 +570,19 @@ class TestPerformanceTargets:
                     stdout='{"id": "/subscriptions/.../test-disk"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "create" in cmd:
+            if "vm" in cmd and "create" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"id": "/subscriptions/.../test-vm"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "show" in cmd:
+            if "vm" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"provisioningState": "Succeeded", "powerState": "VM running"}',
                     stderr="",
                 )
-            elif "ssh" in cmd:
-                return Mock(returncode=0, stdout="", stderr="")
-            elif "delete" in cmd:
+            if "ssh" in cmd or "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 

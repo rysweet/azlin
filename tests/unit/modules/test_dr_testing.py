@@ -10,7 +10,6 @@ Testing pyramid:
 
 import sqlite3
 from datetime import UTC, datetime
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -21,7 +20,6 @@ from azlin.modules.dr_testing import (
     DRTestManager,
     DRTestResult,
 )
-
 
 # ============================================================================
 # UNIT TESTS (60% of test suite)
@@ -184,21 +182,19 @@ class TestRunDRTest:
                     stdout='{"id": "/subscriptions/.../test-disk"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "create" in cmd:
+            if "vm" in cmd and "create" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"id": "/subscriptions/.../test-vm"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "show" in cmd:
+            if "vm" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"provisioningState": "Succeeded", "powerState": "VM running"}',
                     stderr="",
                 )
-            elif "ssh" in cmd:  # SSH connectivity test
-                return Mock(returncode=0, stdout="", stderr="")
-            elif "delete" in cmd:  # Cleanup
+            if "ssh" in cmd or "delete" in cmd:  # SSH connectivity test
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -266,20 +262,20 @@ class TestRunDRTest:
                     stdout='{"id": "/subscriptions/.../test-disk"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "create" in cmd:
+            if "vm" in cmd and "create" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"id": "/subscriptions/.../test-vm"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "show" in cmd:
+            if "vm" in cmd and "show" in cmd:
                 # VM stuck in "Creating" state
                 return Mock(
                     returncode=0,
                     stdout='{"provisioningState": "Creating", "powerState": "VM stopped"}',
                     stderr="",
                 )
-            elif "delete" in cmd:  # Cleanup
+            if "delete" in cmd:  # Cleanup
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -317,25 +313,25 @@ class TestRunDRTest:
                     stdout='{"id": "/subscriptions/.../test-disk"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "create" in cmd:
+            if "vm" in cmd and "create" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"id": "/subscriptions/.../test-vm"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "show" in cmd:
+            if "vm" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"provisioningState": "Succeeded", "powerState": "VM running"}',
                     stderr="",
                 )
-            elif "ssh" in cmd:  # SSH connectivity test fails
+            if "ssh" in cmd:  # SSH connectivity test fails
                 return Mock(
                     returncode=255,
                     stdout="",
                     stderr="Connection refused",
                 )
-            elif "delete" in cmd:  # Cleanup
+            if "delete" in cmd:  # Cleanup
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -373,13 +369,13 @@ class TestRunDRTest:
                     stdout='{"id": "/subscriptions/.../test-disk"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "create" in cmd:
+            if "vm" in cmd and "create" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"id": "/subscriptions/.../test-vm"}',
                     stderr="",
                 )
-            elif "delete" in cmd:
+            if "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -420,21 +416,21 @@ class TestRunDRTest:
                     stdout='{"id": "/subscriptions/.../test-disk"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "create" in cmd:
+            if "vm" in cmd and "create" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"id": "/subscriptions/.../test-vm"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "show" in cmd:
+            if "vm" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"provisioningState": "Succeeded", "powerState": "VM running"}',
                     stderr="",
                 )
-            elif "ssh" in cmd:
+            if "ssh" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
-            elif "delete" in cmd:  # Cleanup fails
+            if "delete" in cmd:  # Cleanup fails
                 return Mock(
                     returncode=1,
                     stdout="",
@@ -479,21 +475,19 @@ class TestRunDRTest:
                     stdout='{"id": "/subscriptions/.../test-disk"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "create" in cmd:
+            if "vm" in cmd and "create" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"id": "/subscriptions/.../test-vm"}',
                     stderr="",
                 )
-            elif "vm" in cmd and "show" in cmd:
+            if "vm" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"provisioningState": "Succeeded", "powerState": "VM running"}',
                     stderr="",
                 )
-            elif "ssh" in cmd:
-                return Mock(returncode=0, stdout="", stderr="")
-            elif "delete" in cmd:
+            if "ssh" in cmd or "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 

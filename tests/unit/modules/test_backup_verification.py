@@ -10,7 +10,6 @@ Testing pyramid:
 
 import sqlite3
 from datetime import UTC, datetime
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -20,7 +19,6 @@ from azlin.modules.backup_verification import (
     VerificationManager,
     VerificationResult,
 )
-
 
 # ============================================================================
 # UNIT TESTS (60% of test suite)
@@ -135,13 +133,13 @@ class TestVerifyBackup:
                     stdout='{"id": "/subscriptions/.../test-disk", "diskSizeGb": 128, "provisioningState": "Succeeded"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "show" in cmd:
+            if "disk" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"diskSizeGb": 128, "diskState": "Attached"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "delete" in cmd:
+            if "disk" in cmd and "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -194,13 +192,13 @@ class TestVerifyBackup:
                     stdout='{"id": "/subscriptions/.../test-disk", "provisioningState": "Succeeded"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "show" in cmd:
+            if "disk" in cmd and "show" in cmd:
                 return Mock(
                     returncode=1,
                     stdout="",
                     stderr="DiskNotAccessible",
                 )
-            elif "disk" in cmd and "delete" in cmd:
+            if "disk" in cmd and "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -229,14 +227,14 @@ class TestVerifyBackup:
                     stdout='{"id": "/subscriptions/.../test-disk", "diskSizeGb": 128}',
                     stderr="",
                 )
-            elif "disk" in cmd and "show" in cmd:
+            if "disk" in cmd and "show" in cmd:
                 # Return wrong size
                 return Mock(
                     returncode=0,
                     stdout='{"diskSizeGb": 64, "diskState": "Attached"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "delete" in cmd:
+            if "disk" in cmd and "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
@@ -263,13 +261,13 @@ class TestVerifyBackup:
                     stdout='{"id": "/subscriptions/.../test-disk", "diskSizeGb": 128}',
                     stderr="",
                 )
-            elif "disk" in cmd and "show" in cmd:
+            if "disk" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"diskSizeGb": 128, "diskState": "Attached"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "delete" in cmd:
+            if "disk" in cmd and "delete" in cmd:
                 return Mock(
                     returncode=1,
                     stdout="",
@@ -623,13 +621,13 @@ class TestBoundaryConditions:
                     stdout='{"id": "/subscriptions/.../test-disk", "diskSizeGb": 128}',
                     stderr="",
                 )
-            elif "disk" in cmd and "show" in cmd:
+            if "disk" in cmd and "show" in cmd:
                 return Mock(
                     returncode=0,
                     stdout='{"diskSizeGb": 128, "diskState": "Attached"}',
                     stderr="",
                 )
-            elif "disk" in cmd and "delete" in cmd:
+            if "disk" in cmd and "delete" in cmd:
                 return Mock(returncode=0, stdout="", stderr="")
             return Mock(returncode=0, stdout="{}", stderr="")
 
