@@ -9,6 +9,7 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 - **[../README.md](../README.md)** - Project overview, quick start, and installation
 - **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command reference and examples
 - **[UV_USAGE.md](UV_USAGE.md)** - Using azlin with uv package manager
+- **[backup-disaster-recovery.md](backup-disaster-recovery.md)** - Automated backup scheduling, cross-region replication, and DR testing
 
 ### For Developers
 
@@ -64,6 +65,7 @@ docs/
 ├── QUICK_REFERENCE.md           # Command reference for daily use
 ├── UV_USAGE.md                  # uv package manager workflows
 ├── ARCHITECTURE.md              # Complete architecture spec
+├── backup-disaster-recovery.md  # Backup and DR automation
 └── testing/
     └── test_strategy.md         # Testing strategy
 ```
