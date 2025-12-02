@@ -1,14 +1,14 @@
 """Minimal unit tests for parallel_deployer.py module."""
 
-import asyncio
 from unittest.mock import Mock
+
 import pytest
 
 from azlin.modules.parallel_deployer import (
-    ParallelDeployer,
     DeploymentResult,
     DeploymentStatus,
     MultiRegionResult,
+    ParallelDeployer,
 )
 
 
@@ -33,7 +33,7 @@ class TestDeploymentResult:
             status=DeploymentStatus.SUCCESS,
             vm_name="vm-eastus-123",
             public_ip="1.2.3.4",
-            duration_seconds=180.5
+            duration_seconds=180.5,
         )
         assert result.region == "eastus"
         assert result.status == DeploymentStatus.SUCCESS
@@ -49,14 +49,15 @@ class TestMultiRegionResult:
     def test_multi_region_result_all_success(self):
         """Test MultiRegionResult with all deployments successful."""
         successful = [
-            DeploymentResult("eastus", DeploymentStatus.SUCCESS, "vm-eastus", "1.2.3.4", None, 180.0),
-            DeploymentResult("westus2", DeploymentStatus.SUCCESS, "vm-westus2", "5.6.7.8", None, 190.0),
+            DeploymentResult(
+                "eastus", DeploymentStatus.SUCCESS, "vm-eastus", "1.2.3.4", None, 180.0
+            ),
+            DeploymentResult(
+                "westus2", DeploymentStatus.SUCCESS, "vm-westus2", "5.6.7.8", None, 190.0
+            ),
         ]
         result = MultiRegionResult(
-            total_regions=2,
-            successful=successful,
-            failed=[],
-            total_duration_seconds=190.0
+            total_regions=2, successful=successful, failed=[], total_duration_seconds=190.0
         )
         assert result.total_regions == 2
         assert len(result.successful) == 2
@@ -114,8 +115,7 @@ class TestParallelDeployerDeployment:
         mock_vm_config = Mock()
 
         result = await deployer.deploy_to_regions(
-            regions=["eastus", "westus2", "westeurope"],
-            vm_config=mock_vm_config
+            regions=["eastus", "westus2", "westeurope"], vm_config=mock_vm_config
         )
 
         assert result.total_regions == 3

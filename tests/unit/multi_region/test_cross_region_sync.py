@@ -14,17 +14,13 @@ Test coverage:
 - Input validation
 """
 
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 # Module under test (will be implemented)
 from azlin.modules.cross_region_sync import (
-    CrossRegionSync,
-    SyncStrategy,
     SyncResult,
+    SyncStrategy,
 )
-
 
 # ============================================================================
 # UNIT TESTS - Enum Behavior (60%)
@@ -35,7 +31,7 @@ class TestSyncStrategy:
     """Test SyncStrategy enum."""
 
     def test_sync_strategy_values(self):
-        """Test that SyncStrategy has expected values."""        # assert SyncStrategy.RSYNC.value == "rsync"
+        """Test that SyncStrategy has expected values."""  # assert SyncStrategy.RSYNC.value == "rsync"
         # assert SyncStrategy.AZURE_BLOB.value == "azure_blob"
         # assert SyncStrategy.AUTO.value == "auto"
 
@@ -69,41 +65,44 @@ class TestSyncResult:
         # assert result.success_rate == 1.0
 
     def test_sync_result_with_errors(self):
-        """Test sync result with errors."""        # result = SyncResult(
-        #     strategy_used=SyncStrategy.AZURE_BLOB,
-        #     files_synced=100,
-        #     bytes_transferred=250000000,
-        #     duration_seconds=382.0,
-        #     source_region="eastus",
-        #     target_region="westeurope",
-        #     errors=["File1 failed to sync", "File2 permission denied"]
+        """Test sync result with errors."""
+        result = SyncResult(
+            strategy_used=SyncStrategy.AZURE_BLOB,
+            files_synced=100,
+            bytes_transferred=250000000,
+            duration_seconds=382.0,
+            source_region="eastus",
+            target_region="westeurope",
+            errors=["File1 failed to sync", "File2 permission denied"],
         )
-        # assert len(result.errors) == 2
-        # assert result.success_rate == 0.0
+        assert len(result.errors) == 2
+        assert result.success_rate == 0.0
 
     def test_sync_result_success_rate_no_errors(self):
-        """Test success_rate is 1.0 when no errors."""        # result = SyncResult(
-        #     strategy_used=SyncStrategy.RSYNC,
-        #     files_synced=50,
-        #     bytes_transferred=100000000,
-        #     duration_seconds=60.0,
-        #     source_region="eastus",
-        #     target_region="westus2",
-        #     errors=[]
+        """Test success_rate is 1.0 when no errors."""
+        result = SyncResult(
+            strategy_used=SyncStrategy.RSYNC,
+            files_synced=50,
+            bytes_transferred=100000000,
+            duration_seconds=60.0,
+            source_region="eastus",
+            target_region="westus2",
+            errors=[],
         )
-        # assert result.success_rate == 1.0
+        assert result.success_rate == 1.0
 
     def test_sync_result_success_rate_with_errors(self):
-        """Test success_rate is 0.0 when errors present."""        # result = SyncResult(
-        #     strategy_used=SyncStrategy.RSYNC,
-        #     files_synced=50,
-        #     bytes_transferred=100000000,
-        #     duration_seconds=60.0,
-        #     source_region="eastus",
-        #     target_region="westus2",
-        #     errors=["Some error"]
+        """Test success_rate is 0.0 when errors present."""
+        result = SyncResult(
+            strategy_used=SyncStrategy.RSYNC,
+            files_synced=50,
+            bytes_transferred=100000000,
+            duration_seconds=60.0,
+            source_region="eastus",
+            target_region="westus2",
+            errors=["Some error"],
         )
-        # assert result.success_rate == 0.0
+        assert result.success_rate == 0.0
 
 
 # ============================================================================
@@ -115,19 +114,19 @@ class TestCrossRegionSyncInit:
     """Test CrossRegionSync initialization."""
 
     def test_cross_region_sync_init(self):
-        """Test CrossRegionSync initialization."""        # mock_config = Mock()
+        """Test CrossRegionSync initialization."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         # assert sync.config_manager == mock_config
         # assert sync.ssh_connector == mock_ssh
 
     def test_cross_region_sync_init_none_config_raises_error(self):
-        """Test that None config_manager raises TypeError."""        # mock_ssh = Mock()
+        """Test that None config_manager raises TypeError."""  # mock_ssh = Mock()
         # with pytest.raises(TypeError, match="config_manager cannot be None"):
         #     CrossRegionSync(config_manager=None, ssh_connector=mock_ssh)
 
     def test_cross_region_sync_init_none_ssh_raises_error(self):
-        """Test that None ssh_connector raises TypeError."""        # mock_config = Mock()
+        """Test that None ssh_connector raises TypeError."""  # mock_config = Mock()
         # with pytest.raises(TypeError, match="ssh_connector cannot be None"):
         #     CrossRegionSync(config_manager=mock_config, ssh_connector=None)
 
@@ -142,7 +141,7 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_choose_strategy_small_files_uses_rsync(self):
-        """Test that files <100MB use rsync strategy."""        # mock_config = Mock()
+        """Test that files <100MB use rsync strategy."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -154,7 +153,7 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_choose_strategy_large_files_uses_blob(self):
-        """Test that files >=100MB use Azure Blob strategy."""        # mock_config = Mock()
+        """Test that files >=100MB use Azure Blob strategy."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -166,7 +165,7 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_choose_strategy_exactly_100mb_uses_blob(self):
-        """Test that exactly 100MB uses Azure Blob strategy."""        # mock_config = Mock()
+        """Test that exactly 100MB uses Azure Blob strategy."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -178,7 +177,7 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_choose_strategy_99mb_uses_rsync(self):
-        """Test that 99MB uses rsync strategy (just below threshold)."""        # mock_config = Mock()
+        """Test that 99MB uses rsync strategy (just below threshold)."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -190,7 +189,7 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_choose_strategy_101mb_uses_blob(self):
-        """Test that 101MB uses Azure Blob strategy (just above threshold)."""        # mock_config = Mock()
+        """Test that 101MB uses Azure Blob strategy (just above threshold)."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -202,7 +201,7 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_choose_strategy_zero_bytes_uses_rsync(self):
-        """Test that 0 bytes uses rsync strategy."""        # mock_config = Mock()
+        """Test that 0 bytes uses rsync strategy."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -211,7 +210,7 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_choose_strategy_very_large_files_uses_blob(self):
-        """Test that very large files (500MB) use Azure Blob strategy."""        # mock_config = Mock()
+        """Test that very large files (500MB) use Azure Blob strategy."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -223,7 +222,7 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_choose_strategy_negative_size_raises_error(self):
-        """Test that negative size raises ValueError."""        # mock_config = Mock()
+        """Test that negative size raises ValueError."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -241,7 +240,7 @@ class TestSizeEstimation:
 
     @pytest.mark.asyncio
     async def test_estimate_transfer_size_single_path(self):
-        """Test estimating transfer size for single path."""        # mock_config = Mock()
+        """Test estimating transfer size for single path."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -258,7 +257,7 @@ class TestSizeEstimation:
 
     @pytest.mark.asyncio
     async def test_estimate_transfer_size_multiple_paths(self):
-        """Test estimating transfer size for multiple paths."""        # mock_config = Mock()
+        """Test estimating transfer size for multiple paths."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -283,7 +282,7 @@ class TestSizeEstimation:
 
     @pytest.mark.asyncio
     async def test_estimate_transfer_size_empty_path(self):
-        """Test estimating transfer size for empty path (0 bytes)."""        # mock_config = Mock()
+        """Test estimating transfer size for empty path (0 bytes)."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -298,7 +297,7 @@ class TestSizeEstimation:
 
     @pytest.mark.asyncio
     async def test_estimate_transfer_size_ssh_command_failure(self):
-        """Test handling SSH command failure during size estimation."""        # mock_config = Mock()
+        """Test handling SSH command failure during size estimation."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -312,7 +311,7 @@ class TestSizeEstimation:
 
     @pytest.mark.asyncio
     async def test_estimate_transfer_size_invalid_du_output(self):
-        """Test handling invalid 'du' command output."""        # mock_config = Mock()
+        """Test handling invalid 'du' command output."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -336,7 +335,7 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_sync_directories_none_source_vm_raises_error(self):
-        """Test that None source_vm raises TypeError."""        # mock_config = Mock()
+        """Test that None source_vm raises TypeError."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -349,7 +348,7 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_sync_directories_none_target_vm_raises_error(self):
-        """Test that None target_vm raises TypeError."""        # mock_config = Mock()
+        """Test that None target_vm raises TypeError."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -362,7 +361,7 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_sync_directories_empty_paths_raises_error(self):
-        """Test that empty paths list raises ValueError."""        # mock_config = Mock()
+        """Test that empty paths list raises ValueError."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -375,7 +374,7 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_sync_directories_none_paths_raises_error(self):
-        """Test that None paths raises TypeError."""        # mock_config = Mock()
+        """Test that None paths raises TypeError."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -388,7 +387,7 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_sync_directories_same_source_target_raises_error(self):
-        """Test that same source and target VMs raise ValueError."""        # mock_config = Mock()
+        """Test that same source and target VMs raise ValueError."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -401,7 +400,7 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_sync_directories_invalid_strategy_raises_error(self):
-        """Test that invalid strategy raises ValueError."""        # mock_config = Mock()
+        """Test that invalid strategy raises ValueError."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -415,7 +414,7 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_estimate_transfer_size_none_vm_name_raises_error(self):
-        """Test that None vm_name raises TypeError."""        # mock_config = Mock()
+        """Test that None vm_name raises TypeError."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -424,7 +423,7 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_estimate_transfer_size_empty_paths_raises_error(self):
-        """Test that empty paths list raises ValueError."""        # mock_config = Mock()
+        """Test that empty paths list raises ValueError."""  # mock_config = Mock()
         # mock_ssh = Mock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -442,7 +441,7 @@ class TestDeleteFlagBehavior:
 
     @pytest.mark.asyncio
     async def test_sync_directories_delete_false_default(self):
-        """Test that delete defaults to False."""        # mock_config = Mock()
+        """Test that delete defaults to False."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -472,7 +471,7 @@ class TestDeleteFlagBehavior:
 
     @pytest.mark.asyncio
     async def test_sync_directories_delete_true_explicit(self):
-        """Test that delete=True is honored when explicitly set."""        # mock_config = Mock()
+        """Test that delete=True is honored when explicitly set."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #

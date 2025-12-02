@@ -13,13 +13,13 @@ Public API (the "studs"):
 """
 
 import asyncio
+import contextlib
 import re
-import subprocess
 import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from azlin.config_manager import ConfigManager
@@ -28,21 +28,23 @@ if TYPE_CHECKING:
 
 class SyncStrategy(Enum):
     """Strategy for syncing data."""
-    RSYNC = "rsync"          # For small files (<100MB)
+
+    RSYNC = "rsync"  # For small files (<100MB)
     AZURE_BLOB = "azure_blob"  # For large files (>100MB)
-    AUTO = "auto"            # Choose based on size (default)
+    AUTO = "auto"  # Choose based on size (default)
 
 
 @dataclass
 class SyncResult:
     """Result of cross-region sync operation."""
+
     strategy_used: SyncStrategy
     files_synced: int
     bytes_transferred: int
     duration_seconds: float
     source_region: str
     target_region: str
-    errors: List[str]
+    errors: list[str]
 
     @property
     def success_rate(self) -> float:
@@ -68,11 +70,7 @@ class CrossRegionSync:
         print(f"Synced {result.files_synced} files")
     """
 
-    def __init__(
-        self,
-        config_manager: 'ConfigManager',
-        ssh_connector: 'SSHConnector'
-    ):
+    def __init__(self, config_manager: "ConfigManager", ssh_connector: "SSHConnector"):
         """Initialize cross-region sync.
 
         Args:
@@ -90,11 +88,7 @@ class CrossRegionSync:
         self.config_manager = config_manager
         self.ssh_connector = ssh_connector
 
-    async def estimate_transfer_size(
-        self,
-        vm_name: str,
-        paths: List[str]
-    ) -> int:
+    async def estimate_transfer_size(self, vm_name: str, paths: list[str]) -> int:
         """Estimate total size of files to sync.
 
         Runs 'du -sb' on remote VM to calculate size.
@@ -127,12 +121,16 @@ class CrossRegionSync:
                 # Run du -sb via SSH
                 process = await asyncio.create_subprocess_exec(
                     "ssh",
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "ConnectTimeout=10",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "ConnectTimeout=10",
                     f"azureuser@{vm_ip}",
-                    "du", "-sb", path,
+                    "du",
+                    "-sb",
+                    path,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stderr=asyncio.subprocess.PIPE,
                 )
                 stdout, stderr = await process.communicate()
 
@@ -152,10 +150,7 @@ class CrossRegionSync:
 
         return total_bytes
 
-    async def choose_strategy(
-        self,
-        estimated_size_bytes: int
-    ) -> SyncStrategy:
+    async def choose_strategy(self, estimated_size_bytes: int) -> SyncStrategy:
         """Choose optimal sync strategy based on size.
 
         Decision logic:
@@ -179,16 +174,15 @@ class CrossRegionSync:
 
         if estimated_size_bytes < THRESHOLD:
             return SyncStrategy.RSYNC
-        else:
-            return SyncStrategy.AZURE_BLOB
+        return SyncStrategy.AZURE_BLOB
 
     async def sync_directories(
         self,
         source_vm: str,
         target_vm: str,
-        paths: List[str],
+        paths: list[str],
         strategy: SyncStrategy = SyncStrategy.AUTO,
-        delete: bool = False
+        delete: bool = False,
     ) -> SyncResult:
         """Sync directories from source VM to target VM.
 
@@ -243,11 +237,7 @@ class CrossRegionSync:
         return result
 
     async def _sync_via_rsync(
-        self,
-        source_vm: str,
-        target_vm: str,
-        paths: List[str],
-        delete: bool
+        self, source_vm: str, target_vm: str, paths: list[str], delete: bool
     ) -> SyncResult:
         """Sync using rsync over SSH (internal method).
 
@@ -267,7 +257,7 @@ class CrossRegionSync:
                 duration_seconds=time.time() - start_time,
                 source_region="unknown",
                 target_region="unknown",
-                errors=["Failed to resolve VM IP addresses"]
+                errors=["Failed to resolve VM IP addresses"],
             )
 
         # Get regions
@@ -282,12 +272,7 @@ class CrossRegionSync:
         for path in paths:
             try:
                 # Build rsync command
-                rsync_cmd = [
-                    "rsync",
-                    "-avz",
-                    "--progress",
-                    "--stats"
-                ]
+                rsync_cmd = ["rsync", "-avz", "--progress", "--stats"]
 
                 if delete:
                     rsync_cmd.append("--delete")
@@ -300,20 +285,13 @@ class CrossRegionSync:
                 # For simplicity, we'll use a two-step: pull to local temp, push to target
 
                 import tempfile
+
                 with tempfile.TemporaryDirectory() as tmpdir:
                     # Step 1: Pull from source to local temp
-                    pull_cmd = [
-                        "rsync",
-                        "-avz",
-                        "--stats",
-                        f"azureuser@{source_ip}:{path}",
-                        tmpdir
-                    ]
+                    pull_cmd = ["rsync", "-avz", "--stats", f"azureuser@{source_ip}:{path}", tmpdir]
 
                     process = await asyncio.create_subprocess_exec(
-                        *pull_cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
+                        *pull_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                     )
                     stdout, stderr = await process.communicate()
 
@@ -323,29 +301,22 @@ class CrossRegionSync:
 
                     # Parse rsync stats
                     stats = stdout.decode()
-                    files_match = re.search(r'Number of files: (\d+)', stats)
-                    bytes_match = re.search(r'Total file size: ([\d,]+)', stats)
+                    files_match = re.search(r"Number of files: (\d+)", stats)
+                    bytes_match = re.search(r"Total file size: ([\d,]+)", stats)
 
                     if files_match:
                         total_files += int(files_match.group(1))
                     if bytes_match:
-                        total_bytes += int(bytes_match.group(1).replace(',', ''))
+                        total_bytes += int(bytes_match.group(1).replace(",", ""))
 
                     # Step 2: Push from local temp to target
-                    push_cmd = [
-                        "rsync",
-                        "-avz",
-                        f"{tmpdir}/",
-                        f"azureuser@{target_ip}:{path}"
-                    ]
+                    push_cmd = ["rsync", "-avz", f"{tmpdir}/", f"azureuser@{target_ip}:{path}"]
 
                     if delete:
                         push_cmd.insert(2, "--delete")
 
                     process = await asyncio.create_subprocess_exec(
-                        *push_cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
+                        *push_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                     )
                     await process.communicate()
 
@@ -354,7 +325,7 @@ class CrossRegionSync:
                         continue
 
             except Exception as e:
-                errors.append(f"Error syncing {path}: {str(e)}")
+                errors.append(f"Error syncing {path}: {e!s}")
                 continue
 
         duration = time.time() - start_time
@@ -366,15 +337,11 @@ class CrossRegionSync:
             duration_seconds=duration,
             source_region=source_region,
             target_region=target_region,
-            errors=errors
+            errors=errors,
         )
 
     async def _sync_via_blob(
-        self,
-        source_vm: str,
-        target_vm: str,
-        paths: List[str],
-        delete: bool
+        self, source_vm: str, target_vm: str, paths: list[str], delete: bool
     ) -> SyncResult:
         """Sync using Azure Blob staging (internal method).
 
@@ -397,7 +364,7 @@ class CrossRegionSync:
                 duration_seconds=time.time() - start_time,
                 source_region="unknown",
                 target_region="unknown",
-                errors=["Failed to resolve VM IP addresses"]
+                errors=["Failed to resolve VM IP addresses"],
             )
 
         # Get regions
@@ -415,12 +382,18 @@ class CrossRegionSync:
         try:
             # Create container
             process = await asyncio.create_subprocess_exec(
-                "az", "storage", "container", "create",
-                "--name", container_name,
-                "--account-name", storage_account,
-                "--output", "none",
+                "az",
+                "storage",
+                "container",
+                "create",
+                "--name",
+                container_name,
+                "--account-name",
+                storage_account,
+                "--output",
+                "none",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             await process.communicate()
 
@@ -433,7 +406,7 @@ class CrossRegionSync:
                     duration_seconds=time.time() - start_time,
                     source_region=source_region,
                     target_region=target_region,
-                    errors=errors
+                    errors=errors,
                 )
 
             # For each path, upload then download
@@ -450,11 +423,14 @@ class CrossRegionSync:
 
                     process = await asyncio.create_subprocess_exec(
                         "ssh",
-                        "-o", "StrictHostKeyChecking=no",
+                        "-o",
+                        "StrictHostKeyChecking=no",
                         f"azureuser@{source_ip}",
-                        "bash", "-c", upload_script,
+                        "bash",
+                        "-c",
+                        upload_script,
                         stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
+                        stderr=asyncio.subprocess.PIPE,
                     )
                     stdout, stderr = await process.communicate()
 
@@ -473,11 +449,14 @@ class CrossRegionSync:
 
                     process = await asyncio.create_subprocess_exec(
                         "ssh",
-                        "-o", "StrictHostKeyChecking=no",
+                        "-o",
+                        "StrictHostKeyChecking=no",
                         f"azureuser@{target_ip}",
-                        "bash", "-c", download_script,
+                        "bash",
+                        "-c",
+                        download_script,
                         stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
+                        stderr=asyncio.subprocess.PIPE,
                     )
                     await process.communicate()
 
@@ -490,37 +469,49 @@ class CrossRegionSync:
 
                     # Get blob size to estimate bytes transferred
                     process = await asyncio.create_subprocess_exec(
-                        "az", "storage", "blob", "show",
-                        "--container-name", container_name,
-                        "--name", f"{Path(path).name}.tar.gz",
-                        "--account-name", storage_account,
-                        "--query", "properties.contentLength",
-                        "--output", "tsv",
+                        "az",
+                        "storage",
+                        "blob",
+                        "show",
+                        "--container-name",
+                        container_name,
+                        "--name",
+                        f"{Path(path).name}.tar.gz",
+                        "--account-name",
+                        storage_account,
+                        "--query",
+                        "properties.contentLength",
+                        "--output",
+                        "tsv",
                         stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
+                        stderr=asyncio.subprocess.PIPE,
                     )
                     stdout, stderr = await process.communicate()
 
                     if process.returncode == 0:
-                        try:
+                        with contextlib.suppress(ValueError):
                             total_bytes += int(stdout.decode().strip())
-                        except ValueError:
-                            pass
 
                 except Exception as e:
-                    errors.append(f"Error syncing {path} via blob: {str(e)}")
+                    errors.append(f"Error syncing {path} via blob: {e!s}")
                     continue
 
         finally:
             # Clean up: Delete staging container
             try:
                 process = await asyncio.create_subprocess_exec(
-                    "az", "storage", "container", "delete",
-                    "--name", container_name,
-                    "--account-name", storage_account,
-                    "--output", "none",
+                    "az",
+                    "storage",
+                    "container",
+                    "delete",
+                    "--name",
+                    container_name,
+                    "--account-name",
+                    storage_account,
+                    "--output",
+                    "none",
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stderr=asyncio.subprocess.PIPE,
                 )
                 await process.communicate()
             except Exception:
@@ -536,12 +527,8 @@ class CrossRegionSync:
             duration_seconds=duration,
             source_region=source_region,
             target_region=target_region,
-            errors=errors
+            errors=errors,
         )
 
 
-__all__ = [
-    "CrossRegionSync",
-    "SyncStrategy",
-    "SyncResult"
-]
+__all__ = ["CrossRegionSync", "SyncResult", "SyncStrategy"]

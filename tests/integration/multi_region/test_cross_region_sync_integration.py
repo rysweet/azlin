@@ -11,12 +11,9 @@ Test coverage:
 - Progress reporting and error handling
 """
 
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 # Modules under test (will be implemented)
-from azlin.modules.cross_region_sync import CrossRegionSync, SyncStrategy
 # from azlin.ssh_connector import SSHConnector
 
 
@@ -30,7 +27,7 @@ class TestRsyncStrategyIntegration:
 
     @pytest.mark.asyncio
     async def test_sync_via_rsync_small_files(self):
-        """Test syncing small files (<100MB) via rsync."""        # mock_config = Mock()
+        """Test syncing small files (<100MB) via rsync."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -57,7 +54,7 @@ class TestRsyncStrategyIntegration:
 
     @pytest.mark.asyncio
     async def test_rsync_with_progress_reporting(self):
-        """Test rsync with progress reporting."""        # mock_config = Mock()
+        """Test rsync with progress reporting."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -92,7 +89,7 @@ class TestRsyncStrategyIntegration:
 
     @pytest.mark.asyncio
     async def test_rsync_with_delete_flag(self):
-        """Test rsync with delete flag removes extra files in target."""        # mock_config = Mock()
+        """Test rsync with delete flag removes extra files in target."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -114,7 +111,7 @@ class TestRsyncStrategyIntegration:
 
     @pytest.mark.asyncio
     async def test_rsync_error_handling(self):
-        """Test rsync error handling for failed transfers."""        # mock_config = Mock()
+        """Test rsync error handling for failed transfers."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -146,7 +143,7 @@ class TestAzureBlobStrategyIntegration:
 
     @pytest.mark.asyncio
     async def test_sync_via_blob_large_files(self):
-        """Test syncing large files (>100MB) via Azure Blob."""        # mock_config = Mock()
+        """Test syncing large files (>100MB) via Azure Blob."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -172,7 +169,7 @@ class TestAzureBlobStrategyIntegration:
 
     @pytest.mark.asyncio
     async def test_blob_staging_cleanup(self):
-        """Test that Azure Blob staging container is cleaned up after sync."""        # mock_config = Mock()
+        """Test that Azure Blob staging container is cleaned up after sync."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -193,7 +190,7 @@ class TestAzureBlobStrategyIntegration:
 
     @pytest.mark.asyncio
     async def test_blob_parallel_uploads(self):
-        """Test Azure Blob parallel uploads for performance."""        # mock_config = Mock()
+        """Test Azure Blob parallel uploads for performance."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -214,7 +211,7 @@ class TestAzureBlobStrategyIntegration:
 
     @pytest.mark.asyncio
     async def test_blob_error_handling_upload_failure(self):
-        """Test error handling for Blob upload failures."""        # mock_config = Mock()
+        """Test error handling for Blob upload failures."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -246,7 +243,7 @@ class TestStrategyAutoSelection:
 
     @pytest.mark.asyncio
     async def test_auto_selects_rsync_for_small_files(self):
-        """Test AUTO strategy selects rsync for files <100MB."""        # mock_config = Mock()
+        """Test AUTO strategy selects rsync for files <100MB."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -266,7 +263,7 @@ class TestStrategyAutoSelection:
 
     @pytest.mark.asyncio
     async def test_auto_selects_blob_for_large_files(self):
-        """Test AUTO strategy selects Azure Blob for files >=100MB."""        # mock_config = Mock()
+        """Test AUTO strategy selects Azure Blob for files >=100MB."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -286,7 +283,7 @@ class TestStrategyAutoSelection:
 
     @pytest.mark.asyncio
     async def test_auto_threshold_boundary_99mb_uses_rsync(self):
-        """Test AUTO strategy at 99MB uses rsync (just below threshold)."""        # mock_config = Mock()
+        """Test AUTO strategy at 99MB uses rsync (just below threshold)."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -306,7 +303,7 @@ class TestStrategyAutoSelection:
 
     @pytest.mark.asyncio
     async def test_auto_threshold_boundary_101mb_uses_blob(self):
-        """Test AUTO strategy at 101MB uses Blob (just above threshold)."""        # mock_config = Mock()
+        """Test AUTO strategy at 101MB uses Blob (just above threshold)."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -335,7 +332,7 @@ class TestMultiPathSync:
 
     @pytest.mark.asyncio
     async def test_sync_multiple_paths_rsync(self):
-        """Test syncing multiple paths with rsync."""        # mock_config = Mock()
+        """Test syncing multiple paths with rsync."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -362,7 +359,7 @@ class TestMultiPathSync:
 
     @pytest.mark.asyncio
     async def test_sync_multiple_paths_partial_failure(self):
-        """Test that one path failure doesn't stop other paths."""        # mock_config = Mock()
+        """Test that one path failure doesn't stop other paths."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
@@ -402,33 +399,33 @@ class TestSSHIntegration:
 
     @pytest.mark.asyncio
     async def test_estimate_size_via_ssh(self):
-        """Test estimating transfer size via SSH 'du' command."""        # mock_config = Mock()
+        """Test estimating transfer size via SSH 'du' command."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
         # # Mock SSH response for 'du -sb' command
         # mock_ssh.execute_remote_command = AsyncMock(
         #     return_value="342000000\t/home/azureuser/project"
-        )
+        # )
         #
         # size = await sync.estimate_transfer_size(
         #     vm_name="vm-eastus-123",
         #     paths=["/home/azureuser/project"]
-        )
+        # )
         #
         # assert size == 342000000
         # mock_ssh.execute_remote_command.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_ssh_connection_failure_handling(self):
-        """Test handling SSH connection failures during size estimation."""        # mock_config = Mock()
+        """Test handling SSH connection failures during size estimation."""  # mock_config = Mock()
         # mock_ssh = AsyncMock()
         # sync = CrossRegionSync(config_manager=mock_config, ssh_connector=mock_ssh)
         #
         # # Mock SSH connection failure
         # mock_ssh.execute_remote_command = AsyncMock(
         #     side_effect=ConnectionError("SSH connection failed")
-        )
+        # )
         #
         # with pytest.raises(ConnectionError, match="SSH connection failed"):
         #     await sync.estimate_transfer_size(

@@ -11,14 +11,9 @@ Test coverage:
 - Auto vs manual decision workflows
 """
 
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch
 import pytest
-import json
 
 # Modules under test (will be implemented)
-from azlin.modules.region_failover import RegionFailover, FailoverMode, FailureType
-from azlin.modules.region_context import RegionContext
 
 
 # ============================================================================
@@ -31,7 +26,7 @@ class TestHealthCheckIntegration:
 
     @pytest.mark.asyncio
     async def test_health_check_all_systems_healthy(self):
-        """Test health check when all systems (Azure + network + SSH) are healthy."""        # mock_config = Mock()
+        """Test health check when all systems (Azure + network + SSH) are healthy."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config)
         #
         # # Mock Azure VM status
@@ -61,7 +56,7 @@ class TestHealthCheckIntegration:
 
     @pytest.mark.asyncio
     async def test_health_check_network_unreachable(self):
-        """Test health check detecting network unreachable."""        # mock_config = Mock()
+        """Test health check detecting network unreachable."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config)
         #
         # # Mock Azure VM status (running)
@@ -86,7 +81,7 @@ class TestHealthCheckIntegration:
 
     @pytest.mark.asyncio
     async def test_health_check_ssh_connection_failed(self):
-        """Test health check detecting SSH connection failure."""        # mock_config = Mock()
+        """Test health check detecting SSH connection failure."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config)
         #
         # # Mock Azure VM status (running)
@@ -117,7 +112,7 @@ class TestHealthCheckIntegration:
 
     @pytest.mark.asyncio
     async def test_health_check_vm_stopped(self):
-        """Test health check detecting stopped VM."""        # mock_config = Mock()
+        """Test health check detecting stopped VM."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config)
         #
         # # Mock Azure VM status (stopped)
@@ -137,7 +132,7 @@ class TestHealthCheckIntegration:
 
     @pytest.mark.asyncio
     async def test_health_check_vm_deallocated(self):
-        """Test health check detecting deallocated VM."""        # mock_config = Mock()
+        """Test health check detecting deallocated VM."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config)
         #
         # # Mock Azure VM status (deallocated)
@@ -166,7 +161,7 @@ class TestFailoverExecutionIntegration:
 
     @pytest.mark.asyncio
     async def test_execute_failover_with_health_verification(self):
-        """Test failover execution verifies target health."""        # mock_config = Mock()
+        """Test failover execution verifies target health."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config)
         #
         # # Mock health checks
@@ -194,7 +189,7 @@ class TestFailoverExecutionIntegration:
 
     @pytest.mark.asyncio
     async def test_execute_failover_target_unhealthy_fails(self):
-        """Test that failover fails if target region is unhealthy."""        # mock_config = Mock()
+        """Test that failover fails if target region is unhealthy."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config)
         #
         # # Mock health checks
@@ -215,7 +210,7 @@ class TestFailoverExecutionIntegration:
 
     @pytest.mark.asyncio
     async def test_execute_failover_with_data_sync(self):
-        """Test failover execution with data synchronization."""        # mock_config = Mock()
+        """Test failover execution with data synchronization."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config)
         #
         # # Mock health checks (both healthy for sync)
@@ -244,7 +239,7 @@ class TestFailoverExecutionIntegration:
 
     @pytest.mark.asyncio
     async def test_execute_failover_updates_config(self):
-        """Test that failover updates config to point to target region."""        # mock_config = Mock()
+        """Test that failover updates config to point to target region."""  # mock_config = Mock()
         # mock_config.save_config = Mock()
         # failover = RegionFailover(config_manager=mock_config)
         #
@@ -278,7 +273,7 @@ class TestAutoManualDecisionFlow:
 
     @pytest.mark.asyncio
     async def test_hybrid_mode_auto_failover_clear_failure(self):
-        """Test HYBRID mode auto-fails over for clear failures."""        # mock_config = Mock()
+        """Test HYBRID mode auto-fails over for clear failures."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config, mode=FailoverMode.HYBRID)
         #
         # # Mock clear failure (network unreachable)
@@ -298,7 +293,7 @@ class TestAutoManualDecisionFlow:
 
     @pytest.mark.asyncio
     async def test_hybrid_mode_manual_failover_ambiguous_failure(self):
-        """Test HYBRID mode requires manual confirmation for ambiguous failures."""        # mock_config = Mock()
+        """Test HYBRID mode requires manual confirmation for ambiguous failures."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config, mode=FailoverMode.HYBRID)
         #
         # # Mock ambiguous failure (VM stopped)
@@ -318,7 +313,7 @@ class TestAutoManualDecisionFlow:
 
     @pytest.mark.asyncio
     async def test_auto_mode_forces_auto_even_ambiguous(self):
-        """Test AUTO mode forces auto-failover even for ambiguous failures."""        # mock_config = Mock()
+        """Test AUTO mode forces auto-failover even for ambiguous failures."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config, mode=FailoverMode.AUTO)
         #
         # # Mock ambiguous failure
@@ -337,7 +332,7 @@ class TestAutoManualDecisionFlow:
 
     @pytest.mark.asyncio
     async def test_manual_mode_never_auto_even_clear_failure(self):
-        """Test MANUAL mode never auto-fails over even for clear failures."""        # mock_config = Mock()
+        """Test MANUAL mode never auto-fails over even for clear failures."""  # mock_config = Mock()
         # failover = RegionFailover(config_manager=mock_config, mode=FailoverMode.MANUAL)
         #
         # # Mock clear failure
@@ -365,7 +360,7 @@ class TestFailoverWithRegionContext:
 
     @pytest.mark.asyncio
     async def test_failover_updates_region_context_metadata(self):
-        """Test that failover updates RegionContext metadata correctly."""        # mock_config = Mock()
+        """Test that failover updates RegionContext metadata correctly."""  # mock_config = Mock()
         # region_context = RegionContext(config_manager=mock_config)
         # failover = RegionFailover(config_manager=mock_config)
         #
@@ -395,7 +390,7 @@ class TestFailoverWithRegionContext:
 
     @pytest.mark.asyncio
     async def test_failover_with_last_health_check_update(self):
-        """Test that failover updates last_health_check timestamp."""        # mock_config = Mock()
+        """Test that failover updates last_health_check timestamp."""  # mock_config = Mock()
         # region_context = RegionContext(config_manager=mock_config)
         # failover = RegionFailover(config_manager=mock_config)
         #

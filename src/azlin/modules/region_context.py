@@ -15,7 +15,7 @@ import asyncio
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from azlin.config_manager import ConfigManager
@@ -24,14 +24,15 @@ if TYPE_CHECKING:
 @dataclass
 class RegionMetadata:
     """Metadata for a single region."""
+
     region: str
     vm_name: str
-    public_ip: Optional[str]
+    public_ip: str | None
     resource_group: str
     created_at: str  # ISO 8601 timestamp
-    last_health_check: Optional[str] = None
+    last_health_check: str | None = None
     is_primary: bool = False
-    tags: Dict[str, str] = field(default_factory=dict)
+    tags: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.tags is None:
@@ -56,10 +57,7 @@ class RegionContext:
         all_regions = context.list_regions()
     """
 
-    def __init__(
-        self,
-        config_manager: 'ConfigManager'
-    ):
+    def __init__(self, config_manager: "ConfigManager"):
         """Initialize region context manager.
 
         Args:
@@ -72,15 +70,15 @@ class RegionContext:
             raise TypeError("config_manager cannot be None")
 
         self.config_manager = config_manager
-        self._regions: Dict[str, RegionMetadata] = {}
+        self._regions: dict[str, RegionMetadata] = {}
 
     def add_region(
         self,
         region: str,
         vm_name: str,
-        public_ip: Optional[str] = None,
+        public_ip: str | None = None,
         is_primary: bool = False,
-        tags: Optional[Dict[str, str]] = None
+        tags: dict[str, str] | None = None,
     ) -> RegionMetadata:
         """Add or update region metadata.
 
@@ -120,7 +118,7 @@ class RegionContext:
             resource_group=f"azlin-vms-{region}",
             created_at=datetime.now().isoformat(),
             is_primary=is_primary,
-            tags=tags or {}
+            tags=tags or {},
         )
 
         # Store in local cache
@@ -128,10 +126,7 @@ class RegionContext:
 
         return metadata
 
-    def get_region(
-        self,
-        region: str
-    ) -> Optional[RegionMetadata]:
+    def get_region(self, region: str) -> RegionMetadata | None:
         """Get metadata for a specific region.
 
         Args:
@@ -148,7 +143,7 @@ class RegionContext:
 
         return self._regions.get(region)
 
-    def get_primary_region(self) -> Optional[RegionMetadata]:
+    def get_primary_region(self) -> RegionMetadata | None:
         """Get primary region metadata.
 
         Returns:
@@ -159,10 +154,7 @@ class RegionContext:
                 return metadata
         return None
 
-    def set_primary_region(
-        self,
-        region: str
-    ) -> None:
+    def set_primary_region(self, region: str) -> None:
         """Set primary region (unsets previous primary).
 
         Args:
@@ -181,7 +173,7 @@ class RegionContext:
         # Set new primary
         self._regions[region].is_primary = True
 
-    def list_regions(self) -> List[RegionMetadata]:
+    def list_regions(self) -> list[RegionMetadata]:
         """List all regions with metadata.
 
         Returns:
@@ -194,11 +186,7 @@ class RegionContext:
 
         return regions
 
-    def remove_region(
-        self,
-        region: str,
-        remove_vm: bool = False
-    ) -> None:
+    def remove_region(self, region: str, remove_vm: bool = False) -> None:
         """Remove region from context.
 
         Args:
@@ -244,13 +232,11 @@ class RegionContext:
                 cmd.extend(["--resource-group", resource_group])
 
             # Add query to filter VMs with azlin:region tag
-            cmd.extend(["--query", "[?tags.\"azlin:region\"]"])
+            cmd.extend(["--query", '[?tags."azlin:region"]'])
 
             # Execute command
             process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
 
@@ -267,29 +253,29 @@ class RegionContext:
             for vm in vms:
                 try:
                     # Extract metadata from VM
-                    vm_name = vm.get('name', '')
-                    location = vm.get('location', '')
-                    tags = vm.get('tags', {})
+                    vm_name = vm.get("name", "")
+                    location = vm.get("location", "")
+                    tags = vm.get("tags", {})
 
                     # Get region from tag or location
-                    region = tags.get('azlin:region', location)
+                    region = tags.get("azlin:region", location)
 
                     if not region or not vm_name:
                         continue
 
                     # Get public IP if available
                     public_ip = None
-                    if 'publicIps' in vm and len(vm['publicIps']) > 0:
-                        public_ip = vm['publicIps'][0]
+                    if "publicIps" in vm and len(vm["publicIps"]) > 0:
+                        public_ip = vm["publicIps"][0]
 
                     # Check if primary
-                    is_primary = tags.get('azlin:primary', 'false').lower() == 'true'
+                    is_primary = tags.get("azlin:primary", "false").lower() == "true"
 
                     # Get resource group
-                    resource_group = vm.get('resourceGroup', f"azlin-vms-{region}")
+                    resource_group = vm.get("resourceGroup", f"azlin-vms-{region}")
 
                     # Get created timestamp
-                    created_at = tags.get('azlin:created', datetime.now().isoformat())
+                    created_at = tags.get("azlin:created", datetime.now().isoformat())
 
                     # Create or update metadata
                     metadata = RegionMetadata(
@@ -299,7 +285,7 @@ class RegionContext:
                         resource_group=resource_group,
                         created_at=created_at,
                         is_primary=is_primary,
-                        tags=tags
+                        tags=tags,
                     )
 
                     self._regions[region] = metadata
@@ -316,7 +302,4 @@ class RegionContext:
             return len(self._regions)
 
 
-__all__ = [
-    "RegionContext",
-    "RegionMetadata"
-]
+__all__ = ["RegionContext", "RegionMetadata"]

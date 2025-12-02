@@ -1,0 +1,4 @@
+{"timestamp": "2025-12-01T19:38:03.737026", "metric": "auto_update_executed", "value": false, "hook": "session_start"}
+{"timestamp": "2025-12-01T19:38:03.737199", "metric": "global_hooks_migrated", "value": false, "hook": "session_start"}
+{"timestamp": "2025-12-01T19:38:03.737283", "metric": "prompt_length", "value": 0, "hook": "session_start"}
+{"timestamp": "2025-12-01T19:38:03.737395", "metric": "neo4j_enabled", "value": false, "hook": "session_start"}

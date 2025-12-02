@@ -70,7 +70,9 @@ markers = [
     "command_new: Tests for 'azlin new' command",
     "command_list: Tests for 'azlin list' command",
     "command_connect: Tests for 'azlin connect' command",
+    "asyncio: Async tests",
 ]
+asyncio_mode = "auto"
 addopts = "-ra -q"
 log_level = "INFO"  # Capture INFO level logs in caplog for testing
 
