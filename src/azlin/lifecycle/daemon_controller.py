@@ -128,12 +128,11 @@ class DaemonController:
                 cmd = [
                     python_exe,
                     "-c",
-                    "from azlin.lifecycle.lifecycle_daemon import LifecycleDaemon; "
-                    "daemon = LifecycleDaemon(); daemon.start()",
+                    "from azlin.lifecycle.lifecycle_daemon import LifecycleDaemon; daemon = LifecycleDaemon(); daemon.start()",
                 ]
 
                 # Start daemon process
-                process = subprocess.Popen(
+                _process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -273,6 +272,7 @@ class DaemonController:
             try:
                 subprocess.run(["tail", "-f", str(self.log_file)])
             except KeyboardInterrupt:
+                # User pressed Ctrl+C to stop following logs - exit gracefully
                 pass
         else:
             # Show last N lines
