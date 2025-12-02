@@ -236,6 +236,9 @@ class LifecycleDaemon:
     def start(self):
         """Start the monitoring daemon.
 
+        This method blocks and runs the monitoring loop until stop() is called.
+        For background execution, use DaemonController.start_daemon() instead.
+
         Raises:
             DaemonError: If daemon is already running
         """

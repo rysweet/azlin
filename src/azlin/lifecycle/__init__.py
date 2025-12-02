@@ -12,7 +12,7 @@ Core Components:
 - DaemonController: Daemon management interface
 """
 
-from azlin.lifecycle.lifecycle_manager import (
+from .lifecycle_manager import (
     LifecycleManager,
     MonitoringConfig,
     MonitoringStatus,
@@ -21,7 +21,7 @@ from azlin.lifecycle.lifecycle_manager import (
     VALID_RESTART_POLICIES,
     VALID_HOOK_TYPES,
 )
-from azlin.lifecycle.health_monitor import (
+from .health_monitor import (
     HealthMonitor,
     HealthStatus,
     VMState,
@@ -29,23 +29,23 @@ from azlin.lifecycle.health_monitor import (
     HealthFailure,
     HealthCheckError,
 )
-from azlin.lifecycle.self_healer import (
+from .self_healer import (
     SelfHealer,
     RestartResult,
     SelfHealingError,
 )
-from azlin.lifecycle.hook_executor import (
+from .hook_executor import (
     HookExecutor,
     HookResult,
     HookType,
     HookExecutionError,
 )
-from azlin.lifecycle.lifecycle_daemon import (
+from .lifecycle_daemon import (
     LifecycleDaemon,
     DaemonStatus,
     DaemonError,
 )
-from azlin.lifecycle.daemon_controller import (
+from .daemon_controller import (
     DaemonController,
     ControllerError,
 )
