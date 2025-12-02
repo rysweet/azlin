@@ -18,13 +18,13 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class ControllerError(Exception):
     """Raised when daemon control operations fail."""
+
     pass
 
 
@@ -40,13 +40,13 @@ class DaemonController:
         >>> print(f"Running: {status.running}")
     """
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """Initialize daemon controller.
 
         Args:
             config_path: Path to lifecycle config file
         """
-        from azlin.lifecycle.lifecycle_manager import LifecycleManager, LIFECYCLE_CONFIG_PATH
+        from azlin.lifecycle.lifecycle_manager import LIFECYCLE_CONFIG_PATH, LifecycleManager
 
         self.config_path = config_path or LIFECYCLE_CONFIG_PATH
         self.lifecycle_manager = LifecycleManager(self.config_path)
@@ -54,10 +54,14 @@ class DaemonController:
         # Get daemon config
         config = self.lifecycle_manager._read_config()
         daemon_config = config.get("daemon", {})
-        self.pid_file = Path(daemon_config.get("pid_file", Path.home() / ".azlin" / "lifecycle-daemon.pid"))
-        self.log_file = Path(daemon_config.get("log_file", Path.home() / ".azlin" / "lifecycle-daemon.log"))
+        self.pid_file = Path(
+            daemon_config.get("pid_file", Path.home() / ".azlin" / "lifecycle-daemon.pid")
+        )
+        self.log_file = Path(
+            daemon_config.get("log_file", Path.home() / ".azlin" / "lifecycle-daemon.log")
+        )
 
-    def _get_daemon_pid(self) -> Optional[int]:
+    def _get_daemon_pid(self) -> int | None:
         """Get daemon PID from PID file.
 
         Returns:
@@ -110,6 +114,7 @@ class DaemonController:
         if foreground:
             # Run in foreground (blocking)
             from azlin.lifecycle.lifecycle_daemon import LifecycleDaemon
+
             daemon = LifecycleDaemon(self.config_path)
             daemon.start()
         else:
@@ -124,7 +129,7 @@ class DaemonController:
                     python_exe,
                     "-c",
                     "from azlin.lifecycle.lifecycle_daemon import LifecycleDaemon; "
-                    f"daemon = LifecycleDaemon(); daemon.start()",
+                    "daemon = LifecycleDaemon(); daemon.start()",
                 ]
 
                 # Start daemon process
@@ -177,7 +182,7 @@ class DaemonController:
                 time.sleep(0.5)
 
             # If still running, force kill
-            logger.warning(f"Daemon didn't stop gracefully, sending SIGKILL")
+            logger.warning("Daemon didn't stop gracefully, sending SIGKILL")
             os.kill(pid, signal.SIGKILL)
             time.sleep(1)
 
@@ -218,8 +223,9 @@ class DaemonController:
         Returns:
             DaemonStatus with current state
         """
+        from datetime import datetime
+
         from azlin.lifecycle.lifecycle_daemon import DaemonStatus
-        from datetime import datetime, timedelta
 
         pid = self._get_daemon_pid()
         running = pid is not None
@@ -282,6 +288,6 @@ class DaemonController:
 
 
 __all__ = [
-    "DaemonController",
     "ControllerError",
+    "DaemonController",
 ]

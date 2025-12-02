@@ -9,18 +9,18 @@ Testing Strategy:
 - 10% near-E2E tests (short-lived daemon processes)
 """
 
-import pytest
-import time
-import signal
 import os
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock, call
+import signal
+import time
 from datetime import datetime, timedelta
+from unittest.mock import Mock, patch
 
-from azlin.lifecycle.lifecycle_daemon import LifecycleDaemon, DaemonStatus, DaemonError
-from azlin.lifecycle.daemon_controller import DaemonController, ControllerError
+import pytest
+
+from azlin.lifecycle.daemon_controller import ControllerError, DaemonController
+from azlin.lifecycle.health_monitor import HealthStatus, VMState
+from azlin.lifecycle.lifecycle_daemon import DaemonStatus, LifecycleDaemon
 from azlin.lifecycle.lifecycle_manager import LifecycleManager, MonitoringConfig
-from azlin.lifecycle.health_monitor import HealthStatus, VMState, VMMetrics
 
 
 class TestLifecycleDaemonUnit:
@@ -34,12 +34,12 @@ class TestLifecycleDaemonUnit:
         log_file = tmp_path / "daemon.log"
 
         # Create minimal config
-        config_path.write_text("""
+        config_path.write_text(f"""
 [daemon]
-pid_file = "{}"
-log_file = "{}"
+pid_file = "{pid_file!s}"
+log_file = "{log_file!s}"
 log_level = "DEBUG"
-        """.format(str(pid_file), str(log_file)))
+        """)
 
         with patch("azlin.lifecycle.lifecycle_manager.LIFECYCLE_CONFIG_PATH", config_path):
             daemon = LifecycleDaemon(config_path)
@@ -148,7 +148,9 @@ log_level = "DEBUG"
         daemon._pid = os.getpid()
         daemon._start_time = datetime.utcnow() - timedelta(minutes=5)
 
-        with patch.object(daemon.lifecycle_manager, "list_monitored_vms", return_value=["vm1", "vm2"]):
+        with patch.object(
+            daemon.lifecycle_manager, "list_monitored_vms", return_value=["vm1", "vm2"]
+        ):
             status = daemon.get_status()
 
         assert status.running is True
@@ -172,19 +174,12 @@ log_level = "DEBUG"
 
         with patch.object(daemon.health_monitor, "check_vm_health", return_value=mock_health):
             with patch.object(daemon.hook_executor, "execute_hook_async") as mock_hook:
-                config = MonitoringConfig(
-                    enabled=True,
-                    hooks={"on_healthy": "/usr/bin/true"}
-                )
+                config = MonitoringConfig(enabled=True, hooks={"on_healthy": "/usr/bin/true"})
 
                 daemon._check_vm_health_and_heal("test-vm", config)
 
                 # on_healthy hook should be triggered
-                mock_hook.assert_called_once_with(
-                    "on_healthy",
-                    "test-vm",
-                    {"state": "running"}
-                )
+                mock_hook.assert_called_once_with("on_healthy", "test-vm", {"state": "running"})
 
     def test_check_vm_health_and_heal_failed_vm(self, daemon_env):
         """Test health check triggers healing for failed VM."""
@@ -200,15 +195,12 @@ log_level = "DEBUG"
         )
 
         config = MonitoringConfig(
-            enabled=True,
-            ssh_failure_threshold=3,
-            hooks={"on_failure": "/usr/bin/true"}
+            enabled=True, ssh_failure_threshold=3, hooks={"on_failure": "/usr/bin/true"}
         )
 
         with patch.object(daemon.health_monitor, "check_vm_health", return_value=mock_health):
             with patch.object(daemon.hook_executor, "execute_hook_async") as mock_hook:
                 with patch.object(daemon.self_healer, "handle_failure") as mock_healer:
-
                     daemon._check_vm_health_and_heal("test-vm", config)
 
                     # on_failure hook should be triggered
@@ -227,7 +219,9 @@ log_level = "DEBUG"
         """Test health check handles exceptions gracefully."""
         daemon = daemon_env["daemon"]
 
-        with patch.object(daemon.health_monitor, "check_vm_health", side_effect=Exception("Azure error")):
+        with patch.object(
+            daemon.health_monitor, "check_vm_health", side_effect=Exception("Azure error")
+        ):
             config = MonitoringConfig(enabled=True)
 
             # Should not raise, just log error
@@ -263,11 +257,11 @@ class TestDaemonControllerUnit:
         log_file = tmp_path / "daemon.log"
 
         # Create minimal config
-        config_path.write_text("""
+        config_path.write_text(f"""
 [daemon]
-pid_file = "{}"
-log_file = "{}"
-        """.format(str(pid_file), str(log_file)))
+pid_file = "{pid_file!s}"
+log_file = "{log_file!s}"
+        """)
 
         with patch("azlin.lifecycle.lifecycle_manager.LIFECYCLE_CONFIG_PATH", config_path):
             controller = DaemonController(config_path)
@@ -368,7 +362,6 @@ log_file = "{}"
             # First call checks if running (False), after Popen it checks again (True)
             with patch.object(controller, "_is_daemon_running", side_effect=[False, True]):
                 with patch.object(controller, "_get_daemon_pid", return_value=12345):
-
                     controller.start_daemon(foreground=False)
 
                     # Verify Popen was called
@@ -382,7 +375,6 @@ log_file = "{}"
 
         with patch("subprocess.Popen", return_value=Mock()):
             with patch.object(controller, "_is_daemon_running", return_value=False):
-
                 with pytest.raises(ControllerError, match="failed to start"):
                     controller.start_daemon(foreground=False)
 
@@ -404,7 +396,6 @@ log_file = "{}"
 
         with patch("os.kill") as mock_kill:
             with patch.object(controller, "_is_daemon_running", side_effect=[True, False]):
-
                 controller.stop_daemon()
 
                 mock_kill.assert_any_call(fake_pid, signal.SIGTERM)
@@ -423,21 +414,25 @@ log_file = "{}"
             start = 100.0
             # Need enough time values for the while loop to check multiple times before timeout
             mock_time_module.time.side_effect = [
-                start,           # start_time = time.time()
-                start,           # First iteration: time.time() - start_time < timeout (True)
-                start + 0.6,     # Second iteration: time.time() - start_time < timeout (True)
-                start + 1.2,     # Third iteration: time.time() - start_time < timeout (False - exit loop)
+                start,  # start_time = time.time()
+                start,  # First iteration: time.time() - start_time < timeout (True)
+                start + 0.6,  # Second iteration: time.time() - start_time < timeout (True)
+                start
+                + 1.2,  # Third iteration: time.time() - start_time < timeout (False - exit loop)
             ]
 
             with patch("os.kill") as mock_kill:
                 # Daemon stays running during all loop checks, then stops after SIGKILL
                 # Checks happen at line 174 for each iteration where time.time() hasn't exceeded timeout
-                with patch.object(controller, "_is_daemon_running", side_effect=[
-                    True,  # First check in loop (continues)
-                    True,  # Second check in loop (continues)
-                    False, # Check after SIGKILL (line 184)
-                ]):
-
+                with patch.object(
+                    controller,
+                    "_is_daemon_running",
+                    side_effect=[
+                        True,  # First check in loop (continues)
+                        True,  # Second check in loop (continues)
+                        False,  # Check after SIGKILL (line 184)
+                    ],
+                ):
                     controller.stop_daemon(timeout=1)
 
                     # Should send both SIGTERM and SIGKILL
@@ -452,7 +447,6 @@ log_file = "{}"
             with patch.object(controller, "stop_daemon") as mock_stop:
                 with patch.object(controller, "start_daemon") as mock_start:
                     with patch("time.sleep"):
-
                         controller.restart_daemon()
 
                         mock_stop.assert_called_once()
@@ -463,8 +457,9 @@ log_file = "{}"
         controller = controller_env["controller"]
 
         with patch.object(controller, "_get_daemon_pid", return_value=None):
-            with patch.object(controller.lifecycle_manager, "list_monitored_vms", return_value=["vm1"]):
-
+            with patch.object(
+                controller.lifecycle_manager, "list_monitored_vms", return_value=["vm1"]
+            ):
                 status = controller.daemon_status()
 
                 assert isinstance(status, DaemonStatus)
@@ -528,10 +523,10 @@ class TestDaemonIntegration:
         log_file = tmp_path / "daemon.log"
 
         # Create config with VM
-        config_path.write_text("""
+        config_path.write_text(f"""
 [daemon]
-pid_file = "{}"
-log_file = "{}"
+pid_file = "{pid_file!s}"
+log_file = "{log_file!s}"
 log_level = "DEBUG"
 
 [vms.test-vm]
@@ -539,7 +534,7 @@ enabled = true
 check_interval_seconds = 5
 restart_policy = "on-failure"
 ssh_failure_threshold = 2
-        """.format(str(pid_file), str(log_file)))
+        """)
 
         with patch("azlin.lifecycle.lifecycle_manager.LIFECYCLE_CONFIG_PATH", config_path):
             daemon = LifecycleDaemon(config_path)
@@ -566,8 +561,10 @@ ssh_failure_threshold = 2
 
         # Mock the monitoring loop to exit immediately
         original_loop = daemon._monitoring_loop
+
         def mock_loop():
             daemon._running = False
+
         daemon._monitoring_loop = mock_loop
 
         try:
@@ -627,14 +624,17 @@ ssh_failure_threshold = 2
 
         # Mock daemon running check
         with patch.object(controller, "_is_daemon_running", side_effect=[False, True, True, False]):
-            with patch.object(controller, "_get_daemon_pid", side_effect=[None, 12345, 12345, None]):
+            with patch.object(
+                controller, "_get_daemon_pid", side_effect=[None, 12345, 12345, None]
+            ):
                 with patch("subprocess.Popen", return_value=Mock()):
-
                     # Start daemon (mocked)
                     controller.start_daemon(foreground=False)
 
                     # Get status
-                    with patch.object(controller.lifecycle_manager, "list_monitored_vms", return_value=[]):
+                    with patch.object(
+                        controller.lifecycle_manager, "list_monitored_vms", return_value=[]
+                    ):
                         status = controller.daemon_status()
                     assert status.running is True
 
@@ -652,7 +652,8 @@ ssh_failure_threshold = 2
         assert "test-vm" in vms
 
         # Update config to add another VM
-        config_path.write_text("""
+        config_path.write_text(
+            """
 [daemon]
 pid_file = "{}"
 log_file = "{}"
@@ -662,7 +663,8 @@ enabled = true
 
 [vms.test-vm2]
 enabled = true
-        """.format(str(integration_env["pid_file"]), str(integration_env["log_file"])))
+        """.format(str(integration_env["pid_file"]), str(integration_env["log_file"]))
+        )
 
         # Reload config
         daemon.reload_config()
@@ -678,7 +680,8 @@ enabled = true
 
         # Add second VM to config
         config_path = integration_env["config_path"]
-        config_path.write_text("""
+        config_path.write_text(
+            """
 [daemon]
 pid_file = "{}"
 log_file = "{}"
@@ -688,7 +691,8 @@ enabled = true
 
 [vms.vm2]
 enabled = true
-        """.format(str(integration_env["pid_file"]), str(integration_env["log_file"])))
+        """.format(str(integration_env["pid_file"]), str(integration_env["log_file"]))
+        )
 
         # Reload daemon's manager
         daemon.lifecycle_manager = LifecycleManager(config_path)
@@ -701,7 +705,9 @@ enabled = true
             last_check=datetime.utcnow(),
         )
 
-        with patch.object(daemon.health_monitor, "check_vm_health", return_value=mock_health) as mock_check:
+        with patch.object(
+            daemon.health_monitor, "check_vm_health", return_value=mock_health
+        ) as mock_check:
             with patch("time.sleep"):
                 # Simulate checking both VMs
                 config = MonitoringConfig(enabled=True)
@@ -722,16 +728,16 @@ class TestDaemonNearE2E:
         pid_file = tmp_path / "daemon.pid"
         log_file = tmp_path / "daemon.log"
 
-        config_path.write_text("""
+        config_path.write_text(f"""
 [daemon]
-pid_file = "{}"
-log_file = "{}"
+pid_file = "{pid_file!s}"
+log_file = "{log_file!s}"
 log_level = "INFO"
 
 [vms.test-vm]
 enabled = true
 check_interval_seconds = 1
-        """.format(str(pid_file), str(log_file)))
+        """)
 
         with patch("azlin.lifecycle.lifecycle_manager.LIFECYCLE_CONFIG_PATH", config_path):
             yield {
@@ -758,6 +764,7 @@ check_interval_seconds = 1
         # Verify log file is created
         daemon._setup_logging()
         import logging
+
         logger = logging.getLogger(__name__)
         logger.info("Test log message")
 

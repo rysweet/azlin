@@ -16,18 +16,18 @@ Public API (Studs):
 import logging
 import os
 import subprocess
-from subprocess import TimeoutExpired
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional
+from subprocess import TimeoutExpired
 
 logger = logging.getLogger(__name__)
 
 
 class HookType(str, Enum):
     """Lifecycle event types for hooks."""
+
     ON_START = "on_start"
     ON_STOP = "on_stop"
     ON_FAILURE = "on_failure"
@@ -38,12 +38,14 @@ class HookType(str, Enum):
 
 class HookExecutionError(Exception):
     """Raised when hook execution fails."""
+
     pass
 
 
 @dataclass
 class HookResult:
     """Result of hook execution."""
+
     success: bool
     hook_type: HookType
     vm_name: str
@@ -51,8 +53,8 @@ class HookResult:
     stdout: str
     stderr: str
     timestamp: datetime
-    error_message: Optional[str] = None
-    pid: Optional[int] = None
+    error_message: str | None = None
+    pid: int | None = None
 
 
 class HookExecutor:
@@ -100,8 +102,8 @@ class HookExecutor:
             return False
 
     def _prepare_environment(
-        self, hook_type: HookType, vm_name: str, context: Dict
-    ) -> Dict[str, str]:
+        self, hook_type: HookType, vm_name: str, context: dict
+    ) -> dict[str, str]:
         """Prepare environment variables for hook execution.
 
         Args:
@@ -128,9 +130,9 @@ class HookExecutor:
         self,
         hook_type: HookType | str,
         vm_name: str,
-        context: Dict,
-        script_path: Optional[str] = None,
-        timeout: Optional[int] = None,
+        context: dict,
+        script_path: str | None = None,
+        timeout: int | None = None,
     ) -> HookResult:
         """Execute lifecycle hook script.
 
@@ -160,6 +162,7 @@ class HookExecutor:
         if script_path is None:
             try:
                 from azlin.lifecycle.lifecycle_manager import LifecycleManager
+
                 manager = LifecycleManager()
                 status = manager.get_monitoring_status(vm_name)
                 script_path = status.config.hooks.get(hook_type.value, "")
@@ -234,8 +237,8 @@ class HookExecutor:
         self,
         hook_type: HookType | str,
         vm_name: str,
-        context: Dict,
-        script_path: Optional[str] = None,
+        context: dict,
+        script_path: str | None = None,
     ) -> HookResult:
         """Execute lifecycle hook asynchronously (non-blocking).
 
@@ -262,6 +265,7 @@ class HookExecutor:
         if script_path is None:
             try:
                 from azlin.lifecycle.lifecycle_manager import LifecycleManager
+
                 manager = LifecycleManager()
                 status = manager.get_monitoring_status(vm_name)
                 script_path = status.config.hooks.get(hook_type.value, "")
@@ -314,8 +318,8 @@ class HookExecutor:
 
 
 __all__ = [
+    "HookExecutionError",
     "HookExecutor",
     "HookResult",
     "HookType",
-    "HookExecutionError",
 ]

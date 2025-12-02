@@ -19,13 +19,13 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class VMState(str, Enum):
     """VM power states from Azure."""
+
     RUNNING = "running"
     STOPPED = "stopped"
     DEALLOCATED = "deallocated"
@@ -34,12 +34,14 @@ class VMState(str, Enum):
 
 class HealthCheckError(Exception):
     """Raised when health check operations fail."""
+
     pass
 
 
 @dataclass
 class VMMetrics:
     """VM resource metrics from SSH."""
+
     cpu_percent: float
     memory_percent: float
     disk_percent: float
@@ -48,6 +50,7 @@ class VMMetrics:
 @dataclass
 class HealthFailure:
     """Health check failure event."""
+
     vm_name: str
     failure_count: int
     reason: str
@@ -57,12 +60,13 @@ class HealthFailure:
 @dataclass
 class HealthStatus:
     """Health check result for a VM."""
+
     vm_name: str
     state: VMState
     ssh_reachable: bool
     ssh_failures: int
     last_check: datetime
-    metrics: Optional[VMMetrics] = None
+    metrics: VMMetrics | None = None
 
 
 class HealthMonitor:
@@ -78,7 +82,7 @@ class HealthMonitor:
 
     def __init__(self):
         """Initialize health monitor."""
-        self._ssh_failure_counts: Dict[str, int] = {}
+        self._ssh_failure_counts: dict[str, int] = {}
         self._azure_client = None
         self._ssh_client = None
 
@@ -87,6 +91,7 @@ class HealthMonitor:
         if self._azure_client is None:
             # Import here to allow for mocking in tests
             import azlin.azure_client
+
             self._azure_client = azlin.azure_client.AzureClient()
         return self._azure_client
 
@@ -95,6 +100,7 @@ class HealthMonitor:
         if self._ssh_client is None:
             # Import here to allow for mocking in tests
             import azlin.ssh_client
+
             self._ssh_client = azlin.ssh_client.SSHClient()
         return self._ssh_client
 
@@ -141,7 +147,7 @@ class HealthMonitor:
             logger.debug(f"SSH check failed for {vm_name}: {e}")
             return False
 
-    def get_metrics(self, vm_name: str) -> Optional[VMMetrics]:
+    def get_metrics(self, vm_name: str) -> VMMetrics | None:
         """Get VM resource metrics via SSH.
 
         Args:
@@ -201,10 +207,10 @@ class HealthMonitor:
 
 
 __all__ = [
+    "HealthCheckError",
+    "HealthFailure",
     "HealthMonitor",
     "HealthStatus",
-    "VMState",
     "VMMetrics",
-    "HealthFailure",
-    "HealthCheckError",
+    "VMState",
 ]

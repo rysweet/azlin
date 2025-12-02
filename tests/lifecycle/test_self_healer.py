@@ -3,16 +3,14 @@
 Tests restart decision logic with mocked Azure operations.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from dataclasses import dataclass
+from unittest.mock import Mock
 
+import pytest
+
+from azlin.lifecycle.health_monitor import HealthFailure
 from azlin.lifecycle.self_healer import (
     SelfHealer,
-    RestartResult,
-    SelfHealingError,
 )
-from azlin.lifecycle.health_monitor import HealthStatus, VMState, HealthFailure
 
 
 class TestSelfHealer:
@@ -47,6 +45,7 @@ class TestSelfHealer:
     def test_should_restart_never_policy_returns_false(self, healer, mock_lifecycle_manager):
         """Test never policy never triggers restart."""
         from azlin.lifecycle.lifecycle_manager import MonitoringConfig
+
         config = MonitoringConfig(enabled=True, restart_policy="never", ssh_failure_threshold=3)
         mock_lifecycle_manager.get_monitoring_status.return_value.config = config
 
@@ -58,7 +57,10 @@ class TestSelfHealer:
     def test_should_restart_on_failure_below_threshold(self, healer, mock_lifecycle_manager):
         """Test on-failure policy below threshold returns false."""
         from azlin.lifecycle.lifecycle_manager import MonitoringConfig
-        config = MonitoringConfig(enabled=True, restart_policy="on-failure", ssh_failure_threshold=3)
+
+        config = MonitoringConfig(
+            enabled=True, restart_policy="on-failure", ssh_failure_threshold=3
+        )
         mock_lifecycle_manager.get_monitoring_status.return_value.config = config
 
         failure = HealthFailure(vm_name="test-vm", failure_count=2, reason="SSH timeout")
@@ -69,7 +71,10 @@ class TestSelfHealer:
     def test_should_restart_on_failure_at_threshold(self, healer, mock_lifecycle_manager):
         """Test on-failure policy at threshold returns true."""
         from azlin.lifecycle.lifecycle_manager import MonitoringConfig
-        config = MonitoringConfig(enabled=True, restart_policy="on-failure", ssh_failure_threshold=3)
+
+        config = MonitoringConfig(
+            enabled=True, restart_policy="on-failure", ssh_failure_threshold=3
+        )
         mock_lifecycle_manager.get_monitoring_status.return_value.config = config
 
         failure = HealthFailure(vm_name="test-vm", failure_count=3, reason="SSH timeout")
@@ -80,6 +85,7 @@ class TestSelfHealer:
     def test_should_restart_always_policy_returns_true(self, healer, mock_lifecycle_manager):
         """Test always policy always triggers restart."""
         from azlin.lifecycle.lifecycle_manager import MonitoringConfig
+
         config = MonitoringConfig(enabled=True, restart_policy="always", ssh_failure_threshold=3)
         mock_lifecycle_manager.get_monitoring_status.return_value.config = config
 
@@ -112,11 +118,12 @@ class TestSelfHealer:
     ):
         """Test handle_failure restarts VM and executes hook."""
         from azlin.lifecycle.lifecycle_manager import MonitoringConfig
+
         config = MonitoringConfig(
             enabled=True,
             restart_policy="on-failure",
             ssh_failure_threshold=3,
-            hooks={"on_restart": "/path/to/notify.sh"}
+            hooks={"on_restart": "/path/to/notify.sh"},
         )
         mock_lifecycle_manager.get_monitoring_status.return_value.config = config
         mock_azure_client.restart_vm.return_value = True
@@ -134,6 +141,7 @@ class TestSelfHealer:
     ):
         """Test handle_failure does not restart when policy is never."""
         from azlin.lifecycle.lifecycle_manager import MonitoringConfig
+
         config = MonitoringConfig(enabled=True, restart_policy="never")
         mock_lifecycle_manager.get_monitoring_status.return_value.config = config
 
@@ -142,7 +150,9 @@ class TestSelfHealer:
 
         mock_azure_client.restart_vm.assert_not_called()
 
-    def test_restart_vm_resets_failure_counter(self, healer, mock_azure_client, mock_lifecycle_manager):
+    def test_restart_vm_resets_failure_counter(
+        self, healer, mock_azure_client, mock_lifecycle_manager
+    ):
         """Test successful restart resets failure counter."""
         mock_azure_client.restart_vm.return_value = True
 

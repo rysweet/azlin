@@ -3,16 +3,14 @@
 Tests configuration CRUD operations with mocked file I/O.
 """
 
+from unittest.mock import patch
+
 import pytest
-from pathlib import Path
-from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
 
 from azlin.lifecycle.lifecycle_manager import (
+    LifecycleConfigError,
     LifecycleManager,
     MonitoringConfig,
-    MonitoringStatus,
-    LifecycleConfigError,
 )
 
 

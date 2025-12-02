@@ -15,23 +15,24 @@ Public API (Studs):
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class SelfHealingError(Exception):
     """Raised when self-healing operations fail."""
+
     pass
 
 
 @dataclass
 class RestartResult:
     """Result of a VM restart operation."""
+
     success: bool
     vm_name: str
     timestamp: datetime
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
 
 class SelfHealer:
@@ -56,6 +57,7 @@ class SelfHealer:
         """Lazy-load LifecycleManager."""
         if self._lifecycle_manager is None:
             from azlin.lifecycle.lifecycle_manager import LifecycleManager
+
             self._lifecycle_manager = LifecycleManager()
         return self._lifecycle_manager
 
@@ -63,6 +65,7 @@ class SelfHealer:
         """Lazy-load Azure client."""
         if self._azure_client is None:
             from azlin.azure_client import AzureClient
+
             self._azure_client = AzureClient()
         return self._azure_client
 
@@ -70,6 +73,7 @@ class SelfHealer:
         """Lazy-load HookExecutor."""
         if self._hook_executor is None:
             from azlin.lifecycle.hook_executor import HookExecutor
+
             self._hook_executor = HookExecutor()
         return self._hook_executor
 
@@ -93,14 +97,13 @@ class SelfHealer:
 
             if restart_policy == "never":
                 return False
-            elif restart_policy == "always":
+            if restart_policy == "always":
                 return True
-            elif restart_policy == "on-failure":
+            if restart_policy == "on-failure":
                 # Only restart if threshold met or exceeded
                 return failure.failure_count >= failure_threshold
-            else:
-                logger.warning(f"Unknown restart policy: {restart_policy}")
-                return False
+            logger.warning(f"Unknown restart policy: {restart_policy}")
+            return False
 
         except Exception as e:
             logger.error(f"Error checking restart policy for {vm_name}: {e}")
@@ -162,7 +165,7 @@ class SelfHealer:
                 try:
                     manager = self._get_lifecycle_manager()
                     status = manager.get_monitoring_status(vm_name)
-                    if "on_restart" in status.config.hooks and status.config.hooks["on_restart"]:
+                    if status.config.hooks.get("on_restart"):
                         executor = self._get_hook_executor()
                         context = {
                             "failure_count": failure.failure_count,
@@ -179,7 +182,7 @@ class SelfHealer:
 
 
 __all__ = [
-    "SelfHealer",
     "RestartResult",
+    "SelfHealer",
     "SelfHealingError",
 ]

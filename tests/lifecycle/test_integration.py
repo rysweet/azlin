@@ -3,15 +3,14 @@
 Tests full workflows with multiple components interacting.
 """
 
-import pytest
-import time
 from unittest.mock import Mock, patch
-from pathlib import Path
 
-from azlin.lifecycle.lifecycle_manager import LifecycleManager, MonitoringConfig
+import pytest
+
 from azlin.lifecycle.health_monitor import HealthMonitor, VMState
-from azlin.lifecycle.self_healer import SelfHealer
 from azlin.lifecycle.hook_executor import HookExecutor, HookType
+from azlin.lifecycle.lifecycle_manager import LifecycleManager, MonitoringConfig
+from azlin.lifecycle.self_healer import SelfHealer
 
 
 class TestHealthWorkflow:
@@ -76,9 +75,7 @@ class TestHealthWorkflow:
 
         # Enable monitoring with on-failure restart policy
         config = MonitoringConfig(
-            enabled=True,
-            restart_policy="on-failure",
-            ssh_failure_threshold=3
+            enabled=True, restart_policy="on-failure", ssh_failure_threshold=3
         )
         manager.enable_monitoring("test-vm", config)
 
@@ -94,11 +91,8 @@ class TestHealthWorkflow:
 
         # Healer should decide to restart
         from azlin.lifecycle.health_monitor import HealthFailure
-        failure = HealthFailure(
-            vm_name="test-vm",
-            failure_count=3,
-            reason="SSH connectivity lost"
-        )
+
+        failure = HealthFailure(vm_name="test-vm", failure_count=3, reason="SSH connectivity lost")
         should_restart = healer.should_restart("test-vm", failure)
         assert should_restart is True
 
@@ -118,15 +112,14 @@ class TestHealthWorkflow:
         hook_script.chmod(0o755)
 
         # Enable monitoring with hook
-        config = MonitoringConfig(
-            enabled=True,
-            hooks={"on_failure": str(hook_script)}
-        )
+        config = MonitoringConfig(enabled=True, hooks={"on_failure": str(hook_script)})
         manager.enable_monitoring("test-vm", config)
 
         # Execute hook
         with patch("azlin.lifecycle.hook_executor.subprocess") as mock_subprocess:
-            mock_subprocess.run.return_value = Mock(returncode=0, stdout="Alert triggered", stderr="")
+            mock_subprocess.run.return_value = Mock(
+                returncode=0, stdout="Alert triggered", stderr=""
+            )
 
             result = executor.execute_hook(HookType.ON_FAILURE, "test-vm", {"failure_count": 1})
 
@@ -140,9 +133,7 @@ class TestHealthWorkflow:
 
         # Enable monitoring with first manager
         config = MonitoringConfig(
-            enabled=True,
-            check_interval_seconds=90,
-            restart_policy="on-failure"
+            enabled=True, check_interval_seconds=90, restart_policy="on-failure"
         )
         manager1.enable_monitoring("test-vm", config)
 
@@ -173,6 +164,7 @@ class TestHealthWorkflow:
         # VM2 SSH succeeds
         mock_ssh.check_connectivity.return_value = True
         from azlin.lifecycle.health_monitor import VMMetrics
+
         mock_ssh.get_metrics.return_value = VMMetrics(50.0, 60.0, 40.0)
         health2 = monitor.check_vm_health("vm2")
 

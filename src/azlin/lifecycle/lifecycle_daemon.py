@@ -19,23 +19,24 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class DaemonError(Exception):
     """Raised when daemon operations fail."""
+
     pass
 
 
 @dataclass
 class DaemonStatus:
     """Current daemon status."""
+
     running: bool
-    pid: Optional[int] = None
-    uptime: Optional[timedelta] = None
-    monitored_vms: List[str] = None
+    pid: int | None = None
+    uptime: timedelta | None = None
+    monitored_vms: list[str] = None
 
 
 class LifecycleDaemon:
@@ -49,16 +50,16 @@ class LifecycleDaemon:
         >>> daemon.start()  # Runs in background
     """
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """Initialize lifecycle daemon.
 
         Args:
             config_path: Path to lifecycle config file
         """
-        from azlin.lifecycle.lifecycle_manager import LifecycleManager
         from azlin.lifecycle.health_monitor import HealthMonitor
-        from azlin.lifecycle.self_healer import SelfHealer
         from azlin.lifecycle.hook_executor import HookExecutor
+        from azlin.lifecycle.lifecycle_manager import LifecycleManager
+        from azlin.lifecycle.self_healer import SelfHealer
 
         self.lifecycle_manager = LifecycleManager(config_path)
         self.health_monitor = HealthMonitor()
@@ -66,14 +67,18 @@ class LifecycleDaemon:
         self.hook_executor = HookExecutor()
 
         self._running = False
-        self._start_time: Optional[datetime] = None
-        self._pid: Optional[int] = None
+        self._start_time: datetime | None = None
+        self._pid: int | None = None
 
         # Load daemon config
         config = self.lifecycle_manager._read_config()
         self.daemon_config = config.get("daemon", {})
-        self.pid_file = Path(self.daemon_config.get("pid_file", Path.home() / ".azlin" / "lifecycle-daemon.pid"))
-        self.log_file = Path(self.daemon_config.get("log_file", Path.home() / ".azlin" / "lifecycle-daemon.log"))
+        self.pid_file = Path(
+            self.daemon_config.get("pid_file", Path.home() / ".azlin" / "lifecycle-daemon.pid")
+        )
+        self.log_file = Path(
+            self.daemon_config.get("log_file", Path.home() / ".azlin" / "lifecycle-daemon.log")
+        )
         self.log_level = self.daemon_config.get("log_level", "INFO")
 
     def _setup_logging(self):
@@ -151,7 +156,7 @@ class LifecycleDaemon:
                 )
 
                 # Trigger on_failure hook
-                if "on_failure" in config.hooks and config.hooks["on_failure"]:
+                if config.hooks.get("on_failure"):
                     try:
                         self.hook_executor.execute_hook_async(
                             "on_failure",
@@ -166,6 +171,7 @@ class LifecycleDaemon:
 
                 # Create failure object for self-healer
                 from azlin.lifecycle.health_monitor import HealthFailure
+
                 failure = HealthFailure(
                     vm_name=vm_name,
                     failure_count=health.ssh_failures,
@@ -248,6 +254,7 @@ class LifecycleDaemon:
                 pid = int(self.pid_file.read_text())
                 # Check if process exists
                 import os
+
                 os.kill(pid, 0)  # Doesn't actually kill, just checks if process exists
                 raise DaemonError(f"Daemon already running with PID {pid}")
             except (OSError, ProcessLookupError):
@@ -261,6 +268,7 @@ class LifecycleDaemon:
 
         # Start daemon
         import os
+
         self._pid = os.getpid()
         self._start_time = datetime.utcnow()
         self._running = True
@@ -316,7 +324,7 @@ class LifecycleDaemon:
 
 
 __all__ = [
-    "LifecycleDaemon",
-    "DaemonStatus",
     "DaemonError",
+    "DaemonStatus",
+    "LifecycleDaemon",
 ]

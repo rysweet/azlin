@@ -14,10 +14,9 @@ Public API (Studs):
 """
 
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 try:
     import tomlkit
@@ -45,18 +44,20 @@ VALID_HOOK_TYPES = [
 
 class LifecycleConfigError(Exception):
     """Raised when lifecycle configuration operations fail."""
+
     pass
 
 
 @dataclass
 class MonitoringConfig:
     """VM monitoring configuration."""
+
     enabled: bool
     check_interval_seconds: int = 60
     restart_policy: str = "never"
     ssh_failure_threshold: int = 3
     health_check_timeout: int = 30
-    hooks: Dict[str, str] = field(default_factory=dict)
+    hooks: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -76,6 +77,7 @@ class MonitoringConfig:
 @dataclass
 class MonitoringStatus:
     """Current monitoring status for a VM."""
+
     vm_name: str
     enabled: bool
     config: MonitoringConfig
@@ -96,7 +98,7 @@ class LifecycleManager:
         on-failure
     """
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """Initialize lifecycle manager.
 
         Args:
@@ -125,7 +127,7 @@ class LifecycleManager:
     def _read_config(self) -> dict:
         """Read configuration from TOML file."""
         try:
-            with open(self.config_path, "r") as f:
+            with open(self.config_path) as f:
                 return tomlkit.load(f)
         except Exception as e:
             raise LifecycleConfigError(f"Failed to read config: {e}") from e
@@ -239,7 +241,7 @@ class LifecycleManager:
         self.enable_monitoring(vm_name, config)
         logger.info(f"Updated configuration for {vm_name}")
 
-    def list_monitored_vms(self) -> List[str]:
+    def list_monitored_vms(self) -> list[str]:
         """List all VMs with monitoring configured.
 
         Returns:
@@ -261,8 +263,7 @@ class LifecycleManager:
         """
         if hook_type not in VALID_HOOK_TYPES:
             raise LifecycleConfigError(
-                f"Invalid hook type: {hook_type}. "
-                f"Must be one of: {', '.join(VALID_HOOK_TYPES)}"
+                f"Invalid hook type: {hook_type}. Must be one of: {', '.join(VALID_HOOK_TYPES)}"
             )
 
         status = self.get_monitoring_status(vm_name)
@@ -287,11 +288,11 @@ class LifecycleManager:
 
 
 __all__ = [
+    "LIFECYCLE_CONFIG_PATH",
+    "VALID_HOOK_TYPES",
+    "VALID_RESTART_POLICIES",
+    "LifecycleConfigError",
     "LifecycleManager",
     "MonitoringConfig",
     "MonitoringStatus",
-    "LifecycleConfigError",
-    "LIFECYCLE_CONFIG_PATH",
-    "VALID_RESTART_POLICIES",
-    "VALID_HOOK_TYPES",
 ]

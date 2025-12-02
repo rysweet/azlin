@@ -3,16 +3,16 @@
 Tests health checking logic with mocked Azure API and SSH.
 """
 
+from datetime import datetime
+from unittest.mock import Mock
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
 
 from azlin.lifecycle.health_monitor import (
-    HealthMonitor,
-    HealthStatus,
-    VMState,
-    VMMetrics,
     HealthCheckError,
+    HealthMonitor,
+    VMMetrics,
+    VMState,
 )
 
 
@@ -38,14 +38,14 @@ class TestHealthMonitor:
         monitor._ssh_client = mock_client
         return mock_client
 
-    def test_check_vm_health_running_and_reachable(self, monitor, mock_azure_client, mock_ssh_client):
+    def test_check_vm_health_running_and_reachable(
+        self, monitor, mock_azure_client, mock_ssh_client
+    ):
         """Test health check for running VM with SSH connectivity."""
         mock_azure_client.get_vm_state.return_value = "Running"
         mock_ssh_client.check_connectivity.return_value = True
         mock_ssh_client.get_metrics.return_value = VMMetrics(
-            cpu_percent=45.2,
-            memory_percent=60.5,
-            disk_percent=35.0
+            cpu_percent=45.2, memory_percent=60.5, disk_percent=35.0
         )
 
         health = monitor.check_vm_health("test-vm")
@@ -57,7 +57,9 @@ class TestHealthMonitor:
         assert health.metrics is not None
         assert health.metrics.cpu_percent == 45.2
 
-    def test_check_vm_health_running_ssh_unreachable(self, monitor, mock_azure_client, mock_ssh_client):
+    def test_check_vm_health_running_ssh_unreachable(
+        self, monitor, mock_azure_client, mock_ssh_client
+    ):
         """Test health check for running VM without SSH connectivity."""
         mock_azure_client.get_vm_state.return_value = "Running"
         mock_ssh_client.check_connectivity.return_value = False
@@ -101,7 +103,9 @@ class TestHealthMonitor:
         assert health2.ssh_failures == 2
         assert health3.ssh_failures == 3
 
-    def test_ssh_failure_counter_resets_on_success(self, monitor, mock_azure_client, mock_ssh_client):
+    def test_ssh_failure_counter_resets_on_success(
+        self, monitor, mock_azure_client, mock_ssh_client
+    ):
         """Test SSH failure counter resets after successful check."""
         mock_azure_client.get_vm_state.return_value = "Running"
 
