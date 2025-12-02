@@ -6,10 +6,12 @@ Phase 2: Strategy selection and execution (Azure CLI, Terraform).
 
 from .audit_logger import AuditLogger
 from .command_executor import CommandExecutionError, CommandExecutor, ResultValidator
+from .error_analyzer import ErrorAnalyzer
 from .execution_orchestrator import ExecutionOrchestrator, ExecutionOrchestratorError
 from .intent_parser import CommandPlanner, IntentParseError, IntentParser
 from .objective_manager import ObjectiveError, ObjectiveManager
 from .request_clarifier import ClarificationResult, RequestClarificationError, RequestClarifier
+from .session_context import CommandHistoryEntry, SessionContext
 from .strategies import AzureCLIStrategy, ExecutionStrategy, TerraformStrategy
 from .strategy_selector import StrategySelector
 from .types import (
@@ -31,8 +33,10 @@ __all__ = [
     "ClarificationResult",
     "CommandExecutionError",
     "CommandExecutor",
+    "CommandHistoryEntry",
     "CommandPlanner",
     "CostEstimate",
+    "ErrorAnalyzer",
     "ExecutionContext",
     "ExecutionOrchestrator",
     "ExecutionOrchestratorError",
@@ -49,6 +53,7 @@ __all__ = [
     "RequestClarificationError",
     "RequestClarifier",
     "ResultValidator",
+    "SessionContext",
     "Strategy",
     "StrategyPlan",
     "StrategySelector",
