@@ -274,27 +274,33 @@ class TestSecurityAuditLoggerBackup:
 
         assert result is False
 
-    @patch("pathlib.Path.exists", return_value=True)
-    @patch("shutil.copy2")
-    @patch("os.chmod")
-    @patch("azlin.network_security.security_audit.datetime")
-    def test_backup_audit_log_creates_timestamped_backup(
-        self, mock_datetime, mock_chmod, mock_copy, mock_exists
-    ):
+    def test_backup_audit_log_creates_timestamped_backup(self, tmp_path):
         """Backup should create timestamped copy with secure permissions."""
         from azlin.network_security.security_audit import SecurityAuditLogger
 
-        logger = SecurityAuditLogger()
+        # Create actual audit file in temp directory
+        audit_file = tmp_path / "security_audit.jsonl"
+        audit_file.write_text('{"event_id": "test", "timestamp": "2025-12-01T12:00:00Z"}\n')
 
-        # Mock datetime.now(UTC).strftime()
-        mock_datetime.now.return_value.strftime.return_value = "20251201_120000"
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
 
-        logger._backup_audit_log()
+        with patch("azlin.network_security.security_audit.SecurityAuditLogger.AUDIT_FILE", audit_file):
+            with patch("azlin.network_security.security_audit.SecurityAuditLogger.BACKUP_DIR", backup_dir):
+                with patch("azlin.network_security.security_audit.datetime") as mock_datetime:
+                    # Mock datetime.now(UTC).strftime()
+                    mock_datetime.now.return_value.strftime.return_value = "20251201_120000"
 
-        # Verify copy was created
-        mock_copy.assert_called_once()
-        # Verify backup has 0o600 permissions
-        assert any(call[0][1] == 0o600 for call in mock_chmod.call_args_list)
+                    logger = SecurityAuditLogger()
+                    logger._backup_audit_log()
+
+                    # Verify backup was created
+                    backup_file = backup_dir / "security_audit_20251201_120000.jsonl"
+                    assert backup_file.exists()
+
+                    # Verify backup has correct permissions (0o600)
+                    import stat
+                    assert stat.S_IMODE(backup_file.stat().st_mode) == 0o600
 
 
 class TestSecurityAuditLoggerQueryInterface:
