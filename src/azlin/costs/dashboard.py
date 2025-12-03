@@ -21,7 +21,9 @@ from decimal import Decimal
 
 try:
     from azure.identity import DefaultAzureCredential
-    from azure.mgmt.costmanagement import CostManagementClient as AzureCostClient  # type: ignore[import-not-found]
+    from azure.mgmt.costmanagement import (  # type: ignore[import-not-found]
+        CostManagementClient as AzureCostClient,
+    )
 
     AZURE_AVAILABLE = True
 except ImportError:
