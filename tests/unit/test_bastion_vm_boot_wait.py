@@ -55,11 +55,13 @@ class TestBastionManagerVMBootWait:
     def test_wait_for_vm_boot_logs_progress_messages(self, caplog):
         """Test that wait_for_vm_boot() logs informative progress messages."""
         # Arrange
+        import logging
         manager = BastionManager()
 
         # Act
-        with patch("time.sleep"):
-            manager.wait_for_vm_boot(wait_seconds=75)
+        with caplog.at_level(logging.INFO):
+            with patch("time.sleep"):
+                manager.wait_for_vm_boot(wait_seconds=75)
 
         # Assert - Check log messages
         log_output = caplog.text.lower()
@@ -118,11 +120,13 @@ class TestBastionManagerVMBootWait:
     def test_wait_for_vm_boot_logs_start_and_completion(self, caplog):
         """Test that wait_for_vm_boot() logs both start and completion."""
         # Arrange
+        import logging
         manager = BastionManager()
 
         # Act
-        with patch("time.sleep"):
-            manager.wait_for_vm_boot(wait_seconds=30)
+        with caplog.at_level(logging.INFO):
+            with patch("time.sleep"):
+                manager.wait_for_vm_boot(wait_seconds=30)
 
         # Assert - Should have start and completion messages
         log_messages = [record.message for record in caplog.records]
@@ -207,11 +211,13 @@ class TestBastionManagerLoggingDetail:
     def test_wait_for_vm_boot_logs_reason_for_wait(self, caplog):
         """Test that log messages explain why we're waiting."""
         # Arrange
+        import logging
         manager = BastionManager()
 
         # Act
-        with patch("time.sleep"):
-            manager.wait_for_vm_boot()
+        with caplog.at_level(logging.INFO):
+            with patch("time.sleep"):
+                manager.wait_for_vm_boot()
 
         # Assert - Should explain this is for VM boot/initialization
         log_text = caplog.text.lower()
@@ -241,12 +247,14 @@ class TestBastionManagerLoggingDetail:
     def test_wait_for_vm_boot_includes_duration_in_log(self, caplog):
         """Test that log messages include the wait duration."""
         # Arrange
+        import logging
         manager = BastionManager()
         wait_time = 45
 
         # Act
-        with patch("time.sleep"):
-            manager.wait_for_vm_boot(wait_seconds=wait_time)
+        with caplog.at_level(logging.INFO):
+            with patch("time.sleep"):
+                manager.wait_for_vm_boot(wait_seconds=wait_time)
 
         # Assert
         assert str(wait_time) in caplog.text or f"{wait_time}" in caplog.text
