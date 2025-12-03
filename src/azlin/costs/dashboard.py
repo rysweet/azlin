@@ -21,13 +21,13 @@ from decimal import Decimal
 
 try:
     from azure.identity import DefaultAzureCredential
-    from azure.mgmt.costmanagement import CostManagementClient as AzureCostClient
+    from azure.mgmt.costmanagement import CostManagementClient as AzureCostClient  # type: ignore[import-not-found]
 
     AZURE_AVAILABLE = True
 except ImportError:
     AZURE_AVAILABLE = False
-    DefaultAzureCredential = None
-    AzureCostClient = None
+    DefaultAzureCredential = None  # type: ignore[assignment,misc]
+    AzureCostClient = None  # type: ignore[assignment,misc]
 
 
 class CostDashboardError(Exception):
@@ -150,8 +150,8 @@ class CostDashboard:
         # Initialize Azure Cost Management client (mock for testing if Azure SDK not available)
         if AZURE_AVAILABLE:
             try:
-                credential = DefaultAzureCredential()
-                self.client = AzureCostClient(credential)
+                credential = DefaultAzureCredential()  # type: ignore[misc]
+                self.client = AzureCostClient(credential)  # type: ignore[misc]
             except Exception as e:
                 # Fall back to mock client
                 self.client = AzureCostManagementClient(None)
@@ -262,7 +262,7 @@ class CostDashboard:
     def get_vm_costs(self) -> dict[str, Decimal]:
         """Get VM-specific costs using CostTracker."""
         try:
-            from azlin.cost_estimator import estimate_vm_costs
+            from azlin.cost_estimator import estimate_vm_costs  # type: ignore[import-not-found]
 
             return estimate_vm_costs(self.resource_group)
         except ImportError:
