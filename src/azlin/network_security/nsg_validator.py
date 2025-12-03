@@ -211,9 +211,11 @@ class NSGValidator:
 
         # Check required top-level fields
         required_fields = ["name", "description", "version", "security_rules", "default_rules"]
-        for field in required_fields:
-            if field not in template:
-                errors.append(f"Missing required field: {field}")
+        errors.extend(
+            f"Missing required field: {required_field}"
+            for required_field in required_fields
+            if required_field not in template
+        )
 
         if errors:
             return errors  # Don't proceed if top-level fields are missing
@@ -265,9 +267,11 @@ class NSGValidator:
             "justification",
         ]
 
-        for field in required_fields:
-            if field not in rule:
-                errors.append(f"Rule '{rule_name}': missing required field '{field}'")
+        errors.extend(
+            f"Rule '{rule_name}': missing required field '{required_field}'"
+            for required_field in required_fields
+            if required_field not in rule
+        )
 
         if errors:
             return errors  # Don't validate values if fields are missing
@@ -450,16 +454,14 @@ class NSGValidator:
             direction = rule.get("direction", "")
 
             # CIS 6.2: SSH restrictions
-            if dest_port == "22" and direction == "Inbound":
-                if access == "Deny" and source_prefix in ["Internet", "*"]:
-                    compliance_tags.add("CIS-6.2")
-                    compliance_tags.add("SOC2-CC6.6")
+            if dest_port == "22" and direction == "Inbound" and access == "Deny" and source_prefix in ["Internet", "*"]:
+                compliance_tags.add("CIS-6.2")
+                compliance_tags.add("SOC2-CC6.6")
 
             # CIS 6.1: RDP restrictions
-            if dest_port == "3389" and direction == "Inbound":
-                if access == "Deny" and source_prefix in ["Internet", "*"]:
-                    compliance_tags.add("CIS-6.1")
-                    compliance_tags.add("SOC2-CC6.6")
+            if dest_port == "3389" and direction == "Inbound" and access == "Deny" and source_prefix in ["Internet", "*"]:
+                compliance_tags.add("CIS-6.1")
+                compliance_tags.add("SOC2-CC6.6")
 
             # ISO27001 A.13.1: Network security controls
             if access == "Deny" and direction == "Inbound":

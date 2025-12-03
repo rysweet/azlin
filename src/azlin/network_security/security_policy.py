@@ -123,7 +123,7 @@ class SecurityPolicy:
         for rule in rules:
             for forbidden in self.forbidden_rules:
                 if forbidden["condition"](rule):
-                    violations.append(
+                    violations.append(  # noqa: PERF401 - nested loops make comprehension less readable
                         {
                             "name": forbidden["name"],
                             "severity": forbidden["severity"],
@@ -150,7 +150,7 @@ class SecurityPolicy:
         for required in self.required_rules:
             # Required rules check entire rule set, not individual rules
             if not required["condition"](rules):
-                violations.append(
+                violations.append(  # noqa: PERF401 - condition checks full rule set
                     {
                         "name": required["name"],
                         "severity": required["severity"],

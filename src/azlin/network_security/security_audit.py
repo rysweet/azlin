@@ -53,7 +53,7 @@ class AuditEventType(str, Enum):
     NSG_RULE_MODIFY = "nsg_rule_modify"
     NSG_RULE_DELETE = "nsg_rule_delete"
     NSG_VALIDATION_FAIL = "nsg_validation_fail"
-    NSG_VALIDATION_PASS = "nsg_validation_pass"
+    NSG_VALIDATION_PASS = "nsg_validation_pass"  # noqa: S105 - not a password
     CREDENTIAL_ACCESS = "credential_access"
     PUBLIC_IP_ASSIGN = "public_ip_assign"
     SECURITY_SCAN_FAIL = "security_scan_fail"

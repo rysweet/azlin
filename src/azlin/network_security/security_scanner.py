@@ -394,21 +394,11 @@ class SecurityScanner:
 
                 # Convert validation findings to SecurityFindings
                 for finding in validation_result.critical_issues:
-                    # Handle both PolicyFinding objects and dict format
-                    if hasattr(finding, "name"):
-                        # PolicyFinding object
-                        finding_name = finding.name
-                        finding_message = finding.message
-                        finding_remediation = finding.remediation or "Review NSG configuration"
-                        finding_compliance = finding.compliance_impact
-                    else:
-                        # Dict format (for testing/mocking)
-                        finding_name = finding.get("name", "unknown")
-                        finding_message = finding.get("message") or finding.get(
-                            "title", "Security issue"
-                        )
-                        finding_remediation = finding.get("remediation", "Review NSG configuration")
-                        finding_compliance = finding.get("compliance_impact", [])
+                    # PolicyFinding objects from validation
+                    finding_name = finding.name
+                    finding_message = finding.message
+                    finding_remediation = finding.remediation or "Review NSG configuration"
+                    finding_compliance = finding.compliance_impact
 
                     findings.append(
                         SecurityFinding(
