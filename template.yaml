@@ -1,6 +1,0 @@
-name: dev-vm
-description: 'Template: dev-vm'
-vm_size: Standard_E16as_v5
-region: westus2
-cloud_init: null
-custom_metadata: {}

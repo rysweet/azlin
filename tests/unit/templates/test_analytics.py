@@ -83,9 +83,7 @@ class TestUsageTracking:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
 
             event_id = tracker.record_usage(
-                template_name="vm-basic",
-                user_id="user1",
-                timestamp=datetime.now()
+                template_name="vm-basic", user_id="user1", timestamp=datetime.now()
             )
 
             assert event_id is not None
@@ -104,11 +102,7 @@ class TestUsageTracking:
                 template_name="vm-basic",
                 user_id="user1",
                 timestamp=datetime.now(),
-                metadata={
-                    "region": "eastus",
-                    "success": True,
-                    "duration_seconds": 45.2
-                }
+                metadata={"region": "eastus", "success": True, "duration_seconds": 45.2},
             )
 
             event = tracker.get_usage_event(event_id)
@@ -127,9 +121,7 @@ class TestUsageTracking:
             # Record multiple uses
             for i in range(5):
                 tracker.record_usage(
-                    template_name="vm-basic",
-                    user_id=f"user{i}",
-                    timestamp=datetime.now()
+                    template_name="vm-basic", user_id=f"user{i}", timestamp=datetime.now()
                 )
 
             count = tracker.get_usage_count("vm-basic")
@@ -154,11 +146,7 @@ class TestUsageTracking:
             tracker.record_usage("vm-basic", "user3", now)
 
             # Count only recent uses
-            count = tracker.get_usage_count(
-                "vm-basic",
-                start_date=yesterday,
-                end_date=now
-            )
+            count = tracker.get_usage_count("vm-basic", start_date=yesterday, end_date=now)
 
             assert count == 2  # Only yesterday and today
 
@@ -242,18 +230,9 @@ class TestUsageStatistics:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
 
             # Record uses in different regions
-            tracker.record_usage(
-                "vm-basic", "user1", datetime.now(),
-                metadata={"region": "eastus"}
-            )
-            tracker.record_usage(
-                "vm-basic", "user2", datetime.now(),
-                metadata={"region": "eastus"}
-            )
-            tracker.record_usage(
-                "vm-basic", "user3", datetime.now(),
-                metadata={"region": "westus"}
-            )
+            tracker.record_usage("vm-basic", "user1", datetime.now(), metadata={"region": "eastus"})
+            tracker.record_usage("vm-basic", "user2", datetime.now(), metadata={"region": "eastus"})
+            tracker.record_usage("vm-basic", "user3", datetime.now(), metadata={"region": "westus"})
 
             by_region = tracker.get_usage_by_region("vm-basic")
 
@@ -270,18 +249,9 @@ class TestUsageStatistics:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
 
             # Record successes and failures
-            tracker.record_usage(
-                "vm-basic", "user1", datetime.now(),
-                metadata={"success": True}
-            )
-            tracker.record_usage(
-                "vm-basic", "user2", datetime.now(),
-                metadata={"success": True}
-            )
-            tracker.record_usage(
-                "vm-basic", "user3", datetime.now(),
-                metadata={"success": False}
-            )
+            tracker.record_usage("vm-basic", "user1", datetime.now(), metadata={"success": True})
+            tracker.record_usage("vm-basic", "user2", datetime.now(), metadata={"success": True})
+            tracker.record_usage("vm-basic", "user3", datetime.now(), metadata={"success": False})
 
             success_rate = tracker.get_success_rate("vm-basic")
 
@@ -300,8 +270,7 @@ class TestUsageStatistics:
             durations = [30.0, 45.0, 60.0]
             for duration in durations:
                 tracker.record_usage(
-                    "vm-basic", "user1", datetime.now(),
-                    metadata={"duration_seconds": duration}
+                    "vm-basic", "user1", datetime.now(), metadata={"duration_seconds": duration}
                 )
 
             avg_duration = tracker.get_average_duration("vm-basic")
@@ -461,10 +430,7 @@ class TestAnalyticsPrivacy:
         from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            tracker = AnalyticsTracker(
-                db_path=Path(tmpdir) / "analytics.db",
-                anonymize_users=True
-            )
+            tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db", anonymize_users=True)
 
             tracker.record_usage("vm-basic", "user1@example.com", datetime.now())
 
@@ -480,10 +446,7 @@ class TestAnalyticsPrivacy:
         from azlin.templates.analytics import AnalyticsTracker
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            tracker = AnalyticsTracker(
-                db_path=Path(tmpdir) / "analytics.db",
-                retention_days=7
-            )
+            tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db", retention_days=7)
 
             old_date = datetime.now() - timedelta(days=30)
             tracker.record_usage("vm-basic", "user1", old_date)
@@ -527,10 +490,7 @@ class TestAnalyticsPerformance:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
 
             # Bulk insert
-            events = [
-                ("template-a", f"user{i}", datetime.now())
-                for i in range(1000)
-            ]
+            events = [("template-a", f"user{i}", datetime.now()) for i in range(1000)]
 
             start = time.time()
             tracker.bulk_record_usage(events)
@@ -552,11 +512,7 @@ class TestAnalyticsPerformance:
 
             # Insert large dataset
             for i in range(10000):
-                tracker.record_usage(
-                    f"template-{i % 10}",
-                    f"user{i}",
-                    datetime.now()
-                )
+                tracker.record_usage(f"template-{i % 10}", f"user{i}", datetime.now())
 
             # Query should be fast with indexes
             start = time.time()
@@ -578,11 +534,7 @@ class TestAnalyticsPerformance:
 
             # Insert data
             for i in range(5000):
-                tracker.record_usage(
-                    f"template-{i % 100}",
-                    f"user{i}",
-                    datetime.now()
-                )
+                tracker.record_usage(f"template-{i % 100}", f"user{i}", datetime.now())
 
             # Complex aggregation
             start = time.time()

@@ -326,15 +326,15 @@ class CostOptimizer:
 
         # Run oversized VM detection
         if hasattr(self.oversized_detector, "analyze_all"):
-            recommendations.extend(self.oversized_detector.analyze_all())
+            recommendations.extend(self.oversized_detector.analyze_all())  # type: ignore[attr-defined]
 
         # Run idle resource detection
         if hasattr(self.idle_detector, "analyze_all"):
-            recommendations.extend(self.idle_detector.analyze_all())
+            recommendations.extend(self.idle_detector.analyze_all())  # type: ignore[attr-defined]
 
         # Run scheduling opportunity detection
         if hasattr(self.scheduling_detector, "analyze_all"):
-            recommendations.extend(self.scheduling_detector.analyze_all())
+            recommendations.extend(self.scheduling_detector.analyze_all())  # type: ignore[attr-defined]
 
         return recommendations
 

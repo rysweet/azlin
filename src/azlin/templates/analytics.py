@@ -425,11 +425,10 @@ class AnalyticsTracker:
             (limit,),
         )
 
-        results = []
-        for row in cursor.fetchall():
-            results.append(TemplateStats(name=row["template_name"], usage_count=row["usage_count"]))
-
-        return results
+        return [
+            TemplateStats(name=row["template_name"], usage_count=row["usage_count"])
+            for row in cursor.fetchall()
+        ]
 
     def get_trending_templates(self, days: int = 7, limit: int = 10) -> list[TemplateStats]:
         """Get trending templates (increasing usage).
@@ -456,11 +455,10 @@ class AnalyticsTracker:
             (cutoff.isoformat(), limit),
         )
 
-        results = []
-        for row in cursor.fetchall():
-            results.append(TemplateStats(name=row["template_name"], usage_count=row["usage_count"]))
-
-        return results
+        return [
+            TemplateStats(name=row["template_name"], usage_count=row["usage_count"])
+            for row in cursor.fetchall()
+        ]
 
     def get_usage_by_region(self, template_name: str) -> dict[str, int]:
         """Get usage statistics by region.
@@ -574,19 +572,16 @@ class AnalyticsTracker:
             (user_id,),
         )
 
-        results = []
-        for row in cursor.fetchall():
-            results.append(
-                UsageEvent(
-                    event_id=row["event_id"],
-                    template_name=row["template_name"],
-                    user_id=row["user_id"],
-                    timestamp=datetime.fromisoformat(row["timestamp"]),
-                    metadata=json.loads(row["metadata"] or "{}"),
-                )
+        return [
+            UsageEvent(
+                event_id=row["event_id"],
+                template_name=row["template_name"],
+                user_id=row["user_id"],
+                timestamp=datetime.fromisoformat(row["timestamp"]),
+                metadata=json.loads(row["metadata"] or "{}"),
             )
-
-        return results
+            for row in cursor.fetchall()
+        ]
 
     def get_user_favorites(self, user_id: str, limit: int = 5) -> list[TemplateStats]:
         """Get user's most frequently used templates.
@@ -614,11 +609,10 @@ class AnalyticsTracker:
             (user_id, limit),
         )
 
-        results = []
-        for row in cursor.fetchall():
-            results.append(TemplateStats(name=row["template_name"], usage_count=row["usage_count"]))
-
-        return results
+        return [
+            TemplateStats(name=row["template_name"], usage_count=row["usage_count"])
+            for row in cursor.fetchall()
+        ]
 
     def get_user_timeline(self, user_id: str, days: int = 30) -> list[UsageEvent]:
         """Get user's activity timeline.
@@ -645,19 +639,16 @@ class AnalyticsTracker:
             (user_id, cutoff.isoformat()),
         )
 
-        results = []
-        for row in cursor.fetchall():
-            results.append(
-                UsageEvent(
-                    event_id=row["event_id"],
-                    template_name=row["template_name"],
-                    user_id=row["user_id"],
-                    timestamp=datetime.fromisoformat(row["timestamp"]),
-                    metadata=json.loads(row["metadata"] or "{}"),
-                )
+        return [
+            UsageEvent(
+                event_id=row["event_id"],
+                template_name=row["template_name"],
+                user_id=row["user_id"],
+                timestamp=datetime.fromisoformat(row["timestamp"]),
+                metadata=json.loads(row["metadata"] or "{}"),
             )
-
-        return results
+            for row in cursor.fetchall()
+        ]
 
     def cleanup_old_data(self) -> None:
         """Clean up old data based on retention policy."""
@@ -731,8 +722,7 @@ class AnalyticsReporter:
 
         # Write CSV
         lines = ["template_name,usage_count\n"]
-        for template in summary.templates:
-            lines.append(f"{template.name},{template.usage_count}\n")
+        lines.extend(f"{template.name},{template.usage_count}\n" for template in summary.templates)
 
         output_path.write_text("".join(lines))
 

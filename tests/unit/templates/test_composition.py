@@ -18,28 +18,15 @@ class TestTemplateInheritance:
         from azlin.templates.composition import CompositeTemplate
 
         base_template = {
-            "metadata": {
-                "name": "base-vm",
-                "version": "1.0.0"
-            },
-            "content": {
-                "resources": [
-                    {"type": "Microsoft.Compute/virtualMachines", "name": "vm"}
-                ]
-            }
+            "metadata": {"name": "base-vm", "version": "1.0.0"},
+            "content": {"resources": [{"type": "Microsoft.Compute/virtualMachines", "name": "vm"}]},
         }
 
         child_template = {
-            "metadata": {
-                "name": "extended-vm",
-                "version": "1.0.0",
-                "extends": "base-vm"
-            },
+            "metadata": {"name": "extended-vm", "version": "1.0.0", "extends": "base-vm"},
             "content": {
-                "resources": [
-                    {"type": "Microsoft.Network/networkInterfaces", "name": "nic"}
-                ]
-            }
+                "resources": [{"type": "Microsoft.Network/networkInterfaces", "name": "nic"}]
+            },
         }
 
         composite = CompositeTemplate(child_template, parent=base_template)
@@ -54,16 +41,14 @@ class TestTemplateInheritance:
 
         base = {
             "metadata": {"name": "base", "version": "1.0.0"},
-            "content": {
-                "parameters": {"vmSize": "Standard_D2s_v3"}
-            }
+            "content": {"parameters": {"vmSize": "Standard_D2s_v3"}},
         }
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "base"},
             "content": {
                 "parameters": {"vmSize": "Standard_D4s_v3"}  # Override
-            }
+            },
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -77,7 +62,7 @@ class TestTemplateInheritance:
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "nonexistent"},
-            "content": {}
+            "content": {},
         }
 
         with pytest.raises(ValueError, match="Parent template.*not found"):
@@ -89,17 +74,17 @@ class TestTemplateInheritance:
 
         base = {
             "metadata": {"name": "base", "version": "1.0.0"},
-            "content": {"resources": [{"type": "base-resource"}]}
+            "content": {"resources": [{"type": "base-resource"}]},
         }
 
         middle = {
             "metadata": {"name": "middle", "version": "1.0.0", "extends": "base"},
-            "content": {"resources": [{"type": "middle-resource"}]}
+            "content": {"resources": [{"type": "middle-resource"}]},
         }
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "middle"},
-            "content": {"resources": [{"type": "child-resource"}]}
+            "content": {"resources": [{"type": "child-resource"}]},
         }
 
         # Build chain: base -> middle -> child
@@ -118,15 +103,9 @@ class TestTemplateInheritance:
         """Test detecting circular inheritance."""
         from azlin.templates.composition import CompositeTemplate
 
-        template_a = {
-            "metadata": {"name": "a", "version": "1.0.0", "extends": "b"},
-            "content": {}
-        }
+        template_a = {"metadata": {"name": "a", "version": "1.0.0", "extends": "b"}, "content": {}}
 
-        template_b = {
-            "metadata": {"name": "b", "version": "1.0.0", "extends": "a"},
-            "content": {}
-        }
+        template_b = {"metadata": {"name": "b", "version": "1.0.0", "extends": "a"}, "content": {}}
 
         with pytest.raises(ValueError, match="Circular inheritance"):
             CompositeTemplate(template_a, parent=template_b)
@@ -144,18 +123,14 @@ class TestResourceMerging:
             "content": {
                 "resources": [
                     {"name": "vm1", "type": "vm"},
-                    {"name": "storage1", "type": "storage"}
+                    {"name": "storage1", "type": "storage"},
                 ]
-            }
+            },
         }
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "base"},
-            "content": {
-                "resources": [
-                    {"name": "network1", "type": "network"}
-                ]
-            }
+            "content": {"resources": [{"name": "network1", "type": "network"}]},
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -169,11 +144,7 @@ class TestResourceMerging:
 
         base = {
             "metadata": {"name": "base", "version": "1.0.0"},
-            "content": {
-                "resources": [
-                    {"name": "vm1", "type": "vm", "size": "small"}
-                ]
-            }
+            "content": {"resources": [{"name": "vm1", "type": "vm", "size": "small"}]},
         }
 
         child = {
@@ -182,7 +153,7 @@ class TestResourceMerging:
                 "resources": [
                     {"name": "vm1", "type": "vm", "size": "large"}  # Override
                 ]
-            }
+            },
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -199,26 +170,30 @@ class TestResourceMerging:
         base = {
             "metadata": {"name": "base", "version": "1.0.0"},
             "content": {
-                "resources": [{
-                    "name": "vm1",
-                    "properties": {
-                        "hardware": {"cpu": 2, "memory": 8},
-                        "network": {"subnet": "default"}
+                "resources": [
+                    {
+                        "name": "vm1",
+                        "properties": {
+                            "hardware": {"cpu": 2, "memory": 8},
+                            "network": {"subnet": "default"},
+                        },
                     }
-                }]
-            }
+                ]
+            },
         }
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "base"},
             "content": {
-                "resources": [{
-                    "name": "vm1",
-                    "properties": {
-                        "hardware": {"cpu": 4}  # Override cpu, keep memory
+                "resources": [
+                    {
+                        "name": "vm1",
+                        "properties": {
+                            "hardware": {"cpu": 4}  # Override cpu, keep memory
+                        },
                     }
-                }]
-            }
+                ]
+            },
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -243,14 +218,14 @@ class TestParameterInheritance:
                 "parameters": {
                     "location": "eastus",
                     "vmSize": "Standard_D2s_v3",
-                    "adminPassword": "secret"
+                    "adminPassword": "secret",
                 }
-            }
+            },
         }
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "base"},
-            "content": {}
+            "content": {},
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -265,12 +240,7 @@ class TestParameterInheritance:
 
         base = {
             "metadata": {"name": "base", "version": "1.0.0"},
-            "content": {
-                "parameters": {
-                    "location": "eastus",
-                    "vmSize": "Standard_D2s_v3"
-                }
-            }
+            "content": {"parameters": {"location": "eastus", "vmSize": "Standard_D2s_v3"}},
         }
 
         child = {
@@ -279,7 +249,7 @@ class TestParameterInheritance:
                 "parameters": {
                     "location": "westus"  # Override only location
                 }
-            }
+            },
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -294,16 +264,14 @@ class TestParameterInheritance:
 
         base = {
             "metadata": {"name": "base", "version": "1.0.0"},
-            "content": {
-                "parameters": {"location": "eastus"}
-            }
+            "content": {"parameters": {"location": "eastus"}},
         }
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "base"},
             "content": {
                 "parameters": {"vmSize": "Standard_D2s_v3"}  # New parameter
-            }
+            },
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -323,17 +291,12 @@ class TestVariableInheritance:
 
         base = {
             "metadata": {"name": "base", "version": "1.0.0"},
-            "content": {
-                "variables": {
-                    "storageAccountName": "storage123",
-                    "resourcePrefix": "dev"
-                }
-            }
+            "content": {"variables": {"storageAccountName": "storage123", "resourcePrefix": "dev"}},
         }
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "base"},
-            "content": {}
+            "content": {},
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -348,16 +311,14 @@ class TestVariableInheritance:
 
         base = {
             "metadata": {"name": "base", "version": "1.0.0"},
-            "content": {
-                "variables": {"environment": "dev"}
-            }
+            "content": {"variables": {"environment": "dev"}},
         }
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "base"},
             "content": {
                 "variables": {"environment": "prod"}  # Override
-            }
+            },
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -384,9 +345,9 @@ class TestDependencyResolution:
                 version=TemplateVersion(1, 0, 0),
                 description="Base VM",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={"resources": [{"type": "vm"}]}
+            content={"resources": [{"type": "vm"}]},
         )
         registry.register(base)
 
@@ -398,9 +359,9 @@ class TestDependencyResolution:
                 description="Extended VM",
                 author="test",
                 created_at=datetime.now(),
-                dependencies={"base-vm": ">=1.0.0"}
+                dependencies={"base-vm": ">=1.0.0"},
             ),
-            content={"resources": [{"type": "network"}]}
+            content={"resources": [{"type": "network"}]},
         )
 
         resolver = TemplateResolver(registry)
@@ -424,9 +385,9 @@ class TestDependencyResolution:
                 version=TemplateVersion(1, 0, 0),
                 description="Network",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={"resources": [{"type": "network"}]}
+            content={"resources": [{"type": "network"}]},
         )
 
         storage_template = VersionedTemplate(
@@ -435,9 +396,9 @@ class TestDependencyResolution:
                 version=TemplateVersion(1, 0, 0),
                 description="Storage",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={"resources": [{"type": "storage"}]}
+            content={"resources": [{"type": "storage"}]},
         )
 
         registry.register(network_template)
@@ -451,12 +412,9 @@ class TestDependencyResolution:
                 description="Complete VM",
                 author="test",
                 created_at=datetime.now(),
-                dependencies={
-                    "network-basic": ">=1.0.0",
-                    "storage-basic": ">=1.0.0"
-                }
+                dependencies={"network-basic": ">=1.0.0", "storage-basic": ">=1.0.0"},
             ),
-            content={"resources": [{"type": "vm"}]}
+            content={"resources": [{"type": "vm"}]},
         )
 
         resolver = TemplateResolver(registry)
@@ -480,9 +438,9 @@ class TestDependencyResolution:
                 description="VM",
                 author="test",
                 created_at=datetime.now(),
-                dependencies={"nonexistent": ">=1.0.0"}
+                dependencies={"nonexistent": ">=1.0.0"},
             ),
-            content={}
+            content={},
         )
 
         resolver = TemplateResolver(registry)
@@ -505,9 +463,9 @@ class TestDependencyResolution:
                 version=TemplateVersion(1, 0, 0),
                 description="Base",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
         registry.register(base)
 
@@ -519,9 +477,9 @@ class TestDependencyResolution:
                 description="VM",
                 author="test",
                 created_at=datetime.now(),
-                dependencies={"base": ">=2.0.0"}  # Version conflict
+                dependencies={"base": ">=2.0.0"},  # Version conflict
             ),
-            content={}
+            content={},
         )
 
         resolver = TemplateResolver(registry)
@@ -544,9 +502,9 @@ class TestDependencyResolution:
                 version=TemplateVersion(1, 0, 0),
                 description="A",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={"resources": [{"type": "a"}]}
+            content={"resources": [{"type": "a"}]},
         )
 
         # B depends on A
@@ -557,9 +515,9 @@ class TestDependencyResolution:
                 description="B",
                 author="test",
                 created_at=datetime.now(),
-                dependencies={"a": ">=1.0.0"}
+                dependencies={"a": ">=1.0.0"},
             ),
-            content={"resources": [{"type": "b"}]}
+            content={"resources": [{"type": "b"}]},
         )
 
         # C depends on B (and transitively on A)
@@ -570,9 +528,9 @@ class TestDependencyResolution:
                 description="C",
                 author="test",
                 created_at=datetime.now(),
-                dependencies={"b": ">=1.0.0"}
+                dependencies={"b": ">=1.0.0"},
             ),
-            content={"resources": [{"type": "c"}]}
+            content={"resources": [{"type": "c"}]},
         )
 
         registry.register(template_a)
