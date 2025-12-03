@@ -454,12 +454,22 @@ class NSGValidator:
             direction = rule.get("direction", "")
 
             # CIS 6.2: SSH restrictions
-            if dest_port == "22" and direction == "Inbound" and access == "Deny" and source_prefix in ["Internet", "*"]:
+            if (
+                dest_port == "22"
+                and direction == "Inbound"
+                and access == "Deny"
+                and source_prefix in ["Internet", "*"]
+            ):
                 compliance_tags.add("CIS-6.2")
                 compliance_tags.add("SOC2-CC6.6")
 
             # CIS 6.1: RDP restrictions
-            if dest_port == "3389" and direction == "Inbound" and access == "Deny" and source_prefix in ["Internet", "*"]:
+            if (
+                dest_port == "3389"
+                and direction == "Inbound"
+                and access == "Deny"
+                and source_prefix in ["Internet", "*"]
+            ):
                 compliance_tags.add("CIS-6.1")
                 compliance_tags.add("SOC2-CC6.6")
 
