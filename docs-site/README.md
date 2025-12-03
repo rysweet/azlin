@@ -252,6 +252,6 @@ See [Contributing Guide](development/contributing.md) for details on:
 
 ---
 
-**Last Updated:** November 24, 2025
+**Last Updated:** December 3, 2025
 **Status:** Production Ready
-**Version:** 0.3.2
+**Version:** 0.4.0

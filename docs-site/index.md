@@ -96,33 +96,85 @@ SSH key rotation, Azure Key Vault integration, service principal support.
 ### :material-speedometer: Cost Optimization
 Auto-stop idle VMs, quota management, cost tracking.
 
-## What's New in v0.3.2
+## What's New in v0.4.0
 
-!!! tip "Latest Release - November 2025"
+!!! tip "Latest Release - December 2025"
 
-### Custom VM Names
-Give your VMs meaningful names instead of timestamps:
+### 🚀 10 Major New Features
+
+**1. VM Lifecycle Automation**
+Automated health monitoring, self-healing, and lifecycle hooks:
 ```bash
-azlin new --name myproject   # VM named "myproject"
-azlin connect myproject      # Connect by name
+azlin autopilot enable myvm --health-checks --self-healing
 ```
+[:octicons-arrow-right-24: Learn More](vm-lifecycle/automation.md)
 
-### Complete --yes Automation
-Full CI/CD automation - ALL prompts now respect `--yes`:
+**2. Cost Optimization Intelligence**
+Real-time cost dashboard, budget alerts, and AI-powered recommendations:
 ```bash
-azlin new --name ci-vm --yes  # Zero interaction required!
+azlin util cost --detailed
+azlin util cost recommendations --apply
 ```
+[:octicons-arrow-right-24: Learn More](monitoring/cost-optimization.md)
 
-### Mount Local for macOS
-Access Azure Files from your Mac via Finder:
+**3. Multi-Region Orchestration**
+Deploy and manage VMs across multiple regions with automatic failover:
 ```bash
-azlin storage mount local --mount-point ~/azure/
-# Your Azure Files now accessible locally!
+azlin new myapp --regions eastus,westus,centralus --strategy active-active
 ```
+[:octicons-arrow-right-24: Learn More](advanced/multi-region.md)
 
-### Python 3.13 & Ripgrep
-- All new VMs get Python 3.13+
-- ripgrep (rg) pre-installed for fast search
+**4. Enhanced Monitoring & Alerting**
+Comprehensive metrics, intelligent alerts, and cost forecasting:
+```bash
+azlin monitoring enable myvm --metrics all --alerts smart
+```
+[:octicons-arrow-right-24: Learn More](monitoring/enhanced-monitoring.md)
+
+**5. Backup & Disaster Recovery**
+Automated backups, DR testing, and point-in-time recovery:
+```bash
+azlin backup enable myvm --schedule daily --retention 30d
+azlin dr test production-app
+```
+[:octicons-arrow-right-24: Learn More](advanced/backup-dr.md)
+
+**6. Network Security Enhancements**
+NSG automation, Bastion pooling, and comprehensive audit logging:
+```bash
+azlin security nsg auto-configure myvm
+```
+[:octicons-arrow-right-24: Learn More](advanced/network-security.md)
+
+**7. Template System V2**
+Versioning, composition, validation, and marketplace:
+```bash
+azlin template create mytemplate --version 1.0.0
+azlin template validate mytemplate
+```
+[:octicons-arrow-right-24: Learn More](advanced/templates-v2.md)
+
+**8. Storage Management**
+Quota management, automated cleanup, and tier optimization:
+```bash
+azlin storage optimize --auto-tier --cleanup-old
+```
+[:octicons-arrow-right-24: Learn More](storage/management.md)
+
+**9. Natural Language Enhancements**
+Context-aware parsing and intelligent workflow suggestions:
+```bash
+azlin do "deploy 3 web servers with load balancing across regions"
+```
+[:octicons-arrow-right-24: Learn More](ai/natural-language.md)
+
+**10. Performance Optimization**
+API caching, connection pooling, and intelligent batching:
+- 3x faster bulk operations
+- 50% reduction in API calls
+- Smart request batching
+
+[:octicons-arrow-right-24: Learn More](advanced/performance.md)
 
 [View Full Changelog](changelog.md){ .md-button }
 
@@ -197,7 +249,7 @@ Auto-stop idle VMs and manage quotas.
 - **Python**: 3.12+
 - **Repository**: [rysweet/azlin](https://github.com/rysweet/azlin)
 - **PyPI**: [pypi.org/project/azlin](https://pypi.org/project/azlin/)
-- **Version**: 0.3.2
+- **Version**: 0.4.0
 
 ---
 
