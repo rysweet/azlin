@@ -43,9 +43,11 @@ class TestRegistryValidationIntegration:
         from azlin.templates.versioning import TemplateMetadata, TemplateVersion, VersionedTemplate
 
         def custom_validator(template):
-            if "production" in template.metadata.tags:
-                if not template.metadata.description.startswith("[PROD]"):
-                    raise ValueError("Production templates must have [PROD] prefix")
+            if (
+                "production" in template.metadata.tags
+                and not template.metadata.description.startswith("[PROD]")
+            ):
+                raise ValueError("Production templates must have [PROD] prefix")
 
         registry = TemplateRegistry(validators=[custom_validator])
 
@@ -513,7 +515,7 @@ class TestErrorRecoveryIntegration:
             content={},
         )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid version"):
             registry.update_version("rollback-test", invalid)
 
         # Original should still be intact

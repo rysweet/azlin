@@ -126,9 +126,11 @@ class TemplateValidator:
         errors = []
 
         # Check required fields
-        for field_name in self.REQUIRED_METADATA_FIELDS:
-            if field_name not in metadata:
-                errors.append(f"Missing required metadata field: '{field_name}'")
+        errors.extend(
+            f"Missing required metadata field: '{field_name}'"
+            for field_name in self.REQUIRED_METADATA_FIELDS
+            if field_name not in metadata
+        )
 
         # Check field types
         if "name" in metadata and not isinstance(metadata["name"], str):
@@ -411,20 +413,17 @@ class TemplateLinter:
         Returns:
             List of lint issues
         """
-        issues = []
         content = template.get("content", {})
         resources = content.get("resources", [])
 
-        for resource in resources:
-            if "tags" not in resource:
-                issues.append(
-                    LintIssue(
-                        message=f"Resource '{resource.get('name', 'unknown')}' missing tags",
-                        severity="info",
-                    )
-                )
-
-        return issues
+        return [
+            LintIssue(
+                message=f"Resource '{resource.get('name', 'unknown')}' missing tags",
+                severity="info",
+            )
+            for resource in resources
+            if "tags" not in resource
+        ]
 
     def _check_description_quality(self, template: dict) -> list[LintIssue]:
         """Check description quality.
@@ -465,18 +464,17 @@ class TemplateLinter:
 
         for param_name, param_value in parameters.items():
             # If parameter is a dict with type but no default
-            if isinstance(param_value, dict):
-                if (
-                    "type" in param_value
-                    and "default" not in param_value
-                    and "defaultValue" not in param_value
-                ):
-                    issues.append(
-                        LintIssue(
-                            message=f"Parameter '{param_name}' missing default value",
-                            severity="info",
-                        )
+            if isinstance(param_value, dict) and (
+                "type" in param_value
+                and "default" not in param_value
+                and "defaultValue" not in param_value
+            ):
+                issues.append(
+                    LintIssue(
+                        message=f"Parameter '{param_name}' missing default value",
+                        severity="info",
                     )
+                )
 
         return issues
 
@@ -489,18 +487,15 @@ class TemplateLinter:
         Returns:
             List of lint issues
         """
-        issues = []
         content = template.get("content", {})
         variables = content.get("variables", {})
 
         # Simple check: just flag all variables as unused
         # (Real implementation would scan resources for variable references)
-        for var_name in variables:
-            issues.append(
-                LintIssue(message=f"Variable '{var_name}' may be unused", severity="info")
-            )
-
-        return issues
+        return [
+            LintIssue(message=f"Variable '{var_name}' may be unused", severity="info")
+            for var_name in variables
+        ]
 
     def _check_security_best_practices(self, template: dict) -> list[LintIssue]:
         """Check security best practices.
@@ -517,14 +512,17 @@ class TemplateLinter:
         # Check for hardcoded passwords in parameters
         parameters = content.get("parameters", {})
         for param_name, param_value in parameters.items():
-            if "password" in param_name.lower() and isinstance(param_value, dict):
-                if "defaultValue" in param_value:
-                    issues.append(
-                        LintIssue(
-                            message=f"Security risk: Parameter '{param_name}' has hardcoded password",
-                            severity="critical",
-                        )
+            if (
+                "password" in param_name.lower()
+                and isinstance(param_value, dict)
+                and "defaultValue" in param_value
+            ):
+                issues.append(
+                    LintIssue(
+                        message=f"Security risk: Parameter '{param_name}' has hardcoded password",
+                        severity="critical",
                     )
+                )
 
         # Check for hardcoded passwords in resources
         resources = content.get("resources", [])
@@ -532,14 +530,17 @@ class TemplateLinter:
             properties = resource.get("properties", {})
             os_profile = properties.get("osProfile", {})
 
-            if "adminPassword" in os_profile:
-                if isinstance(os_profile["adminPassword"], str) and os_profile["adminPassword"]:
-                    issues.append(
-                        LintIssue(
-                            message="Security risk: Hardcoded password in resource properties",
-                            severity="critical",
-                        )
+            if (
+                "adminPassword" in os_profile
+                and isinstance(os_profile["adminPassword"], str)
+                and os_profile["adminPassword"]
+            ):
+                issues.append(
+                    LintIssue(
+                        message="Security risk: Hardcoded password in resource properties",
+                        severity="critical",
                     )
+                )
 
         return issues
 

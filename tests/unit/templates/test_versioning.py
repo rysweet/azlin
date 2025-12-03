@@ -63,7 +63,7 @@ class TestTemplateVersion:
         v2 = TemplateVersion(major=1, minor=2, patch=3)
 
         assert v1 == v2
-        assert not v1 != v2
+        assert v1 == v2
 
     def test_version_from_string(self):
         """Test parsing version from string format."""
