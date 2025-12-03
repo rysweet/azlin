@@ -126,7 +126,7 @@ default_rules:
         manager = NSGManager(validator, logger)
 
         # Apply template (should fail validation)
-        with pytest.raises(Exception):  # Should raise validation error
+        with pytest.raises(Exception, match="validation"):  # Should raise validation error
             manager.apply_template(
                 template_path=str(template_path),
                 nsg_name="dangerous-nsg",

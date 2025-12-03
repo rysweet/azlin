@@ -333,12 +333,8 @@ class TestBastionConnectionPoolCleanup:
             mock_tunnel = Mock(spec=BastionTunnel)
             key = (f"bastion-{i}", f"/vm{i}", 22)
 
-            if i < 2:
-                # Expired (last used 400 seconds ago)
-                last_used = now - timedelta(seconds=400)
-            else:
-                # Active (last used 100 seconds ago)
-                last_used = now - timedelta(seconds=100)
+            # Set last_used based on index (< 2 = expired, >= 2 = active)
+            last_used = now - timedelta(seconds=400) if i < 2 else now - timedelta(seconds=100)
 
             pool.pool[key] = PooledTunnel(
                 tunnel=mock_tunnel,
