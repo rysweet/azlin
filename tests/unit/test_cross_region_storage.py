@@ -136,6 +136,7 @@ class TestPriority2ConfigDefault:
     ):
         """Priority 2: Config default in different region should succeed with info log."""
         import logging
+
         orchestrator = CLIOrchestrator(region="eastus")
 
         mock_config = MagicMock()
@@ -350,6 +351,7 @@ class TestTryLookupStorageByNameMethod:
     def test_try_lookup_cross_region_returns_storage(self, storage_westus, caplog):
         """Should return storage with info log when storage is cross-region."""
         import logging
+
         orchestrator = CLIOrchestrator(region="eastus")
 
         with caplog.at_level(logging.INFO):
@@ -443,6 +445,7 @@ class TestEdgeCases:
     def test_priority2_with_only_cross_region_storage_succeeds(self, storage_westus, caplog):
         """Priority 2 should succeed even when only cross-region storage exists."""
         import logging
+
         orchestrator = CLIOrchestrator(region="eastus")
 
         mock_config = MagicMock()

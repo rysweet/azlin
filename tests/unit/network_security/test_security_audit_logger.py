@@ -285,8 +285,12 @@ class TestSecurityAuditLoggerBackup:
         backup_dir = tmp_path / "backups"
         backup_dir.mkdir()
 
-        with patch("azlin.network_security.security_audit.SecurityAuditLogger.AUDIT_FILE", audit_file):
-            with patch("azlin.network_security.security_audit.SecurityAuditLogger.BACKUP_DIR", backup_dir):
+        with patch(
+            "azlin.network_security.security_audit.SecurityAuditLogger.AUDIT_FILE", audit_file
+        ):
+            with patch(
+                "azlin.network_security.security_audit.SecurityAuditLogger.BACKUP_DIR", backup_dir
+            ):
                 with patch("azlin.network_security.security_audit.datetime") as mock_datetime:
                     # Mock datetime.now(UTC).strftime()
                     mock_datetime.now.return_value.strftime.return_value = "20251201_120000"
@@ -300,6 +304,7 @@ class TestSecurityAuditLoggerBackup:
 
                     # Verify backup has correct permissions (0o600)
                     import stat
+
                     assert stat.S_IMODE(backup_file.stat().st_mode) == 0o600
 
 

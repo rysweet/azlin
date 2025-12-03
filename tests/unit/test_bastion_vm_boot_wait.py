@@ -56,6 +56,7 @@ class TestBastionManagerVMBootWait:
         """Test that wait_for_vm_boot() logs informative progress messages."""
         # Arrange
         import logging
+
         manager = BastionManager()
 
         # Act
@@ -121,6 +122,7 @@ class TestBastionManagerVMBootWait:
         """Test that wait_for_vm_boot() logs both start and completion."""
         # Arrange
         import logging
+
         manager = BastionManager()
 
         # Act
@@ -212,6 +214,7 @@ class TestBastionManagerLoggingDetail:
         """Test that log messages explain why we're waiting."""
         # Arrange
         import logging
+
         manager = BastionManager()
 
         # Act
@@ -248,6 +251,7 @@ class TestBastionManagerLoggingDetail:
         """Test that log messages include the wait duration."""
         # Arrange
         import logging
+
         manager = BastionManager()
         wait_time = 45
 
