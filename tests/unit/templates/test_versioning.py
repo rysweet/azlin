@@ -133,7 +133,7 @@ class TestTemplateMetadata:
             version=TemplateVersion(1, 0, 0),
             description="Basic VM template",
             author="test-author",
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
 
         assert metadata.name == "vm-basic"
@@ -151,7 +151,7 @@ class TestTemplateMetadata:
             description="Basic VM template",
             author="test-author",
             created_at=datetime.now(),
-            tags=["compute", "basic", "vm"]
+            tags=["compute", "basic", "vm"],
         )
 
         assert "compute" in metadata.tags
@@ -168,7 +168,7 @@ class TestTemplateMetadata:
             description="Advanced VM template",
             author="test-author",
             created_at=datetime.now(),
-            dependencies={"network-basic": ">=1.0.0", "storage-basic": ">=2.0.0"}
+            dependencies={"network-basic": ">=1.0.0", "storage-basic": ">=2.0.0"},
         )
 
         assert "network-basic" in metadata.dependencies
@@ -183,7 +183,7 @@ class TestTemplateMetadata:
             version=TemplateVersion(1, 2, 3),
             description="Basic VM template",
             author="test-author",
-            created_at=datetime(2025, 1, 1, 12, 0, 0)
+            created_at=datetime(2025, 1, 1, 12, 0, 0),
         )
 
         data = metadata.to_dict()
@@ -202,7 +202,7 @@ class TestTemplateMetadata:
             "version": "1.2.3",
             "description": "Basic VM template",
             "author": "test-author",
-            "created_at": "2025-01-01T12:00:00"
+            "created_at": "2025-01-01T12:00:00",
         }
 
         metadata = TemplateMetadata.from_dict(data)
@@ -225,7 +225,7 @@ class TestChangeTracking:
             timestamp=datetime.now(),
             author="test-author",
             change_type="patch",
-            description="Fixed typo in description"
+            description="Fixed typo in description",
         )
 
         assert record.version.patch == 1
@@ -244,7 +244,7 @@ class TestChangeTracking:
                 timestamp=datetime.now(),
                 author="test",
                 change_type=change_type,
-                description="Test change"
+                description="Test change",
             )
             assert record.change_type == change_type
 
@@ -258,7 +258,7 @@ class TestChangeTracking:
                 timestamp=datetime.now(),
                 author="test",
                 change_type="invalid",
-                description="Test"
+                description="Test",
             )
 
     def test_change_history_append(self):
@@ -272,7 +272,7 @@ class TestChangeTracking:
             timestamp=datetime(2025, 1, 1),
             author="author1",
             change_type="major",
-            description="Initial release"
+            description="Initial release",
         )
 
         record2 = ChangeRecord(
@@ -280,7 +280,7 @@ class TestChangeTracking:
             timestamp=datetime(2025, 1, 2),
             author="author2",
             change_type="patch",
-            description="Bug fix"
+            description="Bug fix",
         )
 
         history.append(record1)
@@ -314,20 +314,14 @@ class TestChangeTracking:
 
         history = ChangeHistory()
 
-        history.append(ChangeRecord(
-            TemplateVersion(1, 0, 0),
-            datetime(2025, 1, 1),
-            "author1",
-            "major",
-            "Initial"
-        ))
-        history.append(ChangeRecord(
-            TemplateVersion(1, 0, 1),
-            datetime(2025, 1, 2),
-            "author2",
-            "patch",
-            "Fix"
-        ))
+        history.append(
+            ChangeRecord(
+                TemplateVersion(1, 0, 0), datetime(2025, 1, 1), "author1", "major", "Initial"
+            )
+        )
+        history.append(
+            ChangeRecord(TemplateVersion(1, 0, 1), datetime(2025, 1, 2), "author2", "patch", "Fix")
+        )
 
         latest = history.get_latest()
 
@@ -348,13 +342,15 @@ class TestChangeTracking:
         from azlin.templates.versioning import ChangeHistory, ChangeRecord, TemplateVersion
 
         history = ChangeHistory()
-        history.append(ChangeRecord(
-            TemplateVersion(1, 0, 0),
-            datetime(2025, 1, 1, 12, 0, 0),
-            "author1",
-            "major",
-            "Initial release"
-        ))
+        history.append(
+            ChangeRecord(
+                TemplateVersion(1, 0, 0),
+                datetime(2025, 1, 1, 12, 0, 0),
+                "author1",
+                "major",
+                "Initial release",
+            )
+        )
 
         data = history.to_dict()
 
@@ -375,12 +371,12 @@ class TestVersionedTemplate:
             version=TemplateVersion(1, 0, 0),
             description="Basic VM",
             author="test",
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
 
         template = VersionedTemplate(
             metadata=metadata,
-            content={"resources": [{"type": "Microsoft.Compute/virtualMachines"}]}
+            content={"resources": [{"type": "Microsoft.Compute/virtualMachines"}]},
         )
 
         assert template.metadata.name == "vm-basic"
@@ -395,19 +391,16 @@ class TestVersionedTemplate:
             version=TemplateVersion(1, 0, 0),
             description="Basic VM",
             author="test",
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
 
-        template = VersionedTemplate(
-            metadata=metadata,
-            content={"resources": []}
-        )
+        template = VersionedTemplate(metadata=metadata, content={"resources": []})
 
         template.update_version(
             new_version=TemplateVersion(1, 0, 1),
             author="updater",
             change_type="patch",
-            description="Fixed bug"
+            description="Fixed bug",
         )
 
         assert template.metadata.version.patch == 1
@@ -423,13 +416,10 @@ class TestVersionedTemplate:
             version=TemplateVersion(1, 0, 0),
             description="Basic VM",
             author="test",
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
 
-        template = VersionedTemplate(
-            metadata=metadata,
-            content={"resources": []}
-        )
+        template = VersionedTemplate(metadata=metadata, content={"resources": []})
 
         # Should not allow downgrade
         with pytest.raises(ValueError, match="Cannot downgrade"):
@@ -437,5 +427,5 @@ class TestVersionedTemplate:
                 new_version=TemplateVersion(0, 9, 0),
                 author="test",
                 change_type="major",
-                description="Downgrade"
+                description="Downgrade",
             )

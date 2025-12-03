@@ -235,7 +235,7 @@ class TemplateRegistry:
             self.register(template)
 
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid template file: {e}")
+            raise ValueError(f"Invalid template file: {e}") from e
 
 
 __all__ = ["TemplateRegistry"]

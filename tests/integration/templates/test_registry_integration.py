@@ -29,9 +29,9 @@ class TestRegistryValidationIntegration:
                 version=TemplateVersion(1, 0, 0),
                 description="Invalid",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         with pytest.raises(ValueError, match="validation"):
@@ -56,9 +56,9 @@ class TestRegistryValidationIntegration:
                 description="Missing prefix",
                 author="test",
                 created_at=datetime.now(),
-                tags=["production"]
+                tags=["production"],
             ),
-            content={}
+            content={},
         )
 
         with pytest.raises(ValueError, match="PROD"):
@@ -84,9 +84,9 @@ class TestRegistryAnalyticsIntegration:
                     version=TemplateVersion(1, 0, 0),
                     description="Test",
                     author="test",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={}
+                content={},
             )
 
             registry.register(template)
@@ -116,9 +116,9 @@ class TestRegistryAnalyticsIntegration:
                         version=TemplateVersion(1, 0, 0),
                         description=f"Template {i}",
                         author="test",
-                        created_at=datetime.now()
+                        created_at=datetime.now(),
                     ),
-                    content={}
+                    content={},
                 )
                 registry.register(template)
 
@@ -153,9 +153,9 @@ class TestRegistryFilesystemIntegration:
                     version=TemplateVersion(1, 0, 0),
                     description="Persisted",
                     author="test",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={}
+                content={},
             )
 
             registry1.register(template)
@@ -183,9 +183,9 @@ class TestRegistryFilesystemIntegration:
                     version=TemplateVersion(1, 0, 0),
                     description="Export test",
                     author="test",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={"resources": []}
+                content={"resources": []},
             )
 
             registry1.register(template)
@@ -214,16 +214,12 @@ class TestCompositionValidationIntegration:
 
         base = {
             "metadata": {"name": "base", "version": "1.0.0"},
-            "content": {
-                "resources": [{"type": "Microsoft.Compute/virtualMachines"}]
-            }
+            "content": {"resources": [{"type": "Microsoft.Compute/virtualMachines"}]},
         }
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "base"},
-            "content": {
-                "resources": [{"type": "Microsoft.Network/networkInterfaces"}]
-            }
+            "content": {"resources": [{"type": "Microsoft.Network/networkInterfaces"}]},
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -240,17 +236,13 @@ class TestCompositionValidationIntegration:
         from azlin.templates.composition import CompositeTemplate
 
         base = {
-            "metadata": {
-                "name": "base",
-                "version": "1.0.0",
-                "validation_schema": "azure-arm-v1"
-            },
-            "content": {}
+            "metadata": {"name": "base", "version": "1.0.0", "validation_schema": "azure-arm-v1"},
+            "content": {},
         }
 
         child = {
             "metadata": {"name": "child", "version": "1.0.0", "extends": "base"},
-            "content": {}
+            "content": {},
         }
 
         composite = CompositeTemplate(child, parent=base)
@@ -272,24 +264,15 @@ class TestVersioningAnalyticsIntegration:
 
             # Track different versions
             tracker.record_usage(
-                "my-template",
-                "user1",
-                datetime.now(),
-                metadata={"version": "1.0.0"}
+                "my-template", "user1", datetime.now(), metadata={"version": "1.0.0"}
             )
 
             tracker.record_usage(
-                "my-template",
-                "user2",
-                datetime.now(),
-                metadata={"version": "2.0.0"}
+                "my-template", "user2", datetime.now(), metadata={"version": "2.0.0"}
             )
 
             tracker.record_usage(
-                "my-template",
-                "user3",
-                datetime.now(),
-                metadata={"version": "2.0.0"}
+                "my-template", "user3", datetime.now(), metadata={"version": "2.0.0"}
             )
 
             # Get version usage stats
@@ -315,9 +298,9 @@ class TestVersioningAnalyticsIntegration:
                     version=TemplateVersion(1, 0, 0),
                     description="Old version",
                     author="test",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={}
+                content={},
             )
 
             registry.register(old_template)
@@ -352,13 +335,11 @@ class TestMultiComponentIntegration:
                     description="Complete workflow test",
                     author="test",
                     created_at=datetime.now(),
-                    tags=["integration"]
+                    tags=["integration"],
                 ),
                 content={
-                    "resources": [
-                        {"type": "Microsoft.Compute/virtualMachines", "name": "vm1"}
-                    ]
-                }
+                    "resources": [{"type": "Microsoft.Compute/virtualMachines", "name": "vm1"}]
+                },
             )
 
             # Validate
@@ -399,9 +380,9 @@ class TestMultiComponentIntegration:
                     version=TemplateVersion(1, 0, 0),
                     description="Version 1",
                     author="test",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={}
+                content={},
             )
 
             registry.register(template_v1)
@@ -416,9 +397,9 @@ class TestMultiComponentIntegration:
                     version=TemplateVersion(2, 0, 0),
                     description="Version 2",
                     author="test",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={}
+                content={},
             )
 
             registry.update_version("propagation-test", template_v2)
@@ -454,9 +435,9 @@ class TestConcurrencyIntegration:
                     version=TemplateVersion(1, 0, 0),
                     description=f"Template {i}",
                     author="test",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={}
+                content={},
             )
             registry.register(template)
 
@@ -481,11 +462,7 @@ class TestConcurrencyIntegration:
             tracker = AnalyticsTracker(db_path=Path(tmpdir) / "analytics.db")
 
             def record_usage(i):
-                tracker.record_usage(
-                    "concurrent-template",
-                    f"user{i}",
-                    datetime.now()
-                )
+                tracker.record_usage("concurrent-template", f"user{i}", datetime.now())
 
             threads = [threading.Thread(target=record_usage, args=(i,)) for i in range(50)]
 
@@ -517,9 +494,9 @@ class TestErrorRecoveryIntegration:
                 version=TemplateVersion(1, 0, 0),
                 description="Valid",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         registry.register(valid)
@@ -531,9 +508,9 @@ class TestErrorRecoveryIntegration:
                 version=TemplateVersion(2, 0, 0),
                 description="",  # Invalid
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         with pytest.raises(ValueError):
@@ -554,10 +531,7 @@ class TestErrorRecoveryIntegration:
         tracker = AnalyticsTracker(db_path=Path("/invalid/path/analytics.db"))
 
         # Registry should still work
-        registry = TemplateRegistry(
-            analytics_tracker=tracker,
-            fail_on_analytics_error=False
-        )
+        registry = TemplateRegistry(analytics_tracker=tracker, fail_on_analytics_error=False)
 
         template = VersionedTemplate(
             metadata=TemplateMetadata(
@@ -565,9 +539,9 @@ class TestErrorRecoveryIntegration:
                 version=TemplateVersion(1, 0, 0),
                 description="Test",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         # Should succeed despite analytics failure

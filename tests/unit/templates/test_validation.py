@@ -6,7 +6,6 @@ These tests follow TDD - they should FAIL initially until implementation is comp
 """
 
 
-
 class TestJSONSchemaValidation:
     """Test JSON Schema validation for templates."""
 
@@ -21,13 +20,11 @@ class TestJSONSchemaValidation:
                 "name": "vm-basic",
                 "version": "1.0.0",
                 "description": "Basic VM template",
-                "author": "test"
+                "author": "test",
             },
             "content": {
-                "resources": [
-                    {"type": "Microsoft.Compute/virtualMachines", "name": "vm1"}
-                ]
-            }
+                "resources": [{"type": "Microsoft.Compute/virtualMachines", "name": "vm1"}]
+            },
         }
 
         result = validator.validate(template)
@@ -45,9 +42,9 @@ class TestJSONSchemaValidation:
             "metadata": {
                 # Missing 'name' field
                 "version": "1.0.0",
-                "description": "Basic VM template"
+                "description": "Basic VM template",
             },
-            "content": {}
+            "content": {},
         }
 
         result = validator.validate(template)
@@ -66,9 +63,9 @@ class TestJSONSchemaValidation:
                 "name": "vm-basic",
                 "version": "invalid",  # Invalid format
                 "description": "Basic VM template",
-                "author": "test"
+                "author": "test",
             },
-            "content": {}
+            "content": {},
         }
 
         result = validator.validate(template)
@@ -87,9 +84,9 @@ class TestJSONSchemaValidation:
                 "name": "vm-basic",
                 "version": "1.0.0",
                 "description": 123,  # Should be string
-                "author": "test"
+                "author": "test",
             },
-            "content": {}
+            "content": {},
         }
 
         result = validator.validate(template)
@@ -108,11 +105,11 @@ class TestJSONSchemaValidation:
                 "name": "vm-basic",
                 "version": "1.0.0",
                 "description": "Basic VM",
-                "author": "test"
+                "author": "test",
             },
             "content": {
                 "resources": "invalid"  # Should be array
-            }
+            },
         }
 
         result = validator.validate(template)
@@ -131,12 +128,12 @@ class TestJSONSchemaValidation:
                 "name": "vm-basic",
                 "version": "1.0.0",
                 "description": "Basic VM",
-                "author": "test"
+                "author": "test",
                 # Missing optional 'tags' field
             },
             "content": {
                 "resources": []  # Empty resources (warning)
-            }
+            },
         }
 
         result = validator.validate(template)
@@ -158,10 +155,8 @@ class TestAzureSpecificValidation:
         template = {
             "metadata": {"name": "test", "version": "1.0.0", "author": "test"},
             "content": {
-                "resources": [
-                    {"type": "Microsoft.Compute/virtualMachines", "name": "vm1"}
-                ]
-            }
+                "resources": [{"type": "Microsoft.Compute/virtualMachines", "name": "vm1"}]
+            },
         }
 
         result = validator.validate_azure_resources(template)
@@ -175,11 +170,7 @@ class TestAzureSpecificValidation:
 
         template = {
             "metadata": {"name": "test", "version": "1.0.0", "author": "test"},
-            "content": {
-                "resources": [
-                    {"type": "Invalid.Resource/Type", "name": "res1"}
-                ]
-            }
+            "content": {"resources": [{"type": "Invalid.Resource/Type", "name": "res1"}]},
         }
 
         result = validator.validate_azure_resources(template)
@@ -195,9 +186,7 @@ class TestAzureSpecificValidation:
         # Valid location
         template = {
             "metadata": {"name": "test", "version": "1.0.0", "author": "test"},
-            "content": {
-                "parameters": {"location": "eastus"}
-            }
+            "content": {"parameters": {"location": "eastus"}},
         }
 
         result = validator.validate_azure_config(template)
@@ -211,9 +200,7 @@ class TestAzureSpecificValidation:
 
         template = {
             "metadata": {"name": "test", "version": "1.0.0", "author": "test"},
-            "content": {
-                "parameters": {"location": "invalid-location"}
-            }
+            "content": {"parameters": {"location": "invalid-location"}},
         }
 
         result = validator.validate_azure_config(template)
@@ -229,9 +216,7 @@ class TestAzureSpecificValidation:
         # Valid VM size
         template = {
             "metadata": {"name": "test", "version": "1.0.0", "author": "test"},
-            "content": {
-                "parameters": {"vmSize": "Standard_D2s_v3"}
-            }
+            "content": {"parameters": {"vmSize": "Standard_D2s_v3"}},
         }
 
         result = validator.validate_azure_config(template)
@@ -250,10 +235,10 @@ class TestAzureSpecificValidation:
                 "resources": [
                     {
                         "type": "Microsoft.Compute/virtualMachines",
-                        "name": "invalid_name_with_underscores_and_way_too_long_for_azure_limits"
+                        "name": "invalid_name_with_underscores_and_way_too_long_for_azure_limits",
                     }
                 ]
-            }
+            },
         }
 
         result = validator.validate_azure_naming(template)
@@ -274,16 +259,17 @@ class TestAzureSpecificValidation:
                     {
                         "type": "Microsoft.Storage/storageAccounts",
                         "sku": {"name": "Premium_LRS"},
-                        "kind": "BlobStorage"  # Incompatible with Premium
+                        "kind": "BlobStorage",  # Incompatible with Premium
                     }
                 ]
-            }
+            },
         }
 
         result = validator.validate_azure_resources(template)
         assert result.is_valid is False
-        assert any("sku" in error.lower() or "compatibility" in error.lower()
-                   for error in result.errors)
+        assert any(
+            "sku" in error.lower() or "compatibility" in error.lower() for error in result.errors
+        )
 
 
 class TestTemplateLinter:
@@ -299,15 +285,19 @@ class TestTemplateLinter:
             "metadata": {"name": "test", "version": "1.0.0", "author": "test"},
             "content": {
                 "resources": [
-                    {"type": "Microsoft.Compute/virtualMachines", "name": "VM1"}  # Should be lowercase
+                    {
+                        "type": "Microsoft.Compute/virtualMachines",
+                        "name": "VM1",
+                    }  # Should be lowercase
                 ]
-            }
+            },
         }
 
         result = linter.lint(template)
 
-        assert any("naming" in issue.lower() or "lowercase" in issue.lower()
-                   for issue in result.issues)
+        assert any(
+            "naming" in issue.lower() or "lowercase" in issue.lower() for issue in result.issues
+        )
 
     def test_lint_checks_missing_tags(self):
         """Test linter warns about missing tags."""
@@ -321,11 +311,11 @@ class TestTemplateLinter:
                 "resources": [
                     {
                         "type": "Microsoft.Compute/virtualMachines",
-                        "name": "vm1"
+                        "name": "vm1",
                         # Missing tags
                     }
                 ]
-            }
+            },
         }
 
         result = linter.lint(template)
@@ -344,9 +334,9 @@ class TestTemplateLinter:
                 "name": "test",
                 "version": "1.0.0",
                 "author": "test",
-                "description": "VM"  # Too short
+                "description": "VM",  # Too short
             },
-            "content": {}
+            "content": {},
         }
 
         result = linter.lint(template)
@@ -368,13 +358,14 @@ class TestTemplateLinter:
                         # Missing default value
                     }
                 }
-            }
+            },
         }
 
         result = linter.lint(template)
 
-        assert any("default" in issue.lower() or "parameter" in issue.lower()
-                   for issue in result.issues)
+        assert any(
+            "default" in issue.lower() or "parameter" in issue.lower() for issue in result.issues
+        )
 
     def test_lint_checks_unused_variables(self):
         """Test linter detects unused variables."""
@@ -388,8 +379,8 @@ class TestTemplateLinter:
                 "variables": {
                     "unusedVar": "value"  # Not referenced anywhere
                 },
-                "resources": []
-            }
+                "resources": [],
+            },
         }
 
         result = linter.lint(template)
@@ -408,16 +399,17 @@ class TestTemplateLinter:
                 "parameters": {
                     "adminPassword": {
                         "type": "string",
-                        "defaultValue": "Password123!"  # Hardcoded password
+                        "defaultValue": "Password123!",  # Hardcoded password
                     }
                 }
-            }
+            },
         }
 
         result = linter.lint(template)
 
-        assert any("password" in issue.lower() or "security" in issue.lower()
-                   for issue in result.issues)
+        assert any(
+            "password" in issue.lower() or "security" in issue.lower() for issue in result.issues
+        )
 
     def test_lint_severity_levels(self):
         """Test linter assigns appropriate severity levels."""
@@ -436,10 +428,10 @@ class TestTemplateLinter:
                             "osProfile": {
                                 "adminPassword": "hardcoded"  # Critical
                             }
-                        }
+                        },
                     }
                 ]
-            }
+            },
         }
 
         result = linter.lint(template)
@@ -455,11 +447,7 @@ class TestValidationResult:
         """Test creating validation result."""
         from azlin.templates.validation import ValidationResult
 
-        result = ValidationResult(
-            is_valid=True,
-            errors=[],
-            warnings=["Minor issue"]
-        )
+        result = ValidationResult(is_valid=True, errors=[], warnings=["Minor issue"])
 
         assert result.is_valid is True
         assert len(result.errors) == 0
@@ -470,9 +458,7 @@ class TestValidationResult:
         from azlin.templates.validation import ValidationResult
 
         result = ValidationResult(
-            is_valid=False,
-            errors=["Error 1", "Error 2"],
-            warnings=["Warning 1"]
+            is_valid=False, errors=["Error 1", "Error 2"], warnings=["Warning 1"]
         )
 
         summary = result.get_summary()
@@ -486,11 +472,7 @@ class TestValidationResult:
         """Test exporting validation result to JSON."""
         from azlin.templates.validation import ValidationResult
 
-        result = ValidationResult(
-            is_valid=False,
-            errors=["Error"],
-            warnings=["Warning"]
-        )
+        result = ValidationResult(is_valid=False, errors=["Error"], warnings=["Warning"])
 
         json_data = result.to_json()
 
@@ -518,10 +500,10 @@ class TestValidatorConfiguration:
             "metadata": {
                 "name": "test",
                 "version": "1.0.0",
-                "author": "test"
+                "author": "test",
                 # Missing custom_field
             },
-            "content": {}
+            "content": {},
         }
 
         result = validator.validate(template)
@@ -535,14 +517,10 @@ class TestValidatorConfiguration:
         validator = TemplateValidator(strict=True)
 
         template = {
-            "metadata": {
-                "name": "test",
-                "version": "1.0.0",
-                "author": "test"
-            },
+            "metadata": {"name": "test", "version": "1.0.0", "author": "test"},
             "content": {
                 "resources": []  # Empty (normally warning)
-            }
+            },
         }
 
         result = validator.validate(template)
@@ -559,10 +537,8 @@ class TestValidatorConfiguration:
         template = {
             "metadata": {"name": "test", "version": "1.0.0", "author": "test"},
             "content": {
-                "resources": [
-                    {"type": "Microsoft.Compute/virtualMachines", "name": "INVALID_NAME"}
-                ]
-            }
+                "resources": [{"type": "Microsoft.Compute/virtualMachines", "name": "INVALID_NAME"}]
+            },
         }
 
         result = validator.validate(template)

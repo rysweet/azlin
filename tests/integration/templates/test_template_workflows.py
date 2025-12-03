@@ -26,16 +26,14 @@ class TestTemplateCreationWorkflow:
             description="Integration test template",
             author="test-user",
             created_at=datetime.now(),
-            tags=["test", "integration"]
+            tags=["test", "integration"],
         )
 
         template = VersionedTemplate(
             metadata=metadata,
             content={
-                "resources": [
-                    {"type": "Microsoft.Compute/virtualMachines", "name": "test-vm"}
-                ]
-            }
+                "resources": [{"type": "Microsoft.Compute/virtualMachines", "name": "test-vm"}]
+            },
         )
 
         # Validate
@@ -63,9 +61,9 @@ class TestTemplateCreationWorkflow:
                 version=TemplateVersion(1, 0, 0),
                 description="Invalid",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         # Validation should fail
@@ -93,9 +91,9 @@ class TestTemplateVersioningWorkflow:
                 version=TemplateVersion(1, 0, 0),
                 description="Initial version",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={"resources": []}
+            content={"resources": []},
         )
 
         registry.register(template)
@@ -105,7 +103,7 @@ class TestTemplateVersioningWorkflow:
             new_version=TemplateVersion(1, 1, 0),
             author="test",
             change_type="minor",
-            description="Added new feature"
+            description="Added new feature",
         )
 
         registry.update_version("vm-versioned", template)
@@ -129,9 +127,9 @@ class TestTemplateVersioningWorkflow:
                 version=TemplateVersion(1, 0, 0),
                 description="Version 1",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={"resources": [{"type": "vm", "size": "small"}]}
+            content={"resources": [{"type": "vm", "size": "small"}]},
         )
 
         registry.register(template_v1)
@@ -143,9 +141,9 @@ class TestTemplateVersioningWorkflow:
                 version=TemplateVersion(2, 0, 0),
                 description="Version 2",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={"resources": [{"type": "vm", "size": "large"}]}
+            content={"resources": [{"type": "vm", "size": "large"}]},
         )
 
         registry.update_version("vm-rollback", template_v2)
@@ -176,13 +174,9 @@ class TestTemplateCompositionWorkflow:
                 version=TemplateVersion(1, 0, 0),
                 description="Base network",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={
-                "resources": [
-                    {"type": "Microsoft.Network/virtualNetworks", "name": "vnet"}
-                ]
-            }
+            content={"resources": [{"type": "Microsoft.Network/virtualNetworks", "name": "vnet"}]},
         )
 
         registry.register(base)
@@ -193,13 +187,11 @@ class TestTemplateCompositionWorkflow:
                 "name": "network-extended",
                 "version": "1.0.0",
                 "extends": "network-base",
-                "author": "test"
+                "author": "test",
             },
             "content": {
-                "resources": [
-                    {"type": "Microsoft.Network/networkSecurityGroups", "name": "nsg"}
-                ]
-            }
+                "resources": [{"type": "Microsoft.Network/networkSecurityGroups", "name": "nsg"}]
+            },
         }
 
         # Resolve dependencies
@@ -220,17 +212,17 @@ class TestTemplateCompositionWorkflow:
         # Create three-level hierarchy
         base = {
             "metadata": {"name": "base", "version": "1.0.0"},
-            "content": {"resources": [{"type": "base-resource"}]}
+            "content": {"resources": [{"type": "base-resource"}]},
         }
 
         middle = {
             "metadata": {"name": "middle", "version": "1.0.0", "extends": "base"},
-            "content": {"resources": [{"type": "middle-resource"}]}
+            "content": {"resources": [{"type": "middle-resource"}]},
         }
 
         top = {
             "metadata": {"name": "top", "version": "1.0.0", "extends": "middle"},
-            "content": {"resources": [{"type": "top-resource"}]}
+            "content": {"resources": [{"type": "top-resource"}]},
         }
 
         # Resolve chain
@@ -259,13 +251,11 @@ class TestTemplateValidationWorkflow:
                 "name": "vm-validated",
                 "version": "1.0.0",
                 "description": "Validated template",
-                "author": "test"
+                "author": "test",
             },
             "content": {
-                "resources": [
-                    {"type": "Microsoft.Compute/virtualMachines", "name": "vm1"}
-                ]
-            }
+                "resources": [{"type": "Microsoft.Compute/virtualMachines", "name": "vm1"}]
+            },
         }
 
         # Validate
@@ -291,9 +281,9 @@ class TestTemplateValidationWorkflow:
                 "name": "invalid-template",
                 "version": "invalid-version",  # Error
                 "description": "",  # Error (empty)
-                "author": "test"
+                "author": "test",
             },
-            "content": {}
+            "content": {},
         }
 
         validator = TemplateValidator()
@@ -329,9 +319,9 @@ class TestTemplateMarketplaceWorkflow:
                     description="Marketplace template",
                     author="author1",
                     created_at=datetime.now(),
-                    tags=["compute", "vm"]
+                    tags=["compute", "vm"],
                 ),
-                content={}
+                content={},
             )
 
             registry.register(template)
@@ -345,7 +335,7 @@ class TestTemplateMarketplaceWorkflow:
             tracker.record_usage(
                 template_name=found_template.metadata.name,
                 user_id="user1",
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
 
             # Verify analytics
@@ -367,9 +357,9 @@ class TestTemplateMarketplaceWorkflow:
                     version=TemplateVersion(1, 0, 0),
                     description="Shared template",
                     author="author1",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={"resources": []}
+                content={"resources": []},
             )
 
             registry1.register(template)
@@ -402,14 +392,14 @@ class TestTemplateAnalyticsWorkflow:
                 template_name="vm-analytics",
                 user_id="user1",
                 timestamp=datetime.now(),
-                metadata={"success": True, "duration_seconds": 45.0}
+                metadata={"success": True, "duration_seconds": 45.0},
             )
 
             tracker.record_usage(
                 template_name="vm-analytics",
                 user_id="user2",
                 timestamp=datetime.now(),
-                metadata={"success": True, "duration_seconds": 50.0}
+                metadata={"success": True, "duration_seconds": 50.0},
             )
 
             # Generate report
@@ -439,9 +429,9 @@ class TestTemplateAnalyticsWorkflow:
                         version=TemplateVersion(1, 0, 0),
                         description=f"Template {i}",
                         author="test",
-                        created_at=datetime.now()
+                        created_at=datetime.now(),
                     ),
-                    content={}
+                    content={},
                 )
                 registry.register(template)
 
@@ -482,13 +472,11 @@ class TestEndToEndTemplateWorkflow:
                     description="End-to-end test template",
                     author="developer",
                     created_at=datetime.now(),
-                    tags=["e2e", "test"]
+                    tags=["e2e", "test"],
                 ),
                 content={
-                    "resources": [
-                        {"type": "Microsoft.Compute/virtualMachines", "name": "vm1"}
-                    ]
-                }
+                    "resources": [{"type": "Microsoft.Compute/virtualMachines", "name": "vm1"}]
+                },
             )
 
             # 2. Validate
@@ -521,7 +509,7 @@ class TestEndToEndTemplateWorkflow:
                 new_version=TemplateVersion(1, 1, 0),
                 author="developer",
                 change_type="minor",
-                description="Added features"
+                description="Added features",
             )
 
             registry.update_version("vm-e2e", template)
@@ -551,9 +539,9 @@ class TestEndToEndTemplateWorkflow:
                 version=TemplateVersion(1, 0, 0),
                 description="Collaborative template",
                 author="dev1",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={"resources": [{"type": "vm"}]}
+            content={"resources": [{"type": "vm"}]},
         )
 
         registry.register(base_template)
@@ -563,7 +551,7 @@ class TestEndToEndTemplateWorkflow:
             new_version=TemplateVersion(1, 1, 0),
             author="dev2",
             change_type="minor",
-            description="Added networking"
+            description="Added networking",
         )
 
         base_template.content["resources"].append({"type": "network"})
@@ -574,7 +562,7 @@ class TestEndToEndTemplateWorkflow:
             new_version=TemplateVersion(1, 2, 0),
             author="dev3",
             change_type="minor",
-            description="Added storage"
+            description="Added storage",
         )
 
         base_template.content["resources"].append({"type": "storage"})

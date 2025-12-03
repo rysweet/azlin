@@ -19,15 +19,22 @@ class TestTemplateSystemE2E:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = subprocess.run(
                 [
-                    "azlin", "template", "create",
-                    "--name", "e2e-vm",
-                    "--version", "1.0.0",
-                    "--description", "E2E test template",
-                    "--author", "e2e-test",
-                    "--output", str(Path(tmpdir) / "template.json")
+                    "azlin",
+                    "template",
+                    "create",
+                    "--name",
+                    "e2e-vm",
+                    "--version",
+                    "1.0.0",
+                    "--description",
+                    "E2E test template",
+                    "--author",
+                    "e2e-test",
+                    "--output",
+                    str(Path(tmpdir) / "template.json"),
                 ],
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             assert result.returncode == 0
@@ -48,11 +55,9 @@ class TestTemplateSystemE2E:
                     "name": "test-template",
                     "version": "1.0.0",
                     "description": "Test",
-                    "author": "test"
+                    "author": "test",
                 },
-                "content": {
-                    "resources": []
-                }
+                "content": {"resources": []},
             }
             template_path.write_text(json.dumps(template_data))
 
@@ -60,7 +65,7 @@ class TestTemplateSystemE2E:
             result = subprocess.run(
                 ["azlin", "template", "validate", str(template_path)],
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             assert result.returncode == 0
@@ -75,16 +80,14 @@ class TestTemplateSystemE2E:
                     "name": "published-template",
                     "version": "1.0.0",
                     "description": "Published template",
-                    "author": "publisher"
+                    "author": "publisher",
                 },
-                "content": {}
+                "content": {},
             }
             template_path.write_text(json.dumps(template_data))
 
             result = subprocess.run(
-                ["azlin", "template", "publish", str(template_path)],
-                capture_output=True,
-                text=True
+                ["azlin", "template", "publish", str(template_path)], capture_output=True, text=True
             )
 
             assert result.returncode == 0
@@ -93,9 +96,7 @@ class TestTemplateSystemE2E:
     def test_cli_search_templates(self):
         """Test searching templates in marketplace via CLI."""
         result = subprocess.run(
-            ["azlin", "template", "search", "--tag", "compute"],
-            capture_output=True,
-            text=True
+            ["azlin", "template", "search", "--tag", "compute"], capture_output=True, text=True
         )
 
         assert result.returncode == 0
@@ -105,12 +106,16 @@ class TestTemplateSystemE2E:
         """Test using template to provision resources via CLI."""
         result = subprocess.run(
             [
-                "azlin", "template", "use",
-                "--name", "vm-basic",
-                "--parameters", "location=eastus,vmSize=Standard_D2s_v3"
+                "azlin",
+                "template",
+                "use",
+                "--name",
+                "vm-basic",
+                "--parameters",
+                "location=eastus,vmSize=Standard_D2s_v3",
             ],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         # Should succeed or fail gracefully with clear message
@@ -119,9 +124,7 @@ class TestTemplateSystemE2E:
     def test_cli_list_versions(self):
         """Test listing template versions via CLI."""
         result = subprocess.run(
-            ["azlin", "template", "versions", "--name", "vm-basic"],
-            capture_output=True,
-            text=True
+            ["azlin", "template", "versions", "--name", "vm-basic"], capture_output=True, text=True
         )
 
         assert result.returncode == 0
@@ -130,9 +133,7 @@ class TestTemplateSystemE2E:
     def test_cli_template_analytics(self):
         """Test viewing template analytics via CLI."""
         result = subprocess.run(
-            ["azlin", "template", "analytics", "--name", "vm-basic"],
-            capture_output=True,
-            text=True
+            ["azlin", "template", "analytics", "--name", "vm-basic"], capture_output=True, text=True
         )
 
         assert result.returncode == 0
@@ -152,21 +153,14 @@ class TestTemplateCompositionE2E:
                     "name": "network-base",
                     "version": "1.0.0",
                     "description": "Base network",
-                    "author": "test"
+                    "author": "test",
                 },
-                "content": {
-                    "resources": [
-                        {"type": "Microsoft.Network/virtualNetworks"}
-                    ]
-                }
+                "content": {"resources": [{"type": "Microsoft.Network/virtualNetworks"}]},
             }
             base_path.write_text(json.dumps(base_data))
 
             # Publish base
-            subprocess.run(
-                ["azlin", "template", "publish", str(base_path)],
-                check=True
-            )
+            subprocess.run(["azlin", "template", "publish", str(base_path)], check=True)
 
             # Create child that extends base
             child_path = Path(tmpdir) / "child.json"
@@ -176,25 +170,24 @@ class TestTemplateCompositionE2E:
                     "version": "1.0.0",
                     "description": "Extended network",
                     "author": "test",
-                    "extends": "network-base"
+                    "extends": "network-base",
                 },
-                "content": {
-                    "resources": [
-                        {"type": "Microsoft.Network/networkSecurityGroups"}
-                    ]
-                }
+                "content": {"resources": [{"type": "Microsoft.Network/networkSecurityGroups"}]},
             }
             child_path.write_text(json.dumps(child_data))
 
             # Resolve composite
             result = subprocess.run(
                 [
-                    "azlin", "template", "resolve",
+                    "azlin",
+                    "template",
+                    "resolve",
                     str(child_path),
-                    "--output", str(Path(tmpdir) / "resolved.json")
+                    "--output",
+                    str(Path(tmpdir) / "resolved.json"),
                 ],
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             assert result.returncode == 0
@@ -216,27 +209,24 @@ class TestTemplateValidationE2E:
                     "name": "azure-template",
                     "version": "1.0.0",
                     "description": "Azure template",
-                    "author": "test"
+                    "author": "test",
                 },
                 "content": {
                     "resources": [
                         {
                             "type": "Microsoft.Compute/virtualMachines",
                             "name": "test-vm",
-                            "properties": {
-                                "location": "eastus",
-                                "vmSize": "Standard_D2s_v3"
-                            }
+                            "properties": {"location": "eastus", "vmSize": "Standard_D2s_v3"},
                         }
                     ]
-                }
+                },
             }
             template_path.write_text(json.dumps(template_data))
 
             result = subprocess.run(
                 ["azlin", "template", "validate", str(template_path), "--azure"],
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             assert result.returncode == 0
@@ -250,23 +240,21 @@ class TestTemplateValidationE2E:
                     "name": "lint-test",
                     "version": "1.0.0",
                     "description": "Test",  # Short description
-                    "author": "test"
+                    "author": "test",
                 },
                 "content": {
                     "resources": [
                         {
                             "type": "Microsoft.Compute/virtualMachines",
-                            "name": "VM1"  # Should be lowercase
+                            "name": "VM1",  # Should be lowercase
                         }
                     ]
-                }
+                },
             }
             template_path.write_text(json.dumps(template_data))
 
             result = subprocess.run(
-                ["azlin", "template", "lint", str(template_path)],
-                capture_output=True,
-                text=True
+                ["azlin", "template", "lint", str(template_path)], capture_output=True, text=True
             )
 
             # Should complete and show issues
@@ -284,13 +272,18 @@ class TestTemplateAnalyticsE2E:
 
             result = subprocess.run(
                 [
-                    "azlin", "template", "analytics",
-                    "--name", "vm-basic",
-                    "--output", str(report_path),
-                    "--format", "json"
+                    "azlin",
+                    "template",
+                    "analytics",
+                    "--name",
+                    "vm-basic",
+                    "--output",
+                    str(report_path),
+                    "--format",
+                    "json",
                 ],
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             # Should generate report
@@ -304,7 +297,7 @@ class TestTemplateAnalyticsE2E:
         result = subprocess.run(
             ["azlin", "template", "trending", "--days", "7", "--limit", "10"],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert result.returncode == 0
@@ -316,13 +309,9 @@ class TestTemplateAnalyticsE2E:
             csv_path = Path(tmpdir) / "analytics.csv"
 
             result = subprocess.run(
-                [
-                    "azlin", "template", "analytics",
-                    "--export", str(csv_path),
-                    "--format", "csv"
-                ],
+                ["azlin", "template", "analytics", "--export", str(csv_path), "--format", "csv"],
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             if result.returncode == 0:
@@ -345,21 +334,15 @@ class TestTemplateMarketplaceE2E:
                     "version": "1.0.0",
                     "description": "Marketplace VM template",
                     "author": "publisher",
-                    "tags": ["compute", "vm", "marketplace"]
+                    "tags": ["compute", "vm", "marketplace"],
                 },
-                "content": {
-                    "resources": [
-                        {"type": "Microsoft.Compute/virtualMachines"}
-                    ]
-                }
+                "content": {"resources": [{"type": "Microsoft.Compute/virtualMachines"}]},
             }
             template_path.write_text(json.dumps(template_data))
 
             # 2. Publish
             publish_result = subprocess.run(
-                ["azlin", "template", "publish", str(template_path)],
-                capture_output=True,
-                text=True
+                ["azlin", "template", "publish", str(template_path)], capture_output=True, text=True
             )
             assert publish_result.returncode == 0
 
@@ -367,20 +350,16 @@ class TestTemplateMarketplaceE2E:
             search_result = subprocess.run(
                 ["azlin", "template", "search", "--tag", "marketplace"],
                 capture_output=True,
-                text=True
+                text=True,
             )
             assert search_result.returncode == 0
             assert "marketplace-vm" in search_result.stdout
 
             # 4. Rate
             rate_result = subprocess.run(
-                [
-                    "azlin", "template", "rate",
-                    "--name", "marketplace-vm",
-                    "--rating", "5"
-                ],
+                ["azlin", "template", "rate", "--name", "marketplace-vm", "--rating", "5"],
                 capture_output=True,
-                text=True
+                text=True,
             )
             # May succeed or need authentication
 
@@ -388,7 +367,7 @@ class TestTemplateMarketplaceE2E:
             details_result = subprocess.run(
                 ["azlin", "template", "show", "--name", "marketplace-vm"],
                 capture_output=True,
-                text=True
+                text=True,
             )
             assert details_result.returncode == 0
 
@@ -403,13 +382,17 @@ class TestRealWorldScenarios:
             # Use composite template that includes network, storage, and VM
             result = subprocess.run(
                 [
-                    "azlin", "template", "deploy",
-                    "--name", "complete-infrastructure",
-                    "--parameters", "location=eastus,environment=dev",
-                    "--dry-run"  # Don't actually deploy
+                    "azlin",
+                    "template",
+                    "deploy",
+                    "--name",
+                    "complete-infrastructure",
+                    "--parameters",
+                    "location=eastus,environment=dev",
+                    "--dry-run",  # Don't actually deploy
                 ],
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             # Should generate deployment plan
@@ -425,17 +408,14 @@ class TestRealWorldScenarios:
                     "name": "evolving-template",
                     "version": "1.0.0",
                     "description": "Version 1",
-                    "author": "dev"
+                    "author": "dev",
                 },
-                "content": {"resources": [{"type": "vm", "size": "small"}]}
+                "content": {"resources": [{"type": "vm", "size": "small"}]},
             }
             v1_path.write_text(json.dumps(v1_data))
 
             # Publish v1
-            subprocess.run(
-                ["azlin", "template", "publish", str(v1_path)],
-                check=True
-            )
+            subprocess.run(["azlin", "template", "publish", str(v1_path)], check=True)
 
             # Create v2.0.0 with breaking changes
             v2_data = v1_data.copy()
@@ -447,9 +427,7 @@ class TestRealWorldScenarios:
 
             # Publish v2
             result = subprocess.run(
-                ["azlin", "template", "publish", str(v2_path)],
-                capture_output=True,
-                text=True
+                ["azlin", "template", "publish", str(v2_path)], capture_output=True, text=True
             )
 
             assert result.returncode == 0
@@ -458,7 +436,7 @@ class TestRealWorldScenarios:
             versions_result = subprocess.run(
                 ["azlin", "template", "versions", "--name", "evolving-template"],
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             assert versions_result.returncode == 0
@@ -476,9 +454,9 @@ class TestRealWorldScenarios:
                     "name": "collab-template",
                     "version": "1.0.0",
                     "description": "Collaborative template",
-                    "author": "dev1"
+                    "author": "dev1",
                 },
-                "content": {"resources": []}
+                "content": {"resources": []},
             }
             base_path.write_text(json.dumps(base_data))
             subprocess.run(["azlin", "template", "publish", str(base_path)], check=True)
@@ -503,9 +481,7 @@ class TestRealWorldScenarios:
             v1_2_path.write_text(json.dumps(v1_2_data))
 
             result = subprocess.run(
-                ["azlin", "template", "publish", str(v1_2_path)],
-                capture_output=True,
-                text=True
+                ["azlin", "template", "publish", str(v1_2_path)], capture_output=True, text=True
             )
 
             assert result.returncode == 0
@@ -514,14 +490,16 @@ class TestRealWorldScenarios:
             history_result = subprocess.run(
                 ["azlin", "template", "history", "--name", "collab-template"],
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             if history_result.returncode == 0:
                 # Should show contributions from all devs
-                assert "dev1" in history_result.stdout or \
-                       "dev2" in history_result.stdout or \
-                       "dev3" in history_result.stdout
+                assert (
+                    "dev1" in history_result.stdout
+                    or "dev2" in history_result.stdout
+                    or "dev3" in history_result.stdout
+                )
 
 
 class TestErrorHandlingE2E:
@@ -534,9 +512,7 @@ class TestErrorHandlingE2E:
             invalid_path.write_text("not valid json")
 
             result = subprocess.run(
-                ["azlin", "template", "validate", str(invalid_path)],
-                capture_output=True,
-                text=True
+                ["azlin", "template", "validate", str(invalid_path)], capture_output=True, text=True
             )
 
             assert result.returncode != 0
@@ -552,16 +528,14 @@ class TestErrorHandlingE2E:
                     "version": "1.0.0",
                     "description": "Has dependencies",
                     "author": "test",
-                    "dependencies": {"nonexistent-template": ">=1.0.0"}
+                    "dependencies": {"nonexistent-template": ">=1.0.0"},
                 },
-                "content": {}
+                "content": {},
             }
             template_path.write_text(json.dumps(template_data))
 
             result = subprocess.run(
-                ["azlin", "template", "resolve", str(template_path)],
-                capture_output=True,
-                text=True
+                ["azlin", "template", "resolve", str(template_path)], capture_output=True, text=True
             )
 
             assert result.returncode != 0

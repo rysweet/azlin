@@ -35,13 +35,10 @@ class TestTemplateRegistry:
             version=TemplateVersion(1, 0, 0),
             description="Basic VM",
             author="test",
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
 
-        template = VersionedTemplate(
-            metadata=metadata,
-            content={"resources": []}
-        )
+        template = VersionedTemplate(metadata=metadata, content={"resources": []})
 
         registry.register(template)
 
@@ -61,9 +58,9 @@ class TestTemplateRegistry:
                 version=TemplateVersion(1, 0, 0),
                 description="Basic VM",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         template2 = VersionedTemplate(
@@ -72,9 +69,9 @@ class TestTemplateRegistry:
                 version=TemplateVersion(2, 0, 0),
                 description="Different template",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         registry.register(template1)
@@ -95,9 +92,9 @@ class TestTemplateRegistry:
                 version=TemplateVersion(1, 0, 0),
                 description="Basic VM",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={"resources": []}
+            content={"resources": []},
         )
 
         registry.register(template)
@@ -128,9 +125,9 @@ class TestTemplateRegistry:
                 version=TemplateVersion(1, 0, 0),
                 description="Basic VM",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         template_v2 = VersionedTemplate(
@@ -139,9 +136,9 @@ class TestTemplateRegistry:
                 version=TemplateVersion(2, 0, 0),
                 description="Basic VM v2",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         registry.register(template_v1)
@@ -164,9 +161,9 @@ class TestTemplateRegistry:
                     version=TemplateVersion(1, 0, 0),
                     description=f"Template {i}",
                     author="test",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={}
+                content={},
             )
             registry.register(template)
 
@@ -189,7 +186,7 @@ class TestTemplateDiscovery:
         templates = [
             ("vm-basic", "Basic VM"),
             ("vm-advanced", "Advanced VM"),
-            ("storage-basic", "Basic Storage")
+            ("storage-basic", "Basic Storage"),
         ]
 
         for name, desc in templates:
@@ -199,9 +196,9 @@ class TestTemplateDiscovery:
                     version=TemplateVersion(1, 0, 0),
                     description=desc,
                     author="test",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={}
+                content={},
             )
             registry.register(template)
 
@@ -224,9 +221,9 @@ class TestTemplateDiscovery:
                 description="Basic VM",
                 author="test",
                 created_at=datetime.now(),
-                tags=["compute", "vm", "basic"]
+                tags=["compute", "vm", "basic"],
             ),
-            content={}
+            content={},
         )
 
         template2 = VersionedTemplate(
@@ -236,9 +233,9 @@ class TestTemplateDiscovery:
                 description="Basic Storage",
                 author="test",
                 created_at=datetime.now(),
-                tags=["storage", "basic"]
+                tags=["storage", "basic"],
             ),
-            content={}
+            content={},
         )
 
         registry.register(template1)
@@ -264,9 +261,9 @@ class TestTemplateDiscovery:
                     version=TemplateVersion(1, 0, 0),
                     description=f"Template {i}",
                     author=author,
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={}
+                content={},
             )
             registry.register(template)
 
@@ -289,9 +286,9 @@ class TestTemplateDiscovery:
                 description="Basic VM",
                 author="alice",
                 created_at=datetime.now(),
-                tags=["compute", "basic"]
+                tags=["compute", "basic"],
             ),
-            content={}
+            content={},
         )
         registry.register(template)
 
@@ -333,9 +330,9 @@ class TestTemplateSharing:
                 version=TemplateVersion(1, 0, 0),
                 description="Basic VM",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={"resources": []}
+            content={"resources": []},
         )
 
         # Register the template before exporting
@@ -365,9 +362,9 @@ class TestTemplateSharing:
                     "version": "1.0.0",
                     "description": "Basic VM",
                     "author": "test",
-                    "created_at": datetime.now().isoformat()
+                    "created_at": datetime.now().isoformat(),
                 },
-                "content": {"resources": []}
+                "content": {"resources": []},
             }
 
             import_path.write_text(json.dumps(template_data))
@@ -425,9 +422,9 @@ class TestTemplateRating:
                 version=TemplateVersion(1, 0, 0),
                 description="Basic VM",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         registry.register(template)
@@ -450,9 +447,9 @@ class TestTemplateRating:
                 version=TemplateVersion(1, 0, 0),
                 description="Basic VM",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         registry.register(template)
@@ -477,9 +474,9 @@ class TestTemplateRating:
                 version=TemplateVersion(1, 0, 0),
                 description="Basic VM",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         registry.register(template)
@@ -503,9 +500,9 @@ class TestTemplateRating:
                 version=TemplateVersion(1, 0, 0),
                 description="Basic VM",
                 author="test",
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
-            content={}
+            content={},
         )
 
         registry.register(template)
@@ -530,9 +527,9 @@ class TestTemplateRating:
                     version=TemplateVersion(1, 0, 0),
                     description=f"Template {i}",
                     author="test",
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
-                content={}
+                content={},
             )
             registry.register(template)
             registry.rate_template(f"template-{i}", "user1", avg_rating)

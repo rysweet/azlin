@@ -89,7 +89,7 @@ class VMListBenchmark:
         print("\nRunning warmup iterations...")
         for i in range(self.warmup):
             self.benchmark_warm_start()
-            print(f"  Warmup {i+1}/{self.warmup} complete")
+            print(f"  Warmup {i + 1}/{self.warmup} complete")
 
         print("\nMeasuring cold start performance...")
         cold_start_time = self.benchmark_cold_start()
@@ -100,7 +100,7 @@ class VMListBenchmark:
         for i in range(self.iterations):
             warm_time = self.benchmark_warm_start()
             self.results["warm_start"].append(warm_time)
-            print(f"  Iteration {i+1}/{self.iterations}: {warm_time:.3f}s")
+            print(f"  Iteration {i + 1}/{self.iterations}: {warm_time:.3f}s")
 
         return self.generate_report()
 
@@ -167,11 +167,11 @@ class VMListBenchmark:
         print(f"Timestamp: {report['timestamp']}")
         print(f"Iterations: {report['iterations']}")
 
-        print(f"\nCold Start (First Run):")
+        print("\nCold Start (First Run):")
         print(f"  Time: {report['cold_start']['time']:.3f}s")
 
-        warm = report['warm_start']
-        print(f"\nWarm Start (Subsequent Runs):")
+        warm = report["warm_start"]
+        print("\nWarm Start (Subsequent Runs):")
         print(f"  Mean:   {warm['mean']:.3f}s")
         print(f"  Median: {warm['median']:.3f}s")
         print(f"  Stddev: {warm['stddev']:.3f}s")
@@ -180,24 +180,22 @@ class VMListBenchmark:
         print(f"  P95:    {warm['p95']:.3f}s")
         print(f"  P99:    {warm['p99']:.3f}s")
 
-        cache = report['cache_effectiveness']
-        if cache['estimated_hit_ratio'] > 0:
-            print(f"\nCache Effectiveness:")
+        cache = report["cache_effectiveness"]
+        if cache["estimated_hit_ratio"] > 0:
+            print("\nCache Effectiveness:")
             print(f"  Estimated Hit Ratio: {cache['estimated_hit_ratio']:.1%}")
             print(f"  Speedup Factor: {cache['speedup_factor']:.2f}x")
             print("  Status: Cache likely active ✅")
         else:
-            print(f"\nCache Effectiveness:")
-            print(f"  Status: No cache detected or cache ineffective")
+            print("\nCache Effectiveness:")
+            print("  Status: No cache detected or cache ineffective")
 
         print("\n" + "=" * 60)
 
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Benchmark VM listing performance"
-    )
+    parser = argparse.ArgumentParser(description="Benchmark VM listing performance")
     parser.add_argument(
         "--resource-group",
         "-g",

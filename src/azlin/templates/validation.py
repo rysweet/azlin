@@ -126,9 +126,9 @@ class TemplateValidator:
         errors = []
 
         # Check required fields
-        for field in self.REQUIRED_METADATA_FIELDS:
-            if field not in metadata:
-                errors.append(f"Missing required metadata field: '{field}'")
+        for field_name in self.REQUIRED_METADATA_FIELDS:
+            if field_name not in metadata:
+                errors.append(f"Missing required metadata field: '{field_name}'")
 
         # Check field types
         if "name" in metadata and not isinstance(metadata["name"], str):
