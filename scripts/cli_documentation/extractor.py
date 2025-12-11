@@ -221,7 +221,7 @@ class CLIExtractor:
                     name=param.name,
                     type=self._get_param_type(param),
                     required=param.required,
-                    help_text=param.help or "",
+                    help_text=getattr(param, "help", "") or "",
                 )
                 arguments.append(arg)
 
@@ -250,17 +250,19 @@ class CLIExtractor:
 
     def _get_param_type(self, param: click.Parameter) -> str:
         """Get string representation of parameter type."""
-        if param.is_flag:
+        # Only Options have is_flag attribute
+        if isinstance(param, click.Option) and getattr(param, "is_flag", False):
             return "FLAG"
 
         param_type = param.type
-        if isinstance(param_type, click.STRING):
+        # Check against type instances, not the singletons
+        if param_type == click.STRING:
             return "TEXT"
-        if isinstance(param_type, click.INT):
+        if param_type == click.INT:
             return "INT"
-        if isinstance(param_type, click.FLOAT):
+        if param_type == click.FLOAT:
             return "FLOAT"
-        if isinstance(param_type, click.BOOL):
+        if param_type == click.BOOL:
             return "BOOL"
         if isinstance(param_type, click.Path):
             return "PATH"
