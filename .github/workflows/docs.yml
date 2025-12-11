@@ -8,7 +8,8 @@ on:
     paths:
       - 'docs-site/**'
       - 'mkdocs.yml'
-      - 'scripts/extract_help.py'
+      - 'scripts/doc_sync.py'
+      - 'scripts/cli_documentation/**'
       - '.github/workflows/docs.yml'
 
   # Allow manual deployment
@@ -45,11 +46,15 @@ jobs:
           pip install mkdocs-git-revision-date-localized-plugin
           pip install mkdocs-minify-plugin
           pip install pymdown-extensions
+          pip install pyyaml
+
+      - name: Install azlin (for doc generation)
+        run: |
+          pip install -e .
 
       - name: Generate command documentation
         run: |
-          python scripts/extract_help.py --output docs-site/commands/ --mock
-        continue-on-error: true
+          python scripts/doc_sync.py --force
 
       - name: Build documentation
         run: |
