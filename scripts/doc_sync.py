@@ -136,7 +136,7 @@ def main(
             is_valid = len(failed_files) == 0
 
             # Report results
-            click.echo(f"\nValidation complete:")
+            click.echo("\nValidation complete:")
             click.echo(f"  Files checked: {len(validation_results)}")
             click.echo(f"  Status: {'PASSED' if is_valid else 'FAILED'}")
             click.echo(f"  Failed files: {len(failed_files)}")
@@ -169,9 +169,7 @@ def main(
             if result.success:
                 click.echo(f"✓ Generated: {result.output_path}")
                 if result.validation_result and result.validation_result.warnings:
-                    click.echo(
-                        f"  Warnings: {len(result.validation_result.warnings)}"
-                    )
+                    click.echo(f"  Warnings: {len(result.validation_result.warnings)}")
                     if verbose:
                         for warning in result.validation_result.warnings:
                             click.echo(f"    - {warning}")
@@ -192,7 +190,7 @@ def main(
             updated_count = sum(1 for r in results if r.was_updated)
             created_count = success_count - updated_count
 
-            click.echo(f"\nSync complete:")
+            click.echo("\nSync complete:")
             click.echo(f"  Total: {len(results)} commands")
             click.echo(f"  Success: {success_count}")
             click.echo(f"  Failed: {fail_count}")
@@ -217,9 +215,7 @@ def main(
             # Show validation warnings
             if verbose:
                 warnings_count = sum(
-                    len(r.validation_result.warnings)
-                    for r in results
-                    if r.validation_result
+                    len(r.validation_result.warnings) for r in results if r.validation_result
                 )
                 if warnings_count > 0:
                     click.echo(f"\nTotal validation warnings: {warnings_count}")

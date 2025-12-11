@@ -15,7 +15,6 @@ Philosophy:
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from .example_manager import ExampleManager
 from .extractor import CLIExtractor
@@ -58,7 +57,7 @@ class DocSyncManager:
         self.validator = SyncValidator()
         self.hasher = CLIHasher(hash_file)
 
-    def sync_all(self, force: bool = False) -> List[SyncResult]:
+    def sync_all(self, force: bool = False) -> list[SyncResult]:
         """Sync documentation for all commands.
 
         Args:
@@ -80,7 +79,7 @@ class DocSyncManager:
         commands = self.extractor.extract_all_commands(self.cli_module)
 
         # Build command dictionary for hash comparison
-        command_dict: Dict[str, CLIMetadata] = {cmd.name: cmd for cmd in commands}
+        command_dict: dict[str, CLIMetadata] = {cmd.name: cmd for cmd in commands}
 
         # Determine which commands need syncing
         if force:
@@ -109,9 +108,7 @@ class DocSyncManager:
 
         return results
 
-    def sync_command(
-        self, command: CLIMetadata, validate: bool = True
-    ) -> SyncResult:
+    def sync_command(self, command: CLIMetadata, validate: bool = True) -> SyncResult:
         """Sync documentation for a single command.
 
         Args:
@@ -171,7 +168,7 @@ class DocSyncManager:
                 error=str(e),
             )
 
-    def sync_command_by_name(self, command_name: str) -> Optional[SyncResult]:
+    def sync_command_by_name(self, command_name: str) -> SyncResult | None:
         """Sync documentation for a command by name.
 
         Args:
@@ -210,7 +207,7 @@ class DocSyncManager:
             ValueError: If component contains invalid characters
         """
         # Only allow alphanumeric, dash, and underscore
-        if not re.match(r'^[a-zA-Z0-9_-]+$', component):
+        if not re.match(r"^[a-zA-Z0-9_-]+$", component):
             raise ValueError(f"Invalid path component: {component}")
         return component
 
@@ -234,9 +231,8 @@ class DocSyncManager:
             # Create subdirectory for command group
             subdir = self.output_dir / safe_parts[0]
             return subdir / f"{safe_parts[1]}.md"
-        else:
-            safe_name = self._sanitize_path_component(command.name)
-            return self.output_dir / f"{safe_name}.md"
+        safe_name = self._sanitize_path_component(command.name)
+        return self.output_dir / f"{safe_name}.md"
 
 
 __all__ = ["DocSyncManager"]

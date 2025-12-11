@@ -12,7 +12,6 @@ Philosophy:
 
 import importlib
 import sys
-from typing import List, Optional
 
 import click
 
@@ -33,9 +32,7 @@ class CLIExtractor:
         "azlin.context",
     ]
 
-    def extract_command(
-        self, module_path: str, command_name: str
-    ) -> Optional[CLIMetadata]:
+    def extract_command(self, module_path: str, command_name: str) -> CLIMetadata | None:
         """Extract metadata from a single command.
 
         Args:
@@ -57,7 +54,7 @@ class CLIExtractor:
                 print(
                     f"Warning: Module '{module_path}' not in whitelist. "
                     f"Allowed modules: {', '.join(self.ALLOWED_MODULES)}",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
                 return None
 
@@ -76,7 +73,7 @@ class CLIExtractor:
             print(f"Warning: Failed to extract command '{command_name}': {e}", file=sys.stderr)
             return None
 
-    def extract_all_commands(self, module_path: str) -> List[CLIMetadata]:
+    def extract_all_commands(self, module_path: str) -> list[CLIMetadata]:
         """Extract metadata from all commands in a module.
 
         Args:
@@ -97,7 +94,7 @@ class CLIExtractor:
                 print(
                     f"Warning: Module '{module_path}' not in whitelist. "
                     f"Allowed modules: {', '.join(self.ALLOWED_MODULES)}",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
                 return []
 
@@ -118,12 +115,15 @@ class CLIExtractor:
 
         except Exception as e:
             # Log error but fail gracefully
-            print(f"Warning: Failed to extract commands from module '{module_path}': {e}", file=sys.stderr)
+            print(
+                f"Warning: Failed to extract commands from module '{module_path}': {e}",
+                file=sys.stderr,
+            )
             return []
 
     def _extract_from_click_command(
         self, command: click.Command, parent_path: str = ""
-    ) -> Optional[CLIMetadata]:
+    ) -> CLIMetadata | None:
         """Extract metadata from a Click command object.
 
         Args:
@@ -154,9 +154,7 @@ class CLIExtractor:
                 for subcmd_name in command.list_commands(None):
                     subcmd = command.get_command(None, subcmd_name)
                     if subcmd:
-                        sub_metadata = self._extract_from_click_command(
-                            subcmd, full_path
-                        )
+                        sub_metadata = self._extract_from_click_command(subcmd, full_path)
                         if sub_metadata:
                             subcommands.append(sub_metadata)
 
@@ -172,8 +170,11 @@ class CLIExtractor:
 
         except Exception as e:
             # Log error but fail gracefully
-            command_name = getattr(command, 'name', 'unknown')
-            print(f"Warning: Failed to extract metadata from command '{command_name}': {e}", file=sys.stderr)
+            command_name = getattr(command, "name", "unknown")
+            print(
+                f"Warning: Failed to extract metadata from command '{command_name}': {e}",
+                file=sys.stderr,
+            )
             return None
 
     def _get_docstring(self, command: click.Command) -> str:
@@ -210,7 +211,7 @@ class CLIExtractor:
 
         return "\n".join(cleaned_lines)
 
-    def _extract_arguments(self, command: click.Command) -> List[CLIArgument]:
+    def _extract_arguments(self, command: click.Command) -> list[CLIArgument]:
         """Extract positional arguments from Click command."""
         arguments = []
 
@@ -226,7 +227,7 @@ class CLIExtractor:
 
         return arguments
 
-    def _extract_options(self, command: click.Command) -> List[CLIOption]:
+    def _extract_options(self, command: click.Command) -> list[CLIOption]:
         """Extract options and flags from Click command."""
         options = []
 
@@ -255,19 +256,18 @@ class CLIExtractor:
         param_type = param.type
         if isinstance(param_type, click.STRING):
             return "TEXT"
-        elif isinstance(param_type, click.INT):
+        if isinstance(param_type, click.INT):
             return "INT"
-        elif isinstance(param_type, click.FLOAT):
+        if isinstance(param_type, click.FLOAT):
             return "FLOAT"
-        elif isinstance(param_type, click.BOOL):
+        if isinstance(param_type, click.BOOL):
             return "BOOL"
-        elif isinstance(param_type, click.Path):
+        if isinstance(param_type, click.Path):
             return "PATH"
-        elif isinstance(param_type, click.Choice):
+        if isinstance(param_type, click.Choice):
             choices = "|".join(param_type.choices) if param_type.choices else ""
             return f"CHOICE({choices})"
-        else:
-            return "TEXT"
+        return "TEXT"
 
 
 __all__ = ["CLIExtractor"]

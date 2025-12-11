@@ -13,7 +13,6 @@ Philosophy:
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import yaml
 
@@ -56,11 +55,11 @@ class ExampleManager:
             ValueError: Invalid command name: ../etc/passwd
         """
         # Only allow alphanumeric, dash, and underscore
-        if not re.match(r'^[a-zA-Z0-9_-]+$', command_name):
+        if not re.match(r"^[a-zA-Z0-9_-]+$", command_name):
             raise ValueError(f"Invalid command name: {command_name}")
         return command_name
 
-    def load_examples(self, command_name: str) -> List[CommandExample]:
+    def load_examples(self, command_name: str) -> list[CommandExample]:
         """Load examples for a specific command.
 
         Args:
@@ -94,7 +93,7 @@ class ExampleManager:
 
         return self._load_from_file(yaml_file)
 
-    def load_all_examples(self) -> Dict[str, List[CommandExample]]:
+    def load_all_examples(self) -> dict[str, list[CommandExample]]:
         """Load all examples from the examples directory.
 
         Returns:
@@ -120,7 +119,7 @@ class ExampleManager:
 
         return all_examples
 
-    def _load_from_file(self, yaml_file: Path) -> List[CommandExample]:
+    def _load_from_file(self, yaml_file: Path) -> list[CommandExample]:
         """Load examples from a YAML file.
 
         Args:
@@ -139,7 +138,7 @@ class ExampleManager:
                   Expected output here
         """
         try:
-            with open(yaml_file, "r") as f:
+            with open(yaml_file) as f:
                 data = yaml.safe_load(f)
 
             if not data or "examples" not in data:
@@ -162,9 +161,7 @@ class ExampleManager:
             print(f"Warning: Failed to load examples from '{yaml_file}': {e}", file=sys.stderr)
             return []
 
-    def save_examples(
-        self, command_name: str, examples: List[CommandExample]
-    ) -> bool:
+    def save_examples(self, command_name: str, examples: list[CommandExample]) -> bool:
         """Save examples to a YAML file.
 
         Args:
@@ -211,7 +208,10 @@ class ExampleManager:
 
         except Exception as e:
             # Log error but fail gracefully
-            print(f"Warning: Failed to save examples for command '{command_name}': {e}", file=sys.stderr)
+            print(
+                f"Warning: Failed to save examples for command '{command_name}': {e}",
+                file=sys.stderr,
+            )
             return False
 
 

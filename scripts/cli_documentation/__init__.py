@@ -38,8 +38,6 @@ from .example_manager import ExampleManager
 from .extractor import CLIExtractor
 from .generator import DocGenerator
 from .hasher import CLIHasher
-from .sync_manager import DocSyncManager
-from .validator import SyncValidator
 
 # Data models
 from .models import (
@@ -51,25 +49,25 @@ from .models import (
     SyncResult,
     ValidationResult,
 )
+from .sync_manager import DocSyncManager
+from .validator import SyncValidator
 
 # Version
 __version__ = "1.0.0"
 
 # Public API (the "studs")
 __all__ = [
-    # Core modules
-    "CLIExtractor",
-    "DocGenerator",
-    "ExampleManager",
-    "DocSyncManager",
-    "SyncValidator",
-    "CLIHasher",
-    # Data models
-    "CLIMetadata",
     "CLIArgument",
+    "CLIExtractor",
+    "CLIHasher",
+    "CLIMetadata",
     "CLIOption",
-    "CommandExample",
-    "ValidationResult",
-    "SyncResult",
     "ChangeSet",
+    "CommandExample",
+    "DocGenerator",
+    "DocSyncManager",
+    "ExampleManager",
+    "SyncResult",
+    "SyncValidator",
+    "ValidationResult",
 ]

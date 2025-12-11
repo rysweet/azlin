@@ -10,8 +10,6 @@ Philosophy:
 - Self-contained and regeneratable
 """
 
-from typing import List
-
 from .models import CLIArgument, CLIMetadata, CLIOption, CommandExample
 
 
@@ -22,9 +20,7 @@ class DocGenerator:
     documentation suitable for MkDocs or other documentation systems.
     """
 
-    def generate(
-        self, metadata: CLIMetadata, examples: List[CommandExample] = None
-    ) -> str:
+    def generate(self, metadata: CLIMetadata, examples: list[CommandExample] | None = None) -> str:
         """Generate complete markdown documentation for a command.
 
         Args:
@@ -104,7 +100,7 @@ class DocGenerator:
 
         return f"## Usage\n\n```bash\n{usage_line}\n```\n"
 
-    def _generate_arguments(self, arguments: List[CLIArgument]) -> str:
+    def _generate_arguments(self, arguments: list[CLIArgument]) -> str:
         """Generate arguments section."""
         lines = ["## Arguments\n"]
 
@@ -117,7 +113,7 @@ class DocGenerator:
         lines.append("")
         return "\n".join(lines)
 
-    def _generate_options(self, options: List[CLIOption]) -> str:
+    def _generate_options(self, options: list[CLIOption]) -> str:
         """Generate options section."""
         lines = ["## Options\n"]
 
@@ -141,14 +137,12 @@ class DocGenerator:
             # Help text
             help_text = opt.help_text or "No description available"
 
-            lines.append(
-                f"- {opt_names}{type_info}{default_info}{required_info} - {help_text}"
-            )
+            lines.append(f"- {opt_names}{type_info}{default_info}{required_info} - {help_text}")
 
         lines.append("")
         return "\n".join(lines)
 
-    def _generate_subcommands(self, subcommands: List[CLIMetadata]) -> str:
+    def _generate_subcommands(self, subcommands: list[CLIMetadata]) -> str:
         """Generate subcommands section."""
         lines = ["## Subcommands\n"]
 
@@ -160,8 +154,7 @@ class DocGenerator:
             # Usage for subcommand
             if subcmd.arguments or subcmd.options:
                 usage_parts = ["azlin", subcmd.full_path]
-                for arg in subcmd.arguments:
-                    usage_parts.append(arg.name.upper())
+                usage_parts.extend(arg.name.upper() for arg in subcmd.arguments)
                 if subcmd.options:
                     usage_parts.append("[OPTIONS]")
 
@@ -180,7 +173,7 @@ class DocGenerator:
 
         return "\n".join(lines)
 
-    def _generate_examples(self, examples: List[CommandExample]) -> str:
+    def _generate_examples(self, examples: list[CommandExample]) -> str:
         """Generate examples section."""
         lines = ["## Examples\n"]
 

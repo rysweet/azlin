@@ -12,7 +12,7 @@ Philosophy:
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -45,7 +45,7 @@ class CLIOption:
         is_flag: Whether this is a boolean flag
     """
 
-    names: List[str]
+    names: list[str]
     type: str = "TEXT"
     default: Any = None
     required: bool = False
@@ -58,7 +58,7 @@ class CLIOption:
         return max(self.names, key=len) if self.names else ""
 
     @property
-    def short_name(self) -> Optional[str]:
+    def short_name(self) -> str | None:
         """Return the short option name if available."""
         short_opts = [n for n in self.names if len(n) == 2 and n.startswith("-")]
         return short_opts[0] if short_opts else None
@@ -78,7 +78,7 @@ class CommandExample:
     title: str
     description: str
     command: str
-    output: Optional[str] = None
+    output: str | None = None
 
 
 @dataclass
@@ -101,11 +101,11 @@ class CLIMetadata:
     full_path: str
     help_text: str
     description: str
-    arguments: List[CLIArgument] = field(default_factory=list)
-    options: List[CLIOption] = field(default_factory=list)
-    subcommands: List["CLIMetadata"] = field(default_factory=list)
-    examples: List[CommandExample] = field(default_factory=list)
-    source_file: Optional[Path] = None
+    arguments: list[CLIArgument] = field(default_factory=list)
+    options: list[CLIOption] = field(default_factory=list)
+    subcommands: list["CLIMetadata"] = field(default_factory=list)
+    examples: list[CommandExample] = field(default_factory=list)
+    source_file: Path | None = None
 
 
 @dataclass
@@ -121,8 +121,8 @@ class ValidationResult:
 
     is_valid: bool
     file_path: str
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -138,10 +138,10 @@ class SyncResult:
     """
 
     command_name: str
-    output_path: Optional[Path] = None
+    output_path: Path | None = None
     was_updated: bool = False
-    validation_result: Optional[ValidationResult] = None
-    error: Optional[str] = None
+    validation_result: ValidationResult | None = None
+    error: str | None = None
 
     @property
     def success(self) -> bool:
@@ -159,9 +159,9 @@ class ChangeSet:
         removed: Commands that no longer exist
     """
 
-    changed: List[str] = field(default_factory=list)
-    added: List[str] = field(default_factory=list)
-    removed: List[str] = field(default_factory=list)
+    changed: list[str] = field(default_factory=list)
+    added: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)
 
     @property
     def has_changes(self) -> bool:
@@ -171,10 +171,10 @@ class ChangeSet:
 
 __all__ = [
     "CLIArgument",
-    "CLIOption",
-    "CommandExample",
     "CLIMetadata",
-    "ValidationResult",
-    "SyncResult",
+    "CLIOption",
     "ChangeSet",
+    "CommandExample",
+    "SyncResult",
+    "ValidationResult",
 ]

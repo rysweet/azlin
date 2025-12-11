@@ -12,8 +12,8 @@ Philosophy:
 
 import hashlib
 import json
+import sys
 from pathlib import Path
-from typing import Dict, Optional
 
 from .models import ChangeSet, CLIMetadata
 
@@ -32,7 +32,7 @@ class CLIHasher:
             hash_file: Path to JSON file for storing hashes
         """
         self.hash_file = Path(hash_file)
-        self._hashes: Dict[str, str] = {}
+        self._hashes: dict[str, str] = {}
         self._load_hashes()
 
     def compute_hash(self, metadata: CLIMetadata) -> str:
@@ -65,19 +65,15 @@ class CLIHasher:
         ]
 
         # Add arguments
-        for arg in metadata.arguments:
-            parts.append(f"arg:{arg.name}:{arg.type}:{arg.required}")
+        parts.extend(f"arg:{arg.name}:{arg.type}:{arg.required}" for arg in metadata.arguments)
 
         # Add options
         for opt in metadata.options:
             opt_names = ",".join(sorted(opt.names))
-            parts.append(
-                f"opt:{opt_names}:{opt.type}:{opt.required}:{opt.help_text}"
-            )
+            parts.append(f"opt:{opt_names}:{opt.type}:{opt.required}:{opt.help_text}")
 
         # Add subcommands
-        for subcmd in metadata.subcommands:
-            parts.append(f"subcmd:{subcmd.name}:{subcmd.help_text}")
+        parts.extend(f"subcmd:{subcmd.name}:{subcmd.help_text}" for subcmd in metadata.subcommands)
 
         # Compute hash
         content = "\n".join(parts)
@@ -145,9 +141,7 @@ class CLIHasher:
             print(f"Warning: Failed to save hashes to '{self.hash_file}': {e}", file=sys.stderr)
             return False
 
-    def compare_hashes(
-        self, current_commands: Dict[str, CLIMetadata]
-    ) -> ChangeSet:
+    def compare_hashes(self, current_commands: dict[str, CLIMetadata]) -> ChangeSet:
         """Compare current commands with stored hashes.
 
         Args:
@@ -188,7 +182,7 @@ class CLIHasher:
             return
 
         try:
-            with open(self.hash_file, "r") as f:
+            with open(self.hash_file) as f:
                 self._hashes = json.load(f)
         except Exception as e:
             print(f"Warning: Failed to load hashes from '{self.hash_file}': {e}", file=sys.stderr)

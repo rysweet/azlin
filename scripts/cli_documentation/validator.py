@@ -11,7 +11,6 @@ Philosophy:
 
 import re
 from pathlib import Path
-from typing import List
 
 from .models import ValidationResult
 
@@ -99,7 +98,7 @@ class SyncValidator:
             warnings=warnings,
         )
 
-    def validate_directory(self, dir_path: str) -> List[ValidationResult]:
+    def validate_directory(self, dir_path: str) -> list[ValidationResult]:
         """Validate all markdown files in a directory.
 
         Args:
@@ -126,7 +125,7 @@ class SyncValidator:
 
         return results
 
-    def _check_placeholders(self, content: str) -> List[str]:
+    def _check_placeholders(self, content: str) -> list[str]:
         """Check for placeholder text in content."""
         errors = []
 
@@ -137,17 +136,15 @@ class SyncValidator:
 
         return errors
 
-    def _check_required_sections(self, content: str) -> List[str]:
+    def _check_required_sections(self, content: str) -> list[str]:
         """Check that all required sections are present."""
-        errors = []
+        return [
+            f"Missing required section: {section}"
+            for section in self.REQUIRED_SECTIONS
+            if section not in content
+        ]
 
-        for section in self.REQUIRED_SECTIONS:
-            if section not in content:
-                errors.append(f"Missing required section: {section}")
-
-        return errors
-
-    def _check_formatting(self, content: str) -> List[str]:
+    def _check_formatting(self, content: str) -> list[str]:
         """Check for formatting issues."""
         warnings = []
 
@@ -163,7 +160,7 @@ class SyncValidator:
 
         return warnings
 
-    def _check_empty_sections(self, content: str) -> List[str]:
+    def _check_empty_sections(self, content: str) -> list[str]:
         """Check for sections with no content."""
         warnings = []
 
