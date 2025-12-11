@@ -1,0 +1,52 @@
+command: switch
+examples:
+  - title: Switch to Different Context
+    description: Change the active Azure context for azlin operations
+    command: azlin context switch prod-context
+    output: |
+      Switching to context 'prod-context'...
+
+      Active context is now: prod-context
+        Subscription: Production Subscription
+        Resource Group: azlin-prod-rg
+        Region: westus2
+
+      All azlin commands will now use this context.
+
+  - title: Switch Context Interactively
+    description: Use interactive prompt to select context
+    command: azlin context switch
+    output: |
+      Select a context:
+
+      1. dev-context (currently active)
+         Subscription: Visual Studio Enterprise
+         Resource Group: azlin-dev-rg
+
+      2. prod-context
+         Subscription: Production Subscription
+         Resource Group: azlin-prod-rg
+
+      3. staging-context
+         Subscription: Staging Subscription
+         Resource Group: azlin-staging-rg
+
+      Enter number (1-3): 2
+
+      Switched to: prod-context
+
+  - title: Switch and Verify
+    description: Switch context and immediately verify the change
+    command: |
+      azlin context switch staging-context
+      azlin context show
+    output: |
+      Switching to context 'staging-context'...
+      Active context is now: staging-context
+
+      Current context: staging-context
+        Subscription: Staging Subscription
+        Resource Group: azlin-staging-rg
+        Region: centralus
+        VMs: 2 running
+        Storage: 1 account
