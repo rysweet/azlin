@@ -132,4 +132,3 @@ Displays:
 
 Example:
     azlin autopilot status
-

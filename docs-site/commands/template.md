@@ -158,4 +158,3 @@ Shows all templates stored in ~/.azlin/templates/.
 
 Examples:
     azlin template list
-
