@@ -525,6 +525,7 @@ tramp
 .claude/runtime/metrics/*.jsonl
 .claude/runtime/logs/**/*.log
 .claude/runtime/logs/**/*.jsonl
+.claude/runtime/power-steering/**/session_count
 
 # Analysis reports (generated, not source)
 # Keep directory structure but ignore generated reports
