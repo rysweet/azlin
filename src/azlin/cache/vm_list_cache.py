@@ -344,9 +344,7 @@ class VMListCache:
         except Exception as e:
             raise VMListCacheError(f"Failed to set immutable cache for '{vm_name}': {e}") from e
 
-    def set_mutable(
-        self, vm_name: str, resource_group: str, mutable_data: dict[str, Any]
-    ) -> None:
+    def set_mutable(self, vm_name: str, resource_group: str, mutable_data: dict[str, Any]) -> None:
         """Set mutable VM data in cache.
 
         Args:
@@ -509,4 +507,4 @@ class VMListCache:
             return []
 
 
-__all__ = ["VMListCache", "VMCacheEntry", "VMListCacheError", "CacheLayer"]
+__all__ = ["CacheLayer", "VMCacheEntry", "VMListCache", "VMListCacheError"]

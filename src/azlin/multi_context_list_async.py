@@ -31,8 +31,8 @@ from dataclasses import dataclass
 from azlin.cache.vm_list_cache import VMListCache
 from azlin.context_manager import Context
 from azlin.multi_context_list import ContextVMResult, MultiContextVMResult
+from azlin.vm_manager import VMManager, VMManagerError
 from azlin.vm_manager_async import AsyncVMManager
-from azlin.vm_manager import VMInfo, VMManager, VMManagerError
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ class AsyncMultiContextVMQuery:
 
                 logger.debug(f"Switched to subscription: {context.subscription_id}")
 
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise AsyncMultiContextQueryError(
                 f"Subscription switch timed out for {context.subscription_id}"
             ) from e
@@ -192,9 +192,7 @@ class AsyncMultiContextVMQuery:
                 max_concurrent=self.max_concurrent_per_context,
             )
 
-            vms, stats = await manager.list_vms_with_stats(
-                include_stopped=include_stopped
-            )
+            vms, stats = await manager.list_vms_with_stats(include_stopped=include_stopped)
 
             # Filter by prefix
             if filter_prefix:
@@ -293,7 +291,9 @@ class AsyncMultiContextVMQuery:
             f"total VMs: {total_vms})"
         )
 
-        result = MultiContextVMResult(context_results=context_results, total_duration=total_duration)
+        result = MultiContextVMResult(
+            context_results=context_results, total_duration=total_duration
+        )
 
         # Note: Detailed cache stats would require tracking in AsyncVMManager
         # For now, we provide basic stats
@@ -374,12 +374,14 @@ def query_all_contexts_parallel(
 
     # Run async operation
     query = AsyncMultiContextVMQuery(contexts, cache=cache)
-    return loop.run_until_complete(query.query_all_contexts(resource_group, include_stopped, filter_prefix))
+    return loop.run_until_complete(
+        query.query_all_contexts(resource_group, include_stopped, filter_prefix)
+    )
 
 
 __all__ = [
-    "AsyncMultiContextVMQuery",
     "AsyncMultiContextQueryError",
     "AsyncMultiContextQueryStats",
+    "AsyncMultiContextVMQuery",
     "query_all_contexts_parallel",
 ]

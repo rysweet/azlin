@@ -30,9 +30,7 @@ Integration:
 import asyncio
 import json
 import logging
-import subprocess
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from azlin.cache.vm_list_cache import VMListCache
@@ -136,7 +134,7 @@ class AsyncVMManager:
                 self.api_calls += 1
                 return stdout.decode()
 
-            except asyncio.TimeoutError as e:
+            except TimeoutError as e:
                 raise VMManagerError(f"Command timed out after {timeout}s") from e
             except Exception as e:
                 raise VMManagerError(f"Command execution failed: {e}") from e
@@ -382,7 +380,9 @@ class AsyncVMManager:
         except Exception as e:
             raise VMManagerError(f"Parallel VM listing failed: {e}") from e
 
-    async def list_vms(self, include_stopped: bool = True, filter_prefix: str = "azlin") -> list[VMInfo]:
+    async def list_vms(
+        self, include_stopped: bool = True, filter_prefix: str = "azlin"
+    ) -> list[VMInfo]:
         """List VMs (backward compatible interface).
 
         Args:
