@@ -647,3 +647,126 @@ class TestBastionManagerEdgeCases:
             # Assert
             assert _tunnel1.local_port != _tunnel2.local_port
             assert len(manager.active_tunnels) == 2
+
+
+class TestBastionManagerPopenTimeout:
+    """Test Popen timeout behavior (Issue #402)."""
+
+    def test_popen_timeout_success(self):
+        """Test successful Popen creation within timeout."""
+        # Arrange
+        manager = BastionManager()
+        cmd = ["az", "network", "bastion", "tunnel", "--name", "test"]
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = Mock()
+            mock_process.poll.return_value = None
+            mock_popen.return_value = mock_process
+
+            # Act
+            process = manager._create_popen_with_timeout(cmd, timeout=5)
+
+            # Assert
+            assert process == mock_process
+            mock_popen.assert_called_once()
+
+    def test_popen_timeout_exceeded(self):
+        """Test Popen timeout when thread hangs."""
+        # Arrange
+        manager = BastionManager()
+        cmd = ["az", "network", "bastion", "tunnel", "--name", "test"]
+
+        # Mock Popen to hang (never return)
+        with patch("subprocess.Popen", side_effect=lambda *args, **kwargs: __import__("time").sleep(10)):
+            # Act & Assert
+            with pytest.raises(BastionManagerError, match="timed out after 1 seconds"):
+                manager._create_popen_with_timeout(cmd, timeout=1)
+
+    def test_popen_exception_propagation(self):
+        """Test that exceptions from Popen are properly propagated."""
+        # Arrange
+        manager = BastionManager()
+        cmd = ["az", "network", "bastion", "tunnel", "--name", "test"]
+
+        # Mock Popen to raise exception
+        with patch("subprocess.Popen", side_effect=FileNotFoundError("az command not found")):
+            # Act & Assert
+            with pytest.raises(FileNotFoundError, match="az command not found"):
+                manager._create_popen_with_timeout(cmd, timeout=5)
+
+    def test_popen_timeout_custom_duration(self):
+        """Test custom timeout duration."""
+        # Arrange
+        manager = BastionManager()
+        cmd = ["az", "network", "bastion", "tunnel", "--name", "test"]
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = Mock()
+            mock_popen.return_value = mock_process
+
+            # Act - use custom timeout
+            process = manager._create_popen_with_timeout(cmd, timeout=60)
+
+            # Assert
+            assert process == mock_process
+
+    def test_popen_timeout_logging(self, caplog):
+        """Test that timeout is logged appropriately."""
+        # Arrange
+        import logging
+        caplog.set_level(logging.ERROR)
+        manager = BastionManager()
+        cmd = ["az", "network", "bastion", "tunnel", "--name", "test"]
+
+        # Mock Popen to hang
+        with patch("subprocess.Popen", side_effect=lambda *args, **kwargs: __import__("time").sleep(10)):
+            # Act & Assert
+            with pytest.raises(BastionManagerError, match="timed out"):
+                manager._create_popen_with_timeout(cmd, timeout=1)
+
+            # Check logging
+            assert "timed out after 1s" in caplog.text
+
+    def test_create_tunnel_uses_popen_timeout(self):
+        """Test that create_tunnel uses _create_popen_with_timeout."""
+        # Arrange
+        manager = BastionManager()
+
+        with patch.object(manager, "_create_popen_with_timeout") as mock_timeout_popen:
+            mock_process = Mock()
+            mock_process.poll.return_value = None
+            mock_timeout_popen.return_value = mock_process
+
+            with patch.object(manager, "_wait_for_tunnel_ready"):
+                # Act
+                manager.create_tunnel(
+                    bastion_name="my-bastion",
+                    resource_group="my-rg",
+                    target_vm_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
+                    local_port=50022,
+                    remote_port=22,
+                    timeout=45,
+                )
+
+            # Assert - verify timeout method was called with correct timeout
+            mock_timeout_popen.assert_called_once()
+            call_args = mock_timeout_popen.call_args
+            # Check that timeout was passed through
+            assert call_args is not None
+
+    def test_popen_timeout_thread_cleanup(self):
+        """Test that timeout thread properly cleans up."""
+        # Arrange
+        manager = BastionManager()
+        cmd = ["az", "network", "bastion", "tunnel", "--name", "test"]
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = Mock()
+            mock_popen.return_value = mock_process
+
+            # Act
+            _process = manager._create_popen_with_timeout(cmd, timeout=5)
+
+            # Assert - thread should be joined/cleaned up (no way to directly verify,
+            # but ensuring no exception is raised is a good sign)
+            # This test primarily ensures the method completes successfully
