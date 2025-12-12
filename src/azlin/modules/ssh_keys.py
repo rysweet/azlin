@@ -16,7 +16,20 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from azlin.modules.key_audit_logger import KeyAuditLogger
+
 logger = logging.getLogger(__name__)
+
+# Initialize audit logger (lazy initialization for performance)
+_audit_logger: KeyAuditLogger | None = None
+
+
+def _get_audit_logger() -> KeyAuditLogger:
+    """Get or create audit logger instance."""
+    global _audit_logger
+    if _audit_logger is None:
+        _audit_logger = KeyAuditLogger()
+    return _audit_logger
 
 
 @dataclass
@@ -149,6 +162,16 @@ class SSHKeyManager:
 
             logger.info("SSH key generated successfully")
 
+            # AUDIT: Log key generation event
+            try:
+                _get_audit_logger().log_key_generation(
+                    vm_name=key_path.name,  # Use key name as VM identifier
+                    key_path=key_path,
+                    algorithm="ed25519",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log key generation audit event: {e}")
+
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
             logger.error(f"ssh-keygen failed: {error_msg}")
@@ -240,8 +263,20 @@ class SSHKeyManager:
         - Public key: 0644 (-rw-r--r--)
         """
         if private_path.exists():
+            old_mode = private_path.stat().st_mode & 0o777
             private_path.chmod(0o600)
             logger.debug("Set private key permissions: 0600")
+
+            # AUDIT: Log permission fix if changed
+            if old_mode != 0o600:
+                try:
+                    _get_audit_logger().log_permission_fix(
+                        key_path=private_path,
+                        old_permissions=oct(old_mode),
+                        new_permissions="0o600",
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to log permission fix audit event: {e}")
 
         if public_path.exists():
             public_path.chmod(0o644)
@@ -282,6 +317,17 @@ class SSHKeyManager:
                 raise SSHKeyError(f"Public key is empty: {public_path}")
 
             logger.debug(f"Read public key from {public_path}")
+
+            # AUDIT: Log key access
+            try:
+                _get_audit_logger().log_key_access(
+                    vm_name=key_path.name,  # Use key name as VM identifier
+                    key_path=key_path,
+                    operation="read_public_key",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log key access audit event: {e}")
+
             return content
 
         except Exception as e:

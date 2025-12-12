@@ -26,10 +26,22 @@ from datetime import datetime
 from pathlib import Path
 
 from azlin.azure_auth import AzureAuthenticator
+from azlin.modules.key_audit_logger import KeyAuditLogger
 from azlin.modules.ssh_keys import SSHKeyManager
 from azlin.vm_manager import VMManager
 
 logger = logging.getLogger(__name__)
+
+# Initialize audit logger (lazy initialization for performance)
+_audit_logger: KeyAuditLogger | None = None
+
+
+def _get_audit_logger() -> KeyAuditLogger:
+    """Get or create audit logger instance."""
+    global _audit_logger
+    if _audit_logger is None:
+        _audit_logger = KeyAuditLogger()
+    return _audit_logger
 
 
 class KeyRotationError(Exception):
@@ -176,6 +188,19 @@ class SSHKeyRotator:
                 except Exception as e:
                     logger.error(f"Rollback failed: {e}")
                     # Continue to return partial failure result
+
+            # AUDIT: Log key rotation event
+            try:
+                _get_audit_logger().log_key_rotation(
+                    resource_group=resource_group,
+                    success=update_result.all_succeeded,
+                    vms_updated=update_result.vms_updated,
+                    vms_failed=update_result.vms_failed,
+                    new_key_path=new_key_path,
+                    backup_path=backup.backup_dir if backup else None,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log key rotation audit event: {e}")
 
             return KeyRotationResult(
                 success=update_result.all_succeeded,
@@ -325,10 +350,31 @@ class SSHKeyRotator:
             subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=True)
 
             logger.debug(f"Successfully updated SSH key for VM: {vm_name}")
+
+            # AUDIT: Log successful VM key update
+            try:
+                _get_audit_logger().log_vm_key_update(
+                    vm_name=vm_name, resource_group=resource_group, success=True
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log VM update audit event: {e}")
+
             return True
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to update VM {vm_name}: {e.stderr}")
+
+            # AUDIT: Log failed VM key update
+            try:
+                _get_audit_logger().log_vm_key_update(
+                    vm_name=vm_name,
+                    resource_group=resource_group,
+                    success=False,
+                    error=e.stderr if e.stderr else str(e),
+                )
+            except Exception as ex:
+                logger.warning(f"Failed to log VM update audit event: {ex}")
+
             return False
         except subprocess.TimeoutExpired:
             logger.error(f"Timeout updating VM {vm_name}")
@@ -381,6 +427,12 @@ class SSHKeyRotator:
             backup_public.chmod(0o644)
 
             logger.info(f"Backed up keys to: {backup_dir}")
+
+            # AUDIT: Log key backup event
+            try:
+                _get_audit_logger().log_key_backup(backup_dir=backup_dir, key_count=2)
+            except Exception as e:
+                logger.warning(f"Failed to log key backup audit event: {e}")
 
             return KeyBackup(
                 backup_dir=backup_dir,
