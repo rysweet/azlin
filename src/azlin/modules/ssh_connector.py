@@ -18,6 +18,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from azlin.retry_handler import retry_with_exponential_backoff
+
 logger = logging.getLogger(__name__)
 
 
@@ -247,11 +249,17 @@ class SSHConnector:
             return False
 
     @classmethod
+    @retry_with_exponential_backoff(
+        max_attempts=3,
+        initial_delay=2.0,
+        max_delay=10.0,
+        jitter=True,
+    )
     def _test_ssh_connection(
         cls, host: str, key_path: Path, port: int, timeout: int = 10, user: str | None = None
     ) -> bool:
         """
-        Test SSH connection with actual authentication.
+        Test SSH connection with actual authentication and automatic retry.
 
         Args:
             host: Target hostname/IP
@@ -267,6 +275,9 @@ class SSHConnector:
         - Uses key-based auth
         - No password prompts
         - Short timeout
+
+        Note:
+            Connection failures will be automatically retried with exponential backoff.
         """
         try:
             # Use provided username or fallback to DEFAULT_USER
@@ -405,9 +416,15 @@ class SSHConnector:
             raise ValueError(f"Invalid SSH port: {config.port}")
 
     @classmethod
+    @retry_with_exponential_backoff(
+        max_attempts=3,
+        initial_delay=1.0,
+        max_delay=30.0,
+        jitter=True,
+    )
     def execute_remote_command(cls, config: SSHConfig, command: str, timeout: int = 60) -> str:
         """
-        Execute a command on remote host and return output.
+        Execute a command on remote host and return output with automatic retry.
 
         Args:
             config: SSH configuration
@@ -418,12 +435,16 @@ class SSHConnector:
             str: Command output (stdout)
 
         Raises:
-            SSHConnectionError: If command fails
+            SSHConnectionError: If command fails after all retries
 
         Security:
         - Command passed as single argument
         - Timeout enforcement
         - Output sanitized
+
+        Note:
+            Transient failures (timeouts, connection errors) will be automatically
+            retried with exponential backoff.
 
         Example:
             >>> config = SSHConfig(...)

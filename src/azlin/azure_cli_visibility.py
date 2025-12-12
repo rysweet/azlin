@@ -39,6 +39,7 @@ from typing import Any
 from rich.console import Console
 from rich.text import Text
 
+from azlin.retry_handler import retry_with_exponential_backoff
 from azlin.security import AzureCommandSanitizer
 
 logger = logging.getLogger(__name__)
@@ -532,8 +533,14 @@ class AzureCLIExecutor:
         self.progress_indicator = ProgressIndicator()
         self.tty_detector = TTYDetector()
 
+    @retry_with_exponential_backoff(
+        max_attempts=3,
+        initial_delay=1.0,
+        max_delay=30.0,
+        jitter=True,
+    )
     def execute(self, command: list[str]) -> dict[str, Any]:
-        """Execute Azure CLI command with visibility.
+        """Execute Azure CLI command with visibility and automatic retry.
 
         Args:
             command: Command to execute as list (e.g., ["az", "vm", "list"])
@@ -548,6 +555,10 @@ class AzureCLIExecutor:
 
         Raises:
             KeyboardInterrupt: If user cancels with Ctrl+C
+
+        Note:
+            Commands that fail with retryable errors (timeouts, throttling)
+            will be automatically retried with exponential backoff.
 
         Examples:
             >>> result = executor.execute(["az", "vm", "list"])
