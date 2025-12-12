@@ -677,7 +677,9 @@ class TestBastionManagerPopenTimeout:
         cmd = ["az", "network", "bastion", "tunnel", "--name", "test"]
 
         # Mock Popen to hang (never return)
-        with patch("subprocess.Popen", side_effect=lambda *args, **kwargs: __import__("time").sleep(10)):
+        with patch(
+            "subprocess.Popen", side_effect=lambda *args, **kwargs: __import__("time").sleep(10)
+        ):
             # Act & Assert
             with pytest.raises(BastionManagerError, match="timed out after 1 seconds"):
                 manager._create_popen_with_timeout(cmd, timeout=1)
@@ -714,12 +716,15 @@ class TestBastionManagerPopenTimeout:
         """Test that timeout is logged appropriately."""
         # Arrange
         import logging
+
         caplog.set_level(logging.ERROR)
         manager = BastionManager()
         cmd = ["az", "network", "bastion", "tunnel", "--name", "test"]
 
         # Mock Popen to hang
-        with patch("subprocess.Popen", side_effect=lambda *args, **kwargs: __import__("time").sleep(10)):
+        with patch(
+            "subprocess.Popen", side_effect=lambda *args, **kwargs: __import__("time").sleep(10)
+        ):
             # Act & Assert
             with pytest.raises(BastionManagerError, match="timed out"):
                 manager._create_popen_with_timeout(cmd, timeout=1)
