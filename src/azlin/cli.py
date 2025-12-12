@@ -7120,27 +7120,65 @@ def _doit_old_impl(
                                     # This protects against command injection
                                     import shlex
 
-                                    # Check if command contains pipes or redirects (shell features)
-                                    if any(
-                                        char in cmd for char in ["|", ">", "<", ";", "&", "`", "$("]
-                                    ):
-                                        # For complex shell commands, validate they're safe Az CLI commands
+                                    # Check if command contains pipes (need special handling)
+                                    if "|" in cmd:
+                                        # For piped commands, validate they're safe Az CLI commands
                                         if not cmd.strip().startswith(
                                             ("az ", "terraform ", "kubectl ")
                                         ):
                                             click.echo(
-                                                "  ⚠️  Skipped: Only az/terraform/kubectl commands allowed for shell execution",
+                                                "  ⚠️  Skipped: Only az/terraform/kubectl commands allowed for piped execution",
                                                 err=True,
                                             )
                                             continue
-                                        # Execute with shell for piped commands, but limit risk
-                                        proc_result = subprocess.run(
-                                            cmd,
-                                            shell=True,  # nosec B602 - Commands from failure analyzer, validated above
-                                            capture_output=True,
-                                            text=True,
-                                            timeout=30,
+
+                                        # Execute pipes securely without shell=True
+                                        # Split by pipe and chain processes
+                                        pipe_parts = [part.strip() for part in cmd.split("|")]
+
+                                        try:
+                                            # Start first process
+                                            first_cmd = shlex.split(pipe_parts[0])
+                                            current_proc = subprocess.Popen(
+                                                first_cmd,
+                                                stdout=subprocess.PIPE,
+                                                stderr=subprocess.PIPE,
+                                                text=True,
+                                            )
+
+                                            # Chain remaining processes
+                                            for pipe_cmd in pipe_parts[1:]:
+                                                cmd_parts = shlex.split(pipe_cmd)
+                                                next_proc = subprocess.Popen(
+                                                    cmd_parts,
+                                                    stdin=current_proc.stdout,
+                                                    stdout=subprocess.PIPE,
+                                                    stderr=subprocess.PIPE,
+                                                    text=True,
+                                                )
+                                                if current_proc.stdout:
+                                                    current_proc.stdout.close()
+                                                current_proc = next_proc
+
+                                            # Get final output
+                                            stdout, stderr = current_proc.communicate(timeout=30)
+                                            proc_result = subprocess.CompletedProcess(
+                                                args=cmd,
+                                                returncode=current_proc.returncode or 0,
+                                                stdout=stdout,
+                                                stderr=stderr,
+                                            )
+                                        except Exception as pipe_error:
+                                            click.echo(f"  ⚠️  Pipe execution failed: {pipe_error}", err=True)
+                                            continue
+
+                                    elif any(char in cmd for char in [">", "<", ";", "&", "`", "$("]):
+                                        # Redirects, command chains, and substitutions are not supported
+                                        click.echo(
+                                            "  ⚠️  Skipped: Redirects, command chains, and substitutions not supported",
+                                            err=True,
                                         )
+                                        continue
                                     else:
                                         # Simple commands: use safe list-based execution
                                         cmd_parts = shlex.split(cmd)
