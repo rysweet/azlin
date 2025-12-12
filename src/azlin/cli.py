@@ -2532,16 +2532,29 @@ def _provision_pool(
 
     ssh_key_pair = SSHKeyManager.ensure_key_exists()
 
+    # Check bastion availability once for the entire pool
+    # This ensures consistent behavior with single VM provisioning
+    rg_for_bastion_check = final_rg or f"azlin-rg-{int(time.time())}"
+    use_bastion, bastion_info = orchestrator._check_bastion_availability(
+        rg_for_bastion_check, f"{vm_name} (pool)"
+    )
+    orchestrator.bastion_info = bastion_info  # Store for later use
+
+    # Determine if public IP should be created
+    # Public IP is disabled when using bastion
+    public_ip_enabled = not use_bastion
+
     configs: list[VMConfig] = []
     for i in range(pool):
         vm_name_pool = f"{vm_name}-{i + 1:02d}"
         config_item = orchestrator.provisioner.create_vm_config(
             name=vm_name_pool,
-            resource_group=final_rg or f"azlin-rg-{int(time.time())}",
+            resource_group=rg_for_bastion_check,
             location=final_region,
             size=final_vm_size,
             ssh_public_key=ssh_key_pair.public_key_content,
             session_name=f"{session_name}-{i + 1:02d}" if session_name else None,
+            public_ip_enabled=public_ip_enabled,
         )
         configs.append(config_item)
 
@@ -2580,7 +2593,9 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
         click.echo("\nSuccessfully Provisioned VMs:")
         click.echo("=" * 80)
         for vm in result.successful:
-            click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
+            # Display 'Bastion' instead of empty string when no public IP
+            ip_display = vm.public_ip if vm.public_ip else "(Bastion)"
+            click.echo(f"  {vm.name:<30} {ip_display:<15} {vm.location}")
         click.echo("=" * 80)
 
     if result.failed:
