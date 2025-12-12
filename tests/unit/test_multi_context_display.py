@@ -496,21 +496,6 @@ class TestFormattingMethods:
 
 
 # =============================================================================
-# TESTS: Cost Summary Display
-# =============================================================================
-
-
-class TestCostSummaryDisplay:
-    """Test cost summary display (placeholder)."""
-
-    def test_display_cost_summary_placeholder(self, multi_result_success, mock_console):
-        """Test cost summary method (currently placeholder)."""
-        display = MultiContextDisplay(console=mock_console)
-        # Should not raise error even though not implemented
-        display.display_cost_summary(multi_result_success)
-
-
-# =============================================================================
 # TESTS: Edge Cases
 # =============================================================================
 

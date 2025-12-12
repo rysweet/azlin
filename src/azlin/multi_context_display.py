@@ -259,21 +259,6 @@ class MultiContextDisplay:
 
         self.console.print(summary_table)
 
-    def display_cost_summary(self, result: MultiContextVMResult) -> None:
-        """Display cost summary for multi-context results.
-
-        Args:
-            result: Multi-context query results with cost information
-
-        Note:
-            This is a placeholder for future cost tracking integration.
-            Currently not implemented as it requires CostEstimator integration.
-        """
-        # TODO: Integrate with CostEstimator from modules/cost_estimator.py
-        # This would calculate per-context and aggregate costs
-        logger.debug("Cost summary not yet implemented")
-        pass
-
     def display_error_summary(self, result: MultiContextVMResult) -> None:
         """Display summary of all errors encountered.
 
