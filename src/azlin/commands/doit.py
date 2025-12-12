@@ -112,13 +112,17 @@ def deploy_command(
     help="Session ID to check status",
 )
 def status_command(session: str | None):
-    """Check status of a deployment session.
+    """Check deployment status using Azure CLI.
 
-    TODO: Implement session tracking.
+    Provides guidance on checking your deployed resources using the Azure CLI.
+    For detailed resource information, use 'azlin doit list' instead.
     """
     console = Console()
-    console.print("[yellow]Session status tracking not yet implemented[/yellow]")
-    console.print("For now, use: az group list --output table")
+    console.print("[yellow]For deployment status, use Azure CLI directly:[/yellow]")
+    console.print("  az group list --output table")
+    console.print("\n[cyan]Or use azlin doit commands:[/cyan]")
+    console.print("  azlin doit list        # List all doit-created resources")
+    console.print("  azlin doit show <id>   # Show detailed resource info")
 
 
 @doit_group.command(name="list")
