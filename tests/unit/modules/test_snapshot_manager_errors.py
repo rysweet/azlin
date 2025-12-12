@@ -10,14 +10,12 @@ Tests all error conditions in snapshot management including:
 
 import json
 import subprocess
-from datetime import UTC, datetime
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
 from azlin.modules.snapshot_manager import (
     SnapshotError,
-    SnapshotInfo,
     SnapshotManager,
     SnapshotSchedule,
 )
@@ -208,9 +206,7 @@ class TestVMOperationsErrors:
     @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_get_vm_os_disk_subprocess_failure(self, mock_run):
         """Test that get VM OS disk subprocess failure raises SnapshotError."""
-        mock_run.side_effect = subprocess.CalledProcessError(
-            1, "az", stderr="Error: VM not found"
-        )
+        mock_run.side_effect = subprocess.CalledProcessError(1, "az", stderr="Error: VM not found")
 
         with pytest.raises(SnapshotError, match="Failed to get VM OS disk"):
             SnapshotManager._get_vm_os_disk_id("vm", "rg")
@@ -265,9 +261,7 @@ class TestTagOperationsErrors:
     @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_get_vm_tag_subprocess_failure(self, mock_run):
         """Test that get VM tag subprocess failure raises SnapshotError."""
-        mock_run.side_effect = subprocess.CalledProcessError(
-            1, "az", stderr="Error: VM not found"
-        )
+        mock_run.side_effect = subprocess.CalledProcessError(1, "az", stderr="Error: VM not found")
 
         with pytest.raises(SnapshotError, match="Failed to get VM tag"):
             SnapshotManager._get_vm_tag("vm", "rg", "tag-key")
@@ -301,9 +295,7 @@ class TestTagOperationsErrors:
     @patch("azlin.modules.snapshot_manager.subprocess.run")
     def test_remove_vm_tag_subprocess_failure(self, mock_run):
         """Test that remove VM tag subprocess failure raises SnapshotError."""
-        mock_run.side_effect = subprocess.CalledProcessError(
-            1, "az", stderr="Error: Tag not found"
-        )
+        mock_run.side_effect = subprocess.CalledProcessError(1, "az", stderr="Error: Tag not found")
 
         with pytest.raises(SnapshotError, match="Failed to remove VM tag"):
             SnapshotManager._remove_vm_tag("vm", "rg", "tag-key")
