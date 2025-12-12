@@ -69,9 +69,7 @@ class TestGenerateCloudInit:
         ]
 
         for package in required_packages:
-            assert (
-                package in cloud_init
-            ), f"Required package '{package}' not found in cloud-init"
+            assert package in cloud_init, f"Required package '{package}' not found in cloud-init"
 
     def test_cloud_init_has_valid_structure(self):
         """Test that cloud-init has valid YAML structure.
@@ -205,12 +203,8 @@ class TestCloudInitPackageOrder:
 
         # Verify structure
         assert packages_pos < runcmd_pos, "packages section should come before runcmd"
-        assert (
-            packages_pos < pip_pos < runcmd_pos
-        ), "python3-pip should be in packages section"
-        assert (
-            packages_pos < pipx_pos < runcmd_pos
-        ), "pipx should be in packages section"
+        assert packages_pos < pip_pos < runcmd_pos, "python3-pip should be in packages section"
+        assert packages_pos < pipx_pos < runcmd_pos, "pipx should be in packages section"
 
     def test_packages_section_has_correct_yaml_formatting(self):
         """Test that packages are formatted as YAML list items.
