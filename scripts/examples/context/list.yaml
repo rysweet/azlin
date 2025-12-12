@@ -1,0 +1,62 @@
+command: list
+examples:
+  - title: List All Contexts
+    description: Display all available Azure contexts with their details
+    command: azlin context list
+    output: |
+      Available contexts:
+
+      * dev-context (active)
+        Subscription: Visual Studio Enterprise
+        Resource Group: azlin-dev-rg
+        Region: eastus
+        VMs: 3 running
+
+        prod-context
+        Subscription: Production Subscription
+        Resource Group: azlin-prod-rg
+        Region: westus2
+        VMs: 5 running
+
+        staging-context
+        Subscription: Staging Subscription
+        Resource Group: azlin-staging-rg
+        Region: centralus
+        VMs: 2 running
+
+  - title: List Contexts with JSON Output
+    description: Get context information in JSON format for scripting
+    command: azlin context list --format json
+    output: |
+      [
+        {
+          "name": "dev-context",
+          "active": true,
+          "subscription": "Visual Studio Enterprise",
+          "resource_group": "azlin-dev-rg",
+          "region": "eastus",
+          "vm_count": 3
+        },
+        {
+          "name": "prod-context",
+          "active": false,
+          "subscription": "Production Subscription",
+          "resource_group": "azlin-prod-rg",
+          "region": "westus2",
+          "vm_count": 5
+        }
+      ]
+
+  - title: List Contexts Verbosely
+    description: Show detailed information about each context
+    command: azlin context list --verbose
+    output: |
+      Context: dev-context (ACTIVE)
+        Subscription ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+        Subscription Name: Visual Studio Enterprise
+        Resource Group: azlin-dev-rg
+        Region: eastus
+        VM Count: 3
+        Storage Accounts: 2
+        Created: 2024-01-15
+        Last Used: 2024-12-11
