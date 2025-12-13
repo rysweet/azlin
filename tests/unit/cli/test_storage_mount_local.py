@@ -139,7 +139,8 @@ class TestStorageMountLocalCommandSyntax:
         runner = CliRunner()
         with runner.isolated_filesystem():
             result = runner.invoke(
-                main, ["storage", "mount", "local", "--mount-point", "~/azure", "--storage", "myaccount"]
+                main,
+                ["storage", "mount", "local", "--mount-point", "~/azure", "--storage", "myaccount"],
             )
 
             # Should succeed
