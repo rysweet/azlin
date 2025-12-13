@@ -1321,6 +1321,26 @@ azlin storage mount myteam-shared --vm existing-vm
 # Now all VMs share the same home directory!
 ```
 
+### Cross-Region NFS Support
+
+**NEW:** Azure Files NFS now supports cross-region mounting via private endpoints. When you create a VM in a different region than your NFS storage, azlin will:
+
+- Show performance warnings (cross-region latency: ~50-100ms vs ~1-5ms same-region)
+- Estimate data transfer costs
+- Automatically set up private endpoints and VNet peering
+- Enable secure cross-region access
+
+```bash
+# Create storage in eastus
+azlin storage create team-data --size 100 --region eastus
+
+# Create VM in westus - cross-region mount supported!
+azlin new --nfs-storage team-data --region westus --name worker-west
+# azlin will prompt about cross-region performance implications
+```
+
+**Performance Note:** Cross-region NFS mounting is fully supported and secure, but may have higher latency and data transfer costs compared to same-region access.
+
 ### Provisioning VMs with Shared Storage
 
 The easiest way to use shared storage is to specify it when creating a new VM:

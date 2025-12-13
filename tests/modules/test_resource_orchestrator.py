@@ -272,31 +272,10 @@ class TestEnsureNFSAccess:
         choice_interactions = handler.get_interactions_by_type("choice")
         assert len(choice_interactions) == 1
 
-    def test_cross_region_nfs_use_local_storage(self):
-        """Test using local storage when user declines cross-region NFS."""
-        # User chooses option 1 (use local storage)
-        handler = MockInteractionHandler(choice_responses=[1])
-        orchestrator = ResourceOrchestrator(
-            interaction_handler=handler,
-        )
-
-        options = NFSOptions(
-            region="westus",
-            resource_group="my-rg",
-            storage_account_name="myaccount",
-            storage_account_region="eastus",
-            share_name="home-share",
-        )
-
-        decision = orchestrator.ensure_nfs_access(options)
-
-        assert decision.action == DecisionAction.SKIP
-        assert decision.metadata["fallback"] == "local-storage"
-
     def test_cross_region_nfs_cancel(self):
         """Test cancelling operation during cross-region NFS prompt."""
-        # User chooses option 2 (cancel)
-        handler = MockInteractionHandler(choice_responses=[2])
+        # User chooses option 1 (cancel - now index 1 after removing local storage option)
+        handler = MockInteractionHandler(choice_responses=[1])
         orchestrator = ResourceOrchestrator(
             interaction_handler=handler,
         )
@@ -608,8 +587,7 @@ class TestIntegration:
 
         nfs_decision = orchestrator.ensure_nfs_access(nfs_options)
 
-        assert nfs_decision.action == DecisionAction.SKIP
-        assert nfs_decision.metadata["fallback"] == "local-storage"
+        assert nfs_decision.action == DecisionAction.CANCEL
 
         # Verify both interactions occurred
         assert len(handler.interactions) >= 2

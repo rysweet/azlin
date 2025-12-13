@@ -608,34 +608,11 @@ class TestResourceOrchestratorNFSDecisions:
         assert len(warnings) >= 1
         assert any("cross-region" in w["message"].lower() for w in warnings)
 
-    def test_ensure_nfs_access_cross_region_user_uses_local_storage(self):
-        """Test cross-region NFS when user chooses local storage fallback."""
-        # Arrange
-        # User chooses option 1 (use local storage)
-        handler = MockInteractionHandler(choice_responses=[1])
-        orchestrator = ResourceOrchestrator(interaction_handler=handler)
-
-        options = NFSOptions(
-            region="westus",
-            resource_group="test-rg",
-            storage_account_name="mystorageacct",
-            storage_account_region="eastus",
-            share_name="home",
-        )
-
-        # Act
-        decision = orchestrator.ensure_nfs_access(options)
-
-        # Assert
-        assert decision.action == DecisionAction.SKIP
-        assert decision.resource_type == ResourceType.NFS
-        assert decision.metadata["fallback"] == "local-storage"
-
     def test_ensure_nfs_access_cross_region_user_cancels(self):
         """Test cross-region NFS when user cancels."""
         # Arrange
-        # User chooses option 2 (cancel)
-        handler = MockInteractionHandler(choice_responses=[2])
+        # User chooses option 1 (cancel - now index 1 after removing local storage option)
+        handler = MockInteractionHandler(choice_responses=[1])
         orchestrator = ResourceOrchestrator(interaction_handler=handler)
 
         options = NFSOptions(
@@ -652,6 +629,46 @@ class TestResourceOrchestratorNFSDecisions:
         # Assert
         assert decision.action == DecisionAction.CANCEL
         assert decision.resource_type == ResourceType.NFS
+
+    def test_cross_region_nfs_shows_performance_warnings(self):
+        """Test that cross-region NFS shows appropriate performance warnings."""
+        # Arrange
+        # User approves setup (option 0)
+        handler = MockInteractionHandler(choice_responses=[0])
+        orchestrator = ResourceOrchestrator(interaction_handler=handler)
+
+        options = NFSOptions(
+            region="westus",
+            resource_group="test-rg",
+            storage_account_name="mystorageacct",
+            storage_account_region="eastus",
+            share_name="home",
+        )
+
+        # Act
+        decision = orchestrator.ensure_nfs_access(options)
+
+        # Assert - decision approved
+        assert decision.action == DecisionAction.CREATE
+        assert decision.metadata["cross_region"] is True
+        assert "latency_warning" in decision.metadata
+        assert "50-100ms" in decision.metadata["latency_warning"]
+
+        # Assert - performance warnings shown
+        warnings = handler.get_interactions_by_type("warning")
+        infos = handler.get_interactions_by_type("info")
+
+        # Should have multiple warnings including performance warning
+        assert len(warnings) >= 2
+        warning_messages = [w["message"] for w in warnings]
+        assert any("PERFORMANCE WARNING" in msg for msg in warning_messages)
+        assert any("cross-region" in msg.lower() for msg in warning_messages)
+
+        # Should have info about latency and cost
+        info_messages = [i["message"] for i in infos]
+        assert any("latency" in msg.lower() for msg in info_messages)
+        assert any("50-100ms" in msg for msg in info_messages)
+        assert any("private endpoint" in msg.lower() for msg in info_messages)
 
 
 class TestNFSDataReplication:
