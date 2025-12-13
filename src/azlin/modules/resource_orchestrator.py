@@ -478,7 +478,7 @@ class ResourceOrchestrator:
         self.interaction_handler.show_warning(
             f"\nNFS share is in {options.storage_account_region}, but VM is in {options.region}."
         )
-        self.interaction_handler.show_warning("⚠️  PERFORMANCE WARNING: Cross-region NFS mounting")
+        self.interaction_handler.show_warning("PERFORMANCE WARNING: Cross-region NFS mounting")
         self.interaction_handler.show_info(
             "Cross-region access will incur:\n"
             "  • Data transfer charges (egress/ingress between regions)\n"
@@ -486,8 +486,8 @@ class ResourceOrchestrator:
             f"  • Estimated cost: ${cost_estimate['monthly']:.2f}/month"
         )
         self.interaction_handler.show_info(
-            "\nℹ️  Azure Files NFS supports cross-region access via private endpoints.\n"
-            "   This is secure and reliable, but performance may be impacted."
+            "\nINFO: Azure Files NFS supports cross-region access via private endpoints.\n"
+            "      This is secure and reliable, but performance may be impacted."
         )
 
         choices = [
