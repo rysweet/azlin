@@ -257,8 +257,8 @@ class BudgetEnforcer:
                 message = f"Successfully stopped VM: {action.vm_name}"
                 success = True
             elif action.action_type == "downsize":
-                # TODO: Implement downsize logic
-                message = f"Downsize not yet implemented for: {action.vm_name}"
+                # Note: VM downsizing requires deallocating and resizing, which is not implemented
+                message = f"Downsize action is not supported for: {action.vm_name}"
                 success = False
             elif action.action_type == "alert":
                 self.notification_handler.send_notification(
