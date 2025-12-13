@@ -5707,17 +5707,20 @@ def sync(vm_name: str | None, dry_run: bool, resource_group: str | None, config:
 
 
 @main.command()
-@click.argument("source")
-@click.argument("destination")
+@click.argument("args", nargs=-1, required=True)
 @click.option("--dry-run", is_flag=True, help="Show what would be transferred")
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 def cp(
-    source: str, destination: str, dry_run: bool, resource_group: str | None, config: str | None
+    args: tuple[str, ...],
+    dry_run: bool,
+    resource_group: str | None,
+    config: str | None,
 ):
     """Copy files between local machine and VMs.
 
     Supports bidirectional file transfer with security-hardened path validation.
+    Accepts multiple source files when copying to a single destination.
 
     Arguments support session:path notation:
     - Local path: myfile.txt
@@ -5725,46 +5728,30 @@ def cp(
 
     \b
     Examples:
-        azlin cp myfile.txt vm1:~/          # Local to remote
-        azlin cp vm1:~/data.txt ./          # Remote to local
-        azlin cp vm1:~/src vm2:~/dest       # Remote to remote (not supported)
-        azlin cp --dry-run test.txt vm1:~/  # Show transfer plan
+        azlin cp myfile.txt vm1:~/                     # Single file to remote
+        azlin cp file1.txt file2.txt file3.py vm1:~/   # Multiple files to remote
+        azlin cp vm1:~/data.txt ./                     # Remote to local
+        azlin cp vm1:~/src vm2:~/dest                  # Remote to remote (not supported)
+        azlin cp --dry-run test.txt vm1:~/             # Show transfer plan
     """
     src_manager, dst_manager = None, None
     try:
+        # Parse args: all but last are sources, last is destination
+        if len(args) < 2:
+            click.echo("Error: At least one source and one destination required", err=True)
+            click.echo("Usage: azlin cp SOURCE... DESTINATION", err=True)
+            sys.exit(1)
+
+        sources = args[:-1]
+        destination = args[-1]
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
         # Get SSH key
         SSHKeyManager.ensure_key_exists()
 
-        # Parse source
-        source_session_name, source_path_str = SessionManager.parse_session_path(source)
-
-        if source_session_name is None:
-            # Local source - resolve from cwd, allow absolute paths
-            source_path = PathParser.parse_and_validate(source_path_str, is_local=True)
-            source_endpoint = TransferEndpoint(path=source_path, session=None)
-        else:
-            # Remote source
-            if not rg:
-                click.echo("Error: Resource group required for remote sessions.", err=True)
-                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
-                sys.exit(1)
-
-            # Get session (returns tuple now)
-            vm_session, src_manager = SessionManager.get_vm_session(
-                source_session_name, rg, VMManager
-            )
-
-            # Parse remote path (allow relative to home)
-            source_path = PathParser.parse_and_validate(
-                source_path_str, allow_absolute=True, base_dir=Path("/home") / vm_session.user
-            )
-
-            source_endpoint = TransferEndpoint(path=source_path, session=vm_session)
-
-        # Parse destination
+        # Parse destination first (shared by all sources)
         dest_session_name, dest_path_str = SessionManager.parse_session_path(destination)
 
         if dest_session_name is None:
@@ -5790,12 +5777,77 @@ def cp(
 
             dest_endpoint = TransferEndpoint(path=dest_path, session=vm_session)
 
+        # Parse all sources and create endpoints
+        source_endpoints: list[TransferEndpoint] = []
+        for source in sources:
+            source_session_name, source_path_str = SessionManager.parse_session_path(source)
+
+            if source_session_name is None:
+                # Local source - resolve from cwd, allow absolute paths
+                source_path = PathParser.parse_and_validate(source_path_str, is_local=True)
+                source_endpoint = TransferEndpoint(path=source_path, session=None)
+            else:
+                # Remote source
+                if not rg:
+                    click.echo("Error: Resource group required for remote sessions.", err=True)
+                    click.echo(
+                        "Use --resource-group or set default in ~/.azlin/config.toml", err=True
+                    )
+                    sys.exit(1)
+
+                # Get session (returns tuple now) - reuse if same session
+                if src_manager is None:
+                    vm_session, src_manager = SessionManager.get_vm_session(
+                        source_session_name, rg, VMManager
+                    )
+                else:
+                    # Already have a session - verify it's the same VM
+                    vm_session, _ = SessionManager.get_vm_session(
+                        source_session_name, rg, VMManager
+                    )
+
+                # Parse remote path (allow relative to home)
+                source_path = PathParser.parse_and_validate(
+                    source_path_str, allow_absolute=True, base_dir=Path("/home") / vm_session.user
+                )
+
+                source_endpoint = TransferEndpoint(path=source_path, session=vm_session)
+
+            source_endpoints.append(source_endpoint)
+
+        # Validate all sources are from the same location (all local or all same remote)
+        first_source = source_endpoints[0]
+        for idx, src_endpoint in enumerate(source_endpoints[1:], start=1):
+            if (first_source.session is None) != (src_endpoint.session is None):
+                click.echo(
+                    "Error: All sources must be from the same location "
+                    "(either all local or all from the same VM)",
+                    err=True,
+                )
+                sys.exit(1)
+            if first_source.session and src_endpoint.session:
+                if first_source.session.name != src_endpoint.session.name:
+                    click.echo(
+                        "Error: All remote sources must be from the same VM", err=True
+                    )
+                    sys.exit(1)
+
         # Display transfer plan
         click.echo("\nTransfer Plan:")
-        if source_endpoint.session is None:
-            click.echo(f"  Source: {source_endpoint.path} (local)")
+        if len(source_endpoints) == 1:
+            if source_endpoints[0].session is None:
+                click.echo(f"  Source: {source_endpoints[0].path} (local)")
+            else:
+                click.echo(
+                    f"  Source: {source_endpoints[0].session.name}:{source_endpoints[0].path}"
+                )
         else:
-            click.echo(f"  Source: {source_endpoint.session.name}:{source_endpoint.path}")
+            click.echo(f"  Sources: {len(source_endpoints)} files")
+            for src_endpoint in source_endpoints:
+                if src_endpoint.session is None:
+                    click.echo(f"    - {src_endpoint.path} (local)")
+                else:
+                    click.echo(f"    - {src_endpoint.session.name}:{src_endpoint.path}")
 
         if dest_endpoint.session is None:
             click.echo(f"  Dest:   {dest_endpoint.path} (local)")
@@ -5808,20 +5860,59 @@ def cp(
             click.echo("Dry run - no files transferred")
             return
 
-        # Execute transfer
-        result = FileTransfer.transfer(source_endpoint, dest_endpoint)
+        # Execute transfers
+        total_files = 0
+        total_bytes = 0
+        total_duration = 0.0
+        all_errors: list[str] = []
 
-        if result.success:
+        for idx, source_endpoint in enumerate(source_endpoints, start=1):
+            if len(source_endpoints) > 1:
+                source_name = (
+                    source_endpoint.path.name
+                    if source_endpoint.session is None
+                    else f"{source_endpoint.session.name}:{source_endpoint.path.name}"
+                )
+                click.echo(f"[{idx}/{len(source_endpoints)}] Transferring {source_name}...")
+
+            result = FileTransfer.transfer(source_endpoint, dest_endpoint)
+
+            total_files += result.files_transferred
+            total_bytes += result.bytes_transferred
+            total_duration += result.duration_seconds
+
+            if result.success:
+                if len(source_endpoints) > 1:
+                    click.echo(
+                        f"  ✓ {result.bytes_transferred / 1024:.1f} KB "
+                        f"in {result.duration_seconds:.1f}s"
+                    )
+            else:
+                all_errors.extend(result.errors)
+                if len(source_endpoints) > 1:
+                    click.echo(f"  ✗ Failed: {result.errors[0] if result.errors else 'Unknown error'}")
+
+        # Display summary
+        if all_errors:
+            click.echo("\nTransfer completed with errors:", err=True)
             click.echo(
-                f"Success! Transferred {result.files_transferred} files "
-                f"({result.bytes_transferred / 1024:.1f} KB) "
-                f"in {result.duration_seconds:.1f}s"
+                f"Transferred {total_files} files ({total_bytes / 1024:.1f} KB) "
+                f"in {total_duration:.1f}s"
             )
-        else:
-            click.echo("Transfer failed:", err=True)
-            for error in result.errors:
+            for error in all_errors:
                 click.echo(f"  {error}", err=True)
             sys.exit(1)
+        else:
+            if len(source_endpoints) > 1:
+                click.echo(
+                    f"\nSuccess! Transferred {total_files} files "
+                    f"({total_bytes / 1024:.1f} KB) in {total_duration:.1f}s"
+                )
+            else:
+                click.echo(
+                    f"Success! Transferred {total_files} files "
+                    f"({total_bytes / 1024:.1f} KB) in {total_duration:.1f}s"
+                )
 
     except FileTransferError as e:
         click.echo(f"Error: {e}", err=True)
