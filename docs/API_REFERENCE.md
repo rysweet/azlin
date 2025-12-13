@@ -28,6 +28,19 @@ This document provides a comprehensive reference for all public APIs in the azli
 - [Cost & Resource Management](#cost--resource-management)
   - [Cost Tracking](#cost-tracking)
   - [Resource Cleanup](#resource-cleanup)
+- [Cost Optimization & Intelligence](#cost-optimization--intelligence)
+  - [Cost Dashboard](#cost-dashboard)
+  - [Cost Optimizer](#cost-optimizer)
+  - [Cost History & Trends](#cost-history--trends)
+  - [Budget Management](#budget-management)
+  - [Cost Actions](#cost-actions)
+- [Monitoring & Metrics](#monitoring--metrics)
+  - [VM Metrics Collection](#vm-metrics-collection)
+- [Network Security Management](#network-security-management)
+  - [NSG Management & Validation](#nsg-management--validation)
+- [Multi-Tenant Context Management](#multi-tenant-context-management)
+  - [Context Management](#context-management)
+  - [Fleet Orchestration](#fleet-orchestration)
 - [Remote Execution](#remote-execution)
   - [Command Execution](#command-execution)
   - [Batch Operations](#batch-operations)
@@ -3523,6 +3536,1731 @@ __all__ = ["EnvManager", "EnvManagerError"]
 
 ---
 
+## Cost Optimization & Intelligence
+
+### Cost Dashboard
+
+#### `azlin.costs.dashboard`
+
+Real-time cost dashboard with Azure API integration and caching.
+
+**Classes:**
+
+##### `CostDashboard`
+
+Main dashboard interface for real-time cost tracking.
+
+```python
+class CostDashboard:
+    """Real-time cost dashboard with Azure API integration.
+
+    Philosophy:
+    - Performance first: < 2 seconds response time with 5-minute cache
+    - Ruthless simplicity: Direct Azure API calls with local caching
+    """
+
+    def __init__(self, resource_group: str, cache_ttl: int = 300):
+        """Initialize dashboard with Azure client.
+
+        Args:
+            resource_group: Azure resource group name
+            cache_ttl: Cache TTL in seconds (default: 300)
+        """
+
+    def get_metrics(self, force_refresh: bool = False) -> DashboardMetrics:
+        """Get current cost metrics.
+
+        Args:
+            force_refresh: Force cache refresh (default: False)
+
+        Returns:
+            DashboardMetrics with cost data
+
+        Raises:
+            CostDashboardError: If metrics fetch fails
+        """
+
+    def get_resource_breakdown(self) -> list[ResourceCostBreakdown]:
+        """Get per-resource cost breakdown.
+
+        Returns:
+            List of ResourceCostBreakdown sorted by cost
+        """
+```
+
+**Data Classes:**
+
+```python
+@dataclass
+class DashboardMetrics:
+    """Dashboard cost metrics."""
+    total_cost: Decimal
+    daily_cost: Decimal
+    monthly_projection: Decimal
+    resource_breakdown: list[ResourceCostBreakdown]
+    last_updated: datetime
+    previous_day_cost: Decimal | None = None
+
+    def get_cost_trend(self) -> str:
+        """Calculate cost trend (increasing/decreasing/stable)."""
+
+    def get_cost_change_percent(self) -> Decimal:
+        """Calculate percentage change from previous day."""
+
+    def get_top_resources(self, n: int) -> list[ResourceCostBreakdown]:
+        """Get top N resources by cost."""
+
+@dataclass
+class ResourceCostBreakdown:
+    """Per-resource cost breakdown."""
+    resource_type: str
+    resource_name: str
+    cost: Decimal
+    percentage: Decimal
+
+    def format(self) -> str:
+        """Format for display."""
+
+class CostDashboardCache:
+    """Caching mechanism for dashboard metrics."""
+
+    def __init__(self, ttl_seconds: int = 300):
+        """Initialize cache with TTL."""
+
+    def get(self, key: str) -> DashboardMetrics | None:
+        """Retrieve metrics from cache if not expired."""
+
+    def set(self, key: str, metrics: DashboardMetrics) -> None:
+        """Store metrics in cache with timestamp."""
+
+    def is_expired(self, key: str) -> bool:
+        """Check if cache entry is expired."""
+
+    def clear(self) -> None:
+        """Clear entire cache."""
+```
+
+**Example:**
+
+```python
+from azlin.costs.dashboard import (
+    CostDashboard,
+    DashboardMetrics,
+    CostDashboardError
+)
+
+try:
+    # Create dashboard for resource group
+    dashboard = CostDashboard(
+        resource_group="azlin-rg",
+        cache_ttl=300  # 5 minute cache
+    )
+
+    # Get current metrics
+    metrics = dashboard.get_metrics()
+    print(f"Total cost: ${metrics.total_cost:.2f}")
+    print(f"Daily cost: ${metrics.daily_cost:.2f}")
+    print(f"Monthly projection: ${metrics.monthly_projection:.2f}")
+    print(f"Trend: {metrics.get_cost_trend()}")
+
+    # Get top 5 resources by cost
+    top_resources = metrics.get_top_resources(5)
+    for resource in top_resources:
+        print(resource.format())
+
+    # Force refresh cache
+    metrics = dashboard.get_metrics(force_refresh=True)
+
+except CostDashboardError as e:
+    print(f"Dashboard error: {e}")
+```
+
+**Exports:**
+```python
+__all__ = [
+    "CostDashboard",
+    "CostDashboardCache",
+    "CostDashboardError",
+    "DashboardMetrics",
+    "ResourceCostBreakdown",
+]
+```
+
+---
+
+### Cost Optimizer
+
+#### `azlin.costs.optimizer`
+
+AI-powered cost optimization recommendations engine.
+
+**Classes:**
+
+##### `CostOptimizer`
+
+Main optimization orchestrator that coordinates all detectors.
+
+```python
+class CostOptimizer:
+    """Main cost optimization orchestrator.
+
+    Coordinates multiple detectors to generate comprehensive
+    optimization recommendations.
+    """
+
+    def __init__(self, resource_group: str):
+        """Initialize optimizer with resource group.
+
+        Args:
+            resource_group: Azure resource group name
+        """
+
+    def get_recommendations(
+        self,
+        include_oversized: bool = True,
+        include_idle: bool = True,
+        include_scheduling: bool = True
+    ) -> list[OptimizationRecommendation]:
+        """Get all optimization recommendations.
+
+        Args:
+            include_oversized: Include oversized VM detection
+            include_idle: Include idle resource detection
+            include_scheduling: Include scheduling opportunities
+
+        Returns:
+            List of OptimizationRecommendation sorted by priority
+        """
+
+    def estimate_total_savings(
+        self,
+        recommendations: list[OptimizationRecommendation]
+    ) -> Decimal:
+        """Calculate total estimated savings from recommendations.
+
+        Args:
+            recommendations: List of recommendations
+
+        Returns:
+            Total monthly savings estimate
+        """
+```
+
+##### `OversizedVMDetector`
+
+Detector for oversized/underutilized VMs.
+
+```python
+class OversizedVMDetector:
+    """Detect oversized/underutilized VMs."""
+
+    def __init__(
+        self,
+        cpu_threshold: float = 30.0,
+        memory_threshold: float = 30.0
+    ):
+        """Initialize detector with utilization thresholds.
+
+        Args:
+            cpu_threshold: CPU utilization threshold (%)
+            memory_threshold: Memory utilization threshold (%)
+        """
+
+    def analyze_vm(
+        self,
+        vm_name: str,
+        vm_metrics: dict
+    ) -> OptimizationRecommendation | None:
+        """Analyze VM for downsizing opportunities.
+
+        Args:
+            vm_name: VM name
+            vm_metrics: Dict with cpu_avg, memory_avg, vm_size, cost_per_hour
+
+        Returns:
+            OptimizationRecommendation if downsize opportunity found, None otherwise
+        """
+```
+
+##### `IdleResourceDetector`
+
+Detector for idle/unused resources.
+
+```python
+class IdleResourceDetector:
+    """Detect idle/unused resources."""
+
+    def __init__(self, snapshot_retention_days: int = 90):
+        """Initialize detector with retention policy.
+
+        Args:
+            snapshot_retention_days: Days to retain snapshots
+        """
+
+    def analyze_stopped_vm(self, vm_info: dict) -> OptimizationRecommendation | None:
+        """Analyze stopped VMs for deletion opportunities."""
+
+    def analyze_disk(self, disk_info: dict) -> OptimizationRecommendation | None:
+        """Analyze disks for unattached resources."""
+```
+
+##### `SchedulingOpportunity`
+
+Identify scheduling opportunities for cost savings.
+
+```python
+class SchedulingOpportunity:
+    """Identify VM scheduling opportunities."""
+
+    def __init__(self):
+        """Initialize scheduling detector."""
+
+    def analyze_vm_usage(
+        self,
+        vm_name: str,
+        usage_pattern: dict
+    ) -> OptimizationRecommendation | None:
+        """Analyze VM usage patterns for scheduling opportunities.
+
+        Args:
+            vm_name: VM name
+            usage_pattern: Dict with hourly usage data
+
+        Returns:
+            OptimizationRecommendation if scheduling opportunity found
+        """
+```
+
+**Data Classes:**
+
+```python
+class RecommendationPriority(Enum):
+    """Recommendation priority levels."""
+    HIGH = 3
+    MEDIUM = 2
+    LOW = 1
+
+@dataclass
+class OptimizationRecommendation:
+    """Optimization recommendation data structure."""
+    resource_name: str
+    resource_type: str
+    action: str
+    reason: str
+    estimated_savings: Decimal
+    priority: RecommendationPriority
+    details: dict = field(default_factory=dict)
+    suggested_size: str | None = None
+    schedule: str | None = None
+
+    def format(self) -> str:
+        """Format recommendation for CLI display."""
+```
+
+**Example:**
+
+```python
+from azlin.costs.optimizer import (
+    CostOptimizer,
+    OversizedVMDetector,
+    IdleResourceDetector,
+    RecommendationPriority
+)
+
+# Get comprehensive optimization recommendations
+optimizer = CostOptimizer(resource_group="azlin-rg")
+recommendations = optimizer.get_recommendations()
+
+# Display recommendations by priority
+high_priority = [r for r in recommendations if r.priority == RecommendationPriority.HIGH]
+for rec in high_priority:
+    print(rec.format())
+
+# Calculate total potential savings
+total_savings = optimizer.estimate_total_savings(recommendations)
+print(f"Total potential savings: ${total_savings:.2f}/month")
+
+# Analyze specific VM for downsizing
+detector = OversizedVMDetector(cpu_threshold=30.0, memory_threshold=30.0)
+vm_metrics = {
+    "cpu_avg": 15.0,
+    "memory_avg": 20.0,
+    "vm_size": "Standard_D8s_v5",
+    "cost_per_hour": 0.384
+}
+recommendation = detector.analyze_vm("my-vm", vm_metrics)
+if recommendation:
+    print(f"Downsize recommendation: {recommendation.format()}")
+```
+
+**Exports:**
+```python
+__all__ = [
+    "CostOptimizer",
+    "IdleResourceDetector",
+    "OptimizationRecommendation",
+    "OversizedVMDetector",
+    "RecommendationPriority",
+    "SchedulingOpportunity",
+]
+```
+
+---
+
+### Cost History & Trends
+
+#### `azlin.costs.history`
+
+Historical cost tracking and trend analysis.
+
+**Classes:**
+
+##### `CostHistory`
+
+Track and query historical cost data.
+
+```python
+class CostHistory:
+    """Historical cost tracking with SQLite storage."""
+
+    def __init__(self, db_path: str | None = None):
+        """Initialize cost history tracker.
+
+        Args:
+            db_path: Path to SQLite database (default: ~/.azlin/cost_history.db)
+        """
+
+    def record_cost(
+        self,
+        resource_group: str,
+        cost: Decimal,
+        timestamp: datetime | None = None
+    ) -> None:
+        """Record cost data point.
+
+        Args:
+            resource_group: Resource group name
+            cost: Cost amount
+            timestamp: Timestamp (default: now)
+        """
+
+    def get_cost_range(
+        self,
+        resource_group: str,
+        start_date: datetime,
+        end_date: datetime
+    ) -> list[CostHistoryEntry]:
+        """Get cost history for date range.
+
+        Args:
+            resource_group: Resource group name
+            start_date: Start date
+            end_date: End date
+
+        Returns:
+            List of CostHistoryEntry
+        """
+```
+
+##### `TrendAnalyzer`
+
+Analyze cost trends and patterns.
+
+```python
+class TrendAnalyzer:
+    """Analyze cost trends and patterns."""
+
+    @classmethod
+    def analyze_trend(
+        cls,
+        history: list[CostHistoryEntry]
+    ) -> CostTrend:
+        """Analyze cost trend from history.
+
+        Args:
+            history: List of cost history entries
+
+        Returns:
+            CostTrend with analysis results
+        """
+
+    @classmethod
+    def detect_anomalies(
+        cls,
+        history: list[CostHistoryEntry],
+        threshold: float = 2.0
+    ) -> list[CostHistoryEntry]:
+        """Detect cost anomalies using statistical analysis.
+
+        Args:
+            history: List of cost history entries
+            threshold: Standard deviation threshold
+
+        Returns:
+            List of anomalous entries
+        """
+```
+
+**Data Classes:**
+
+```python
+@dataclass
+class CostHistoryEntry:
+    """Historical cost data point."""
+    timestamp: datetime
+    cost: Decimal
+    resource_group: str
+
+class TimeRange(Enum):
+    """Time range options for history queries."""
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+
+@dataclass
+class CostTrend:
+    """Cost trend analysis results."""
+    direction: str  # "increasing", "decreasing", "stable"
+    rate_of_change: Decimal
+    average_cost: Decimal
+    peak_cost: Decimal
+    low_cost: Decimal
+```
+
+**Example:**
+
+```python
+from azlin.costs.history import (
+    CostHistory,
+    TrendAnalyzer,
+    TimeRange
+)
+from datetime import datetime, timedelta
+
+# Initialize cost history tracker
+history = CostHistory()
+
+# Record daily costs
+history.record_cost("azlin-rg", Decimal("45.67"))
+
+# Get 30-day cost history
+end_date = datetime.now()
+start_date = end_date - timedelta(days=30)
+entries = history.get_cost_range("azlin-rg", start_date, end_date)
+
+# Analyze trends
+trend = TrendAnalyzer.analyze_trend(entries)
+print(f"Cost trend: {trend.direction}")
+print(f"Average cost: ${trend.average_cost:.2f}")
+print(f"Rate of change: {trend.rate_of_change:.2f}%")
+
+# Detect anomalies (costs > 2 std dev from mean)
+anomalies = TrendAnalyzer.detect_anomalies(entries, threshold=2.0)
+for anomaly in anomalies:
+    print(f"Anomaly detected on {anomaly.timestamp}: ${anomaly.cost:.2f}")
+```
+
+**Exports:**
+```python
+__all__ = [
+    "CostHistory",
+    "CostHistoryEntry",
+    "CostTrend",
+    "TimeRange",
+    "TrendAnalyzer",
+]
+```
+
+---
+
+### Budget Management
+
+#### `azlin.costs.budget`
+
+Budget tracking, alerts, and forecasting.
+
+**Classes:**
+
+##### `BudgetAlertManager`
+
+Manage budget alerts and thresholds.
+
+```python
+class BudgetAlertManager:
+    """Manage budget alerts and notifications."""
+
+    def __init__(self, resource_group: str):
+        """Initialize budget alert manager.
+
+        Args:
+            resource_group: Azure resource group name
+        """
+
+    def set_budget(
+        self,
+        amount: Decimal,
+        thresholds: list[BudgetThreshold]
+    ) -> None:
+        """Set budget with alert thresholds.
+
+        Args:
+            amount: Monthly budget amount
+            thresholds: List of alert thresholds
+        """
+
+    def check_budget(self, current_cost: Decimal) -> list[BudgetAlert]:
+        """Check current cost against budget thresholds.
+
+        Args:
+            current_cost: Current monthly cost
+
+        Returns:
+            List of triggered BudgetAlert
+        """
+
+    def forecast_budget(
+        self,
+        current_cost: Decimal,
+        days_elapsed: int
+    ) -> BudgetForecast:
+        """Forecast end-of-month cost.
+
+        Args:
+            current_cost: Current month-to-date cost
+            days_elapsed: Days elapsed in current month
+
+        Returns:
+            BudgetForecast with projection
+        """
+```
+
+**Data Classes:**
+
+```python
+@dataclass
+class BudgetThreshold:
+    """Budget alert threshold."""
+    percentage: int  # 50, 80, 100, etc.
+    action: str  # "notify", "stop_vms", "alert"
+
+@dataclass
+class BudgetAlert:
+    """Budget alert notification."""
+    threshold_percentage: int
+    current_percentage: int
+    budget_amount: Decimal
+    current_cost: Decimal
+    action: str
+
+@dataclass
+class BudgetForecast:
+    """Budget forecast projection."""
+    projected_cost: Decimal
+    budget_amount: Decimal
+    projected_percentage: int
+    will_exceed: bool
+    days_to_exceed: int | None
+```
+
+**Example:**
+
+```python
+from azlin.costs.budget import (
+    BudgetAlertManager,
+    BudgetThreshold,
+    BudgetForecast
+)
+
+# Set up budget with thresholds
+manager = BudgetAlertManager(resource_group="azlin-rg")
+
+thresholds = [
+    BudgetThreshold(percentage=50, action="notify"),
+    BudgetThreshold(percentage=80, action="alert"),
+    BudgetThreshold(percentage=100, action="stop_vms"),
+]
+
+manager.set_budget(amount=Decimal("1000.00"), thresholds=thresholds)
+
+# Check current cost against budget
+current_cost = Decimal("850.00")
+alerts = manager.check_budget(current_cost)
+for alert in alerts:
+    print(f"Alert: {alert.current_percentage}% of budget ({alert.action})")
+
+# Forecast end-of-month cost
+forecast = manager.forecast_budget(current_cost=Decimal("350.00"), days_elapsed=10)
+print(f"Projected cost: ${forecast.projected_cost:.2f}")
+if forecast.will_exceed:
+    print(f"Budget will exceed in {forecast.days_to_exceed} days")
+```
+
+**Exports:**
+```python
+__all__ = [
+    "BudgetAlert",
+    "BudgetAlertManager",
+    "BudgetForecast",
+    "BudgetThreshold",
+]
+```
+
+---
+
+### Cost Actions
+
+#### `azlin.costs.actions`
+
+Automated cost optimization actions executor.
+
+**Classes:**
+
+##### `ActionExecutor`
+
+Execute cost optimization actions.
+
+```python
+class ActionExecutor:
+    """Execute cost optimization actions."""
+
+    def __init__(self, resource_group: str, dry_run: bool = False):
+        """Initialize action executor.
+
+        Args:
+            resource_group: Azure resource group
+            dry_run: If True, don't execute actions (default: False)
+        """
+
+    def execute_action(
+        self,
+        action: AutomatedAction
+    ) -> ActionResult:
+        """Execute a single cost optimization action.
+
+        Args:
+            action: Action to execute
+
+        Returns:
+            ActionResult with execution status
+        """
+
+    def execute_batch(
+        self,
+        actions: list[AutomatedAction]
+    ) -> list[ActionResult]:
+        """Execute multiple actions in batch.
+
+        Args:
+            actions: List of actions to execute
+
+        Returns:
+            List of ActionResult
+        """
+```
+
+**Data Classes:**
+
+```python
+class ActionStatus(Enum):
+    """Action execution status."""
+    SUCCESS = "success"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+@dataclass
+class AutomatedAction:
+    """Automated cost optimization action."""
+    action_type: str  # "resize", "stop", "delete", "schedule"
+    resource_name: str
+    resource_type: str
+    parameters: dict
+
+@dataclass
+class VMResizeAction(AutomatedAction):
+    """VM resize action."""
+    target_size: str
+
+@dataclass
+class VMScheduleAction(AutomatedAction):
+    """VM scheduling action."""
+    start_time: str  # "08:00"
+    stop_time: str   # "18:00"
+    days: list[str]  # ["Mon", "Tue", "Wed", "Thu", "Fri"]
+
+@dataclass
+class ResourceDeleteAction(AutomatedAction):
+    """Resource deletion action."""
+    confirmation_required: bool = True
+
+@dataclass
+class ActionResult:
+    """Action execution result."""
+    action: AutomatedAction
+    status: ActionStatus
+    message: str
+    execution_time: float
+```
+
+**Example:**
+
+```python
+from azlin.costs.actions import (
+    ActionExecutor,
+    VMResizeAction,
+    VMScheduleAction,
+    ActionStatus
+)
+
+# Execute VM resize (dry-run mode)
+executor = ActionExecutor(resource_group="azlin-rg", dry_run=True)
+
+resize_action = VMResizeAction(
+    action_type="resize",
+    resource_name="my-vm",
+    resource_type="VirtualMachine",
+    parameters={},
+    target_size="Standard_D2s_v5"
+)
+
+result = executor.execute_action(resize_action)
+print(f"Action {result.status.value}: {result.message}")
+
+# Execute VM scheduling
+schedule_action = VMScheduleAction(
+    action_type="schedule",
+    resource_name="dev-vm",
+    resource_type="VirtualMachine",
+    parameters={},
+    start_time="08:00",
+    stop_time="18:00",
+    days=["Mon", "Tue", "Wed", "Thu", "Fri"]
+)
+
+result = executor.execute_action(schedule_action)
+
+# Execute batch actions
+actions = [resize_action, schedule_action]
+results = executor.execute_batch(actions)
+success_count = sum(1 for r in results if r.status == ActionStatus.SUCCESS)
+print(f"Executed {success_count}/{len(actions)} actions successfully")
+```
+
+**Exports:**
+```python
+__all__ = [
+    "ActionExecutor",
+    "ActionResult",
+    "ActionStatus",
+    "AutomatedAction",
+    "ResourceDeleteAction",
+    "VMResizeAction",
+    "VMScheduleAction",
+]
+```
+
+---
+
+## Monitoring & Metrics
+
+### VM Metrics Collection
+
+#### `azlin.monitoring`
+
+Comprehensive monitoring capabilities for Azure VMs including metrics collection, storage, and alerting.
+
+**Classes:**
+
+##### `MetricsCollector`
+
+Azure Monitor API client for collecting VM metrics.
+
+```python
+class MetricsCollector:
+    """Collect VM metrics from Azure Monitor API."""
+
+    def __init__(self, subscription_id: str, resource_group: str):
+        """Initialize metrics collector.
+
+        Args:
+            subscription_id: Azure subscription ID
+            resource_group: Resource group name
+        """
+
+    def collect_metrics(
+        self,
+        vm_name: str,
+        metrics: list[str] | None = None
+    ) -> list[VMMetric]:
+        """Collect metrics for a VM.
+
+        Args:
+            vm_name: VM name
+            metrics: List of metric names to collect (default: cpu, memory, disk, network)
+
+        Returns:
+            List of VMMetric objects
+        """
+```
+
+##### `MetricsStorage`
+
+SQLite-based metrics persistence with retention policies.
+
+```python
+class MetricsStorage:
+    """SQLite-based metrics storage with retention."""
+
+    def __init__(self, db_path: Path | None = None, retention_days: int = 30):
+        """Initialize metrics storage.
+
+        Args:
+            db_path: Path to SQLite database (default: ~/.azlin/metrics.db)
+            retention_days: Days to retain metrics (default: 30)
+        """
+
+    def store_metric(self, metric: VMMetric) -> None:
+        """Store a single metric."""
+
+    def store_metrics(self, metrics: list[VMMetric]) -> None:
+        """Store multiple metrics in batch."""
+
+    def get_metrics(
+        self,
+        vm_name: str,
+        metric_name: str,
+        start_time: datetime,
+        end_time: datetime
+    ) -> list[VMMetric]:
+        """Query metrics for time range."""
+
+    def cleanup_old_metrics(self) -> int:
+        """Remove metrics older than retention period.
+
+        Returns:
+            Number of metrics deleted
+        """
+```
+
+##### `AlertEngine`
+
+Alert evaluation and notification engine.
+
+```python
+class AlertEngine:
+    """Alert evaluation and notification engine."""
+
+    def __init__(self, rules_config: Path | None = None):
+        """Initialize alert engine.
+
+        Args:
+            rules_config: Path to YAML rules configuration
+        """
+
+    def evaluate_metric(
+        self,
+        vm_name: str,
+        metric: VMMetric
+    ) -> list[Alert]:
+        """Evaluate metric against all rules.
+
+        Args:
+            vm_name: VM name
+            metric: Metric to evaluate
+
+        Returns:
+            List of triggered Alert objects
+        """
+
+    def send_alert(self, alert: Alert) -> None:
+        """Send alert via configured notification channels.
+
+        Args:
+            alert: Alert to send
+        """
+
+    def load_rules(self) -> list[AlertRule]:
+        """Load alert rules from configuration."""
+```
+
+**Data Classes:**
+
+```python
+@dataclass
+class VMMetric:
+    """VM metric data point."""
+    vm_name: str
+    metric_name: str
+    value: float
+    timestamp: datetime
+    unit: str = ""
+
+class AlertSeverity(Enum):
+    """Alert severity levels."""
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+@dataclass
+class AlertRule:
+    """Alert rule definition."""
+    name: str
+    metric: str
+    threshold: float
+    comparison: str  # ">", "<", ">=", "<=", "=="
+    severity: AlertSeverity
+    enabled: bool = True
+    notification_channels: list[str] = field(default_factory=list)
+
+@dataclass
+class Alert:
+    """Triggered alert data model."""
+    rule_name: str
+    vm_name: str
+    metric: str
+    actual_value: float
+    threshold: float
+    severity: AlertSeverity
+    timestamp: datetime
+    message: str
+```
+
+**Example:**
+
+```python
+from azlin.monitoring import (
+    MetricsCollector,
+    MetricsStorage,
+    AlertEngine,
+    AlertRule,
+    AlertSeverity
+)
+from datetime import datetime, timedelta
+
+# Collect VM metrics
+collector = MetricsCollector(
+    subscription_id="12345678-1234-1234-1234-123456789012",
+    resource_group="azlin-rg"
+)
+metrics = collector.collect_metrics("my-vm")
+
+# Store metrics
+storage = MetricsStorage(retention_days=30)
+storage.store_metrics(metrics)
+
+# Query historical metrics
+end_time = datetime.now()
+start_time = end_time - timedelta(hours=24)
+cpu_metrics = storage.get_metrics(
+    vm_name="my-vm",
+    metric_name="cpu_percent",
+    start_time=start_time,
+    end_time=end_time
+)
+
+# Set up alerts
+alert_engine = AlertEngine()
+for metric in metrics:
+    alerts = alert_engine.evaluate_metric("my-vm", metric)
+    for alert in alerts:
+        print(f"{alert.severity.value}: {alert.message}")
+        alert_engine.send_alert(alert)
+
+# Cleanup old metrics
+deleted_count = storage.cleanup_old_metrics()
+print(f"Cleaned up {deleted_count} old metrics")
+```
+
+**Exports:**
+```python
+__all__ = [
+    "Alert",
+    "AlertEngine",
+    "AlertRule",
+    "AlertSeverity",
+    "MetricsCollector",
+    "MetricsStorage",
+    "VMMetric",
+]
+```
+
+---
+
+## Network Security Management
+
+### NSG Management & Validation
+
+#### `azlin.network_security`
+
+Comprehensive network security management including NSG validation, Bastion connection pooling, security scanning, and VPN management.
+
+**Classes:**
+
+##### `NSGValidator`
+
+Validate NSG templates against security policies.
+
+```python
+class NSGValidator:
+    """Validate NSG (Network Security Group) templates."""
+
+    def __init__(self, policy: SecurityPolicy):
+        """Initialize NSG validator.
+
+        Args:
+            policy: Security policy for validation
+        """
+
+    def validate_template(
+        self,
+        nsg_template: dict
+    ) -> ValidationResult:
+        """Validate NSG template against policy.
+
+        Args:
+            nsg_template: NSG template dictionary
+
+        Returns:
+            ValidationResult with findings
+        """
+
+    def validate_rule(
+        self,
+        rule: dict,
+        rule_type: str
+    ) -> list[PolicyFinding]:
+        """Validate individual NSG rule.
+
+        Args:
+            rule: NSG rule dictionary
+            rule_type: "inbound" or "outbound"
+
+        Returns:
+            List of PolicyFinding objects
+        """
+```
+
+##### `SecurityPolicy`
+
+Security policy engine for NSG rules.
+
+```python
+class SecurityPolicy:
+    """Security policy engine for NSG rule validation."""
+
+    def __init__(self, config_path: Path | None = None):
+        """Initialize security policy.
+
+        Args:
+            config_path: Path to policy YAML configuration
+        """
+
+    def check_rule(
+        self,
+        rule: dict,
+        rule_type: str
+    ) -> list[PolicyFinding]:
+        """Check rule against all policies.
+
+        Args:
+            rule: NSG rule to check
+            rule_type: "inbound" or "outbound"
+
+        Returns:
+            List of policy violations
+        """
+
+    def is_allowed_port(self, port: int, protocol: str) -> bool:
+        """Check if port/protocol combination is allowed."""
+
+    def is_allowed_source(self, source: str) -> bool:
+        """Check if source address is allowed."""
+```
+
+##### `BastionConnectionPool`
+
+Manage reusable Bastion tunnels for improved performance.
+
+```python
+class BastionConnectionPool:
+    """Connection pool for reusable Bastion SSH tunnels."""
+
+    def __init__(
+        self,
+        max_tunnels: int = 10,
+        tunnel_ttl: int = 3600,
+        cleanup_interval: int = 300
+    ):
+        """Initialize connection pool.
+
+        Args:
+            max_tunnels: Maximum concurrent tunnels (default: 10)
+            tunnel_ttl: Tunnel TTL in seconds (default: 3600)
+            cleanup_interval: Cleanup check interval in seconds (default: 300)
+        """
+
+    def get_tunnel(
+        self,
+        vm_name: str,
+        bastion_name: str,
+        resource_group: str
+    ) -> PooledTunnel:
+        """Get existing tunnel or create new one.
+
+        Args:
+            vm_name: Target VM name
+            bastion_name: Bastion host name
+            resource_group: Resource group name
+
+        Returns:
+            PooledTunnel ready for use
+        """
+
+    def release_tunnel(self, tunnel_id: str) -> None:
+        """Release tunnel back to pool."""
+
+    def close_all_tunnels(self) -> None:
+        """Close all tunnels and cleanup."""
+```
+
+##### `SecurityScanner`
+
+Vulnerability scanning integration with Azure Security Center.
+
+```python
+class SecurityScanner:
+    """Vulnerability scanning via Azure Security Center."""
+
+    def __init__(self, subscription_id: str, resource_group: str):
+        """Initialize security scanner.
+
+        Args:
+            subscription_id: Azure subscription ID
+            resource_group: Resource group name
+        """
+
+    def scan_vm(
+        self,
+        vm_name: str
+    ) -> list[SecurityFinding]:
+        """Scan VM for vulnerabilities.
+
+        Args:
+            vm_name: VM to scan
+
+        Returns:
+            List of SecurityFinding objects
+        """
+
+    def scan_all_vms(self) -> dict[str, list[SecurityFinding]]:
+        """Scan all VMs in resource group.
+
+        Returns:
+            Dict mapping VM names to findings
+        """
+```
+
+##### `VPNManager`
+
+VPN gateway configuration and management.
+
+```python
+class VPNManager:
+    """VPN gateway configuration manager."""
+
+    def __init__(self, resource_group: str):
+        """Initialize VPN manager.
+
+        Args:
+            resource_group: Resource group name
+        """
+
+    def create_vpn_gateway(
+        self,
+        name: str,
+        vnet_name: str,
+        sku: str = "VpnGw1"
+    ) -> str:
+        """Create VPN gateway.
+
+        Args:
+            name: Gateway name
+            vnet_name: Virtual network name
+            sku: Gateway SKU (default: VpnGw1)
+
+        Returns:
+            Gateway ID
+
+        Raises:
+            VPNManagerError: If creation fails
+        """
+
+    def configure_site_to_site(
+        self,
+        gateway_name: str,
+        remote_address: str,
+        shared_key: str
+    ) -> None:
+        """Configure site-to-site VPN connection."""
+```
+
+##### `PrivateEndpointManager`
+
+Private endpoint management for secure service access.
+
+```python
+class PrivateEndpointManager:
+    """Manage private endpoints for Azure services."""
+
+    def __init__(self, resource_group: str):
+        """Initialize private endpoint manager.
+
+        Args:
+            resource_group: Resource group name
+        """
+
+    def create_private_endpoint(
+        self,
+        name: str,
+        service_id: str,
+        subnet_id: str
+    ) -> str:
+        """Create private endpoint.
+
+        Args:
+            name: Endpoint name
+            service_id: Azure service resource ID
+            subnet_id: Subnet resource ID
+
+        Returns:
+            Private endpoint ID
+
+        Raises:
+            PrivateEndpointManagerError: If creation fails
+        """
+
+    def list_private_endpoints(self) -> list[dict]:
+        """List all private endpoints in resource group."""
+```
+
+**Data Classes:**
+
+```python
+class RuleSeverity(Enum):
+    """NSG rule validation severity."""
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+
+@dataclass
+class PolicyFinding:
+    """Security policy finding."""
+    rule_name: str
+    severity: RuleSeverity
+    message: str
+    recommendation: str
+
+@dataclass
+class ValidationResult:
+    """NSG validation result."""
+    valid: bool
+    findings: list[PolicyFinding]
+    score: int  # 0-100
+
+@dataclass
+class PooledTunnel:
+    """Pooled Bastion tunnel."""
+    tunnel_id: str
+    vm_name: str
+    local_port: int
+    created_at: datetime
+    last_used: datetime
+
+class ScanSeverity(Enum):
+    """Security finding severity."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+@dataclass
+class SecurityFinding:
+    """Security vulnerability finding."""
+    vm_name: str
+    finding_type: str
+    severity: ScanSeverity
+    title: str
+    description: str
+    remediation: str
+    cve_ids: list[str] = field(default_factory=list)
+```
+
+**Example:**
+
+```python
+from azlin.network_security import (
+    NSGValidator,
+    SecurityPolicy,
+    BastionConnectionPool,
+    SecurityScanner,
+    VPNManager
+)
+
+# Validate NSG template
+policy = SecurityPolicy()
+validator = NSGValidator(policy)
+
+nsg_template = {
+    "security_rules": [
+        {
+            "name": "allow-ssh",
+            "direction": "Inbound",
+            "priority": 100,
+            "protocol": "Tcp",
+            "source_port_range": "*",
+            "destination_port_range": "22",
+            "source_address_prefix": "0.0.0.0/0",  # Too permissive!
+            "destination_address_prefix": "*",
+            "access": "Allow"
+        }
+    ]
+}
+
+result = validator.validate_template(nsg_template)
+if not result.valid:
+    for finding in result.findings:
+        print(f"{finding.severity.value}: {finding.message}")
+        print(f"Recommendation: {finding.recommendation}")
+
+# Use Bastion connection pool
+pool = BastionConnectionPool(max_tunnels=10)
+tunnel = pool.get_tunnel(
+    vm_name="my-vm",
+    bastion_name="my-bastion",
+    resource_group="azlin-rg"
+)
+print(f"Connected via localhost:{tunnel.local_port}")
+# ... use tunnel ...
+pool.release_tunnel(tunnel.tunnel_id)
+
+# Scan VM for vulnerabilities
+scanner = SecurityScanner(
+    subscription_id="12345678-1234-1234-1234-123456789012",
+    resource_group="azlin-rg"
+)
+findings = scanner.scan_vm("my-vm")
+critical = [f for f in findings if f.severity == ScanSeverity.CRITICAL]
+for finding in critical:
+    print(f"CRITICAL: {finding.title}")
+    print(f"CVEs: {', '.join(finding.cve_ids)}")
+    print(f"Remediation: {finding.remediation}")
+
+# Create VPN gateway
+vpn_mgr = VPNManager(resource_group="azlin-rg")
+gateway_id = vpn_mgr.create_vpn_gateway(
+    name="my-vpn-gateway",
+    vnet_name="my-vnet",
+    sku="VpnGw1"
+)
+print(f"Created VPN gateway: {gateway_id}")
+```
+
+**Exports:**
+```python
+__all__ = [
+    "AuditEvent",
+    "AuditEventType",
+    "BastionCleanupDaemon",
+    "BastionConnectionPool",
+    "NSGManager",
+    "NSGValidator",
+    "PolicyFinding",
+    "PooledTunnel",
+    "PrivateEndpointManager",
+    "PrivateEndpointManagerError",
+    "RuleSeverity",
+    "ScanSeverity",
+    "SecurityAuditLogger",
+    "SecurityFinding",
+    "SecurityPolicy",
+    "SecurityScanner",
+    "SecurityScannerError",
+    "VPNManager",
+    "VPNManagerError",
+    "ValidationResult",
+]
+```
+
+---
+
+## Multi-Tenant Context Management
+
+### Context Management
+
+#### `azlin.context_manager`
+
+kubectl-style context management for seamless switching between multiple Azure tenants and subscriptions.
+
+**Classes:**
+
+##### `ContextManager`
+
+Manage Azure subscription and tenant contexts.
+
+```python
+class ContextManager:
+    """Manage Azure subscription/tenant contexts."""
+
+    def __init__(self, config_path: Path | None = None):
+        """Initialize context manager.
+
+        Args:
+            config_path: Path to contexts configuration (default: ~/.azlin/contexts.toml)
+        """
+
+    def create_context(
+        self,
+        name: str,
+        subscription_id: str,
+        tenant_id: str,
+        description: str = ""
+    ) -> None:
+        """Create new context.
+
+        Args:
+            name: Context name
+            subscription_id: Azure subscription ID
+            tenant_id: Azure tenant ID
+            description: Optional description
+        """
+
+    def use_context(self, name: str) -> None:
+        """Switch to specified context.
+
+        Args:
+            name: Context name to activate
+        """
+
+    def get_current_context(self) -> dict | None:
+        """Get current active context.
+
+        Returns:
+            Context dict or None if no context active
+        """
+
+    def list_contexts(self) -> list[dict]:
+        """List all configured contexts.
+
+        Returns:
+            List of context dictionaries
+        """
+
+    def delete_context(self, name: str) -> None:
+        """Delete context.
+
+        Args:
+            name: Context name to delete
+        """
+
+    def rename_context(self, old_name: str, new_name: str) -> None:
+        """Rename context.
+
+        Args:
+            old_name: Current context name
+            new_name: New context name
+        """
+```
+
+**Example:**
+
+```python
+from azlin.context_manager import ContextManager
+
+# Initialize context manager
+ctx_mgr = ContextManager()
+
+# Create contexts for different environments
+ctx_mgr.create_context(
+    name="dev",
+    subscription_id="11111111-1111-1111-1111-111111111111",
+    tenant_id="22222222-2222-2222-2222-222222222222",
+    description="Development environment"
+)
+
+ctx_mgr.create_context(
+    name="prod",
+    subscription_id="33333333-3333-3333-3333-333333333333",
+    tenant_id="44444444-4444-4444-4444-444444444444",
+    description="Production environment"
+)
+
+# Switch between contexts
+ctx_mgr.use_context("dev")
+print(f"Switched to dev context")
+
+# List all contexts
+contexts = ctx_mgr.list_contexts()
+for ctx in contexts:
+    current = " (current)" if ctx.get("current") else ""
+    print(f"{ctx['name']}: {ctx['description']}{current}")
+
+# Get current context
+current = ctx_mgr.get_current_context()
+print(f"Current subscription: {current['subscription_id']}")
+
+# Switch to production
+ctx_mgr.use_context("prod")
+```
+
+**Exports:**
+```python
+__all__ = ["ContextManager", "ContextError"]
+```
+
+---
+
+### Fleet Orchestration
+
+#### `azlin.fleet_orchestrator`
+
+Orchestrate operations across multiple VMs in parallel.
+
+**Classes:**
+
+##### `FleetOrchestrator`
+
+Coordinate operations across VM fleets.
+
+```python
+class FleetOrchestrator:
+    """Orchestrate operations across multiple VMs."""
+
+    def __init__(
+        self,
+        resource_group: str,
+        max_parallel: int = 10,
+        timeout: int = 300
+    ):
+        """Initialize fleet orchestrator.
+
+        Args:
+            resource_group: Azure resource group
+            max_parallel: Maximum parallel operations (default: 10)
+            timeout: Operation timeout in seconds (default: 300)
+        """
+
+    def execute_on_fleet(
+        self,
+        command: str,
+        vm_filter: dict | None = None
+    ) -> dict[str, dict]:
+        """Execute command on multiple VMs in parallel.
+
+        Args:
+            command: Command to execute
+            vm_filter: Optional filter (e.g., {"tag": "env=dev"})
+
+        Returns:
+            Dict mapping VM names to execution results
+        """
+
+    def batch_start(
+        self,
+        vm_pattern: str | None = None,
+        tag_filter: dict | None = None
+    ) -> dict[str, bool]:
+        """Start multiple VMs in parallel.
+
+        Args:
+            vm_pattern: VM name pattern (e.g., "test-*")
+            tag_filter: Tag filter (e.g., {"env": "staging"})
+
+        Returns:
+            Dict mapping VM names to success status
+        """
+
+    def batch_stop(
+        self,
+        vm_pattern: str | None = None,
+        tag_filter: dict | None = None,
+        deallocate: bool = True
+    ) -> dict[str, bool]:
+        """Stop multiple VMs in parallel.
+
+        Args:
+            vm_pattern: VM name pattern
+            tag_filter: Tag filter
+            deallocate: Deallocate VMs (default: True)
+
+        Returns:
+            Dict mapping VM names to success status
+        """
+
+    def sync_files_to_fleet(
+        self,
+        source_path: str,
+        dest_path: str,
+        vm_filter: dict | None = None
+    ) -> dict[str, bool]:
+        """Sync files to multiple VMs.
+
+        Args:
+            source_path: Local source path
+            dest_path: Remote destination path
+            vm_filter: Optional VM filter
+
+        Returns:
+            Dict mapping VM names to success status
+        """
+```
+
+**Example:**
+
+```python
+from azlin.fleet_orchestrator import FleetOrchestrator
+
+# Initialize orchestrator
+orchestrator = FleetOrchestrator(
+    resource_group="azlin-rg",
+    max_parallel=10,
+    timeout=300
+)
+
+# Execute command on all dev VMs
+results = orchestrator.execute_on_fleet(
+    command="git pull origin main",
+    vm_filter={"tag": "env=dev"}
+)
+
+for vm_name, result in results.items():
+    if result["success"]:
+        print(f"{vm_name}: {result['stdout']}")
+    else:
+        print(f"{vm_name}: ERROR - {result['stderr']}")
+
+# Start all test VMs
+start_results = orchestrator.batch_start(vm_pattern="test-*")
+success_count = sum(1 for success in start_results.values() if success)
+print(f"Started {success_count}/{len(start_results)} VMs")
+
+# Stop all staging VMs to save costs
+stop_results = orchestrator.batch_stop(tag_filter={"env": "staging"})
+
+# Sync configuration to all production VMs
+sync_results = orchestrator.sync_files_to_fleet(
+    source_path="~/.azlin/home/",
+    dest_path="~/",
+    vm_filter={"tag": "env=production"}
+)
+```
+
+**Exports:**
+```python
+__all__ = ["FleetOrchestrator", "FleetOperationError"]
+```
+
+---
+
 ## Summary
 
 This API reference covers all public APIs in the azlin project organized by functionality:
@@ -3533,9 +5271,22 @@ This API reference covers all public APIs in the azlin project organized by func
 - **File Operations**: Transfer, Sync
 - **Storage**: NFS Storage, Mounts, Snapshots
 - **Cost Management**: Cost Tracking, Resource Cleanup
+- **Cost Optimization & Intelligence**: Dashboard, Optimizer, History & Trends, Budget Management, Automated Actions
+- **Monitoring & Metrics**: Metrics Collection, Storage with Retention, Alert Engine
+- **Network Security**: NSG Validation, Bastion Connection Pooling, Security Scanning, VPN Management, Private Endpoints
+- **Multi-Tenant Management**: Context Switching, Fleet Orchestration
 - **Remote Execution**: Commands, Batch Operations
 - **Advanced**: Templates, Key Rotation, Monitoring, Terminal Launch
 - **Utilities**: Prerequisites, Progress, Notifications, Tags, Environment
+
+### New in This Version
+
+This API reference now includes comprehensive documentation for:
+
+- **Cost Optimization Intelligence** (5 modules): AI-powered recommendations, real-time dashboards, historical trends, budget alerts, and automated actions
+- **Monitoring & Alerting** (3 modules): Azure Monitor integration, SQLite-based metrics storage, and configurable alert rules
+- **Network Security** (7 modules): NSG policy validation, Bastion connection pooling, vulnerability scanning, VPN management, and private endpoints
+- **Multi-Tenant Operations** (2 modules): kubectl-style context management and parallel fleet orchestration
 
 For usage examples and more details, see:
 - [README.md](../README.md) - User guide and CLI documentation
