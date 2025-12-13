@@ -474,23 +474,29 @@ class ResourceOrchestrator:
             options.region, options.storage_account_region
         )
 
+        # Performance warnings for cross-region NFS
         self.interaction_handler.show_warning(
             f"\nNFS share is in {options.storage_account_region}, but VM is in {options.region}."
         )
+        self.interaction_handler.show_warning(
+            "⚠️  PERFORMANCE WARNING: Cross-region NFS mounting"
+        )
         self.interaction_handler.show_info(
-            "Cross-region access will incur data transfer charges and may have higher latency."
+            "Cross-region access will incur:\n"
+            "  • Data transfer charges (egress/ingress between regions)\n"
+            f"  • Higher latency (~50-100ms vs ~1-5ms same-region)\n"
+            f"  • Estimated cost: ${cost_estimate['monthly']:.2f}/month"
+        )
+        self.interaction_handler.show_info(
+            "\nℹ️  Azure Files NFS supports cross-region access via private endpoints.\n"
+            "   This is secure and reliable, but performance may be impacted."
         )
 
         choices = [
             (
                 "setup-cross-region",
-                "Setup cross-region access (includes private endpoint and data transfer costs)",
+                "Setup cross-region NFS access (includes private endpoint and data transfer costs)",
                 float(cost_estimate["monthly"]),
-            ),
-            (
-                "use-local-storage",
-                "Skip NFS mount - Use VM's local disk instead (no transfer costs)",
-                0.0,
             ),
             (
                 "cancel",
@@ -501,7 +507,7 @@ class ResourceOrchestrator:
 
         try:
             choice_idx = self.interaction_handler.prompt_choice(
-                "How would you like to handle cross-region NFS access?", choices
+                "Proceed with cross-region NFS setup?", choices
             )
             choice_label = choices[choice_idx][0]
         except (KeyboardInterrupt, Exception) as e:
@@ -512,7 +518,7 @@ class ResourceOrchestrator:
             )
 
         if choice_label == "setup-cross-region":
-            logger.info("User chose to setup cross-region NFS access")
+            logger.info("User approved cross-region NFS access setup")
             return ResourceDecision(
                 action=DecisionAction.CREATE,
                 resource_type=ResourceType.NFS,
@@ -526,22 +532,12 @@ class ResourceOrchestrator:
                     "storage_account": options.storage_account_name,
                     "share_name": options.share_name,
                     "estimated_hourly": float(cost_estimate["hourly"]),
+                    "latency_warning": "Cross-region latency: ~50-100ms",
                 },
             )
 
-        if choice_label == "use-local-storage":
-            logger.info("User chose to use local storage instead of NFS")
-            self.interaction_handler.show_info(
-                "VM will use local disk storage. Files will not be shared across VMs."
-            )
-            return ResourceDecision(
-                action=DecisionAction.SKIP,
-                resource_type=ResourceType.NFS,
-                metadata={"fallback": "local-storage"},
-            )
-
         # cancel
-        logger.info("User cancelled operation")
+        logger.info("User cancelled cross-region NFS operation")
         return ResourceDecision(
             action=DecisionAction.CANCEL,
             resource_type=ResourceType.NFS,
