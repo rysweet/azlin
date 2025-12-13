@@ -252,13 +252,15 @@ class QuotaErrorHandler:
         """
         # Build the main error message
         if details.limit > 0 and details.current_usage > 0:
+            available = details.limit - details.current_usage
             message = (
                 f"Insufficient vCPU quota in {details.region} for {details.vm_size}.\n"
                 f"\n"
-                f"Current usage: {details.current_usage} vCPUs\n"
-                f"Quota limit: {details.limit} vCPUs\n"
-                f"Requested: {details.requested} vCPUs\n"
-                f"Available: {details.limit - details.current_usage} vCPUs\n"
+                f"Quota Status:\n"
+                f"  Current usage: {details.current_usage} vCPUs\n"
+                f"  Quota limit:   {details.limit} vCPUs\n"
+                f"  Requested:     {details.requested} vCPUs\n"
+                f"  Available:     {available} vCPUs\n"
             )
         else:
             message = (
@@ -266,15 +268,20 @@ class QuotaErrorHandler:
                 f"The requested VM size exceeds your current quota limit.\n"
             )
 
-        # Add suggestions for smaller sizes
+        # Add suggestions for smaller sizes with cost-awareness
         alternatives = QuotaErrorHandler.suggest_alternatives(details, valid_sizes)
         if alternatives:
-            message += "\nTry a smaller VM size:\n"
+            message += "\nAlternative VM sizes (smaller, lower cost):\n"
             for vm_size, vcpus, tier in alternatives[:3]:  # Show top 3 alternatives
-                message += f"  - {vm_size} ({vcpus} vCPUs)\n"
+                series_marker = " (same series)" if tier == "same-series" else ""
+                message += f"  - {vm_size} ({vcpus} vCPUs){series_marker}\n"
 
-        # Add quota increase information
-        message += "\nTo request a quota increase, visit:\nhttps://aka.ms/azquotaincrease"
+        # Add actionable next steps
+        message += "\nNext steps:\n"
+        message += "1. Try a smaller VM size from the alternatives above\n"
+        message += "2. Delete unused VMs: azlin killall --dry-run\n"
+        message += "3. Check current usage: azlin costs dashboard\n"
+        message += "4. Request quota increase: https://aka.ms/azquotaincrease"
 
         return message
 
