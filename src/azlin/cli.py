@@ -53,6 +53,9 @@ from azlin.click_group import AzlinGroup
 # Auth commands
 from azlin.commands.auth import auth
 
+# Ask commands (Natural Language Fleet Queries)
+from azlin.commands.ask import ask_command, ask_group
+
 # Autopilot commands
 from azlin.commands.autopilot import autopilot_group
 
@@ -2146,6 +2149,12 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
 
     \b
     NATURAL LANGUAGE COMMANDS (AI-POWERED):
+        ask           Query VM fleet using natural language
+                      Example: azlin ask "which VMs cost the most?"
+                      Example: azlin ask "show VMs using >80% disk"
+                      Example: azlin ask "VMs with old Python versions"
+                      Requires: ANTHROPIC_API_KEY environment variable
+
         do            Execute commands using natural language
                       Example: azlin do "create a new vm called Sam"
                       Example: azlin do "sync all my vms"
@@ -8506,6 +8515,10 @@ def snapshot_delete(
 
 # Register auth commands
 main.add_command(auth)
+
+# Register ask commands (Natural Language Fleet Queries)
+main.add_command(ask_group)
+main.add_command(ask_command)
 
 # Register context commands
 main.add_command(context_group)
