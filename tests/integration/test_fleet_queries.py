@@ -7,7 +7,7 @@ Tests the complete workflow:
 4. Display formatting works correctly
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -263,9 +263,7 @@ class TestResultAggregation:
 
         threshold = 80
 
-        filtered = [
-            r for r in results if int(r["value"].strip("%")) > threshold
-        ]
+        filtered = [r for r in results if int(r["value"].strip("%")) > threshold]
 
         assert len(filtered) == 1
         assert filtered[0]["vm_name"] == "vm-2"

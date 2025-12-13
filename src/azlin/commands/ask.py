@@ -164,9 +164,7 @@ def query_fleet(
         # Execute query
         console.print("\n[cyan]Executing query...[/cyan]")
 
-        results = _execute_query_plan(
-            query_plan, vms, resource_group, timeout, max_results, query
-        )
+        results = _execute_query_plan(query_plan, vms, resource_group, timeout, max_results, query)
 
         # Synthesize results
         console.print("\n[cyan]Analyzing results...[/cyan]")
@@ -208,9 +206,7 @@ def _execute_query_plan(
 
             for vm in vms:
                 vm_cost = cost_data.get(vm.name, 0.0)
-                results.append(
-                    {"vm_name": vm.name, "value": f"${vm_cost:.2f}", "metric": "cost"}
-                )
+                results.append({"vm_name": vm.name, "value": f"${vm_cost:.2f}", "metric": "cost"})
         except Exception as e:
             logger.warning(f"Failed to fetch cost data: {e}")
             console.print(f"  [yellow]Warning: Could not fetch cost data: {e}[/yellow]")
@@ -375,4 +371,4 @@ def ask_command(
     )
 
 
-__all__ = ["ask_group", "ask_command"]
+__all__ = ["ask_command", "ask_group"]

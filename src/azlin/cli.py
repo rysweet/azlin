@@ -50,11 +50,11 @@ from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 from azlin.click_group import AzlinGroup
 
-# Auth commands
-from azlin.commands.auth import auth
-
 # Ask commands (Natural Language Fleet Queries)
 from azlin.commands.ask import ask_command, ask_group
+
+# Auth commands
+from azlin.commands.auth import auth
 
 # Autopilot commands
 from azlin.commands.autopilot import autopilot_group

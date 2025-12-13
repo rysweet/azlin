@@ -281,4 +281,4 @@ Output Format (JSON only):
             }
 
 
-__all__ = ["FleetQueryParser", "FleetQueryError", "ResultSynthesizer"]
+__all__ = ["FleetQueryError", "FleetQueryParser", "ResultSynthesizer"]

@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 import pytest
 
 from azlin.agentic.fleet_query_parser import (
-    FleetQueryError,
     FleetQueryParser,
     ResultSynthesizer,
 )
