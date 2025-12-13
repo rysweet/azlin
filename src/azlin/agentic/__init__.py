@@ -8,6 +8,7 @@ from .audit_logger import AuditLogger
 from .command_executor import CommandExecutionError, CommandExecutor, ResultValidator
 from .error_analyzer import ErrorAnalyzer
 from .execution_orchestrator import ExecutionOrchestrator, ExecutionOrchestratorError
+from .fleet_query_parser import FleetQueryError, FleetQueryParser, ResultSynthesizer
 from .intent_parser import CommandPlanner, IntentParseError, IntentParser
 from .objective_manager import ObjectiveError, ObjectiveManager
 from .request_clarifier import ClarificationResult, RequestClarificationError, RequestClarifier
@@ -43,6 +44,8 @@ __all__ = [
     "ExecutionResult",
     "ExecutionStrategy",
     "FailureType",
+    "FleetQueryError",
+    "FleetQueryParser",
     "Intent",
     "IntentParseError",
     "IntentParser",
@@ -52,6 +55,7 @@ __all__ = [
     "ObjectiveStatus",
     "RequestClarificationError",
     "RequestClarifier",
+    "ResultSynthesizer",
     "ResultValidator",
     "SessionContext",
     "Strategy",
