@@ -5825,12 +5825,13 @@ def cp(
                     err=True,
                 )
                 sys.exit(1)
-            if first_source.session and src_endpoint.session:
-                if first_source.session.name != src_endpoint.session.name:
-                    click.echo(
-                        "Error: All remote sources must be from the same VM", err=True
-                    )
-                    sys.exit(1)
+            if (
+                first_source.session
+                and src_endpoint.session
+                and first_source.session.name != src_endpoint.session.name
+            ):
+                click.echo("Error: All remote sources must be from the same VM", err=True)
+                sys.exit(1)
 
         # Display transfer plan
         click.echo("\nTransfer Plan:")
@@ -5890,7 +5891,9 @@ def cp(
             else:
                 all_errors.extend(result.errors)
                 if len(source_endpoints) > 1:
-                    click.echo(f"  ✗ Failed: {result.errors[0] if result.errors else 'Unknown error'}")
+                    click.echo(
+                        f"  ✗ Failed: {result.errors[0] if result.errors else 'Unknown error'}"
+                    )
 
         # Display summary
         if all_errors:
@@ -7390,10 +7393,15 @@ def _doit_old_impl(
                                                 stderr=stderr,
                                             )
                                         except Exception as pipe_error:
-                                            click.echo(f"  ⚠️  Pipe execution failed: {pipe_error}", err=True)
+                                            click.echo(
+                                                f"  ⚠️  Pipe execution failed: {pipe_error}",
+                                                err=True,
+                                            )
                                             continue
 
-                                    elif any(char in cmd for char in [">", "<", ";", "&", "`", "$("]):
+                                    elif any(
+                                        char in cmd for char in [">", "<", ";", "&", "`", "$("]
+                                    ):
                                         # Redirects, command chains, and substitutions are not supported
                                         click.echo(
                                             "  ⚠️  Skipped: Redirects, command chains, and substitutions not supported",

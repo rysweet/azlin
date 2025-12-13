@@ -36,7 +36,6 @@ from typing import Any
 
 from azlin.network_security.security_audit import (
     AuditEvent,
-    AuditEventType,
     SecurityAuditLogger,
 )
 

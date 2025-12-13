@@ -314,9 +314,7 @@ class TestKeyAuditLogger:
 
         monkeypatch.setenv("USER", "testuser")
 
-        logger.log_key_generation(
-            vm_name="test-vm", key_path=Path("/home/user/.ssh/azlin_key")
-        )
+        logger.log_key_generation(vm_name="test-vm", key_path=Path("/home/user/.ssh/azlin_key"))
 
         event = mock_audit.log_event.call_args[0][0]
         assert event.user == "testuser"
@@ -325,9 +323,7 @@ class TestKeyAuditLogger:
         """Test that timestamps are in correct UTC format."""
         logger, mock_audit = audit_logger
 
-        logger.log_key_generation(
-            vm_name="test-vm", key_path=Path("/home/user/.ssh/azlin_key")
-        )
+        logger.log_key_generation(vm_name="test-vm", key_path=Path("/home/user/.ssh/azlin_key"))
 
         event = mock_audit.log_event.call_args[0][0]
         assert event.timestamp.tzinfo is not None  # Timezone-aware

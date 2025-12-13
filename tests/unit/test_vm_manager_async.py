@@ -8,9 +8,8 @@ Tests cover:
 - Backward compatibility with VMManager
 """
 
-import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -117,7 +116,7 @@ class TestAsyncVMManager:
         with patch("asyncio.create_subprocess_exec") as mock_exec:
             # Mock command that times out
             mock_process = AsyncMock()
-            mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+            mock_process.communicate = AsyncMock(side_effect=TimeoutError())
             mock_exec.return_value = mock_process
 
             with pytest.raises(VMManagerError, match="timed out"):
@@ -180,9 +179,7 @@ class TestAsyncVMManager:
         manager = AsyncVMManager("test-rg", cache=mock_cache)
 
         instance_data = {
-            "statuses": [
-                {"code": "PowerState/running", "displayStatus": "VM running"}
-            ]
+            "statuses": [{"code": "PowerState/running", "displayStatus": "VM running"}]
         }
 
         with patch.object(manager, "_run_az_command") as mock_cmd:
@@ -236,9 +233,7 @@ class TestAsyncVMManager:
         }
 
         instance_data = {
-            "statuses": [
-                {"code": "PowerState/running", "displayStatus": "VM running"}
-            ]
+            "statuses": [{"code": "PowerState/running", "displayStatus": "VM running"}]
         }
 
         with patch.object(manager, "_get_instance_view") as mock_view:
@@ -268,10 +263,11 @@ class TestAsyncVMManager:
             }
         ]
 
-        with patch.object(manager, "_get_vms_list") as mock_list, \
-             patch.object(manager, "_get_public_ips") as mock_ips, \
-             patch.object(manager, "_enrich_vm_with_cache") as mock_enrich:
-
+        with (
+            patch.object(manager, "_get_vms_list") as mock_list,
+            patch.object(manager, "_get_public_ips") as mock_ips,
+            patch.object(manager, "_enrich_vm_with_cache") as mock_enrich,
+        ):
             mock_list.return_value = vms_data
             mock_ips.return_value = {}
             mock_enrich.return_value = VMInfo(
@@ -308,10 +304,11 @@ class TestAsyncVMManager:
             },
         ]
 
-        with patch.object(manager, "_get_vms_list") as mock_list, \
-             patch.object(manager, "_get_public_ips") as mock_ips, \
-             patch.object(manager, "_enrich_vm_with_cache") as mock_enrich:
-
+        with (
+            patch.object(manager, "_get_vms_list") as mock_list,
+            patch.object(manager, "_get_public_ips") as mock_ips,
+            patch.object(manager, "_enrich_vm_with_cache") as mock_enrich,
+        ):
             mock_list.return_value = vms_data
             mock_ips.return_value = {}
 
@@ -344,9 +341,16 @@ class TestSyncWrappers:
         """Test synchronous list_vms_parallel wrapper."""
         with patch("azlin.vm_manager_async.AsyncVMManager") as mock_manager_class:
             mock_manager = Mock()
-            mock_manager.list_vms = AsyncMock(return_value=[
-                VMInfo(name="test-vm", resource_group="test-rg", location="westus2", power_state="VM running")
-            ])
+            mock_manager.list_vms = AsyncMock(
+                return_value=[
+                    VMInfo(
+                        name="test-vm",
+                        resource_group="test-rg",
+                        location="westus2",
+                        power_state="VM running",
+                    )
+                ]
+            )
             mock_manager_class.return_value = mock_manager
 
             vms = list_vms_parallel("test-rg", cache=mock_cache)
@@ -365,10 +369,19 @@ class TestSyncWrappers:
                 api_calls=2,
                 vms_found=1,
             )
-            mock_manager.list_vms_with_stats = AsyncMock(return_value=(
-                [VMInfo(name="test-vm", resource_group="test-rg", location="westus2", power_state="VM running")],
-                mock_stats
-            ))
+            mock_manager.list_vms_with_stats = AsyncMock(
+                return_value=(
+                    [
+                        VMInfo(
+                            name="test-vm",
+                            resource_group="test-rg",
+                            location="westus2",
+                            power_state="VM running",
+                        )
+                    ],
+                    mock_stats,
+                )
+            )
             mock_manager_class.return_value = mock_manager
 
             vms, stats = list_vms_parallel_with_stats("test-rg", cache=mock_cache)

@@ -9,11 +9,9 @@ Tests for multiple source file support in cp command:
 - Progress indicators for multiple files
 """
 
-import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pytest
 from click.testing import CliRunner
 
 from azlin.cli import main
@@ -322,8 +320,7 @@ class TestCpMultiSourceValidation:
                         # Assert
                         assert result.exit_code != 0
                         assert (
-                            "same VM" in result.output
-                            or "same location" in result.output.lower()
+                            "same VM" in result.output or "same location" in result.output.lower()
                         )
 
 
