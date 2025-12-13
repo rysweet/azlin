@@ -762,6 +762,8 @@ packages:
   - build-essential
   - software-properties-common
   - ripgrep
+  - python3-pip
+  - pipx
 
 runcmd:
   # Python 3.13+ from deadsnakes PPA

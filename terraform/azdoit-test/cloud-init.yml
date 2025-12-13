@@ -1,8 +1,10 @@
 #cloud-config
-# Install ripgrep during VM first boot
+# Install dev tools during VM first boot
 # Runs during cloud-init final stage before VM is fully ready
 
 package_update: true
 
-runcmd:
-  - apt-get install -y ripgrep
+packages:
+  - ripgrep
+  - python3-pip
+  - pipx
