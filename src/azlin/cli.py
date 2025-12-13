@@ -296,6 +296,26 @@ class CLIOrchestrator:
                 # Backward compatible: generate timestamp-based name
                 vm_name = f"azlin-vm-{timestamp}"
                 logger.info(f"No session name provided, using generated name: {vm_name}")
+
+            # STEP 3.5: Pre-check storage account (if NFS storage is configured)
+            # This prevents late failures after expensive VM provisioning
+            if not self.no_nfs:
+                self.progress.start_operation("Checking storage configuration")
+                try:
+                    # Load config to check for default_nfs_storage
+                    try:
+                        azlin_config = ConfigManager.load_config(self.config_file)
+                    except ConfigError:
+                        azlin_config = AzlinConfig()
+
+                    # Pre-check storage and offer to create if needed
+                    self._check_and_create_storage_if_needed(rg_name, azlin_config)
+                    self.progress.complete(success=True, message="Storage configuration validated")
+                except ValueError as e:
+                    # Storage check failed (user declined to create, or creation failed)
+                    self.progress.complete(success=False)
+                    raise ProvisioningError(str(e)) from e
+
             self.progress.start_operation(f"Provisioning VM: {vm_name}", estimated_seconds=300)
             vm_details = self._provision_vm(vm_name, rg_name, ssh_key_pair.public_key_content)
             self.vm_details = vm_details
@@ -1359,6 +1379,88 @@ class CLIOrchestrator:
             )
 
         return storage
+
+    def _check_and_create_storage_if_needed(
+        self, resource_group: str, config: AzlinConfig | None
+    ) -> None:
+        """Pre-check storage account existence and offer to create if missing.
+
+        This method runs BEFORE VM provisioning to prevent late failures
+        after expensive VM creation. If a storage account is configured
+        but doesn't exist, it offers to create it interactively.
+
+        Args:
+            resource_group: Resource group to check/create storage in
+            config: Configuration object (optional)
+
+        Raises:
+            ValueError: If storage is required but doesn't exist and user declines to create
+        """
+        from azlin.modules.storage_manager import StorageManager
+
+        # Determine which storage we'll need (same logic as _resolve_nfs_storage)
+        storage_name = None
+        if self.nfs_storage:
+            # Priority 1: Explicit --nfs-storage option
+            storage_name = self.nfs_storage
+        elif config and config.default_nfs_storage:
+            # Priority 2: Config file default
+            storage_name = config.default_nfs_storage
+        else:
+            # Priority 3: Auto-detect (will check during mount, no pre-check needed)
+            logger.debug("No storage explicitly configured, will auto-detect if needed")
+            return
+
+        # Check if storage exists
+        try:
+            storages = StorageManager.list_storage(resource_group)
+        except Exception as e:
+            logger.warning(f"Could not list storage accounts: {e}")
+            # Can't verify, proceed and let mount phase handle it
+            return
+
+        storage_exists = any(s.name == storage_name for s in storages)
+
+        if not storage_exists:
+            # Storage is missing - offer to create
+            click.echo(
+                f"\n⚠️  Storage account '{storage_name}' not found in resource group '{resource_group}'."
+            )
+            click.echo("   This storage is required for VM home directory persistence.")
+
+            if click.confirm(f"\n   Create storage account '{storage_name}' now?", default=True):
+                # User accepted - create storage
+                click.echo(f"\nCreating storage account '{storage_name}'...")
+                click.echo(f"  Resource Group: {resource_group}")
+                click.echo(f"  Region: {self.region}")
+                click.echo("  Tier: Premium (high performance)")
+                click.echo("  Size: 100GB")
+
+                # Calculate cost
+                monthly_cost = 100 * 0.153  # Premium tier cost
+                click.echo(f"  Estimated cost: ${monthly_cost:.2f}/month")
+
+                try:
+                    result = StorageManager.create_storage(
+                        name=storage_name,
+                        resource_group=resource_group,
+                        region=self.region,
+                        tier="Premium",  # Default to Premium for performance
+                        size_gb=100,  # Default size
+                    )
+                    click.echo(f"\n✓ Storage account created: {result.name}")
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to create storage account '{storage_name}': {e}\n"
+                        f"Create it manually with: azlin storage create {storage_name}"
+                    ) from e
+            else:
+                # User declined - fail fast before VM provisioning
+                raise ValueError(
+                    f"Storage account '{storage_name}' is required but was not created.\n"
+                    f"Create it with: azlin storage create {storage_name}\n"
+                    f"Or use --no-nfs to skip NFS storage mounting."
+                )
 
     def _resolve_nfs_storage(
         self, resource_group: str, config: AzlinConfig | None
