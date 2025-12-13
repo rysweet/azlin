@@ -202,11 +202,16 @@ def _execute_query_plan(
         console.print("  [dim]Fetching cost data...[/dim]")
         try:
             cost_tracker = CostTracker()
-            cost_data = cost_tracker.get_vm_costs(resource_group)
+            cost_summary = cost_tracker.estimate_costs(resource_group)
 
-            for vm in vms:
-                vm_cost = cost_data.get(vm.name, 0.0)
-                results.append({"vm_name": vm.name, "value": f"${vm_cost:.2f}", "metric": "cost"})
+            for vm_cost in cost_summary.estimates:
+                results.append(
+                    {
+                        "vm_name": vm_cost.vm_name,
+                        "value": f"${vm_cost.estimated_cost:.2f}",
+                        "metric": "cost",
+                    }
+                )
         except Exception as e:
             logger.warning(f"Failed to fetch cost data: {e}")
             console.print(f"  [yellow]Warning: Could not fetch cost data: {e}[/yellow]")
