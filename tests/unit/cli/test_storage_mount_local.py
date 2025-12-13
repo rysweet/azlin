@@ -7,16 +7,13 @@ Tests the CLI interface for local SMB mounting on macOS including:
 - Error handling and user feedback
 """
 
-import platform
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from click.testing import CliRunner
 
 from azlin.cli import main
 from azlin.modules.local_smb_mount import (
-    LocalSMBMountError,
     MountInfo,
     MountResult,
     UnmountResult,
@@ -456,7 +453,8 @@ class TestStorageUnmountLocalCommand:
             )
 
             assert result.exit_code == 0
-            assert "not" in result.output.lower() and "mounted" in result.output.lower()
+            assert "not" in result.output.lower()
+            assert "mounted" in result.output.lower()
 
 
 class TestFinderIntegration:
