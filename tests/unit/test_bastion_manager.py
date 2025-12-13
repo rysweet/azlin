@@ -650,7 +650,11 @@ class TestBastionManagerEdgeCases:
 
 
 class TestBastionManagerPopenTimeout:
-    """Test Popen timeout behavior (Issue #402)."""
+    """Test Popen timeout behavior (Issue #402).
+
+    These tests verify the thread-based timeout protection prevents
+    indefinite hangs when subprocess.Popen stalls during Bastion tunnel creation.
+    """
 
     def test_popen_timeout_success(self):
         """Test successful Popen creation within timeout."""
