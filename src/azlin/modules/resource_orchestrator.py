@@ -478,9 +478,7 @@ class ResourceOrchestrator:
         self.interaction_handler.show_warning(
             f"\nNFS share is in {options.storage_account_region}, but VM is in {options.region}."
         )
-        self.interaction_handler.show_warning(
-            "⚠️  PERFORMANCE WARNING: Cross-region NFS mounting"
-        )
+        self.interaction_handler.show_warning("⚠️  PERFORMANCE WARNING: Cross-region NFS mounting")
         self.interaction_handler.show_info(
             "Cross-region access will incur:\n"
             "  • Data transfer charges (egress/ingress between regions)\n"
