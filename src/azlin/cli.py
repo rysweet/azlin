@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from azlin.modules.storage_manager import StorageInfo
+    from azlin.ssh.latency import LatencyResult
 
 import click
 from rich.console import Console
@@ -3412,9 +3413,8 @@ def list_command(
             try:
                 from azlin.ssh.latency import SSHLatencyMeasurer
 
-                # Get SSH key path from config
-                cfg_dict = ConfigManager.load(config_path=config)
-                ssh_key_path = cfg_dict.get("ssh_key_path", "~/.ssh/id_rsa")
+                # Use default SSH key path
+                ssh_key_path = "~/.ssh/id_rsa"
 
                 # Measure latencies in parallel
                 console_temp = Console()

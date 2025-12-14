@@ -51,12 +51,11 @@ class LatencyResult:
         """
         if self.success and self.latency_ms is not None:
             return f"{round(self.latency_ms)}ms"
-        elif self.error_type == "timeout":
+        if self.error_type == "timeout":
             return "timeout"
-        elif self.error_type == "connection":
+        if self.error_type == "connection":
             return "error"
-        else:
-            return "-"
+        return "-"
 
 
 class SSHLatencyMeasurer:
@@ -99,10 +98,12 @@ class SSHLatencyMeasurer:
         # Host must be valid IP address
         try:
             ipaddress.ip_address(host)
-        except ValueError:
-            raise ValueError(f"Invalid IP address: {host}")
+        except ValueError as e:
+            raise ValueError(f"Invalid IP address: {host}") from e
 
-    def measure_single(self, vm, ssh_user: str = "azureuser", ssh_key_path: str | None = None) -> LatencyResult:
+    def measure_single(
+        self, vm, ssh_user: str = "azureuser", ssh_key_path: str | None = None
+    ) -> LatencyResult:
         """Measure latency for a single VM.
 
         Implementation uses subprocess ssh command:
@@ -122,7 +123,10 @@ class SSHLatencyMeasurer:
         # Skip stopped VMs (should be filtered by caller, but handle gracefully)
         if not vm.is_running():
             return LatencyResult(
-                vm_name=vm.name, success=False, error_type="vm_stopped", error_message="VM is not running"
+                vm_name=vm.name,
+                success=False,
+                error_type="vm_stopped",
+                error_message="VM is not running",
             )
 
         # Use private_ip for direct SSH connection
@@ -131,7 +135,10 @@ class SSHLatencyMeasurer:
         # Check if IP is valid
         if not host or host == "N/A":
             return LatencyResult(
-                vm_name=vm.name, success=False, error_type="connection", error_message="VM has no IP address"
+                vm_name=vm.name,
+                success=False,
+                error_type="connection",
+                error_message="VM has no IP address",
             )
 
         # Validate inputs at boundary to prevent injection
@@ -196,7 +203,9 @@ class SSHLatencyMeasurer:
                 vm_name=vm.name, success=False, error_type="unknown", error_message=str(e)
             )
 
-    def measure_batch(self, vms: list, ssh_user: str = "azureuser", ssh_key_path: str | None = None) -> dict[str, LatencyResult]:
+    def measure_batch(
+        self, vms: list, ssh_user: str = "azureuser", ssh_key_path: str | None = None
+    ) -> dict[str, LatencyResult]:
         """Measure latency for multiple VMs in parallel.
 
         Uses ThreadPoolExecutor to measure all VMs concurrently:
@@ -225,7 +234,8 @@ class SSHLatencyMeasurer:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all tasks
             future_to_vm = {
-                executor.submit(self.measure_single, vm, ssh_user, ssh_key_path): vm for vm in running_vms
+                executor.submit(self.measure_single, vm, ssh_user, ssh_key_path): vm
+                for vm in running_vms
             }
 
             # Collect results as they complete
