@@ -104,11 +104,7 @@ class TestSessionCreationWorkflow:
         manager.close_session(session_id)
 
         # Session should be removed
-<<<<<<< HEAD
-        with pytest.raises(KeyError):  # Should raise KeyError for closed session
-=======
         with pytest.raises(KeyError):  # Should raise KeyError for non-existent session
->>>>>>> origin/main
             manager.get_session(session_id)
 
     def test_multiple_concurrent_sessions(self):
