@@ -246,8 +246,8 @@ class TestFleetQueryParser:
 
         parser = FleetQueryParser(api_key="test-key")
 
-        # Should raise some kind of error
-        with pytest.raises(Exception):
+        # Should raise some kind of error (broad exception since API error type varies)
+        with pytest.raises(Exception):  # noqa: B017, PT011
             parser.parse_query("test query")
 
 
