@@ -74,6 +74,7 @@ from azlin.commands.costs import costs_group
 from azlin.commands.doit import doit_group
 from azlin.commands.fleet import fleet_group
 from azlin.commands.github_runner import github_runner_group
+from azlin.commands.monitoring import status
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
@@ -6808,6 +6809,7 @@ def _set_clone_session_names(
             ConfigManager.set_session_name(vm.name, session_name, config_path)
             click.echo(f"  Set session name: {session_name} -> {vm.name}")
 
+
 # Status command moved to azlin.commands.monitoring (Issue #423 - cli.py decomposition POC)
 
 
@@ -9151,6 +9153,9 @@ main.add_command(fleet_group)
 
 # Register GitHub runner commands
 main.add_command(github_runner_group)
+
+# Register monitoring commands (Issue #423 - cli.py decomposition POC)
+main.add_command(status)
 
 # Register doit commands (replace old doit if it exists)
 if "doit" in main.commands:
