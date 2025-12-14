@@ -23,8 +23,6 @@ logger = logging.getLogger(__name__)
 class QuotaManagerError(Exception):
     """Raised when quota management operations fail."""
 
-    pass
-
 
 @dataclass
 class QuotaInfo:
@@ -108,6 +106,37 @@ class QuotaManager:
         "Standard_F8s_v2": 8,
         "Standard_F16s_v2": 16,
         "Standard_F32s_v2": 32,
+    }
+
+    # VM size to memory mapping (hardcoded for common sizes, in GB)
+    VM_SIZE_MEMORY: dict[str, int] = {
+        # B-series (Burstable)
+        "Standard_B1s": 1,  # 1 GB
+        "Standard_B1ms": 2,  # 2 GB
+        "Standard_B2s": 4,  # 4 GB
+        "Standard_B2ms": 8,  # 8 GB
+        "Standard_B4ms": 16,  # 16 GB
+        "Standard_B8ms": 32,  # 32 GB
+        # D-series v3 (General Purpose)
+        "Standard_D2s_v3": 8,  # 8 GB
+        "Standard_D4s_v3": 16,  # 16 GB
+        "Standard_D8s_v3": 32,  # 32 GB
+        "Standard_D16s_v3": 64,  # 64 GB
+        "Standard_D32s_v3": 128,  # 128 GB
+        # E-series v5 (Memory Optimized - AMD)
+        "Standard_E2as_v5": 16,  # 16 GB
+        "Standard_E4as_v5": 32,  # 32 GB
+        "Standard_E8as_v5": 64,  # 64 GB
+        "Standard_E16as_v5": 128,  # 128 GB
+        "Standard_E32as_v5": 256,  # 256 GB
+        "Standard_E48as_v5": 384,  # 384 GB
+        "Standard_E64as_v5": 512,  # 512 GB
+        # F-series v2 (Compute Optimized - Less memory per vCPU)
+        "Standard_F2s_v2": 4,  # 4 GB
+        "Standard_F4s_v2": 8,  # 8 GB
+        "Standard_F8s_v2": 16,  # 16 GB
+        "Standard_F16s_v2": 32,  # 32 GB
+        "Standard_F32s_v2": 64,  # 64 GB
     }
 
     @classmethod
@@ -225,23 +254,26 @@ class QuotaManager:
         Returns:
             Number of vCPUs for the VM size, or 0 if unknown
         """
-        # Try hardcoded mapping first
-        if vm_size in cls.VM_SIZE_VCPUS:
-            return cls.VM_SIZE_VCPUS[vm_size]
+        return cls.VM_SIZE_VCPUS.get(vm_size, 0)
 
-        # Try to extract from size name (e.g., "Standard_D8s_v3" -> 8)
-        import re
+    @classmethod
+    def get_vm_size_memory(cls, vm_size: str) -> int:
+        """Get memory in GB for a VM size.
 
-        match = re.search(r"_([A-Z])(\d+)", vm_size)
-        if match:
-            try:
-                return int(match.group(2))
-            except ValueError:
-                pass
+        Args:
+            vm_size: Azure VM size (e.g., "Standard_B2s")
 
-        # Unknown VM size
-        logger.warning(f"Unknown VM size for vCPU mapping: {vm_size}")
-        return 0
+        Returns:
+            Memory in GB for the VM size, or 0 if unknown
+
+        Examples:
+            >>> QuotaManager.get_vm_size_memory("Standard_D4s_v3")
+            16
+
+            >>> QuotaManager.get_vm_size_memory("UnknownSize")
+            0
+        """
+        return cls.VM_SIZE_MEMORY.get(vm_size, 0)
 
     @classmethod
     def get_regional_quotas(cls, locations: list[str]) -> dict[str, list[QuotaInfo]]:

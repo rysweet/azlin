@@ -1,9 +1,5 @@
 """Integration test for credential rotation workflow."""
 
-from pathlib import Path
-
-import pytest
-
 from azlin.service_principal_auth import ServicePrincipalManager
 
 
@@ -20,13 +16,13 @@ class TestCredentialRotationWorkflow:
             profile_name="test-sp",
             client_id="12345678-1234-1234-1234-123456789012",
             tenant_id="87654321-4321-4321-4321-210987654321",
-            client_secret="old-secret",  # noqa: S105
+            client_secret="old-secret",
         )
 
         # Rotate credential
         manager.update_profile_secret(
             profile_name="test-sp",
-            new_secret="new-secret",  # noqa: S105
+            new_secret="new-secret",
         )
 
         # Verify new secret

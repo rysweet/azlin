@@ -5,7 +5,6 @@ Tests real workflow: Quota check → Warning → Block workflow
 
 import json
 import subprocess
-from decimal import Decimal
 
 import pytest
 
@@ -163,9 +162,7 @@ class TestStorageQuotaEnforcementWorkflow:
             # Test allowed scenario
             current_accounts_ok = 5
 
-            should_block_ok = (
-                current_accounts_ok >= quota_config["max_storage_accounts"]
-            )
+            should_block_ok = current_accounts_ok >= quota_config["max_storage_accounts"]
             assert should_block_ok is False
 
         except Exception as e:

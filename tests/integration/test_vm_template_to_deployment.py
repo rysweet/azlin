@@ -1,7 +1,5 @@
 """Integration test for template expansion to ARM deployment."""
 
-from pathlib import Path
-
 import pytest
 
 from azlin.template_manager import TemplateManager

@@ -3,11 +3,9 @@
 Tests real workflow: Path parsing → Session creation → Transfer decision
 """
 
-from pathlib import Path
-
 import pytest
 
-from azlin.modules.file_transfer.file_transfer import FileTransfer, TransferEndpoint
+from azlin.modules.file_transfer.file_transfer import TransferEndpoint
 from azlin.modules.file_transfer.path_parser import PathParser
 from azlin.modules.file_transfer.session_manager import SessionManager
 

@@ -1,13 +1,11 @@
 """Integration test for VM provisioning with NFS mount workflow."""
 
-import json
 import subprocess
 
 import pytest
 
 from azlin.modules.nfs_mount_manager import NFSMountManager
 from azlin.modules.nfs_provisioner import NFSProvisioner
-from azlin.modules.storage_manager import StorageManager
 
 
 class TestVMWithNFSProvisioningWorkflow:

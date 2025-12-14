@@ -1,7 +1,5 @@
 """Integration test for certificate-based authentication."""
 
-from pathlib import Path
-
 import pytest
 
 from azlin.certificate_validator import CertificateValidator

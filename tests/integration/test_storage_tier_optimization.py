@@ -1,7 +1,5 @@
 """Integration test for storage tier optimization workflow."""
 
-import pytest
-
 
 class TestStorageTierOptimization:
     """Test storage tier optimization workflow."""

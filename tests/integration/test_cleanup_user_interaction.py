@@ -1,7 +1,5 @@
 """Integration test for cleanup user interaction workflow."""
 
-import pytest
-
 from azlin.modules.interaction_handler import CLIInteractionHandler, MockInteractionHandler
 
 
@@ -10,9 +8,7 @@ class TestCleanupUserInteraction:
 
     def test_mock_interaction_handler_confirmation(self):
         """Test mock interaction handler for testing."""
-        handler = MockInteractionHandler(
-            confirm_responses={"cleanup": True, "delete_all": False}
-        )
+        handler = MockInteractionHandler(confirm_responses={"cleanup": True, "delete_all": False})
 
         # Test confirmation
         assert handler.confirm("Proceed with cleanup?", key="cleanup") is True
