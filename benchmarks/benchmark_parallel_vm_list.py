@@ -11,7 +11,6 @@ Usage:
 """
 
 import argparse
-import asyncio
 import json
 import statistics
 import sys
@@ -147,8 +146,12 @@ class ParallelVMListBenchmark:
         parallel_warm_mean = statistics.mean(parallel_warm_times)
 
         # Calculate improvement percentages
-        cold_improvement = ((baseline_mean - parallel_cold_mean) / baseline_mean) * 100 if baseline_mean > 0 else 0
-        warm_improvement = ((baseline_mean - parallel_warm_mean) / baseline_mean) * 100 if baseline_mean > 0 else 0
+        cold_improvement = (
+            ((baseline_mean - parallel_cold_mean) / baseline_mean) * 100 if baseline_mean > 0 else 0
+        )
+        warm_improvement = (
+            ((baseline_mean - parallel_warm_mean) / baseline_mean) * 100 if baseline_mean > 0 else 0
+        )
 
         report = {
             "benchmark": "parallel_vm_list",
@@ -169,7 +172,9 @@ class ParallelVMListBenchmark:
             "parallel_warm": {
                 "mean": parallel_warm_mean,
                 "median": statistics.median(parallel_warm_times),
-                "stddev": statistics.stdev(parallel_warm_times) if len(parallel_warm_times) > 1 else 0.0,
+                "stddev": statistics.stdev(parallel_warm_times)
+                if len(parallel_warm_times) > 1
+                else 0.0,
                 "min": min(parallel_warm_times),
                 "max": max(parallel_warm_times),
                 "improvement_pct": warm_improvement,
@@ -202,7 +207,7 @@ class ParallelVMListBenchmark:
         print("\nPARALLEL (Cold Start - No Cache):")
         print(f"  Mean:        {parallel_cold['mean']:.3f}s")
         print(f"  Improvement: {parallel_cold['improvement_pct']:.1f}%")
-        if parallel_cold['improvement_pct'] < 0:
+        if parallel_cold["improvement_pct"] < 0:
             print("  ⚠️  SLOWER than baseline (expected for cold start)")
 
         parallel_warm = report["parallel_warm"]
@@ -215,19 +220,23 @@ class ParallelVMListBenchmark:
         print(f"  Improvement: {parallel_warm['improvement_pct']:.1f}%")
 
         print("\nPERFORMANCE SUMMARY:")
-        if parallel_warm['improvement_pct'] >= 70:
-            print(f"  ✅ SUCCESS: {parallel_warm['improvement_pct']:.1f}% improvement (target: 70%)")
-        elif parallel_warm['improvement_pct'] >= 50:
-            print(f"  ⚠️  PARTIAL: {parallel_warm['improvement_pct']:.1f}% improvement (target: 70%)")
+        if parallel_warm["improvement_pct"] >= 70:
+            print(
+                f"  ✅ SUCCESS: {parallel_warm['improvement_pct']:.1f}% improvement (target: 70%)"
+            )
+        elif parallel_warm["improvement_pct"] >= 50:
+            print(
+                f"  ⚠️  PARTIAL: {parallel_warm['improvement_pct']:.1f}% improvement (target: 70%)"
+            )
         else:
             print(f"  ❌ FAILED: {parallel_warm['improvement_pct']:.1f}% improvement (target: 70%)")
 
         # Print cache effectiveness
-        if report['cache_stats']:
+        if report["cache_stats"]:
             avg_hit_rate = statistics.mean(
-                stats['cache_hit_rate'] for _, stats in report['cache_stats'] if _ == 'warm'
+                stats["cache_hit_rate"] for _, stats in report["cache_stats"] if _ == "warm"
             )
-            print(f"\nCACHE EFFECTIVENESS:")
+            print("\nCACHE EFFECTIVENESS:")
             print(f"  Average Hit Rate: {avg_hit_rate:.1%}")
             if avg_hit_rate >= 0.8:
                 print("  Status: Excellent cache performance ✅")
@@ -295,6 +304,7 @@ def main():
     except Exception as e:
         print(f"\n\nERROR: Benchmark failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

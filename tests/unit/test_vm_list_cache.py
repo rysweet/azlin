@@ -10,14 +10,11 @@ Tests cover:
 """
 
 import json
-import os
 import time
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
-from azlin.cache.vm_list_cache import VMCacheEntry, VMListCache, VMListCacheError
+from azlin.cache.vm_list_cache import VMCacheEntry, VMListCache
 
 
 class TestVMCacheEntry:
@@ -223,9 +220,13 @@ class TestVMListCache:
         temp_cache.immutable_ttl = 1  # 1 second
         temp_cache.mutable_ttl = 1
 
-        temp_cache.set_full("expired-vm", "test-rg", {"name": "expired-vm"}, {"power_state": "VM running"})
+        temp_cache.set_full(
+            "expired-vm", "test-rg", {"name": "expired-vm"}, {"power_state": "VM running"}
+        )
 
-        temp_cache.set_full("valid-vm", "test-rg", {"name": "valid-vm"}, {"power_state": "VM running"})
+        temp_cache.set_full(
+            "valid-vm", "test-rg", {"name": "valid-vm"}, {"power_state": "VM running"}
+        )
 
         # Wait for first entry to expire
         time.sleep(2)
@@ -289,7 +290,9 @@ class TestVMListCache:
         # Set entry with very short TTL
         temp_cache.immutable_ttl = 1
         temp_cache.mutable_ttl = 1
-        temp_cache.set_full("test-vm", "test-rg", {"name": "test-vm"}, {"power_state": "VM running"})
+        temp_cache.set_full(
+            "test-vm", "test-rg", {"name": "test-vm"}, {"power_state": "VM running"}
+        )
 
         # Wait for expiration
         time.sleep(2)
