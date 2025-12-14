@@ -9,9 +9,6 @@ Tests error conditions for:
 - template_manager
 """
 
-import subprocess
-from unittest.mock import Mock, patch
-
 import pytest
 
 

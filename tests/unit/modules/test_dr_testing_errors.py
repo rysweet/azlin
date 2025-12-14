@@ -18,7 +18,6 @@ from unittest.mock import Mock, patch
 import pytest
 
 
-
 class TestValidationErrors:
     """Error tests for input validation."""
 
@@ -122,8 +121,8 @@ class TestVMRestoreErrors:
         with pytest.raises(Exception, match="VM restore timed out"):
             try:
                 mock_run(["az", "vm", "restore"], capture_output=True, check=True, timeout=300)
-            except subprocess.TimeoutExpired:
-                raise Exception("VM restore timed out")
+            except subprocess.TimeoutExpired as e:
+                raise Exception("VM restore timed out") from e
 
     @patch("subprocess.run")
     def test_restore_vm_invalid_json_response(self, mock_run):
@@ -144,8 +143,8 @@ class TestVMRestoreErrors:
         with pytest.raises(Exception, match="Azure CLI not found"):
             try:
                 mock_run(["az", "vm", "restore"], capture_output=True, check=True, timeout=300)
-            except FileNotFoundError:
-                raise Exception("Azure CLI not found. Please install Azure CLI.")
+            except FileNotFoundError as e:
+                raise Exception("Azure CLI not found. Please install Azure CLI.") from e
 
     def test_restore_vm_quota_exceeded(self):
         """Test that quota exceeded raises Exception."""

@@ -8,8 +8,6 @@ Tests all error conditions in service principal authentication including:
 - Azure AD errors
 """
 
-from unittest.mock import Mock, patch
-
 import pytest
 
 

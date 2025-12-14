@@ -9,10 +9,9 @@ Tests all error conditions in backup management including:
 """
 
 import subprocess
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
-
 
 
 class TestBackupCreationErrors:

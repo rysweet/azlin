@@ -10,7 +10,6 @@ Tests all error conditions in storage operations including:
 - SSH key write errors
 """
 
-import json
 import subprocess
 from unittest.mock import Mock, patch
 

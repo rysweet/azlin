@@ -11,16 +11,13 @@ Tests all error conditions in context management including:
 """
 
 import json
-import subprocess
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
 from azlin.context_manager import (
     ContextError,
     ContextManager,
-    ContextError,
 )
 
 
@@ -65,7 +62,7 @@ class TestContextCreationErrors:
     @patch("azlin.context_manager.ContextManager._save_context")
     def test_create_context_save_failure(self, mock_save):
         """Test that save failure raises ContextError."""
-        mock_save.side_effect = IOError("Permission denied")
+        mock_save.side_effect = OSError("Permission denied")
         with pytest.raises(ContextError, match="Failed to create context"):
             ContextManager.create_context("test-context", "test-rg", "westus2")
 
@@ -210,11 +207,11 @@ class TestContextUpdateErrors:
     @patch("azlin.context_manager.ContextManager._save_context")
     def test_update_context_save_failure(self, mock_save):
         """Test that save failure raises ContextError."""
-        mock_save.side_effect = IOError("Disk full")
+        mock_save.side_effect = OSError("Disk full")
         with pytest.raises(ContextError, match="Failed to update context"):
             try:
                 mock_save()
-            except IOError as e:
+            except OSError as e:
                 raise ContextError(f"Failed to update context: {e}") from e
 
 
