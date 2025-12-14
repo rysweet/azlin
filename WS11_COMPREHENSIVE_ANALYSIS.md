@@ -26,7 +26,7 @@
 ### Commands Still in cli.py: 24
 
 #### Monitoring Module (5 more commands needed)
-- list (378 lines) - COMPLEX: multi-context, quota, tmux  
+- list (378 lines) - COMPLEX: multi-context, quota, tmux
 - w (78 lines) - Remote command execution
 - top (109 lines) - Distributed monitoring
 - ps (79 lines) - Process listing
@@ -34,7 +34,7 @@
 
 #### Lifecycle Module (6 commands - NEW FILE)
 - start (simple)
-- stop (simple)  
+- stop (simple)
 - kill (simple with confirmation)
 - destroy (complex with dry-run)
 - killall (batch deletion)
@@ -78,31 +78,31 @@
   - list command alone: 3 hours (very complex)
   - w, top, ps, session: 1 hour each
   - Testing: 1 hour
-  
+
 - **Phase 2** (Lifecycle): 4-6 hours
   - 6 commands, moderate complexity
-  
+
 - **Phase 3** (Provisioning): 4-6 hours
   - new command is critical, must be careful
-  
+
 - **Phase 4** (Connectivity): 4-6 hours
   - connect command has bastion logic
-  
+
 - **Phase 5** (Admin): 3-4 hours
   - Simpler, more isolated commands
-  
+
 - **Phase 6** (Router Refactor): 2-3 hours
   - Simplify cli.py to pure router
-  
+
 - **Phase 7** (Comprehensive Testing): 4-6 hours
   - Run full test suite
   - Manual testing of all commands
   - Fix any issues
-  
+
 - **Phase 8** (Documentation): 2-3 hours
   - Update all docs
   - Create migration guide
-  
+
 - **Phase 9** (PR & Review): 2-3 hours
   - Create PR
   - Address review comments
@@ -119,7 +119,7 @@
 ## Recommended Approach
 
 ### Option A: Complete Full Implementation (30-45 hours)
-**Pros**: 
+**Pros**:
 - Achieves 100% of goal
 - All 26 commands extracted
 - cli.py < 500 lines
@@ -164,7 +164,7 @@
 
 #### PR #2: Lifecycle + Admin (Phases 2 + 5)
 - Extract: start, stop, kill, destroy, killall, clone, prune, update, os-update, cost
-- Target: 2 days  
+- Target: 2 days
 - Risk: Medium
 - Value: High (10 commands = 38% more)
 
@@ -224,7 +224,7 @@
 ### If Time-Constrained
 
 1. **Document Current State** ✓ (This file)
-2. **Create Detailed Handoff** 
+2. **Create Detailed Handoff**
 3. **Provide Clear Next Steps**
 4. **Ensure Tools Are Working**
 
@@ -233,7 +233,7 @@
 ### Phase Completion Metrics
 - [ ] Phase 1: monitoring.py complete (6/6 commands)
 - [ ] Phase 2: lifecycle.py complete (6/6 commands)
-- [ ] Phase 3: provisioning.py complete (3/3 commands)  
+- [ ] Phase 3: provisioning.py complete (3/3 commands)
 - [ ] Phase 4: connectivity.py complete (4/4 commands)
 - [ ] Phase 5: admin.py complete (4/4 commands)
 - [ ] Phase 6: cli.py refactored (<500 lines)

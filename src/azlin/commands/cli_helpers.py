@@ -12,19 +12,15 @@ Functions in this module should be:
 
 import logging
 import subprocess
-import sys
 import time
 from pathlib import Path
-from typing import Any
 
 import click
 from rich.console import Console
 from rich.table import Table
 
 from azlin.config_manager import ConfigManager
-from azlin.modules.ssh_connector import SSHConfig
-from azlin.modules.ssh_keys import SSHKeyPair
-from azlin.vm_manager import VMInfo, VMManager
+from azlin.vm_manager import VMInfo
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +84,7 @@ def select_vm_for_command(vms: list[VMInfo], command: str) -> VMInfo | None:
             vm.name,
             vm.location or "unknown",
             vm.public_ip or vm.private_ip or "no-ip",
-            vm.size or "unknown",
+            vm.vm_size or "unknown",
         )
 
     console.print(table)
@@ -103,14 +99,13 @@ def select_vm_for_command(vms: list[VMInfo], command: str) -> VMInfo | None:
                 default="1",
             )
 
-            if selection.lower() == 'q':
+            if selection.lower() == "q":
                 return None
 
             idx = int(selection) - 1
             if 0 <= idx < len(vms):
                 return vms[idx]
-            else:
-                click.echo(f"Invalid selection. Please enter 1-{len(vms)}", err=True)
+            click.echo(f"Invalid selection. Please enter 1-{len(vms)}", err=True)
         except (ValueError, KeyboardInterrupt):
             click.echo("\nSelection cancelled", err=True)
             return None
@@ -137,10 +132,14 @@ def execute_command_on_vm(vm: VMInfo, command: str, ssh_key_path: Path) -> int:
     # Build SSH command
     ssh_cmd = [
         "ssh",
-        "-i", str(ssh_key_path),
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
+        "-i",
+        str(ssh_key_path),
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "LogLevel=ERROR",
         f"azureuser@{ip_address}",
         command,
     ]
@@ -189,7 +188,7 @@ def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> int | None:
             f"[{status_style}]{status}[/{status_style}]",
             vm.location or "unknown",
             vm.public_ip or vm.private_ip or "no-ip",
-            vm.size or "unknown",
+            vm.vm_size or "unknown",
         )
 
     console.print(table)
@@ -204,7 +203,7 @@ def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> int | None:
                 default="1",
             )
 
-            if selection.lower() == 'q':
+            if selection.lower() == "q":
                 return None
 
             idx = int(selection) - 1
@@ -216,9 +215,9 @@ def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> int | None:
                     start = click.confirm("Start the VM?", default=True)
                     if start:
                         # Import here to avoid circular dependency
-                        from azlin.vm_lifecycle import VMLifecycleManager
+                        from azlin.vm_lifecycle_control import VMLifecycleController
 
-                        VMLifecycleManager.start_vm(selected_vm.name, selected_vm.resource_group)
+                        VMLifecycleController.start_vm(selected_vm.name, selected_vm.resource_group)
                         click.echo("VM started. Waiting for SSH...")
                         time.sleep(10)  # Give VM time to boot
                     else:
@@ -234,16 +233,18 @@ def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> int | None:
 
                 ssh_cmd = [
                     "ssh",
-                    "-i", str(ssh_key_path),
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "UserKnownHostsFile=/dev/null",
+                    "-i",
+                    str(ssh_key_path),
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
                     f"azureuser@{ip_address}",
                 ]
 
                 result = subprocess.run(ssh_cmd, check=False)
                 return result.returncode
-            else:
-                click.echo(f"Invalid selection. Please enter 1-{len(vms)}", err=True)
+            click.echo(f"Invalid selection. Please enter 1-{len(vms)}", err=True)
 
         except (ValueError, KeyboardInterrupt):
             click.echo("\nSelection cancelled", err=True)
@@ -285,10 +286,10 @@ def ensure_vm_is_running(vm: VMInfo) -> bool:
         return False
 
     # Import here to avoid circular dependency
-    from azlin.vm_lifecycle import VMLifecycleManager
+    from azlin.vm_lifecycle_control import VMLifecycleController
 
     try:
-        VMLifecycleManager.start_vm(vm.name, vm.resource_group)
+        VMLifecycleController.start_vm(vm.name, vm.resource_group)
         click.echo("VM started successfully")
         return True
     except Exception as e:

@@ -7223,10 +7223,15 @@ def _doit_old_impl(
                                                 stderr=stderr,
                                             )
                                         except Exception as pipe_error:
-                                            click.echo(f"  ⚠️  Pipe execution failed: {pipe_error}", err=True)
+                                            click.echo(
+                                                f"  ⚠️  Pipe execution failed: {pipe_error}",
+                                                err=True,
+                                            )
                                             continue
 
-                                    elif any(char in cmd for char in [">", "<", ";", "&", "`", "$("]):
+                                    elif any(
+                                        char in cmd for char in [">", "<", ";", "&", "`", "$("]
+                                    ):
                                         # Redirects, command chains, and substitutions are not supported
                                         click.echo(
                                             "  ⚠️  Skipped: Redirects, command chains, and substitutions not supported",

@@ -2,9 +2,9 @@
 
 ## Executive Summary
 
-**Task**: Complete FULL cli.py decomposition - extract all 26 commands into 6 modular files  
-**Current Status**: 4% complete (1/26 commands extracted)  
-**Estimated Remaining**: 30-45 hours (4-6 full working days)  
+**Task**: Complete FULL cli.py decomposition - extract all 26 commands into 6 modular files
+**Current Status**: 4% complete (1/26 commands extracted)
+**Estimated Remaining**: 30-45 hours (4-6 full working days)
 **Recommendation**: Phased implementation over 3 PRs
 
 ## What Was Completed This Session
@@ -17,7 +17,7 @@
 
 ### 2. Documentation Created ✓
 - `WS11_COMPREHENSIVE_ANALYSIS.md` (200+ lines)
-- `WS11_EXECUTION_PLAN.md` (150+ lines) 
+- `WS11_EXECUTION_PLAN.md` (150+ lines)
 - `WS11_FINAL_SUMMARY.md` (this file)
 
 ### 3. Realistic Assessment ✓
@@ -45,7 +45,7 @@ Modules Complete: 0/6 (monitoring started but incomplete)
 ## Remaining Work Breakdown
 
 ### Phase 1: Complete Monitoring Module (6-8 hours)
-**Status**: IN PROGRESS (1/6 commands done)  
+**Status**: IN PROGRESS (1/6 commands done)
 **Remaining**:
 1. list command (378 lines) - COMPLEX
    - Multi-context support
@@ -91,21 +91,21 @@ Modules Complete: 0/6 (monitoring started but incomplete)
 - Bastion connectivity tests
 
 ### Phase 2: Lifecycle Module (4-6 hours)
-**Status**: NOT STARTED  
-**File to Create**: `commands/lifecycle.py`  
+**Status**: NOT STARTED
+**File to Create**: `commands/lifecycle.py`
 **Commands**:
 1. start - Start stopped VM
 2. stop - Stop running VM
 3. kill - Force delete VM
 4. destroy - Delete VM with confirmation
-5. killall - Batch delete VMs  
+5. killall - Batch delete VMs
 6. clone - Clone VMs with home dir copy
 
 **Complexity**: Moderate (destructive operations require careful testing)
 
 ### Phase 3: Provisioning Module (4-6 hours)
-**Status**: NOT STARTED  
-**File to Create**: `commands/provisioning.py`  
+**Status**: NOT STARTED
+**File to Create**: `commands/provisioning.py`
 **Commands**:
 1. new - Core VM provisioning (~200 lines)
 2. vm - Alias for new
@@ -114,8 +114,8 @@ Modules Complete: 0/6 (monitoring started but incomplete)
 **Complexity**: HIGH RISK - core functionality, must not break
 
 ### Phase 4: Connectivity Module (4-6 hours)
-**Status**: NOT STARTED  
-**File to Create**: `commands/connectivity.py`  
+**Status**: NOT STARTED
+**File to Create**: `commands/connectivity.py`
 **Commands**:
 1. connect - SSH with bastion (~200 lines)
 2. code - Launch VSCode
@@ -125,8 +125,8 @@ Modules Complete: 0/6 (monitoring started but incomplete)
 **Complexity**: HIGH - bastion logic is complex
 
 ### Phase 5: Admin Module (3-4 hours)
-**Status**: NOT STARTED  
-**File to Create**: `commands/admin.py`  
+**Status**: NOT STARTED
+**File to Create**: `commands/admin.py`
 **Commands**:
 1. prune - Resource cleanup
 2. update - Package updates
@@ -136,8 +136,8 @@ Modules Complete: 0/6 (monitoring started but incomplete)
 **Complexity**: LOW-MEDIUM - relatively isolated
 
 ### Phase 6: Router Refactor (2-3 hours)
-**Status**: NOT STARTED  
-**Goal**: Reduce cli.py to <500 lines  
+**Status**: NOT STARTED
+**Goal**: Reduce cli.py to <500 lines
 **Actions**:
 1. Extract help command
 2. Extract do command
@@ -146,7 +146,7 @@ Modules Complete: 0/6 (monitoring started but incomplete)
 5. Clean up imports
 
 ### Phase 7: Comprehensive Testing (4-6 hours)
-**Status**: NOT STARTED  
+**Status**: NOT STARTED
 **Actions**:
 1. Run full pytest suite
 2. Manual test all 26 commands
@@ -156,7 +156,7 @@ Modules Complete: 0/6 (monitoring started but incomplete)
 6. Fix any failures
 
 ### Phase 8: Documentation (2-3 hours)
-**Status**: NOT STARTED  
+**Status**: NOT STARTED
 **Actions**:
 1. Update API_REFERENCE.md
 2. Update ARCHITECTURE.md
@@ -165,7 +165,7 @@ Modules Complete: 0/6 (monitoring started but incomplete)
 5. Update main README.md
 
 ### Phase 9: PR Creation & Merge (2-3 hours)
-**Status**: NOT STARTED  
+**Status**: NOT STARTED
 **Actions**:
 1. Create comprehensive PR description
 2. Reference Issue #423
@@ -213,7 +213,7 @@ Modules Complete: 0/6 (monitoring started but incomplete)
    - Calculates metrics
    Usage: python3 extract_commands.py
 
-2. extract_module.py  
+2. extract_module.py
    - Semi-automated command extraction
    - Finds dependencies
    - Generates module templates
@@ -278,11 +278,11 @@ Modules Complete: 0/6 (monitoring started but incomplete)
    ```bash
    # Install in development mode
    pip install -e .
-   
+
    # Test the command
    azlin w --help
    azlin w  # (requires Azure login)
-   
+
    # Run tests
    python -m pytest tests/ -xvs
    ```
@@ -312,9 +312,9 @@ Modules Complete: 0/6 (monitoring started but incomplete)
 @click.option("--config", help="Config file path", type=click.Path())
 def command_name(resource_group: str | None, config: str | None):
     """Command description.
-    
+
     Details about what the command does.
-    
+
     \b
     Examples:
         azlin command-name
@@ -323,13 +323,13 @@ def command_name(resource_group: str | None, config: str | None):
     try:
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
-        
+
         if not rg:
             click.echo("Error: No resource group specified.", err=True)
             sys.exit(1)
-        
+
         # Command logic here
-        
+
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -425,12 +425,12 @@ This is **genuinely substantial work** that requires:
 
 ---
 
-**Status**: ANALYSIS COMPLETE, READY TO EXECUTE  
-**Next Action**: Begin Phase 1 command extraction  
-**Expected Completion**: ~7 days for full implementation  
-**Risk Level**: Medium (with phased approach)  
+**Status**: ANALYSIS COMPLETE, READY TO EXECUTE
+**Next Action**: Begin Phase 1 command extraction
+**Expected Completion**: ~7 days for full implementation
+**Risk Level**: Medium (with phased approach)
 **Confidence**: High (with proper testing and incremental commits)
 
-**Created**: 2025-12-14  
-**Session**: WS11 Analysis & Planning  
-**Author**: Claude Code (Anthropic)  
+**Created**: 2025-12-14
+**Session**: WS11 Analysis & Planning
+**Author**: Claude Code (Anthropic)
