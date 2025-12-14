@@ -72,6 +72,7 @@ from azlin.commands.costs import costs_group
 from azlin.commands.doit import doit_group
 from azlin.commands.fleet import fleet_group
 from azlin.commands.github_runner import github_runner_group
+from azlin.commands.monitoring import status
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
@@ -6382,84 +6383,7 @@ def _set_clone_session_names(
             click.echo(f"  Set session name: {session_name} -> {vm.name}")
 
 
-@main.command()
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--vm", help="Show status for specific VM only", type=str)
-def status(resource_group: str | None, config: str | None, vm: str | None):
-    """Show status of VMs in resource group.
-
-    Displays detailed status information including power state and IP addresses.
-
-    \b
-    Examples:
-        azlin status
-        azlin status --rg my-resource-group
-        azlin status --vm my-vm
-    """
-    try:
-        # Ensure Azure CLI subscription matches current context
-        from azlin.context_manager import ContextError
-
-        try:
-            ContextManager.ensure_subscription_active(config)
-        except ContextError as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
-
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified.", err=True)
-            sys.exit(1)
-
-        # List VMs
-        vms = VMManager.list_vms(rg, include_stopped=True)
-
-        if vm:
-            # Filter to specific VM
-            vms = [v for v in vms if v.name == vm]
-            if not vms:
-                click.echo(f"Error: VM '{vm}' not found in resource group '{rg}'.", err=True)
-                sys.exit(1)
-        else:
-            # Filter to azlin VMs
-            vms = VMManager.filter_by_prefix(vms, "azlin")
-
-        vms = VMManager.sort_by_created_time(vms)
-
-        if not vms:
-            click.echo("No VMs found.")
-            return
-
-        # Display status table
-        click.echo(f"\nVM Status in resource group: {rg}")
-        click.echo("=" * 100)
-        click.echo(f"{'NAME':<35} {'POWER STATE':<18} {'IP':<16} {'REGION':<15} {'SIZE':<15}")
-        click.echo("=" * 100)
-
-        for v in vms:
-            power_state = v.power_state if v.power_state else "Unknown"
-            ip = v.public_ip or "N/A"
-            size = v.vm_size or "N/A"
-            location = v.location or "N/A"
-            click.echo(f"{v.name:<35} {power_state:<18} {ip:<16} {location:<15} {size:<15}")
-
-        click.echo("=" * 100)
-        click.echo(f"\nTotal: {len(vms)} VMs")
-
-        # Summary stats
-        running = sum(1 for v in vms if v.is_running())
-        stopped = len(vms) - running
-        click.echo(f"Running: {running}, Stopped/Deallocated: {stopped}\n")
-
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        sys.exit(1)
+# Status command moved to azlin.commands.monitoring (Issue #423 - cli.py decomposition POC)
 
 
 @main.group()
@@ -8807,6 +8731,9 @@ main.add_command(github_runner_group)
 if "doit" in main.commands:
     del main.commands["doit"]
 main.add_command(doit_group)
+
+# Register monitoring commands (Issue #423 - cli.py decomposition POC)
+main.add_command(status)
 
 
 @main.group()
