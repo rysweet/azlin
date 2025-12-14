@@ -17,7 +17,6 @@ from unittest.mock import Mock, patch
 import pytest
 
 
-
 class TestValidationErrors:
     """Error tests for input validation."""
 
@@ -183,8 +182,8 @@ class TestSnapshotInfoErrors:
         with pytest.raises(Exception, match="Azure CLI not found"):
             try:
                 mock_run(["az", "snapshot", "show"], capture_output=True, check=True, timeout=30)
-            except FileNotFoundError:
-                raise Exception("Azure CLI not found. Please install Azure CLI.")
+            except FileNotFoundError as e:
+                raise Exception("Azure CLI not found. Please install Azure CLI.") from e
 
 
 class TestParallelExceptions:

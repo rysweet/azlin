@@ -7,12 +7,11 @@ Tests all error conditions in environment management including:
 - Missing required variables
 """
 
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
-from azlin.env_manager import EnvManagerError, EnvManager
+from azlin.env_manager import EnvManagerError
 
 
 class TestValidationErrors:
@@ -60,11 +59,11 @@ class TestFileErrors:
     @patch("pathlib.Path.write_text")
     def test_save_env_write_failed(self, mock_write):
         """Test that write failure raises EnvManagerError."""
-        mock_write.side_effect = IOError("Disk full")
+        mock_write.side_effect = OSError("Disk full")
         with pytest.raises(EnvManagerError, match="Failed to save environment"):
             try:
                 mock_write("ENV_VAR=value")
-            except IOError as e:
+            except OSError as e:
                 raise EnvManagerError(f"Failed to save environment: {e}") from e
 
 

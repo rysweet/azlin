@@ -9,9 +9,7 @@ Tests all error conditions in configuration management including:
 - Config save/load failures
 """
 
-import json
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 

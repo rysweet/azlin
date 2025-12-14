@@ -11,10 +11,9 @@ Tests all error conditions in NFS mount management including:
 """
 
 import subprocess
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
-
 
 
 class TestMountErrors:
