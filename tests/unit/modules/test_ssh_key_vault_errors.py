@@ -9,9 +9,7 @@ Tests all error conditions including:
 - Key Vault configuration errors
 """
 
-import json
 import subprocess
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -184,9 +182,7 @@ class TestSSHKeyVaultManagerFindKeyVault:
     @patch("azlin.modules.ssh_key_vault.subprocess.run")
     def test_find_vault_timeout(self, mock_run):
         """Test timeout during vault search."""
-        mock_run.side_effect = subprocess.TimeoutExpired(
-            cmd=["az", "keyvault", "list"], timeout=30
-        )
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["az", "keyvault", "list"], timeout=30)
 
         result = SSHKeyVaultManager.find_key_vault_in_resource_group(
             resource_group="rg", subscription_id="sub-123"
@@ -227,9 +223,7 @@ class TestSSHKeyVaultManagerEnsureRBACPermissions:
     @patch("azlin.modules.ssh_key_vault.subprocess.run")
     def test_ensure_rbac_get_vault_scope_timeout(self, mock_run):
         """Test timeout when getting vault scope."""
-        mock_run.side_effect = subprocess.TimeoutExpired(
-            cmd=["az", "keyvault", "show"], timeout=30
-        )
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["az", "keyvault", "show"], timeout=30)
 
         with pytest.raises(KeyVaultError, match="Azure CLI command timed out"):
             SSHKeyVaultManager.ensure_rbac_permissions(
