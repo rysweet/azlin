@@ -67,7 +67,9 @@ class TestPathParsingWorkflow:
         ]
 
         for invalid_path in invalid_paths:
-            with pytest.raises(Exception):  # Should raise some form of error
+            with pytest.raises(
+                ValueError, match=r".*"
+            ):  # Should raise ValueError for invalid paths
                 parser.parse(invalid_path)
 
 
@@ -104,7 +106,7 @@ class TestSessionCreationWorkflow:
         manager.close_session(session_id)
 
         # Session should be removed
-        with pytest.raises(Exception):  # Should raise error for closed session
+        with pytest.raises(KeyError):  # Should raise KeyError for closed session
             manager.get_session(session_id)
 
     def test_multiple_concurrent_sessions(self):

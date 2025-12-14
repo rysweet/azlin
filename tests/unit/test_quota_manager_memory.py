@@ -11,8 +11,6 @@ Testing Coverage:
 - Common VM families (B, D, E, F series)
 """
 
-import pytest
-
 from azlin.quota_manager import QuotaManager
 
 
@@ -167,7 +165,7 @@ class TestQuotaManagerMemory:
         # This test verifies consistency between the two mappings
 
         # Get all VM sizes that have vCPU mappings
-        for vm_size in QuotaManager.VM_SIZE_VCPUS.keys():
+        for vm_size in QuotaManager.VM_SIZE_VCPUS:
             memory = QuotaManager.get_vm_size_memory(vm_size)
             # Memory should be > 0 for all known VM sizes
             assert memory > 0, f"VM size {vm_size} has vCPU mapping but memory is {memory}"
@@ -238,10 +236,10 @@ class TestQuotaManagerMemoryMapping:
     def test_vm_size_memory_mapping_covers_common_sizes(self):
         """Test that VM_SIZE_MEMORY covers all common VM sizes from VM_SIZE_VCPUS."""
         # All VM sizes in VM_SIZE_VCPUS should have memory mappings
-        for vm_size in QuotaManager.VM_SIZE_VCPUS.keys():
-            assert (
-                vm_size in QuotaManager.VM_SIZE_MEMORY
-            ), f"VM size {vm_size} missing from VM_SIZE_MEMORY"
+        for vm_size in QuotaManager.VM_SIZE_VCPUS:
+            assert vm_size in QuotaManager.VM_SIZE_MEMORY, (
+                f"VM size {vm_size} missing from VM_SIZE_MEMORY"
+            )
 
     def test_vm_size_memory_mapping_reasonable_values(self):
         """Test that memory values are reasonable (1-1024 GB range for common VMs)."""
@@ -252,8 +250,8 @@ class TestQuotaManagerMemoryMapping:
 
     def test_vm_size_memory_mapping_format_consistency(self):
         """Test that all VM size keys follow Standard_* naming convention."""
-        for vm_size in QuotaManager.VM_SIZE_MEMORY.keys():
-            assert vm_size.startswith(
-                "Standard_"
-            ), f"VM size {vm_size} doesn't start with Standard_"
+        for vm_size in QuotaManager.VM_SIZE_MEMORY:
+            assert vm_size.startswith("Standard_"), (
+                f"VM size {vm_size} doesn't start with Standard_"
+            )
             assert "_" in vm_size, f"VM size {vm_size} missing underscore separator"

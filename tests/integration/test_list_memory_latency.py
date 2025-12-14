@@ -13,15 +13,13 @@ Testing Coverage:
 """
 
 import json
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
 from azlin.cli import main
-from azlin.quota_manager import QuotaManager
 from azlin.ssh.latency import LatencyResult
-
 
 # ============================================================================
 # TEST FIXTURES
@@ -82,7 +80,9 @@ class TestMemoryColumnDisplay:
     @patch("azlin.cli.TagManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
-    def test_memory_column_appears_by_default(self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list):
+    def test_memory_column_appears_by_default(
+        self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list
+    ):
         """Test that memory column is displayed without any flags."""
         # Setup mocks
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list[:3]  # Running VMs only
@@ -108,7 +108,9 @@ class TestMemoryColumnDisplay:
     @patch("azlin.cli.TagManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
-    def test_memory_column_for_stopped_vms(self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list):
+    def test_memory_column_for_stopped_vms(
+        self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list
+    ):
         """Test that memory is shown for stopped VMs (allocated capacity)."""
         # Setup mocks - include stopped VM
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list
@@ -175,7 +177,9 @@ class TestMemoryColumnDisplay:
     @patch("azlin.cli.TagManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
-    def test_memory_column_alignment(self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list):
+    def test_memory_column_alignment(
+        self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list
+    ):
         """Test that memory column is right-aligned."""
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list[:2]
         mock_vm_manager.sort_by_created_time.side_effect = lambda vms: vms
@@ -209,7 +213,13 @@ class TestLatencyColumnDisplay:
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
     def test_latency_flag_adds_column(
-        self, mock_config, mock_vm_manager, mock_tag_manager, mock_measurer, mock_vm_list, mock_latency_results
+        self,
+        mock_config,
+        mock_vm_manager,
+        mock_tag_manager,
+        mock_measurer,
+        mock_vm_list,
+        mock_latency_results,
     ):
         """Test that --with-latency flag adds latency column."""
         # Setup mocks
@@ -240,7 +250,9 @@ class TestLatencyColumnDisplay:
     @patch("azlin.cli.TagManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
-    def test_latency_not_shown_by_default(self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list):
+    def test_latency_not_shown_by_default(
+        self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list
+    ):
         """Test that latency column is NOT shown without --with-latency flag."""
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list
         mock_vm_manager.sort_by_created_time.side_effect = lambda vms: vms
@@ -262,7 +274,13 @@ class TestLatencyColumnDisplay:
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
     def test_latency_stopped_vm_shows_dash(
-        self, mock_config, mock_vm_manager, mock_tag_manager, mock_measurer, mock_vm_list, mock_latency_results
+        self,
+        mock_config,
+        mock_vm_manager,
+        mock_tag_manager,
+        mock_measurer,
+        mock_vm_list,
+        mock_latency_results,
     ):
         """Test that stopped VMs show '-' for latency."""
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list
@@ -371,7 +389,9 @@ class TestSummaryLineMemory:
     @patch("azlin.cli.TagManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
-    def test_summary_includes_total_memory(self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list):
+    def test_summary_includes_total_memory(
+        self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list
+    ):
         """Test that summary line shows total memory in use."""
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list[:3]  # 3 running VMs
         mock_vm_manager.sort_by_created_time.side_effect = lambda vms: vms
@@ -394,7 +414,9 @@ class TestSummaryLineMemory:
     @patch("azlin.cli.TagManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
-    def test_summary_excludes_stopped_vms(self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list):
+    def test_summary_excludes_stopped_vms(
+        self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list
+    ):
         """Test that summary only counts running VMs for memory total."""
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list  # Includes stopped VM
         mock_vm_manager.sort_by_created_time.side_effect = lambda vms: vms
@@ -427,7 +449,13 @@ class TestMemoryLatencyWithOtherFlags:
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
     def test_memory_and_latency_with_sessions(
-        self, mock_config, mock_vm_manager, mock_tag_manager, mock_measurer, mock_vm_list, mock_latency_results
+        self,
+        mock_config,
+        mock_vm_manager,
+        mock_tag_manager,
+        mock_measurer,
+        mock_vm_list,
+        mock_latency_results,
     ):
         """Test --with-latency and --with-sessions work together."""
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list
@@ -457,7 +485,9 @@ class TestMemoryLatencyWithOtherFlags:
     @patch("azlin.cli.TagManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
-    def test_memory_with_all_flag(self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list):
+    def test_memory_with_all_flag(
+        self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list
+    ):
         """Test memory column appears with --all flag."""
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list
         mock_vm_manager.sort_by_created_time.side_effect = lambda vms: vms
@@ -479,7 +509,13 @@ class TestMemoryLatencyWithOtherFlags:
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
     def test_latency_with_all_flag(
-        self, mock_config, mock_vm_manager, mock_tag_manager, mock_measurer, mock_vm_list, mock_latency_results
+        self,
+        mock_config,
+        mock_vm_manager,
+        mock_tag_manager,
+        mock_measurer,
+        mock_vm_list,
+        mock_latency_results,
     ):
         """Test --with-latency works with --all flag."""
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list
@@ -616,7 +652,9 @@ class TestJSONOutput:
     @patch("azlin.cli.TagManager")
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
-    def test_json_output_includes_memory(self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list):
+    def test_json_output_includes_memory(
+        self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list
+    ):
         """Test that JSON output includes memory_gb field."""
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list[:1]
         mock_vm_manager.sort_by_created_time.side_effect = lambda vms: vms
@@ -642,7 +680,13 @@ class TestJSONOutput:
     @patch("azlin.cli.VMManager")
     @patch("azlin.cli.ConfigManager")
     def test_json_output_includes_latency(
-        self, mock_config, mock_vm_manager, mock_tag_manager, mock_measurer, mock_vm_list, mock_latency_results
+        self,
+        mock_config,
+        mock_vm_manager,
+        mock_tag_manager,
+        mock_measurer,
+        mock_vm_list,
+        mock_latency_results,
     ):
         """Test that JSON output includes latency_ms and latency_status fields."""
         mock_tag_manager.list_managed_vms.return_value = mock_vm_list[:1]
@@ -710,4 +754,4 @@ class TestHelpText:
         # Help should mention time overhead
         # (e.g., "adds ~5s" or "parallel" or "timeout")
         help_lower = result.output.lower()
-        assert ("5s" in help_lower or "second" in help_lower or "time" in help_lower)
+        assert "5s" in help_lower or "second" in help_lower or "time" in help_lower

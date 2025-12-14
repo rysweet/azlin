@@ -247,7 +247,7 @@ class TestFleetQueryParser:
         parser = FleetQueryParser(api_key="test-key")
 
         # Should raise some kind of error
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="API failed"):
             parser.parse_query("test query")
 
 

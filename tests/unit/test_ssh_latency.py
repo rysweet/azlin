@@ -16,10 +16,7 @@ import time
 from dataclasses import is_dataclass
 from unittest.mock import Mock, patch
 
-import pytest
-
 from azlin.ssh.latency import LatencyResult, SSHLatencyMeasurer
-
 
 # ============================================================================
 # TEST DATA - Mock VM Objects
@@ -404,15 +401,14 @@ class TestSSHLatencyMeasurerBatch:
                 result = Mock()
                 result.returncode = 0
                 return result
-            elif "10.0.1.6" in " ".join(cmd):
+            if "10.0.1.6" in " ".join(cmd):
                 # VM2: Timeout
                 raise subprocess.TimeoutExpired(cmd=cmd, timeout=5.0)
-            else:
-                # VM3: Connection error
-                result = Mock()
-                result.returncode = 255
-                result.stderr = "Connection refused"
-                return result
+            # VM3: Connection error
+            result = Mock()
+            result.returncode = 255
+            result.stderr = "Connection refused"
+            return result
 
         mock_subprocess.side_effect = mock_ssh_call
 
@@ -506,11 +502,10 @@ class TestSSHLatencyMeasurerBatch:
             if "10.0.1.5" in " ".join(cmd):
                 # VM1: Fail
                 raise RuntimeError("Unexpected error")
-            else:
-                # Other VMs: Success
-                result = Mock()
-                result.returncode = 0
-                return result
+            # Other VMs: Success
+            result = Mock()
+            result.returncode = 0
+            return result
 
         mock_subprocess.side_effect = mock_ssh_call
 
@@ -551,9 +546,7 @@ class TestSSHLatencyMeasurerEdgeCases:
         measurer = SSHLatencyMeasurer(timeout=5.0)
 
         # This should handle FileNotFoundError gracefully
-        result = measurer.measure_single(
-            vm, ssh_user="azureuser", ssh_key_path="/nonexistent/key"
-        )
+        result = measurer.measure_single(vm, ssh_user="azureuser", ssh_key_path="/nonexistent/key")
 
         assert result.success is False
         # Could be "connection" or "unknown" depending on implementation
