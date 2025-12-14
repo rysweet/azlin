@@ -21,7 +21,7 @@ class TestManagedIdentityAuthentication:
                 "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
                 headers={"Metadata": "true"},
             )
-            urllib.request.urlopen(req, timeout=1)
+            urllib.request.urlopen(req, timeout=1)  # noqa: S310
             is_azure_vm = True
         except Exception:
             is_azure_vm = False
@@ -44,7 +44,7 @@ class TestManagedIdentityAuthentication:
                 "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/",
                 headers={"Metadata": "true"},
             )
-            response = urllib.request.urlopen(req, timeout=1)
+            response = urllib.request.urlopen(req, timeout=1)  # noqa: S310
             token_data = json.loads(response.read())
 
             # Should have access token
