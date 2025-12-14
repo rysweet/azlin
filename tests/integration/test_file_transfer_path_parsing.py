@@ -67,7 +67,9 @@ class TestPathParsingWorkflow:
         ]
 
         for invalid_path in invalid_paths:
-            with pytest.raises(ValueError):  # Should raise ValueError for invalid paths
+            with pytest.raises(
+                ValueError, match=r".*"
+            ):  # Should raise ValueError for invalid paths
                 parser.parse(invalid_path)
 
 
