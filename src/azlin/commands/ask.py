@@ -204,14 +204,14 @@ def _execute_query_plan(
             cost_tracker = CostTracker()
             cost_summary = cost_tracker.estimate_costs(resource_group)
 
-            for vm_cost in cost_summary.estimates:
-                results.append(
-                    {
-                        "vm_name": vm_cost.vm_name,
-                        "value": f"${vm_cost.estimated_cost:.2f}",
-                        "metric": "cost",
-                    }
-                )
+            results.extend(
+                {
+                    "vm_name": vm_cost.vm_name,
+                    "value": f"${vm_cost.estimated_cost:.2f}",
+                    "metric": "cost",
+                }
+                for vm_cost in cost_summary.estimates
+            )
         except Exception as e:
             logger.warning(f"Failed to fetch cost data: {e}")
             console.print(f"  [yellow]Warning: Could not fetch cost data: {e}[/yellow]")
@@ -253,16 +253,16 @@ def _execute_query_plan(
         )
 
         # Aggregate results
-        for batch_result in batch_results:
-            if batch_result.success and batch_result.output:
-                results.append(
-                    {
-                        "vm_name": batch_result.vm_name,
-                        "value": batch_result.output.strip(),
-                        "metric": query_plan.get("metric", "unknown"),
-                        "command": remote_cmd,
-                    }
-                )
+        results.extend(
+            {
+                "vm_name": batch_result.vm_name,
+                "value": batch_result.output.strip(),
+                "metric": query_plan.get("metric", "unknown"),
+                "command": remote_cmd,
+            }
+            for batch_result in batch_results
+            if batch_result.success and batch_result.output
+        )
 
     return results
 

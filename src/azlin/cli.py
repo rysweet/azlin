@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from azlin.modules.storage_manager import StorageInfo
+    from azlin.ssh.latency import LatencyResult
 
 import click
 from rich.console import Console
@@ -3218,6 +3219,12 @@ def _handle_multi_context_list(
     help="Prevent VM name truncation in table output",
     is_flag=True,
 )
+@click.option(
+    "--with-latency",
+    is_flag=True,
+    default=False,
+    help="Measure SSH latency for running VMs (adds ~5s per VM, parallel)",
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -3229,13 +3236,14 @@ def list_command(
     all_contexts: bool,
     contexts_pattern: str | None,
     wide_mode: bool = False,
+    with_latency: bool = False,
 ):
     """List VMs in a resource group.
 
     By default, lists azlin-managed VMs in the configured resource group.
     Use --show-all-vms (-a) to scan all VMs across all resource groups (expensive).
 
-    Shows VM name, status, IP address, region, size, vCPUs, and optionally quota/tmux info.
+    Shows VM name, status, IP address, region, size, vCPUs, memory (GB), and optionally quota/tmux/latency info.
 
     \b
     Examples:
@@ -3243,6 +3251,7 @@ def list_command(
         azlin list --rg my-rg         # VMs in specific RG
         azlin list --all              # Include stopped VMs
         azlin list --tag env=dev      # Filter by tag
+        azlin list --with-latency     # Include SSH latency measurements
         azlin list --show-all-vms     # All VMs across all RGs (expensive)
         azlin list -a                 # Same as --show-all-vms
         azlin list --no-quota         # Skip quota information
@@ -3398,6 +3407,27 @@ def list_command(
         if show_tmux:
             tmux_by_vm = _collect_tmux_sessions(vms)
 
+        # Measure SSH latency if enabled
+        latency_by_vm: dict[str, LatencyResult] = {}
+        if with_latency:
+            try:
+                from azlin.ssh.latency import SSHLatencyMeasurer
+
+                # Use default SSH key path
+                ssh_key_path = "~/.ssh/id_rsa"
+
+                # Measure latencies in parallel
+                console_temp = Console()
+                console_temp.print("[dim]Measuring SSH latency for running VMs...[/dim]")
+
+                measurer = SSHLatencyMeasurer(timeout=5.0, max_workers=10)
+                latency_by_vm = measurer.measure_batch(
+                    vms=vms, ssh_user="azureuser", ssh_key_path=ssh_key_path
+                )
+
+            except Exception as e:
+                click.echo(f"Warning: Failed to measure latencies: {e}", err=True)
+
         # Display quota summary header if enabled
         if show_quota and quota_by_region:
             console = Console()
@@ -3449,6 +3479,10 @@ def list_command(
         table.add_column("Region", width=10)
         table.add_column("Size", width=15)
         table.add_column("vCPUs", justify="right", width=6)
+        table.add_column("Memory", justify="right", width=8)
+
+        if with_latency:
+            table.add_column("Latency", justify="right", width=10)
 
         if show_tmux:
             table.add_column("Tmux Sessions", style="magenta", width=30)
@@ -3473,6 +3507,10 @@ def list_command(
             vcpus = QuotaManager.get_vm_size_vcpus(size) if size != "N/A" else 0
             vcpu_display = str(vcpus) if vcpus > 0 else "-"
 
+            # Get memory for the VM
+            memory_gb = QuotaManager.get_vm_size_memory(size) if size != "N/A" else 0
+            memory_display = f"{memory_gb} GB" if memory_gb > 0 else "-"
+
             # Build row data
             row_data = [
                 session_display,
@@ -3482,7 +3520,17 @@ def list_command(
                 vm.location,
                 size,
                 vcpu_display,
+                memory_display,
             ]
+
+            # Add latency if enabled
+            if with_latency:
+                if vm.name in latency_by_vm:
+                    result = latency_by_vm[vm.name]
+                    row_data.append(result.display_value())
+                else:
+                    # VM is stopped (not measured)
+                    row_data.append("-")
 
             # Add tmux sessions if enabled
             if show_tmux:
@@ -3509,11 +3557,18 @@ def list_command(
             if vm.vm_size and vm.is_running()
         )
 
+        total_memory = sum(
+            QuotaManager.get_vm_size_memory(vm.vm_size)
+            for vm in vms
+            if vm.vm_size and vm.is_running()
+        )
+
         summary_parts = [f"Total: {len(vms)} VMs"]
         if show_quota:
             running_vms = sum(1 for vm in vms if vm.is_running())
             summary_parts.append(f"{running_vms} running")
             summary_parts.append(f"{total_vcpus} vCPUs in use")
+            summary_parts.append(f"{total_memory} GB memory in use")
 
         console.print(f"\n[bold]{' | '.join(summary_parts)}[/bold]")
 

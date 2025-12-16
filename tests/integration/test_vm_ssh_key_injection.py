@@ -1,10 +1,6 @@
 """Integration test for SSH key management during VM provisioning."""
 
-from pathlib import Path
-
-import pytest
-
-from azlin.modules.ssh_keys import SSHKeyManager, SSHKeyPair
+from azlin.modules.ssh_keys import SSHKeyManager
 
 
 class TestSSHKeyInjectionWorkflow:

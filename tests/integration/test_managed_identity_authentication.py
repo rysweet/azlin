@@ -1,7 +1,6 @@
 """Integration test for managed identity authentication workflow."""
 
 import json
-import subprocess
 
 import pytest
 

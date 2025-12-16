@@ -5,14 +5,12 @@ Tests real workflow: Config validation → Bastion detection → VM provision de
 
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 
 from azlin.config_manager import AzlinConfig, ConfigManager
 from azlin.modules.bastion_detector import BastionDetector
 from azlin.modules.bastion_manager import BastionManager
-from azlin.vm_manager import VMManager
 
 
 class TestVMConfigToBastionWorkflow:

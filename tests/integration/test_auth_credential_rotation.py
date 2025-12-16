@@ -1,9 +1,5 @@
 """Integration test for credential rotation workflow."""
 
-from pathlib import Path
-
-import pytest
-
 from azlin.service_principal_auth import ServicePrincipalManager
 
 

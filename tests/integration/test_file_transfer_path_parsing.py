@@ -3,11 +3,9 @@
 Tests real workflow: Path parsing → Session creation → Transfer decision
 """
 
-from pathlib import Path
-
 import pytest
 
-from azlin.modules.file_transfer.file_transfer import FileTransfer, TransferEndpoint
+from azlin.modules.file_transfer.file_transfer import TransferEndpoint
 from azlin.modules.file_transfer.path_parser import PathParser
 from azlin.modules.file_transfer.session_manager import SessionManager
 
@@ -69,7 +67,9 @@ class TestPathParsingWorkflow:
         ]
 
         for invalid_path in invalid_paths:
-            with pytest.raises(ValueError):  # Should raise ValueError for invalid paths
+            with pytest.raises(
+                ValueError, match=r".*"
+            ):  # Should raise ValueError for invalid paths
                 parser.parse(invalid_path)
 
 

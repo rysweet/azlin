@@ -3,9 +3,7 @@
 Tests real authentication chain without mocking core authentication logic.
 """
 
-import os
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -39,7 +37,7 @@ class TestAzureCLIToServicePrincipalFallback:
         """Test that SP env vars override Azure CLI."""
         # Set valid SP environment variables
         monkeypatch.setenv("AZURE_CLIENT_ID", "12345678-1234-1234-1234-123456789012")
-        monkeypatch.setenv("AZURE_CLIENT_SECRET", "test-secret")  # noqa: S105
+        monkeypatch.setenv("AZURE_CLIENT_SECRET", "test-secret")
         monkeypatch.setenv("AZURE_TENANT_ID", "87654321-4321-4321-4321-210987654321")
 
         authenticator = AzureAuthenticator()
@@ -113,14 +111,14 @@ class TestServicePrincipalConfiguration:
             profile_name="dev",
             client_id="11111111-1111-1111-1111-111111111111",
             tenant_id="22222222-2222-2222-2222-222222222222",
-            client_secret="dev-secret",  # noqa: S105
+            client_secret="dev-secret",  # noqa: S106
         )
 
         manager.add_profile(
             profile_name="prod",
             client_id="33333333-3333-3333-3333-333333333333",
             tenant_id="44444444-4444-4444-4444-444444444444",
-            client_secret="prod-secret",  # noqa: S105
+            client_secret="prod-secret",  # noqa: S106
         )
 
         # Switch to dev profile
