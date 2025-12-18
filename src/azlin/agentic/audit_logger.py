@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, TypedDict
 
+from azlin.file_lock_manager import acquire_file_lock
+
 logger = logging.getLogger(__name__)
 
 
@@ -100,10 +102,12 @@ class AuditLogger:
             # Build log line without details separator
             log_line = f"{timestamp} | {obj_id} | {event}\n"
 
-        # Append to log file
+        # Append to log file with file locking for concurrent access
         try:
-            with open(self.log_file, "a") as f:
-                f.write(log_line)
+            with acquire_file_lock(self.log_file, timeout=5.0, operation="audit logging"):
+                with open(self.log_file, "a") as f:
+                    f.write(log_line)
+                    f.flush()  # Ensure data is written before lock release
             logger.debug(f"Audit log: {event} for {obj_id}")
         except OSError as e:
             logger.error(f"Failed to write audit log: {e}")
@@ -221,24 +225,29 @@ class AuditLogger:
 
         logger.info(f"Rotating audit log (size: {size} bytes)")
 
-        # Rotate existing numbered logs
-        for i in range(self.ROTATION_COUNT - 1, 0, -1):
-            old_log = Path(f"{self.log_file}.{i}")
-            new_log = Path(f"{self.log_file}.{i + 1}")
+        # Acquire lock for rotation to prevent concurrent access during rotation
+        try:
+            with acquire_file_lock(self.log_file, timeout=5.0, operation="audit log rotation"):
+                # Rotate existing numbered logs
+                for i in range(self.ROTATION_COUNT - 1, 0, -1):
+                    old_log = Path(f"{self.log_file}.{i}")
+                    new_log = Path(f"{self.log_file}.{i + 1}")
 
-            if old_log.exists():
-                if new_log.exists():
-                    new_log.unlink()  # Delete oldest if at limit
-                old_log.rename(new_log)
+                    if old_log.exists():
+                        if new_log.exists():
+                            new_log.unlink()  # Delete oldest if at limit
+                        old_log.rename(new_log)
 
-        # Rotate current log to .1
-        backup_log = Path(f"{self.log_file}.1")
-        if backup_log.exists():
-            backup_log.unlink()
-        self.log_file.rename(backup_log)
+                # Rotate current log to .1
+                backup_log = Path(f"{self.log_file}.1")
+                if backup_log.exists():
+                    backup_log.unlink()
+                self.log_file.rename(backup_log)
 
-        # Create new empty log file
-        self.log_file.touch(mode=0o600)
+                # Create new empty log file
+                self.log_file.touch(mode=0o600)
+        except OSError as e:
+            logger.error(f"Failed to rotate audit log: {e}")
 
     def _parse_log_line(self, line: str) -> AuditLogEntry | None:
         """Parse log line into structured entry.

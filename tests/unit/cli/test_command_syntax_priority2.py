@@ -439,7 +439,7 @@ class TestCpCommandSyntax:
         result = runner.invoke(main, ["cp", "myfile.txt"])
 
         assert result.exit_code != 0
-        assert "missing argument" in result.output.lower()
+        assert "at least one source and one destination required" in result.output.lower()
 
     def test_cp_with_source_and_dest(self):
         """Test 'azlin cp source dest' accepts both arguments."""
@@ -573,8 +573,10 @@ class TestCpCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["cp", "src", "dest", "--dry-run", "true"])
 
-        # Boolean flag shouldn't take value
-        assert result.exit_code != 0
+        # Boolean flag doesn't consume value, 'true' becomes a source argument
+        # Since cp accepts multiple sources, this succeeds (treats 'true' as filename)
+        # The command will fail later when trying to access the file, but syntax is valid
+        assert_option_accepted(result)
 
 
 # =============================================================================

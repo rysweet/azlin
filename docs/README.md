@@ -16,6 +16,7 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 - **[AI_AGENT_GUIDE.md](AI_AGENT_GUIDE.md)** - **START HERE for AI agents** - Comprehensive guide to azlin development
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete architecture specification
 - **[testing/test_strategy.md](testing/test_strategy.md)** - Testing approach and strategy
+- **[technical/audit-error-handling.md](technical/audit-error-handling.md)** - Audit logging and error handling improvements
 
 ### For AI Agents
 
@@ -66,6 +67,8 @@ docs/
 ├── UV_USAGE.md                  # uv package manager workflows
 ├── ARCHITECTURE.md              # Complete architecture spec
 ├── backup-disaster-recovery.md  # Backup and DR automation
+├── technical/
+│   └── audit-error-handling.md  # Audit logging and error handling
 └── testing/
     └── test_strategy.md         # Testing strategy
 ```
