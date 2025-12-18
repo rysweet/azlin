@@ -195,7 +195,14 @@ class MultiContextDisplay:
                 else:
                     status_display = f"[yellow]{status}[/yellow]"
 
-                ip = vm.public_ip or "N/A"
+                # Display IP with type indicator (Issue #492)
+                ip = (
+                    f"{vm.public_ip} (Public)"
+                    if vm.public_ip
+                    else f"{vm.private_ip} (Private)"
+                    if vm.private_ip
+                    else "N/A"
+                )
                 size = vm.vm_size or "N/A"
 
                 # Get vCPU count

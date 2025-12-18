@@ -116,6 +116,12 @@ class AzlinConfig:
     ssh_sync_timeout: int = 30  # Timeout for key sync operations (seconds)
     ssh_sync_method: str = "auto"  # auto, run-command, ssh, skip
 
+    # SSH auto-sync for new VMs (Issue #492)
+    ssh_auto_sync_age_threshold: int = (
+        600  # seconds (10 minutes) - skip auto-sync for VMs younger than this
+    )
+    ssh_auto_sync_skip_new_vms: bool = True  # Skip auto-sync for new VMs to avoid timeouts
+
     # Resource group discovery settings (Issue #419)
     resource_group_auto_detect: bool = True  # Auto-detect resource groups
     resource_group_cache_ttl: int = 900  # Cache TTL in seconds (15 minutes)
@@ -179,6 +185,9 @@ class AzlinConfig:
             ssh_auto_sync_keys=data.get("ssh_auto_sync_keys", True),
             ssh_sync_timeout=data.get("ssh_sync_timeout", 30),
             ssh_sync_method=data.get("ssh_sync_method", "auto"),
+            # SSH auto-sync for new VMs (Issue #492)
+            ssh_auto_sync_age_threshold=data.get("ssh_auto_sync_age_threshold", 600),
+            ssh_auto_sync_skip_new_vms=data.get("ssh_auto_sync_skip_new_vms", True),
             # Resource group discovery settings
             resource_group_auto_detect=data.get("resource_group_auto_detect", True),
             resource_group_cache_ttl=data.get("resource_group_cache_ttl", 900),
