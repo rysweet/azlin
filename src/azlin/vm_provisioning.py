@@ -821,9 +821,9 @@ runcmd:
   # Tmux configuration for session name display
   - |
     cat > /home/azureuser/.tmux.conf << 'EOF'
-    # Display session name in status bar
-    set -g status-left-length 40
-    set -g status-left "#[fg=green]Session: #S #[fg=yellow]| "
+    # Display hostname and session name in status bar
+    set -g status-left-length 50
+    set -g status-left "#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| "
     set -g status-right "#[fg=cyan]%Y-%m-%d %H:%M"
 
     # Additional useful settings
