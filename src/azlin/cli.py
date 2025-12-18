@@ -3068,6 +3068,7 @@ def _handle_multi_context_list(
     show_quota: bool,
     show_tmux: bool,
     wide_mode: bool = False,
+    compact_mode: bool = False,
 ) -> None:
     """Handle multi-context VM listing.
 
@@ -3173,7 +3174,9 @@ def _handle_multi_context_list(
 
     # Step 4: Display results using Rich tables
     display = MultiContextDisplay()
-    display.display_results(result, show_errors=True, show_summary=True, wide_mode=wide_mode)
+    display.display_results(
+        result, show_errors=True, show_summary=True, wide_mode=wide_mode, compact_mode=compact_mode
+    )
 
     # Step 5: Check if any contexts failed and set appropriate exit code
     if result.failed_contexts > 0:
@@ -3220,6 +3223,13 @@ def _handle_multi_context_list(
     is_flag=True,
 )
 @click.option(
+    "--compact",
+    "-c",
+    "compact_mode",
+    help="Use compact column widths for table output",
+    is_flag=True,
+)
+@click.option(
     "--with-latency",
     is_flag=True,
     default=False,
@@ -3236,6 +3246,7 @@ def list_command(
     all_contexts: bool,
     contexts_pattern: str | None,
     wide_mode: bool = False,
+    compact_mode: bool = False,
     with_latency: bool = False,
 ):
     """List VMs in a resource group.
@@ -3260,6 +3271,14 @@ def list_command(
         azlin list --contexts "prod*" # VMs from production contexts
         azlin list --contexts "*-dev" --all  # All VMs (including stopped) in dev contexts
     """
+    # Validate mutually exclusive display modes
+    if compact_mode and wide_mode:
+        click.echo(
+            "Error: --compact and --wide are mutually exclusive.\nUse one or the other, not both.",
+            err=True,
+        )
+        sys.exit(1)
+
     console = Console()
     try:
         # NEW: Multi-context query mode (Issue #350)
@@ -3297,6 +3316,7 @@ def list_command(
                 show_quota=show_quota,
                 show_tmux=show_tmux,
                 wide_mode=wide_mode,
+                compact_mode=compact_mode,
             )
             return  # Exit early - multi-context mode handled completely
 
@@ -3471,14 +3491,25 @@ def list_command(
         if wide_mode:
             table.add_column("Session Name", style="cyan", no_wrap=True)
             table.add_column("VM Name", style="white", no_wrap=True)
+        elif compact_mode:
+            table.add_column("Session Name", style="cyan", width=15)
+            table.add_column("VM Name", style="white", width=20)
         else:
             table.add_column("Session Name", style="cyan", width=20)
             table.add_column("VM Name", style="white", width=30)
-        table.add_column("Status", width=10)
-        table.add_column("IP", style="yellow", width=15)
-        table.add_column("Region", width=10)
-        table.add_column("Size", width=15)
-        table.add_column("vCPUs", justify="right", width=6)
+
+        if compact_mode:
+            table.add_column("Status", width=8)
+            table.add_column("IP", style="yellow", width=13)
+            table.add_column("Region", width=8)
+            table.add_column("Size", width=12)
+            table.add_column("vCPUs", justify="right", width=5)
+        else:
+            table.add_column("Status", width=10)
+            table.add_column("IP", style="yellow", width=15)
+            table.add_column("Region", width=10)
+            table.add_column("Size", width=15)
+            table.add_column("vCPUs", justify="right", width=6)
         table.add_column("Memory", justify="right", width=8)
 
         if with_latency:
