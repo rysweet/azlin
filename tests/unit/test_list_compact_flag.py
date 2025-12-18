@@ -348,7 +348,9 @@ class TestDisplayBehaviorWithCompactMode:
 class TestRegressionCompactMode:
     """Regression tests to ensure compact mode doesn't break existing functionality."""
 
-    def test_compact_mode_false_preserves_original_behavior(self, sample_context_result, mock_console):
+    def test_compact_mode_false_preserves_original_behavior(
+        self, sample_context_result, mock_console
+    ):
         """Test that compact_mode=False maintains original column widths."""
         display = MultiContextDisplay(console=mock_console)
 
