@@ -22,6 +22,11 @@ from typing import ClassVar
 
 from azlin.azure_cli_visibility import AzureCLIExecutor
 from azlin.quota_error_handler import QuotaErrorHandler
+from azlin.resource_conflict_error_handler import (
+    format_conflict_error,
+    is_resource_conflict,
+    parse_conflict_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -943,7 +948,12 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                 error_msg = e.stderr if e.stderr else str(e)
                 last_error = error_msg
 
-                # Check for quota errors first
+                # Error detection order matters:
+                # 1. Quota errors: Terminal errors - cannot be resolved by region retry
+                # 2. Conflict errors: Terminal errors - resource already exists
+                # 3. SKU errors: Recoverable - retry in different region
+
+                # Check for quota errors first (terminal - no retry)
                 if QuotaErrorHandler.is_quota_error(error_msg):
                     details = QuotaErrorHandler.parse_quota_error(error_msg, config.size, region)
                     if details:
@@ -952,7 +962,19 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                         )
                         raise ProvisioningError(formatted_msg) from e
 
-                # Check if this is a SKU/capacity error
+                # Check for resource conflict errors (terminal - no retry)
+                if is_resource_conflict(error_msg):
+                    conflict_info = parse_conflict_error(
+                        error_msg, resource_name=config.name, attempted_location=region
+                    )
+                    if conflict_info:
+                        # Format user-friendly message
+                        formatted_msg = format_conflict_error(conflict_info)
+                        # Preserve full error details in debug log
+                        logger.debug(f"Full Azure conflict error: {error_msg}")
+                        raise ProvisioningError(formatted_msg) from e
+
+                # Check if this is a SKU/capacity error (recoverable - retry next region)
                 if self._parse_sku_error(error_msg):
                     report_progress(
                         f"SKU {config.size} not available in {region}, trying next region..."
