@@ -36,6 +36,20 @@ from azlin.vm_manager import VMManager, VMManagerError
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_for_logging(value: str) -> str:
+    """Sanitize string for safe logging.
+
+    Prevents log injection by removing control characters and newlines.
+
+    Args:
+        value: String to sanitize
+
+    Returns:
+        Sanitized string safe for logging
+    """
+    return value.encode("ascii", "replace").decode("ascii").replace("\n", " ").replace("\r", " ")
+
+
 class VMConnectorError(Exception):
     """Raised when VM connection operations fail."""
 
@@ -70,7 +84,7 @@ class VMConnector:
         try:
             ConnectionTracker.record_connection(vm_name)
         except Exception as e:
-            logger.warning(f"Failed to record connection for {vm_name}: {e}")
+            logger.warning(f"Failed to record connection for {_sanitize_for_logging(vm_name)}: {e}")
 
     @staticmethod
     def _try_fetch_key_from_vault(vm_name: str, key_path: Path, resource_group: str) -> bool:
@@ -96,7 +110,7 @@ class VMConnector:
         breaking multi-VM connection scenarios.
         """
         try:
-            logger.info(f"Checking Key Vault for SSH key: {vm_name}")
+            logger.info(f"Checking Key Vault for SSH key: {_sanitize_for_logging(vm_name)}")
 
             # Load context to get subscription/tenant info
             try:
@@ -140,7 +154,9 @@ class VMConnector:
             # Check if it's a "not found" vs auth error
             error_str = str(e).lower()
             if "not found" in error_str or "does not exist" in error_str:
-                logger.info(f"SSH key not found in Key Vault for VM: {vm_name}")
+                logger.info(
+                    f"SSH key not found in Key Vault for VM: {_sanitize_for_logging(vm_name)}"
+                )
             else:
                 logger.warning(f"Could not access Key Vault: {e}")
             return False
@@ -229,23 +245,56 @@ class VMConnector:
 
                 # Only attempt auto-sync if enabled in config
                 if config.ssh_auto_sync_keys:
-                    from azlin.modules.vm_key_sync import VMKeySync
+                    # Check if we should skip auto-sync for new VMs
+                    should_skip = False
+                    if config.ssh_auto_sync_skip_new_vms:
+                        from azlin.modules.vm_age_checker import VMAgeChecker
 
-                    logger.info(f"Auto-syncing SSH key to VM authorized_keys: {conn_info.vm_name}")
+                        try:
+                            is_ready = VMAgeChecker.is_vm_ready_for_auto_sync(
+                                vm_name=conn_info.vm_name,
+                                resource_group=conn_info.resource_group,
+                                threshold_seconds=config.ssh_auto_sync_age_threshold,
+                            )
+                            should_skip = not is_ready
+                        except Exception as e:
+                            # Log warning but don't block connection on age check failure
+                            logger.warning(
+                                f"Failed to check VM age for {_sanitize_for_logging(conn_info.vm_name)}: {e}. "
+                                f"Proceeding with auto-sync (fail-safe behavior)."
+                            )
+                            should_skip = False  # Fail-safe: proceed with auto-sync
 
-                    # Derive public key from private key
-                    public_key = SSHKeyManager.get_public_key(conn_info.ssh_key_path)
+                        if should_skip:
+                            safe_vm_name = _sanitize_for_logging(conn_info.vm_name)
+                            logger.info(
+                                f"Skipping auto-sync for new VM {safe_vm_name} "
+                                f"(younger than {config.ssh_auto_sync_age_threshold}s threshold). "
+                                f"SSH key will be used directly for connection. "
+                                f"Use 'azlin sync-keys {safe_vm_name}' to manually sync after VM initialization completes."
+                            )
 
-                    # Instantiate VMKeySync with config dict
-                    sync_manager = VMKeySync(config.to_dict())
+                    # Proceed with auto-sync if not skipped
+                    if not should_skip:
+                        from azlin.modules.vm_key_sync import VMKeySync
 
-                    # Call instance method without config parameter
-                    sync_manager.ensure_key_authorized(
-                        vm_name=conn_info.vm_name,
-                        resource_group=conn_info.resource_group,
-                        public_key=public_key,
-                    )
-                    logger.info("SSH key auto-sync completed successfully")
+                        logger.info(
+                            f"Auto-syncing SSH key to VM authorized_keys: {_sanitize_for_logging(conn_info.vm_name)}"
+                        )
+
+                        # Derive public key from private key
+                        public_key = SSHKeyManager.get_public_key(conn_info.ssh_key_path)
+
+                        # Instantiate VMKeySync with config dict
+                        sync_manager = VMKeySync(config.to_dict())
+
+                        # Call instance method without config parameter
+                        sync_manager.ensure_key_authorized(
+                            vm_name=conn_info.vm_name,
+                            resource_group=conn_info.resource_group,
+                            public_key=public_key,
+                        )
+                        logger.info("SSH key auto-sync completed successfully")
             except Exception as e:
                 # Log warning but don't block connection
                 logger.warning(f"Auto-sync SSH key failed: {e}, attempting connection anyway")
@@ -266,7 +315,7 @@ class VMConnector:
         elif key_existed_before:
             logger.info("Using existing local SSH key")
         else:
-            logger.info(f"Generated new SSH key for VM: {conn_info.vm_name}")
+            logger.info(f"Generated new SSH key for VM: {_sanitize_for_logging(conn_info.vm_name)}")
 
         conn_info.ssh_key_path = ssh_keys.private_path
 
@@ -332,7 +381,9 @@ class VMConnector:
                 )
 
                 try:
-                    logger.info(f"Executing command on {conn_info.vm_name} ({original_ip})...")
+                    logger.info(
+                        f"Executing command on {_sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
+                    )
                     exit_code = SSHConnector.connect(
                         config=ssh_config,
                         remote_command=remote_command,
@@ -356,7 +407,9 @@ class VMConnector:
                 )
 
                 try:
-                    logger.info(f"Connecting to {conn_info.vm_name} ({original_ip})...")
+                    logger.info(
+                        f"Connecting to {_sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
+                    )
                     handler = SSHReconnectHandler(max_retries=max_reconnect_retries)
                     exit_code = handler.connect_with_reconnect(
                         config=ssh_config,
@@ -383,7 +436,9 @@ class VMConnector:
                 )
 
                 try:
-                    logger.info(f"Connecting to {conn_info.vm_name} ({original_ip})...")
+                    logger.info(
+                        f"Connecting to {_sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
+                    )
                     success = TerminalLauncher.launch(terminal_config)
 
                     if success:
@@ -604,7 +659,9 @@ class VMConnector:
             # Check for explicit mapping
             mapping = bastion_config.get_mapping(vm_name)
             if mapping:
-                logger.info(f"Using configured Bastion mapping for {vm_name}")
+                logger.info(
+                    f"Using configured Bastion mapping for {_sanitize_for_logging(vm_name)}"
+                )
                 return BastionInfo(
                     name=mapping.bastion_name,
                     resource_group=mapping.bastion_resource_group,

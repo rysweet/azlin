@@ -3500,7 +3500,14 @@ def list_command(
             else:
                 status_display = f"[yellow]{status}[/yellow]"
 
-            ip = vm.public_ip or "N/A"
+            # Display IP with type indicator (Issue #492)
+            ip = (
+                f"{vm.public_ip} (Public)"
+                if vm.public_ip
+                else f"{vm.private_ip} (Private)"
+                if vm.private_ip
+                else "N/A"
+            )
             size = vm.vm_size or "N/A"
 
             # Get vCPU count for the VM
@@ -4295,7 +4302,14 @@ def _confirm_killall(vms: list[Any], rg: str) -> bool:
     click.echo("=" * 80)
     for vm in vms:
         status = vm.get_status_display()
-        ip = vm.public_ip or "N/A"
+        # Display IP with type indicator (Issue #492)
+        ip = (
+            f"{vm.public_ip} (Public)"
+            if vm.public_ip
+            else f"{vm.private_ip} (Private)"
+            if vm.private_ip
+            else "N/A"
+        )
         click.echo(f"  {vm.name:<35} {status:<15} {ip:<15}")
     click.echo("=" * 80)
 
@@ -5761,6 +5775,98 @@ def sync(vm_name: str | None, dry_run: bool, resource_group: str | None, config:
         sys.exit(1)
 
 
+@main.command(name="sync-keys")
+@click.argument("vm_name")
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--ssh-user", default="azureuser", help="SSH username (default: azureuser)")
+@click.option("--timeout", default=60, help="Timeout in seconds (default: 60)")
+@click.option("--config", help="Config file path", type=click.Path())
+def sync_keys(
+    vm_name: str, resource_group: str | None, ssh_user: str, timeout: int, config: str | None
+):
+    """Manually sync SSH keys to VM authorized_keys.
+
+    This command synchronizes SSH public keys from your local machine
+    to the target VM's authorized_keys file. Useful for newly created
+    VMs or when auto-sync was skipped.
+
+    \b
+    Examples:
+        azlin sync-keys myvm                      # Sync to VM in default resource group
+        azlin sync-keys myvm --rg my-rg           # Sync to VM in specific resource group
+        azlin sync-keys myvm --timeout 120        # Sync with extended timeout
+    """
+    try:
+        # Get SSH key pair
+        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+        if not rg:
+            click.echo("Error: Resource group required.", err=True)
+            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+            sys.exit(1)
+
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            click.echo(f"Resolved session name '{vm_name}' to VM '{resolved_vm_name}'")
+            vm_name = resolved_vm_name
+
+        # Verify VM exists
+        try:
+            vm = VMManager.get_vm(vm_name, rg)
+            if not vm:
+                click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'", err=True)
+                sys.exit(1)
+
+            if not vm.is_running():
+                click.echo(
+                    f"Warning: VM '{vm_name}' is not running (state: {vm.power_state}). "
+                    "Key sync may fail.",
+                    err=True,
+                )
+        except Exception as e:
+            click.echo(f"Error: Could not verify VM status: {e}", err=True)
+            sys.exit(1)
+
+        # Get config for sync settings
+        azlin_config = ConfigManager.load_config(config)
+
+        # Import VMKeySync
+        from azlin.modules.vm_key_sync import VMKeySync
+
+        # Derive public key from private key
+        public_key = SSHKeyManager.get_public_key(ssh_key_pair.private_path)
+
+        click.echo(f"Syncing SSH key to VM '{vm_name}' in resource group '{rg}'...")
+
+        # Instantiate VMKeySync with config dict
+        sync_manager = VMKeySync(azlin_config.to_dict())
+
+        # Sync keys
+        sync_manager.ensure_key_authorized(
+            vm_name=vm_name,
+            resource_group=rg,
+            public_key=public_key,
+        )
+
+        click.echo(f"✓ SSH keys successfully synced to VM '{vm_name}'")
+
+    except (VMManagerError, ConfigError, SSHKeyError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.exception("Unexpected error in sync-keys command")
+        sys.exit(1)
+
+
 @main.command()
 @click.argument("args", nargs=-1, required=True)
 @click.option("--dry-run", is_flag=True, help="Show what would be transferred")
@@ -6496,7 +6602,14 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
 
         for v in vms:
             power_state = v.power_state if v.power_state else "Unknown"
-            ip = v.public_ip or "N/A"
+            # Display IP with type indicator (Issue #492)
+            ip = (
+                f"{v.public_ip} (Public)"
+                if v.public_ip
+                else f"{v.private_ip} (Private)"
+                if v.private_ip
+                else "N/A"
+            )
             size = v.vm_size or "N/A"
             location = v.location or "N/A"
             click.echo(f"{v.name:<35} {power_state:<18} {ip:<16} {location:<15} {size:<15}")
