@@ -17,18 +17,26 @@ Phase 1 (MVP) Implementation:
 - Basic semaphore mechanism
 - Simple configuration
 - Fail-open error handling
+
+Phase 4 (Performance) Implementation:
+- Parallel SDK calls using asyncio.gather()
+- Transcript loaded ONCE, shared across parallel workers
+- All checks run (no early exit) for comprehensive feedback
+- No caching (not applicable to session-specific analysis)
 """
 
+import asyncio
 import json
 import os
 import re
 import signal
 import sys
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import yaml
 
@@ -37,17 +45,101 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # Try to import Claude SDK integration
 try:
-    from claude_power_steering import analyze_consideration_sync
+    from claude_power_steering import (
+        analyze_claims_sync,
+        analyze_consideration,
+        analyze_if_addressed_sync,
+    )
 
     SDK_AVAILABLE = True
 except ImportError:
     SDK_AVAILABLE = False
+
+# Import turn-aware state management with delta analysis
+try:
+    from power_steering_state import (
+        DeltaAnalysisResult,
+        DeltaAnalyzer,
+        FailureEvidence,
+        PowerSteeringTurnState,
+        TurnStateManager,
+    )
+
+    TURN_STATE_AVAILABLE = True
+except ImportError:
+    TURN_STATE_AVAILABLE = False
+
+# Try to import completion evidence module
+try:
+    from completion_evidence import (
+        CompletionEvidenceChecker,
+        EvidenceType,
+    )
+
+    EVIDENCE_AVAILABLE = True
+except ImportError:
+    EVIDENCE_AVAILABLE = False
 
 # Security: Maximum transcript size to prevent memory exhaustion
 MAX_TRANSCRIPT_LINES = 50000  # Limit transcript to 50K lines (~10-20MB typical)
 
 # Timeout for individual checker execution (seconds)
 CHECKER_TIMEOUT = 10
+
+# Timeout for parallel execution of all checkers (seconds)
+# With parallel execution, all 22 checks should complete in ~15-20s instead of 220s
+PARALLEL_TIMEOUT = 60
+
+# Public API (the "studs" for this brick)
+__all__ = [
+    "PowerSteeringChecker",
+    "PowerSteeringResult",
+    "CheckerResult",
+    "ConsiderationAnalysis",
+]
+
+
+def _write_with_retry(filepath: Path, data: str, mode: str = "w", max_retries: int = 3) -> None:
+    """Write file with exponential backoff for cloud sync resilience.
+
+    Handles transient file I/O errors that can occur with cloud-synced directories
+    (iCloud, OneDrive, Dropbox, etc.) by retrying with exponential backoff.
+
+    Args:
+        filepath: Path to file to write
+        data: Content to write
+        mode: File mode ('w' for write, 'a' for append)
+        max_retries: Maximum retry attempts (default: 3)
+
+    Raises:
+        OSError: If all retries exhausted (fail-open: caller should handle)
+    """
+    import time
+
+    retry_delay = 0.1
+
+    for attempt in range(max_retries):
+        try:
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            if mode == "w":
+                filepath.write_text(data)
+            else:  # append mode
+                with open(filepath, mode) as f:
+                    f.write(data)
+            return  # Success!
+        except OSError as e:
+            if e.errno == 5 and attempt < max_retries - 1:  # Input/output error
+                if attempt == 0:
+                    # Only warn on first retry
+                    import sys
+
+                    sys.stderr.write(
+                        "[Power Steering] File I/O error, retrying (may be cloud sync issue)\n"
+                    )
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                raise  # Give up after max retries or non-transient error
 
 
 @contextmanager
@@ -145,6 +237,9 @@ class PowerSteeringResult:
     reasons: list[str]
     continuation_prompt: str | None = None
     summary: str | None = None
+    analysis: Optional["ConsiderationAnalysis"] = None  # Full analysis results for visibility
+    is_first_stop: bool = False  # True if this is the first stop attempt in session
+    evidence_results: list = field(default_factory=list)  # Concrete evidence from Phase 1
 
 
 class PowerSteeringChecker:
@@ -181,6 +276,65 @@ class PowerSteeringChecker:
         "go test",
         "python -m pytest",
         "python -m unittest",
+    ]
+
+    # Keywords that indicate simple housekeeping tasks (skip power-steering)
+    # When found in user messages, session is classified as SIMPLE and most
+    # considerations are skipped. These are routine maintenance tasks.
+    SIMPLE_TASK_KEYWORDS = [
+        "cleanup",
+        "clean up",
+        "fetch",
+        "git fetch",
+        "git pull",
+        "pull latest",
+        "sync",
+        "update branch",
+        "rebase",
+        "git rebase",
+        "merge main",
+        "merge master",
+        "workspace",
+        "stash",
+        "git stash",
+        "discard changes",
+        "reset",
+        "checkout",
+        "switch branch",
+        "list files",
+        "show status",
+        "git status",
+        "what's changed",
+        "what changed",
+    ]
+
+    # Keywords that indicate investigation/troubleshooting sessions
+    # When found in early user messages, session is classified as INVESTIGATION
+    # regardless of tool usage patterns (fixes #1604)
+    #
+    # Note: Using substring matching, so shorter forms match longer variants:
+    # - "troubleshoot" matches "troubleshooting"
+    # - "diagnos" matches "diagnose", "diagnosis", "diagnosing"
+    # - "debug" matches "debugging"
+    INVESTIGATION_KEYWORDS = [
+        "investigate",
+        "troubleshoot",
+        "diagnos",  # matches diagnose, diagnosis, diagnosing
+        "analyze",
+        "analyse",
+        "research",
+        "explore",
+        "understand",
+        "figure out",
+        "why does",
+        "why is",
+        "how does",
+        "how is",
+        "what causes",
+        "what's causing",
+        "root cause",
+        "debug",
+        "explain",
     ]
 
     # Phase 1 fallback: Hardcoded considerations (top 5 critical)
@@ -429,9 +583,13 @@ class PowerSteeringChecker:
         self,
         transcript_path: Path,
         session_id: str,
-        progress_callback: callable | None = None,
+        progress_callback: Callable | None = None,
     ) -> PowerSteeringResult:
-        """Main entry point - analyze transcript and make decision.
+        """Main entry point - analyze transcript and make decision using two-phase verification.
+
+        Phase 1: Check concrete evidence (GitHub, filesystem, user confirmation)
+        Phase 2: SDK analysis (only if no concrete evidence of completion)
+        Phase 3: Combine results (evidence can override SDK concerns)
 
         Args:
             transcript_path: Path to session transcript JSONL file
@@ -441,6 +599,10 @@ class PowerSteeringChecker:
         Returns:
             PowerSteeringResult with decision and prompt/summary
         """
+        # Initialize turn state tracking (outside try block for fail-open)
+        turn_state: PowerSteeringTurnState | None = None
+        turn_state_manager: TurnStateManager | None = None
+
         try:
             # Emit start event
             self._emit_progress(progress_callback, "start", "Starting power-steering analysis...")
@@ -463,6 +625,44 @@ class PowerSteeringChecker:
             # 3. Load transcript
             transcript = self._load_transcript(transcript_path)
 
+            # 3b. Initialize turn state management (fail-open on import error)
+            if TURN_STATE_AVAILABLE:
+                turn_state_manager = TurnStateManager(
+                    project_root=self.project_root,
+                    session_id=session_id,
+                    log=lambda msg: self._log(msg, "INFO"),
+                )
+                turn_state = turn_state_manager.load_state()
+                turn_state = turn_state_manager.increment_turn(turn_state)
+                self._log(
+                    f"Turn state: turn={turn_state.turn_count}, blocks={turn_state.consecutive_blocks}",
+                    "INFO",
+                )
+
+                # 3c. Check auto-approve threshold BEFORE running analysis
+                should_approve, reason, escalation_msg = turn_state_manager.should_auto_approve(
+                    turn_state
+                )
+                if should_approve:
+                    self._log(f"Auto-approve triggered: {reason}", "INFO")
+                    self._emit_progress(
+                        progress_callback,
+                        "auto_approve",
+                        f"Auto-approving after {turn_state.consecutive_blocks} consecutive blocks",
+                        {"reason": reason},
+                    )
+
+                    # Reset state and approve
+                    turn_state = turn_state_manager.record_approval(turn_state)
+                    turn_state_manager.save_state(turn_state)
+
+                    return PowerSteeringResult(
+                        decision="approve",
+                        reasons=["auto_approve_threshold"],
+                        continuation_prompt=None,
+                        summary=f"Auto-approved: {reason}",
+                    )
+
             # 4. Detect session type for selective consideration application
             session_type = self.detect_session_type(transcript)
             self._log(f"Session classified as: {session_type}", "INFO")
@@ -475,6 +675,10 @@ class PowerSteeringChecker:
 
             # 4b. Backward compatibility: Also check Q&A session (kept for compatibility)
             if self._is_qa_session(transcript):
+                # Reset turn state on approval
+                if turn_state_manager and turn_state:
+                    turn_state = turn_state_manager.record_approval(turn_state)
+                    turn_state_manager.save_state(turn_state)
                 return PowerSteeringResult(
                     decision="approve",
                     reasons=["qa_session"],
@@ -482,34 +686,250 @@ class PowerSteeringChecker:
                     summary=None,
                 )
 
+            # 4c. PHASE 1: Evidence-based verification (fail-fast on concrete completion signals)
+            if EVIDENCE_AVAILABLE:
+                try:
+                    evidence_checker = CompletionEvidenceChecker(self.project_root)
+                    evidence_results = []
+
+                    # Check PR status (strongest evidence)
+                    pr_evidence = evidence_checker.check_pr_status()
+                    if pr_evidence:
+                        evidence_results.append(pr_evidence)
+
+                        # If PR merged, work is definitely complete
+                        if (
+                            pr_evidence.evidence_type == EvidenceType.PR_MERGED
+                            and pr_evidence.verified
+                        ):
+                            self._log("PR merged - work complete (concrete evidence)", "INFO")
+                            return PowerSteeringResult(
+                                decision="approve",
+                                reasons=["PR merged successfully"],
+                            )
+
+                    # Check user confirmation (escape hatch)
+                    session_dir = (
+                        self.project_root / ".claude" / "runtime" / "power-steering" / session_id
+                    )
+                    user_confirm = evidence_checker.check_user_confirmation(session_dir)
+                    if user_confirm and user_confirm.verified:
+                        evidence_results.append(user_confirm)
+                        self._log("User confirmed completion - allowing stop", "INFO")
+                        return PowerSteeringResult(
+                            decision="approve",
+                            reasons=["User explicitly confirmed work is complete"],
+                        )
+
+                    # Check TODO completion
+                    todo_evidence = evidence_checker.check_todo_completion(transcript_path)
+                    evidence_results.append(todo_evidence)
+
+                    # Store evidence for later use in Phase 3
+                    self._evidence_results = evidence_results
+
+                except Exception as e:
+                    # Fail-open: If evidence checking fails, continue to SDK analysis
+                    self._log(f"Evidence checking failed (non-critical): {e}", "WARNING")
+                    self._evidence_results = []
+
             # 5. Analyze against considerations (filtered by session type)
             analysis = self._analyze_considerations(
                 transcript, session_id, session_type, progress_callback
             )
 
-            # 6. Make decision
-            if analysis.has_blockers:
-                prompt = self._generate_continuation_prompt(analysis)
+            # 5b. Delta analysis: Check if NEW content addresses previous failures
+            addressed_concerns: dict[str, str] = {}
+            user_claims: list[str] = []
+            delta_result: DeltaAnalysisResult | None = None
 
-                # Save redirect record for session reflection
-                failed_ids = [r.consideration_id for r in analysis.failed_blockers]
-                self._save_redirect(
-                    session_id=session_id,
-                    failed_considerations=failed_ids,
-                    continuation_prompt=prompt,
-                    work_summary=None,  # Could be enhanced to extract work summary
+            if TURN_STATE_AVAILABLE and turn_state and turn_state.block_history:
+                # Get previous block's failures for delta analysis
+                previous_block = turn_state.get_previous_block()
+                if previous_block and previous_block.failed_evidence:
+                    # Initialize delta analyzer for text extraction
+                    delta_analyzer = DeltaAnalyzer(log=lambda msg: self._log(msg, "INFO"))
+
+                    # Get delta transcript (new messages since last block)
+                    start_idx, end_idx = turn_state_manager.get_delta_transcript_range(
+                        turn_state, len(transcript)
+                    )
+                    delta_messages = transcript[start_idx:end_idx]
+
+                    self._log(
+                        f"Delta analysis: {len(delta_messages)} new messages since last block",
+                        "INFO",
+                    )
+
+                    # Extract delta text for LLM analysis
+                    delta_text = delta_analyzer._extract_all_text(delta_messages)
+
+                    # Use LLM-based claim detection (replaces regex patterns)
+                    if SDK_AVAILABLE and delta_text:
+                        self._log("Using LLM-based claim detection", "DEBUG")
+                        user_claims = analyze_claims_sync(delta_text, self.project_root)
+                    else:
+                        user_claims = []
+
+                    # Use LLM-based address checking for each previous failure
+                    if SDK_AVAILABLE and delta_text:
+                        self._log("Using LLM-based address checking", "DEBUG")
+                        for failure in previous_block.failed_evidence:
+                            evidence = analyze_if_addressed_sync(
+                                failure.consideration_id,
+                                failure.reason,
+                                delta_text,
+                                self.project_root,
+                            )
+                            if evidence:
+                                addressed_concerns[failure.consideration_id] = evidence
+                    else:
+                        # Fallback to simple DeltaAnalyzer (heuristics) if SDK unavailable
+                        delta_result = delta_analyzer.analyze_delta(
+                            delta_messages, previous_block.failed_evidence
+                        )
+                        addressed_concerns = delta_result.new_content_addresses_failures
+                        if not user_claims:
+                            user_claims = delta_result.new_claims_detected
+
+                    if addressed_concerns:
+                        self._log(
+                            f"Delta addressed {len(addressed_concerns)} concerns: "
+                            f"{list(addressed_concerns.keys())}",
+                            "INFO",
+                        )
+                    if user_claims:
+                        self._log(f"Detected {len(user_claims)} completion claims", "INFO")
+
+            # 6. Check if this is first stop (visibility feature)
+            is_first_stop = not self._results_already_shown(session_id)
+
+            # 7. Make decision based on first/subsequent stop
+            if analysis.has_blockers:
+                # Filter out addressed concerns from blockers
+                remaining_blockers = [
+                    r
+                    for r in analysis.failed_blockers
+                    if r.consideration_id not in addressed_concerns
+                ]
+
+                # If all blockers were addressed, treat as passing
+                if not remaining_blockers and addressed_concerns:
+                    self._log(
+                        f"All {len(addressed_concerns)} blockers were addressed in this turn",
+                        "INFO",
+                    )
+                    analysis = self._create_passing_analysis(analysis, addressed_concerns)
+                else:
+                    # Actual failures - block
+                    # Mark results shown on first stop to prevent race condition
+                    if is_first_stop:
+                        self._mark_results_shown(session_id)
+
+                    # Record block in turn state with full evidence
+                    blockers_to_record = remaining_blockers or analysis.failed_blockers
+
+                    if turn_state_manager and turn_state:
+                        # Convert CheckerResults to FailureEvidence
+                        failed_evidence = self._convert_to_failure_evidence(
+                            blockers_to_record, transcript, user_claims
+                        )
+
+                        turn_state = turn_state_manager.record_block_with_evidence(
+                            turn_state, failed_evidence, len(transcript), user_claims
+                        )
+                        turn_state_manager.save_state(turn_state)
+
+                    failed_ids = [r.consideration_id for r in blockers_to_record]
+
+                    prompt = self._generate_continuation_prompt(
+                        analysis, transcript, turn_state, addressed_concerns, user_claims
+                    )
+
+                    # Include formatted results in the prompt for visibility
+                    results_text = self._format_results_text(analysis, session_type)
+                    prompt_with_results = f"{prompt}\n{results_text}"
+
+                    # Save redirect record for session reflection
+                    self._save_redirect(
+                        session_id=session_id,
+                        failed_considerations=failed_ids,
+                        continuation_prompt=prompt_with_results,
+                        work_summary=None,  # Could be enhanced to extract work summary
+                    )
+
+                    return PowerSteeringResult(
+                        decision="block",
+                        reasons=failed_ids,
+                        continuation_prompt=prompt_with_results,
+                        summary=None,
+                        analysis=analysis,
+                        is_first_stop=is_first_stop,
+                    )
+
+            # All checks passed (or all blockers were addressed)
+            # FIX (Issue #1744): Check if any checks were actually evaluated
+            # If all checks were skipped (no results), approve immediately without blocking
+            if len(analysis.results) == 0:
+                self._log(
+                    "No power-steering checks applicable for session type - approving immediately",
+                    "INFO",
                 )
+                # Mark complete to prevent re-running
+                self._mark_complete(session_id)
+                self._emit_progress(
+                    progress_callback,
+                    "complete",
+                    "Power-steering analysis complete - no applicable checks for session type",
+                )
+                return PowerSteeringResult(
+                    decision="approve",
+                    reasons=["no_applicable_checks"],
+                    continuation_prompt=None,
+                    summary=None,
+                    analysis=analysis,
+                    is_first_stop=False,
+                )
+
+            if is_first_stop:
+                # FIRST STOP: Block to show results (visibility feature)
+                # Mark results shown immediately to prevent race condition
+                self._mark_results_shown(session_id)
+                self._log("First stop - blocking to display all results for visibility", "INFO")
+                self._emit_progress(
+                    progress_callback,
+                    "complete",
+                    "Power-steering analysis complete - all checks passed (first stop - displaying results)",
+                )
+
+                # Format results for inclusion in continuation_prompt
+                # This ensures results are visible even when stderr is not shown
+                results_text = self._format_results_text(analysis, session_type)
 
                 return PowerSteeringResult(
                     decision="block",
-                    reasons=failed_ids,
-                    continuation_prompt=prompt,
+                    reasons=["first_stop_visibility"],
+                    continuation_prompt=f"All power-steering checks passed! Please present these results to the user:\n{results_text}",
                     summary=None,
+                    analysis=analysis,
+                    # FIX (Issue #1744): Pass through calculated is_first_stop value
+                    # This prevents infinite loop by allowing stop.py (line 132) to distinguish
+                    # between first stop (display results) vs subsequent stops (don't block).
+                    # Previously hardcoded to True, causing every stop to block indefinitely.
+                    # NOTE: This was fixed in PR #1745; kept here for documentation.
+                    is_first_stop=is_first_stop,
                 )
-            # 7. Generate summary and mark complete
+
+            # SUBSEQUENT STOP: All checks passed, approve
+            # 8. Generate summary and mark complete
             summary = self._generate_summary(transcript, analysis, session_id)
             self._mark_complete(session_id)
             self._write_summary(session_id, summary)
+
+            # Reset turn state on approval
+            if turn_state_manager and turn_state:
+                turn_state = turn_state_manager.record_approval(turn_state)
+                turn_state_manager.save_state(turn_state)
 
             # Emit completion event
             self._emit_progress(
@@ -518,12 +938,20 @@ class PowerSteeringChecker:
                 "Power-steering analysis complete - all checks passed",
             )
 
-            return PowerSteeringResult(
+            result = PowerSteeringResult(
                 decision="approve",
                 reasons=["all_considerations_satisfied"],
                 continuation_prompt=None,
                 summary=summary,
+                analysis=analysis,
+                is_first_stop=False,
             )
+
+            # Add evidence to result if available
+            if hasattr(self, "_evidence_results"):
+                result.evidence_results = self._evidence_results
+
+            return result
 
         except Exception as e:
             # Fail-open: On any error, approve and log
@@ -534,6 +962,36 @@ class PowerSteeringChecker:
                 continuation_prompt=None,
                 summary=None,
             )
+
+    def _evidence_suggests_complete(self, evidence_results: list) -> bool:
+        """Check if concrete evidence suggests work is complete.
+
+        Args:
+            evidence_results: List of Evidence objects from Phase 1
+
+        Returns:
+            True if concrete evidence indicates completion
+        """
+        if not evidence_results:
+            return False
+
+        # Strong evidence types that indicate completion
+        strong_evidence = [
+            EvidenceType.PR_MERGED,
+            EvidenceType.USER_CONFIRMATION,
+            EvidenceType.CI_PASSING,
+        ]
+
+        # Check if any strong evidence is verified
+        for evidence in evidence_results:
+            if evidence.evidence_type in strong_evidence and evidence.verified:
+                return True
+
+        # Check if multiple medium evidence types are verified
+        verified_count = sum(1 for e in evidence_results if e.verified)
+
+        # If 3+ evidence types verified, trust concrete evidence
+        return verified_count >= 3
 
     def _is_disabled(self) -> bool:
         """Check if power-steering is disabled.
@@ -643,6 +1101,38 @@ class PowerSteeringChecker:
         """
         semaphore = self.runtime_dir / f".{session_id}_completed"
         return semaphore.exists()
+
+    def _results_already_shown(self, session_id: str) -> bool:
+        """Check if power-steering results were already shown for this session.
+
+        Used for the "always block first" visibility feature. On first stop,
+        we always block to show results. On subsequent stops, we only block
+        if there are actual failures.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            True if results were already shown, False otherwise
+        """
+        semaphore = self.runtime_dir / f".{session_id}_results_shown"
+        return semaphore.exists()
+
+    def _mark_results_shown(self, session_id: str) -> None:
+        """Create semaphore to indicate results have been shown.
+
+        Called after displaying all consideration results on first stop.
+
+        Args:
+            session_id: Session identifier
+        """
+        try:
+            semaphore = self.runtime_dir / f".{session_id}_results_shown"
+            semaphore.parent.mkdir(parents=True, exist_ok=True)
+            semaphore.touch()
+            semaphore.chmod(0o600)  # Owner read/write only for security
+        except OSError:
+            pass  # Fail-open: Continue even if semaphore creation fails
 
     def _mark_complete(self, session_id: str) -> None:
         """Create semaphore to prevent re-running.
@@ -901,30 +1391,125 @@ class PowerSteeringChecker:
         # Multiple Read/Grep without modifications
         return read_grep_operations >= 2 and write_edit_operations == 0
 
-    def detect_session_type(self, transcript: list[dict]) -> str:
-        """Detect session type for selective consideration application.
+    def _has_simple_task_keywords(self, transcript: list[dict]) -> bool:
+        """Check user messages for simple housekeeping task keywords.
 
-        Session Types:
-        - DEVELOPMENT: Code changes, tests, PR operations
-        - INFORMATIONAL: Q&A, help queries, capability questions
-        - MAINTENANCE: Documentation and configuration updates only
-        - INVESTIGATION: Read-only exploration and analysis
+        Simple tasks like "cleanup workspace", "fetch latest", "git pull" should
+        skip most power-steering checks as they are routine maintenance.
 
         Args:
             transcript: List of message dictionaries
 
         Returns:
-            Session type string: "DEVELOPMENT", "INFORMATIONAL", "MAINTENANCE", or "INVESTIGATION"
+            True if simple task keywords found in user messages
+        """
+        # Check first 3 user messages for simple task keywords
+        user_messages = [m for m in transcript if m.get("type") == "user"][:3]
+
+        if not user_messages:
+            return False
+
+        for msg in user_messages:
+            content = str(msg.get("message", {}).get("content", "")).lower()
+
+            # Check for simple task keywords
+            for keyword in self.SIMPLE_TASK_KEYWORDS:
+                if keyword in content:
+                    self._log(
+                        f"Simple task keyword '{keyword}' found in user message",
+                        "DEBUG",
+                    )
+                    return True
+
+        return False
+
+    def _has_investigation_keywords(self, transcript: list[dict]) -> bool:
+        """Check early user messages for investigation/troubleshooting keywords.
+
+        This check takes PRIORITY over tool-based heuristics. If investigation
+        keywords are found, the session is classified as INVESTIGATION regardless
+        of what tools were used. This fixes #1604 where troubleshooting sessions
+        were incorrectly blocked by development-specific checks.
+
+        Args:
+            transcript: List of message dictionaries
+
+        Returns:
+            True if investigation keywords found in early user messages
+        """
+        # Check first 5 user messages for investigation keywords
+        user_messages = [m for m in transcript if m.get("type") == "user"][:5]
+
+        if not user_messages:
+            return False
+
+        for msg in user_messages:
+            content = str(msg.get("message", {}).get("content", "")).lower()
+
+            # Check for investigation keywords
+            for keyword in self.INVESTIGATION_KEYWORDS:
+                if keyword in content:
+                    self._log(
+                        f"Investigation keyword '{keyword}' found in user message",
+                        "DEBUG",
+                    )
+                    return True
+
+        return False
+
+    def detect_session_type(self, transcript: list[dict]) -> str:
+        """Detect session type for selective consideration application.
+
+        Session Types:
+        - SIMPLE: Routine housekeeping tasks (cleanup, fetch, sync) - skip most checks
+        - DEVELOPMENT: Code changes, tests, PR operations
+        - INFORMATIONAL: Q&A, help queries, capability questions
+        - MAINTENANCE: Documentation and configuration updates only
+        - INVESTIGATION: Exploration, analysis, troubleshooting, and debugging
+
+        Detection Priority:
+        1. Environment override (AMPLIHACK_SESSION_TYPE)
+        2. Simple task keywords (cleanup, fetch, workspace) - highest priority heuristic
+        3. Investigation keywords in user messages
+        4. Tool usage patterns (code changes, tests, etc.)
+
+        The keyword detection takes priority over tool-based heuristics because
+        troubleshooting sessions often involve Bash commands and doc updates,
+        which can be misclassified as DEVELOPMENT or MAINTENANCE.
+
+        Args:
+            transcript: List of message dictionaries
+
+        Returns:
+            Session type string: "SIMPLE", "DEVELOPMENT", "INFORMATIONAL", "MAINTENANCE", or "INVESTIGATION"
         """
         # Check for environment override first
         env_override = os.getenv("AMPLIHACK_SESSION_TYPE", "").upper()
-        if env_override in ["DEVELOPMENT", "INFORMATIONAL", "MAINTENANCE", "INVESTIGATION"]:
+        if env_override in [
+            "SIMPLE",
+            "DEVELOPMENT",
+            "INFORMATIONAL",
+            "MAINTENANCE",
+            "INVESTIGATION",
+        ]:
             self._log(f"Session type overridden by environment: {env_override}", "INFO")
             return env_override
 
         # Empty transcript defaults to INFORMATIONAL (fail-open)
         if not transcript:
             return "INFORMATIONAL"
+
+        # HIGHEST PRIORITY: Simple task keywords (cleanup, fetch, sync, workspace)
+        # These routine maintenance tasks should skip most power-steering checks
+        if self._has_simple_task_keywords(transcript):
+            self._log("Session classified as SIMPLE via keyword detection", "INFO")
+            return "SIMPLE"
+
+        # PRIORITY CHECK: Investigation keywords in user messages
+        # This takes precedence over tool-based heuristics (fixes #1604)
+        if self._has_investigation_keywords(transcript):
+            self._log("Session classified as INVESTIGATION via keyword detection", "INFO")
+            return "INVESTIGATION"
 
         # Collect indicators from transcript
         code_files_modified = False
@@ -1017,11 +1602,17 @@ class PowerSteeringChecker:
         """Get considerations applicable to a specific session type.
 
         Args:
-            session_type: Session type ("DEVELOPMENT", "INFORMATIONAL", "MAINTENANCE", "INVESTIGATION")
+            session_type: Session type ("SIMPLE", "DEVELOPMENT", "INFORMATIONAL", "MAINTENANCE", "INVESTIGATION")
 
         Returns:
             List of consideration dictionaries applicable to this session type
         """
+        # SIMPLE sessions skip ALL considerations - they are routine maintenance tasks
+        # like cleanup, fetch, sync, workspace management that don't need verification
+        if session_type == "SIMPLE":
+            self._log("SIMPLE session - skipping all considerations", "INFO")
+            return []
+
         # Filter considerations based on session type
         applicable = []
 
@@ -1099,31 +1690,218 @@ class PowerSteeringChecker:
 
         return False
 
+    def _create_passing_analysis(
+        self,
+        original_analysis: ConsiderationAnalysis,
+        addressed_concerns: dict[str, str],
+    ) -> ConsiderationAnalysis:
+        """Create a modified analysis with addressed blockers marked as satisfied.
+
+        Used when all blockers were addressed in the current turn to convert
+        a failing analysis to a passing one.
+
+        Args:
+            original_analysis: The original analysis with blockers
+            addressed_concerns: Map of concern_id -> how it was addressed
+
+        Returns:
+            New ConsiderationAnalysis with blockers converted to satisfied
+        """
+        # Create a copy of results with addressed concerns marked satisfied
+        modified_results = dict(original_analysis.results)
+
+        for consideration_id, how_addressed in addressed_concerns.items():
+            if consideration_id in modified_results:
+                old_result = modified_results[consideration_id]
+                modified_results[consideration_id] = CheckerResult(
+                    consideration_id=consideration_id,
+                    satisfied=True,
+                    reason=f"{old_result.reason} [ADDRESSED: {how_addressed}]",
+                    severity=old_result.severity,
+                )
+
+        # Create new analysis with modified results
+        return ConsiderationAnalysis(results=modified_results)
+
+    def _convert_to_failure_evidence(
+        self,
+        failed_results: list[CheckerResult],
+        transcript: list[dict],
+        user_claims: list[str] | None = None,
+    ) -> list["FailureEvidence"]:
+        """Convert CheckerResults to FailureEvidence with evidence quotes.
+
+        Extracts specific evidence from the transcript to show WHY each
+        check failed, enabling the agent to understand exactly what's missing.
+
+        Args:
+            failed_results: List of failed CheckerResult objects
+            transcript: Full transcript for evidence extraction
+            user_claims: User claims detected (to mark as was_claimed_complete)
+
+        Returns:
+            List of FailureEvidence objects with detailed evidence
+        """
+        if not TURN_STATE_AVAILABLE:
+            return []
+
+        evidence_list: list[FailureEvidence] = []
+        claimed_ids = set()
+
+        # Extract consideration IDs that were claimed as complete
+        if user_claims:
+            for claim in user_claims:
+                claim_lower = claim.lower()
+                for result in failed_results:
+                    cid = result.consideration_id.lower()
+                    # Simple heuristic: if claim mentions words from consideration ID
+                    if any(word in claim_lower for word in cid.split("_") if len(word) > 2):
+                        claimed_ids.add(result.consideration_id)
+
+        for result in failed_results:
+            # Try to find specific evidence quote from transcript
+            quote = self._find_evidence_quote(result, transcript)
+
+            evidence = FailureEvidence(
+                consideration_id=result.consideration_id,
+                reason=result.reason,
+                evidence_quote=quote,
+                was_claimed_complete=result.consideration_id in claimed_ids,
+            )
+            evidence_list.append(evidence)
+
+        return evidence_list
+
+    def _find_evidence_quote(
+        self,
+        result: CheckerResult,
+        transcript: list[dict],
+    ) -> str | None:
+        """Find a specific quote from transcript showing why check failed.
+
+        Searches for relevant context based on the consideration type to
+        provide concrete evidence of what's missing or failing.
+
+        Args:
+            result: CheckerResult to find evidence for
+            transcript: Full transcript to search
+
+        Returns:
+            Evidence quote string if found, None otherwise
+        """
+        cid = result.consideration_id.lower()
+
+        # Define search patterns for each consideration type
+        search_terms: dict[str, list[str]] = {
+            "todos": ["todo", "task", "item", "remaining"],
+            "testing": ["test", "pytest", "unittest", "failing", "error"],
+            "ci": ["ci", "github actions", "pipeline", "build", "workflow"],
+            "workflow": ["step", "workflow", "phase"],
+            "review": ["review", "feedback", "comment"],
+            "philosophy": ["philosophy", "simplicity", "stub", "placeholder"],
+            "docs": ["documentation", "readme", "doc"],
+        }
+
+        # Find which search terms apply to this consideration
+        relevant_terms = []
+        for key, terms in search_terms.items():
+            if key in cid:
+                relevant_terms.extend(terms)
+
+        if not relevant_terms:
+            return None
+
+        # Search recent transcript for relevant content
+        recent_messages = transcript[-20:] if len(transcript) > 20 else transcript
+
+        for msg in reversed(recent_messages):
+            content = self._extract_message_text(msg).lower()
+
+            for term in relevant_terms:
+                if term in content:
+                    # Found relevant content - extract context
+                    idx = content.find(term)
+                    start = max(0, idx - 30)
+                    end = min(len(content), idx + len(term) + 70)
+
+                    # Get original case text
+                    original_content = self._extract_message_text(msg)
+                    quote = original_content[start:end].strip()
+
+                    if len(quote) > 10:  # Only return meaningful quotes
+                        return f"...{quote}..."
+
+        return None
+
+    def _extract_message_text(self, msg: dict) -> str:
+        """Extract text content from a message dict.
+
+        Args:
+            msg: Message dictionary
+
+        Returns:
+            Text content as string
+        """
+        content = msg.get("content", msg.get("message", ""))
+
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, dict):
+            inner = content.get("content", "")
+            if isinstance(inner, str):
+                return inner
+            if isinstance(inner, list):
+                return self._extract_text_from_blocks(inner)
+
+        if isinstance(content, list):
+            return self._extract_text_from_blocks(content)
+
+        return ""
+
+    def _extract_text_from_blocks(self, blocks: list) -> str:
+        """Extract text from content blocks.
+
+        Args:
+            blocks: List of content blocks
+
+        Returns:
+            Concatenated text content
+        """
+        texts = []
+        for block in blocks:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    texts.append(str(block.get("text", "")))
+        return " ".join(texts)
+
     def _analyze_considerations(
         self,
         transcript: list[dict],
         session_id: str,
         session_type: str = None,
-        progress_callback: callable | None = None,
+        progress_callback: Callable | None = None,
     ) -> ConsiderationAnalysis:
-        """Analyze transcript against all enabled considerations.
+        """Analyze transcript against all enabled considerations IN PARALLEL.
 
-        Phase 2: Uses Claude SDK for intelligent analysis when available,
-        falls back to heuristic checkers if SDK unavailable.
+        Phase 4 (Performance): Uses asyncio.gather() to run ALL SDK checks in parallel,
+        reducing total time from ~220s (sequential) to ~15-20s (parallel).
 
-        Phase 3: Filters considerations by session type to prevent false positives.
+        Key design decisions:
+        - Transcript is loaded ONCE upfront, shared across all parallel workers
+        - ALL checks run - no early exit - for comprehensive feedback
+        - No caching - session-specific analysis doesn't benefit from caching
+        - Fail-open: Any errors result in "satisfied" to never block users
 
         Args:
-            transcript: List of message dictionaries
+            transcript: List of message dictionaries (PRE-LOADED, not fetched by workers)
             session_id: Session identifier
             session_type: Session type for selective consideration application (auto-detected if None)
             progress_callback: Optional callback for progress events
 
         Returns:
-            ConsiderationAnalysis with results
+            ConsiderationAnalysis with results from ALL considerations
         """
-        analysis = ConsiderationAnalysis()
-
         # Auto-detect session type if not provided
         if session_type is None:
             session_type = self.detect_session_type(transcript)
@@ -1132,136 +1910,349 @@ class PowerSteeringChecker:
         # Get considerations applicable to this session type
         applicable_considerations = self.get_applicable_considerations(session_type)
 
-        # Track categories for progress
-        categories_seen = set()
-
+        # Filter to enabled considerations only
+        enabled_considerations = []
         for consideration in applicable_considerations:
             # Check if enabled in consideration itself
             if not consideration.get("enabled", True):
                 continue
-
             # Also check config for backward compatibility
             if not self.config.get("checkers_enabled", {}).get(consideration["id"], True):
                 continue
+            enabled_considerations.append(consideration)
 
-            # Emit category event if first time seeing this category
-            category = consideration.get("category", "Unknown")
-            if category not in categories_seen:
-                categories_seen.add(category)
-                self._emit_progress(
-                    progress_callback,
-                    "category",
-                    f"Checking {category}",
-                    {"category": category},
-                )
-
-            # Emit consideration event
+        # Emit progress for all categories upfront
+        categories = set(c.get("category", "Unknown") for c in enabled_considerations)
+        for category in categories:
             self._emit_progress(
                 progress_callback,
-                "consideration",
-                f"Checking: {consideration['question']}",
-                {"consideration_id": consideration["id"], "question": consideration["question"]},
+                "category",
+                f"Checking {category}",
+                {"category": category},
             )
 
-            # Run checker with timeout and error handling
-            try:
-                with _timeout(CHECKER_TIMEOUT):
-                    # Determine if we should use SDK analysis
-                    checker_name = consideration["checker"]
-                    use_sdk = (
-                        SDK_AVAILABLE
-                        and checker_name != "generic"  # Skip SDK for generic checkers
-                        and checker_name.startswith("_check_")  # Only use SDK for specific checkers
-                    )
+        # Emit progress for parallel execution start
+        self._emit_progress(
+            progress_callback,
+            "parallel_start",
+            f"Running {len(enabled_considerations)} checks in parallel...",
+            {"count": len(enabled_considerations)},
+        )
 
-                    if use_sdk:
-                        try:
-                            satisfied = analyze_consideration_sync(
-                                conversation=transcript,
-                                consideration=consideration,
-                                project_root=self.project_root,
-                            )
-                            self._log(
-                                f"SDK analysis for '{consideration['id']}': {'satisfied' if satisfied else 'not satisfied'}",
-                                "DEBUG",
-                            )
-                        except Exception as e:
-                            # SDK failed, fall back to heuristic checker
-                            self._log(
-                                f"SDK analysis failed for '{consideration['id']}': {e}, using heuristic",
-                                "WARNING",
-                            )
-                            satisfied = self._run_heuristic_checker(
-                                consideration, transcript, session_id
-                            )
-                    else:
-                        # SDK not available or not applicable, use heuristic checker
-                        satisfied = self._run_heuristic_checker(
-                            consideration, transcript, session_id
-                        )
+        # Run all considerations in parallel using asyncio
+        try:
+            # Use asyncio.run() to execute the parallel async method
+            # This is the single event loop for all parallel checks
+            start_time = datetime.now()
 
-                result = CheckerResult(
-                    consideration_id=consideration["id"],
-                    satisfied=satisfied,
-                    reason=consideration["question"],
-                    severity=consideration["severity"],
+            analysis = asyncio.run(
+                self._analyze_considerations_parallel_async(
+                    transcript=transcript,
+                    session_id=session_id,
+                    enabled_considerations=enabled_considerations,
+                    progress_callback=progress_callback,
                 )
-                analysis.add_result(result)
-            except TimeoutError:
-                # Fail-open: Treat as satisfied on timeout
-                self._log(f"Checker timed out ({CHECKER_TIMEOUT}s)", "WARNING")
-                result = CheckerResult(
+            )
+
+            elapsed = (datetime.now() - start_time).total_seconds()
+            self._log(
+                f"Parallel analysis completed: {len(enabled_considerations)} checks in {elapsed:.1f}s",
+                "INFO",
+            )
+            self._emit_progress(
+                progress_callback,
+                "parallel_complete",
+                f"Completed {len(enabled_considerations)} checks in {elapsed:.1f}s",
+                {"count": len(enabled_considerations), "elapsed_seconds": elapsed},
+            )
+
+            return analysis
+
+        except Exception as e:
+            # Fail-open: On any error with parallel execution, return empty analysis
+            self._log(f"Parallel analysis failed (fail-open): {e}", "ERROR")
+            return ConsiderationAnalysis()
+
+    async def _analyze_considerations_parallel_async(
+        self,
+        transcript: list[dict],
+        session_id: str,
+        enabled_considerations: list[dict[str, Any]],
+        progress_callback: Callable | None = None,
+    ) -> ConsiderationAnalysis:
+        """Async implementation that runs ALL considerations in parallel.
+
+        Args:
+            transcript: Pre-loaded transcript (shared across all workers)
+            session_id: Session identifier
+            enabled_considerations: List of enabled consideration dictionaries
+            progress_callback: Optional callback for progress events
+
+        Returns:
+            ConsiderationAnalysis with results from all considerations
+        """
+        analysis = ConsiderationAnalysis()
+
+        # Create async tasks for ALL considerations
+        # Each task receives the SAME transcript (no re-fetching)
+        tasks = [
+            self._check_single_consideration_async(
+                consideration=consideration,
+                transcript=transcript,
+                session_id=session_id,
+            )
+            for consideration in enabled_considerations
+        ]
+
+        # Run ALL tasks in parallel with overall timeout
+        # return_exceptions=True ensures all tasks complete even if some fail
+        try:
+            async with asyncio.timeout(PARALLEL_TIMEOUT):
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+        except TimeoutError:
+            self._log(f"Parallel execution timed out after {PARALLEL_TIMEOUT}s", "WARNING")
+            # Fail-open: Return empty analysis on timeout
+            return analysis
+
+        # Process results from all parallel tasks
+        for consideration, result in zip(enabled_considerations, results, strict=False):
+            if isinstance(result, Exception):
+                # Task raised an exception - fail-open
+                self._log(
+                    f"Check '{consideration['id']}' failed with exception: {result}",
+                    "WARNING",
+                )
+                checker_result = CheckerResult(
                     consideration_id=consideration["id"],
                     satisfied=True,  # Fail-open
-                    reason=f"Timeout after {CHECKER_TIMEOUT}s",
+                    reason=f"Error: {result}",
                     severity=consideration["severity"],
                 )
-                analysis.add_result(result)
-            except Exception as e:
-                # Fail-open: Treat as satisfied on error
-                self._log(f"Checker failed: {e}", "ERROR")
-                result = CheckerResult(
+            elif isinstance(result, CheckerResult):
+                # Normal result
+                checker_result = result
+            else:
+                # Unexpected result type - fail-open
+                self._log(
+                    f"Check '{consideration['id']}' returned unexpected type: {type(result)}",
+                    "WARNING",
+                )
+                checker_result = CheckerResult(
                     consideration_id=consideration["id"],
                     satisfied=True,  # Fail-open
-                    reason=f"Error: {e}",
+                    reason="Unexpected result type",
                     severity=consideration["severity"],
                 )
-                analysis.add_result(result)
+
+            analysis.add_result(checker_result)
+
+            # Emit individual result progress
+            self._emit_progress(
+                progress_callback,
+                "consideration_result",
+                f"{'✓' if checker_result.satisfied else '✗'} {consideration['question']}",
+                {
+                    "consideration_id": consideration["id"],
+                    "satisfied": checker_result.satisfied,
+                    "question": consideration["question"],
+                },
+            )
 
         return analysis
 
-    def _run_heuristic_checker(
-        self, consideration: dict[str, Any], transcript: list[dict], session_id: str
-    ) -> bool:
-        """Run heuristic checker for a consideration.
+    async def _check_single_consideration_async(
+        self,
+        consideration: dict[str, Any],
+        transcript: list[dict],
+        session_id: str,
+    ) -> CheckerResult:
+        """Check a single consideration asynchronously.
 
-        Fallback mechanism when Claude SDK is unavailable or fails.
+        Phase 5 (SDK-First): Use Claude SDK as PRIMARY method
+        - ALL considerations analyzed by SDK first (when available)
+        - Specific checkers (_check_*) used ONLY as fallback
+        - Fail-open when SDK unavailable or fails
+
+        This is the parallel worker that handles one consideration.
+        The transcript is already loaded - this method does NOT fetch it.
 
         Args:
             consideration: Consideration dictionary
-            transcript: List of message dictionaries
+            transcript: Pre-loaded transcript (shared, not fetched)
             session_id: Session identifier
 
         Returns:
-            True if satisfied, False otherwise
+            CheckerResult with satisfaction status
         """
-        checker_name = consideration["checker"]
+        try:
+            # SDK-FIRST: Try SDK for ALL considerations (when available)
+            if SDK_AVAILABLE:
+                try:
+                    # Use async SDK function directly (already awaitable)
+                    # Returns tuple: (satisfied, reason)
+                    satisfied, sdk_reason = await analyze_consideration(
+                        conversation=transcript,
+                        consideration=consideration,
+                        project_root=self.project_root,
+                    )
 
-        # Handle generic checker
-        if checker_name == "generic":
-            checker_func = self._generic_analyzer
+                    # SDK succeeded - return result with SDK-provided reason
+                    return CheckerResult(
+                        consideration_id=consideration["id"],
+                        satisfied=satisfied,
+                        reason=(
+                            "SDK analysis: satisfied"
+                            if satisfied
+                            else f"SDK analysis: {sdk_reason or consideration['question'] + ' not met'}"
+                        ),
+                        severity=consideration["severity"],
+                    )
+                except Exception as e:
+                    # SDK failed - log to stderr and fall through to fallback
+                    import sys
+
+                    error_msg = f"[Power Steering SDK Error] {consideration['id']}: {e!s}\n"
+                    sys.stderr.write(error_msg)
+                    sys.stderr.flush()
+
+                    self._log(
+                        f"SDK analysis failed for '{consideration['id']}': {e}",
+                        "DEBUG",
+                    )
+                    # Continue to fallback methods below
+
+            # FALLBACK: Use heuristic checkers when SDK unavailable or failed
+            checker_name = consideration["checker"]
+
+            # Dispatch to specific checker or generic analyzer
+            if hasattr(self, checker_name) and callable(getattr(self, checker_name)):
+                checker_func = getattr(self, checker_name)
+                satisfied = checker_func(transcript, session_id)
+            else:
+                # Generic analyzer for considerations without specific checker
+                satisfied = self._generic_analyzer(transcript, session_id, consideration)
+
+            return CheckerResult(
+                consideration_id=consideration["id"],
+                satisfied=satisfied,
+                reason=(f"Heuristic fallback: {'satisfied' if satisfied else 'not met'}"),
+                severity=consideration["severity"],
+            )
+
+        except Exception as e:
+            # Fail-open: Never block on errors
+            self._log(
+                f"Checker error for '{consideration['id']}': {e}",
+                "WARNING",
+            )
+            return CheckerResult(
+                consideration_id=consideration["id"],
+                satisfied=True,  # Fail-open
+                reason=f"Error (fail-open): {e}",
+                severity=consideration["severity"],
+            )
+
+    def _format_results_text(self, analysis: ConsiderationAnalysis, session_type: str) -> str:
+        """Format analysis results as text for inclusion in continuation_prompt.
+
+        This allows users to see results even when stderr isn't visible.
+
+        Note on message branches: This method handles three cases:
+        1. Some checks passed → "ALL CHECKS PASSED"
+        2. No checks ran (all skipped) → "NO CHECKS APPLICABLE"
+        3. Some checks failed → "CHECKS FAILED"
+
+        Case #2 is primarily for testing - in production, check() returns early
+        (line 759) when len(analysis.results)==0, so this method won't be called.
+        However, tests call this method directly to verify message formatting works.
+
+        Args:
+            analysis: ConsiderationAnalysis with results
+            session_type: Session type (e.g., "SIMPLE", "STANDARD")
+
+        Returns:
+            Formatted text string with results grouped by category
+        """
+        lines = []
+        lines.append("\n" + "=" * 60)
+        lines.append("⚙️  POWER-STEERING ANALYSIS RESULTS")
+        lines.append("=" * 60 + "\n")
+        lines.append(f"Session Type: {session_type}\n")
+
+        # Group results by category
+        by_category: dict[str, list[tuple]] = {}
+        for consideration in self.considerations:
+            category = consideration.get("category", "Unknown")
+            cid = consideration["id"]
+            result = analysis.results.get(cid)
+
+            if category not in by_category:
+                by_category[category] = []
+
+            by_category[category].append((consideration, result))
+
+        # Display by category
+        total_passed = 0
+        total_failed = 0
+        total_skipped = 0
+
+        for category, items in sorted(by_category.items()):
+            lines.append(f"📋 {category}")
+            lines.append("-" * 40)
+
+            for consideration, result in items:
+                if result is None:
+                    indicator = "⬜"  # Not checked (skipped)
+                    total_skipped += 1
+                elif result.satisfied:
+                    indicator = "✅"
+                    total_passed += 1
+                else:
+                    indicator = "❌"
+                    total_failed += 1
+
+                question = consideration.get("question", consideration["id"])
+                severity = consideration.get("severity", "warning")
+                severity_tag = " [blocker]" if severity == "blocker" else ""
+
+                lines.append(f"  {indicator} {question}{severity_tag}")
+
+            lines.append("")
+
+        # Summary line
+        lines.append("=" * 60)
+        if total_failed == 0 and total_passed > 0:
+            # Some checks passed and none failed
+            self._log(
+                f"Message branch: ALL_CHECKS_PASSED (passed={total_passed}, failed=0, skipped={total_skipped})",
+                "DEBUG",
+            )
+            lines.append(f"✅ ALL CHECKS PASSED ({total_passed} passed, {total_skipped} skipped)")
+            lines.append("\n📌 This was your first stop. Next stop will proceed without blocking.")
+            lines.append("\n💡 To disable power-steering: export AMPLIHACK_SKIP_POWER_STEERING=1")
+            lines.append("   Or create: .claude/runtime/power-steering/.disabled")
+        elif total_failed == 0 and total_passed == 0:
+            # No checks were evaluated (all skipped) - not a "pass", just no applicable checks
+            self._log(
+                f"Message branch: NO_CHECKS_APPLICABLE (passed=0, failed=0, skipped={total_skipped})",
+                "DEBUG",
+            )
+            lines.append(f"⚠️  NO CHECKS APPLICABLE ({total_skipped} skipped for session type)")
+            lines.append("\n📌 No power-steering checks apply to this session type.")
+            lines.append("   This is expected for simple Q&A or informational sessions.")
         else:
-            checker_func = getattr(self, checker_name, None)
+            # Some checks failed
+            self._log(
+                f"Message branch: CHECKS_FAILED (passed={total_passed}, failed={total_failed}, skipped={total_skipped})",
+                "DEBUG",
+            )
+            lines.append(
+                f"❌ CHECKS FAILED ({total_passed} passed, {total_failed} failed, {total_skipped} skipped)"
+            )
+            lines.append("\n📌 Address the failed checks above before stopping.")
+        lines.append("=" * 60 + "\n")
 
-        if checker_func is None:
-            # Log warning and use generic analyzer as fallback
-            self._log(f"Checker not found: {checker_name}, using generic", "WARNING")
-            checker_func = self._generic_analyzer
-
-        # Run checker
-        if checker_name == "generic" or checker_func == self._generic_analyzer:
-            return checker_func(transcript, session_id, consideration)
-        return checker_func(transcript, session_id)
+        return "\n".join(lines)
 
     # ========================================================================
     # Phase 1: Top 5 Critical Checkers
@@ -1307,6 +2298,99 @@ class PowerSteeringChecker:
                 return False  # Found incomplete todo
 
         return True  # All todos completed
+
+    def _extract_incomplete_todos(self, transcript: list[dict]) -> list[str]:
+        """Extract list of incomplete todo items from transcript.
+
+        Helper method used by continuation prompt generation to show
+        specific items the agent needs to complete.
+
+        Args:
+            transcript: List of message dictionaries
+
+        Returns:
+            List of incomplete todo item descriptions
+        """
+        incomplete_todos = []
+
+        # Find last TodoWrite tool call
+        last_todo_write = None
+        for msg in reversed(transcript):
+            if msg.get("type") == "assistant" and "message" in msg:
+                content = msg["message"].get("content", [])
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "tool_use":
+                            if block.get("name") == "TodoWrite":
+                                last_todo_write = block.get("input", {})
+                                break
+            if last_todo_write:
+                break
+
+        if not last_todo_write:
+            return []
+
+        todos = last_todo_write.get("todos", [])
+        for todo in todos:
+            status = todo.get("status", "pending")
+            if status != "completed":
+                content = todo.get("content", "Unknown task")
+                incomplete_todos.append(f"[{status}] {content}")
+
+        return incomplete_todos
+
+    def _extract_next_steps_mentioned(self, transcript: list[dict]) -> list[str]:
+        """Extract specific next steps mentioned in recent assistant messages.
+
+        Helper method used by continuation prompt generation to show
+        specific next steps the agent mentioned but hasn't completed.
+
+        Args:
+            transcript: List of message dictionaries
+
+        Returns:
+            List of next step descriptions (extracted sentences/phrases)
+        """
+        next_steps = []
+        next_steps_triggers = [
+            "next step",
+            "next steps",
+            "follow-up",
+            "remaining",
+            "still need",
+            "todo",
+            "left to",
+        ]
+
+        # Check recent assistant messages
+        recent_messages = [m for m in transcript[-15:] if m.get("type") == "assistant"][-5:]
+
+        for msg in recent_messages:
+            content = msg.get("message", {}).get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text = str(block.get("text", ""))
+                        text_lower = text.lower()
+
+                        # Check if this block mentions next steps
+                        if any(trigger in text_lower for trigger in next_steps_triggers):
+                            # Extract sentences containing the trigger
+                            sentences = text.replace("\n", " ").split(". ")
+                            for sentence in sentences:
+                                sentence_lower = sentence.lower()
+                                if any(
+                                    trigger in sentence_lower for trigger in next_steps_triggers
+                                ):
+                                    clean_sentence = sentence.strip()
+                                    if clean_sentence and len(clean_sentence) > 10:
+                                        # Truncate long sentences
+                                        if len(clean_sentence) > 150:
+                                            clean_sentence = clean_sentence[:147] + "..."
+                                        if clean_sentence not in next_steps:
+                                            next_steps.append(clean_sentence)
+
+        return next_steps[:5]  # Limit to 5 items
 
     def _check_dev_workflow_complete(self, transcript: list[dict], session_id: str) -> bool:
         """Check if full DEFAULT_WORKFLOW followed.
@@ -1904,50 +2988,68 @@ class PowerSteeringChecker:
             return False
 
     def _check_next_steps(self, transcript: list[dict], session_id: str) -> bool:
-        """Check if next steps were identified and documented.
+        """Check that work is complete with NO remaining next steps.
 
-        Looks for TODO items or documented follow-up tasks.
+        INVERTED LOGIC: If the agent mentions "next steps", "remaining work", or
+        similar phrases in their final messages, that means they're acknowledging
+        there's MORE work to do. This check FAILS when next steps are found,
+        prompting the agent to continue working until no next steps remain.
 
         Args:
             transcript: List of message dictionaries
             session_id: Session identifier
 
         Returns:
-            True if next steps documented, False if missing
+            True if NO next steps found (work is complete)
+            False if next steps ARE found (work is incomplete - should continue)
         """
-        # Look for next steps indicators
-        next_steps_keywords = [
+        # Keywords that indicate incomplete work
+        incomplete_work_keywords = [
             "next steps",
+            "next step",
             "follow-up",
+            "follow up",
             "future work",
+            "remaining work",
+            "remaining tasks",
+            "still need to",
+            "still needs to",
             "todo",
-            "remaining",
-            "planned",
+            "to-do",
+            "to do",
+            "left to do",
+            "more to do",
+            "additional work",
+            "further work",
+            "outstanding",
+            "not yet complete",
+            "not yet done",
+            "incomplete",
+            "pending",
+            "planned for later",
+            "deferred",
         ]
 
-        for msg in reversed(transcript[-20:]):  # Check recent messages
-            if msg.get("type") == "assistant":
-                content = msg.get("message", {}).get("content", [])
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            text = str(block.get("text", "")).lower()
-                            if any(keyword in text for keyword in next_steps_keywords):
-                                return True
+        # Check RECENT assistant messages (last 10) for incomplete work indicators
+        # These are where the agent would summarize before stopping
+        recent_messages = [m for m in transcript[-20:] if m.get("type") == "assistant"][-10:]
 
-        # Also check for Write operations on TODO or planning files
-        for msg in transcript:
-            if msg.get("type") == "assistant" and "message" in msg:
-                content = msg["message"].get("content", [])
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "tool_use":
-                            if block.get("name") == "Write":
-                                file_path = block.get("input", {}).get("file_path", "").lower()
-                                if "todo" in file_path or "plan" in file_path:
-                                    return True
+        for msg in reversed(recent_messages):
+            content = msg.get("message", {}).get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text = str(block.get("text", "")).lower()
+                        for keyword in incomplete_work_keywords:
+                            if keyword in text:
+                                self._log(
+                                    f"Incomplete work indicator found: '{keyword}' - agent should continue",
+                                    "INFO",
+                                )
+                                return False  # Work is INCOMPLETE
 
-        return False
+        # No incomplete work indicators found - work is complete
+        return True
 
     def _check_docs_organization(self, transcript: list[dict], session_id: str) -> bool:
         """Check if investigation/session docs are organized properly.
@@ -2354,7 +3456,7 @@ class PowerSteeringChecker:
 
     def _emit_progress(
         self,
-        progress_callback: callable | None,
+        progress_callback: Callable | None,
         event_type: str,
         message: str,
         details: dict | None = None,
@@ -2382,36 +3484,170 @@ class PowerSteeringChecker:
     # Output Generation
     # ========================================================================
 
-    def _generate_continuation_prompt(self, analysis: ConsiderationAnalysis) -> str:
-        """Generate actionable continuation prompt.
+    def _generate_continuation_prompt(
+        self,
+        analysis: ConsiderationAnalysis,
+        transcript: list[dict] | None = None,
+        turn_state: Optional["PowerSteeringTurnState"] = None,
+        addressed_concerns: dict[str, str] | None = None,
+        user_claims: list[str] | None = None,
+    ) -> str:
+        """Generate actionable continuation prompt with turn-awareness and evidence.
+
+        Enhanced to show:
+        - Specific incomplete TODO items that need completion
+        - Specific "next steps" mentioned that indicate incomplete work
+        - User claims vs actual evidence gap
+        - Persistent failures across blocks
+        - Escalating severity on repeated blocks
 
         Args:
             analysis: Analysis results with failed considerations
+            transcript: Optional transcript for extracting specific incomplete items
+            turn_state: Optional turn state for turn-aware prompting
+            addressed_concerns: Optional dict of concerns addressed in this turn
+            user_claims: Optional list of completion claims detected from user/agent
 
         Returns:
-            Formatted continuation prompt
+            Formatted continuation prompt with evidence and turn information
         """
+        blocks = turn_state.consecutive_blocks if turn_state else 1
+        threshold = PowerSteeringTurnState.MAX_CONSECUTIVE_BLOCKS if TURN_STATE_AVAILABLE else 10
+
+        # Extract specific incomplete items for detailed guidance
+        incomplete_todos = []
+        next_steps_mentioned = []
+        if transcript:
+            incomplete_todos = self._extract_incomplete_todos(transcript)
+            next_steps_mentioned = self._extract_next_steps_mentioned(transcript)
+
+        # Escalating tone based on block count
+        if blocks == 1:
+            severity_header = "First check"
+        elif blocks <= threshold // 2:
+            severity_header = f"Block {blocks}/{threshold}"
+        else:
+            severity_header = (
+                f"**CRITICAL: Block {blocks}/{threshold}** - Auto-approval approaching"
+            )
+
         prompt_parts = [
-            "POWER-STEERING: Session appears incomplete",
             "",
-            "The following checks failed and need to be addressed:",
+            "=" * 60,
+            f"POWER-STEERING Analysis - {severity_header}",
+            "=" * 60,
             "",
         ]
 
-        # Group by category
+        # CRITICAL: Show specific incomplete items that MUST be completed
+        if incomplete_todos or next_steps_mentioned:
+            prompt_parts.append("**INCOMPLETE WORK DETECTED - YOU MUST CONTINUE:**")
+            prompt_parts.append("")
+
+            if incomplete_todos:
+                prompt_parts.append("**Incomplete TODO Items** (you MUST complete these):")
+                for todo in incomplete_todos:
+                    prompt_parts.append(f"  • {todo}")
+                prompt_parts.append("")
+
+            if next_steps_mentioned:
+                prompt_parts.append("**Next Steps You Mentioned** (you MUST complete these):")
+                for step in next_steps_mentioned:
+                    prompt_parts.append(f"  • {step}")
+                prompt_parts.append("")
+
+            prompt_parts.append(
+                "**ACTION REQUIRED**: Continue working on the items above. "
+                "Do NOT stop until ALL todos are completed and NO next steps remain."
+            )
+            prompt_parts.append("")
+
+        # Show progress if addressing concerns
+        if addressed_concerns:
+            prompt_parts.append("**Progress Since Last Block** (recognized from your actions):")
+            for concern_id, how_addressed in addressed_concerns.items():
+                prompt_parts.append(f"  + {concern_id}: {how_addressed}")
+            prompt_parts.append("")
+
+        # Show user claims vs evidence gap
+        if user_claims:
+            prompt_parts.append("**Completion Claims Detected:**")
+            prompt_parts.append("You or Claude claimed the following:")
+            for claim in user_claims[:3]:  # Limit to 3 claims
+                prompt_parts.append(f"  - {claim[:100]}...")  # Truncate long claims
+            prompt_parts.append("")
+            prompt_parts.append(
+                "**However, the checks below still failed.** "
+                "Please provide specific evidence these checks pass, or complete the remaining work."
+            )
+            prompt_parts.append("")
+
+        # Show persistent failures if repeated blocks
+        if turn_state and blocks > 1:
+            persistent = turn_state.get_persistent_failures()
+            repeatedly_failed = {k: v for k, v in persistent.items() if v > 1}
+
+            if repeatedly_failed:
+                prompt_parts.append("**Persistent Issues** (failed multiple times):")
+                for cid, count in sorted(repeatedly_failed.items(), key=lambda x: -x[1]):
+                    prompt_parts.append(f"  - {cid}: Failed {count} times")
+                prompt_parts.append("")
+                prompt_parts.append("These issues require immediate attention.")
+                prompt_parts.append("")
+
+        # Show current failures grouped by category with evidence
+        prompt_parts.append("**Current Failures:**")
+        prompt_parts.append("")
+
         by_category = analysis.group_by_category()
 
         for category, failed in by_category.items():
-            prompt_parts.append(f"**{category}**")
-            for result in failed:
-                prompt_parts.append(f"  - {result.reason}")
+            # Filter out addressed concerns
+            remaining_failures = [
+                r
+                for r in failed
+                if not addressed_concerns or r.consideration_id not in addressed_concerns
+            ]
+            if remaining_failures:
+                prompt_parts.append(f"### {category}")
+                for result in remaining_failures:
+                    prompt_parts.append(f"  - **{result.consideration_id}**: {result.reason}")
+
+                    # Show evidence if available from turn state
+                    if turn_state and turn_state.block_history:
+                        current_block = turn_state.get_previous_block()
+                        if current_block:
+                            for ev in current_block.failed_evidence:
+                                if ev.consideration_id == result.consideration_id:
+                                    if ev.evidence_quote:
+                                        prompt_parts.append(f"    Evidence: {ev.evidence_quote}")
+                                    if ev.was_claimed_complete:
+                                        prompt_parts.append(
+                                            "    **Note**: This was claimed complete but check still fails"
+                                        )
+                prompt_parts.append("")
+
+        # Call to action
+        prompt_parts.append("**Next Steps:**")
+        prompt_parts.append("1. Complete the failed checks listed above")
+        prompt_parts.append("2. Provide specific evidence that checks now pass")
+        remaining = threshold - blocks
+        prompt_parts.append(f"3. Or continue working ({remaining} more blocks until auto-approval)")
+        prompt_parts.append("")
+
+        # Add acknowledgment hint if nearing auto-approve threshold
+        if blocks >= threshold // 2:
+            prompt_parts.append(
+                "**Tip**: If checks are genuinely complete, say 'I acknowledge these concerns' "
+                "or create SESSION_SUMMARY.md to indicate intentional completion."
+            )
             prompt_parts.append("")
 
-        prompt_parts.append("Once these are addressed, you may stop the session.")
-        prompt_parts.append("")
-        prompt_parts.append("To disable power-steering immediately:")
-        prompt_parts.append(
-            "  mkdir -p .claude/runtime/power-steering && touch .claude/runtime/power-steering/.disabled"
+        prompt_parts.extend(
+            [
+                "To disable power-steering immediately:",
+                "  mkdir -p .claude/runtime/power-steering && touch .claude/runtime/power-steering/.disabled",
+            ]
         )
 
         return "\n".join(prompt_parts)
@@ -2462,9 +3698,8 @@ class PowerSteeringChecker:
         """
         try:
             summary_dir = self.runtime_dir / session_id
-            summary_dir.mkdir(parents=True, exist_ok=True)
             summary_path = summary_dir / "summary.md"
-            summary_path.write_text(summary)
+            _write_with_retry(summary_path, summary, mode="w")
             summary_path.chmod(0o644)  # Owner read/write, others read
         except OSError:
             pass  # Fail-open: Continue even if summary writing fails
@@ -2483,8 +3718,9 @@ class PowerSteeringChecker:
             # Create with restrictive permissions if it doesn't exist
             is_new = not log_file.exists()
 
-            with open(log_file, "a") as f:
-                f.write(f"[{timestamp}] {level}: {message}\n")
+            # Use retry-enabled write for cloud sync resilience
+            log_entry = f"[{timestamp}] {level}: {message}\n"
+            _write_with_retry(log_file, log_entry, mode="a")
 
             # Set permissions on new files
             if is_new:

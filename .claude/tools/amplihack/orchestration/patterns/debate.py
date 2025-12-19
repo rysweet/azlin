@@ -180,7 +180,7 @@ Format your response as:
 
     # Store Round 1 results
     round1_data = {}
-    for (perspective_name, _), result in zip(processes, round1_results):
+    for (perspective_name, _), result in zip(processes, round1_results, strict=False):
         debate_history[perspective_name].append(result.output)
         round1_data[perspective_name] = result
 
@@ -277,7 +277,7 @@ Format your response as:
 
         # Store results
         round_data = {}
-        for (perspective_name, _), result in zip(processes, round_results_raw):
+        for (perspective_name, _), result in zip(processes, round_results_raw, strict=False):
             debate_history[perspective_name].append(result.output)
             round_data[perspective_name] = result
 

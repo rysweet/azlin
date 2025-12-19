@@ -543,7 +543,7 @@ FORMAT YOUR RESPONSE EXACTLY AS:
     session.log("Step 3: Parsing expert reviews and votes")
 
     expert_reviews = []
-    for (domain, expert_def, _), result in zip(processes, review_results):
+    for (domain, expert_def, _), result in zip(processes, review_results, strict=False):
         if result.exit_code != 0:
             session.log(f"WARNING: Expert {domain} review failed", level="WARNING")
             continue

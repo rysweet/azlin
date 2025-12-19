@@ -175,7 +175,7 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: python verify_skill.py <skill|all>")
         print("\nAvailable skills:")
-        for skill in SKILLS:
+        for skill in SKILLS.keys():
             print(f"  - {skill}")
         print("\nOr use 'all' to verify all skills")
         sys.exit(1)
@@ -219,7 +219,7 @@ def main():
     else:
         print(f"Error: Unknown skill '{skill}'")
         print("\nAvailable skills:")
-        for skill_name in SKILLS:
+        for skill_name in SKILLS.keys():
             print(f"  - {skill_name}")
         sys.exit(1)
 
