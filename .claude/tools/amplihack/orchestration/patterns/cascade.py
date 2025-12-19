@@ -181,7 +181,7 @@ Execute the task now with the {level} approach.
     # Use run_with_fallback to try each level
     session.log("Step 2-4: Attempting cascade levels")
 
-    for i, (level, process) in enumerate(zip(cascade_levels, processes)):
+    for i, (level, process) in enumerate(zip(cascade_levels, processes, strict=False)):
         session.log(f"Attempting {level.upper()} level (timeout: {timeouts[level]}s)")
 
         result = process.run()

@@ -16,14 +16,17 @@ from hook_processor import HookProcessor
 # Clean imports through package structure
 sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
-    from amplihack.utils.paths import FrameworkPathResolver
     from context_preservation import ContextPreserver
     from paths import get_project_root
+    from settings_migrator import migrate_global_hooks
+
+    from amplihack.utils.paths import FrameworkPathResolver
 except ImportError:
     # Fallback imports for standalone execution
     get_project_root = None
     ContextPreserver = None
     FrameworkPathResolver = None
+    migrate_global_hooks = None
 
 
 class SessionStartHook(HookProcessor):
@@ -35,6 +38,12 @@ class SessionStartHook(HookProcessor):
     def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Process session start event.
 
+        Checks performed:
+        1. Version mismatch detection and auto-update
+        2. Global hook migration (prevents duplicate hook execution)
+        3. Original request capture for context preservation
+        4. Neo4j memory system startup (if enabled)
+
         Args:
             input_data: Input from Claude Code
 
@@ -43,6 +52,9 @@ class SessionStartHook(HookProcessor):
         """
         # Check for version mismatch FIRST (before any heavy operations)
         self._check_version_mismatch()
+
+        # NEW: Check for global hook duplication and migrate
+        self._migrate_global_hooks()
 
         # Extract prompt
         prompt = input_data.get("prompt", "")
@@ -184,7 +196,7 @@ class SessionStartHook(HookProcessor):
 
         # Add workflow information at startup with UVX support
         context_parts.append("\n## 📝 Default Workflow")
-        context_parts.append("The 13-step workflow is automatically followed by `/ultrathink`")
+        context_parts.append("The multi-step workflow is automatically followed by `/ultrathink`")
 
         # Use FrameworkPathResolver for workflow path
         workflow_file = None
@@ -227,7 +239,7 @@ class SessionStartHook(HookProcessor):
             startup_msg_parts.extend(
                 [
                     "",
-                    "📝 Workflow: Use `/ultrathink` for the 13-step process",
+                    "📝 Workflow: Use `/ultrathink` for the multi-step process",
                     "⚙️  Customize: Edit the workflow file (use FrameworkPathResolver for UVX compatibility)",
                     "🎯 Preferences: Loaded from USER_PREFERENCES.md",
                     "",
@@ -407,6 +419,58 @@ class SessionStartHook(HookProcessor):
             # Fail gracefully - don't break session start
             self.log(f"Version check failed: {e}", "WARNING")
             self.save_metric("version_check_error", True)
+
+    def _migrate_global_hooks(self) -> None:
+        """Migrate global amplihack hooks to project-local.
+
+        Detects and removes amplihack hooks from ~/.claude/settings.json
+        to prevent duplicate execution. Fail-safe: errors are logged but
+        don't break session startup.
+
+        This prevents the duplicate stop hook issue where hooks run twice
+        (once from global, once from project-local).
+        """
+        # Skip if migrator not available
+        if migrate_global_hooks is None:
+            return
+
+        try:
+            result = migrate_global_hooks(self.project_root)
+
+            if result.global_hooks_removed:
+                # User has been notified by migrator - just log
+                self.log("✅ Global amplihack hooks migrated to project-local")
+                self.save_metric("global_hooks_migrated", True)
+
+                # Additional user notification
+                print("\n" + "=" * 70, file=sys.stderr)
+                print("✓ Hook Migration Complete", file=sys.stderr)
+                print("=" * 70, file=sys.stderr)
+                print(
+                    "\nGlobal amplihack hooks have been removed from ~/.claude/settings.json",
+                    file=sys.stderr,
+                )
+                print(
+                    "Hooks now run only from project-local settings (no more duplicates!).",
+                    file=sys.stderr,
+                )
+                if result.backup_created:
+                    print(f"Backup created: {result.backup_created}", file=sys.stderr)
+                print("\n" + "=" * 70 + "\n", file=sys.stderr)
+
+            elif result.global_hooks_found and not result.global_hooks_removed:
+                # Migration attempted but failed
+                self.log("⚠️ Global hooks detected but migration failed", "WARNING")
+                self.save_metric("global_hooks_migrated", False)
+
+            else:
+                # No global hooks found - normal case
+                self.save_metric("global_hooks_migrated", False)
+
+        except Exception as e:
+            # Fail-safe: Log but don't break session
+            self.log(f"Hook migration failed (non-critical): {e}", "WARNING")
+            self.save_metric("hook_migration_error", True)
 
 
 def main():

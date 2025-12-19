@@ -265,9 +265,7 @@ class ContextPreserver:
             metadata={"context_type": "decision", "decision_agent": agent_id},
         )
 
-    def restore_conversation_context(
-        self, agent_id: str | None = None
-    ) -> dict[str, Any] | None:
+    def restore_conversation_context(self, agent_id: str | None = None) -> dict[str, Any] | None:
         """Restore the most recent conversation context.
 
         Retrieves the latest conversation context for continued operation.

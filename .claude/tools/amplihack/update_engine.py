@@ -33,8 +33,8 @@ except ImportError:
 __all__ = [
     "UpdateResult",
     "create_backup",
-    "get_changed_files",
     "perform_update",
+    "get_changed_files",
 ]
 
 

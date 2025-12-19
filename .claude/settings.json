@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/ryan/src/azlin/.claude/tools/amplihack/hooks/session_start.py",
+            "command": "/Users/ryan/src/azlinDec/.claude/tools/amplihack/hooks/session_start.py",
             "timeout": 10000
           }
         ]
@@ -52,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/ryan/src/azlin/.claude/tools/amplihack/hooks/stop.py",
+            "command": "/Users/ryan/src/azlinDec/.claude/tools/amplihack/hooks/stop.py",
             "timeout": 30000
           }
         ]
@@ -64,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/ryan/src/azlin/.claude/tools/amplihack/hooks/post_tool_use.py"
+            "command": "/Users/ryan/src/azlinDec/.claude/tools/amplihack/hooks/post_tool_use.py"
           }
         ]
       }
@@ -74,7 +74,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/ryan/src/azlin/.claude/tools/amplihack/hooks/pre_compact.py",
+            "command": "/Users/ryan/src/azlinDec/.claude/tools/amplihack/hooks/pre_compact.py",
             "timeout": 30000
           }
         ]

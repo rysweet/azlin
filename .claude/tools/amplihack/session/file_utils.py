@@ -404,9 +404,7 @@ def safe_copy_file(
         return False
 
 
-def safe_move_file(
-    src_path: str | Path, dst_path: str | Path, verify_move: bool = True
-) -> bool:
+def safe_move_file(src_path: str | Path, dst_path: str | Path, verify_move: bool = True) -> bool:
     """Safely move file with verification.
 
     Args:

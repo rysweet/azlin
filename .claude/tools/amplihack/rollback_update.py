@@ -41,9 +41,7 @@ def find_latest_backup(project_path: Path) -> Path | None:
         return None
 
 
-def rollback_update(
-    project_path: Path | None = None, backup_path: Path | None = None
-) -> bool:
+def rollback_update(project_path: Path | None = None, backup_path: Path | None = None) -> bool:
     """Restore .claude directory from backup.
 
     Args:
