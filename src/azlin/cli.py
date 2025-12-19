@@ -5160,6 +5160,38 @@ def connect(
         )
         click.echo(f"Connecting to {display_name}...")
 
+        # Check NFS quota before connecting (if VM uses NFS storage)
+        if not VMConnector.is_valid_ip(vm_identifier) and rg:
+            from azlin.modules.nfs_quota_manager import NFSQuotaManager
+
+            try:
+                nfs_info = NFSQuotaManager.check_vm_nfs_storage(vm_identifier, rg)
+                if nfs_info:
+                    storage_account, share_name, _ = nfs_info
+                    quota_info = NFSQuotaManager.get_nfs_quota_info(
+                        storage_account, share_name, rg
+                    )
+                    warning = NFSQuotaManager.check_quota_warning(quota_info)
+
+                    if warning.is_warning and not yes:
+                        click.echo()
+                        click.echo(warning.message)
+                        if NFSQuotaManager.prompt_and_expand_quota(quota_info):
+                            result = NFSQuotaManager.expand_nfs_quota(
+                                storage_account, share_name, rg, quota_info.quota_gb + 100
+                            )
+                            if result.success:
+                                click.echo(
+                                    f"✅ Quota expanded to {result.new_quota_gb}GB "
+                                    f"(+${result.cost_increase_monthly:.2f}/month)"
+                                )
+                            else:
+                                click.echo(f"⚠️  Quota expansion failed: {result.errors}")
+                        click.echo()
+            except Exception as e:
+                # Don't block connection if quota check fails
+                logger.debug(f"NFS quota check failed: {e}")
+
         success = VMConnector.connect(
             vm_identifier=vm_identifier,
             resource_group=rg,
@@ -6615,8 +6647,14 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
             click.echo("Error: No resource group specified.", err=True)
             sys.exit(1)
 
-        # List VMs
-        vms = VMManager.list_vms(rg, include_stopped=True)
+        # List VMs - use TagManager to filter by managed-by=azlin tag
+        from azlin.tag_manager import TagManager
+
+        vms = TagManager.list_managed_vms(resource_group=rg)
+
+        # Filter out stopped VMs by default (consistent with list command behavior)
+        # Note: list command doesn't filter by default but shows all,
+        # keeping include_stopped=True behavior for status
 
         if vm:
             # Filter to specific VM
@@ -6624,9 +6662,6 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
             if not vms:
                 click.echo(f"Error: VM '{vm}' not found in resource group '{rg}'.", err=True)
                 sys.exit(1)
-        else:
-            # Filter to azlin VMs
-            vms = VMManager.filter_by_prefix(vms, "azlin")
 
         vms = VMManager.sort_by_created_time(vms)
 
