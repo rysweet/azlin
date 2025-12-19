@@ -5168,9 +5168,7 @@ def connect(
                 nfs_info = NFSQuotaManager.check_vm_nfs_storage(vm_identifier, rg)
                 if nfs_info:
                     storage_account, share_name, _ = nfs_info
-                    quota_info = NFSQuotaManager.get_nfs_quota_info(
-                        storage_account, share_name, rg
-                    )
+                    quota_info = NFSQuotaManager.get_nfs_quota_info(storage_account, share_name, rg)
                     warning = NFSQuotaManager.check_quota_warning(quota_info)
 
                     if warning.is_warning and not yes:
