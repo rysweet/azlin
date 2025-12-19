@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 import click
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from azlin import __version__
@@ -3520,7 +3521,7 @@ def list_command(
 
         # Add rows
         for vm in vms:
-            session_display = vm.session_name if vm.session_name else "-"
+            session_display = escape(vm.session_name) if vm.session_name else "-"
             status = vm.get_status_display()
 
             # Color code status
@@ -3574,7 +3575,15 @@ def list_command(
             if show_tmux:
                 if vm.name in tmux_by_vm:
                     sessions = tmux_by_vm[vm.name]
-                    session_names = ", ".join(s.session_name for s in sessions[:3])  # Show max 3
+                    # Format sessions with bold (connected) or dim (disconnected) markup (Issue #499)
+                    formatted_sessions = []
+                    for s in sessions[:3]:  # Show max 3
+                        if s.attached:
+                            formatted_sessions.append(f"[bold]{escape(s.session_name)}[/bold]")
+                        else:
+                            formatted_sessions.append(f"[dim]{escape(s.session_name)}[/dim]")
+
+                    session_names = ", ".join(formatted_sessions)
                     if len(sessions) > 3:
                         session_names += f" (+{len(sessions) - 3} more)"
                     row_data.append(session_names)

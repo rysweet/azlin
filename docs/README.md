@@ -10,6 +10,8 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 - **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command reference and examples
 - **[UV_USAGE.md](UV_USAGE.md)** - Using azlin with uv package manager
 - **[backup-disaster-recovery.md](backup-disaster-recovery.md)** - Automated backup scheduling, cross-region replication, and DR testing
+- **[features/tmux-session-status.md](features/tmux-session-status.md)** - Visual tmux session connection status in VM listings
+- **[features/memory-latency.md](features/memory-latency.md)** - Memory allocation and network latency monitoring
 
 ### For Developers
 

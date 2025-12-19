@@ -951,6 +951,15 @@ class VMStatus:
     cpu_usage: float | None = None
     memory_usage: float | None = None
     estimated_cost: float | None = None
+    tmux_sessions: list[TmuxSessionInfo] | None = None  # Tmux session info with connection status
+
+@dataclass
+class TmuxSessionInfo:
+    """Tmux session information with connection status."""
+    name: str
+    is_connected: bool  # True if session has attached clients
+    num_windows: int
+    created: str
 ```
 
 **Example:**
@@ -966,7 +975,16 @@ print(f"VM: {status.name}")
 print(f"State: {status.power_state}")
 print(f"Cost: ${status.estimated_cost:.2f}/month")
 
-# Display full dashboard
+# Check tmux session connection status
+if status.tmux_sessions:
+    for session in status.tmux_sessions:
+        connection_status = "connected (bold)" if session.is_connected else "disconnected (dim)"
+        print(f"Session: {session.name} - {connection_status}")
+        print(f"  Windows: {session.num_windows}")
+else:
+    print("No tmux sessions")
+
+# Display full dashboard (includes visual tmux session status)
 dashboard.display_status(resource_group="azlin-rg")
 ```
 
