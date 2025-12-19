@@ -330,11 +330,15 @@ def _extract_repo_info(repo_url: str) -> tuple[str, str]:
     if url.endswith(".git"):
         url = url[:-4]
 
-    if "github.com/" in url:
-        parts = url.split("github.com/")[-1].split("/")
-    elif "github.com:" in url:
-        parts = url.split("github.com:")[-1].split("/")
+    # Parse URL more robustly to prevent injection attacks
+    if url.startswith("https://github.com/") or url.startswith("http://github.com/"):
+        # HTTPS format: https://github.com/owner/repo
+        parts = url.split("github.com/", 1)[-1].split("/")
+    elif url.startswith("git@github.com:"):
+        # SSH format: git@github.com:owner/repo
+        parts = url.split("github.com:", 1)[-1].split("/")
     else:
+        # Fallback for unknown formats
         parts = url.split("/")[-2:]
 
     owner = parts[0] if len(parts) > 0 else "unknown"

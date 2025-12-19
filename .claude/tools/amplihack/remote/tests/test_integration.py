@@ -203,8 +203,9 @@ def test_complete_session_lifecycle(
     assert pool_status["active_sessions"] == 1
 
     # Step 4: Start session (PENDING → RUNNING)
-    archive_path = Path(tempfile.mktemp(suffix=".tar.gz"))
-    archive_path.write_bytes(b"fake archive")
+    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+        archive_path = Path(tmp.name)
+        archive_path.write_bytes(b"fake archive")
 
     try:
         session = session_mgr.start_session(session.session_id, archive_path)

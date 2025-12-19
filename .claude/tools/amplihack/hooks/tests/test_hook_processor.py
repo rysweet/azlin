@@ -32,8 +32,8 @@ class TestHook(HookProcessor):
     """Concrete implementation for testing purposes"""
 
     def __init__(self):
-        # Skip parent init for simple tests
-        self.hook_name = "test_hook"
+        # Initialize parent class
+        super().__init__(hook_name="test_hook")
 
     def process(self, input_data):
         """Simple pass-through processor"""

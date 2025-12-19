@@ -332,10 +332,16 @@ fi
                 check=True,
             )
 
-            # Extract locally
+            # Extract locally with path traversal protection
             import tarfile
+            import os
 
             with tarfile.open(local_archive, "r:gz") as tar:
+                # Validate all members before extraction to prevent path traversal
+                for member in tar.getmembers():
+                    member_path = os.path.normpath(os.path.join(local_dest, member.name))
+                    if not member_path.startswith(str(local_dest)):
+                        raise ValueError(f"Attempted path traversal in tar file: {member.name}")
                 tar.extractall(local_dest)
 
             # Cleanup archive
