@@ -127,15 +127,19 @@ azlin list
 ```
 Listing VMs in resource group: my-dev-rg
 
-==========================================================================================
-NAME                                STATUS          IP              REGION          SIZE
-==========================================================================================
-azlin-20241009-120000              Running         1.2.3.4         eastus          Standard_D2s_v3
-azlin-20241008-180000              Stopped         N/A             westus2         Standard_B2s
-==========================================================================================
+====================================================================================================
+NAME                      STATUS    IP              REGION    SIZE              TMUX SESSIONS
+====================================================================================================
+azlin-20241009-120000     Running   1.2.3.4         eastus    Standard_D2s_v3   main, debug
+azlin-20241008-180000     Stopped   N/A             westus2   Standard_B2s      (no sessions)
+====================================================================================================
 
 Total: 2 VMs
 ```
+
+**Visual Styling**: Connected tmux sessions appear in **bold** text, disconnected sessions appear dim. This helps you quickly identify where your active work is located.
+
+**Example**: If session "main" is connected (bold) and "debug" is disconnected (dim), you know someone is actively using the main session.
 
 **List all including stopped:**
 ```bash
