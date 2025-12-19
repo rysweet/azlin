@@ -4,7 +4,6 @@ Tests verify that Rich markup injection vulnerabilities are prevented through
 proper input sanitization.
 """
 
-import pytest
 from rich.markup import escape
 
 

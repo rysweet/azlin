@@ -14,14 +14,8 @@ Feature Requirements:
 - Display applies Rich formatting based on `attached` status
 """
 
-from pathlib import Path
-from unittest.mock import patch
-
-import pytest
-
 from azlin.modules.ssh_connector import SSHConfig
-from azlin.remote_exec import RemoteResult, TmuxSession, TmuxSessionExecutor
-
+from azlin.remote_exec import RemoteResult, TmuxSessionExecutor
 
 # ============================================================================
 # PARSER FORMAT DETECTION TESTS (60% of unit tests)
@@ -239,8 +233,7 @@ class TestGetSessionsParallelWithNewFormat:
 
     def test_get_sessions_parallel_uses_new_format_command(self, monkeypatch):
         """Test that get_sessions_parallel executes new tmux format command."""
-        from azlin.modules.ssh_connector import SSHConfig
-        from azlin.remote_exec import RemoteExecutor, RemoteResult
+        from azlin.remote_exec import RemoteExecutor
 
         # Track what command was executed
         executed_command = None

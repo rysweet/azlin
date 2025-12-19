@@ -23,7 +23,6 @@ from azlin.cli import main
 from azlin.modules.ssh_keys import SSHKeyPair
 from azlin.remote_exec import TmuxSession
 
-
 # ============================================================================
 # TEST FIXTURES (30% of integration tests)
 # ============================================================================
