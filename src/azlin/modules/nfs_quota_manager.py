@@ -264,9 +264,7 @@ class NFSQuotaManager:
         )
 
     @classmethod
-    def prompt_and_expand_quota(
-        cls, quota_info: QuotaInfo, expansion_gb: int = 100
-    ) -> bool:
+    def prompt_and_expand_quota(cls, quota_info: QuotaInfo, expansion_gb: int = 100) -> bool:
         """Prompt user and expand quota if confirmed.
 
         Args:
@@ -283,7 +281,7 @@ class NFSQuotaManager:
         cost_increase = expansion_gb * cls.COST_PER_GB_PREMIUM
         new_quota = quota_info.quota_gb + expansion_gb
 
-        click.echo(f"\nNFS Storage Quota Expansion:")
+        click.echo("\nNFS Storage Quota Expansion:")
         click.echo(f"  Storage: {quota_info.storage_account}/{quota_info.share_name}")
         click.echo(f"  Current: {quota_info.quota_gb}GB")
         click.echo(f"  New: {new_quota}GB (+{expansion_gb}GB)")
@@ -403,8 +401,8 @@ class NFSQuotaManager:
 
 # Public API
 __all__ = [
+    "ExpansionResult",
     "NFSQuotaManager",
     "QuotaInfo",
     "QuotaWarning",
-    "ExpansionResult",
 ]

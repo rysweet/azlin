@@ -91,9 +91,7 @@ class SSHFSManager:
             mount_point = cls.DEFAULT_MOUNT_POINT
 
         try:
-            result = subprocess.run(
-                ["mount"], capture_output=True, text=True, timeout=5
-            )
+            result = subprocess.run(["mount"], capture_output=True, text=True, timeout=5)
 
             mount_point_str = str(mount_point.resolve())
 
@@ -335,7 +333,7 @@ class SSHFSManager:
 
 # Public API
 __all__ = [
-    "SSHFSManager",
     "MountInfo",
     "MountResult",
+    "SSHFSManager",
 ]
