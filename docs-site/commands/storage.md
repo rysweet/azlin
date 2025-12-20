@@ -89,6 +89,9 @@ Creates a new Azure Files storage account with NFS support for
 sharing home directories across VMs. The storage is accessible
 only within the Azure VNet for security.
 
+All storage accounts are created with blob public access disabled
+by default for Azure policy compliance.
+
 
 NAME should be globally unique across Azure (3-24 chars, lowercase/numbers).
 
