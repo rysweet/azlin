@@ -213,6 +213,8 @@ class StorageManager:
                 sku,
                 "--kind",
                 kind,
+                "--allow-blob-public-access",
+                "false",  # Security: Prevent public blob access (Azure policy compliance)
                 "--https-only",
                 "false",  # NFS requires http
                 "--default-action",

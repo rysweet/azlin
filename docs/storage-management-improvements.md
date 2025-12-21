@@ -707,7 +707,7 @@ azlin storage quota set --scope team --name new-project-rg --quota 1000
 azlin storage quota set --scope vm --name dev-vm-1 --quota 200
 azlin storage quota set --scope vm --name dev-vm-2 --quota 200
 
-# Create shared storage
+# Create shared storage (blob public access disabled by default)
 azlin storage create project-shared --size 100 --tier Standard
 
 # Mount and tune fer multi-VM
@@ -775,6 +775,13 @@ Expected improvement: 15-25% performance gain
 2. **Use tags**: Tag important resources with `azlin:keep=true`
 3. **Test in dev**: Test tier migrations and NFS tuning in dev environments first
 4. **Monitor performance**: Watch application performance after changes; rollback if issues
+
+### Security
+
+1. **Public access disabled**: All storage accounts created with blob public access disabled by default
+2. **Azure policy compliance**: Storage creation automatically complies with "Storage account public access should be disallowed" policy
+3. **No configuration needed**: Security enforced automatically without user intervention
+4. **VNet-only access**: All storage remains accessible only within Azure VNet (unchanged from previous behavior)
 
 ## Troubleshooting
 
