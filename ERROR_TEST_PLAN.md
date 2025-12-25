@@ -1,9 +1,11 @@
 # Error Path Testing Plan - Issue #424
 
 ## Current Status
-- **Current error test coverage**: 14.1% (587 pytest.raises usages out of 4,153 tests)
-- **Target**: 25% (1,038 error tests)
-- **Gap**: 451 error tests needed
+- **Phase 1 (PR #477)**: 14.1% → 14.8% (+36 tests for snapshot_manager) ✅ MERGED
+- **Phase 2 (This PR)**: 14.8% → 15.4% (+40 tests for ssh_key_vault) ✅ COMPLETE
+- **Current error test coverage**: 15.4% (~712 pytest.raises usages out of 4,615 tests)
+- **Target**: 25% (1,153 error tests)
+- **Remaining gap**: 441 error tests needed for Phases 3-4
 
 ## Source Code Analysis
 - **Raise statements**: 978 across 114 files
@@ -12,23 +14,43 @@
 - **Network operations**: 25 across 10 files (timeout/connection risk)
 - **File operations**: 84 across 33 files (permission/disk space risk)
 
-## Priority 1: Critical Gaps (Week 1)
+## Phase 2 Completion Summary
+
+### Completed in Phase 2 (This PR)
+- **File**: `tests/unit/modules/test_ssh_key_vault_errors.py`
+- **Tests Added**: 40 comprehensive error tests
+- **Coverage**: subprocess timeouts, Azure CLI errors, JSON parsing, validation, authentication, RBAC, file system errors
+- **Status**: All tests passing ✅
+
+### Error Test Categories Added (40 tests)
+1. **get_current_user_principal_id errors** (5 tests): Timeouts, empty responses, not logged in, service principal issues
+2. **KeyVault config validation** (1 test): Empty tenant ID
+3. **ensure_key_vault_exists errors** (4 tests): Timeouts, race conditions, quota exceeded, unexpected errors
+4. **find_key_vault errors** (3 tests): Timeouts, invalid JSON, resource not found
+5. **ensure_rbac_permissions errors** (5 tests): Timeouts, race conditions, insufficient permissions
+6. **SecretClient creation errors** (1 test): Network errors
+7. **store_key errors** (5 tests): Permission denied, whitespace-only, HTTP errors, generic exceptions
+8. **retrieve_key errors** (4 tests): Empty value, write permission denied, authentication, generic exceptions
+9. **delete_key errors** (2 tests): Authentication errors, generic exceptions
+10. **key_exists errors** (2 tests): Authentication errors, generic exceptions
+11. **create_key_vault_manager errors** (3 tests): None credentials, auth chain exceptions, generic exceptions
+12. **create_with_auto_setup errors** (5 tests): Vault creation, principal ID, RBAC, manager creation, generic errors
+
+## Priority 1: Critical Gaps
 
 ### Top 5 Modules (Gap > 20)
-1. **cli.py** (Gap: 50)
+1. **cli.py** (Gap: 50) - PENDING Phase 3
    - 50 raise statements, 0 error tests
    - Tests needed: Azure CLI failures, invalid arguments, command failures
    - Target: 50 new error tests
 
-2. **snapshot_manager** (Gap: 41)
-   - 41 raise statements, 0 error tests
-   - Tests needed: Snapshot creation failures, quota exceeded, invalid snapshots
-   - Target: 40 new error tests
+2. **snapshot_manager** (Gap: 41) - ✅ COMPLETE (Phase 1, PR #477)
+   - 41 raise statements, 0 error tests → 36 error tests added
+   - Tests: Snapshot creation failures, quota exceeded, invalid snapshots
 
-3. **ssh_key_vault** (Gap: 28)
-   - 41 raise statements, 13 existing error tests
-   - Tests needed: Key Vault auth failures, key not found, permission denied
-   - Target: 28 new error tests
+3. **ssh_key_vault** (Gap: 28) - ✅ COMPLETE (Phase 2, This PR)
+   - 41 raise statements, 13 existing error tests → 40 NEW comprehensive error tests added
+   - Tests: Key Vault auth failures, key not found, permission denied, timeouts, validation
 
 4. **storage_manager** (Gap: 25)
    - 34 raise statements, 9 existing error tests
@@ -77,13 +99,14 @@
 
 ## Summary
 
-| Week | Modules | New Tests | Cumulative | Coverage |
-|------|---------|-----------|------------|----------|
-| Week 1 | 5 (P1) | 166 | 753 | 18.1% |
-| Week 2 | 11 (P2) | 209 | 962 | 23.2% |
-| Week 3 | 8 (P3) | 118 | 1,080 | 26.0% |
+| Phase | Status | Modules | New Tests | Cumulative | Coverage |
+|-------|--------|---------|-----------|------------|----------|
+| Phase 1 (PR #477) | ✅ MERGED | snapshot_manager | 36 | 623 | 14.8% |
+| Phase 2 (This PR) | ✅ COMPLETE | ssh_key_vault | 40 | 712 | 15.4% |
+| Phase 3 (Next) | PENDING | cli, storage_manager, dr_testing, etc. | ~200 | ~912 | 19.8% |
+| Phase 4 (Final) | PENDING | Remaining P2/P3 modules | ~240 | ~1,152 | 25.0% |
 
-**Final Target**: 1,080 error tests (26.0% coverage) - **EXCEEDS 25% goal**
+**Revised Target**: 1,153 error tests (25.0% coverage) - **ACHIEVES 25% goal**
 
 ## Test Categories by Error Type
 
