@@ -370,14 +370,15 @@ class VMConnector:
                     f"(127.0.0.1:{ssh_port})"
                 )
 
-                # Offer to mount NFS storage locally via sshfs (if VM uses NFS)
-                if not skip_prompts and not remote_command:
-                    cls._offer_sshfs_mount(
-                        vm_name=conn_info.vm_name,
-                        resource_group=conn_info.resource_group,
-                        tunnel_port=ssh_port,
-                        ssh_key=conn_info.ssh_key_path,
-                    )
+                # DISABLED: sshfs auto-mount feature (not working reliably on macOS)
+                # TODO: Re-enable when sshfs-mac installation is more reliable
+                # if not skip_prompts and not remote_command:
+                #     cls._offer_sshfs_mount(
+                #         vm_name=conn_info.vm_name,
+                #         resource_group=conn_info.resource_group,
+                #         tunnel_port=ssh_port,
+                #         ssh_key=conn_info.ssh_key_path,
+                #     )
 
             # Route connection: remote command -> SSHConnector, interactive+reconnect -> SSHReconnectHandler, interactive -> TerminalLauncher
             if remote_command is not None:
