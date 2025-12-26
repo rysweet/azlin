@@ -5987,7 +5987,9 @@ def cp(
 
         if dest_session_name is None:
             # Local destination - resolve from cwd, allow absolute paths
-            dest_path = PathParser.parse_and_validate(dest_path_str, is_local=True)
+            dest_path = PathParser.parse_and_validate(
+                dest_path_str, allow_absolute=True, is_local=True
+            )
             dest_endpoint = TransferEndpoint(path=dest_path, session=None)
         else:
             # Remote destination
@@ -6003,7 +6005,10 @@ def cp(
 
             # Parse remote path (allow relative to home)
             dest_path = PathParser.parse_and_validate(
-                dest_path_str, allow_absolute=True, base_dir=Path("/home") / vm_session.user
+                dest_path_str,
+                allow_absolute=True,
+                base_dir=Path("/home") / vm_session.user,
+                is_local=False,  # Remote path - don't validate against local filesystem
             )
 
             dest_endpoint = TransferEndpoint(path=dest_path, session=vm_session)
@@ -6015,7 +6020,9 @@ def cp(
 
             if source_session_name is None:
                 # Local source - resolve from cwd, allow absolute paths
-                source_path = PathParser.parse_and_validate(source_path_str, is_local=True)
+                source_path = PathParser.parse_and_validate(
+                    source_path_str, allow_absolute=True, is_local=True
+                )
                 source_endpoint = TransferEndpoint(path=source_path, session=None)
             else:
                 # Remote source
@@ -6039,7 +6046,10 @@ def cp(
 
                 # Parse remote path (allow relative to home)
                 source_path = PathParser.parse_and_validate(
-                    source_path_str, allow_absolute=True, base_dir=Path("/home") / vm_session.user
+                    source_path_str,
+                    allow_absolute=True,
+                    base_dir=Path("/home") / vm_session.user,
+                    is_local=False,  # Remote path - don't validate against local filesystem
                 )
 
                 source_endpoint = TransferEndpoint(path=source_path, session=vm_session)
