@@ -149,6 +149,10 @@ azlin new --resource-group my-rg
 
 # GPU-enabled VM
 azlin new --name gpu-trainer --vm-size Standard_NC6
+
+# Separate home disk configuration
+azlin new --home-disk-size 200         # 200GB home disk
+azlin new --no-home-disk               # Disable home disk (use OS disk)
 ```
 
 **Options**:
@@ -162,6 +166,8 @@ azlin new --name gpu-trainer --vm-size Standard_NC6
 - `--pool N` - Create N VMs in parallel
 - `--no-auto-connect` - Don't connect after creation
 - `--no-update` - Skip tool updates
+- `--home-disk-size GB` - Size of separate /home disk in GB (default: 100)
+- `--no-home-disk` - Disable separate /home disk (use OS disk)
 
 **What gets installed**:
 - Docker, Azure CLI, GitHub CLI, Git
@@ -181,6 +187,14 @@ azlin new --name gpu-trainer --vm-size Standard_NC6
 - `--size xl`: Extra-Large - 256GB RAM, 32 vCPU (~$1,144/month) - Heavy workloads
 
 **Time**: 4-7 minutes
+
+**Separate Home Disk**: By default, azlin creates a 100GB managed disk mounted as `/home` (unless using NFS storage). This provides persistent storage isolated from the OS disk. See [Separate Home Disk Guide](how-to/separate-home-disk.md) for details.
+
+- Use `--home-disk-size` to customize (e.g., `--home-disk-size 200` for 200GB)
+- Use `--no-home-disk` to disable and use OS disk `/home` instead
+- NFS storage (`--nfs-storage`) automatically disables home disk
+- **Cost**: ~$4.80/month for default 100GB Standard HDD
+- **Graceful degradation**: If disk mount fails, falls back to OS disk `/home`
 
 ### `azlin clone` - Clone a VM with home directory
 
