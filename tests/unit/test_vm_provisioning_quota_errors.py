@@ -18,7 +18,6 @@ Coverage:
 """
 
 import json
-from unittest.mock import Mock, patch
 
 import pytest
 
@@ -32,8 +31,7 @@ from azlin.vm_provisioning import (
 class TestQuotaExceededErrorMessages:
     """Test that quota exceeded errors show clear messages, not stack traces."""
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_quota_exceeded_error_shows_clear_message(self, mock_executor_class):
+    def test_quota_exceeded_error_shows_clear_message(self, mock_azure_cli_in_ci):
         """Test that QuotaExceeded error displays formatted message, not stack trace.
 
         Given: Azure CLI raises QuotaExceeded error during VM provisioning
@@ -43,6 +41,8 @@ class TestQuotaExceededErrorMessages:
         And: No raw stack trace or JSON error is shown
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         # Setup provisioner
         provisioner = VMProvisioner()
@@ -54,37 +54,35 @@ class TestQuotaExceededErrorMessages:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        # Mock resource group check to succeed
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
-
-        # First call: RG exists check (returns "true")
-        # Second call: VM create fails with quota error
-        quota_error_json = json.dumps(
-            {
-                "error": {
-                    "code": "QuotaExceeded",
-                    "message": "Operation could not be completed as it results in exceeding approved standardEASv5Family Cores quota.",
-                    "details": [
-                        {
-                            "code": "QuotaExceeded",
-                            "target": "standardEASv5Family",
-                            "message": "Current usage: 24, Limit: 32, Requested: 16, Region: eastus",
-                        }
-                    ],
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            # First call: RG exists check (returns "true")
+            # Second call: VM create fails with quota error
+            quota_error_json = json.dumps(
+                {
+                    "error": {
+                        "code": "QuotaExceeded",
+                        "message": "Operation could not be completed as it results in exceeding approved standardEASv5Family Cores quota.",
+                        "details": [
+                            {
+                                "code": "QuotaExceeded",
+                                "target": "standardEASv5Family",
+                                "message": "Current usage: 24, Limit: 32, Requested: 16, Region: eastus",
+                            }
+                        ],
+                    }
                 }
-            }
-        )
+            )
 
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},  # RG check
-            {
-                "success": False,
-                "stdout": "",
-                "stderr": quota_error_json,
-                "returncode": 1,
-            },  # VM create fails
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},  # RG check
+                {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": quota_error_json,
+                    "returncode": 1,
+                },  # VM create fails
+            ]
 
         # Execute and verify
         with pytest.raises(ProvisioningError) as exc_info:
@@ -103,8 +101,7 @@ class TestQuotaExceededErrorMessages:
         assert '"error"' not in error_message, "Should not show raw JSON error structure"
         assert '"code"' not in error_message, "Should not show raw JSON fields"
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_quota_error_message_is_user_friendly(self, mock_executor_class):
+    def test_quota_error_message_is_user_friendly(self, mock_azure_cli_in_ci):
         """Test that quota error message is user-friendly and actionable.
 
         Given: QuotaExceeded error occurs
@@ -114,6 +111,8 @@ class TestQuotaExceededErrorMessages:
         And: Message suggests next steps
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -124,29 +123,28 @@ class TestQuotaExceededErrorMessages:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
-
-        quota_error_json = json.dumps(
-            {
-                "error": {
-                    "code": "QuotaExceeded",
-                    "message": "Operation could not be completed as it results in exceeding approved standardEASv5Family Cores quota.",
-                    "details": [
-                        {
-                            "code": "QuotaExceeded",
-                            "target": "standardEASv5Family",
-                            "message": "Current usage: 60, Limit: 64, Requested: 32",
-                        }
-                    ],
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            quota_error_json = json.dumps(
+                {
+                    "error": {
+                        "code": "QuotaExceeded",
+                        "message": "Operation could not be completed as it results in exceeding approved standardEASv5Family Cores quota.",
+                        "details": [
+                            {
+                                "code": "QuotaExceeded",
+                                "target": "standardEASv5Family",
+                                "message": "Current usage: 60, Limit: 64, Requested: 32",
+                            }
+                        ],
+                    }
                 }
-            }
-        )
+            )
 
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -167,8 +165,7 @@ class TestQuotaExceededErrorMessages:
 class TestQuotaErrorSuggestions:
     """Test that quota errors suggest smaller VM sizes."""
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_quota_error_suggests_smaller_sizes(self, mock_executor_class):
+    def test_quota_error_suggests_smaller_sizes(self, mock_azure_cli_in_ci):
         """Test that quota error suggests smaller VM sizes as alternatives.
 
         Given: QuotaExceeded error for 16-core VM (size L)
@@ -177,6 +174,8 @@ class TestQuotaErrorSuggestions:
         And: Message shows specific tier names with vCPU counts
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -187,29 +186,28 @@ class TestQuotaErrorSuggestions:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
-
-        quota_error_json = json.dumps(
-            {
-                "error": {
-                    "code": "QuotaExceeded",
-                    "message": "Operation could not be completed as it results in exceeding approved standardEASv5Family Cores quota.",
-                    "details": [
-                        {
-                            "code": "QuotaExceeded",
-                            "target": "standardEASv5Family",
-                            "message": "Current usage: 20, Limit: 32, Requested: 16",
-                        }
-                    ],
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            quota_error_json = json.dumps(
+                {
+                    "error": {
+                        "code": "QuotaExceeded",
+                        "message": "Operation could not be completed as it results in exceeding approved standardEASv5Family Cores quota.",
+                        "details": [
+                            {
+                                "code": "QuotaExceeded",
+                                "target": "standardEASv5Family",
+                                "message": "Current usage: 20, Limit: 32, Requested: 16",
+                            }
+                        ],
+                    }
                 }
-            }
-        )
+            )
 
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -224,8 +222,7 @@ class TestQuotaErrorSuggestions:
         # Should mention specific tier options
         assert "--size" in error_message or "size" in error_message
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_quota_error_suggests_appropriate_alternatives(self, mock_executor_class):
+    def test_quota_error_suggests_appropriate_alternatives(self, mock_azure_cli_in_ci):
         """Test that quota error suggests appropriate alternatives based on request.
 
         Given: QuotaExceeded error for XL size (32 cores)
@@ -234,6 +231,8 @@ class TestQuotaErrorSuggestions:
         And: Suggestions are smaller than the requested size
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -244,22 +243,21 @@ class TestQuotaErrorSuggestions:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
-
-        quota_error_json = json.dumps(
-            {
-                "error": {
-                    "code": "QuotaExceeded",
-                    "message": "Operation could not be completed as it results in exceeding approved standardEASv5Family Cores quota.",
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            quota_error_json = json.dumps(
+                {
+                    "error": {
+                        "code": "QuotaExceeded",
+                        "message": "Operation could not be completed as it results in exceeding approved standardEASv5Family Cores quota.",
+                    }
                 }
-            }
-        )
+            )
 
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -275,8 +273,7 @@ class TestQuotaErrorSuggestions:
 class TestQuotaErrorParsing:
     """Test extraction of quota details from Azure error responses."""
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_quota_error_parsing_extracts_details(self, mock_executor_class):
+    def test_quota_error_parsing_extracts_details(self, mock_azure_cli_in_ci):
         """Test that quota error parser correctly extracts all details.
 
         Given: Azure error with quota information
@@ -285,6 +282,8 @@ class TestQuotaErrorParsing:
         And: All values are present in the error message
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -295,29 +294,28 @@ class TestQuotaErrorParsing:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
-
-        quota_error_json = json.dumps(
-            {
-                "error": {
-                    "code": "QuotaExceeded",
-                    "message": "Operation could not be completed as it results in exceeding approved standardDSv5Family Cores quota.",
-                    "details": [
-                        {
-                            "code": "QuotaExceeded",
-                            "target": "standardDSv5Family",
-                            "message": "Current usage: 48, Limit: 50, Requested: 8, Region: centralus",
-                        }
-                    ],
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            quota_error_json = json.dumps(
+                {
+                    "error": {
+                        "code": "QuotaExceeded",
+                        "message": "Operation could not be completed as it results in exceeding approved standardDSv5Family Cores quota.",
+                        "details": [
+                            {
+                                "code": "QuotaExceeded",
+                                "target": "standardDSv5Family",
+                                "message": "Current usage: 48, Limit: 50, Requested: 8, Region: centralus",
+                            }
+                        ],
+                    }
                 }
-            }
-        )
+            )
 
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -330,8 +328,7 @@ class TestQuotaErrorParsing:
         assert "50" in error_message, "Should include limit"
         assert "8" in error_message, "Should include requested amount"
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_quota_error_parsing_handles_missing_details(self, mock_executor_class):
+    def test_quota_error_parsing_handles_missing_details(self, mock_azure_cli_in_ci):
         """Test that quota error parser handles missing optional details gracefully.
 
         Given: Azure error with minimal quota information (no details array)
@@ -340,6 +337,8 @@ class TestQuotaErrorParsing:
         And: No exception is raised during parsing
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -350,23 +349,22 @@ class TestQuotaErrorParsing:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
-
-        # Minimal quota error without details
-        quota_error_json = json.dumps(
-            {
-                "error": {
-                    "code": "QuotaExceeded",
-                    "message": "Operation could not be completed as it results in exceeding quota.",
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            # Minimal quota error without details
+            quota_error_json = json.dumps(
+                {
+                    "error": {
+                        "code": "QuotaExceeded",
+                        "message": "Operation could not be completed as it results in exceeding quota.",
+                    }
                 }
-            }
-        )
+            )
 
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -381,8 +379,7 @@ class TestQuotaErrorParsing:
 class TestNonQuotaErrorHandling:
     """Test that other (non-quota) errors are still handled normally."""
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_other_errors_still_handled_normally(self, mock_executor_class):
+    def test_other_errors_still_handled_normally(self, mock_azure_cli_in_ci):
         """Test that non-quota errors maintain normal error handling.
 
         Given: Non-quota error (e.g., network error, auth error)
@@ -391,6 +388,8 @@ class TestNonQuotaErrorHandling:
         And: Error is not misidentified as quota issue
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -401,16 +400,15 @@ class TestNonQuotaErrorHandling:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            # Network error (not quota-related)
+            network_error = "ERROR: Network connection failed: Connection timed out"
 
-        # Network error (not quota-related)
-        network_error = "ERROR: Network connection failed: Connection timed out"
-
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": network_error, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": network_error, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -422,8 +420,7 @@ class TestNonQuotaErrorHandling:
         # Should NOT add quota-specific suggestions
         assert "quota" not in error_message.lower() or "connection" in error_message.lower()
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_authentication_error_handled_normally(self, mock_executor_class):
+    def test_authentication_error_handled_normally(self, mock_azure_cli_in_ci):
         """Test that authentication errors are not confused with quota errors.
 
         Given: Authentication failure error
@@ -432,6 +429,8 @@ class TestNonQuotaErrorHandling:
         And: No quota-related suggestions are added
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -442,22 +441,21 @@ class TestNonQuotaErrorHandling:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
-
-        auth_error_json = json.dumps(
-            {
-                "error": {
-                    "code": "AuthorizationFailed",
-                    "message": "The client 'user@example.com' does not have authorization to perform action 'Microsoft.Compute/virtualMachines/write'.",
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            auth_error_json = json.dumps(
+                {
+                    "error": {
+                        "code": "AuthorizationFailed",
+                        "message": "The client 'user@example.com' does not have authorization to perform action 'Microsoft.Compute/virtualMachines/write'.",
+                    }
                 }
-            }
-        )
+            )
 
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": auth_error_json, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": auth_error_json, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -469,8 +467,7 @@ class TestNonQuotaErrorHandling:
         # Should not suggest quota solutions
         assert "--size" not in error_message.lower()
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_invalid_parameter_error_handled_normally(self, mock_executor_class):
+    def test_invalid_parameter_error_handled_normally(self, mock_azure_cli_in_ci):
         """Test that invalid parameter errors maintain normal handling.
 
         Given: Invalid parameter error (e.g., invalid VM size)
@@ -479,6 +476,8 @@ class TestNonQuotaErrorHandling:
         And: Not treated as quota issue
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -489,22 +488,21 @@ class TestNonQuotaErrorHandling:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
-
-        invalid_param_error = json.dumps(
-            {
-                "error": {
-                    "code": "InvalidParameter",
-                    "message": "The value 'InvalidSize' is not valid for parameter vmSize.",
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            invalid_param_error = json.dumps(
+                {
+                    "error": {
+                        "code": "InvalidParameter",
+                        "message": "The value 'InvalidSize' is not valid for parameter vmSize.",
+                    }
                 }
-            }
-        )
+            )
 
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": invalid_param_error, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": invalid_param_error, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -518,8 +516,7 @@ class TestNonQuotaErrorHandling:
 class TestQuotaErrorDocumentation:
     """Test that quota errors provide link to quota increase documentation."""
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_quota_error_provides_increase_link(self, mock_executor_class):
+    def test_quota_error_provides_increase_link(self, mock_azure_cli_in_ci):
         """Test that quota error includes link to Azure quota increase docs.
 
         Given: QuotaExceeded error
@@ -528,6 +525,8 @@ class TestQuotaErrorDocumentation:
         And: Link is clearly visible to user
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -538,28 +537,27 @@ class TestQuotaErrorDocumentation:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
-
-        quota_error_json = json.dumps(
-            {
-                "error": {
-                    "code": "QuotaExceeded",
-                    "message": "Operation could not be completed as it results in exceeding approved quota.",
-                    "details": [
-                        {
-                            "code": "QuotaExceeded",
-                            "message": "Current usage: 20, Limit: 32, Requested: 16",
-                        }
-                    ],
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            quota_error_json = json.dumps(
+                {
+                    "error": {
+                        "code": "QuotaExceeded",
+                        "message": "Operation could not be completed as it results in exceeding approved quota.",
+                        "details": [
+                            {
+                                "code": "QuotaExceeded",
+                                "message": "Current usage: 20, Limit: 32, Requested: 16",
+                            }
+                        ],
+                    }
                 }
-            }
-        )
+            )
 
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -572,8 +570,7 @@ class TestQuotaErrorDocumentation:
             for link in ["aka.ms/azquotaincrease", "quota increase", "request"]
         ), "Should provide link to quota increase documentation"
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_quota_error_message_is_actionable(self, mock_executor_class):
+    def test_quota_error_message_is_actionable(self, mock_azure_cli_in_ci):
         """Test that quota error provides clear next steps.
 
         Given: QuotaExceeded error
@@ -583,6 +580,8 @@ class TestQuotaErrorDocumentation:
               2. Request quota increase
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -593,22 +592,21 @@ class TestQuotaErrorDocumentation:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
-
-        quota_error_json = json.dumps(
-            {
-                "error": {
-                    "code": "QuotaExceeded",
-                    "message": "Operation could not be completed as it results in exceeding quota.",
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            quota_error_json = json.dumps(
+                {
+                    "error": {
+                        "code": "QuotaExceeded",
+                        "message": "Operation could not be completed as it results in exceeding quota.",
+                    }
                 }
-            }
-        )
+            )
 
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": quota_error_json, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -631,8 +629,7 @@ class TestQuotaErrorDocumentation:
 class TestQuotaErrorEdgeCases:
     """Test edge cases and boundary conditions for quota error handling."""
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_quota_error_with_malformed_json(self, mock_executor_class):
+    def test_quota_error_with_malformed_json(self, mock_azure_cli_in_ci):
         """Test that malformed JSON in quota error is handled gracefully.
 
         Given: Quota error with malformed JSON
@@ -641,6 +638,8 @@ class TestQuotaErrorEdgeCases:
         And: No exception is raised during parsing
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -651,16 +650,15 @@ class TestQuotaErrorEdgeCases:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            # Malformed JSON
+            malformed_json = '{"error": {"code": "QuotaExceeded", "message": "Quota exceeded'  # Missing closing braces
 
-        # Malformed JSON
-        malformed_json = '{"error": {"code": "QuotaExceeded", "message": "Quota exceeded'  # Missing closing braces
-
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": malformed_json, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": malformed_json, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
@@ -676,8 +674,7 @@ class TestQuotaErrorEdgeCases:
             or "failed" in error_message.lower()
         )
 
-    @patch("azlin.vm_provisioning.AzureCLIExecutor")
-    def test_quota_error_with_plain_text_error(self, mock_executor_class):
+    def test_quota_error_with_plain_text_error(self, mock_azure_cli_in_ci):
         """Test quota error when Azure returns plain text (not JSON).
 
         Given: Quota error as plain text message
@@ -686,6 +683,8 @@ class TestQuotaErrorEdgeCases:
         And: Still suggests quota solutions
 
         Expected to FAIL until implementation is complete.
+
+        Runs with real Azure CLI locally, mocked in CI.
         """
         provisioner = VMProvisioner()
         config = VMConfig(
@@ -696,16 +695,15 @@ class TestQuotaErrorEdgeCases:
             home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
-        mock_executor_instance = Mock()
-        mock_executor_class.return_value = mock_executor_instance
+        # If running in CI with mocks
+        if mock_azure_cli_in_ci:
+            # Plain text error (not JSON)
+            plain_text_error = "ERROR: QuotaExceeded - Operation could not be completed as it results in exceeding approved standardEASv5Family Cores quota. Current: 24, Limit: 32, Requested: 16"
 
-        # Plain text error (not JSON)
-        plain_text_error = "ERROR: QuotaExceeded - Operation could not be completed as it results in exceeding approved standardEASv5Family Cores quota. Current: 24, Limit: 32, Requested: 16"
-
-        mock_executor_instance.execute.side_effect = [
-            {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
-            {"success": False, "stdout": "", "stderr": plain_text_error, "returncode": 1},
-        ]
+            mock_azure_cli_in_ci.execute.side_effect = [
+                {"success": True, "stdout": "true", "stderr": "", "returncode": 0},
+                {"success": False, "stdout": "", "stderr": plain_text_error, "returncode": 1},
+            ]
 
         with pytest.raises(ProvisioningError) as exc_info:
             provisioner.provision_vm(config)
