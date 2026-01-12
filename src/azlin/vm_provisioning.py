@@ -18,7 +18,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from azlin.azure_cli_visibility import AzureCLIExecutor
 from azlin.quota_error_handler import QuotaErrorHandler
@@ -51,6 +51,9 @@ class VMConfig:
     disable_password_auth: bool = True
     session_name: str | None = None  # Optional session name for tag management
     public_ip_enabled: bool = True  # Whether to create a public IP (False for bastion-only VMs)
+    home_disk_enabled: bool = True  # Whether to create separate /home disk
+    home_disk_size_gb: int = 100  # Size of separate /home disk in GB
+    home_disk_sku: str = "Standard_LRS"  # Storage SKU for /home disk
 
 
 @dataclass
@@ -372,6 +375,9 @@ class VMProvisioner:
         ssh_public_key: str | None = None,
         session_name: str | None = None,
         public_ip_enabled: bool = True,
+        home_disk_enabled: bool = True,
+        home_disk_size_gb: int = 100,
+        home_disk_sku: str = "Standard_LRS",
     ) -> VMConfig:
         """Create VM configuration with validation.
 
@@ -383,6 +389,9 @@ class VMProvisioner:
             ssh_public_key: SSH public key content
             session_name: Session name for VM tags (optional)
             public_ip_enabled: Whether to create a public IP (default: True)
+            home_disk_enabled: Whether to create separate /home disk (default: True)
+            home_disk_size_gb: Size of separate /home disk in GB (default: 100)
+            home_disk_sku: Storage SKU for /home disk (default: Standard_LRS)
 
         Returns:
             VMConfig object
@@ -400,6 +409,15 @@ class VMProvisioner:
         if not self.validate_region(location):
             raise ValueError(f"Invalid region: {location}")
 
+        # Validate home disk size
+        if home_disk_enabled:
+            if home_disk_size_gb < 1:
+                raise ValueError("Home disk size must be at least 1GB")
+            if home_disk_size_gb > 32767:  # Azure max: 32TB = 32767GB
+                raise ValueError(
+                    f"Home disk size {home_disk_size_gb}GB exceeds Azure maximum (32767GB / 32TB)"
+                )
+
         return VMConfig(
             name=name,
             resource_group=resource_group,
@@ -411,6 +429,9 @@ class VMProvisioner:
             disable_password_auth=True,
             session_name=session_name,
             public_ip_enabled=public_ip_enabled,
+            home_disk_enabled=home_disk_enabled,
+            home_disk_size_gb=home_disk_size_gb,
+            home_disk_sku=home_disk_sku,
         )
 
     def validate_vm_size(self, size: str) -> bool:
@@ -533,13 +554,17 @@ class VMProvisioner:
         return any(indicator.lower() in error_message.lower() for indicator in sku_error_indicators)
 
     def _try_provision_vm(
-        self, config: VMConfig, progress_callback: Callable[[str], None] | None = None
+        self,
+        config: VMConfig,
+        progress_callback: Callable[[str], None] | None = None,
+        has_home_disk: bool = False,
     ) -> VMDetails:
         """Attempt to provision VM (internal method).
 
         Args:
             config: VM configuration
             progress_callback: Optional callback for progress updates
+            has_home_disk: Whether VM will have separate /home disk attached
 
         Returns:
             VMDetails with provisioning results
@@ -553,12 +578,9 @@ class VMProvisioner:
                 progress_callback(msg)
             logger.info(msg)
 
-        # Create resource group
-        report_progress(f"Creating resource group: {config.resource_group}")
-        self.create_resource_group(config.resource_group, config.location)
-
-        # Generate cloud-init with SSH key
-        cloud_init = self._generate_cloud_init(config.ssh_public_key)
+        # Resource group already created in provision_vm()
+        # Generate cloud-init with SSH key and disk setup flag
+        cloud_init = self._generate_cloud_init(config.ssh_public_key, has_home_disk=has_home_disk)
 
         # Build VM create command
         cmd = [
@@ -632,6 +654,8 @@ class VMProvisioner:
             id=vm_data.get("id"),
         )
 
+        # Disk attachment handled in provision_vm() after successful VM creation
+
         # Set azlin management tags on newly created VM
         report_progress("Setting azlin management tags...")
         try:
@@ -644,7 +668,7 @@ class VMProvisioner:
                 vm_name=config.name,
                 resource_group=config.resource_group,
                 owner=owner,
-                session_name=config.session_name if hasattr(config, "session_name") else None,
+                session_name=config.session_name,
             )
             report_progress("Management tags set successfully")
         except Exception as e:
@@ -708,11 +732,134 @@ class VMProvisioner:
         except subprocess.CalledProcessError as e:
             raise ProvisioningError(f"Failed to create resource group: {e.stderr}") from e
 
-    def _generate_cloud_init(self, ssh_public_key: str | None = None) -> str:
+    def _execute_azure_command(self, cmd: list[str], timeout: int = 120) -> dict[str, Any]:
+        """Execute Azure CLI command and return structured result.
+
+        Args:
+            cmd: Command list (e.g., ["az", "disk", "create", ...])
+            timeout: Timeout in seconds
+
+        Returns:
+            dict with keys: success, stdout, stderr, returncode
+        """
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,  # Don't raise on non-zero exit
+        )
+
+        return {
+            "success": result.returncode == 0,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode,
+        }
+
+    def _create_home_disk(
+        self, vm_name: str, resource_group: str, location: str, size_gb: int, sku: str
+    ) -> str:
+        """Create an Azure Managed Disk for /home directory.
+
+        Args:
+            vm_name: Name of the VM (used to name the disk)
+            resource_group: Resource group name
+            location: Azure region
+            size_gb: Disk size in GB
+            sku: Storage SKU (Standard_LRS, Premium_LRS, etc.)
+
+        Returns:
+            str: Disk resource ID
+
+        Raises:
+            subprocess.CalledProcessError: If disk creation fails
+        """
+        disk_name = f"{vm_name}-home"
+
+        cmd = [
+            "az",
+            "disk",
+            "create",
+            "--name",
+            disk_name,
+            "--resource-group",
+            resource_group,
+            "--location",
+            location,
+            "--size-gb",
+            str(size_gb),
+            "--sku",
+            sku,
+            "--output",
+            "json",
+        ]
+
+        logger.info(f"Creating managed disk: {disk_name} ({size_gb}GB, {sku})")
+
+        result = self._execute_azure_command(cmd, timeout=120)
+
+        if not result["success"]:
+            raise ProvisioningError(f"Failed to create home disk {disk_name}: {result['stderr']}")
+
+        disk_info = json.loads(result["stdout"])
+        disk_id = disk_info["id"]
+
+        logger.info(f"Disk created successfully: {disk_id}")
+        return disk_id
+
+    def _attach_home_disk(self, vm_name: str, resource_group: str, disk_id: str) -> str:
+        """Attach managed disk to VM.
+
+        Args:
+            vm_name: Name of the VM
+            resource_group: Resource group name
+            disk_id: Disk resource ID
+
+        Returns:
+            str: LUN (Logical Unit Number) where disk is attached
+
+        Raises:
+            subprocess.CalledProcessError: If disk attach fails
+        """
+        cmd = [
+            "az",
+            "vm",
+            "disk",
+            "attach",
+            "--vm-name",
+            vm_name,
+            "--resource-group",
+            resource_group,
+            "--disk",
+            disk_id,
+            "--output",
+            "json",
+        ]
+
+        logger.info(f"Attaching disk {disk_id} to VM {vm_name}")
+
+        result = self._execute_azure_command(cmd, timeout=60)
+
+        if not result["success"]:
+            raise ProvisioningError(
+                f"Failed to attach home disk to VM {vm_name}: {result['stderr']}"
+            )
+
+        # For first data disk, LUN is always 0
+        lun = "0"
+
+        logger.info(f"Disk attached successfully at LUN {lun}")
+        return lun
+
+    def _generate_cloud_init(
+        self, ssh_public_key: str | None = None, has_home_disk: bool = False
+    ) -> str:
         """Generate cloud-init script for tool installation.
 
         Args:
             ssh_public_key: SSH public key to add to authorized_keys (required to override waagent)
+            has_home_disk: Whether to include disk setup for separate /home disk
 
         Returns:
             Cloud-init YAML content
@@ -754,8 +901,29 @@ cloud_final_modules:
 
 """
 
+        # Add disk setup sections for separate /home disk
+        disk_setup_section = ""
+        if has_home_disk:
+            disk_setup_section = """
+disk_setup:
+  /dev/disk/azure/scsi1/lun0:
+    table_type: gpt
+    layout: true
+    overwrite: false
+
+fs_setup:
+  - label: home_disk
+    filesystem: ext4
+    device: /dev/disk/azure/scsi1/lun0-part1
+    partition: auto
+
+mounts:
+  - [ /dev/disk/azure/scsi1/lun0-part1, /home, ext4, "defaults,nofail", "0", "2" ]
+
+"""
+
         return f"""#cloud-config
-{ssh_keys_section}package_update: true
+{ssh_keys_section}{disk_setup_section}package_update: true
 package_upgrade: true
 
 packages:
@@ -918,6 +1086,23 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                 progress_callback(msg)
             logger.info(msg)
 
+        # Create resource group first (needed for disk creation)
+        report_progress(f"Creating resource group: {config.resource_group}")
+        self.create_resource_group(config.resource_group, config.location)
+
+        # Create separate home disk if enabled
+        disk_id = None
+        if config.home_disk_enabled:
+            report_progress(f"Creating separate /home disk ({config.home_disk_size_gb}GB)...")
+            disk_id = self._create_home_disk(
+                vm_name=config.name,
+                resource_group=config.resource_group,
+                location=config.location,
+                size_gb=config.home_disk_size_gb,
+                sku=config.home_disk_sku,
+            )
+            report_progress("Home disk created successfully")
+
         # Build list of regions to try (preferred region first, then fallbacks)
         regions_to_try: list[str] = [config.location]
         regions_to_try.extend(
@@ -939,7 +1124,30 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                     retry_config = config
 
                 # Attempt provisioning with retry config
-                return self._try_provision_vm(retry_config, progress_callback)
+                vm_details = self._try_provision_vm(
+                    retry_config, progress_callback, has_home_disk=disk_id is not None
+                )
+
+                # Attach home disk after VM is successfully created
+                # Graceful degradation: If attachment fails, VM is still usable
+                if disk_id is not None:
+                    report_progress("Attaching home disk to VM...")
+                    try:
+                        self._attach_home_disk(
+                            vm_name=config.name,
+                            resource_group=config.resource_group,
+                            disk_id=disk_id,
+                        )
+                        report_progress("Home disk attached successfully")
+                    except ProvisioningError as e:
+                        # Log warning but continue - VM is still usable with OS disk only
+                        logger.warning(
+                            f"Failed to attach home disk to {config.name}: {e}. "
+                            f"VM will use OS disk for /home directory."
+                        )
+                        report_progress("Warning: Home disk attachment failed, using OS disk")
+
+                return vm_details
 
             except subprocess.TimeoutExpired as e:
                 raise ProvisioningError("VM provisioning timed out after 10 minutes") from e

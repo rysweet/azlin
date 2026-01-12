@@ -199,6 +199,8 @@ class CLIOrchestrator:
         no_bastion: bool = False,
         bastion_name: str | None = None,
         auto_approve: bool = False,
+        home_disk_size: int | None = None,
+        no_home_disk: bool = False,
     ):
         """Initialize CLI orchestrator.
 
@@ -215,6 +217,8 @@ class CLIOrchestrator:
             no_bastion: Skip bastion auto-detection and always create public IP (optional)
             bastion_name: Explicit bastion host name to use (optional)
             auto_approve: Accept all defaults and confirmations (non-interactive mode)
+            home_disk_size: Size of separate /home disk in GB (optional, default: 100)
+            no_home_disk: Disable separate /home disk (use OS disk only)
 
         Note:
             SSH keys are automatically stored in Azure Key Vault (transparent operation)
@@ -231,6 +235,8 @@ class CLIOrchestrator:
         self.no_bastion = no_bastion
         self.bastion_name = bastion_name
         self.auto_approve = auto_approve
+        self.home_disk_size = home_disk_size
+        self.no_home_disk = no_home_disk
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -841,6 +847,22 @@ class CLIOrchestrator:
         # Public IP is disabled when using bastion
         public_ip_enabled = not use_bastion
 
+        # Determine home disk configuration
+        # Home disk is enabled by default UNLESS:
+        # 1. User explicitly disabled it with --no-home-disk
+        # 2. NFS storage is configured (NFS replaces separate home disk)
+        has_nfs_storage = bool(self.nfs_storage)
+        if not has_nfs_storage and not self.no_nfs:
+            # Check for default NFS storage in config
+            try:
+                azlin_config = ConfigManager.load_config(self.config_file)
+                has_nfs_storage = bool(azlin_config.default_nfs_storage)
+            except ConfigError:
+                has_nfs_storage = False
+
+        home_disk_enabled = not self.no_home_disk and not has_nfs_storage
+        home_disk_size = self.home_disk_size or 100
+
         # Create VM config
         config = self.provisioner.create_vm_config(
             name=vm_name,
@@ -850,6 +872,9 @@ class CLIOrchestrator:
             ssh_public_key=public_key,
             session_name=self.session_name,
             public_ip_enabled=public_ip_enabled,
+            home_disk_enabled=home_disk_enabled,
+            home_disk_size_gb=home_disk_size,
+            home_disk_sku="Standard_LRS",
         )
 
         # Progress callback
@@ -2756,6 +2781,16 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
     is_flag=True,
     help="Accept all defaults and confirmations (non-interactive mode)",
 )
+@click.option(
+    "--home-disk-size",
+    type=int,
+    help="Size of separate /home disk in GB (default: 100)",
+)
+@click.option(
+    "--no-home-disk",
+    is_flag=True,
+    help="Disable separate /home disk (use OS disk)",
+)
 def new_command(
     ctx: click.Context,
     repo: str | None,
@@ -2773,6 +2808,8 @@ def new_command(
     no_bastion: bool,
     bastion_name: str | None,
     yes: bool,
+    home_disk_size: int | None,
+    no_home_disk: bool,
 ) -> None:
     """Provision a new Azure VM with development tools.
 
@@ -2847,6 +2884,8 @@ def new_command(
         no_bastion=no_bastion,
         bastion_name=bastion_name,
         auto_approve=yes,
+        home_disk_size=home_disk_size,
+        no_home_disk=no_home_disk,
     )
 
     # Update config state (resource group only, session name saved after VM creation)

@@ -32,11 +32,30 @@ azlin automates the tedious process of setting up Azure Ubuntu VMs for developme
 1. Authenticates with Azure
 2. Provisions an Ubuntu 24.04 VM
 3. Installs 12 essential development tools
-4. Sets up SSH with key-based authentication
-5. Starts a persistent tmux session
-6. Optionally clones a GitHub repository
+4. Creates a separate 100GB disk for /home (persistent storage)
+5. Sets up SSH with key-based authentication
+6. Starts a persistent tmux session
+7. Optionally clones a GitHub repository
 
 **Total time**: 4-7 minutes from command to working development environment.
+
+## ✨ What's New in v0.4.0
+
+### Separate Home Disk (NEW)
+VMs now automatically get a dedicated 100GB disk for `/home`:
+```bash
+azlin new                      # 100GB home disk (default)
+azlin new --home-disk-size 200  # Custom size
+azlin new --no-home-disk        # Disable (use OS disk)
+```
+
+**Benefits:**
+- Persistent storage isolated from OS disk
+- No NFS setup required
+- Cost-effective ($4.80/month for 100GB)
+- Automatic formatting and mounting
+
+See [Separate Home Disk Guide](docs/how-to/separate-home-disk.md) for details.
 
 ## ✨ What's New in v0.3.2
 
