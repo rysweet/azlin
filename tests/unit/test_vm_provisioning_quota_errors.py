@@ -51,6 +51,7 @@ class TestQuotaExceededErrorMessages:
             resource_group="test-rg",
             location="eastus",
             size="Standard_E16as_v5",  # 16 vCPUs
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         # Mock resource group check to succeed
@@ -120,6 +121,7 @@ class TestQuotaExceededErrorMessages:
             resource_group="test-rg",
             location="westus2",
             size="Standard_E32as_v5",  # 32 vCPUs
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -182,6 +184,7 @@ class TestQuotaErrorSuggestions:
             resource_group="test-rg",
             location="eastus",
             size="Standard_E16as_v5",  # 16 vCPUs (tier L)
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -238,6 +241,7 @@ class TestQuotaErrorSuggestions:
             resource_group="test-rg",
             location="westus2",
             size="Standard_E32as_v5",  # 32 vCPUs (tier XL)
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -288,6 +292,7 @@ class TestQuotaErrorParsing:
             resource_group="test-rg",
             location="centralus",
             size="Standard_D8s_v5",
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -342,6 +347,7 @@ class TestQuotaErrorParsing:
             resource_group="test-rg",
             location="eastus",
             size="Standard_E16as_v5",
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -392,6 +398,7 @@ class TestNonQuotaErrorHandling:
             resource_group="test-rg",
             location="eastus",
             size="Standard_E16as_v5",
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -432,6 +439,7 @@ class TestNonQuotaErrorHandling:
             resource_group="test-rg",
             location="eastus",
             size="Standard_E16as_v5",
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -478,6 +486,7 @@ class TestNonQuotaErrorHandling:
             resource_group="test-rg",
             location="eastus",
             size="Standard_E16as_v5",
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -526,6 +535,7 @@ class TestQuotaErrorDocumentation:
             resource_group="test-rg",
             location="eastus",
             size="Standard_E16as_v5",
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -580,6 +590,7 @@ class TestQuotaErrorDocumentation:
             resource_group="test-rg",
             location="eastus",
             size="Standard_E32as_v5",
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -637,6 +648,7 @@ class TestQuotaErrorEdgeCases:
             resource_group="test-rg",
             location="eastus",
             size="Standard_E16as_v5",
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()
@@ -681,6 +693,7 @@ class TestQuotaErrorEdgeCases:
             resource_group="test-rg",
             location="eastus",
             size="Standard_E16as_v5",
+            home_disk_enabled=False,  # Disable home disk for quota error tests
         )
 
         mock_executor_instance = Mock()

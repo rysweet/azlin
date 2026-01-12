@@ -526,7 +526,8 @@ class TestProvisionVMWithHomeDisk:
     4. Error handling with graceful degradation
     """
 
-    def test_provision_vm_with_home_disk_enabled(self):
+    @patch("azlin.vm_provisioning.AzureCLIExecutor")
+    def test_provision_vm_with_home_disk_enabled(self, mock_executor_class):
         """Test that provision_vm creates and attaches home disk when enabled.
 
         Given: A VMConfig with home_disk_enabled=True
@@ -536,6 +537,16 @@ class TestProvisionVMWithHomeDisk:
         Note: _generate_cloud_init() is called inside _try_provision_vm() which is mocked,
         so we don't assert on cloud-init generation here.
         """
+        # Mock the executor to return successful results
+        mock_executor = Mock()
+        mock_executor.execute.return_value = {
+            "success": True,
+            "stdout": "true",
+            "stderr": "",
+            "returncode": 0,
+        }
+        mock_executor_class.return_value = mock_executor
+
         provisioner = VMProvisioner()
         config = VMConfig(
             name="test-vm",
@@ -581,7 +592,8 @@ class TestProvisionVMWithHomeDisk:
 
             assert result.name == "test-vm"
 
-    def test_provision_vm_without_home_disk_skips_disk_operations(self):
+    @patch("azlin.vm_provisioning.AzureCLIExecutor")
+    def test_provision_vm_without_home_disk_skips_disk_operations(self, mock_executor_class):
         """Test that provision_vm skips disk operations when home_disk_enabled=False.
 
         Given: A VMConfig with home_disk_enabled=False
@@ -591,6 +603,16 @@ class TestProvisionVMWithHomeDisk:
         Note: _generate_cloud_init() is called inside _try_provision_vm() which is mocked,
         so we don't assert on cloud-init generation here.
         """
+        # Mock the executor to return successful results
+        mock_executor = Mock()
+        mock_executor.execute.return_value = {
+            "success": True,
+            "stdout": "true",
+            "stderr": "",
+            "returncode": 0,
+        }
+        mock_executor_class.return_value = mock_executor
+
         provisioner = VMProvisioner()
         config = VMConfig(
             name="test-vm", resource_group="test-rg", location="westus2", home_disk_enabled=False
@@ -620,13 +642,24 @@ class TestProvisionVMWithHomeDisk:
 
             assert result.name == "test-vm"
 
-    def test_provision_vm_home_disk_creation_failure_stops_provisioning(self):
+    @patch("azlin.vm_provisioning.AzureCLIExecutor")
+    def test_provision_vm_home_disk_creation_failure_stops_provisioning(self, mock_executor_class):
         """Test that VM provisioning stops if home disk creation fails.
 
         Given: A VMConfig with home_disk_enabled=True
         When: Home disk creation fails
         Then: Raises ProvisioningError without attempting VM creation
         """
+        # Mock the executor to return successful results for RG check
+        mock_executor = Mock()
+        mock_executor.execute.return_value = {
+            "success": True,
+            "stdout": "true",
+            "stderr": "",
+            "returncode": 0,
+        }
+        mock_executor_class.return_value = mock_executor
+
         provisioner = VMProvisioner()
         config = VMConfig(
             name="test-vm", resource_group="test-rg", location="westus2", home_disk_enabled=True
@@ -647,7 +680,8 @@ class TestProvisionVMWithHomeDisk:
             # Verify VM provisioning was never attempted
             mock_provision.assert_not_called()
 
-    def test_provision_vm_home_disk_attachment_failure_continues(self):
+    @patch("azlin.vm_provisioning.AzureCLIExecutor")
+    def test_provision_vm_home_disk_attachment_failure_continues(self, mock_executor_class):
         """Test that VM provisioning completes even if disk attachment fails.
 
         Given: A VMConfig with home_disk_enabled=True
@@ -655,6 +689,16 @@ class TestProvisionVMWithHomeDisk:
         Then: VM is still returned (graceful degradation)
         And: Warning is logged about attachment failure
         """
+        # Mock the executor to return successful results for RG check
+        mock_executor = Mock()
+        mock_executor.execute.return_value = {
+            "success": True,
+            "stdout": "true",
+            "stderr": "",
+            "returncode": 0,
+        }
+        mock_executor_class.return_value = mock_executor
+
         provisioner = VMProvisioner()
         config = VMConfig(
             name="test-vm", resource_group="test-rg", location="westus2", home_disk_enabled=True
