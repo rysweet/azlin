@@ -288,11 +288,13 @@ class VMConnector:
                         # Instantiate VMKeySync with config dict
                         sync_manager = VMKeySync(config.to_dict())
 
-                        # Call instance method without config parameter
+                        # Call instance method with reduced timeout (5s instead of 30s)
+                        # For first connections, sync will likely timeout anyway
                         sync_manager.ensure_key_authorized(
                             vm_name=conn_info.vm_name,
                             resource_group=conn_info.resource_group,
                             public_key=public_key,
+                            timeout=5,  # Reduced from 30s default for faster failure
                         )
                         logger.info("SSH key auto-sync completed successfully")
             except Exception as e:
