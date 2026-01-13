@@ -91,12 +91,19 @@ class SSHConnector:
         # Validate configuration
         cls._validate_config(config)
 
-        # Wait for SSH to be ready
-        logger.info(f"Waiting for SSH on {config.host}:{config.port}...")
-        if not cls.wait_for_ssh_ready(
-            config.host, config.key_path, port=config.port, user=config.user, timeout=30
-        ):
-            raise SSHConnectionError(f"SSH connection to {config.host} timed out")
+        # Wait for SSH to be ready (skip for localhost/Bastion tunnels)
+        is_localhost = config.host in ("127.0.0.1", "localhost", "::1")
+
+        if is_localhost:
+            # Bastion tunnels are local - ready immediately, skip check
+            logger.debug(f"Skipping SSH readiness check for localhost tunnel on port {config.port}")
+        else:
+            # Remote connection - wait for SSH to be ready
+            logger.info(f"Waiting for SSH on {config.host}:{config.port}...")
+            if not cls.wait_for_ssh_ready(
+                config.host, config.key_path, port=config.port, user=config.user, timeout=30
+            ):
+                raise SSHConnectionError(f"SSH connection to {config.host} timed out")
 
         # Build SSH command
         if remote_command:
