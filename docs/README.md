@@ -8,6 +8,7 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 
 - **[../README.md](../README.md)** - Project overview, quick start, and installation
 - **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command reference and examples
+- **[reference/destroy-command.md](reference/destroy-command.md)** - Complete guide to VM deletion
 - **[UV_USAGE.md](UV_USAGE.md)** - Using azlin with uv package manager
 - **[backup-disaster-recovery.md](backup-disaster-recovery.md)** - Automated backup scheduling, cross-region replication, and DR testing
 - **[features/tmux-session-status.md](features/tmux-session-status.md)** - Visual tmux session connection status in VM listings

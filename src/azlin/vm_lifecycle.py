@@ -117,13 +117,16 @@ class VMLifecycleManager:
                     vm_name=vm_name, success=False, message=f"Failed to delete VM: {e}"
                 )
 
-            # Delete associated resources (NICs, Public IPs)
+            # Delete associated resources (NICs, NSGs, Public IPs)
             # Note: Disks are typically auto-deleted with VM if deleteOption is set
             for resource_type, resource_name in resources_to_delete:
                 try:
                     if resource_type == "nic":
                         cls._delete_nic(resource_name, resource_group)
                         deleted_resources.append(f"NIC: {resource_name}")
+                    elif resource_type == "nsg":
+                        cls._delete_nsg(resource_name, resource_group)
+                        deleted_resources.append(f"NSG: {resource_name}")
                     elif resource_type == "public-ip":
                         cls._delete_public_ip(resource_name, resource_group)
                         deleted_resources.append(f"Public IP: {resource_name}")
@@ -345,6 +348,14 @@ class VMLifecycleManager:
                 nic_name = nic_id.split("/")[-1]
                 resources.append(("nic", nic_name))
 
+                # Get NSG from NIC
+                try:
+                    nsg_name = cls._get_nsg_from_nic(nic_name, vm_info.get("resourceGroup", ""))
+                    if nsg_name:
+                        resources.append(("nsg", nsg_name))
+                except Exception as e:
+                    logger.debug(f"Failed to get NSG for NIC {nic_name}: {e}")
+
                 # Get public IP from NIC
                 try:
                     public_ip_name = cls._get_public_ip_from_nic(
@@ -409,37 +420,90 @@ class VMLifecycleManager:
 
         except subprocess.TimeoutExpired as e:
             # Command timed out
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.debug(f"Public IP lookup timed out for NIC {nic_name}: {e}")
             return None
 
         except subprocess.CalledProcessError as e:
             # Azure CLI command failed (e.g., NIC not found)
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.debug(f"Failed to get public IP for NIC {nic_name}: {e}")
             return None
 
         except (IndexError, AttributeError, ValueError) as e:
             # Error parsing the public IP ID
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.debug(f"Failed to parse public IP ID for NIC {nic_name}: {e}")
             return None
 
         except Exception as e:
             # Unexpected errors - log and return None (cleanup is best-effort)
-            import logging
             import os
 
-            logger = logging.getLogger(__name__)
             logger.warning(f"Unexpected error getting public IP for NIC {nic_name}: {e}")
             if os.getenv("AZLIN_DEV_MODE"):
                 logger.error("Public IP lookup error details:", exc_info=True)
+            return None
+
+    @classmethod
+    def _get_nsg_from_nic(cls, nic_name: str, resource_group: str) -> str | None:
+        """Get NSG name associated with NIC.
+
+        Args:
+            nic_name: NIC name
+            resource_group: Resource group name
+
+        Returns:
+            NSG name or None
+        """
+        try:
+            cmd = [
+                "az",
+                "network",
+                "nic",
+                "show",
+                "--name",
+                nic_name,
+                "--resource-group",
+                resource_group,
+                "--output",
+                "json",
+            ]
+
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=10, check=True
+            )
+
+            nic_data: dict[str, Any] = json.loads(result.stdout)
+            nsg_info = nic_data.get("networkSecurityGroup")
+
+            if nsg_info and isinstance(nsg_info, dict):
+                nsg_id = nsg_info.get("id", "")
+                if nsg_id:
+                    # Extract name from ID
+                    return nsg_id.split("/")[-1]
+
+            return None
+
+        except subprocess.TimeoutExpired as e:
+            # Command timed out
+            logger.debug(f"NSG lookup timed out for NIC {nic_name}: {e}")
+            return None
+
+        except subprocess.CalledProcessError as e:
+            # Azure CLI command failed (e.g., NIC not found)
+            logger.debug(f"Failed to get NSG for NIC {nic_name}: {e}")
+            return None
+
+        except (json.JSONDecodeError, IndexError, AttributeError, ValueError, KeyError) as e:
+            # Error parsing the NSG data
+            logger.debug(f"Failed to parse NSG data for NIC {nic_name}: {e}")
+            return None
+
+        except Exception as e:
+            # Unexpected errors - log and return None (cleanup is best-effort)
+            import os
+
+            logger.warning(f"Unexpected error getting NSG for NIC {nic_name}: {e}")
+            if os.getenv("AZLIN_DEV_MODE"):
+                logger.error("NSG lookup error details:", exc_info=True)
             return None
 
     @classmethod
@@ -486,6 +550,31 @@ class VMLifecycleManager:
         )
 
         logger.debug(f"Deleted NIC: {nic_name}")
+
+    @classmethod
+    def _delete_nsg(cls, nsg_name: str, resource_group: str) -> None:
+        """Delete network security group.
+
+        Args:
+            nsg_name: NSG name
+            resource_group: Resource group name
+        """
+        cmd = [
+            "az",
+            "network",
+            "nsg",
+            "delete",
+            "--name",
+            nsg_name,
+            "--resource-group",
+            resource_group,
+        ]
+
+        _result: subprocess.CompletedProcess[str] = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60, check=True
+        )
+
+        logger.debug(f"Deleted NSG: {nsg_name}")
 
     @classmethod
     def _delete_public_ip(cls, ip_name: str, resource_group: str) -> None:
