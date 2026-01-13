@@ -10,6 +10,11 @@ Security:
 - Input validation
 - Error message sanitization
 
+Thread Safety:
+- Module-level cache (_bastion_cache) is NOT thread-safe
+- Designed for CLI single-threaded execution
+- Concurrent access may cause cache inconsistencies (non-critical)
+
 Note: Delegates ALL Azure operations to Azure CLI.
 """
 
@@ -103,9 +108,18 @@ class BastionDetector:
         except subprocess.TimeoutExpired:
             logger.warning(f"Azure CLI pre-flight check timed out after {timeout}s")
             return False
-        except Exception as e:
+        except FileNotFoundError:
+            # Azure CLI not installed
+            logger.debug("Azure CLI not found in PATH")
+            return False
+        except (OSError, subprocess.SubprocessError) as e:
+            # CLI execution issues (permissions, broken installation, etc.)
             logger.debug(f"Azure CLI pre-flight check failed: {e}")
-            # CLI is installed but failing - still consider it responsive
+            return False
+        except Exception as e:
+            # Other errors (e.g., JSON parse) - CLI responded but with error
+            # Treat as responsive since timeout didn't occur
+            logger.debug(f"Azure CLI pre-flight check error (non-blocking): {e}")
             return True
 
     @classmethod
