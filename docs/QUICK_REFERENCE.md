@@ -346,11 +346,20 @@ VM Details:
   IP:             20.123.45.67
   Size:           Standard_D2s_v3
 
-This will delete the VM and all associated resources (NICs, disks, IPs).
+This will delete the VM and all associated resources (NICs, NSGs, disks, IPs).
 This action cannot be undone.
 
 Are you sure you want to delete this VM? [y/N]:
 ```
+
+**Resources deleted:**
+- Virtual Machine
+- Network Interfaces (NICs)
+- Network Security Groups (NSGs) - Discovered from NICs
+- OS and data disks
+- Public IP addresses (if attached)
+
+**Note:** NSG deletion is best-effort and graceful. No errors if NSG already deleted or shared with other resources.
 
 **Skip confirmation:**
 ```bash
