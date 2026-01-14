@@ -127,7 +127,7 @@ class TestCreateHomeDisk:
             # Mock successful disk creation returning resource ID
             mock_exec.return_value = {
                 "success": True,
-                "stdout": '{"id": "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"}',
+                "stdout": '{"id": "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"}',
                 "stderr": "",
                 "returncode": 0,
             }
@@ -148,7 +148,7 @@ class TestCreateHomeDisk:
             assert cmd[1] == "disk"
             assert cmd[2] == "create"
             assert "--name" in cmd
-            assert "test-vm-home" in cmd
+            assert "test-vm-home-westus2" in cmd
             assert "--resource-group" in cmd
             assert "test-rg" in cmd
             assert "--location" in cmd
@@ -162,7 +162,7 @@ class TestCreateHomeDisk:
 
             # Verify return value
             assert "/subscriptions/" in disk_id
-            assert "test-vm-home" in disk_id
+            assert "test-vm-home-westus2" in disk_id
 
     def test_create_home_disk_with_custom_size(self):
         """Test _create_home_disk with custom disk size.
@@ -176,7 +176,7 @@ class TestCreateHomeDisk:
         with patch.object(provisioner, "_execute_azure_command") as mock_exec:
             mock_exec.return_value = {
                 "success": True,
-                "stdout": '{"id": "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"}',
+                "stdout": '{"id": "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"}',
                 "stderr": "",
                 "returncode": 0,
             }
@@ -205,7 +205,7 @@ class TestCreateHomeDisk:
         with patch.object(provisioner, "_execute_azure_command") as mock_exec:
             mock_exec.return_value = {
                 "success": True,
-                "stdout": '{"id": "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"}',
+                "stdout": '{"id": "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"}',
                 "stderr": "",
                 "returncode": 0,
             }
@@ -249,21 +249,21 @@ class TestCreateHomeDisk:
                 )
 
             assert "Failed to create home disk" in str(exc_info.value)
-            assert "test-vm-home" in str(exc_info.value)
+            assert "test-vm-home-westus2" in str(exc_info.value)
 
     def test_create_home_disk_naming_convention(self):
         """Test that home disk follows naming convention: {vm_name}-home.
 
         Given: A VMProvisioner instance
         When: _create_home_disk is called for VM "my-dev-vm"
-        Then: Disk is named "my-dev-vm-home"
+        Then: Disk is named "my-dev-vm-home-westus2"
         """
         provisioner = VMProvisioner()
 
         with patch.object(provisioner, "_execute_azure_command") as mock_exec:
             mock_exec.return_value = {
                 "success": True,
-                "stdout": '{"id": "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/my-dev-vm-home"}',
+                "stdout": '{"id": "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/my-dev-vm-home-westus2"}',
                 "stderr": "",
                 "returncode": 0,
             }
@@ -278,7 +278,7 @@ class TestCreateHomeDisk:
 
             cmd = mock_exec.call_args[0][0]
             name_idx = cmd.index("--name")
-            assert cmd[name_idx + 1] == "my-dev-vm-home"
+            assert cmd[name_idx + 1] == "my-dev-vm-home-westus2"
 
 
 class TestAttachHomeDisk:
@@ -306,7 +306,7 @@ class TestAttachHomeDisk:
                 "returncode": 0,
             }
 
-            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"
+            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
             lun = provisioner._attach_home_disk(
                 vm_name="test-vm", resource_group="test-rg", disk_id=disk_id
             )
@@ -348,7 +348,7 @@ class TestAttachHomeDisk:
                 "returncode": 1,
             }
 
-            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"
+            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
 
             with pytest.raises(ProvisioningError) as exc_info:
                 provisioner._attach_home_disk(
@@ -375,7 +375,7 @@ class TestAttachHomeDisk:
                 "returncode": 0,
             }
 
-            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"
+            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
             lun = provisioner._attach_home_disk(
                 vm_name="test-vm", resource_group="test-rg", disk_id=disk_id
             )
@@ -555,7 +555,7 @@ class TestProvisionVMWithHomeDisk:
             patch.object(provisioner, "_attach_home_disk") as mock_attach,
         ):
             # Mock successful operations
-            mock_create.return_value = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"
+            mock_create.return_value = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
             mock_vm = Mock()
             mock_vm.name = "test-vm"
             mock_vm.resource_group = "test-rg"
@@ -679,7 +679,7 @@ class TestProvisionVMWithHomeDisk:
             patch.object(provisioner, "_generate_cloud_init") as mock_cloud_init,
             patch("azlin.vm_provisioning.logger") as mock_logger,
         ):
-            mock_create.return_value = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"
+            mock_create.return_value = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
             mock_cloud_init.return_value = "#cloud-config\npackages:\n  - git"
             mock_vm = Mock()
             mock_vm.name = "test-vm"
@@ -1010,7 +1010,7 @@ class TestHomeDiskErrorHandling:
                 "returncode": 1,
             }
 
-            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"
+            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
 
             with pytest.raises(ProvisioningError) as exc_info:
                 provisioner._attach_home_disk(
@@ -1034,11 +1034,11 @@ class TestHomeDiskErrorHandling:
             mock_exec.return_value = {
                 "success": False,
                 "stdout": "",
-                "stderr": "ResourceNotFound: Disk 'test-vm-home' not found",
+                "stderr": "ResourceNotFound: Disk 'test-vm-home-westus2' not found",
                 "returncode": 1,
             }
 
-            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"
+            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
 
             with pytest.raises(ProvisioningError) as exc_info:
                 provisioner._attach_home_disk(

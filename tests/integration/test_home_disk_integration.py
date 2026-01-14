@@ -221,7 +221,7 @@ class TestFullVMProvisioningWithHomeDisk:
             patch.object(provisioner, "_attach_home_disk") as mock_attach,
             patch.object(provisioner, "_generate_cloud_init") as mock_cloud_init,
         ):
-            mock_create.return_value = "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"
+            mock_create.return_value = "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
             mock_cloud_init.return_value = "#cloud-config\npackages:\n  - git"
             mock_provision.return_value = Mock(
                 name="azlin-test-custom-size",
@@ -417,7 +417,7 @@ class TestHomeDiskErrorScenarios:
             patch.object(provisioner, "_generate_cloud_init") as mock_cloud_init,
             patch("azlin.vm_provisioning.logger") as mock_logger,
         ):
-            mock_create.return_value = "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"
+            mock_create.return_value = "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
             mock_cloud_init.return_value = "#cloud-config\npackages:\n  - git"
             mock_provision.return_value = Mock(
                 name="azlin-test-attach-fail",
@@ -462,7 +462,7 @@ class TestHomeDiskErrorScenarios:
             patch.object(provisioner, "_try_provision_vm") as mock_provision,
             patch.object(provisioner, "_generate_cloud_init") as mock_cloud_init,
         ):
-            mock_create.return_value = "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home"
+            mock_create.return_value = "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
             mock_cloud_init.return_value = "#cloud-config\npackages:\n  - git"
 
             # Mock VM creation failure

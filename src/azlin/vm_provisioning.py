@@ -775,7 +775,10 @@ class VMProvisioner:
         Raises:
             subprocess.CalledProcessError: If disk creation fails
         """
-        disk_name = f"{vm_name}-home"
+        # Make disk name globally unique by including region
+        # Azure requires disk names unique per resource group across ALL regions
+        safe_location = location.replace(" ", "-").lower()
+        disk_name = f"{vm_name}-home-{safe_location}"
 
         cmd = [
             "az",
@@ -1165,6 +1168,21 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                 if QuotaErrorHandler.is_quota_error(error_msg):
                     details = QuotaErrorHandler.parse_quota_error(error_msg, config.size, region)
                     if details:
+                        # Clean up any partially created resources before failing
+                        logger.warning(
+                            f"Quota error detected in {region}. Cleaning up partial resources for {config.name}..."
+                        )
+                        try:
+                            # Try to delete VM if it was partially created
+                            from azlin.vm_lifecycle import VMLifecycleManager
+
+                            VMLifecycleManager.delete_vm(config.name, config.resource_group)
+                            logger.info(f"Cleaned up partial resources for {config.name}")
+                        except Exception as cleanup_error:
+                            logger.debug(
+                                f"Cleanup attempt completed (some resources may not exist): {cleanup_error}"
+                            )
+
                         formatted_msg = QuotaErrorHandler.format_quota_error(
                             details, self.VALID_VM_SIZES
                         )
