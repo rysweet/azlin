@@ -18,12 +18,15 @@ Related: Issue #527 - azlin connect hangs in uvx/CI/CD environments
 
 import subprocess
 from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
-from azlin.modules.ssh_connector import SSHConfig, SSHConnector
-
+from azlin.modules.ssh_connector import (
+    SSHConfig,
+    SSHConnectionError,
+    SSHConnector,
+)
 
 # ============================================================================
 # TEST FIXTURES
@@ -80,9 +83,9 @@ class TestSSHStdinNonInteractive:
         mock_run.assert_called_once()
         call_kwargs = mock_run.call_args[1]
         assert "stdin" in call_kwargs, "stdin parameter should be passed to subprocess.run"
-        assert (
-            call_kwargs["stdin"] == subprocess.DEVNULL
-        ), "stdin should be subprocess.DEVNULL for non-interactive SSH"
+        assert call_kwargs["stdin"] == subprocess.DEVNULL, (
+            "stdin should be subprocess.DEVNULL for non-interactive SSH"
+        )
 
     @patch("azlin.modules.ssh_connector.subprocess.run")
     def test_remote_command_prevents_hang_in_uvx(self, mock_run, mock_key_file):
@@ -185,9 +188,9 @@ class TestSSHStdinInteractive:
 
         # Interactive SSH should use stdin=None (inherit from parent)
         if "stdin" in call_kwargs:
-            assert (
-                call_kwargs["stdin"] is None
-            ), "stdin should be None for interactive SSH (inherits from parent)"
+            assert call_kwargs["stdin"] is None, (
+                "stdin should be None for interactive SSH (inherits from parent)"
+            )
         # If stdin is not in kwargs, that's also correct (defaults to None)
 
     @patch("azlin.modules.ssh_connector.subprocess.run")
@@ -333,7 +336,7 @@ class TestSSHStdinEdgeCases:
         mock_run.side_effect = subprocess.SubprocessError("Test error")
 
         # Act & Assert
-        with pytest.raises(Exception):  # Should raise SSHConnectionError
+        with pytest.raises(SSHConnectionError):
             SSHConnector.connect(config, remote_command="test")
 
         mock_run.assert_called_once()
@@ -456,7 +459,7 @@ class TestSSHStdinExecuteRemoteCommand:
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["ssh"], timeout=60)
 
         # Act & Assert
-        with pytest.raises(Exception):  # SSHConnectionError
+        with pytest.raises(SSHConnectionError):
             SSHConnector.execute_remote_command(config, "sleep 100", timeout=1)
 
 
@@ -545,9 +548,9 @@ class TestSSHStdinRegression:
         assert exit_code == 0
         assert mock_run.call_count == 1
         call_kwargs = mock_run.call_args[1]
-        assert (
-            call_kwargs["stdin"] == subprocess.DEVNULL
-        ), "Fix for #527: remote commands must use stdin=DEVNULL"
+        assert call_kwargs["stdin"] == subprocess.DEVNULL, (
+            "Fix for #527: remote commands must use stdin=DEVNULL"
+        )
 
     @patch("azlin.modules.ssh_connector.subprocess.run")
     def test_ci_cd_environment_non_interactive(self, mock_run, mock_key_file):
