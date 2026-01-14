@@ -5229,6 +5229,9 @@ def connect(
                 # Don't block connection if quota check fails
                 logger.debug(f"NFS quota check failed: {e}")
 
+        # Disable reconnect for remote commands (no terminal for prompts)
+        should_reconnect = (not no_reconnect) and (command is None)
+
         success = VMConnector.connect(
             vm_identifier=vm_identifier,
             resource_group=rg,
@@ -5237,7 +5240,7 @@ def connect(
             remote_command=command,
             ssh_user=user,
             ssh_key_path=key_path,
-            enable_reconnect=not no_reconnect,
+            enable_reconnect=should_reconnect,
             max_reconnect_retries=max_retries,
             skip_prompts=yes,
         )
