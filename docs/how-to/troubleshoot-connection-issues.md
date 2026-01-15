@@ -18,6 +18,7 @@ Look for these indicators in the output:
 | "Failed to sync SSH key" | Auto-sync issue | [Auto-Sync Issues](#auto-sync-issues) |
 | "Auto-discovery failed" | Resource group discovery issue | [Resource Group Discovery Issues](#resource-group-discovery-issues) |
 | "Permission denied (publickey)" | Key mismatch or SSH config | [SSH Authentication Issues](#ssh-authentication-issues) |
+| "No sessions" (but sessions exist) | Tmux detection issue | [Tmux Session Detection Issues](#tmux-session-detection-issues) |
 | "VM not found" | Wrong resource group or VM deleted | [VM Not Found](#vm-not-found) |
 | "Timeout" | Network or Azure service issue | [Timeout Issues](#timeout-issues) |
 | "Permission denied" (Azure) | RBAC permissions missing | [Permission Issues](#permission-issues) |
@@ -857,6 +858,467 @@ azlin connect my-vm --bastion
 
 ---
 
+## Tmux Session Detection Issues
+
+Problems with `azlin list` showing "No sessions" when tmux sessions exist.
+
+### How Tmux Session Detection Works
+
+When ye run `azlin list`, the tool performs these steps fer each VM:
+
+1. **Establish SSH connection** - Verifies SSH connectivity to the VM
+2. **Query tmux sessions** - Runs `tmux list-sessions` on the VM
+3. **Parse session output** - Extracts session names, windows, and activity
+4. **Display results** - Shows all active tmux sessions
+
+**Connection Types:**
+
+- **Direct SSH**: Standard SSH connection to VM's IP address (5s timeout)
+- **Bastion Tunnel**: SSH through Azure Bastion tunnel (15s timeout)
+
+The tool automatically detects connection type and adjusts timeouts accordingly.
+
+---
+
+### Issue: "No sessions" When Tmux Sessions Exist
+
+**Symptoms:**
+```
+azlin list
+No active tmux sessions found
+```
+
+But when ye manually connect:
+```
+azlin connect my-vm
+tmux list-sessions
+session1: 1 windows (created Wed Jan 15 12:00:00 2026)
+session2: 3 windows (created Wed Jan 15 13:00:00 2026)
+```
+
+**Root Causes:**
+
+1. **SSH connection failure** - Can't connect to VM to query tmux
+2. **Timeout too short** - Connection succeeds but times out before tmux responds
+3. **Tmux not installed** - Command fails silently
+4. **Permission issues** - SSH user can't access tmux sessions
+5. **Bastion tunnel delays** - Extra latency through Bastion requires longer timeout
+
+**Diagnosis Steps:**
+
+1. **Test SSH connectivity directly:**
+   ```bash
+   # Direct SSH test
+   ssh -i ~/.ssh/azlin_key azureuser@<vm-ip> "echo Connection successful"
+   ```
+
+   Expected: `Connection successful`
+
+   If this fails, see [SSH Authentication Issues](#ssh-authentication-issues)
+
+2. **Test tmux manually:**
+   ```bash
+   ssh -i ~/.ssh/azlin_key azureuser@<vm-ip> "tmux list-sessions"
+   ```
+
+   Expected: List of sessions OR `no server running on /tmp/tmux-<uid>/default`
+
+   If "command not found", tmux be not installed.
+
+3. **Check connection type:**
+   ```bash
+   azlin --debug list 2>&1 | grep -E "(Direct SSH|Bastion tunnel)"
+   ```
+
+   Look fer:
+   - `Using direct SSH connection (timeout: 5s)` - Standard connection
+   - `Using Bastion tunnel (timeout: 15s)` - Through Bastion
+
+4. **Enable debug logging:**
+   ```bash
+   azlin --debug list 2>&1 | tee tmux-debug.log
+   ```
+
+   Look fer these indicators in the output:
+
+   | Message | Meaning | Action |
+   |---------|---------|--------|
+   | `SSH connection failed` | Cannot connect to VM | Fix SSH connectivity |
+   | `Connection timed out` | Timeout too short | Increase timeout |
+   | `tmux: command not found` | Tmux not installed | Install tmux on VM |
+   | `no server running` | No tmux sessions active | Normal - no sessions exist |
+   | `Successfully retrieved N sessions` | Working correctly | No action needed |
+
+**Solutions:**
+
+**Solution 1: Fix SSH connectivity (most common)**
+
+If SSH connection be failin':
+
+```bash
+# Test basic connectivity
+azlin connect my-vm
+
+# If this works, SSH keys be synced
+# If this fails, see SSH Authentication Issues section
+```
+
+The tool now verifies SSH connectivity BEFORE querying tmux sessions. If connection fails, ye'll see:
+```
+Error: Cannot connect to my-vm via SSH
+Check SSH keys and network connectivity
+```
+
+**Solution 2: Increase timeout fer Bastion tunnels**
+
+Bastion tunnels add extra latency. The tool automatically uses 15s timeout fer Bastion connections (vs 5s fer direct SSH).
+
+If ye still get timeouts with Bastion:
+
+```bash
+# Manually test with longer timeout
+ssh -o ConnectTimeout=30 -i ~/.ssh/azlin_key azureuser@<vm-ip> "tmux list-sessions"
+```
+
+If this succeeds but `azlin list` still times out, report it as a bug with debug logs:
+```bash
+azlin --debug list 2>&1 > bastion-timeout-debug.log
+```
+
+**Solution 3: Install tmux on VM**
+
+If tmux be not installed:
+
+```bash
+# Connect to VM
+azlin connect my-vm
+
+# Install tmux (Ubuntu/Debian)
+sudo apt-get update && sudo apt-get install -y tmux
+
+# Or (RHEL/CentOS)
+sudo yum install -y tmux
+```
+
+**Solution 4: Check tmux server status**
+
+If ye get "no server running" but expect sessions:
+
+```bash
+# Connect to VM
+azlin connect my-vm
+
+# Check if tmux server be runnin'
+ps aux | grep tmux
+
+# Check tmux socket permissions
+ls -la /tmp/tmux-*/
+
+# Start a test session
+tmux new-session -d -s test
+tmux list-sessions
+```
+
+**Solution 5: Verify user permissions**
+
+Ensure the SSH user can access tmux sessions:
+
+```bash
+# Connect as the same user azlin uses
+azlin connect my-vm
+
+# Check current user
+whoami
+
+# List tmux sessions fer this user
+tmux list-sessions
+
+# If sessions exist fer other users, ye'll need to switch users or
+# use 'sudo tmux list-sessions' (not recommended)
+```
+
+---
+
+### Issue: Intermittent "No sessions" Results
+
+**Symptoms:**
+
+Sometimes `azlin list` shows sessions, sometimes it doesn't fer the same VM.
+
+**Root Causes:**
+
+1. **Network instability** - Intermittent connection issues
+2. **VM under load** - Slow response times under heavy load
+3. **Bastion tunnel instability** - Tunnel drops or reconnects
+4. **SSH connection pooling issues** - Stale connections
+
+**Diagnosis Steps:**
+
+1. **Test connectivity stability:**
+   ```bash
+   # Run multiple times
+   fer i in {1..10}; do
+     echo "Test $i:"
+     azlin list | grep my-vm
+     sleep 2
+   done
+   ```
+
+   If results be inconsistent, ye have network instability.
+
+2. **Check VM load:**
+   ```bash
+   azlin connect my-vm
+   top
+   # Look fer high CPU or memory usage
+   ```
+
+3. **Test Bastion tunnel stability:**
+   ```bash
+   # Multiple connection attempts
+   fer i in {1..5}; do
+     echo "Attempt $i:"
+     time ssh -i ~/.ssh/azlin_key azureuser@<vm-ip> "echo test"
+   done
+   ```
+
+   Look fer:
+   - Consistent timing (~1-2s fer direct SSH, ~3-5s fer Bastion)
+   - No connection failures
+   - No significant timing variation
+
+**Solutions:**
+
+**Solution 1: Clear SSH connection pool**
+
+```bash
+# Clear SSH control sockets
+rm -f ~/.ssh/controlmasters/*
+
+# Or disable connection pooling temporarily
+azlin list --no-connection-pooling
+```
+
+**Solution 2: Use direct SSH instead of Bastion**
+
+If Bastion tunnels be unreliable:
+
+```bash
+# Ensure VM has public IP
+az vm show --name my-vm --resource-group my-rg \
+  --query "publicIps" -o tsv
+
+# Connect directly
+azlin list --no-bastion
+```
+
+**Solution 3: Reduce concurrent connections**
+
+If querying many VMs simultaneously:
+
+```bash
+# Query VMs one at a time (slower but more reliable)
+azlin list --sequential
+```
+
+---
+
+### Issue: Debug Logging Shows "Connection successful" But Still "No sessions"
+
+**Symptoms:**
+
+Debug logs show:
+```
+SSH connection to my-vm successful (test command passed)
+Querying tmux sessions...
+No active tmux sessions found
+```
+
+But sessions exist when ye connect manually.
+
+**Root Cause:**
+
+This indicates:
+1. SSH connectivity works (test command succeeded)
+2. Tmux query succeeded (no error)
+3. **Tmux genuinely has no sessions** - This be the expected behavior
+
+**Diagnosis Steps:**
+
+1. **Verify sessions exist fer the SSH user:**
+   ```bash
+   # Connect as the same user azlin uses
+   azlin connect my-vm
+
+   # List sessions
+   tmux list-sessions
+
+   # Check socket directory
+   ls -la /tmp/tmux-$(id -u)/
+   ```
+
+2. **Check if sessions belong to different user:**
+   ```bash
+   # On VM
+   sudo ps aux | grep tmux
+
+   # Shows which users have tmux sessions runnin'
+   ```
+
+**Solutions:**
+
+**Solution 1: Sessions belong to different user**
+
+If sessions exist fer user `bob` but ye connect as `azureuser`:
+
+```bash
+# Configure azlin to use correct user
+azlin config set default_user bob
+
+# Or specify per-connection
+azlin connect my-vm --user bob
+azlin list --user bob
+```
+
+**Solution 2: Start a session fer verification**
+
+```bash
+# Connect and start a test session
+azlin connect my-vm
+tmux new-session -d -s test-session
+
+# Exit and verify detection
+exit
+azlin list
+# Should now show test-session
+```
+
+---
+
+### Debug Logging Guide
+
+When reportin' tmux detection issues, include debug logs:
+
+```bash
+# Generate comprehensive debug log
+azlin --debug list 2>&1 > tmux-detection-debug.log
+```
+
+**What debug logs include:**
+
+1. **Connection verification:**
+   ```
+   Verifying SSH connection to my-vm...
+   Test command: echo "azlin-test"
+   Connection successful ✓
+   ```
+
+2. **Tmux query details:**
+   ```
+   Querying tmux sessions on my-vm...
+   Command: tmux list-sessions -F '#{session_name}:#{session_windows} windows'
+   Timeout: 15s (Bastion tunnel)
+   ```
+
+3. **Error details (if any):**
+   ```
+   SSH connection failed: Permission denied (publickey)
+   OR
+   Tmux query timed out after 15s
+   OR
+   Tmux returned: no server running
+   ```
+
+4. **Success details:**
+   ```
+   Successfully retrieved 2 sessions:
+   - session1: 1 windows
+   - session2: 3 windows
+   ```
+
+**Key debug indicators:**
+
+| Debug Message | Meaning | Status |
+|--------------|---------|--------|
+| `Connection successful ✓` | SSH works | ✅ Good |
+| `SSH connection failed` | Cannot reach VM | ❌ Problem |
+| `Connection timed out` | Timeout too short | ⚠️ Warning |
+| `tmux: command not found` | Tmux not installed | ⚠️ Expected |
+| `no server running` | No sessions exist | ✅ Normal |
+| `Successfully retrieved N sessions` | Working correctly | ✅ Good |
+
+---
+
+### Common Error Messages
+
+| Error Message | Cause | Solution |
+|--------------|-------|----------|
+| `Cannot connect to <vm> via SSH` | SSH connection failed | Check SSH keys and network [SSH Authentication Issues](#ssh-authentication-issues) |
+| `SSH connection timed out after <n>s` | Connection too slow | Increase timeout or check network |
+| `tmux: command not found` | Tmux not installed | Install tmux on VM |
+| `no server running on /tmp/tmux-...` | No tmux sessions exist | Normal - start a tmux session |
+| `Permission denied (publickey)` | SSH auth failure | Check SSH keys [Auto-Sync Issues](#auto-sync-issues) |
+
+---
+
+### Best Practices fer Reliable Tmux Detection
+
+1. **Use consistent SSH user:**
+   ```bash
+   # Set default user in config
+   azlin config set default_user azureuser
+   ```
+
+2. **Keep tmux sessions active:**
+   ```bash
+   # When connectin', always use tmux
+   azlin connect my-vm
+   tmux attach || tmux new-session -s main
+   ```
+
+3. **Monitor connection health:**
+   ```bash
+   # Periodically test connectivity
+   azlin list --health-check
+   ```
+
+4. **Use direct SSH when possible:**
+   ```bash
+   # Direct SSH be faster and more reliable than Bastion
+   # Ensure VMs have public IPs fer direct access
+   az vm show --name my-vm --resource-group my-rg --query "publicIps"
+   ```
+
+5. **Install tmux on all VMs:**
+   ```bash
+   # Include in VM provisioning scripts
+   sudo apt-get install -y tmux  # Ubuntu/Debian
+   sudo yum install -y tmux      # RHEL/CentOS
+   ```
+
+---
+
+### Timeout Configuration Reference
+
+| Connection Type | Default Timeout | Adjustable Via | Recommended Range |
+|----------------|-----------------|----------------|-------------------|
+| Direct SSH | 5 seconds | `--ssh-timeout` | 5-10s |
+| Bastion Tunnel | 15 seconds | `--ssh-timeout` | 15-30s |
+| VM Agent (auto-sync) | 30 seconds | `--sync-timeout` | 30-60s |
+| Azure CLI queries | 30 seconds | `--query-timeout` | 30-60s |
+
+**Examples:**
+
+```bash
+# Increase timeout fer slow Bastion connections
+azlin list --ssh-timeout=30
+
+# Set permanently in config
+azlin config set ssh.timeout 30
+```
+
+---
+
 ## Permission Issues
 
 Azure RBAC permission problems.
@@ -996,6 +1458,7 @@ If you've tried all troubleshooting steps:
 
 - [Auto-Sync SSH Keys](../features/auto-sync-keys.md) - Feature guide
 - [Auto-Detect Resource Group](../features/auto-detect-rg.md) - Feature guide
+- [Bastion Reconnect Behavior](./bastion-reconnect-behavior.md) - How Bastion tunnels handle reconnection
 - [Configuration Reference](../reference/config-default-behaviors.md) - All configuration options
 
 ## Feedback
