@@ -558,6 +558,7 @@ class VMProvisioner:
         config: VMConfig,
         progress_callback: Callable[[str], None] | None = None,
         has_home_disk: bool = False,
+        disk_id: str | None = None,
     ) -> VMDetails:
         """Attempt to provision VM (internal method).
 
@@ -565,6 +566,7 @@ class VMProvisioner:
             config: VM configuration
             progress_callback: Optional callback for progress updates
             has_home_disk: Whether VM will have separate /home disk attached
+            disk_id: Optional disk resource ID to attach during VM creation
 
         Returns:
             VMDetails with provisioning results
@@ -624,6 +626,11 @@ class VMProvisioner:
             # Bastion-only VM - ensure it uses correct subnet
             vnet_name = f"azlin-bastion-{config.location}-vnet"
             cmd.extend(["--subnet", "default", "--vnet-name", vnet_name])
+
+        # Attach home disk during VM creation (not after!) so cloud-init can find it
+        # CRITICAL: Disk must be present when cloud-init runs disk_setup during boot
+        if disk_id:
+            cmd.extend(["--attach-data-disks", disk_id])
 
         cmd.append("--output")
         cmd.append("json")
@@ -1127,28 +1134,18 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                     retry_config = config
 
                 # Attempt provisioning with retry config
+                # Pass disk_id to attach during VM creation (before cloud-init runs)
                 vm_details = self._try_provision_vm(
-                    retry_config, progress_callback, has_home_disk=disk_id is not None
+                    retry_config,
+                    progress_callback,
+                    has_home_disk=disk_id is not None,
+                    disk_id=disk_id,
                 )
 
-                # Attach home disk after VM is successfully created
-                # Graceful degradation: If attachment fails, VM is still usable
+                # Disk is attached during VM creation via --attach-data-disks
+                # This ensures cloud-init's disk_setup can find the disk during boot
                 if disk_id is not None:
-                    report_progress("Attaching home disk to VM...")
-                    try:
-                        self._attach_home_disk(
-                            vm_name=config.name,
-                            resource_group=config.resource_group,
-                            disk_id=disk_id,
-                        )
-                        report_progress("Home disk attached successfully")
-                    except ProvisioningError as e:
-                        # Log warning but continue - VM is still usable with OS disk only
-                        logger.warning(
-                            f"Failed to attach home disk to {config.name}: {e}. "
-                            f"VM will use OS disk for /home directory."
-                        )
-                        report_progress("Warning: Home disk attachment failed, using OS disk")
+                    report_progress("Home disk attached and configured via cloud-init")
 
                 return vm_details
 
