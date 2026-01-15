@@ -522,19 +522,19 @@ class TestProvisionVMWithHomeDisk:
     These tests verify the complete workflow:
     1. Create home disk before VM provisioning
     2. Provision VM with home disk-aware cloud-init
-    3. Attach home disk after VM creation
+    3. Disk is attached DURING VM creation (not after) via --attach-data-disks
     4. Error handling with graceful degradation
     """
 
     def test_provision_vm_with_home_disk_enabled(self, mock_azure_cli_in_ci):
-        """Test that provision_vm creates and attaches home disk when enabled.
+        """Test that provision_vm creates disk and passes disk_id to _try_provision_vm.
 
         Given: A VMConfig with home_disk_enabled=True
         When: provision_vm is called
-        Then: Creates home disk, provisions VM, attaches disk
+        Then: Creates home disk and passes disk_id to _try_provision_vm
 
-        Note: _generate_cloud_init() is called inside _try_provision_vm() which is mocked,
-        so we don't assert on cloud-init generation here.
+        Note: Disk is now attached DURING VM creation via --attach-data-disks flag,
+        not after VM creation. This ensures cloud-init can find the disk during boot.
 
         Runs with real Azure CLI locally, mocked in CI.
         """
@@ -552,10 +552,10 @@ class TestProvisionVMWithHomeDisk:
         with (
             patch.object(provisioner, "_create_home_disk") as mock_create,
             patch.object(provisioner, "_try_provision_vm") as mock_provision,
-            patch.object(provisioner, "_attach_home_disk") as mock_attach,
         ):
             # Mock successful operations
-            mock_create.return_value = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
+            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
+            mock_create.return_value = disk_id
             mock_vm = Mock()
             mock_vm.name = "test-vm"
             mock_vm.resource_group = "test-rg"
@@ -563,7 +563,6 @@ class TestProvisionVMWithHomeDisk:
             mock_vm.size = "Standard_D2s_v3"
             mock_vm.public_ip = "1.2.3.4"
             mock_provision.return_value = mock_vm
-            mock_attach.return_value = "0"
 
             result = provisioner.provision_vm(config)
 
@@ -576,11 +575,11 @@ class TestProvisionVMWithHomeDisk:
                 sku="Standard_LRS",
             )
 
-            # Verify VM was provisioned
+            # Verify VM was provisioned with disk_id parameter
             mock_provision.assert_called_once()
-
-            # Verify home disk was attached after VM creation
-            mock_attach.assert_called_once()
+            call_kwargs = mock_provision.call_args[1]
+            assert call_kwargs.get("disk_id") == disk_id
+            assert call_kwargs.get("has_home_disk") is True
 
             assert result.name == "test-vm"
 
@@ -656,13 +655,19 @@ class TestProvisionVMWithHomeDisk:
             # Verify VM provisioning was never attempted
             mock_provision.assert_not_called()
 
-    def test_provision_vm_home_disk_attachment_failure_continues(self, mock_azure_cli_in_ci):
-        """Test that VM provisioning completes even if disk attachment fails.
+    def test_provision_vm_with_home_disk_passes_disk_id_to_try_provision(
+        self, mock_azure_cli_in_ci
+    ):
+        """Test that provision_vm correctly passes disk_id for --attach-data-disks flag.
 
         Given: A VMConfig with home_disk_enabled=True
-        When: Home disk attachment fails after VM creation
-        Then: VM is still returned (graceful degradation)
-        And: Warning is logged about attachment failure
+        When: provision_vm is called
+        Then: _try_provision_vm is called with disk_id parameter
+        And: disk_id is the resource ID from _create_home_disk
+
+        Note: The disk is attached during VM creation (not after) via the
+        --attach-data-disks flag in az vm create. This ensures cloud-init
+        can find the disk during boot for disk_setup/fs_setup/mounts.
 
         Runs with real Azure CLI locally, mocked in CI.
         """
@@ -675,12 +680,9 @@ class TestProvisionVMWithHomeDisk:
         with (
             patch.object(provisioner, "_create_home_disk") as mock_create,
             patch.object(provisioner, "_try_provision_vm") as mock_provision,
-            patch.object(provisioner, "_attach_home_disk") as mock_attach,
-            patch.object(provisioner, "_generate_cloud_init") as mock_cloud_init,
-            patch("azlin.vm_provisioning.logger") as mock_logger,
         ):
-            mock_create.return_value = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
-            mock_cloud_init.return_value = "#cloud-config\npackages:\n  - git"
+            disk_id = "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/disks/test-vm-home-westus2"
+            mock_create.return_value = disk_id
             mock_vm = Mock()
             mock_vm.name = "test-vm"
             mock_vm.resource_group = "test-rg"
@@ -688,18 +690,16 @@ class TestProvisionVMWithHomeDisk:
             mock_vm.size = "Standard_D2s_v3"
             mock_vm.public_ip = "1.2.3.4"
             mock_provision.return_value = mock_vm
-            # Mock attachment failure
-            mock_attach.side_effect = ProvisioningError("Attachment failed")
 
-            # Should not raise, but log warning
             result = provisioner.provision_vm(config)
 
             assert result.name == "test-vm"
 
-            # Verify warning was logged
-            mock_logger.warning.assert_called()
-            warning_msg = str(mock_logger.warning.call_args)
-            assert "attach" in warning_msg.lower() or "disk" in warning_msg.lower()
+            # Verify _try_provision_vm was called with disk_id parameter
+            mock_provision.assert_called_once()
+            call_kwargs = mock_provision.call_args[1]
+            assert "disk_id" in call_kwargs
+            assert call_kwargs["disk_id"] == disk_id
 
 
 class TestCLIHomeDiskFlags:
