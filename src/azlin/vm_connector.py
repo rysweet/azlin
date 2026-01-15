@@ -422,7 +422,19 @@ class VMConnector:
                     logger.info(
                         f"Connecting to {_sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
                     )
-                    handler = SSHReconnectHandler(max_retries=max_reconnect_retries)
+
+                    # Create cleanup callback for Bastion tunnel if using Bastion
+                    cleanup_callback = None
+                    if bastion_manager is not None and bastion_tunnel is not None:
+                        # Capture bastion_tunnel and bastion_manager in closure
+                        def cleanup_bastion_tunnel():
+                            bastion_manager.close_tunnel(bastion_tunnel)
+
+                        cleanup_callback = cleanup_bastion_tunnel
+
+                    handler = SSHReconnectHandler(
+                        max_retries=max_reconnect_retries, cleanup_callback=cleanup_callback
+                    )
                     exit_code = handler.connect_with_reconnect(
                         config=ssh_config,
                         vm_name=conn_info.vm_name,
