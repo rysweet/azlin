@@ -211,10 +211,15 @@ class VMManager:
     """Manage Azure VMs.
 
     This class provides operations for:
-    - Listing VMs in a resource group
+    - Listing VMs in a resource group (with optional caching)
     - Querying VM details
     - Filtering VMs by status
     - Getting VM power state
+    - Cache invalidation after VM mutations
+
+    Cache Management:
+    - invalidate_cache(): Invalidate single VM cache entry
+    - invalidate_resource_group_cache(): Invalidate all VMs in resource group
     """
 
     @classmethod
@@ -706,24 +711,6 @@ class VMManager:
             created_time=created_time,
             tags=tags,
         )
-
-    @classmethod
-    def _get_cache_key(cls, vm_name: str, resource_group: str) -> str:
-        """Create cache key from VM name and resource group.
-
-        This shared method ensures consistent cache key format.
-        Delegates to TagManager for shared implementation.
-
-        Args:
-            vm_name: VM name
-            resource_group: Resource group name
-
-        Returns:
-            Cache key string in format "resource_group:vm_name"
-        """
-        from azlin.tag_manager import TagManager
-
-        return TagManager._get_cache_key(vm_name, resource_group)
 
     @classmethod
     def list_vms_with_cache(

@@ -422,21 +422,6 @@ class TagManager:
             return None
 
     @classmethod
-    def _get_cache_key(cls, vm_name: str, resource_group: str) -> str:
-        """Create cache key from VM name and resource group.
-
-        This shared method ensures consistent cache key format across modules.
-
-        Args:
-            vm_name: VM name
-            resource_group: Resource group name
-
-        Returns:
-            Cache key string in format "resource_group:vm_name"
-        """
-        return f"{resource_group}:{vm_name}"
-
-    @classmethod
     def find_vm_by_session_tag_fallback(
         cls, session_name: str, resource_group: str | None = None
     ) -> VMInfo | None:
