@@ -1,44 +1,37 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Button, Typography, Paper, CircularProgress } from '@mui/material';
+import { Box, Button, Typography, Paper, CircularProgress, Alert } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
 import { AppDispatch } from '../store/store';
 import {
-  initiateDeviceCodeAuth,
-  pollForToken,
-  selectDeviceCode,
+  loginInteractive,
+  checkAuth,
+  selectIsAuthenticated,
   selectAuthLoading,
   selectAuthError,
 } from '../store/auth-store';
 
 function LoginPage() {
   const dispatch = useDispatch<AppDispatch>();
-  const deviceCode = useSelector(selectDeviceCode);
+  const navigate = useNavigate();
+  const isAuthenticated = useSelector(selectIsAuthenticated);
   const loading = useSelector(selectAuthLoading);
   const error = useSelector(selectAuthError);
-  const [polling, setPolling] = useState(false);
 
+  // Check if already authenticated on mount
   useEffect(() => {
-    if (deviceCode && !polling) {
-      setPolling(true);
-      const intervalId = setInterval(() => {
-        dispatch(pollForToken(deviceCode.device_code));
-      }, deviceCode.interval * 1000);
+    dispatch(checkAuth());
+  }, [dispatch]);
 
-      // Clear interval after device code expires
-      const timeoutId = setTimeout(() => {
-        clearInterval(intervalId);
-        setPolling(false);
-      }, deviceCode.expires_in * 1000);
-
-      return () => {
-        clearInterval(intervalId);
-        clearTimeout(timeoutId);
-      };
+  // Redirect if authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/dashboard');
     }
-  }, [deviceCode, polling, dispatch]);
+  }, [isAuthenticated, navigate]);
 
   const handleLogin = () => {
-    dispatch(initiateDeviceCodeAuth());
+    dispatch(loginInteractive());
   };
 
   return (
@@ -53,49 +46,32 @@ function LoginPage() {
     >
       <Paper sx={{ p: 4, maxWidth: 400, textAlign: 'center' }}>
         <Typography variant="h4" gutterBottom>
-          Azlin Mobile
+          🏴‍☠️ Azlin Mobile
         </Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
           Manage your Azure VMs from your mobile device
         </Typography>
 
-        {!deviceCode && (
-          <Button
-            variant="contained"
-            fullWidth
-            onClick={handleLogin}
-            disabled={loading}
-          >
-            {loading ? <CircularProgress size={24} /> : 'Sign In with Azure'}
-          </Button>
-        )}
-
-        {deviceCode && (
-          <Box>
-            <Typography variant="h6" gutterBottom>
-              Enter this code:
-            </Typography>
-            <Typography variant="h3" sx={{ fontFamily: 'monospace', my: 2 }}>
-              {deviceCode.user_code}
-            </Typography>
-            <Typography variant="body2" paragraph>
-              Go to{' '}
-              <a href={deviceCode.verification_uri} target="_blank" rel="noopener noreferrer">
-                {deviceCode.verification_uri}
-              </a>
-            </Typography>
-            <CircularProgress size={32} />
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-              Waiting for authentication...
-            </Typography>
-          </Box>
-        )}
-
         {error && (
-          <Typography color="error" sx={{ mt: 2 }}>
+          <Alert severity="error" sx={{ mb: 2 }}>
             {error}
-          </Typography>
+          </Alert>
         )}
+
+        <Button
+          variant="contained"
+          fullWidth
+          size="large"
+          onClick={handleLogin}
+          disabled={loading}
+          sx={{ mt: 2 }}
+        >
+          {loading ? <CircularProgress size={24} /> : 'Sign In with Azure'}
+        </Button>
+
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+          A popup will open for Azure AD authentication
+        </Typography>
       </Paper>
     </Box>
   );

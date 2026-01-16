@@ -1,107 +1,101 @@
 /**
  * Auth Redux Store for Azlin Mobile PWA
  *
- * State management for Azure AD authentication using device code flow.
+ * State management for Azure AD authentication using MSAL Browser.
  *
  * Philosophy:
  * - Single responsibility: Authentication state
- * - Self-contained with TokenStorage integration
- * - Zero-BS: Real Azure AD OAuth2 device code flow
+ * - Self-contained with MSAL integration
+ * - Zero-BS: Real Azure AD authentication via MSAL
  */
 
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { PublicClientApplication, InteractionRequiredAuthError } from '@azure/msal-browser';
 import { TokenStorage } from '../auth/token-storage';
 
-const AZURE_DEVICE_CODE_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode';
-const AZURE_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const tokenStorage = new TokenStorage();
 
-interface DeviceCodeResponse {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  expires_in: number;
-  interval: number;
-  message: string;
-}
+// MSAL configuration
+const msalConfig = {
+  auth: {
+    clientId: import.meta.env.VITE_AZURE_CLIENT_ID,
+    authority: `https://login.microsoftonline.com/${import.meta.env.VITE_AZURE_TENANT_ID}`,
+  },
+  cache: {
+    cacheLocation: 'localStorage',
+    storeAuthStateInCookie: false,
+  },
+};
+
+// Create MSAL instance
+const msalInstance = new PublicClientApplication(msalConfig);
+
+// Initialize MSAL
+await msalInstance.initialize();
 
 interface AuthState {
   isAuthenticated: boolean;
   loading: boolean;
   error: string | null;
-  deviceCode: DeviceCodeResponse | null;
-  pollingIntervalId: number | null;
+  userEmail: string | null;
 }
 
 const initialState: AuthState = {
   isAuthenticated: false,
   loading: false,
   error: null,
-  deviceCode: null,
-  pollingIntervalId: null,
+  userEmail: null,
 };
 
-const tokenStorage = new TokenStorage();
-
 /**
- * Initiate device code flow
+ * Silent authentication (try to get token without user interaction)
  */
-export const initiateDeviceCodeAuth = createAsyncThunk<DeviceCodeResponse, void>(
-  'auth/initiateDeviceCode',
+export const silentAuth = createAsyncThunk<boolean, void>(
+  'auth/silent',
   async () => {
-    const clientId = import.meta.env.VITE_AZURE_CLIENT_ID;
+    const accounts = msalInstance.getAllAccounts();
 
-    const response = await fetch(AZURE_DEVICE_CODE_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        client_id: clientId,
-        scope: 'https://management.azure.com/.default offline_access',
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to initiate device code flow');
+    if (accounts.length === 0) {
+      return false;
     }
 
-    return await response.json();
+    try {
+      const response = await msalInstance.acquireTokenSilent({
+        scopes: ['https://management.azure.com/.default'],
+        account: accounts[0],
+      });
+
+      // Save token
+      const expiresOn = response.expiresOn?.getTime() || Date.now() + 3600000;
+      await tokenStorage.saveTokens(response.accessToken, '', expiresOn);
+
+      return true;
+    } catch (error) {
+      if (error instanceof InteractionRequiredAuthError) {
+        return false;
+      }
+      throw error;
+    }
   }
 );
 
 /**
- * Poll for token using device code
+ * Interactive authentication (popup or redirect)
  */
-export const pollForToken = createAsyncThunk<void, string>(
-  'auth/pollToken',
-  async (deviceCode) => {
-    const clientId = import.meta.env.VITE_AZURE_CLIENT_ID;
+export const loginInteractive = createAsyncThunk<void, void>(
+  'auth/loginInteractive',
+  async () => {
+    try {
+      const response = await msalInstance.loginPopup({
+        scopes: ['https://management.azure.com/.default', 'offline_access'],
+      });
 
-    const response = await fetch(AZURE_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        client_id: clientId,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-        device_code: deviceCode,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      if (error.error === 'authorization_pending') {
-        throw new Error('authorization_pending');
-      }
-      throw new Error(error.error_description || 'Token polling failed');
+      // Save token
+      const expiresOn = response.expiresOn?.getTime() || Date.now() + 3600000;
+      await tokenStorage.saveTokens(response.accessToken, '', expiresOn);
+    } catch (error) {
+      throw new Error(`Login failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-
-    const data = await response.json();
-
-    // Save tokens
-    const expiresOn = Date.now() + (data.expires_in * 1000);
-    await tokenStorage.saveTokens(data.access_token, data.refresh_token, expiresOn);
   }
 );
 
@@ -111,7 +105,26 @@ export const pollForToken = createAsyncThunk<void, string>(
 export const checkAuth = createAsyncThunk<boolean, void>(
   'auth/checkAuth',
   async () => {
-    return await tokenStorage.isAuthenticated();
+    // Try silent auth first
+    const accounts = msalInstance.getAllAccounts();
+
+    if (accounts.length === 0) {
+      return false;
+    }
+
+    try {
+      const response = await msalInstance.acquireTokenSilent({
+        scopes: ['https://management.azure.com/.default'],
+        account: accounts[0],
+      });
+
+      const expiresOn = response.expiresOn?.getTime() || Date.now() + 3600000;
+      await tokenStorage.saveTokens(response.accessToken, '', expiresOn);
+
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 );
 
@@ -121,71 +134,89 @@ export const checkAuth = createAsyncThunk<boolean, void>(
 export const logout = createAsyncThunk<void, void>(
   'auth/logout',
   async () => {
+    const accounts = msalInstance.getAllAccounts();
+
+    if (accounts.length > 0) {
+      await msalInstance.logoutPopup({
+        account: accounts[0],
+      });
+    }
+
     await tokenStorage.clearTokens();
   }
 );
+
+/**
+ * Get current user email
+ */
+function getUserEmail(): string | null {
+  const accounts = msalInstance.getAllAccounts();
+  return accounts.length > 0 ? accounts[0].username : null;
+}
 
 const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-    clearDeviceCode: (state) => {
-      state.deviceCode = null;
+    clearError: (state) => {
       state.error = null;
     },
   },
   extraReducers: (builder) => {
-    // initiateDeviceCodeAuth
+    // silentAuth
     builder
-      .addCase(initiateDeviceCodeAuth.pending, (state) => {
+      .addCase(silentAuth.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(silentAuth.fulfilled, (state, action) => {
+        state.isAuthenticated = action.payload;
+        state.loading = false;
+        state.userEmail = getUserEmail();
+      })
+      .addCase(silentAuth.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message || 'Authentication check failed';
+      });
+
+    // loginInteractive
+    builder
+      .addCase(loginInteractive.pending, (state) => {
         state.loading = true;
         state.error = null;
       })
-      .addCase(initiateDeviceCodeAuth.fulfilled, (state, action) => {
-        state.deviceCode = action.payload;
-        state.loading = false;
-      })
-      .addCase(initiateDeviceCodeAuth.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.error.message || 'Failed to initiate authentication';
-      });
-
-    // pollForToken
-    builder
-      .addCase(pollForToken.fulfilled, (state) => {
+      .addCase(loginInteractive.fulfilled, (state) => {
         state.isAuthenticated = true;
-        state.deviceCode = null;
-        state.error = null;
+        state.loading = false;
+        state.userEmail = getUserEmail();
       })
-      .addCase(pollForToken.rejected, (state, action) => {
-        // Don't set error for authorization_pending (expected during polling)
-        if (action.error.message !== 'authorization_pending') {
-          state.error = action.error.message || 'Authentication failed';
-        }
+      .addCase(loginInteractive.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message || 'Login failed';
       });
 
     // checkAuth
     builder
       .addCase(checkAuth.fulfilled, (state, action) => {
         state.isAuthenticated = action.payload;
+        state.userEmail = getUserEmail();
       });
 
     // logout
     builder
       .addCase(logout.fulfilled, (state) => {
         state.isAuthenticated = false;
-        state.deviceCode = null;
+        state.userEmail = null;
         state.error = null;
       });
   },
 });
 
-export const { clearDeviceCode } = authSlice.actions;
+export const { clearError } = authSlice.actions;
 
 // Selectors
 export const selectIsAuthenticated = (state: { auth: AuthState }) => state.auth.isAuthenticated;
-export const selectDeviceCode = (state: { auth: AuthState }) => state.auth.deviceCode;
 export const selectAuthLoading = (state: { auth: AuthState }) => state.auth.loading;
 export const selectAuthError = (state: { auth: AuthState }) => state.auth.error;
+export const selectUserEmail = (state: { auth: AuthState }) => state.auth.userEmail;
 
 export default authSlice.reducer;
