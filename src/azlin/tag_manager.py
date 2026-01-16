@@ -422,6 +422,21 @@ class TagManager:
             return None
 
     @classmethod
+    def _get_cache_key(cls, vm_name: str, resource_group: str) -> str:
+        """Create cache key from VM name and resource group.
+
+        This shared method ensures consistent cache key format across modules.
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+
+        Returns:
+            Cache key string in format "resource_group:vm_name"
+        """
+        return f"{resource_group}:{vm_name}"
+
+    @classmethod
     def find_vm_by_session_tag_fallback(
         cls, session_name: str, resource_group: str | None = None
     ) -> VMInfo | None:
@@ -441,6 +456,8 @@ class TagManager:
             This is a fallback for VMs that have azlin-session but not managed-by tag.
             Used during transition period or for manually tagged VMs.
         """
+        import os
+
         from azlin.vm_manager import VMManager
 
         try:
@@ -482,6 +499,9 @@ class TagManager:
                         if vm_info:
                             vms.append(vm_info)
                 except Exception as e:
+                    # Re-raise in debug mode for development visibility
+                    if os.environ.get("AZLIN_DEBUG"):
+                        raise
                     logger.debug(f"Failed to parse VM data in fallback: {e}")
                     continue
 
@@ -519,11 +539,14 @@ class TagManager:
             return None
 
     @classmethod
-    def list_managed_vms(cls, resource_group: str | None = None) -> list[VMInfo]:
-        """List all azlin-managed VMs.
+    def list_managed_vms(
+        cls, resource_group: str | None = None, use_cache: bool = True
+    ) -> list[VMInfo]:
+        """List all azlin-managed VMs with optional caching.
 
         Args:
             resource_group: Optional RG to filter (None = all RGs)
+            use_cache: Enable VM list caching (default: True)
 
         Returns:
             List of VMInfo objects for managed VMs
@@ -534,11 +557,17 @@ class TagManager:
         from azlin.vm_manager import VMManager
 
         try:
+            if resource_group:
+                # Single RG - use efficient cached listing
+                vms = VMManager.list_vms_with_cache(
+                    resource_group=resource_group, include_stopped=True, use_cache=use_cache
+                )
+                # Filter to managed VMs only
+                return [vm for vm in vms if vm.is_managed()]
+
+            # Multi-RG query - fall back to tag-based query
             # Build Azure CLI command
             cmd = ["az", "vm", "list", "--output", "json"]
-
-            if resource_group:
-                cmd.extend(["--resource-group", resource_group])
 
             # Query for VMs with managed-by=azlin tag
             cmd.extend(

@@ -150,6 +150,13 @@ class VMListCache:
 
     DEFAULT_CACHE_DIR = Path.home() / ".azlin"
     DEFAULT_CACHE_FILE = DEFAULT_CACHE_DIR / "vm_list_cache.json"
+
+    # TTL Rationale:
+    # - Immutable (24h): VM metadata changes require VM recreation (location, size, OS type)
+    #   Users rarely change these, so long TTL reduces API calls without stale data risk
+    # - Mutable (5min): VM state changes during normal operations (power state, IPs)
+    #   Balance between freshness and performance: 5min is long enough for repeated
+    #   list operations but short enough to reflect recent start/stop/IP changes
     IMMUTABLE_TTL = 86400  # 24 hours
     MUTABLE_TTL = 300  # 5 minutes
 

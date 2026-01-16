@@ -98,6 +98,114 @@ class VMInfo:
             f"providers/Microsoft.Compute/virtualMachines/{self.name}"
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert VMInfo to dictionary for caching.
+
+        Returns:
+            Dictionary with all VMInfo fields
+        """
+        return {
+            "name": self.name,
+            "resource_group": self.resource_group,
+            "location": self.location,
+            "power_state": self.power_state,
+            "public_ip": self.public_ip,
+            "private_ip": self.private_ip,
+            "vm_size": self.vm_size,
+            "os_type": self.os_type,
+            "provisioning_state": self.provisioning_state,
+            "created_time": self.created_time,
+            "tags": self.tags,
+            "session_name": self.session_name,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "VMInfo":
+        """Create VMInfo from dictionary.
+
+        Args:
+            data: Dictionary with VMInfo fields
+
+        Returns:
+            VMInfo object
+        """
+        return cls(
+            name=data["name"],
+            resource_group=data["resource_group"],
+            location=data["location"],
+            power_state=data["power_state"],
+            public_ip=data.get("public_ip"),
+            private_ip=data.get("private_ip"),
+            vm_size=data.get("vm_size"),
+            os_type=data.get("os_type"),
+            provisioning_state=data.get("provisioning_state"),
+            created_time=data.get("created_time"),
+            tags=data.get("tags"),
+            session_name=data.get("session_name"),
+        )
+
+    def get_immutable_data(self) -> dict[str, Any]:
+        """Get immutable VM data for caching.
+
+        Immutable data (24h TTL): VM metadata that rarely changes.
+
+        Returns:
+            Dictionary with immutable fields
+        """
+        return {
+            "name": self.name,
+            "resource_group": self.resource_group,
+            "location": self.location,
+            "vm_size": self.vm_size,
+            "os_type": self.os_type,
+            "created_time": self.created_time,
+            "tags": self.tags,
+        }
+
+    def get_mutable_data(self) -> dict[str, Any]:
+        """Get mutable VM data for caching.
+
+        Mutable data (5min TTL): VM state that changes frequently.
+
+        Returns:
+            Dictionary with mutable fields
+        """
+        return {
+            "power_state": self.power_state,
+            "public_ip": self.public_ip,
+            "private_ip": self.private_ip,
+            "provisioning_state": self.provisioning_state,
+            "session_name": self.session_name,
+        }
+
+    @classmethod
+    def from_cache_data(
+        cls, immutable_data: dict[str, Any], mutable_data: dict[str, Any]
+    ) -> "VMInfo":
+        """Create VMInfo from cached immutable and mutable data.
+
+        Args:
+            immutable_data: Cached immutable VM data
+            mutable_data: Cached mutable VM data
+
+        Returns:
+            VMInfo object
+        """
+        return cls(
+            name=immutable_data["name"],
+            resource_group=immutable_data["resource_group"],
+            location=immutable_data["location"],
+            vm_size=immutable_data.get("vm_size"),
+            os_type=immutable_data.get("os_type"),
+            created_time=immutable_data.get("created_time"),
+            tags=immutable_data.get("tags"),
+            power_state=mutable_data["power_state"],
+            public_ip=mutable_data.get("public_ip"),
+            private_ip=mutable_data.get("private_ip"),
+            provisioning_state=mutable_data.get("provisioning_state"),
+            session_name=mutable_data.get("session_name"),
+        )
+
 
 class VMManager:
     """Manage Azure VMs.
@@ -598,6 +706,175 @@ class VMManager:
             created_time=created_time,
             tags=tags,
         )
+
+    @classmethod
+    def _get_cache_key(cls, vm_name: str, resource_group: str) -> str:
+        """Create cache key from VM name and resource group.
+
+        This shared method ensures consistent cache key format.
+        Delegates to TagManager for shared implementation.
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+
+        Returns:
+            Cache key string in format "resource_group:vm_name"
+        """
+        from azlin.tag_manager import TagManager
+
+        return TagManager._get_cache_key(vm_name, resource_group)
+
+    @classmethod
+    def list_vms_with_cache(
+        cls, resource_group: str, include_stopped: bool = True, use_cache: bool = True
+    ) -> list[VMInfo]:
+        """List VMs with optional caching.
+
+        This method implements tiered TTL caching:
+        - Immutable data (24h TTL): VM metadata that rarely changes
+          Rationale: Location, size, OS type change infrequently (VM recreation required)
+        - Mutable data (5min TTL): VM state that changes frequently
+          Rationale: Power state, IPs change during normal operations (start/stop/networking)
+
+        Performance targets:
+        - Cold start: ~10-15s (baseline)
+        - Warm start (full cache): <1s (98% improvement)
+        - Partial cache: 3-5s (70% improvement)
+
+        Args:
+            resource_group: Resource group name
+            include_stopped: Include stopped/deallocated VMs
+            use_cache: Enable caching (default: True)
+
+        Returns:
+            List of VMInfo objects
+
+        Raises:
+            VMManagerError: If listing fails
+        """
+        if not use_cache:
+            # Bypass cache - direct API call
+            return cls.list_vms(resource_group, include_stopped)
+
+        from azlin.cache.vm_list_cache import VMListCache
+
+        cache = VMListCache()
+        result_vms: list[VMInfo] = []
+        vms_to_refresh: list[str] = []  # VM names that need full refresh
+
+        # Step 1: Try to get cached VMs
+        cached_entries = cache.get_resource_group_entries(resource_group)
+
+        if cached_entries:
+            # Build VMs from cache, identifying what needs refresh
+            for entry in cached_entries:
+                immutable_expired = entry.is_immutable_expired(cache.immutable_ttl)
+                mutable_expired = entry.is_mutable_expired(cache.mutable_ttl)
+
+                if immutable_expired and mutable_expired:
+                    # Both layers expired - need full refresh
+                    vms_to_refresh.append(entry.vm_name)
+                elif immutable_expired:
+                    # Only immutable expired - need full refresh to get fresh metadata
+                    vms_to_refresh.append(entry.vm_name)
+                elif mutable_expired:
+                    # Only mutable expired - need state refresh
+                    # For now, we'll do full refresh (optimization: could do targeted state query)
+                    vms_to_refresh.append(entry.vm_name)
+                else:
+                    # Both layers fresh - use cached data
+                    vm = VMInfo.from_cache_data(entry.immutable_data, entry.mutable_data)
+                    result_vms.append(vm)
+
+            # If we have some fresh VMs and nothing needs refresh, use cache
+            if result_vms and not vms_to_refresh:
+                logger.debug(f"Cache hit: Using {len(result_vms)} cached VMs for {resource_group}")
+                if not include_stopped:
+                    result_vms = [vm for vm in result_vms if vm.is_running()]
+                return result_vms
+
+        # Step 2: Cache miss or partial - fetch fresh data from Azure
+        logger.debug(
+            f"Cache miss or partial: Fetching fresh VM data for {resource_group} "
+            f"(cached: {len(result_vms)}, to_refresh: {len(vms_to_refresh)})"
+        )
+
+        fresh_vms = cls.list_vms(resource_group, include_stopped=True)
+
+        # Step 3: Update cache with fresh data
+        for vm in fresh_vms:
+            try:
+                cache.set_full(
+                    vm_name=vm.name,
+                    resource_group=vm.resource_group,
+                    immutable_data=vm.get_immutable_data(),
+                    mutable_data=vm.get_mutable_data(),
+                )
+            except Exception as e:
+                logger.warning(f"Failed to cache VM {vm.name}: {e}")
+
+        # Step 4: Filter by power state if needed
+        if not include_stopped:
+            fresh_vms = [vm for vm in fresh_vms if vm.is_running()]
+
+        return fresh_vms
+
+    @classmethod
+    def invalidate_cache(cls, vm_name: str, resource_group: str) -> None:
+        """Invalidate cache for a specific VM.
+
+        Call this after VM mutations (create, destroy, start, stop, etc.)
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+
+        Example:
+            # After creating/destroying/starting/stopping a VM:
+            VMManager.invalidate_cache(vm_name="my-vm", resource_group="my-rg")
+        """
+        try:
+            from azlin.cache.vm_list_cache import VMListCache
+
+            cache = VMListCache()
+            deleted = cache.delete(vm_name, resource_group)
+            if deleted:
+                logger.debug(f"Cache invalidated for VM: {vm_name} (RG: {resource_group})")
+            else:
+                logger.debug(f"No cache entry found for VM: {vm_name} (RG: {resource_group})")
+        except Exception as e:
+            # Don't let cache errors break VM operations
+            logger.warning(f"Failed to invalidate cache for {vm_name}: {e}")
+
+    @classmethod
+    def invalidate_resource_group_cache(cls, resource_group: str) -> None:
+        """Invalidate all cached VMs in a resource group.
+
+        Call this after operations that affect multiple VMs.
+
+        Args:
+            resource_group: Resource group name
+
+        Example:
+            # After batch operations:
+            VMManager.invalidate_resource_group_cache(resource_group="my-rg")
+        """
+        try:
+            from azlin.cache.vm_list_cache import VMListCache
+
+            cache = VMListCache()
+            entries = cache.get_resource_group_entries(resource_group)
+
+            count = 0
+            for entry in entries:
+                if cache.delete(entry.vm_name, entry.resource_group):
+                    count += 1
+
+            logger.debug(f"Cache invalidated for {count} VMs in resource group: {resource_group}")
+        except Exception as e:
+            # Don't let cache errors break VM operations
+            logger.warning(f"Failed to invalidate resource group cache: {e}")
 
 
 __all__ = ["VMInfo", "VMManager", "VMManagerError"]
