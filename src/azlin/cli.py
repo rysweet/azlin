@@ -2964,6 +2964,14 @@ def create_command(ctx: click.Context, **kwargs: Any) -> Any:
     return ctx.invoke(new_command, **kwargs)
 
 
+# SSH timeout configuration for tmux session detection
+# These values be based on empirical observation and conservative estimates:
+# - Direct SSH: 95th percentile ~3s, buffer to 5s fer network variability
+# - Bastion: Routing through Azure Bastion adds ~5-7s latency, plus VM SSH startup ~3-5s, buffer to 15s
+DIRECT_SSH_TMUX_TIMEOUT = 5  # Seconds - Direct SSH connections (public IP)
+BASTION_TUNNEL_TMUX_TIMEOUT = 15  # Seconds - Bastion tunnels (routing latency + VM SSH startup)
+
+
 def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """Collect tmux sessions from running VMs.
 
@@ -3010,7 +3018,7 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
         # Query tmux sessions in parallel
         if ssh_configs:
             tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
-                ssh_configs, timeout=5, max_workers=10
+                ssh_configs, timeout=DIRECT_SSH_TMUX_TIMEOUT, max_workers=10
             )
 
             # Map sessions to VM names
@@ -3072,9 +3080,9 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                             key_path=ssh_key_path,
                         )
 
-                        # Get sessions for this VM
+                        # Get sessions for this VM (use longer timeout for Bastion tunnels)
                         tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
-                            [ssh_config], timeout=5, max_workers=1
+                            [ssh_config], timeout=BASTION_TUNNEL_TMUX_TIMEOUT, max_workers=1
                         )
 
                         # Add sessions to result

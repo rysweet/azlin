@@ -321,13 +321,25 @@ class TmuxSessionExecutor:
             # Execute command on single VM
             result = RemoteExecutor.execute_command(ssh_config, command, timeout=timeout)
 
+            # Check for connection failure
+            if not result.success:
+                logger.error(
+                    f"SSH connection to {vm_name} failed (exit code {result.exit_code}): {result.stderr}"
+                )
+                return []
+
+            # Check for empty output
+            if not result.stdout or result.stdout.strip() == "":
+                logger.debug(f"SSH connection to {vm_name} successful but returned no output")
+                return []
+
             # Parse results
-            if result.success and result.stdout and "No sessions" not in result.stdout:
+            if "No sessions" not in result.stdout:
                 return cls.parse_tmux_output(result.stdout, vm_name)
             return []
 
         except Exception as e:
-            logger.warning(f"Failed to get tmux sessions from {vm_name}: {e}")
+            logger.error(f"Failed to get tmux sessions from {vm_name}: {e}")
             return []
 
     @classmethod
