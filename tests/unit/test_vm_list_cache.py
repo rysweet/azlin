@@ -449,7 +449,8 @@ class TestVMListCacheEdgeCases:
         temp_cache.set_immutable("test-vm", "test-rg", {"name": "test-vm"})
 
         # Manually set insecure permissions (world-readable)
-        os.chmod(temp_cache.cache_path, 0o644)
+        # lgtm[py/overly-permissive-file] - Intentionally testing security fix
+        os.chmod(temp_cache.cache_path, 0o644)  # nosec B103
 
         # Verify insecure permissions
         mode = temp_cache.cache_path.stat().st_mode & 0o777
