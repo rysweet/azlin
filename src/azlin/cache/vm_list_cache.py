@@ -301,20 +301,6 @@ class VMListCache:
                 temp_path.unlink()
             raise VMListCacheError(f"Failed to save cache: {e}") from e
 
-    def _make_key(self, vm_name: str, resource_group: str) -> str:
-        """Create cache key from VM name and resource group.
-
-        Internal helper that delegates to the public make_cache_key function.
-
-        Args:
-            vm_name: VM name
-            resource_group: Resource group name
-
-        Returns:
-            Cache key string
-        """
-        return make_cache_key(vm_name, resource_group)
-
     def get(self, vm_name: str, resource_group: str) -> VMCacheEntry | None:
         """Get VM cache entry.
 
@@ -327,7 +313,7 @@ class VMListCache:
         """
         try:
             entries = self._load_cache()
-            key = self._make_key(vm_name, resource_group)
+            key = make_cache_key(vm_name, resource_group)
 
             if key not in entries:
                 logger.debug(f"Cache miss: '{key}' not found")
@@ -360,7 +346,7 @@ class VMListCache:
         """
         try:
             entries = self._load_cache()
-            key = self._make_key(vm_name, resource_group)
+            key = make_cache_key(vm_name, resource_group)
 
             # Get existing entry or create new one
             if key in entries:
@@ -396,7 +382,7 @@ class VMListCache:
         """
         try:
             entries = self._load_cache()
-            key = self._make_key(vm_name, resource_group)
+            key = make_cache_key(vm_name, resource_group)
 
             # Get existing entry or create new one
             if key in entries:
@@ -439,7 +425,7 @@ class VMListCache:
         """
         try:
             entries = self._load_cache()
-            key = self._make_key(vm_name, resource_group)
+            key = make_cache_key(vm_name, resource_group)
 
             entry = VMCacheEntry(
                 vm_name=vm_name,
@@ -470,7 +456,7 @@ class VMListCache:
         """
         try:
             entries = self._load_cache()
-            key = self._make_key(vm_name, resource_group)
+            key = make_cache_key(vm_name, resource_group)
 
             if key not in entries:
                 logger.debug(f"Cache delete: '{key}' not found")
