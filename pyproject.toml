@@ -57,6 +57,10 @@ azdoit = "azlin.cli:azdoit_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/azlin"]
+artifacts = ["pwa/**/*"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"pwa" = "pwa"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
