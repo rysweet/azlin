@@ -120,13 +120,26 @@ export class AzureClient {
    * List all VMs in subscription, optionally filtered by resource group
    */
   async listVMs(resourceGroup?: string): Promise<VMInfo[]> {
+    console.log('🏴‍☠️ AzureClient.listVMs called', { subscriptionId: this.subscriptionId, resourceGroup });
+
     const path = resourceGroup
       ? `/subscriptions/${this.subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Compute/virtualMachines`
       : `/subscriptions/${this.subscriptionId}/providers/Microsoft.Compute/virtualMachines`;
 
-    const response = await this.get<{ value: Array<unknown> }>(path);
+    console.log('🏴‍☠️ Calling Azure API:', path);
 
-    return response.value.map((vm: any) => this.parseVM(vm));
+    try {
+      const response = await this.get<{ value: Array<unknown> }>(path);
+      console.log('🏴‍☠️ Azure API response:', { count: response.value.length });
+
+      const vms = response.value.map((vm: any) => this.parseVM(vm));
+      console.log('🏴‍☠️ Parsed VMs:', vms.length, vms);
+
+      return vms;
+    } catch (error) {
+      console.error('🏴‍☠️ Failed to list VMs:', error);
+      throw error;
+    }
   }
 
   /**

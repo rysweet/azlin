@@ -39,8 +39,20 @@ const getAzureClient = () => {
 export const fetchVMs = createAsyncThunk<VMInfo[], string | undefined>(
   'vms/fetchAll',
   async (resourceGroup) => {
-    const client = getAzureClient();
-    return await client.listVMs(resourceGroup);
+    console.log('🏴‍☠️ fetchVMs thunk called', { resourceGroup });
+
+    try {
+      const client = getAzureClient();
+      console.log('🏴‍☠️ Azure client created, calling listVMs...');
+
+      const vms = await client.listVMs(resourceGroup);
+      console.log('🏴‍☠️ listVMs returned:', vms);
+
+      return vms;
+    } catch (error) {
+      console.error('🏴‍☠️ fetchVMs failed:', error);
+      throw error;
+    }
   }
 );
 
