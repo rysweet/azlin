@@ -16,7 +16,7 @@
 import { TokenStorage } from '../auth/token-storage';
 
 const AZURE_BASE_URL = 'https://management.azure.com';
-const API_VERSION = '2023-03-01';
+const API_VERSION = '2024-11-01'; // Updated to match az CLI version
 
 export interface VMInfo {
   id: string;
