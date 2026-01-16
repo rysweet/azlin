@@ -280,9 +280,11 @@ class TestVMListCache:
         assert entry.immutable_data["name"] == "test-vm"
         assert entry.mutable_data["power_state"] == "VM running"
 
-    def test_make_key(self, temp_cache):
+    def test_make_key(self):
         """Test cache key generation."""
-        key = temp_cache._make_key("test-vm", "test-rg")
+        from azlin.cache.vm_list_cache import make_cache_key
+
+        key = make_cache_key("test-vm", "test-rg")
         assert key == "test-rg:test-vm"
 
     def test_expired_entry_removed_on_get(self, temp_cache):
