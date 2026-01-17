@@ -35,42 +35,31 @@ const getAzureClient = () => {
 };
 
 /**
- * Check if a VM is an azlin VM (by name prefix or tag)
+ * Get the configured resource group for azlin VMs
  */
-function isAzlinVM(vm: VMInfo): boolean {
-  // Check name prefix (azlin VMs typically start with "azlin-")
-  if (vm.name.toLowerCase().startsWith('azlin-') || vm.name.toLowerCase().startsWith('azlin')) {
-    return true;
-  }
-
-  // Check for azlin tag
-  if (vm.tags?.azlin || vm.tags?.project?.toLowerCase() === 'azlin') {
-    return true;
-  }
-
-  return false;
+function getAzlinResourceGroup(): string | undefined {
+  return import.meta.env.VITE_AZURE_RESOURCE_GROUP?.trim() || undefined;
 }
 
 /**
- * Async thunk to fetch all VMs (filtered to azlin VMs only)
+ * Async thunk to fetch all VMs from the azlin resource group
  */
 export const fetchVMs = createAsyncThunk<VMInfo[], string | undefined>(
   'vms/fetchAll',
-  async (resourceGroup) => {
+  async (resourceGroupOverride) => {
+    // Use override if provided, otherwise use configured resource group
+    const resourceGroup = resourceGroupOverride || getAzlinResourceGroup();
     console.log('🏴‍☠️ fetchVMs thunk called', { resourceGroup });
 
     try {
       const client = getAzureClient();
       console.log('🏴‍☠️ Azure client created, calling listVMs...');
 
-      const allVMs = await client.listVMs(resourceGroup);
-      console.log('🏴‍☠️ listVMs returned:', allVMs.length, 'total VMs');
+      // Fetch VMs from the specific resource group (azlin VMs)
+      const vms = await client.listVMs(resourceGroup);
+      console.log('🏴‍☠️ listVMs returned:', vms.length, 'VMs from', resourceGroup || 'all resource groups');
 
-      // Filter to only azlin VMs
-      const azlinVMs = allVMs.filter(isAzlinVM);
-      console.log('🏴‍☠️ Filtered to azlin VMs:', azlinVMs.length, azlinVMs.map(v => v.name));
-
-      return azlinVMs;
+      return vms;
     } catch (error) {
       console.error('🏴‍☠️ fetchVMs failed:', error);
       throw error;
