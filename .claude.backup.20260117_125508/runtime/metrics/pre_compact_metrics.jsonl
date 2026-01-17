@@ -1,0 +1,3 @@
+{"timestamp": "2026-01-17T12:53:58.811592", "metric": "messages_exported", "value": 0, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T12:53:58.812290", "metric": "compaction_events", "value": 1, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T12:53:58.814958", "metric": "transcript_exported", "value": true, "hook": "pre_compact"}

@@ -5,7 +5,7 @@
  * - VM Management (list, start, stop, deallocate)
  * - Run Command API (execute scripts on VMs)
  * - Automatic token refresh via TokenStorage
- * - Retry logic for rate limiting (429)
+ * - Retry logic for rate limiting (429) and VM busy (409)
  *
  * Philosophy:
  * - Single responsibility: Azure API communication
@@ -90,6 +90,22 @@ export class AzureClient {
       return this.request<T>(method, path, data, retryCount + 1);
     }
 
+    // Handle 409 Conflict with retry and exponential backoff (VM busy)
+    if (response.status === 409) {
+      if (retryCount >= MAX_RETRIES) {
+        throw new Error(
+          `VM is busy - operation failed after ${MAX_RETRIES} retries. Another operation may still be in progress.`
+        );
+      }
+
+      // Exponential backoff: 2s, 4s, 8s
+      const delay = Math.pow(2, retryCount + 1) * 1000;
+      console.log(`🏴‍☠️ VM busy (409 Conflict), trying again in ${delay / 1000}s... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return this.request<T>(method, path, data, retryCount + 1);
+    }
+
     if (!response.ok) {
       // Read the response body as text first (can only read once)
       let responseText = '';
@@ -110,11 +126,6 @@ export class AzureClient {
           // Not JSON, use raw text
           errorDetails = responseText || errorDetails;
         }
-      }
-
-      // Handle specific HTTP status codes with user-friendly messages
-      if (response.status === 409) {
-        throw new Error(`VM is busy - another operation may be in progress. Please wait and try again. (${errorDetails})`);
       }
 
       throw new Error(`Azure API error: ${errorDetails}`);

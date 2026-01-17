@@ -39,6 +39,20 @@ azlin automates the tedious process of setting up Azure Ubuntu VMs for developme
 
 **Total time**: 4-7 minutes from command to working development environment.
 
+## 📱 Azlin Mobile PWA (NEW!)
+
+**Manage your Azure VMs from your iPhone!**
+
+The Azlin Mobile PWA brings full VM management to your mobile device. Install it on your iPhone home screen and access your VMs anywhere:
+
+- **VM Management**: Create, start, stop, delete VMs
+- **Tmux Integration**: View session snapshots and send commands
+- **Private IP Support**: Works with VMs behind Azure Bastion
+- **Cost Tracking**: Real-time cost monitoring and budget alerts
+- **Offline Ready**: Service worker caching for instant loads
+
+**[📱 PWA Documentation](docs/pwa/README.md)** | **[🚀 Getting Started](docs/pwa/getting-started.md)** | **[🏗️ Architecture](docs/pwa/architecture.md)**
+
 ## ✨ What's New in v0.4.0
 
 ### Separate Home Disk (NEW)

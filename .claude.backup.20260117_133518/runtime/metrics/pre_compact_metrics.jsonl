@@ -1,0 +1,12 @@
+{"timestamp": "2026-01-17T12:53:58.811592", "metric": "messages_exported", "value": 0, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T12:53:58.812290", "metric": "compaction_events", "value": 1, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T12:53:58.814958", "metric": "transcript_exported", "value": true, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T13:10:27.031632", "metric": "messages_exported", "value": 0, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T13:10:27.032093", "metric": "compaction_events", "value": 1, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T13:10:27.033946", "metric": "transcript_exported", "value": true, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T13:34:02.333804", "metric": "messages_exported", "value": 0, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T13:34:02.336459", "metric": "compaction_events", "value": 1, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T13:34:02.338712", "metric": "transcript_exported", "value": true, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T13:34:10.227326", "metric": "messages_exported", "value": 0, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T13:34:10.230416", "metric": "compaction_events", "value": 1, "hook": "pre_compact"}
+{"timestamp": "2026-01-17T13:34:10.234469", "metric": "transcript_exported", "value": true, "hook": "pre_compact"}
