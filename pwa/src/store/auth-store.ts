@@ -81,19 +81,18 @@ export const silentAuth = createAsyncThunk<boolean, void>(
 );
 
 /**
- * Interactive authentication (popup or redirect)
+ * Interactive authentication (using redirect instead of popup)
  */
 export const loginInteractive = createAsyncThunk<void, void>(
   'auth/loginInteractive',
   async () => {
     try {
-      const response = await msalInstance.loginPopup({
+      // Use redirect flow instead of popup (more reliable, no COOP issues)
+      await msalInstance.loginRedirect({
         scopes: ['https://management.azure.com/.default', 'offline_access'],
       });
-
-      // Save token
-      const expiresOn = response.expiresOn?.getTime() || Date.now() + 3600000;
-      await tokenStorage.saveTokens(response.accessToken, '', expiresOn);
+      // Note: This function never returns - page redirects
+      // handleRedirectPromise() in App.tsx handles the return
     } catch (error) {
       throw new Error(`Login failed: ${error instanceof Error ? error.message : String(error)}`);
     }

@@ -9,13 +9,15 @@
  * - Zero-BS: Real authentication and routing
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import { PublicClientApplication } from '@azure/msal-browser';
 import { AppDispatch } from './store/store';
 import { checkAuth, selectIsAuthenticated } from './store/auth-store';
+import { TokenStorage } from './auth/token-storage';
 
 // Lazy load pages
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
@@ -36,13 +38,52 @@ const theme = createTheme({
   },
 });
 
+// Create MSAL instance for redirect handling
+const msalConfig = {
+  auth: {
+    clientId: import.meta.env.VITE_AZURE_CLIENT_ID,
+    authority: `https://login.microsoftonline.com/${import.meta.env.VITE_AZURE_TENANT_ID}`,
+    redirectUri: window.location.origin,
+  },
+  cache: {
+    cacheLocation: 'localStorage',
+    storeAuthStateInCookie: false,
+  },
+};
+
+const msalInstance = new PublicClientApplication(msalConfig);
+
 function App() {
   const dispatch = useDispatch<AppDispatch>();
   const isAuthenticated = useSelector(selectIsAuthenticated);
+  const [msalInitialized, setMsalInitialized] = useState(false);
 
   useEffect(() => {
-    // Check if user is already authenticated
-    dispatch(checkAuth());
+    // Initialize MSAL and handle redirect response
+    const initMsal = async () => {
+      await msalInstance.initialize();
+
+      // Handle redirect response (user returning from Microsoft login)
+      const response = await msalInstance.handleRedirectPromise();
+
+      if (response) {
+        console.log('🏴‍☠️ Redirect response received:', response);
+
+        // Save token
+        const tokenStorage = new TokenStorage();
+        const expiresOn = response.expiresOn?.getTime() || Date.now() + 3600000;
+        await tokenStorage.saveTokens(response.accessToken, '', expiresOn);
+
+        console.log('🏴‍☠️ Token saved from redirect');
+      }
+
+      setMsalInitialized(true);
+
+      // Check if user is already authenticated
+      dispatch(checkAuth());
+    };
+
+    initMsal();
   }, [dispatch]);
 
   return (

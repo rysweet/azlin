@@ -70,7 +70,7 @@ function LoginPage() {
         </Button>
 
         <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
-          A popup will open for Azure AD authentication
+          You'll be redirected to Microsoft to sign in
         </Typography>
       </Paper>
     </Box>
