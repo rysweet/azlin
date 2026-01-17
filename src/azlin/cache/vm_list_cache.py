@@ -10,6 +10,7 @@ Public API (the "studs"):
     VMListCache: Tiered caching for VM listing data
     VMCacheEntry: Data model for cached VM entries
     CacheLayer: Enum for cache layer types (immutable/mutable)
+    make_cache_key: Create cache key from VM name and resource group
 
 Architecture:
 - Immutable Layer (24h TTL): VM name, location, size, resource group
@@ -32,6 +33,26 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def make_cache_key(vm_name: str, resource_group: str) -> str:
+    """Create cache key from VM name and resource group.
+
+    This function provides a consistent cache key format used across all
+    caching operations. Cache keys use the format "resource_group:vm_name".
+
+    Args:
+        vm_name: VM name
+        resource_group: Resource group name
+
+    Returns:
+        Cache key string in format "resource_group:vm_name"
+
+    Example:
+        >>> make_cache_key("my-vm", "my-rg")
+        'my-rg:my-vm'
+    """
+    return f"{resource_group}:{vm_name}"
 
 
 class VMListCacheError(Exception):
@@ -137,6 +158,15 @@ class VMListCache:
     - Immutable layer (24h): VM metadata that rarely changes
     - Mutable layer (5min): VM state that changes frequently
 
+    TTL Rationale:
+    - Immutable (24h): VM metadata changes only through VM recreation (location,
+      size, OS type). Users rarely modify these properties, so a long TTL
+      significantly reduces API calls without risk of stale data.
+    - Mutable (5min): VM state changes during normal operations (power state,
+      IPs). The 5-minute TTL balances freshness with performance, allowing
+      multiple list operations to use cached data while ensuring recent
+      start/stop/IP changes are reflected.
+
     Cache file: ~/.azlin/vm_list_cache.json
 
     Example:
@@ -150,6 +180,13 @@ class VMListCache:
 
     DEFAULT_CACHE_DIR = Path.home() / ".azlin"
     DEFAULT_CACHE_FILE = DEFAULT_CACHE_DIR / "vm_list_cache.json"
+
+    # TTL Rationale:
+    # - Immutable (24h): VM metadata changes require VM recreation (location, size, OS type)
+    #   Users rarely change these, so long TTL reduces API calls without stale data risk
+    # - Mutable (5min): VM state changes during normal operations (power state, IPs)
+    #   Balance between freshness and performance: 5min is long enough for repeated
+    #   list operations but short enough to reflect recent start/stop/IP changes
     IMMUTABLE_TTL = 86400  # 24 hours
     MUTABLE_TTL = 300  # 5 minutes
 
@@ -264,18 +301,6 @@ class VMListCache:
                 temp_path.unlink()
             raise VMListCacheError(f"Failed to save cache: {e}") from e
 
-    def _make_key(self, vm_name: str, resource_group: str) -> str:
-        """Create cache key from VM name and resource group.
-
-        Args:
-            vm_name: VM name
-            resource_group: Resource group name
-
-        Returns:
-            Cache key string
-        """
-        return f"{resource_group}:{vm_name}"
-
     def get(self, vm_name: str, resource_group: str) -> VMCacheEntry | None:
         """Get VM cache entry.
 
@@ -288,7 +313,7 @@ class VMListCache:
         """
         try:
             entries = self._load_cache()
-            key = self._make_key(vm_name, resource_group)
+            key = make_cache_key(vm_name, resource_group)
 
             if key not in entries:
                 logger.debug(f"Cache miss: '{key}' not found")
@@ -321,7 +346,7 @@ class VMListCache:
         """
         try:
             entries = self._load_cache()
-            key = self._make_key(vm_name, resource_group)
+            key = make_cache_key(vm_name, resource_group)
 
             # Get existing entry or create new one
             if key in entries:
@@ -357,7 +382,7 @@ class VMListCache:
         """
         try:
             entries = self._load_cache()
-            key = self._make_key(vm_name, resource_group)
+            key = make_cache_key(vm_name, resource_group)
 
             # Get existing entry or create new one
             if key in entries:
@@ -400,7 +425,7 @@ class VMListCache:
         """
         try:
             entries = self._load_cache()
-            key = self._make_key(vm_name, resource_group)
+            key = make_cache_key(vm_name, resource_group)
 
             entry = VMCacheEntry(
                 vm_name=vm_name,
@@ -431,7 +456,7 @@ class VMListCache:
         """
         try:
             entries = self._load_cache()
-            key = self._make_key(vm_name, resource_group)
+            key = make_cache_key(vm_name, resource_group)
 
             if key not in entries:
                 logger.debug(f"Cache delete: '{key}' not found")
@@ -507,4 +532,4 @@ class VMListCache:
             return []
 
 
-__all__ = ["CacheLayer", "VMCacheEntry", "VMListCache", "VMListCacheError"]
+__all__ = ["CacheLayer", "VMCacheEntry", "VMListCache", "VMListCacheError", "make_cache_key"]
