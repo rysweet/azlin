@@ -251,7 +251,7 @@ class VMManager:
             ]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=10, check=True
+                cmd, capture_output=True, text=True, timeout=30, check=True
             )
 
             # Handle empty stdout (e.g., resource group not found but didn't raise error)
@@ -328,7 +328,7 @@ class VMManager:
             ]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=10, check=True
+                cmd, capture_output=True, text=True, timeout=30, check=True
             )
 
             ips_data: list[dict[str, Any]] = json.loads(result.stdout)
@@ -398,7 +398,7 @@ class VMManager:
             cmd = ["az", "group", "list", "--query", "[].name", "--output", "json"]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=10, check=True
+                cmd, capture_output=True, text=True, timeout=30, check=True
             )
 
             return json.loads(result.stdout)
