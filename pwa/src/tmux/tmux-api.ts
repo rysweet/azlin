@@ -54,12 +54,14 @@ export class TmuxApi {
   /**
    * List all tmux sessions on a VM
    * Uses enhanced format matching azlin CLI for better compatibility
+   * IMPORTANT: Run as azureuser because tmux sessions are per-user and Run Command runs as root
    */
   async listSessions(resourceGroup: string, vmName: string): Promise<TmuxSession[]> {
     // Use enhanced format that matches azlin CLI, with fallback to standard format
     // Enhanced format: name:attached:windows:created (Unix timestamp)
     // Fallback format: name: N windows (created date)
-    const script = `tmux list-sessions -F "#{session_name}:#{session_attached}:#{session_windows}:#{session_created}" 2>/dev/null || tmux list-sessions 2>/dev/null || echo ''`;
+    // CRITICAL: Run as azureuser - Run Command API runs as root, but tmux sessions belong to azureuser
+    const script = `su - azureuser -c 'tmux list-sessions -F "#{session_name}:#{session_attached}:#{session_windows}:#{session_created}" 2>/dev/null || tmux list-sessions 2>/dev/null' || echo ''`;
 
     try {
       const result = await this.azureClient.executeRunCommand(
@@ -137,32 +139,29 @@ export class TmuxApi {
 
   /**
    * Capture tmux session snapshot (2000 lines max)
+   * Runs as azureuser since tmux sessions belong to that user
    */
   async captureSnapshot(
     resourceGroup: string,
     vmName: string,
     sessionName: string
   ): Promise<TmuxSnapshot> {
-    // Escape shell special characters in sessionName
-    const escapeShellArg = (arg: string): string => {
-      // Replace single quotes with '\'' (end quote, escaped quote, start quote)
-      return `'${arg.replace(/'/g, "'\\''")}'`;
-    };
+    // Escape shell special characters in sessionName for the inner command
+    const escapedSessionName = sessionName.replace(/'/g, "'\"'\"'");
 
-    const escapedSessionName = escapeShellArg(sessionName);
-
-    const script = `
+    // Run as azureuser - tmux sessions belong to that user, not root
+    const script = `su - azureuser -c '
       # Check if session exists
-      tmux has-session -t ${escapedSessionName} 2>/dev/null || exit 1
+      tmux has-session -t '"'"'${escapedSessionName}'"'"' 2>/dev/null || exit 1
 
       # Get session info
       echo "SESSION_INFO:"
-      tmux list-windows -t ${escapedSessionName} -F "#{window_index}:#{window_name}:#{window_active}"
+      tmux list-windows -t '"'"'${escapedSessionName}'"'"' -F "#{window_index}:#{window_name}:#{window_active}"
 
       echo "PANE_CONTENT:"
       # Capture active pane (2000 lines of scrollback)
-      tmux capture-pane -t ${escapedSessionName} -p -S -2000
-    `.trim();
+      tmux capture-pane -t '"'"'${escapedSessionName}'"'"' -p -S -2000
+    '`;
 
     const result = await this.azureClient.executeRunCommand(
       resourceGroup,
@@ -219,6 +218,7 @@ export class TmuxApi {
 
   /**
    * Send keys to tmux session
+   * Runs as azureuser since tmux sessions belong to that user
    */
   async sendKeys(
     resourceGroup: string,
@@ -230,20 +230,12 @@ export class TmuxApi {
       throw new Error('Keys cannot be empty');
     }
 
-    // Escape shell special characters for both sessionName and keys
-    // Use single quotes and escape any single quotes in the content
-    const escapeShellArg = (arg: string): string => {
-      // Replace single quotes with '\'' (end quote, escaped quote, start quote)
-      return `'${arg.replace(/'/g, "'\\''")}'`;
-    };
+    // Escape for nested shell quoting (su -c '...')
+    const escapedSessionName = sessionName.replace(/'/g, "'\"'\"'");
+    const escapedKeys = keys.replace(/'/g, "'\"'\"'");
 
-    const escapedSessionName = escapeShellArg(sessionName);
-    const escapedKeys = escapeShellArg(keys);
-
-    const script = `
-      # Send keys to active pane
-      tmux send-keys -t ${escapedSessionName} ${escapedKeys}
-    `.trim();
+    // Run as azureuser - tmux sessions belong to that user, not root
+    const script = `su - azureuser -c 'tmux send-keys -t '"'"'${escapedSessionName}'"'"' '"'"'${escapedKeys}'"'"''`;
 
     const result = await this.azureClient.executeRunCommand(
       resourceGroup,
