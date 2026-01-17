@@ -225,27 +225,9 @@ class TestEnsureNFSAccess:
         assert decision.metadata["cross_region"] is True
         assert decision.cost_estimate is not None
 
-    def test_cross_region_nfs_user_chooses_local_storage(self):
-        """User choosing local storage should return SKIP."""
-        handler = MockInteractionHandler(choice_responses=[1])  # Choose local storage
-        orchestrator = ResourceOrchestrator(handler)
-
-        options = NFSOptions(
-            region="eastus",
-            resource_group="my-rg",
-            storage_account_name="myaccount",
-            storage_account_region="westus",
-            share_name="home",
-        )
-
-        decision = orchestrator.ensure_nfs_access(options)
-
-        assert decision.action == DecisionAction.SKIP
-        assert decision.metadata["fallback"] == "local-storage"
-
     def test_cross_region_nfs_user_cancels(self):
         """User canceling should return CANCEL."""
-        handler = MockInteractionHandler(choice_responses=[2])  # Cancel
+        handler = MockInteractionHandler(choice_responses=[1])  # Cancel (now index 1, not 2)
         orchestrator = ResourceOrchestrator(handler)
 
         options = NFSOptions(

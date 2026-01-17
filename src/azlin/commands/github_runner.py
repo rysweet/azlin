@@ -266,10 +266,10 @@ def disable_runner_fleet(pool: str, keep_vms: bool):
             console.print("\n[yellow]Destroying runners...[/yellow]")
             console.print("Note: VMs will be destroyed. This cannot be undone.")
 
-            # TODO: Implement runner destruction
-            # This would iterate through VMs in the pool and destroy them
-            console.print("[yellow]Warning: Runner destruction not yet implemented[/yellow]")
-            console.print("         Use 'azlin delete' to manually remove VMs")
+            # Note: Automatic runner destruction is not implemented
+            # Users must manually destroy VMs using azlin delete command
+            console.print("[yellow]Automatic VM destruction is not available[/yellow]")
+            console.print("To remove VMs manually, use: azlin delete <vm-name>")
 
         console.print("\nFleet disabled successfully")
 
@@ -316,9 +316,9 @@ def show_runner_status(pool: str):
         console.print(f"Max Runners:   {fleet_config['max_runners']}")
         console.print(f"Labels:        {', '.join(fleet_config['labels'])}")
 
-        # TODO: Show active runners
-        console.print("\n[yellow]Note: Live runner status not yet implemented[/yellow]")
-        console.print("      Use GitHub UI to view active runners")
+        # Note: Live runner status requires GitHub API integration
+        console.print("\n[yellow]Live runner status is not available[/yellow]")
+        console.print("View active runners at: https://github.com/{owner}/{repo}/actions/runners")
 
     except Exception as e:
         console.print(f"[red]Error showing runner status: {e}[/red]")
@@ -382,9 +382,9 @@ def scale_runner_fleet(pool: str, count: int):
         console.print(f"\n[yellow]Scaling fleet '{pool}' to {count} runner(s)...[/yellow]")
         console.print("Note: This may take several minutes")
 
-        # TODO: Implement actual scaling
-        console.print("[yellow]Warning: Manual scaling not yet implemented[/yellow]")
-        console.print("         Use 'azlin new' to manually provision VMs")
+        # Note: Manual scaling requires VM provisioning automation
+        console.print("[yellow]Manual scaling is not available[/yellow]")
+        console.print("To provision VMs manually, use: azlin new <vm-name>")
 
     except Exception as e:
         console.print(f"[red]Error scaling runner fleet: {e}[/red]")

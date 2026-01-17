@@ -24,6 +24,7 @@ class VMStatus:
     location: str
     size: str
     public_ip: str | None
+    private_ip: str | None  # Issue #492 - Display private IPs for Bastion-only VMs
     provisioning_state: str
     os_type: str
     uptime: str | None = None
@@ -163,6 +164,45 @@ class StatusDashboard:
         except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
             return None
 
+    def _get_private_ip(self, vm_name: str, resource_group: str) -> str | None:
+        """Get private IP address for a VM.
+
+        Args:
+            vm_name: Name of the VM
+            resource_group: Resource group containing the VM
+
+        Returns:
+            Private IP address or None if not found
+        """
+        try:
+            command = [
+                "az",
+                "vm",
+                "list-ip-addresses",
+                "--name",
+                vm_name,
+                "--resource-group",
+                resource_group,
+                "--output",
+                "json",
+            ]
+            result = self._run_az_command(command)
+
+            if result and isinstance(result, list) and len(result) > 0:  # type: ignore[arg-type]
+                virtual_machine = result[0]  # type: ignore[misc]
+                network_interfaces = (  # type: ignore[misc]
+                    virtual_machine.get("virtualMachine", {})  # type: ignore[union-attr,misc]
+                    .get("network", {})  # type: ignore[union-attr]
+                    .get("privateIpAddresses", [])  # type: ignore[union-attr]
+                )
+
+                if network_interfaces:
+                    return network_interfaces[0].get("ipAddress")  # type: ignore[union-attr]
+
+            return None
+        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
+            return None
+
     def _extract_power_state(self, instance_view: dict[str, Any]) -> str:
         """Extract power state from instance view.
 
@@ -249,8 +289,9 @@ class StatusDashboard:
                 provisioning_state = "Unknown"
                 uptime = None
 
-            # Get public IP
+            # Get public and private IPs (Issue #492)
             public_ip = self._get_public_ip(name, rg)
+            private_ip = self._get_private_ip(name, rg)
 
             # Calculate estimated cost
             estimated_cost = self._get_estimated_cost(size)
@@ -263,6 +304,7 @@ class StatusDashboard:
                 location=location,
                 size=size,
                 public_ip=public_ip,
+                private_ip=private_ip,
                 provisioning_state=provisioning_state,
                 os_type=os_type,
                 uptime=uptime,
@@ -321,11 +363,20 @@ class StatusDashboard:
             else:
                 power_state_colored = f"[yellow]{power_state}[/yellow]"
 
+            # Display IP with type indicator (Issue #492)
+            ip_display = (
+                f"{vm.public_ip} (Public)"
+                if vm.public_ip
+                else f"{vm.private_ip} (Private)"
+                if vm.private_ip
+                else "N/A"
+            )
+
             row = [
                 vm.name,
                 vm.status,
                 power_state_colored,
-                vm.public_ip or "N/A",
+                ip_display,
                 vm.resource_group,
                 vm.location,
                 vm.size,

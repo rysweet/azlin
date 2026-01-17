@@ -10,6 +10,12 @@ Response Protocol:
 - Return {} for default behavior (no intervention)
 - Return {"decision": "block", "reason": "..."} to intervene (Stop hooks)
 - Return {"permissionDecision": "allow"/"deny"/"ask"} for permission (PreToolUse hooks)
+
+Graceful Pipe Closure:
+- Automatically handles BrokenPipeError during output writes
+- Absorbs EPIPE (errno 32) errors on stdout flush
+- Prevents shutdown hangs when Claude Code closes pipes early
+- See HOOK_BEHAVIOR.md for detailed documentation
 """
 
 import json
@@ -19,7 +25,10 @@ import traceback
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
+
+from error_protocol import HookError, HookErrorSeverity, HookException
+from json_protocol import RobustJSONParser
 
 
 class HookProcessor(ABC):
@@ -50,7 +59,7 @@ class HookProcessor(ABC):
         except ImportError:
             # Fallback: try to find project root by looking for .claude marker
             current = Path(__file__).resolve().parent
-            found_root: Optional[Path] = None
+            found_root: Path | None = None
 
             for _ in range(10):  # Max 10 levels up
                 # Check old location (repo root)
@@ -133,7 +142,7 @@ class HookProcessor(ABC):
             # If we can't log, at least try stderr
             print(f"Logging error: {e}", file=sys.stderr)
 
-    def read_input(self) -> Dict[str, Any]:
+    def read_input(self) -> dict[str, Any]:
         """Read and parse JSON input from stdin.
 
         Returns:
@@ -150,19 +159,45 @@ class HookProcessor(ABC):
         raw_input = sys.stdin.read()
         if not raw_input.strip():
             return {}
-        return json.loads(raw_input)
 
-    def write_output(self, output: Dict[str, Any]):
-        """Write JSON output to stdout.
+        # Use RobustJSONParser for resilient parsing
+        parser = RobustJSONParser()
+        return parser.parse(raw_input)
+
+    def write_output(self, output: dict[str, Any]):
+        """Write JSON output to stdout with fail-open pipe closure handling.
+
+        Silently absorbs BrokenPipeError and EPIPE (errno 32) when Claude Code
+        closes the pipe during shutdown. This prevents hangs while maintaining
+        clean exit.
+
+        Philosophy: Fail-open gracefully - if the pipe is closed, our job is done.
 
         Args:
             output: Dictionary to write as JSON
-        """
-        json.dump(output, sys.stdout)
-        sys.stdout.write("\n")
-        sys.stdout.flush()
 
-    def save_metric(self, metric_name: str, value: Any, metadata: Optional[Dict] = None):
+        Raises:
+            OSError: Only unexpected OS errors (non-EPIPE) are raised
+        """
+        try:
+            json.dump(output, sys.stdout)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        except BrokenPipeError:
+            pass  # Claude Code closed pipe - our job is done
+        except OSError as e:
+            # EPIPE (errno 32) or IOError (errno None) - pipe closed during write
+            if e.errno in (32, None):
+                if e.errno is None:
+                    self.log(
+                        "OSError with errno=None during pipe write (expected during shutdown)",
+                        "DEBUG",
+                    )
+                # Expected during normal shutdown
+            else:
+                raise  # Unexpected OS error
+
+    def save_metric(self, metric_name: str, value: Any, metadata: dict | None = None):
         """Save a metric to the metrics directory.
 
         Args:
@@ -188,8 +223,36 @@ class HookProcessor(ABC):
         except Exception as e:
             self.log(f"Failed to save metric: {e}", "WARNING")
 
+    def _write_error_to_stderr(self, error: HookError):
+        """Write structured error to stderr for user visibility.
+
+        Args:
+            error: HookError containing structured error information
+        """
+        print("=" * 60, file=sys.stderr)
+        print(f"HOOK ERROR: {self.hook_name}", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        print(f"Severity: {error.severity.value}", file=sys.stderr)
+        print(f"Error: {error.message}", file=sys.stderr)
+
+        if error.context:
+            print(f"Context: {error.context}", file=sys.stderr)
+
+        if error.suggestion:
+            print(f"\nSuggestion: {error.suggestion}", file=sys.stderr)
+
+        # Use relative path to avoid disclosing full system paths
+        try:
+            relative_log_path = self.log_file.relative_to(self.project_root)
+            print(f"\nLog file: {relative_log_path}", file=sys.stderr)
+        except ValueError:
+            # Fallback if path is outside project root
+            print(f"\nLog file: {self.log_file.name}", file=sys.stderr)
+
+        print("=" * 60, file=sys.stderr)
+
     @abstractmethod
-    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Process the hook input and return output.
 
         This method must be implemented by subclasses.
@@ -208,7 +271,7 @@ class HookProcessor(ABC):
         1. Read input from stdin
         2. Process the input
         3. Write output to stdout
-        4. Handle any errors gracefully
+        4. Handle any errors gracefully (fail-open)
         """
         try:
             # Log start with version info
@@ -243,45 +306,59 @@ class HookProcessor(ABC):
             self.write_output(output)
             self.log(f"{self.hook_name} hook completed successfully")
 
+        except HookException as e:
+            # Structured hook error - log and fail-open
+            self.log(f"Hook error: {e.error.message}", "ERROR")
+            self.log(f"Severity: {e.error.severity.value}", "ERROR")
+
+            # Write error to stderr for user visibility
+            self._write_error_to_stderr(e.error)
+
+            # Fail-open: Return empty dict (allows default behavior)
+            self.write_output({})
+            self.log("Failed open - returning empty dict", "INFO")
+
         except json.JSONDecodeError as e:
+            # JSON parse error - log and fail-open
             self.log(f"Invalid JSON input: {e}", "ERROR")
-            self.write_output({"error": "Invalid JSON input"})
-            sys.exit(1)  # Exit with error code so Claude Code can detect failure
+
+            # Create structured error
+            error = HookError(
+                severity=HookErrorSeverity.ERROR,
+                message="Invalid JSON input from stdin",
+                context=str(e),
+                suggestion="Check hook input format",
+            )
+            self._write_error_to_stderr(error)
+
+            # Fail-open
+            self.write_output({})
 
         except Exception as e:
-            # Log full traceback for debugging
-            error_msg = f"Error in {self.hook_name}: {e}"
+            # Unexpected error - log full traceback and fail-open
+            error_msg = f"Unexpected error in {self.hook_name}: {e}"
             traceback_str = traceback.format_exc()
 
             self.log(error_msg, "ERROR")
             self.log(f"Traceback: {traceback_str}", "ERROR")
 
-            # Enhanced stderr output for visibility
-            print("=" * 60, file=sys.stderr)
-            print(f"HOOK ERROR: {self.hook_name}", file=sys.stderr)
-            print("=" * 60, file=sys.stderr)
-            print(f"Error: {e}", file=sys.stderr)
+            # Create structured error
+            error = HookError(
+                severity=HookErrorSeverity.FATAL,
+                message=str(e),
+                context=f"Hook: {self.hook_name}",
+                suggestion="Check log file for full traceback",
+            )
+            self._write_error_to_stderr(error)
 
-            # Use relative path to avoid disclosing full system paths
-            try:
-                relative_log_path = self.log_file.relative_to(self.project_root)
-                print(f"\nLog file: {relative_log_path}", file=sys.stderr)
-            except ValueError:
-                # Fallback if path is outside project root
-                print(f"\nLog file: {self.log_file.name}", file=sys.stderr)
-
-            # Only show full stack trace in debug mode for security
+            # Show stack trace in debug mode
             if os.getenv("AMPLIHACK_DEBUG"):
                 print("\nStack trace:", file=sys.stderr)
                 print(traceback_str, file=sys.stderr)
-            else:
-                print("\nFull error details available in log file", file=sys.stderr)
-            print("=" * 60, file=sys.stderr)
 
-            # Return empty dict and exit with error code
-            # Exit code 1 = non-blocking error (stderr shown to user)
+            # Fail-open: Return empty dict (allows default behavior)
             self.write_output({})
-            sys.exit(1)  # Exit with error code so Claude Code can detect failure
+            self.log("Failed open after unexpected error", "INFO")
 
     def get_session_id(self) -> str:
         """Generate or retrieve a session ID.

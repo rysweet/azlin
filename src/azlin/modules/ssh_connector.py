@@ -118,7 +118,9 @@ class SSHConnector:
 
         try:
             # Execute SSH (blocking until session ends)
-            result = subprocess.run(ssh_args)
+            # Close stdin for non-interactive sessions to prevent hangs when stdin unavailable
+            stdin_mode = subprocess.DEVNULL if remote_command else None
+            result = subprocess.run(ssh_args, stdin=stdin_mode)
 
             if result.returncode == 0:
                 logger.info("SSH session ended successfully")

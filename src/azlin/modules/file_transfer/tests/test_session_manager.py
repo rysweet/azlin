@@ -1,6 +1,6 @@
 """Unit tests for session_manager module."""
 
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -136,19 +136,20 @@ class TestGetVMSession:
         # Mock VM
         mock_vm = Mock()
         mock_vm.name = "test-vm"
-        mock_vm.power_state = "running"
+        mock_vm.power_state = "VM running"
         mock_vm.public_ip = "1.2.3.4"
 
         # Mock VM manager
         vm_manager = Mock()
         vm_manager.list_vms.return_value = [mock_vm]
 
-        session = SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)  # type: ignore[arg-type]
+        session, bastion_manager = SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)  # type: ignore[arg-type]
 
         assert session.name == "test-vm"
         assert session.public_ip == "1.2.3.4"
         assert session.user == "azureuser"
         assert session.resource_group == "test-rg"
+        assert bastion_manager is None
         vm_manager.list_vms.assert_called_once_with("test-rg")
 
     def test_finds_prefix_match(self):
@@ -156,27 +157,28 @@ class TestGetVMSession:
         # Mock VM
         mock_vm = Mock()
         mock_vm.name = "test-vm-001"
-        mock_vm.power_state = "running"
+        mock_vm.power_state = "VM running"
         mock_vm.public_ip = "1.2.3.4"
 
         # Mock VM manager
         vm_manager = Mock()
         vm_manager.list_vms.return_value = [mock_vm]
 
-        session = SessionManager.get_vm_session("test", "test-rg", vm_manager)  # type: ignore[arg-type]
+        session, bastion_manager = SessionManager.get_vm_session("test", "test-rg", vm_manager)  # type: ignore[arg-type]
 
         assert session.name == "test-vm-001"
+        assert bastion_manager is None
 
     def test_rejects_multiple_matches(self):
         """Should reject ambiguous session names"""
         # Mock VMs
         mock_vm1 = Mock()
         mock_vm1.name = "test-vm-001"
-        mock_vm1.power_state = "running"
+        mock_vm1.power_state = "VM running"
 
         mock_vm2 = Mock()
         mock_vm2.name = "test-vm-002"
-        mock_vm2.power_state = "running"
+        mock_vm2.power_state = "VM running"
 
         # Mock VM manager
         vm_manager = Mock()
@@ -208,17 +210,27 @@ class TestGetVMSession:
         with pytest.raises(SessionNotFoundError, match="not running"):
             SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)  # type: ignore[arg-type]
 
-    def test_rejects_vm_without_ip(self):
-        """Should reject VMs without public IP"""
+    @patch("azlin.modules.file_transfer.session_manager.BastionDetector")
+    def test_rejects_vm_without_ip(self, mock_bastion_detector):
+        """Should reject VMs without public IP and no bastion"""
         # Mock VM
         mock_vm = Mock()
         mock_vm.name = "test-vm"
-        mock_vm.power_state = "running"
+        mock_vm.power_state = "VM running"
         mock_vm.public_ip = None
+        mock_vm.location = "westus2"
+        mock_vm.id = "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Compute/virtualMachines/test-vm"
 
         # Mock VM manager
         vm_manager = Mock()
         vm_manager.list_vms.return_value = [mock_vm]
 
-        with pytest.raises(SessionNotFoundError, match="no public IP"):
-            SessionManager.get_vm_session("test-vm", "test-rg", vm_manager)  # type: ignore[arg-type]
+        # Mock Bastion Detector - NO BASTION AVAILABLE
+        mock_bastion_detector.detect_bastion_for_vm.return_value = None
+
+        with pytest.raises(SessionNotFoundError, match="no bastion is available"):
+            session, bastion_manager = SessionManager.get_vm_session(
+                "test-vm",
+                "test-rg",
+                vm_manager,  # type: ignore[arg-type]
+            )

@@ -10,15 +10,27 @@ Security:
 - Input validation
 - Error message sanitization
 
+Thread Safety:
+- Module-level cache (_bastion_cache) is NOT thread-safe
+- Designed for CLI single-threaded execution
+- Concurrent access may cause cache inconsistencies (non-critical)
+
 Note: Delegates ALL Azure operations to Azure CLI.
 """
 
 import json
 import logging
 import subprocess
+import time
 from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
+
+# Module-level cache for Bastion listings to avoid repeated slow Azure CLI calls
+# Cache key: resource_group (None for all resource groups)
+# Cache value: tuple of (bastions list, timestamp)
+_bastion_cache: dict[str | None, tuple[list[dict[str, Any]], float]] = {}
+CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
 class BastionInfo(TypedDict):
@@ -70,6 +82,81 @@ class BastionDetector:
         # Generic message for unknown errors - log full details for debugging
         logger.debug(f"Azure CLI error details: {stderr}")
         return "Azure operation failed"
+
+    @staticmethod
+    def _check_azure_cli_responsive(timeout: int = 2) -> bool:
+        """Check if Azure CLI is responsive before making actual calls.
+
+        Pre-flight check to avoid hanging on slow Azure CLI responses.
+        Uses a fast command (az account show) to test responsiveness.
+
+        Args:
+            timeout: Maximum seconds to wait for response
+
+        Returns:
+            True if Azure CLI responds within timeout, False otherwise
+        """
+        try:
+            result = subprocess.run(
+                ["az", "account", "show", "--output", "json"],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            # Any response (success or error) means CLI is responsive
+            return True
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Azure CLI pre-flight check timed out after {timeout}s")
+            return False
+        except FileNotFoundError:
+            # Azure CLI not installed
+            logger.debug("Azure CLI not found in PATH")
+            return False
+        except (OSError, subprocess.SubprocessError) as e:
+            # CLI execution issues (permissions, broken installation, etc.)
+            logger.debug(f"Azure CLI pre-flight check failed: {e}")
+            return False
+        except Exception as e:
+            # Other errors (e.g., JSON parse) - CLI responded but with error
+            # Treat as responsive since timeout didn't occur
+            logger.debug(f"Azure CLI pre-flight check error (non-blocking): {e}")
+            return True
+
+    @classmethod
+    def _get_cached_bastions(cls, resource_group: str | None) -> list[dict[str, Any]] | None:
+        """Get cached Bastion listing if available and fresh.
+
+        Args:
+            resource_group: Resource group filter (None for all)
+
+        Returns:
+            Cached bastions list if available and fresh, None otherwise
+        """
+        if resource_group not in _bastion_cache:
+            return None
+
+        bastions, cached_at = _bastion_cache[resource_group]
+        age = time.time() - cached_at
+
+        if age > CACHE_TTL_SECONDS:
+            # Cache expired
+            logger.debug(f"Bastion cache expired (age: {age:.1f}s)")
+            del _bastion_cache[resource_group]
+            return None
+
+        logger.debug(f"Using cached Bastion list (age: {age:.1f}s)")
+        return bastions
+
+    @classmethod
+    def _cache_bastions(cls, resource_group: str | None, bastions: list[dict[str, Any]]) -> None:
+        """Cache Bastion listing results.
+
+        Args:
+            resource_group: Resource group filter (None for all)
+            bastions: List of Bastion hosts to cache
+        """
+        _bastion_cache[resource_group] = (bastions, time.time())
+        logger.debug(f"Cached {len(bastions)} Bastion host(s) for resource_group={resource_group}")
 
     @classmethod
     def detect_bastion_for_vm(
@@ -150,38 +237,58 @@ class BastionDetector:
 
     @classmethod
     def list_bastions(cls, resource_group: str | None = None) -> list[dict[str, Any]]:
-        """List Bastion hosts.
+        """List Bastion hosts with caching and timeout protection.
+
+        First checks cache for recent results (5 min TTL). If cache miss,
+        performs pre-flight check to verify Azure CLI is responsive before
+        making the actual Bastion list call. Returns empty list on timeout
+        rather than raising exception (graceful degradation).
 
         Args:
             resource_group: Resource group to filter (None for all)
 
         Returns:
-            List of Bastion host dictionaries
+            List of Bastion host dictionaries (empty list on timeout)
 
         Raises:
-            BastionDetectorError: If listing fails
+            BastionDetectorError: If listing fails (non-timeout errors)
         """
+        # Check cache first
+        cached = cls._get_cached_bastions(resource_group)
+        if cached is not None:
+            return cached
+
+        # Pre-flight check: verify Azure CLI is responsive
+        if not cls._check_azure_cli_responsive(timeout=2):
+            logger.warning("Azure CLI not responsive, skipping Bastion detection")
+            return []
+
         try:
             cmd = ["az", "network", "bastion", "list", "--output", "json"]
 
             if resource_group:
                 cmd.extend(["--resource-group", resource_group])
 
+            # Reduced timeout from 30s to 10s based on pre-flight check
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=30,
+                timeout=10,
             )
 
             bastions = json.loads(result.stdout)
             logger.debug(f"Found {len(bastions)} Bastion host(s)")
 
+            # Cache successful results
+            cls._cache_bastions(resource_group, bastions)
+
             return bastions
 
         except subprocess.TimeoutExpired:
-            logger.warning("Bastion detection timed out after 30 seconds, skipping auto-detection")
+            # Graceful degradation: return empty list instead of raising
+            logger.warning("Bastion detection timed out after 10 seconds, skipping auto-detection")
             return []
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr)
@@ -225,7 +332,7 @@ class BastionDetector:
                 capture_output=True,
                 text=True,
                 check=False,  # Don't raise on error
-                timeout=30,
+                timeout=10,  # Reduced from 30s for consistency
             )
 
             if result.returncode != 0:
@@ -242,7 +349,7 @@ class BastionDetector:
             return bastion
 
         except subprocess.TimeoutExpired:
-            logger.warning(f"Bastion query timed out after 30 seconds for {bastion_name}, skipping")
+            logger.warning(f"Bastion query timed out after 10 seconds for {bastion_name}, skipping")
             return None
         except json.JSONDecodeError as e:
             raise BastionDetectorError(f"Failed to parse Bastion details: {e}") from e

@@ -329,7 +329,12 @@ class ExecutionEngine:
     def _execute_mcp(self, action: Action, started_at: datetime) -> ActionResult:
         """Execute MCP call.
 
-        TODO: Implement MCP integration.
+        Note:
+            MCP integration is not currently supported.
+            This executor only supports bash and azure_cli action types.
+
+        Returns:
+            ActionResult indicating unsupported action type
         """
         return ActionResult(
             action_id=action.id,
@@ -340,7 +345,7 @@ class ExecutionEngine:
             duration_seconds=0,
             tool_used="mcp",
             command=action.command,
-            error="MCP integration not yet implemented",
+            error="MCP action type is not supported by this executor",
         )
 
     def _plan_recovery(self, goal: Goal, result: ActionResult) -> str:

@@ -2,9 +2,9 @@
 
 **[📚 Full Documentation](https://rysweet.github.io/azlin/)** | **[🚀 Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[💬 Discussions](https://github.com/rysweet/azlin/discussions)**
 
-**Version:** 0.3.2
-**Last Updated:** 2025-11-23
-**[📝 Release Notes](https://github.com/rysweet/azlin/releases/tag/v0.3.2)** | **[📊 Changelog](https://github.com/rysweet/azlin/compare/v0.3.1...v0.3.2)** | **[🚀 Latest Release](https://github.com/rysweet/azlin/releases/tag/v0.3.2)**
+**Version:** 0.4.0
+**Last Updated:** 2025-12-03
+**[📝 Release Notes](https://github.com/rysweet/azlin/releases/tag/v0.4.0)** | **[📊 Changelog](https://github.com/rysweet/azlin/compare/v0.3.2...v0.4.0)** | **[🚀 Latest Release](https://github.com/rysweet/azlin/releases/tag/v0.4.0)**
 
 **One command to create a fully-equipped development VM on Azure**
 
@@ -32,11 +32,30 @@ azlin automates the tedious process of setting up Azure Ubuntu VMs for developme
 1. Authenticates with Azure
 2. Provisions an Ubuntu 24.04 VM
 3. Installs 12 essential development tools
-4. Sets up SSH with key-based authentication
-5. Starts a persistent tmux session
-6. Optionally clones a GitHub repository
+4. Creates a separate 100GB disk for /home (persistent storage)
+5. Sets up SSH with key-based authentication
+6. Starts a persistent tmux session
+7. Optionally clones a GitHub repository
 
 **Total time**: 4-7 minutes from command to working development environment.
+
+## ✨ What's New in v0.4.0
+
+### Separate Home Disk (NEW)
+VMs now automatically get a dedicated 100GB disk for `/home`:
+```bash
+azlin new                      # 100GB home disk (default)
+azlin new --home-disk-size 200  # Custom size
+azlin new --no-home-disk        # Disable (use OS disk)
+```
+
+**Benefits:**
+- Persistent storage isolated from OS disk
+- No NFS setup required
+- Cost-effective ($4.80/month for 100GB)
+- Automatic formatting and mounting
+
+See [Separate Home Disk Guide](docs/how-to/separate-home-disk.md) for details.
 
 ## ✨ What's New in v0.3.2
 
@@ -326,6 +345,101 @@ azlin auth remove dev
 ```
 
 For detailed authentication setup and troubleshooting, see the [Authentication Implementation Guide](docs/AUTH_IMPLEMENTATION_GUIDE.md).
+
+## Smart Connection Behaviors
+
+azlin automatically handles connection complexities so you can focus on your work. Two powerful features eliminate common connection issues:
+
+### Auto-Sync SSH Keys
+
+azlin automatically synchronizes SSH keys from Azure Key Vault to your VMs before connecting. No more "Permission denied" errors from key mismatches.
+
+```bash
+# Just connect - azlin handles the rest
+azlin connect my-vm
+
+# Output:
+# Fetching SSH key from Key Vault... ✓
+# Auto-syncing key to VM... ✓
+# SSH key synchronized to VM
+# Connecting to my-vm...
+# Connected!
+```
+
+**What it does:**
+- Fetches the correct SSH key from Key Vault (source of truth)
+- Checks if the key exists in the VM's authorized_keys
+- Appends the key if missing (never replaces existing keys)
+- Proceeds with connection
+
+**Benefits:**
+- Eliminates key mismatch connection failures
+- Automatic key synchronization on first connection
+- Safe append-only operations (preserves existing keys)
+- Works automatically - no manual intervention
+
+### Auto-Detect Resource Group
+
+azlin automatically discovers which resource group contains your VM. No need to remember or specify `--resource-group` every time.
+
+```bash
+# Connect without resource group
+azlin connect my-vm
+
+# Output:
+# Resource group not specified, attempting auto-discovery...
+# Discovered VM 'my-vm' in resource group 'rg-prod' ✓
+# Connecting to my-vm...
+# Connected!
+```
+
+**What it does:**
+- Queries Azure for VMs matching your identifier (name or session)
+- Caches the result for 15 minutes (fast subsequent connections)
+- Automatically handles resource group changes
+- Falls back gracefully if discovery fails
+
+**Benefits:**
+- No more "VM not found" errors when VMs move
+- Seamless resource group changes (cache auto-invalidates)
+- Fast connections (cache hits in <100ms)
+- Works across all your resource groups
+
+### Configuration
+
+Both features are enabled by default and work transparently. You can configure them in `~/.azlin/config.toml`:
+
+```toml
+[ssh]
+auto_sync_keys = true        # Enable automatic key sync
+sync_timeout = 30            # Sync operation timeout
+
+[resource_group]
+auto_detect = true           # Enable automatic RG discovery
+cache_ttl = 900              # Cache for 15 minutes
+```
+
+### CLI Overrides
+
+Disable features for specific connections:
+
+```bash
+# Disable auto-sync for this connection
+azlin connect my-vm --no-auto-sync-keys
+
+# Disable auto-detect (requires --resource-group)
+azlin connect my-vm --no-auto-detect-rg --resource-group my-rg
+
+# Force cache refresh
+azlin connect my-vm --force-rg-refresh
+```
+
+### Documentation
+
+- **Auto-Sync SSH Keys**: [docs/features/auto-sync-keys.md](docs/features/auto-sync-keys.md)
+- **Auto-Detect Resource Group**: [docs/features/auto-detect-rg.md](docs/features/auto-detect-rg.md)
+- **Configuration Reference**: [docs/reference/config-default-behaviors.md](docs/reference/config-default-behaviors.md)
+- **Troubleshooting**: [docs/how-to/troubleshoot-connection-issues.md](docs/how-to/troubleshoot-connection-issues.md)
 
 ## Multi-Tenant Context Management
 
@@ -1225,6 +1339,26 @@ azlin storage mount myteam-shared --vm existing-vm
 
 # Now all VMs share the same home directory!
 ```
+
+### Cross-Region NFS Support
+
+**NEW:** Azure Files NFS now supports cross-region mounting via private endpoints. When you create a VM in a different region than your NFS storage, azlin will:
+
+- Show performance warnings (cross-region latency: ~50-100ms vs ~1-5ms same-region)
+- Estimate data transfer costs
+- Automatically set up private endpoints and VNet peering
+- Enable secure cross-region access
+
+```bash
+# Create storage in eastus
+azlin storage create team-data --size 100 --region eastus
+
+# Create VM in westus - cross-region mount supported!
+azlin new --nfs-storage team-data --region westus --name worker-west
+# azlin will prompt about cross-region performance implications
+```
+
+**Performance Note:** Cross-region NFS mounting is fully supported and secure, but may have higher latency and data transfer costs compared to same-region access.
 
 ### Provisioning VMs with Shared Storage
 

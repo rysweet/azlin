@@ -66,6 +66,7 @@ class MultiContextDisplay:
         show_errors: bool = True,
         show_summary: bool = True,
         wide_mode: bool = False,
+        compact_mode: bool = False,
     ) -> None:
         """Display multi-context VM query results.
 
@@ -74,6 +75,7 @@ class MultiContextDisplay:
             show_errors: Display error details for failed contexts
             show_summary: Display summary statistics
             wide_mode: Prevent VM name truncation in table output
+            compact_mode: Use compact column widths for table output
 
         Example:
             >>> display = MultiContextDisplay()
@@ -86,7 +88,9 @@ class MultiContextDisplay:
         # Display VMs grouped by context
         for ctx_result in result.context_results:
             if ctx_result.success:
-                self._display_context_vms(ctx_result, wide_mode=wide_mode)
+                self._display_context_vms(
+                    ctx_result, wide_mode=wide_mode, compact_mode=compact_mode
+                )
             elif show_errors:
                 self._display_context_error(ctx_result)
 
@@ -124,12 +128,15 @@ class MultiContextDisplay:
         self.console.print(panel)
         self.console.print()  # Spacing
 
-    def _display_context_vms(self, ctx_result, wide_mode: bool = False) -> None:
+    def _display_context_vms(
+        self, ctx_result, wide_mode: bool = False, compact_mode: bool = False
+    ) -> None:
         """Display VMs for a single context.
 
         Args:
             ctx_result: ContextVMResult with VMs to display
             wide_mode: Prevent VM name truncation in table output
+            compact_mode: Use compact column widths for table output
         """
         # Create table title with context info
         title = (
@@ -149,14 +156,25 @@ class MultiContextDisplay:
         if wide_mode:
             table.add_column("Session Name", style="cyan", no_wrap=True)
             table.add_column("VM Name", style="white", no_wrap=True)
+        elif compact_mode:
+            table.add_column("Session Name", style="cyan", width=15)
+            table.add_column("VM Name", style="white", width=20)
         else:
             table.add_column("Session Name", style="cyan", width=20)
             table.add_column("VM Name", style="white", width=30)
-        table.add_column("Status", width=10)
-        table.add_column("IP", style="yellow", width=15)
-        table.add_column("Region", width=10)
-        table.add_column("Size", width=15)
-        table.add_column("vCPUs", justify="right", width=6)
+
+        if compact_mode:
+            table.add_column("Status", width=8)
+            table.add_column("IP", style="yellow", width=13)
+            table.add_column("Region", width=8)
+            table.add_column("Size", width=12)
+            table.add_column("vCPUs", justify="right", width=5)
+        else:
+            table.add_column("Status", width=10)
+            table.add_column("IP", style="yellow", width=15)
+            table.add_column("Region", width=10)
+            table.add_column("Size", width=15)
+            table.add_column("vCPUs", justify="right", width=6)
 
         # Add VM rows
         if not ctx_result.vms:
@@ -177,7 +195,14 @@ class MultiContextDisplay:
                 else:
                     status_display = f"[yellow]{status}[/yellow]"
 
-                ip = vm.public_ip or "N/A"
+                # Display IP with type indicator (Issue #492)
+                ip = (
+                    f"{vm.public_ip} (Public)"
+                    if vm.public_ip
+                    else f"{vm.private_ip} (Private)"
+                    if vm.private_ip
+                    else "N/A"
+                )
                 size = vm.vm_size or "N/A"
 
                 # Get vCPU count
@@ -258,21 +283,6 @@ class MultiContextDisplay:
         summary_table.add_row("Query Duration", f"{result.total_duration:.2f}s")
 
         self.console.print(summary_table)
-
-    def display_cost_summary(self, result: MultiContextVMResult) -> None:
-        """Display cost summary for multi-context results.
-
-        Args:
-            result: Multi-context query results with cost information
-
-        Note:
-            This is a placeholder for future cost tracking integration.
-            Currently not implemented as it requires CostEstimator integration.
-        """
-        # TODO: Integrate with CostEstimator from modules/cost_estimator.py
-        # This would calculate per-context and aggregate costs
-        logger.debug("Cost summary not yet implemented")
-        pass
 
     def display_error_summary(self, result: MultiContextVMResult) -> None:
         """Display summary of all errors encountered.

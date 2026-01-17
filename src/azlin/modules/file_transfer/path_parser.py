@@ -30,7 +30,11 @@ class PathParser:
 
     @classmethod
     def parse_and_validate(
-        cls, path_str: str, allow_absolute: bool = False, base_dir: Path | None = None
+        cls,
+        path_str: str,
+        allow_absolute: bool = False,
+        base_dir: Path | None = None,
+        is_local: bool = False,
     ) -> Path:
         """
         Parse and validate a path string with comprehensive security checks.
@@ -38,7 +42,9 @@ class PathParser:
         Args:
             path_str: User-provided path string
             allow_absolute: Whether to allow absolute paths
-            base_dir: Base directory for relative paths (default: HOME_DIR)
+            base_dir: Base directory for relative paths (default: cwd for local, HOME_DIR for remote)
+            is_local: If True, path is on local machine (full validation)
+                      If False, path is on remote VM (minimal validation only)
 
         Returns:
             Validated Path object (always absolute)
@@ -46,13 +52,10 @@ class PathParser:
         Raises:
             PathTraversalError: Path attempts directory traversal
             InvalidPathError: Path is malformed
-            SymlinkSecurityError: Dangerous symlink detected
 
         Security:
-            1. Normalizes path (removes .., ., //)
-            2. Resolves symlinks
-            3. Validates against boundary
-            4. Checks for credential files
+            For LOCAL paths: Full validation (resolve, symlinks, boundaries, credentials)
+            For REMOTE paths: Basic validation only (no filesystem access)
         """
         if not path_str or not path_str.strip():
             raise InvalidPathError("Path cannot be empty")
@@ -65,36 +68,55 @@ class PathParser:
         if cls._contains_shell_metacharacters(path_str):
             raise InvalidPathError(f"Path contains shell metacharacters: {path_str}")
 
-        # Convert to Path object
+        # Check for explicit path traversal in the string (works for both local and remote)
+        if "/.." in path_str or path_str.startswith("../") or "/../" in path_str:
+            raise PathTraversalError(f"Path contains directory traversal: {path_str}")
+
+        # FOR REMOTE PATHS: Return minimal validation
+        # Remote paths are validated by the VM's filesystem, not local checks
+        if not is_local:
+            # Just create the Path object without resolving
+            try:
+                path = Path(path_str)
+            except (ValueError, RuntimeError) as e:
+                raise InvalidPathError(f"Invalid path format: {e}") from e
+
+            # Remote paths typically allow absolute (they're on a different machine)
+            # But still respect allow_absolute parameter if caller sets it to False
+            if path.is_absolute() and not allow_absolute:
+                raise InvalidPathError(f"Absolute paths not allowed for this operation: {path_str}")
+
+            # Make relative paths absolute
+            if not path.is_absolute():
+                base = base_dir or Path("/home/azureuser")
+                path = base / path
+
+            return path
+
+        # FOR LOCAL PATHS: Full validation
+        # Convert to Path object and expand user home
         try:
             path = Path(path_str).expanduser()
         except (ValueError, RuntimeError) as e:
             raise InvalidPathError(f"Invalid path format: {e}") from e
 
-        # Check for absolute path if not allowed
-        if path.is_absolute() and not allow_absolute:
-            raise InvalidPathError(
-                "Absolute paths not allowed. Use relative paths or session:path notation"
-            )
+        # Note: Local paths always allow absolute (user controls their own filesystem)
+        # The allow_absolute parameter is only relevant for remote paths
 
         # Make relative paths absolute
         if not path.is_absolute():
-            base = base_dir or cls.HOME_DIR
+            base = base_dir or Path.cwd()
             path = base / path
 
-        # Normalize: remove .., ., //
+        # Normalize and resolve
         try:
             normalized = path.resolve(strict=False)
         except (ValueError, RuntimeError) as e:
             raise InvalidPathError(f"Cannot normalize path: {e}") from e
 
-        # Check for path traversal by verifying it's within allowed boundaries
+        # Check boundaries
         if not cls._is_within_allowed_boundaries(normalized):
             raise PathTraversalError(f"Path escapes allowed directory: {normalized}")
-
-        # Check for explicit .. in parts (defense in depth)
-        if ".." in normalized.parts:
-            raise PathTraversalError("Path contains '..' after normalization")
 
         # Validate symlinks
         if normalized.is_symlink():
@@ -114,12 +136,33 @@ class PathParser:
 
     @classmethod
     def _is_within_allowed_boundaries(cls, path: Path) -> bool:
-        """Check if path is within allowed directories."""
+        """Check if LOCAL path is within allowed directories.
+
+        For local paths only. Checks against local HOME_DIR.
+        """
         # Path must be within HOME_DIR
         try:
             path.relative_to(cls.HOME_DIR)
             return True
         except ValueError:
+            return False
+
+    @classmethod
+    def _is_within_remote_boundaries(cls, path: Path) -> bool:
+        """Check if REMOTE path is within allowed directories.
+
+        For remote VM paths. Checks against /home/azureuser (VM home directory).
+        Does not validate against local filesystem.
+        """
+        # Remote paths must be within /home/azureuser
+        remote_home = Path("/home/azureuser")
+
+        try:
+            # Check if path is within remote home directory
+            path.relative_to(remote_home)
+            return True
+        except ValueError:
+            # Path is outside /home/azureuser
             return False
 
     @classmethod

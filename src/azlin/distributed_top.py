@@ -23,7 +23,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.table import Table
 
-from azlin.modules.ssh_connector import SSHConfig
+from azlin.modules.ssh_connector import SSHConfig, SSHConnector
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,7 @@ class VMMetrics:
     memory_total_mb: int | None
     memory_percent: float | None
     top_processes: list[dict[str, str]] | None  # List of {pid, user, cpu, mem, command}
+    region: str | None = None
     error_message: str | None = None
     timestamp: float = 0.0
 
@@ -183,22 +184,12 @@ class DistributedTopExecutor:
         command = "uptime && free -m && top -bn1 -o %CPU | head -n 15"
 
         try:
-            # Build SSH command
-            ssh_cmd = [
-                "ssh",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-o",
-                "LogLevel=ERROR",
-                "-o",
-                f"ConnectTimeout={timeout}",
-                "-i",
-                str(ssh_config.key_path),
-                f"{ssh_config.user}@{ssh_config.host}",
-                command,
-            ]
+            # Build SSH command using SSHConnector (handles port correctly)
+            # Defensive check for key_path type
+            if not isinstance(ssh_config.key_path, Path):
+                ssh_config.key_path = Path(ssh_config.key_path)
+
+            ssh_cmd = SSHConnector.build_ssh_command(ssh_config, command)
 
             logger.debug(f"Collecting metrics from {ssh_config.host}")
 
@@ -421,6 +412,7 @@ class DistributedTopExecutor:
 
         # Add columns
         table.add_column("VM", style="cyan", no_wrap=True)
+        table.add_column("Region", style="cyan")
         table.add_column("Status", style="green")
         table.add_column("Load (1/5/15)", style="yellow")
         table.add_column("CPU %", style="magenta")
@@ -433,8 +425,10 @@ class DistributedTopExecutor:
         for metric in sorted_metrics:
             if not metric.success:
                 # Error row
+                region_str = metric.region or "—"
                 table.add_row(
                     metric.vm_name,
+                    region_str,
                     "[red]OFFLINE[/red]",
                     "—",
                     "—",
@@ -470,8 +464,10 @@ class DistributedTopExecutor:
                 proc = metric.top_processes[0]
                 top_proc_str = f"{proc['command'][:30]} (CPU: {proc['cpu']}%, MEM: {proc['mem']}%)"
 
+            region_str = metric.region or "—"
             table.add_row(
                 metric.vm_name,
+                region_str,
                 status,
                 load_str,
                 cpu_str,

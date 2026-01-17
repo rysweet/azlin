@@ -41,12 +41,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.11.0",
     "pytest-xdist>=3.3.0",
     "pre-commit>=3.5.0",
     "pyright>=1.1.350",
     "ruff>=0.1.0",
+    "bandit>=1.7.5",
 ]
 
 [project.scripts]
@@ -70,7 +72,9 @@ markers = [
     "command_new: Tests for 'azlin new' command",
     "command_list: Tests for 'azlin list' command",
     "command_connect: Tests for 'azlin connect' command",
+    "asyncio: Async tests",
 ]
+asyncio_mode = "auto"
 addopts = "-ra -q"
 log_level = "INFO"  # Capture INFO level logs in caplog for testing
 
@@ -154,10 +158,12 @@ max-complexity = 15
     "S108",   # hardcoded /tmp allowed in tests
     "PT009",  # pytest unittest style
     "PT027",  # pytest unittest raises
+    "PERF401", # list comprehension vs append (clarity in tests)
 ]
 "**/tests/**/*.py" = [
     "S101",   # assert allowed in tests
     "S108",   # hardcoded /tmp allowed in tests
+    "PERF401", # list comprehension vs append (clarity in tests)
 ]
 ".claude/**/*.py" = [
     "S101",   # assert allowed
@@ -169,10 +175,9 @@ max-complexity = 15
 "src/azlin/agentic/strategies/base_strategy.py" = [
     "B027",   # Empty method in ABC - intentionally optional to override
 ]
-"src/azlin/cli.py" = [
-    "S602",   # subprocess shell=True needed for diagnostic command piping - input is trusted
-]
+# No per-file exceptions - S602 (shell=True) is now enforced everywhere
 
 [tool.bandit]
 exclude_dirs = ["tests", "*/tests/*"]
 skips = ["B108"]  # Allow hardcoded /tmp in test files
+# B602 (shell=True) is now enforced - no exceptions allowed in production code

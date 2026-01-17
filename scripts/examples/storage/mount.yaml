@@ -1,0 +1,52 @@
+command: mount
+examples:
+  - title: Mount Storage on VM (Team Collaboration)
+    description: Mount shared storage on a development VM for team collaboration
+    command: azlin storage mount vm team-shared --vm my-dev-vm
+    output: |
+      Mounting storage 'team-shared' on VM 'my-dev-vm'...
+        Backing up existing home directory...
+        Mounting NFS share at /home/azureuser...
+        Configuring auto-mount...
+
+      Storage mounted successfully!
+
+      Your home directory is now shared with:
+        - dev-vm-2
+        - dev-vm-3
+
+      All changes are instantly visible across VMs.
+
+  - title: Mount Storage Locally (Local Access)
+    description: Mount Azure Files storage on your local machine for direct access
+    command: |
+      mkdir -p ~/azure-storage
+      azlin storage mount local --mount-point ~/azure-storage --storage team-shared
+    output: |
+      Mounting storage 'team-shared' locally...
+        Mount point: /Users/yourname/azure-storage
+        NFS endpoint: team-shared.file.core.windows.net
+        Checking permissions...
+        Mounting filesystem...
+
+      Storage mounted successfully!
+
+      Access your Azure files at:
+        ~/azure-storage/
+
+      To unmount:
+        sudo umount ~/azure-storage
+
+  - title: Mount on Multiple VMs
+    description: Share storage across entire team by mounting on multiple VMs
+    command: |
+      for vm in dev-vm-1 dev-vm-2 dev-vm-3; do
+          azlin storage mount vm team-shared --vm $vm
+      done
+    output: |
+      Mounting on 3 VMs...
+      ✓ dev-vm-1: mounted successfully
+      ✓ dev-vm-2: mounted successfully
+      ✓ dev-vm-3: mounted successfully
+
+      All VMs now share the same home directory!

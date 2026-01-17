@@ -1141,3 +1141,47 @@ requires_azure_auth = pytest.mark.skipif(
     not is_azure_authenticated(),
     reason="Requires Azure CLI authentication (skip in CI unless AZLIN_ENABLE_AZURE_TESTS=1)",
 )
+
+
+# ============================================================================
+# CONDITIONAL AZURE CLI MOCKING (Issue #514)
+# ============================================================================
+
+
+@pytest.fixture
+def mock_azure_cli_in_ci():
+    """Mock Azure CLI only in CI environment.
+
+    In CI (or when CI=1 or GITHUB_ACTIONS=1):
+        - Use mocks to avoid requiring Azure authentication
+        - Mock AzureCLIExecutor to return successful responses
+
+    Locally (when not in CI):
+        - Use REAL Azure CLI (requires 'az login')
+        - No mocking - tests run against actual Azure API
+
+    This allows:
+        - Local testing with real Azure (catches integration issues)
+        - CI testing without Azure auth (faster, no credentials needed)
+
+    Usage:
+        def test_provision_vm(self, mock_azure_cli_in_ci):
+            # Will use real or mocked Azure based on environment
+            provisioner = VMProvisioner()
+            result = provisioner.provision_vm(config)
+    """
+    if os.getenv("CI") or os.getenv("GITHUB_ACTIONS"):
+        # In CI - use mocks
+        with patch("azlin.vm_provisioning.AzureCLIExecutor") as mock_executor_class:
+            mock_executor = Mock()
+            mock_executor.execute.return_value = {
+                "success": True,
+                "stdout": '{"id": "/subscriptions/sub-id/resourceGroups/test-rg/providers/Microsoft.Compute/virtualMachines/test-vm", "name": "test-vm"}',
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_executor_class.return_value = mock_executor
+            yield mock_executor
+    else:
+        # Locally - use real Azure CLI (requires 'az login')
+        yield None

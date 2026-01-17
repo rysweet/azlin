@@ -36,6 +36,20 @@ from azlin.vm_manager import VMManager, VMManagerError
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_for_logging(value: str) -> str:
+    """Sanitize string for safe logging.
+
+    Prevents log injection by removing control characters and newlines.
+
+    Args:
+        value: String to sanitize
+
+    Returns:
+        Sanitized string safe for logging
+    """
+    return value.encode("ascii", "replace").decode("ascii").replace("\n", " ").replace("\r", " ")
+
+
 class VMConnectorError(Exception):
     """Raised when VM connection operations fail."""
 
@@ -70,7 +84,7 @@ class VMConnector:
         try:
             ConnectionTracker.record_connection(vm_name)
         except Exception as e:
-            logger.warning(f"Failed to record connection for {vm_name}: {e}")
+            logger.warning(f"Failed to record connection for {_sanitize_for_logging(vm_name)}: {e}")
 
     @staticmethod
     def _try_fetch_key_from_vault(vm_name: str, key_path: Path, resource_group: str) -> bool:
@@ -96,7 +110,7 @@ class VMConnector:
         breaking multi-VM connection scenarios.
         """
         try:
-            logger.info(f"Checking Key Vault for SSH key: {vm_name}")
+            logger.info(f"Checking Key Vault for SSH key: {_sanitize_for_logging(vm_name)}")
 
             # Load context to get subscription/tenant info
             try:
@@ -140,7 +154,9 @@ class VMConnector:
             # Check if it's a "not found" vs auth error
             error_str = str(e).lower()
             if "not found" in error_str or "does not exist" in error_str:
-                logger.info(f"SSH key not found in Key Vault for VM: {vm_name}")
+                logger.info(
+                    f"SSH key not found in Key Vault for VM: {_sanitize_for_logging(vm_name)}"
+                )
             else:
                 logger.warning(f"Could not access Key Vault: {e}")
             return False
@@ -222,6 +238,69 @@ class VMConnector:
                 resource_group=conn_info.resource_group,
             )
 
+        # Auto-sync SSH key to VM if enabled and key was fetched from vault
+        if vault_fetched:
+            try:
+                config = ConfigManager.load_config()
+
+                # Only attempt auto-sync if enabled in config
+                if config.ssh_auto_sync_keys:
+                    # Check if we should skip auto-sync for new VMs
+                    should_skip = False
+                    if config.ssh_auto_sync_skip_new_vms:
+                        from azlin.modules.vm_age_checker import VMAgeChecker
+
+                        try:
+                            is_ready = VMAgeChecker.is_vm_ready_for_auto_sync(
+                                vm_name=conn_info.vm_name,
+                                resource_group=conn_info.resource_group,
+                                threshold_seconds=config.ssh_auto_sync_age_threshold,
+                            )
+                            should_skip = not is_ready
+                        except Exception as e:
+                            # Log warning but don't block connection on age check failure
+                            logger.warning(
+                                f"Failed to check VM age for {_sanitize_for_logging(conn_info.vm_name)}: {e}. "
+                                f"Proceeding with auto-sync (fail-safe behavior)."
+                            )
+                            should_skip = False  # Fail-safe: proceed with auto-sync
+
+                        if should_skip:
+                            safe_vm_name = _sanitize_for_logging(conn_info.vm_name)
+                            logger.info(
+                                f"Skipping auto-sync for new VM {safe_vm_name} "
+                                f"(younger than {config.ssh_auto_sync_age_threshold}s threshold). "
+                                f"SSH key will be used directly for connection. "
+                                f"Use 'azlin sync-keys {safe_vm_name}' to manually sync after VM initialization completes."
+                            )
+
+                    # Proceed with auto-sync if not skipped
+                    if not should_skip:
+                        from azlin.modules.vm_key_sync import VMKeySync
+
+                        logger.info(
+                            f"Auto-syncing SSH key to VM authorized_keys: {_sanitize_for_logging(conn_info.vm_name)}"
+                        )
+
+                        # Derive public key from private key
+                        public_key = SSHKeyManager.get_public_key(conn_info.ssh_key_path)
+
+                        # Instantiate VMKeySync with config dict
+                        sync_manager = VMKeySync(config.to_dict())
+
+                        # Call instance method with reduced timeout (5s instead of 30s)
+                        # For first connections, sync will likely timeout anyway
+                        sync_manager.ensure_key_authorized(
+                            vm_name=conn_info.vm_name,
+                            resource_group=conn_info.resource_group,
+                            public_key=public_key,
+                            timeout=5,  # Reduced from 30s default for faster failure
+                        )
+                        logger.info("SSH key auto-sync completed successfully")
+            except Exception as e:
+                # Log warning but don't block connection
+                logger.warning(f"Auto-sync SSH key failed: {e}, attempting connection anyway")
+
         # Track if key existed before ensure_key_exists() for accurate logging
         key_existed_before = conn_info.ssh_key_path and conn_info.ssh_key_path.exists()
 
@@ -238,7 +317,7 @@ class VMConnector:
         elif key_existed_before:
             logger.info("Using existing local SSH key")
         else:
-            logger.info(f"Generated new SSH key for VM: {conn_info.vm_name}")
+            logger.info(f"Generated new SSH key for VM: {_sanitize_for_logging(conn_info.vm_name)}")
 
         conn_info.ssh_key_path = ssh_keys.private_path
 
@@ -293,6 +372,16 @@ class VMConnector:
                     f"(127.0.0.1:{ssh_port})"
                 )
 
+                # DISABLED: sshfs auto-mount feature (not working reliably on macOS)
+                # TODO: Re-enable when sshfs-mac installation is more reliable
+                # if not skip_prompts and not remote_command:
+                #     cls._offer_sshfs_mount(
+                #         vm_name=conn_info.vm_name,
+                #         resource_group=conn_info.resource_group,
+                #         tunnel_port=ssh_port,
+                #         ssh_key=conn_info.ssh_key_path,
+                #     )
+
             # Route connection: remote command -> SSHConnector, interactive+reconnect -> SSHReconnectHandler, interactive -> TerminalLauncher
             if remote_command is not None:
                 ssh_config = SSHConfig(
@@ -304,7 +393,9 @@ class VMConnector:
                 )
 
                 try:
-                    logger.info(f"Executing command on {conn_info.vm_name} ({original_ip})...")
+                    logger.info(
+                        f"Executing command on {_sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
+                    )
                     exit_code = SSHConnector.connect(
                         config=ssh_config,
                         remote_command=remote_command,
@@ -328,8 +419,22 @@ class VMConnector:
                 )
 
                 try:
-                    logger.info(f"Connecting to {conn_info.vm_name} ({original_ip})...")
-                    handler = SSHReconnectHandler(max_retries=max_reconnect_retries)
+                    logger.info(
+                        f"Connecting to {_sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
+                    )
+
+                    # Create cleanup callback for Bastion tunnel if using Bastion
+                    cleanup_callback = None
+                    if bastion_manager is not None and bastion_tunnel is not None:
+                        # Capture bastion_tunnel and bastion_manager in closure
+                        def cleanup_bastion_tunnel():
+                            bastion_manager.close_tunnel(bastion_tunnel)
+
+                        cleanup_callback = cleanup_bastion_tunnel
+
+                    handler = SSHReconnectHandler(
+                        max_retries=max_reconnect_retries, cleanup_callback=cleanup_callback
+                    )
                     exit_code = handler.connect_with_reconnect(
                         config=ssh_config,
                         vm_name=conn_info.vm_name,
@@ -355,7 +460,9 @@ class VMConnector:
                 )
 
                 try:
-                    logger.info(f"Connecting to {conn_info.vm_name} ({original_ip})...")
+                    logger.info(
+                        f"Connecting to {_sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
+                    )
                     success = TerminalLauncher.launch(terminal_config)
 
                     if success:
@@ -576,7 +683,9 @@ class VMConnector:
             # Check for explicit mapping
             mapping = bastion_config.get_mapping(vm_name)
             if mapping:
-                logger.info(f"Using configured Bastion mapping for {vm_name}")
+                logger.info(
+                    f"Using configured Bastion mapping for {_sanitize_for_logging(vm_name)}"
+                )
                 return BastionInfo(
                     name=mapping.bastion_name,
                     resource_group=mapping.bastion_resource_group,
@@ -669,6 +778,58 @@ class VMConnector:
             raise VMConnectorError(f"Failed to create Bastion tunnel: {e}") from e
         except Exception as e:
             raise VMConnectorError(f"Unexpected error creating Bastion tunnel: {e}") from e
+
+    @classmethod
+    def _offer_sshfs_mount(
+        cls,
+        vm_name: str,
+        resource_group: str,
+        tunnel_port: int,
+        ssh_key: Path,
+    ) -> None:
+        """Offer to mount VM's NFS storage locally via sshfs.
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group
+            tunnel_port: Bastion tunnel local port
+            ssh_key: SSH private key path
+        """
+        try:
+            # Check if VM uses NFS storage
+            # Try importing NFSQuotaManager (may not exist in all versions)
+            try:
+                from azlin.modules.nfs_quota_manager import NFSQuotaManager
+
+                nfs_info = NFSQuotaManager.check_vm_nfs_storage(vm_name, resource_group)
+            except ImportError:
+                # NFSQuotaManager not available, skip NFS detection
+                logger.debug("NFSQuotaManager not available, skipping NFS mount offer")
+                return
+            except Exception as e:
+                logger.debug(f"NFS detection failed: {e}")
+                return
+
+            if not nfs_info:
+                # VM doesn't use NFS storage
+                return
+
+            storage_account, share_name, _ = nfs_info
+
+            # Offer sshfs mount
+            from azlin.modules.sshfs_manager import SSHFSManager
+
+            SSHFSManager.prompt_and_mount(
+                vm_name=vm_name,
+                storage_name=storage_account,
+                tunnel_host="localhost",
+                tunnel_port=tunnel_port,
+                ssh_key=ssh_key,
+            )
+
+        except Exception as e:
+            # Don't block connection if sshfs mount fails
+            logger.debug(f"SSHFS mount offer failed: {e}")
 
     @classmethod
     def is_valid_ip(cls, identifier: str) -> bool:

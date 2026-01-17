@@ -121,7 +121,9 @@ class TestActionRecommendation:
         )
 
         enforcer = BudgetEnforcer()
-        actions = enforcer.recommend_actions([pattern], budget_status, config)
+        actions = enforcer.recommend_actions(
+            [pattern], budget_status, config, resource_group="test-rg"
+        )
 
         assert len(actions) > 0
         assert any(action.action_type == "stop" for action in actions)
@@ -156,7 +158,9 @@ class TestActionRecommendation:
         )
 
         enforcer = BudgetEnforcer()
-        actions = enforcer.recommend_actions([pattern], budget_status, config)
+        actions = enforcer.recommend_actions(
+            [pattern], budget_status, config, resource_group="test-rg"
+        )
 
         assert len(actions) > 0
         assert any(action.action_type == "downsize" for action in actions)
@@ -193,7 +197,9 @@ class TestActionRecommendation:
             mock_tag_manager.get_vm_tags.return_value = {"environment": "production"}
 
             enforcer = BudgetEnforcer()
-            actions = enforcer.recommend_actions([pattern], budget_status, config)
+            actions = enforcer.recommend_actions(
+                [pattern], budget_status, config, resource_group="test-rg"
+            )
 
             # Should not recommend actions for production VM
             assert not any(action.vm_name == "prod-vm" for action in actions)

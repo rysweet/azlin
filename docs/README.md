@@ -8,13 +8,20 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 
 - **[../README.md](../README.md)** - Project overview, quick start, and installation
 - **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command reference and examples
+- **[reference/destroy-command.md](reference/destroy-command.md)** - Complete guide to VM deletion
 - **[UV_USAGE.md](UV_USAGE.md)** - Using azlin with uv package manager
+- **[how-to/troubleshoot-connection-issues.md](how-to/troubleshoot-connection-issues.md)** - Comprehensive troubleshooting guide
+- **[troubleshooting/timeout-issues.md](troubleshooting/timeout-issues.md)** - Timeout troubleshooting for azlin list command
+- **[backup-disaster-recovery.md](backup-disaster-recovery.md)** - Automated backup scheduling, cross-region replication, and DR testing
+- **[features/tmux-session-status.md](features/tmux-session-status.md)** - Visual tmux session connection status in VM listings
+- **[features/memory-latency.md](features/memory-latency.md)** - Memory allocation and network latency monitoring
 
 ### For Developers
 
 - **[AI_AGENT_GUIDE.md](AI_AGENT_GUIDE.md)** - **START HERE for AI agents** - Comprehensive guide to azlin development
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete architecture specification
 - **[testing/test_strategy.md](testing/test_strategy.md)** - Testing approach and strategy
+- **[technical/audit-error-handling.md](technical/audit-error-handling.md)** - Audit logging and error handling improvements
 
 ### For AI Agents
 
@@ -64,6 +71,9 @@ docs/
 ├── QUICK_REFERENCE.md           # Command reference for daily use
 ├── UV_USAGE.md                  # uv package manager workflows
 ├── ARCHITECTURE.md              # Complete architecture spec
+├── backup-disaster-recovery.md  # Backup and DR automation
+├── technical/
+│   └── audit-error-handling.md  # Audit logging and error handling
 └── testing/
     └── test_strategy.md         # Testing strategy
 ```

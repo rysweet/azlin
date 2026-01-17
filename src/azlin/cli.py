@@ -29,9 +29,11 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from azlin.modules.storage_manager import StorageInfo
+    from azlin.ssh.latency import LatencyResult
 
 import click
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from azlin import __version__
@@ -50,6 +52,9 @@ from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 from azlin.click_group import AzlinGroup
 
+# Ask commands (Natural Language Fleet Queries)
+from azlin.commands.ask import ask_command, ask_group
+
 # Auth commands
 from azlin.commands.auth import auth
 
@@ -65,6 +70,7 @@ from azlin.commands.compose import compose_group
 from azlin.commands.context import context_group
 
 # Doit commands
+from azlin.commands.costs import costs_group
 from azlin.commands.doit import doit_group
 from azlin.commands.fleet import fleet_group
 from azlin.commands.github_runner import github_runner_group
@@ -193,6 +199,8 @@ class CLIOrchestrator:
         no_bastion: bool = False,
         bastion_name: str | None = None,
         auto_approve: bool = False,
+        home_disk_size: int | None = None,
+        no_home_disk: bool = False,
     ):
         """Initialize CLI orchestrator.
 
@@ -209,6 +217,8 @@ class CLIOrchestrator:
             no_bastion: Skip bastion auto-detection and always create public IP (optional)
             bastion_name: Explicit bastion host name to use (optional)
             auto_approve: Accept all defaults and confirmations (non-interactive mode)
+            home_disk_size: Size of separate /home disk in GB (optional, default: 100)
+            no_home_disk: Disable separate /home disk (use OS disk only)
 
         Note:
             SSH keys are automatically stored in Azure Key Vault (transparent operation)
@@ -225,6 +235,8 @@ class CLIOrchestrator:
         self.no_bastion = no_bastion
         self.bastion_name = bastion_name
         self.auto_approve = auto_approve
+        self.home_disk_size = home_disk_size
+        self.no_home_disk = no_home_disk
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -295,6 +307,26 @@ class CLIOrchestrator:
                 # Backward compatible: generate timestamp-based name
                 vm_name = f"azlin-vm-{timestamp}"
                 logger.info(f"No session name provided, using generated name: {vm_name}")
+
+            # STEP 3.5: Pre-check storage account (if NFS storage is configured)
+            # This prevents late failures after expensive VM provisioning
+            if not self.no_nfs:
+                self.progress.start_operation("Checking storage configuration")
+                try:
+                    # Load config to check for default_nfs_storage
+                    try:
+                        azlin_config = ConfigManager.load_config(self.config_file)
+                    except ConfigError:
+                        azlin_config = AzlinConfig()
+
+                    # Pre-check storage and offer to create if needed
+                    self._check_and_create_storage_if_needed(rg_name, azlin_config)
+                    self.progress.complete(success=True, message="Storage configuration validated")
+                except ValueError as e:
+                    # Storage check failed (user declined to create, or creation failed)
+                    self.progress.complete(success=False)
+                    raise ProvisioningError(str(e)) from e
+
             self.progress.start_operation(f"Provisioning VM: {vm_name}", estimated_seconds=300)
             vm_details = self._provision_vm(vm_name, rg_name, ssh_key_pair.public_key_content)
             self.vm_details = vm_details
@@ -815,6 +847,22 @@ class CLIOrchestrator:
         # Public IP is disabled when using bastion
         public_ip_enabled = not use_bastion
 
+        # Determine home disk configuration
+        # Home disk is enabled by default UNLESS:
+        # 1. User explicitly disabled it with --no-home-disk
+        # 2. NFS storage is configured (NFS replaces separate home disk)
+        has_nfs_storage = bool(self.nfs_storage)
+        if not has_nfs_storage and not self.no_nfs:
+            # Check for default NFS storage in config
+            try:
+                azlin_config = ConfigManager.load_config(self.config_file)
+                has_nfs_storage = bool(azlin_config.default_nfs_storage)
+            except ConfigError:
+                has_nfs_storage = False
+
+        home_disk_enabled = not self.no_home_disk and not has_nfs_storage
+        home_disk_size = self.home_disk_size or 100
+
         # Create VM config
         config = self.provisioner.create_vm_config(
             name=vm_name,
@@ -824,6 +872,9 @@ class CLIOrchestrator:
             ssh_public_key=public_key,
             session_name=self.session_name,
             public_ip_enabled=public_ip_enabled,
+            home_disk_enabled=home_disk_enabled,
+            home_disk_size_gb=home_disk_size,
+            home_disk_sku="Standard_LRS",
         )
 
         # Progress callback
@@ -1358,6 +1409,88 @@ class CLIOrchestrator:
             )
 
         return storage
+
+    def _check_and_create_storage_if_needed(
+        self, resource_group: str, config: AzlinConfig | None
+    ) -> None:
+        """Pre-check storage account existence and offer to create if missing.
+
+        This method runs BEFORE VM provisioning to prevent late failures
+        after expensive VM creation. If a storage account is configured
+        but doesn't exist, it offers to create it interactively.
+
+        Args:
+            resource_group: Resource group to check/create storage in
+            config: Configuration object (optional)
+
+        Raises:
+            ValueError: If storage is required but doesn't exist and user declines to create
+        """
+        from azlin.modules.storage_manager import StorageManager
+
+        # Determine which storage we'll need (same logic as _resolve_nfs_storage)
+        storage_name = None
+        if self.nfs_storage:
+            # Priority 1: Explicit --nfs-storage option
+            storage_name = self.nfs_storage
+        elif config and config.default_nfs_storage:
+            # Priority 2: Config file default
+            storage_name = config.default_nfs_storage
+        else:
+            # Priority 3: Auto-detect (will check during mount, no pre-check needed)
+            logger.debug("No storage explicitly configured, will auto-detect if needed")
+            return
+
+        # Check if storage exists
+        try:
+            storages = StorageManager.list_storage(resource_group)
+        except Exception as e:
+            logger.warning(f"Could not list storage accounts: {e}")
+            # Can't verify, proceed and let mount phase handle it
+            return
+
+        storage_exists = any(s.name == storage_name for s in storages)
+
+        if not storage_exists:
+            # Storage is missing - offer to create
+            click.echo(
+                f"\n⚠️  Storage account '{storage_name}' not found in resource group '{resource_group}'."
+            )
+            click.echo("   This storage is required for VM home directory persistence.")
+
+            if click.confirm(f"\n   Create storage account '{storage_name}' now?", default=True):
+                # User accepted - create storage
+                click.echo(f"\nCreating storage account '{storage_name}'...")
+                click.echo(f"  Resource Group: {resource_group}")
+                click.echo(f"  Region: {self.region}")
+                click.echo("  Tier: Premium (high performance)")
+                click.echo("  Size: 100GB")
+
+                # Calculate cost
+                monthly_cost = 100 * 0.153  # Premium tier cost
+                click.echo(f"  Estimated cost: ${monthly_cost:.2f}/month")
+
+                try:
+                    result = StorageManager.create_storage(
+                        name=storage_name,
+                        resource_group=resource_group,
+                        region=self.region,
+                        tier="Premium",  # Default to Premium for performance
+                        size_gb=100,  # Default size
+                    )
+                    click.echo(f"\n✓ Storage account created: {result.name}")
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to create storage account '{storage_name}': {e}\n"
+                        f"Create it manually with: azlin storage create {storage_name}"
+                    ) from e
+            else:
+                # User declined - fail fast before VM provisioning
+                raise ValueError(
+                    f"Storage account '{storage_name}' is required but was not created.\n"
+                    f"Create it with: azlin storage create {storage_name}\n"
+                    f"Or use --no-nfs to skip NFS storage mounting."
+                )
 
     def _resolve_nfs_storage(
         self, resource_group: str, config: AzlinConfig | None
@@ -2145,6 +2278,12 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
 
     \b
     NATURAL LANGUAGE COMMANDS (AI-POWERED):
+        ask           Query VM fleet using natural language
+                      Example: azlin ask "which VMs cost the most?"
+                      Example: azlin ask "show VMs using >80% disk"
+                      Example: azlin ask "VMs with old Python versions"
+                      Requires: ANTHROPIC_API_KEY environment variable
+
         do            Execute commands using natural language
                       Example: azlin do "create a new vm called Sam"
                       Example: azlin do "sync all my vms"
@@ -2531,16 +2670,29 @@ def _provision_pool(
 
     ssh_key_pair = SSHKeyManager.ensure_key_exists()
 
+    # Check bastion availability once for the entire pool
+    # This ensures consistent behavior with single VM provisioning
+    rg_for_bastion_check = final_rg or f"azlin-rg-{int(time.time())}"
+    use_bastion, bastion_info = orchestrator._check_bastion_availability(
+        rg_for_bastion_check, f"{vm_name} (pool)"
+    )
+    orchestrator.bastion_info = bastion_info  # Store for later use
+
+    # Determine if public IP should be created
+    # Public IP is disabled when using bastion
+    public_ip_enabled = not use_bastion
+
     configs: list[VMConfig] = []
     for i in range(pool):
         vm_name_pool = f"{vm_name}-{i + 1:02d}"
         config_item = orchestrator.provisioner.create_vm_config(
             name=vm_name_pool,
-            resource_group=final_rg or f"azlin-rg-{int(time.time())}",
+            resource_group=rg_for_bastion_check,
             location=final_region,
             size=final_vm_size,
             ssh_public_key=ssh_key_pair.public_key_content,
             session_name=f"{session_name}-{i + 1:02d}" if session_name else None,
+            public_ip_enabled=public_ip_enabled,
         )
         configs.append(config_item)
 
@@ -2579,7 +2731,9 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
         click.echo("\nSuccessfully Provisioned VMs:")
         click.echo("=" * 80)
         for vm in result.successful:
-            click.echo(f"  {vm.name:<30} {vm.public_ip:<15} {vm.location}")
+            # Display 'Bastion' instead of empty string when no public IP
+            ip_display = vm.public_ip if vm.public_ip else "(Bastion)"
+            click.echo(f"  {vm.name:<30} {ip_display:<15} {vm.location}")
         click.echo("=" * 80)
 
     if result.failed:
@@ -2662,6 +2816,16 @@ def _validate_config_path(
     is_flag=True,
     help="Accept all defaults and confirmations (non-interactive mode)",
 )
+@click.option(
+    "--home-disk-size",
+    type=int,
+    help="Size of separate /home disk in GB (default: 100)",
+)
+@click.option(
+    "--no-home-disk",
+    is_flag=True,
+    help="Disable separate /home disk (use OS disk)",
+)
 def new_command(
     ctx: click.Context,
     repo: str | None,
@@ -2679,6 +2843,8 @@ def new_command(
     no_bastion: bool,
     bastion_name: str | None,
     yes: bool,
+    home_disk_size: int | None,
+    no_home_disk: bool,
 ) -> None:
     """Provision a new Azure VM with development tools.
 
@@ -2753,6 +2919,8 @@ def new_command(
         no_bastion=no_bastion,
         bastion_name=bastion_name,
         auto_approve=yes,
+        home_disk_size=home_disk_size,
+        no_home_disk=no_home_disk,
     )
 
     # Update config state (resource group only, session name saved after VM creation)
@@ -2831,6 +2999,14 @@ def create_command(ctx: click.Context, **kwargs: Any) -> Any:
     return ctx.invoke(new_command, **kwargs)
 
 
+# SSH timeout configuration for tmux session detection
+# These values be based on empirical observation and conservative estimates:
+# - Direct SSH: 95th percentile ~3s, buffer to 5s fer network variability
+# - Bastion: Routing through Azure Bastion adds ~5-7s latency, plus VM SSH startup ~3-5s, buffer to 15s
+DIRECT_SSH_TMUX_TIMEOUT = 5  # Seconds - Direct SSH connections (public IP)
+BASTION_TUNNEL_TMUX_TIMEOUT = 15  # Seconds - Bastion tunnels (routing latency + VM SSH startup)
+
+
 def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """Collect tmux sessions from running VMs.
 
@@ -2877,7 +3053,7 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
         # Query tmux sessions in parallel
         if ssh_configs:
             tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
-                ssh_configs, timeout=5, max_workers=10
+                ssh_configs, timeout=DIRECT_SSH_TMUX_TIMEOUT, max_workers=10
             )
 
             # Map sessions to VM names
@@ -2939,9 +3115,9 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                             key_path=ssh_key_path,
                         )
 
-                        # Get sessions for this VM
+                        # Get sessions for this VM (use longer timeout for Bastion tunnels)
                         tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
-                            [ssh_config], timeout=5, max_workers=1
+                            [ssh_config], timeout=BASTION_TUNNEL_TMUX_TIMEOUT, max_workers=1
                         )
 
                         # Add sessions to result
@@ -2975,6 +3151,7 @@ def _handle_multi_context_list(
     show_quota: bool,
     show_tmux: bool,
     wide_mode: bool = False,
+    compact_mode: bool = False,
 ) -> None:
     """Handle multi-context VM listing.
 
@@ -3080,7 +3257,9 @@ def _handle_multi_context_list(
 
     # Step 4: Display results using Rich tables
     display = MultiContextDisplay()
-    display.display_results(result, show_errors=True, show_summary=True, wide_mode=wide_mode)
+    display.display_results(
+        result, show_errors=True, show_summary=True, wide_mode=wide_mode, compact_mode=compact_mode
+    )
 
     # Step 5: Check if any contexts failed and set appropriate exit code
     if result.failed_contexts > 0:
@@ -3126,6 +3305,19 @@ def _handle_multi_context_list(
     help="Prevent VM name truncation in table output",
     is_flag=True,
 )
+@click.option(
+    "--compact",
+    "-c",
+    "compact_mode",
+    help="Use compact column widths for table output",
+    is_flag=True,
+)
+@click.option(
+    "--with-latency",
+    is_flag=True,
+    default=False,
+    help="Measure SSH latency for running VMs (adds ~5s per VM, parallel)",
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -3137,13 +3329,15 @@ def list_command(
     all_contexts: bool,
     contexts_pattern: str | None,
     wide_mode: bool = False,
+    compact_mode: bool = False,
+    with_latency: bool = False,
 ):
     """List VMs in a resource group.
 
     By default, lists azlin-managed VMs in the configured resource group.
     Use --show-all-vms (-a) to scan all VMs across all resource groups (expensive).
 
-    Shows VM name, status, IP address, region, size, vCPUs, and optionally quota/tmux info.
+    Shows VM name, status, IP address, region, size, vCPUs, memory (GB), and optionally quota/tmux/latency info.
 
     \b
     Examples:
@@ -3151,6 +3345,7 @@ def list_command(
         azlin list --rg my-rg         # VMs in specific RG
         azlin list --all              # Include stopped VMs
         azlin list --tag env=dev      # Filter by tag
+        azlin list --with-latency     # Include SSH latency measurements
         azlin list --show-all-vms     # All VMs across all RGs (expensive)
         azlin list -a                 # Same as --show-all-vms
         azlin list --no-quota         # Skip quota information
@@ -3159,6 +3354,14 @@ def list_command(
         azlin list --contexts "prod*" # VMs from production contexts
         azlin list --contexts "*-dev" --all  # All VMs (including stopped) in dev contexts
     """
+    # Validate mutually exclusive display modes
+    if compact_mode and wide_mode:
+        click.echo(
+            "Error: --compact and --wide are mutually exclusive.\nUse one or the other, not both.",
+            err=True,
+        )
+        sys.exit(1)
+
     console = Console()
     try:
         # NEW: Multi-context query mode (Issue #350)
@@ -3196,6 +3399,7 @@ def list_command(
                 show_quota=show_quota,
                 show_tmux=show_tmux,
                 wide_mode=wide_mode,
+                compact_mode=compact_mode,
             )
             return  # Exit early - multi-context mode handled completely
 
@@ -3306,6 +3510,27 @@ def list_command(
         if show_tmux:
             tmux_by_vm = _collect_tmux_sessions(vms)
 
+        # Measure SSH latency if enabled
+        latency_by_vm: dict[str, LatencyResult] = {}
+        if with_latency:
+            try:
+                from azlin.ssh.latency import SSHLatencyMeasurer
+
+                # Use default SSH key path
+                ssh_key_path = "~/.ssh/id_rsa"
+
+                # Measure latencies in parallel
+                console_temp = Console()
+                console_temp.print("[dim]Measuring SSH latency for running VMs...[/dim]")
+
+                measurer = SSHLatencyMeasurer(timeout=5.0, max_workers=10)
+                latency_by_vm = measurer.measure_batch(
+                    vms=vms, ssh_user="azureuser", ssh_key_path=ssh_key_path
+                )
+
+            except Exception as e:
+                click.echo(f"Warning: Failed to measure latencies: {e}", err=True)
+
         # Display quota summary header if enabled
         if show_quota and quota_by_region:
             console = Console()
@@ -3349,21 +3574,36 @@ def list_command(
         if wide_mode:
             table.add_column("Session Name", style="cyan", no_wrap=True)
             table.add_column("VM Name", style="white", no_wrap=True)
+        elif compact_mode:
+            table.add_column("Session Name", style="cyan", width=15)
+            table.add_column("VM Name", style="white", width=20)
         else:
             table.add_column("Session Name", style="cyan", width=20)
             table.add_column("VM Name", style="white", width=30)
-        table.add_column("Status", width=10)
-        table.add_column("IP", style="yellow", width=15)
-        table.add_column("Region", width=10)
-        table.add_column("Size", width=15)
-        table.add_column("vCPUs", justify="right", width=6)
+
+        if compact_mode:
+            table.add_column("Status", width=8)
+            table.add_column("IP", style="yellow", width=13)
+            table.add_column("Region", width=8)
+            table.add_column("Size", width=12)
+            table.add_column("vCPUs", justify="right", width=5)
+        else:
+            table.add_column("Status", width=10)
+            table.add_column("IP", style="yellow", width=15)
+            table.add_column("Region", width=10)
+            table.add_column("Size", width=15)
+            table.add_column("vCPUs", justify="right", width=6)
+        table.add_column("Memory", justify="right", width=8)
+
+        if with_latency:
+            table.add_column("Latency", justify="right", width=10)
 
         if show_tmux:
             table.add_column("Tmux Sessions", style="magenta", width=30)
 
         # Add rows
         for vm in vms:
-            session_display = vm.session_name if vm.session_name else "-"
+            session_display = escape(vm.session_name) if vm.session_name else "-"
             status = vm.get_status_display()
 
             # Color code status
@@ -3374,12 +3614,23 @@ def list_command(
             else:
                 status_display = f"[yellow]{status}[/yellow]"
 
-            ip = vm.public_ip or "N/A"
+            # Display IP with type indicator (Issue #492)
+            ip = (
+                f"{vm.public_ip} (Public)"
+                if vm.public_ip
+                else f"{vm.private_ip} (Private)"
+                if vm.private_ip
+                else "N/A"
+            )
             size = vm.vm_size or "N/A"
 
             # Get vCPU count for the VM
             vcpus = QuotaManager.get_vm_size_vcpus(size) if size != "N/A" else 0
             vcpu_display = str(vcpus) if vcpus > 0 else "-"
+
+            # Get memory for the VM
+            memory_gb = QuotaManager.get_vm_size_memory(size) if size != "N/A" else 0
+            memory_display = f"{memory_gb} GB" if memory_gb > 0 else "-"
 
             # Build row data
             row_data = [
@@ -3390,13 +3641,31 @@ def list_command(
                 vm.location,
                 size,
                 vcpu_display,
+                memory_display,
             ]
+
+            # Add latency if enabled
+            if with_latency:
+                if vm.name in latency_by_vm:
+                    result = latency_by_vm[vm.name]
+                    row_data.append(result.display_value())
+                else:
+                    # VM is stopped (not measured)
+                    row_data.append("-")
 
             # Add tmux sessions if enabled
             if show_tmux:
                 if vm.name in tmux_by_vm:
                     sessions = tmux_by_vm[vm.name]
-                    session_names = ", ".join(s.session_name for s in sessions[:3])  # Show max 3
+                    # Format sessions with bold (connected) or dim (disconnected) markup (Issue #499)
+                    formatted_sessions = []
+                    for s in sessions[:3]:  # Show max 3
+                        if s.attached:
+                            formatted_sessions.append(f"[bold]{escape(s.session_name)}[/bold]")
+                        else:
+                            formatted_sessions.append(f"[dim]{escape(s.session_name)}[/dim]")
+
+                    session_names = ", ".join(formatted_sessions)
                     if len(sessions) > 3:
                         session_names += f" (+{len(sessions) - 3} more)"
                     row_data.append(session_names)
@@ -3417,11 +3686,18 @@ def list_command(
             if vm.vm_size and vm.is_running()
         )
 
+        total_memory = sum(
+            QuotaManager.get_vm_size_memory(vm.vm_size)
+            for vm in vms
+            if vm.vm_size and vm.is_running()
+        )
+
         summary_parts = [f"Total: {len(vms)} VMs"]
         if show_quota:
             running_vms = sum(1 for vm in vms if vm.is_running())
             summary_parts.append(f"{running_vms} running")
             summary_parts.append(f"{total_vcpus} vCPUs in use")
+            summary_parts.append(f"{total_memory} GB memory in use")
 
         console.print(f"\n[bold]{' | '.join(summary_parts)}[/bold]")
 
@@ -4148,7 +4424,14 @@ def _confirm_killall(vms: list[Any], rg: str) -> bool:
     click.echo("=" * 80)
     for vm in vms:
         status = vm.get_status_display()
-        ip = vm.public_ip or "N/A"
+        # Display IP with type indicator (Issue #492)
+        ip = (
+            f"{vm.public_ip} (Public)"
+            if vm.public_ip
+            else f"{vm.private_ip} (Private)"
+            if vm.private_ip
+            else "N/A"
+        )
         click.echo(f"  {vm.name:<35} {status:<15} {ip:<15}")
     click.echo("=" * 80)
 
@@ -4699,7 +4982,9 @@ def _try_fetch_key_from_vault(vm_name: str, key_path: Path, config: str | None) 
         console.print("[yellow]SSH key not found locally, checking Key Vault...[/yellow]")
 
         # Build auth config from context
-        auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)  # TODO: Support SP from context
+        # Note: Currently only supports Azure CLI authentication
+        # Service Principal support would require storing credentials in context
+        auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)
 
         # Create Key Vault manager
         manager = create_key_vault_manager(
@@ -4752,7 +5037,9 @@ def _cleanup_key_from_vault(vm_name: str, config: str | None) -> None:
         logger.info(f"Cleaning up SSH key from Key Vault for VM: {vm_name}")
 
         # Build auth config from context
-        auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)  # TODO: Support SP from context
+        # Note: Currently only supports Azure CLI authentication
+        # Service Principal support would require storing credentials in context
+        auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)
 
         # Create Key Vault manager
         manager = create_key_vault_manager(
@@ -4911,6 +5198,31 @@ def connect(
         # Get resource group for VM name (not IP)
         if not VMConnector.is_valid_ip(vm_identifier):
             rg = ConfigManager.get_resource_group(resource_group, config)
+
+            # Auto-detect resource group if not provided and feature is enabled
+            if not rg:
+                from azlin.modules.resource_group_discovery import ResourceGroupDiscovery
+
+                try:
+                    azlin_config = ConfigManager.load_config(config)
+
+                    # Only attempt auto-detection if enabled in config
+                    if azlin_config.resource_group_auto_detect:
+                        logger.info(f"Auto-detecting resource group for VM: {vm_identifier}")
+                        discovery = ResourceGroupDiscovery(azlin_config.__dict__)
+                        discovered_rg = discovery.find_vm_resource_group(vm_identifier)
+                        if discovered_rg:
+                            logger.info(
+                                f"Auto-detected resource group: {discovered_rg.resource_group}"
+                            )
+                            rg = discovered_rg.resource_group
+                        else:
+                            logger.debug(f"Auto-detection failed for VM: {vm_identifier}")
+                except Exception as e:
+                    logger.warning(f"Auto-detect resource group failed: {e}")
+                    # Fall through to existing error handling
+
+            # If still no resource group, show error
             if not rg:
                 click.echo(
                     "Error: Resource group required for VM name.\n"
@@ -4941,6 +5253,39 @@ def connect(
         )
         click.echo(f"Connecting to {display_name}...")
 
+        # Check NFS quota before connecting (if VM uses NFS storage)
+        if not VMConnector.is_valid_ip(vm_identifier) and rg:
+            from azlin.modules.nfs_quota_manager import NFSQuotaManager
+
+            try:
+                nfs_info = NFSQuotaManager.check_vm_nfs_storage(vm_identifier, rg)
+                if nfs_info:
+                    storage_account, share_name, _ = nfs_info
+                    quota_info = NFSQuotaManager.get_nfs_quota_info(storage_account, share_name, rg)
+                    warning = NFSQuotaManager.check_quota_warning(quota_info)
+
+                    if warning.is_warning and not yes:
+                        click.echo()
+                        click.echo(warning.message)
+                        if NFSQuotaManager.prompt_and_expand_quota(quota_info):
+                            result = NFSQuotaManager.expand_nfs_quota(
+                                storage_account, share_name, rg, quota_info.quota_gb + 100
+                            )
+                            if result.success:
+                                click.echo(
+                                    f"✅ Quota expanded to {result.new_quota_gb}GB "
+                                    f"(+${result.cost_increase_monthly:.2f}/month)"
+                                )
+                            else:
+                                click.echo(f"⚠️  Quota expansion failed: {result.errors}")
+                        click.echo()
+            except Exception as e:
+                # Don't block connection if quota check fails
+                logger.debug(f"NFS quota check failed: {e}")
+
+        # Disable reconnect for remote commands (no terminal for prompts)
+        should_reconnect = (not no_reconnect) and (command is None)
+
         success = VMConnector.connect(
             vm_identifier=vm_identifier,
             resource_group=rg,
@@ -4949,7 +5294,7 @@ def connect(
             remote_command=command,
             ssh_user=user,
             ssh_key_path=key_path,
-            enable_reconnect=not no_reconnect,
+            enable_reconnect=should_reconnect,
             max_reconnect_retries=max_retries,
             skip_prompts=yes,
         )
@@ -5596,18 +5941,113 @@ def sync(vm_name: str | None, dry_run: bool, resource_group: str | None, config:
         sys.exit(1)
 
 
+@main.command(name="sync-keys")
+@click.argument("vm_name")
+@click.option("--resource-group", "--rg", help="Resource group", type=str)
+@click.option("--ssh-user", default="azureuser", help="SSH username (default: azureuser)")
+@click.option("--timeout", default=60, help="Timeout in seconds (default: 60)")
+@click.option("--config", help="Config file path", type=click.Path())
+def sync_keys(
+    vm_name: str, resource_group: str | None, ssh_user: str, timeout: int, config: str | None
+):
+    """Manually sync SSH keys to VM authorized_keys.
+
+    This command synchronizes SSH public keys from your local machine
+    to the target VM's authorized_keys file. Useful for newly created
+    VMs or when auto-sync was skipped.
+
+    \b
+    Examples:
+        azlin sync-keys myvm                      # Sync to VM in default resource group
+        azlin sync-keys myvm --rg my-rg           # Sync to VM in specific resource group
+        azlin sync-keys myvm --timeout 120        # Sync with extended timeout
+    """
+    try:
+        # Get SSH key pair
+        ssh_key_pair = SSHKeyManager.ensure_key_exists()
+
+        # Get resource group
+        rg = ConfigManager.get_resource_group(resource_group, config)
+        if not rg:
+            click.echo("Error: Resource group required.", err=True)
+            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
+            sys.exit(1)
+
+        # Resolve session name to VM name if applicable
+        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
+        if resolved_vm_name:
+            click.echo(f"Resolved session name '{vm_name}' to VM '{resolved_vm_name}'")
+            vm_name = resolved_vm_name
+
+        # Verify VM exists
+        try:
+            vm = VMManager.get_vm(vm_name, rg)
+            if not vm:
+                click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'", err=True)
+                sys.exit(1)
+
+            if not vm.is_running():
+                click.echo(
+                    f"Warning: VM '{vm_name}' is not running (state: {vm.power_state}). "
+                    "Key sync may fail.",
+                    err=True,
+                )
+        except Exception as e:
+            click.echo(f"Error: Could not verify VM status: {e}", err=True)
+            sys.exit(1)
+
+        # Get config for sync settings
+        azlin_config = ConfigManager.load_config(config)
+
+        # Import VMKeySync
+        from azlin.modules.vm_key_sync import VMKeySync
+
+        # Derive public key from private key
+        public_key = SSHKeyManager.get_public_key(ssh_key_pair.private_path)
+
+        click.echo(f"Syncing SSH key to VM '{vm_name}' in resource group '{rg}'...")
+
+        # Instantiate VMKeySync with config dict
+        sync_manager = VMKeySync(azlin_config.to_dict())
+
+        # Sync keys
+        sync_manager.ensure_key_authorized(
+            vm_name=vm_name,
+            resource_group=rg,
+            public_key=public_key,
+        )
+
+        click.echo(f"✓ SSH keys successfully synced to VM '{vm_name}'")
+
+    except (VMManagerError, ConfigError, SSHKeyError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    except KeyboardInterrupt:
+        click.echo("\nCancelled by user.")
+        sys.exit(130)
+
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.exception("Unexpected error in sync-keys command")
+        sys.exit(1)
+
+
 @main.command()
-@click.argument("source")
-@click.argument("destination")
+@click.argument("args", nargs=-1, required=True)
 @click.option("--dry-run", is_flag=True, help="Show what would be transferred")
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 def cp(
-    source: str, destination: str, dry_run: bool, resource_group: str | None, config: str | None
+    args: tuple[str, ...],
+    dry_run: bool,
+    resource_group: str | None,
+    config: str | None,
 ):
     """Copy files between local machine and VMs.
 
     Supports bidirectional file transfer with security-hardened path validation.
+    Accepts multiple source files when copying to a single destination.
 
     Arguments support session:path notation:
     - Local path: myfile.txt
@@ -5615,47 +6055,37 @@ def cp(
 
     \b
     Examples:
-        azlin cp myfile.txt vm1:~/          # Local to remote
-        azlin cp vm1:~/data.txt ./          # Remote to local
-        azlin cp vm1:~/src vm2:~/dest       # Remote to remote (not supported)
-        azlin cp --dry-run test.txt vm1:~/  # Show transfer plan
+        azlin cp myfile.txt vm1:~/                     # Single file to remote
+        azlin cp file1.txt file2.txt file3.py vm1:~/   # Multiple files to remote
+        azlin cp vm1:~/data.txt ./                     # Remote to local
+        azlin cp vm1:~/src vm2:~/dest                  # Remote to remote (not supported)
+        azlin cp --dry-run test.txt vm1:~/             # Show transfer plan
     """
+    src_manager, dst_manager = None, None
     try:
+        # Parse args: all but last are sources, last is destination
+        if len(args) < 2:
+            click.echo("Error: At least one source and one destination required", err=True)
+            click.echo("Usage: azlin cp SOURCE... DESTINATION", err=True)
+            sys.exit(1)
+
+        sources = args[:-1]
+        destination = args[-1]
+
         # Get resource group
         rg = ConfigManager.get_resource_group(resource_group, config)
 
         # Get SSH key
         SSHKeyManager.ensure_key_exists()
 
-        # Parse source
-        source_session_name, source_path_str = SessionManager.parse_session_path(source)
-
-        if source_session_name is None:
-            # Local source
-            source_path = PathParser.parse_and_validate(source_path_str, allow_absolute=False)
-            source_endpoint = TransferEndpoint(path=source_path, session=None)
-        else:
-            # Remote source
-            if not rg:
-                click.echo("Error: Resource group required for remote sessions.", err=True)
-                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
-                sys.exit(1)
-
-            vm_session = SessionManager.get_vm_session(source_session_name, rg, VMManager)
-
-            # Parse remote path (allow relative to home)
-            source_path = PathParser.parse_and_validate(
-                source_path_str, allow_absolute=True, base_dir=Path("/home") / vm_session.user
-            )
-
-            source_endpoint = TransferEndpoint(path=source_path, session=vm_session)
-
-        # Parse destination
+        # Parse destination first (shared by all sources)
         dest_session_name, dest_path_str = SessionManager.parse_session_path(destination)
 
         if dest_session_name is None:
-            # Local destination
-            dest_path = PathParser.parse_and_validate(dest_path_str, allow_absolute=False)
+            # Local destination - resolve from cwd, allow absolute paths
+            dest_path = PathParser.parse_and_validate(
+                dest_path_str, allow_absolute=True, is_local=True
+            )
             dest_endpoint = TransferEndpoint(path=dest_path, session=None)
         else:
             # Remote destination
@@ -5664,21 +6094,98 @@ def cp(
                 click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
                 sys.exit(1)
 
-            vm_session = SessionManager.get_vm_session(dest_session_name, rg, VMManager)
+            # Get session (returns tuple now)
+            vm_session, dst_manager = SessionManager.get_vm_session(
+                dest_session_name, rg, VMManager
+            )
 
             # Parse remote path (allow relative to home)
             dest_path = PathParser.parse_and_validate(
-                dest_path_str, allow_absolute=True, base_dir=Path("/home") / vm_session.user
+                dest_path_str,
+                allow_absolute=True,
+                base_dir=Path("/home") / vm_session.user,
+                is_local=False,  # Remote path - don't validate against local filesystem
             )
 
             dest_endpoint = TransferEndpoint(path=dest_path, session=vm_session)
 
+        # Parse all sources and create endpoints
+        source_endpoints: list[TransferEndpoint] = []
+        for source in sources:
+            source_session_name, source_path_str = SessionManager.parse_session_path(source)
+
+            if source_session_name is None:
+                # Local source - resolve from cwd, allow absolute paths
+                source_path = PathParser.parse_and_validate(
+                    source_path_str, allow_absolute=True, is_local=True
+                )
+                source_endpoint = TransferEndpoint(path=source_path, session=None)
+            else:
+                # Remote source
+                if not rg:
+                    click.echo("Error: Resource group required for remote sessions.", err=True)
+                    click.echo(
+                        "Use --resource-group or set default in ~/.azlin/config.toml", err=True
+                    )
+                    sys.exit(1)
+
+                # Get session (returns tuple now) - reuse if same session
+                if src_manager is None:
+                    vm_session, src_manager = SessionManager.get_vm_session(
+                        source_session_name, rg, VMManager
+                    )
+                else:
+                    # Already have a session - verify it's the same VM
+                    vm_session, _ = SessionManager.get_vm_session(
+                        source_session_name, rg, VMManager
+                    )
+
+                # Parse remote path (allow relative to home)
+                source_path = PathParser.parse_and_validate(
+                    source_path_str,
+                    allow_absolute=True,
+                    base_dir=Path("/home") / vm_session.user,
+                    is_local=False,  # Remote path - don't validate against local filesystem
+                )
+
+                source_endpoint = TransferEndpoint(path=source_path, session=vm_session)
+
+            source_endpoints.append(source_endpoint)
+
+        # Validate all sources are from the same location (all local or all same remote)
+        first_source = source_endpoints[0]
+        for idx, src_endpoint in enumerate(source_endpoints[1:], start=1):
+            if (first_source.session is None) != (src_endpoint.session is None):
+                click.echo(
+                    "Error: All sources must be from the same location "
+                    "(either all local or all from the same VM)",
+                    err=True,
+                )
+                sys.exit(1)
+            if (
+                first_source.session
+                and src_endpoint.session
+                and first_source.session.name != src_endpoint.session.name
+            ):
+                click.echo("Error: All remote sources must be from the same VM", err=True)
+                sys.exit(1)
+
         # Display transfer plan
         click.echo("\nTransfer Plan:")
-        if source_endpoint.session is None:
-            click.echo(f"  Source: {source_endpoint.path} (local)")
+        if len(source_endpoints) == 1:
+            if source_endpoints[0].session is None:
+                click.echo(f"  Source: {source_endpoints[0].path} (local)")
+            else:
+                click.echo(
+                    f"  Source: {source_endpoints[0].session.name}:{source_endpoints[0].path}"
+                )
         else:
-            click.echo(f"  Source: {source_endpoint.session.name}:{source_endpoint.path}")
+            click.echo(f"  Sources: {len(source_endpoints)} files")
+            for src_endpoint in source_endpoints:
+                if src_endpoint.session is None:
+                    click.echo(f"    - {src_endpoint.path} (local)")
+                else:
+                    click.echo(f"    - {src_endpoint.session.name}:{src_endpoint.path}")
 
         if dest_endpoint.session is None:
             click.echo(f"  Dest:   {dest_endpoint.path} (local)")
@@ -5691,20 +6198,61 @@ def cp(
             click.echo("Dry run - no files transferred")
             return
 
-        # Execute transfer
-        result = FileTransfer.transfer(source_endpoint, dest_endpoint)
+        # Execute transfers
+        total_files = 0
+        total_bytes = 0
+        total_duration = 0.0
+        all_errors: list[str] = []
 
-        if result.success:
+        for idx, source_endpoint in enumerate(source_endpoints, start=1):
+            if len(source_endpoints) > 1:
+                source_name = (
+                    source_endpoint.path.name
+                    if source_endpoint.session is None
+                    else f"{source_endpoint.session.name}:{source_endpoint.path.name}"
+                )
+                click.echo(f"[{idx}/{len(source_endpoints)}] Transferring {source_name}...")
+
+            result = FileTransfer.transfer(source_endpoint, dest_endpoint)
+
+            total_files += result.files_transferred
+            total_bytes += result.bytes_transferred
+            total_duration += result.duration_seconds
+
+            if result.success:
+                if len(source_endpoints) > 1:
+                    click.echo(
+                        f"  ✓ {result.bytes_transferred / 1024:.1f} KB "
+                        f"in {result.duration_seconds:.1f}s"
+                    )
+            else:
+                all_errors.extend(result.errors)
+                if len(source_endpoints) > 1:
+                    click.echo(
+                        f"  ✗ Failed: {result.errors[0] if result.errors else 'Unknown error'}"
+                    )
+
+        # Display summary
+        if all_errors:
+            click.echo("\nTransfer completed with errors:", err=True)
             click.echo(
-                f"Success! Transferred {result.files_transferred} files "
-                f"({result.bytes_transferred / 1024:.1f} KB) "
-                f"in {result.duration_seconds:.1f}s"
+                f"Transferred {total_files} files ({total_bytes / 1024:.1f} KB) "
+                f"in {total_duration:.1f}s"
             )
-        else:
-            click.echo("Transfer failed:", err=True)
-            for error in result.errors:
+            for error in all_errors:
                 click.echo(f"  {error}", err=True)
             sys.exit(1)
+        else:
+            if len(source_endpoints) > 1:
+                click.echo(
+                    f"\nSuccess! Transferred {total_files} files "
+                    f"({total_bytes / 1024:.1f} KB) in {total_duration:.1f}s"
+                )
+            else:
+                click.echo(
+                    f"Success! Transferred {total_files} files "
+                    f"({total_bytes / 1024:.1f} KB) in {total_duration:.1f}s"
+                )
 
     except FileTransferError as e:
         click.echo(f"Error: {e}", err=True)
@@ -5722,6 +6270,12 @@ def cp(
         click.echo(f"Unexpected error: {e}", err=True)
         logger.exception("Unexpected error in cp command")
         sys.exit(1)
+    finally:
+        # Cleanup bastion tunnels
+        if src_manager:
+            src_manager.close_all_tunnels()
+        if dst_manager:
+            dst_manager.close_all_tunnels()
 
 
 def _validate_and_resolve_source_vm(source_vm: str, rg: str, config: str | None) -> VMInfo:
@@ -6197,8 +6751,14 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
             click.echo("Error: No resource group specified.", err=True)
             sys.exit(1)
 
-        # List VMs
-        vms = VMManager.list_vms(rg, include_stopped=True)
+        # List VMs - use TagManager to filter by managed-by=azlin tag
+        from azlin.tag_manager import TagManager
+
+        vms = TagManager.list_managed_vms(resource_group=rg)
+
+        # Filter out stopped VMs by default (consistent with list command behavior)
+        # Note: list command doesn't filter by default but shows all,
+        # keeping include_stopped=True behavior for status
 
         if vm:
             # Filter to specific VM
@@ -6206,9 +6766,6 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
             if not vms:
                 click.echo(f"Error: VM '{vm}' not found in resource group '{rg}'.", err=True)
                 sys.exit(1)
-        else:
-            # Filter to azlin VMs
-            vms = VMManager.filter_by_prefix(vms, "azlin")
 
         vms = VMManager.sort_by_created_time(vms)
 
@@ -6224,7 +6781,14 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
 
         for v in vms:
             power_state = v.power_state if v.power_state else "Unknown"
-            ip = v.public_ip or "N/A"
+            # Display IP with type indicator (Issue #492)
+            ip = (
+                f"{v.public_ip} (Public)"
+                if v.public_ip
+                else f"{v.private_ip} (Private)"
+                if v.private_ip
+                else "N/A"
+            )
             size = v.vm_size or "N/A"
             location = v.location or "N/A"
             click.echo(f"{v.name:<35} {power_state:<18} {ip:<16} {location:<15} {size:<15}")
@@ -7127,27 +7691,70 @@ def _doit_old_impl(
                                     # This protects against command injection
                                     import shlex
 
-                                    # Check if command contains pipes or redirects (shell features)
-                                    if any(
-                                        char in cmd for char in ["|", ">", "<", ";", "&", "`", "$("]
-                                    ):
-                                        # For complex shell commands, validate they're safe Az CLI commands
+                                    # Check if command contains pipes (need special handling)
+                                    if "|" in cmd:
+                                        # For piped commands, validate they're safe Az CLI commands
                                         if not cmd.strip().startswith(
                                             ("az ", "terraform ", "kubectl ")
                                         ):
                                             click.echo(
-                                                "  ⚠️  Skipped: Only az/terraform/kubectl commands allowed for shell execution",
+                                                "  ⚠️  Skipped: Only az/terraform/kubectl commands allowed for piped execution",
                                                 err=True,
                                             )
                                             continue
-                                        # Execute with shell for piped commands, but limit risk
-                                        proc_result = subprocess.run(
-                                            cmd,
-                                            shell=True,  # nosec B602 - Commands from failure analyzer, validated above
-                                            capture_output=True,
-                                            text=True,
-                                            timeout=30,
+
+                                        # Execute pipes securely without shell=True
+                                        # Split by pipe and chain processes
+                                        pipe_parts = [part.strip() for part in cmd.split("|")]
+
+                                        try:
+                                            # Start first process
+                                            first_cmd = shlex.split(pipe_parts[0])
+                                            current_proc = subprocess.Popen(
+                                                first_cmd,
+                                                stdout=subprocess.PIPE,
+                                                stderr=subprocess.PIPE,
+                                                text=True,
+                                            )
+
+                                            # Chain remaining processes
+                                            for pipe_cmd in pipe_parts[1:]:
+                                                cmd_parts = shlex.split(pipe_cmd)
+                                                next_proc = subprocess.Popen(
+                                                    cmd_parts,
+                                                    stdin=current_proc.stdout,
+                                                    stdout=subprocess.PIPE,
+                                                    stderr=subprocess.PIPE,
+                                                    text=True,
+                                                )
+                                                if current_proc.stdout:
+                                                    current_proc.stdout.close()
+                                                current_proc = next_proc
+
+                                            # Get final output
+                                            stdout, stderr = current_proc.communicate(timeout=30)
+                                            proc_result = subprocess.CompletedProcess(
+                                                args=cmd,
+                                                returncode=current_proc.returncode or 0,
+                                                stdout=stdout,
+                                                stderr=stderr,
+                                            )
+                                        except Exception as pipe_error:
+                                            click.echo(
+                                                f"  ⚠️  Pipe execution failed: {pipe_error}",
+                                                err=True,
+                                            )
+                                            continue
+
+                                    elif any(
+                                        char in cmd for char in [">", "<", ";", "&", "`", "$("]
+                                    ):
+                                        # Redirects, command chains, and substitutions are not supported
+                                        click.echo(
+                                            "  ⚠️  Skipped: Redirects, command chains, and substitutions not supported",
+                                            err=True,
                                         )
+                                        continue
                                     else:
                                         # Simple commands: use safe list-based execution
                                         cmd_parts = shlex.split(cmd)
@@ -8514,6 +9121,10 @@ def snapshot_delete(
 # Register auth commands
 main.add_command(auth)
 
+# Register ask commands (Natural Language Fleet Queries)
+main.add_command(ask_group)
+main.add_command(ask_command)
+
 # Register context commands
 main.add_command(context_group)
 
@@ -8526,6 +9137,9 @@ main.add_command(compose_group)
 # Register storage commands
 main.add_command(storage_group)
 main.add_command(tag_group)
+
+# Register costs commands
+main.add_command(costs_group)
 
 # Register autopilot commands
 main.add_command(autopilot_group)

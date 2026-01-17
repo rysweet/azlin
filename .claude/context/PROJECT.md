@@ -10,11 +10,11 @@ Replace the sections below with information about your project.
 
 ---
 
-## Project: azlin
+## Project: azlinDec
 
 ## Overview
 
-**Version:** 0.3.2 **Last Updated:** 2025-11-23
+**[📚 Full Documentation](https://rysweet.github.io/azlin/)** | **[🚀 Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[💬 Discussions](https://github.com/rysweet/azlin/discussions)** **Version:** 0.4.0
 
 ## Architecture
 
@@ -28,8 +28,6 @@ Replace the sections below with information about your project.
 
 - **Language**: Python
 - **Language**: JavaScript/TypeScript
-- **Language**: Rust
-- **Language**: Go
 - **Framework**: [Main framework if applicable]
 - **Database**: [Database system if applicable]
 

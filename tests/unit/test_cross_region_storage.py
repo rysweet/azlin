@@ -135,25 +135,28 @@ class TestPriority2ConfigDefault:
         self, storage_eastus, storage_westus, caplog
     ):
         """Priority 2: Config default in different region should succeed with info log."""
+        import logging
+
         orchestrator = CLIOrchestrator(region="eastus")
 
         mock_config = MagicMock()
         mock_config.default_nfs_storage = "storage-westus"
 
-        with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
-            mock_list.return_value = [storage_westus, storage_eastus]
+        with caplog.at_level(logging.INFO):
+            with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
+                mock_list.return_value = [storage_westus, storage_eastus]
 
-            result = orchestrator._resolve_nfs_storage("test-rg", mock_config)
-            # Should use storage-westus (cross-region now supported)
-            assert result is not None
-            assert result.name == "storage-westus"
-            assert result.region == "westus"
+                result = orchestrator._resolve_nfs_storage("test-rg", mock_config)
+                # Should use storage-westus (cross-region now supported)
+                assert result is not None
+                assert result.name == "storage-westus"
+                assert result.region == "westus"
 
-            # Should log info about cross-region mount
-            assert any(
-                "Cross-region mount will be configured" in record.message
-                for record in caplog.records
-            )
+                # Should log info about cross-region mount
+                assert any(
+                    "Cross-region mount will be configured" in record.message
+                    for record in caplog.records
+                )
 
     def test_config_not_found_falls_back_to_priority3(self, storage_eastus, caplog):
         """Priority 2: Config default not found should fall back to Priority 3."""
@@ -347,20 +350,23 @@ class TestTryLookupStorageByNameMethod:
 
     def test_try_lookup_cross_region_returns_storage(self, storage_westus, caplog):
         """Should return storage with info log when storage is cross-region."""
+        import logging
+
         orchestrator = CLIOrchestrator(region="eastus")
 
-        with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
-            mock_list.return_value = [storage_westus]
+        with caplog.at_level(logging.INFO):
+            with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
+                mock_list.return_value = [storage_westus]
 
-            result = orchestrator._try_lookup_storage_by_name("test-rg", "storage-westus")
-            assert result is not None
-            assert result.name == "storage-westus"
+                result = orchestrator._try_lookup_storage_by_name("test-rg", "storage-westus")
+                assert result is not None
+                assert result.name == "storage-westus"
 
-            # Should log info about cross-region mount
-            assert any(
-                "Cross-region mount will be configured" in record.message
-                for record in caplog.records
-            )
+                # Should log info about cross-region mount
+                assert any(
+                    "Cross-region mount will be configured" in record.message
+                    for record in caplog.records
+                )
 
     def test_try_lookup_not_found_returns_none(self, caplog):
         """Should return None with warning when storage not found."""
@@ -438,25 +444,28 @@ class TestEdgeCases:
 
     def test_priority2_with_only_cross_region_storage_succeeds(self, storage_westus, caplog):
         """Priority 2 should succeed even when only cross-region storage exists."""
+        import logging
+
         orchestrator = CLIOrchestrator(region="eastus")
 
         mock_config = MagicMock()
         mock_config.default_nfs_storage = "storage-westus"
 
-        with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
-            mock_list.return_value = [storage_westus]
+        with caplog.at_level(logging.INFO):
+            with patch("azlin.modules.storage_manager.StorageManager.list_storage") as mock_list:
+                mock_list.return_value = [storage_westus]
 
-            result = orchestrator._resolve_nfs_storage("test-rg", mock_config)
-            # Priority 2 now accepts cross-region storage
-            assert result is not None
-            assert result.name == "storage-westus"
-            assert result.region == "westus"
+                result = orchestrator._resolve_nfs_storage("test-rg", mock_config)
+                # Priority 2 now accepts cross-region storage
+                assert result is not None
+                assert result.name == "storage-westus"
+                assert result.region == "westus"
 
-            # Should log info about cross-region mount from Priority 2
-            assert any(
-                "Cross-region mount will be configured" in record.message
-                for record in caplog.records
-            )
+                # Should log info about cross-region mount from Priority 2
+                assert any(
+                    "Cross-region mount will be configured" in record.message
+                    for record in caplog.records
+                )
 
 
 class TestBackwardCompatibility:

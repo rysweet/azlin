@@ -11,6 +11,7 @@ Features:
 """
 
 import logging
+from collections.abc import Callable
 
 import click
 
@@ -88,14 +89,16 @@ class SSHReconnectHandler:
         >>> exit_code = handler.connect_with_reconnect(config, vm_name="my-vm")
     """
 
-    def __init__(self, max_retries: int = 3):
+    def __init__(self, max_retries: int = 3, cleanup_callback: Callable[[], None] | None = None):
         """
         Initialize reconnect handler.
 
         Args:
             max_retries: Maximum number of reconnection attempts (default: 3)
+            cleanup_callback: Optional callback to run before reconnect attempts (e.g., close Bastion tunnel)
         """
         self.max_retries = max_retries
+        self.cleanup_callback = cleanup_callback
 
     def connect_with_reconnect(
         self, config: SSHConfig, vm_name: str, tmux_session: str = "azlin", auto_tmux: bool = True
@@ -155,6 +158,14 @@ class SSHReconnectHandler:
             if not should_attempt_reconnect(vm_name):
                 logger.info("User declined reconnection")
                 return exit_code
+
+            # Call cleanup callback before reconnect attempt (e.g., close Bastion tunnel)
+            if self.cleanup_callback is not None:
+                try:
+                    logger.debug("Running cleanup callback before reconnect...")
+                    self.cleanup_callback()
+                except Exception as e:
+                    logger.warning(f"Cleanup callback failed (continuing with reconnect): {e}")
 
             # User wants to reconnect
             logger.info(f"Attempting to reconnect to {vm_name}...")

@@ -312,20 +312,34 @@ class TmuxSessionExecutor:
         if vm_name is None:
             vm_name = ssh_config.host
 
-        # Command to list tmux sessions
-        command = "tmux list-sessions 2>/dev/null || echo 'No sessions'"
+        # Command to list tmux sessions with enhanced format (Issue #499)
+        # New format: name:attached:windows:created
+        # Falls back to old format if new format not available
+        command = "tmux list-sessions -F \"#{session_name}:#{session_attached}:#{session_windows}:#{session_created}\" 2>/dev/null || tmux list-sessions 2>/dev/null || echo 'No sessions'"
 
         try:
             # Execute command on single VM
             result = RemoteExecutor.execute_command(ssh_config, command, timeout=timeout)
 
+            # Check for connection failure
+            if not result.success:
+                logger.error(
+                    f"SSH connection to {vm_name} failed (exit code {result.exit_code}): {result.stderr}"
+                )
+                return []
+
+            # Check for empty output
+            if not result.stdout or result.stdout.strip() == "":
+                logger.debug(f"SSH connection to {vm_name} successful but returned no output")
+                return []
+
             # Parse results
-            if result.success and result.stdout and "No sessions" not in result.stdout:
+            if "No sessions" not in result.stdout:
                 return cls.parse_tmux_output(result.stdout, vm_name)
             return []
 
         except Exception as e:
-            logger.warning(f"Failed to get tmux sessions from {vm_name}: {e}")
+            logger.error(f"Failed to get tmux sessions from {vm_name}: {e}")
             return []
 
     @classmethod
@@ -345,8 +359,10 @@ class TmuxSessionExecutor:
         if not ssh_configs:
             return []
 
-        # Command to list tmux sessions
-        command = "tmux list-sessions 2>/dev/null || echo 'No sessions'"
+        # Command to list tmux sessions with enhanced format (Issue #499)
+        # New format: name:attached:windows:created
+        # Falls back to old format if new format not available
+        command = "tmux list-sessions -F \"#{session_name}:#{session_attached}:#{session_windows}:#{session_created}\" 2>/dev/null || tmux list-sessions 2>/dev/null || echo 'No sessions'"
 
         # Execute in parallel
         results = RemoteExecutor.execute_parallel(
@@ -374,9 +390,9 @@ class TmuxSessionExecutor:
         Returns:
             List of TmuxSession objects
 
-        Example output format:
-            dev: 3 windows (created Thu Oct 10 10:00:00 2024)
-            prod: 1 window (created Thu Oct 10 11:00:00 2024) (attached)
+        Example output formats:
+            New format (Issue #499): session_name:attached(0|1):windows:created_timestamp
+            Old format: dev: 3 windows (created Thu Oct 10 10:00:00 2024)
         """
         sessions: list[TmuxSession] = []
 
@@ -384,48 +400,81 @@ class TmuxSessionExecutor:
             if not line or not line.strip():
                 continue
 
+            line = line.strip()
+
             try:
-                # Parse session line: "name: X windows (created date) [attached]"
-                parts = line.split(":", 1)
-                if len(parts) != 2:
-                    continue
+                # Detect format by checking field structure
+                # New format has 3+ colons with field[1] being '0' or '1'
+                parts = line.split(":")
 
-                session_name = parts[0].strip()
-                rest = parts[1].strip()
+                # Try new format first: name:attached:windows:created
+                # New format must have exactly 4 fields and field[1] must be '0' or '1'
+                # field[2] must be numeric (windows count)
+                if len(parts) >= 4 and parts[1] in ("0", "1"):
+                    # Validate windows field is numeric to confirm new format
+                    try:
+                        windows = int(parts[2])
+                    except ValueError:
+                        # Not new format - fall through to old format parser
+                        pass
+                    else:
+                        # New format confirmed
+                        session_name = parts[0].strip()
+                        attached = parts[1] == "1"  # '1' = connected, '0' = disconnected
 
-                # Check if attached
-                attached = "(attached)" in rest
+                        # Created time is the remaining fields joined
+                        created_time = ":".join(parts[3:]) if len(parts) > 3 else ""
 
-                # Extract window count
-                windows = 1  # Default
-                if "window" in rest:
-                    # Extract number before "window(s)"
-                    window_parts = rest.split()
-                    for i, part in enumerate(window_parts):
-                        if "window" in part and i > 0:
-                            try:
-                                windows = int(window_parts[i - 1])
-                            except (ValueError, IndexError):
-                                windows = 1
-                            break
+                        sessions.append(
+                            TmuxSession(
+                                vm_name=vm_name,
+                                session_name=session_name,
+                                windows=windows,
+                                created_time=created_time,
+                                attached=attached,
+                            )
+                        )
+                        continue
 
-                # Extract created time
-                created_time = ""
-                if "(created" in rest:
-                    start_idx = rest.index("(created") + len("(created")
-                    end_idx = rest.find(")", start_idx)
-                    if end_idx > start_idx:
-                        created_time = rest[start_idx:end_idx].strip()
+                # Fall back to old format: "name: X windows (created date) [attached]"
+                # Old format must have the word "window" in it to be valid
+                if len(parts) >= 2 and "window" in ":".join(parts[1:]):
+                    session_name = parts[0].strip()
+                    rest = ":".join(parts[1:]).strip()
 
-                sessions.append(
-                    TmuxSession(
-                        vm_name=vm_name,
-                        session_name=session_name,
-                        windows=windows,
-                        created_time=created_time,
-                        attached=attached,
+                    # Check if attached (old format uses "(attached)" suffix)
+                    attached = "(attached)" in rest
+
+                    # Extract window count
+                    windows = 1  # Default
+                    if "window" in rest:
+                        # Extract number before "window(s)"
+                        window_parts = rest.split()
+                        for i, part in enumerate(window_parts):
+                            if "window" in part and i > 0:
+                                try:
+                                    windows = int(window_parts[i - 1])
+                                except (ValueError, IndexError):
+                                    windows = 1
+                                break
+
+                    # Extract created time
+                    created_time = ""
+                    if "(created" in rest:
+                        start_idx = rest.index("(created") + len("(created")
+                        end_idx = rest.find(")", start_idx)
+                        if end_idx > start_idx:
+                            created_time = rest[start_idx:end_idx].strip()
+
+                    sessions.append(
+                        TmuxSession(
+                            vm_name=vm_name,
+                            session_name=session_name,
+                            windows=windows,
+                            created_time=created_time,
+                            attached=attached,
+                        )
                     )
-                )
 
             except Exception as e:
                 logger.warning(f"Failed to parse tmux session line: {line} - {e}")
