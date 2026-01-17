@@ -11,6 +11,7 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 - **[reference/destroy-command.md](reference/destroy-command.md)** - Complete guide to VM deletion
 - **[UV_USAGE.md](UV_USAGE.md)** - Using azlin with uv package manager
 - **[how-to/troubleshoot-connection-issues.md](how-to/troubleshoot-connection-issues.md)** - Comprehensive troubleshooting guide
+- **[troubleshooting/timeout-issues.md](troubleshooting/timeout-issues.md)** - Timeout troubleshooting for azlin list command
 - **[backup-disaster-recovery.md](backup-disaster-recovery.md)** - Automated backup scheduling, cross-region replication, and DR testing
 - **[features/tmux-session-status.md](features/tmux-session-status.md)** - Visual tmux session connection status in VM listings
 - **[features/memory-latency.md](features/memory-latency.md)** - Memory allocation and network latency monitoring
