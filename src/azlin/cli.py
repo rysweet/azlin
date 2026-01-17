@@ -2749,6 +2749,39 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
             click.echo(f"  {rg_fail.rg_name}: {rg_fail.error}")
 
 
+def _validate_config_path(
+    ctx: click.Context, param: click.Parameter, value: str | None
+) -> str | None:
+    """Validate that config file parent directory exists.
+
+    Args:
+        ctx: Click context
+        param: Click parameter
+        value: Config file path value
+
+    Returns:
+        The config path value if valid
+
+    Raises:
+        click.BadParameter: If parent directory doesn't exist
+    """
+    if value is None:
+        return value
+
+    config_path = Path(value)
+    parent_dir = config_path.parent
+
+    # Check if parent directory exists
+    if not parent_dir.exists():
+        raise click.BadParameter(
+            f"Parent directory does not exist: {parent_dir}",
+            ctx=ctx,
+            param=param,
+        )
+
+    return value
+
+
 @main.command(name="new")
 @click.pass_context
 @click.option("--repo", help="GitHub repository URL to clone", type=str)
@@ -2763,7 +2796,9 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
 @click.option("--name", help="Custom VM name", type=str)
 @click.option("--pool", help="Number of VMs to create in parallel", type=int)
 @click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
-@click.option("--config", help="Config file path", type=click.Path())
+@click.option(
+    "--config", help="Config file path", type=click.Path(), callback=_validate_config_path
+)
 @click.option("--template", help="Template name to use for VM configuration", type=str)
 @click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
 @click.option(
@@ -5110,6 +5145,17 @@ def connect(
         # Set maximum reconnection attempts
         azlin connect my-vm --max-retries 5
     """
+    # Validate remote command syntax BEFORE entering try block
+    # If remote_command has values but passthrough_command is not in ctx.obj,
+    # it means user typed "connect my-vm ls" without "--", which is invalid
+    # Use ClickException (not UsageError) to avoid showing usage help text
+    if remote_command and not (ctx.obj and "passthrough_command" in ctx.obj):
+        # remote_command was populated by Click's nargs=-1 without -- separator
+        raise click.ClickException(
+            f"Got unexpected extra argument ({remote_command[0]})\n"
+            "Use -- separator to pass remote commands: azlin connect my-vm -- ls -la"
+        )
+
     console = Console()
     try:
         # Ensure Azure CLI subscription matches current context
