@@ -333,8 +333,8 @@ fi
             )
 
             # Extract locally with path traversal protection
-            import tarfile
             import os
+            import tarfile
 
             with tarfile.open(local_archive, "r:gz") as tar:
                 # Validate all members before extraction to prevent path traversal

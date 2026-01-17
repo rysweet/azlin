@@ -330,4 +330,4 @@ class ProgressTracker:
 
 
 # Module interface for easy import
-__all__ = ["ProgressTracker", "VerbosityMode", "ProgressEvent"]
+__all__ = ["ProgressEvent", "ProgressTracker", "VerbosityMode"]

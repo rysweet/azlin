@@ -299,4 +299,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["list_types", "get_type_fields", "format_types_list", "format_fields_list", "main"]
+__all__ = ["format_fields_list", "format_types_list", "get_type_fields", "list_types", "main"]

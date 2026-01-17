@@ -285,4 +285,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["link_parent", "validate_link_compatibility", "work_item_exists", "main"]
+__all__ = ["link_parent", "main", "validate_link_compatibility", "work_item_exists"]

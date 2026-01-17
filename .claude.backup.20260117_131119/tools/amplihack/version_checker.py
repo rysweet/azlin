@@ -22,9 +22,9 @@ from pathlib import Path
 
 __all__ = [
     "VersionInfo",
+    "check_version_mismatch",
     "get_package_version",
     "get_project_version",
-    "check_version_mismatch",
 ]
 
 

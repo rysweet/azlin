@@ -16,11 +16,10 @@ from hook_processor import HookProcessor
 # Clean imports through package structure
 sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
+    from amplihack.utils.paths import FrameworkPathResolver
     from context_preservation import ContextPreserver
     from paths import get_project_root
     from settings_migrator import migrate_global_hooks
-
-    from amplihack.utils.paths import FrameworkPathResolver
 except ImportError:
     # Fallback imports for standalone execution
     get_project_root = None

@@ -338,4 +338,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["execute_wiql", "get_predefined_query", "format_work_items", "main"]
+__all__ = ["execute_wiql", "format_work_items", "get_predefined_query", "main"]

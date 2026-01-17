@@ -459,4 +459,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["check_auth", "auto_fix", "AuthStatus", "main"]
+__all__ = ["AuthStatus", "auto_fix", "check_auth", "main"]

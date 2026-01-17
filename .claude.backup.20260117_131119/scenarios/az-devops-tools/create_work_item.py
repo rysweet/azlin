@@ -357,4 +357,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["create_work_item", "validate_work_item_type", "main"]
+__all__ = ["create_work_item", "main", "validate_work_item_type"]

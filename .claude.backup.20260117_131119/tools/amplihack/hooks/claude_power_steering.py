@@ -59,12 +59,12 @@ CHECKER_TIMEOUT = 30  # 30 seconds per SDK call
 
 # Public API (the "studs" for this brick)
 __all__ = [
-    "analyze_consideration",
-    "generate_final_guidance",
-    "analyze_claims_sync",
-    "analyze_if_addressed_sync",
-    "analyze_consideration_sync",
     "CLAUDE_SDK_AVAILABLE",
+    "analyze_claims_sync",
+    "analyze_consideration",
+    "analyze_consideration_sync",
+    "analyze_if_addressed_sync",
+    "generate_final_guidance",
 ]
 
 

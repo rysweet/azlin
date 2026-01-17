@@ -92,10 +92,10 @@ PARALLEL_TIMEOUT = 60
 
 # Public API (the "studs" for this brick)
 __all__ = [
-    "PowerSteeringChecker",
-    "PowerSteeringResult",
     "CheckerResult",
     "ConsiderationAnalysis",
+    "PowerSteeringChecker",
+    "PowerSteeringResult",
 ]
 
 

@@ -419,4 +419,4 @@ class VMPoolManager:
         return removed_vms
 
 
-__all__ = ["VMSize", "VMPoolEntry", "VMPoolManager"]
+__all__ = ["VMPoolEntry", "VMPoolManager", "VMSize"]

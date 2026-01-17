@@ -290,15 +290,49 @@ export class AzureClient {
 
   /**
    * Parse Run Command API response
+   *
+   * Azure Run Command returns response in format:
+   * {
+   *   "value": [{
+   *     "code": "ProvisioningState/succeeded",
+   *     "message": "Enable succeeded: \n[stdout]\n...\n\n[stderr]\n..."
+   *   }]
+   * }
+   *
+   * We need to parse stdout and stderr from the single message field.
    */
   private parseRunCommandResult(response: any): RunCommandResult {
     const value = response.value || [];
+    const firstValue = value[0] || {};
+
+    // Check if command succeeded - look for "succeeded" in code
+    const code = firstValue.code || '';
+    const succeeded = code.toLowerCase().includes('succeeded');
+
+    // Parse stdout and stderr from message field
+    // Format: "Enable succeeded: \n[stdout]\n...\n\n[stderr]\n..."
+    const message = firstValue.message || '';
+    let stdout = '';
+    let stderr = '';
+
+    // Extract content between [stdout] and [stderr] markers
+    const stdoutMatch = message.match(/\[stdout\]\n([\s\S]*?)\n\n\[stderr\]/);
+    const stderrMatch = message.match(/\[stderr\]\n([\s\S]*)$/);
+
+    if (stdoutMatch) {
+      stdout = stdoutMatch[1].trim();
+    }
+    if (stderrMatch) {
+      stderr = stderrMatch[1].trim();
+    }
+
+    console.log('🏴‍☠️ Parsed Run Command result:', { code, succeeded, stdoutLen: stdout.length, stderrLen: stderr.length });
 
     return {
-      exitCode: value[0]?.code === 'ComponentStatus/StdOut/succeeded' ? 0 : 1,
-      stdout: value[0]?.message || '',
-      stderr: value[1]?.message || '',
-      executionTime: value[0]?.displayStatus,
+      exitCode: succeeded ? 0 : 1,
+      stdout,
+      stderr,
+      executionTime: firstValue.displayStatus,
     };
   }
 }

@@ -34,7 +34,7 @@ import { chromium } from 'playwright';
 
   console.log('Step 5: Wait for redirect back (may take time for MFA)\n');
   console.log('(Waiting 90 seconds for MFA/consent...)\n');
-  
+
   try {
     await page.waitForURL(/localhost:3000/, { timeout: 90000 });
     console.log('✅ Redirected back to PWA!\n');
