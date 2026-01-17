@@ -328,6 +328,59 @@ class AsyncVMManager:
         start_time = asyncio.get_event_loop().time()
 
         try:
+            # Cache-first optimization: Check if all VMs are fully cached and fresh
+            cached_entries = self.cache.get_resource_group_entries(self.resource_group)
+
+            if cached_entries:
+                # Check if all cached entries are fresh (both layers valid)
+                all_fresh = True
+                for entry in cached_entries:
+                    immutable_expired = entry.is_immutable_expired(self.cache.immutable_ttl)
+                    mutable_expired = entry.is_mutable_expired(self.cache.mutable_ttl)
+                    if immutable_expired or mutable_expired:
+                        all_fresh = False
+                        break
+
+                if all_fresh:
+                    # Build VMs from cache - FAST PATH!
+                    result_vms = []
+                    for entry in cached_entries:
+                        # Add resource_group to immutable_data (stored separately in entry)
+                        immutable_with_rg = {
+                            **entry.immutable_data,
+                            "resource_group": entry.resource_group,
+                        }
+                        vm = VMInfo.from_cache_data(immutable_with_rg, entry.mutable_data)
+                        result_vms.append(vm)
+
+                    # Apply filters (same as Azure path)
+                    if not include_stopped:
+                        result_vms = [vm for vm in result_vms if vm.is_running()]
+
+                    if filter_prefix:
+                        result_vms = VMManager.filter_by_prefix(result_vms, filter_prefix)
+
+                    # Sort by creation time
+                    result_vms = VMManager.sort_by_created_time(result_vms)
+
+                    total_duration = asyncio.get_event_loop().time() - start_time
+
+                    stats = ParallelListStats(
+                        total_duration=total_duration,
+                        cache_hits=len(result_vms),
+                        cache_misses=0,
+                        api_calls=0,  # No Azure API calls!
+                        vms_found=len(result_vms),
+                    )
+
+                    logger.info(
+                        f"Cache hit: Returned {len(result_vms)} VMs from cache in {total_duration:.2f}s "
+                        f"(cache hit rate: 100%, API calls: 0)"
+                    )
+
+                    return result_vms, stats
+
+            # Cache miss or partial - proceed with Azure API flow
             # Batch API calls in parallel (step 1)
             vms_data, public_ips = await asyncio.gather(
                 self._get_vms_list(), self._get_public_ips(), return_exceptions=False
