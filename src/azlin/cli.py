@@ -3227,13 +3227,37 @@ def _handle_multi_context_list(
     try:
         click.echo(f"Querying VMs in resource group '{rg}' across {len(contexts)} contexts...\n")
 
+        # Check if cache exists before query
+        import json
+
+        from azlin.cache.vm_list_cache import VMListCache
+
+        cache = VMListCache()
+        cache_file = cache.cache_path
+        cache_exists_before = cache_file.exists()
+
+        if cache_exists_before:
+            with open(cache_file) as f:
+                cache_data = json.load(f)
+            click.echo(f"[DEBUG] Cache file exists with {len(cache_data)} entries before query")
+        else:
+            click.echo(f"[DEBUG] No cache file found at {cache_file}")
+
         result = query_all_contexts_parallel(
             contexts=contexts,
             resource_group=rg,
             include_stopped=show_all,
             filter_prefix="azlin",  # Always filter to azlin VMs like single-context mode
-            cache=None,  # Will use default VMListCache
+            cache=cache,  # Pass explicit cache instance
         )
+
+        # Check cache after query
+        if cache_file.exists():
+            with open(cache_file) as f:
+                cache_data_after = json.load(f)
+            click.echo(f"[DEBUG] Cache file has {len(cache_data_after)} entries after query")
+        else:
+            click.echo("[DEBUG] WARNING: No cache file created after query!")
 
     except MultiContextQueryError as e:
         click.echo(f"Error querying contexts: {e}", err=True)
