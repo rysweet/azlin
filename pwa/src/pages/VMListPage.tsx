@@ -1,5 +1,16 @@
 import { useEffect } from 'react';
-import { Box, Typography, List, ListItem, ListItemText, CircularProgress, Chip, Alert } from '@mui/material';
+import {
+  Box,
+  Typography,
+  CircularProgress,
+  Chip,
+  Alert,
+  Card,
+  CardContent,
+  CardActionArea,
+  Grid,
+  Button,
+} from '@mui/material';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { AppDispatch } from '../store/store';
@@ -14,86 +25,36 @@ function VMListPage() {
 
   useEffect(() => {
     console.log('🏴‍☠️ VMListPage: Fetching VMs...');
-
-    // DIAGNOSTIC: First check what subscriptions the token can see
-    const testSubscriptionAccess = async () => {
-      try {
-        const token = await new (await import('../auth/token-storage')).TokenStorage().getAccessToken();
-        console.log('🏴‍☠️ Token length:', token?.length || 0);
-
-        // Test: List subscriptions to see what we have access to
-        const subsResponse = await fetch(
-          'https://management.azure.com/subscriptions?api-version=2022-12-01',
-          { headers: { 'Authorization': `Bearer ${token}` } }
-        );
-
-        const subsData = await subsResponse.json();
-        console.log('🏴‍☠️ Subscriptions API response:', subsData);
-
-        if (subsData.value) {
-          interface AzureSubscription {
-            subscriptionId: string;
-            displayName: string;
-            state: string;
-          }
-
-          const subs = (subsData.value as AzureSubscription[]).map((s: AzureSubscription) => ({
-            id: s.subscriptionId,
-            name: s.displayName
-          }));
-          console.log('🏴‍☠️ Subscriptions accessible:', subs);
-
-          // Log each subscription explicitly as STRING
-          (subsData.value as AzureSubscription[]).forEach((s: AzureSubscription, i: number) => {
-            console.log(`🏴‍☠️ Subscription ${i + 1}: ID="${s.subscriptionId}" Name="${s.displayName}" State="${s.state}"`);
-          });
-
-          // Compare with env var
-          const envSubId = import.meta.env.VITE_AZURE_SUBSCRIPTION_ID;
-          const tokenSubId = subsData.value[0].subscriptionId;
-
-          console.log(`🏴‍☠️ TOKEN has access to subscription: "${tokenSubId}"`);
-          console.log(`🏴‍☠️ .env configured subscription:     "${envSubId}"`);
-          console.log(`🏴‍☠️ Token length: ${tokenSubId.length}, Env length: ${envSubId.length}`);
-          console.log(`🏴‍☠️ IDs match: ${tokenSubId === envSubId}`);
-
-          if (tokenSubId !== envSubId) {
-            console.error(`🏴‍☠️ ❌ MISMATCH! Character-by-character comparison:`);
-
-            // Show byte comparison
-            for (let i = 0; i < Math.max(tokenSubId.length, envSubId.length); i++) {
-              const tChar = tokenSubId[i] || '';
-              const eChar = envSubId[i] || '';
-
-              if (tChar !== eChar) {
-                console.error(`🏴‍☠️   Position ${i}: Token='${tChar}' (code ${tChar.charCodeAt(0)}) vs Env='${eChar}' (code ${eChar.charCodeAt(0)})`);
-              }
-            }
-
-            // Try trimming
-            const tokenTrimmed = tokenSubId.trim();
-            const envTrimmed = envSubId.trim();
-            console.log(`🏴‍☠️ After trim - Token: "${tokenTrimmed}" Env: "${envTrimmed}"`);
-            console.log(`🏴‍☠️ After trim match: ${tokenTrimmed === envTrimmed}`);
-          }
-        }
-      } catch (e) {
-        console.error('🏴‍☠️ Subscription test failed:', e);
-      }
-    };
-
-    testSubscriptionAccess();
-
     dispatch(fetchVMs(undefined));
   }, [dispatch]);
 
   useEffect(() => {
     console.log('🏴‍☠️ VMListPage state:', { vmsCount: vms.length, loading, error });
+    console.log('🏴‍☠️ VMs:', vms);
   }, [vms, loading, error]);
+
+  const handleRefresh = () => {
+    dispatch(fetchVMs(undefined));
+  };
+
+  const getPowerStateColor = (powerState: string): 'success' | 'error' | 'warning' | 'default' => {
+    switch (powerState.toLowerCase()) {
+      case 'running':
+        return 'success';
+      case 'deallocated':
+      case 'stopped':
+        return 'error';
+      case 'starting':
+      case 'stopping':
+        return 'warning';
+      default:
+        return 'default';
+    }
+  };
 
   if (loading && vms.length === 0) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 4, minHeight: '50vh' }}>
         <CircularProgress />
         <Typography sx={{ ml: 2 }}>Loading VMs...</Typography>
       </Box>
@@ -102,9 +63,19 @@ function VMListPage() {
 
   return (
     <Box sx={{ p: 2 }}>
-      <Typography variant="h4" gutterBottom>
-        Virtual Machines
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h5" sx={{ flexGrow: 1 }}>
+          Azure VMs
+        </Typography>
+        <Button
+          variant="outlined"
+          onClick={handleRefresh}
+          disabled={loading}
+          size="small"
+        >
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </Button>
+      </Box>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -118,25 +89,54 @@ function VMListPage() {
         </Alert>
       )}
 
-      <List>
+      <Grid container spacing={2}>
         {vms.map((vm) => (
-          <ListItem
-            key={vm.id}
-            button
-            onClick={() => navigate(`/vms/${encodeURIComponent(vm.id)}`)}
-          >
-            <ListItemText
-              primary={vm.name}
-              secondary={`${vm.size} - ${vm.location}`}
-            />
-            <Chip
-              label={vm.powerState}
-              color={vm.powerState === 'running' ? 'success' : 'default'}
-              size="small"
-            />
-          </ListItem>
+          <Grid item xs={12} key={vm.id}>
+            <Card>
+              <CardActionArea onClick={() => navigate(`/vms/${encodeURIComponent(vm.id)}`)}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                    <Box sx={{ flexGrow: 1 }}>
+                      <Typography variant="h6" component="div">
+                        {vm.name}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        {vm.size}
+                      </Typography>
+                      <Box sx={{ mt: 1, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Location:</strong> {vm.location}
+                        </Typography>
+                        {vm.privateIP && (
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>IP:</strong> {vm.privateIP}
+                          </Typography>
+                        )}
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>OS:</strong> {vm.osType}
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                      <Chip
+                        label={vm.powerState}
+                        color={getPowerStateColor(vm.powerState)}
+                        size="small"
+                      />
+                    </Box>
+                  </Box>
+                </CardContent>
+              </CardActionArea>
+            </Card>
+          </Grid>
         ))}
-      </List>
+      </Grid>
+
+      <Box sx={{ mt: 2 }}>
+        <Typography variant="body2" color="text.secondary">
+          Total: {vms.length} VM{vms.length !== 1 ? 's' : ''} | {vms.filter(v => v.powerState === 'running').length} running
+        </Typography>
+      </Box>
     </Box>
   );
 }

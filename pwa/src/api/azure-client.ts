@@ -128,21 +128,39 @@ export class AzureClient {
 
   /**
    * List all VMs in subscription, optionally filtered by resource group
+   * Uses $expand=instanceView to get power state information
    */
   async listVMs(resourceGroup?: string): Promise<VMInfo[]> {
     console.log('🏴‍☠️ AzureClient.listVMs called', { subscriptionId: this.subscriptionId, resourceGroup });
 
-    const path = resourceGroup
+    const basePath = resourceGroup
       ? `/subscriptions/${this.subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Compute/virtualMachines`
       : `/subscriptions/${this.subscriptionId}/providers/Microsoft.Compute/virtualMachines`;
 
-    console.log('🏴‍☠️ Calling Azure API:', path);
+    console.log('🏴‍☠️ Calling Azure API:', basePath);
 
     try {
-      const response = await this.get<{ value: Array<unknown> }>(path);
+      // First get the list of VMs
+      const response = await this.get<{ value: Array<unknown> }>(basePath);
       console.log('🏴‍☠️ Azure API response:', { count: response.value.length });
 
-      const vms = response.value.map((vm: any) => this.parseVM(vm));
+      // Then fetch instance view for each VM to get power state
+      const vmsWithStatus = await Promise.all(
+        response.value.map(async (vm: any) => {
+          try {
+            // Get instance view for this specific VM
+            const instanceViewPath = `${vm.id}/instanceView`;
+            const instanceView = await this.get<any>(instanceViewPath);
+            // Merge instance view into VM data
+            return { ...vm, properties: { ...vm.properties, instanceView } };
+          } catch (e) {
+            console.warn(`🏴‍☠️ Failed to get instance view for ${vm.name}:`, e);
+            return vm;
+          }
+        })
+      );
+
+      const vms = vmsWithStatus.map((vm: any) => this.parseVM(vm));
       console.log('🏴‍☠️ Parsed VMs:', vms.length, vms);
 
       return vms;

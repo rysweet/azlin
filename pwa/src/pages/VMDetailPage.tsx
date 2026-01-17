@@ -14,7 +14,9 @@ import {
   Alert,
   Chip,
   Divider,
+  IconButton,
 } from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useSelector, useDispatch } from 'react-redux';
 import { AppDispatch } from '../store/store';
 import { selectVMById, startVM, stopVM } from '../store/vm-store';
@@ -32,13 +34,19 @@ function VMDetailPage() {
   const tmuxLoading = useSelector(selectTmuxLoading);
   const tmuxError = useSelector(selectTmuxError);
 
+  // Check if VM is running (case-insensitive)
+  const isRunning = vm?.powerState?.toLowerCase() === 'running';
+
   // Fetch tmux sessions when VM is running
   useEffect(() => {
-    if (vm && vm.powerState === 'running') {
+    if (vm) {
+      console.log('🏴‍☠️ VMDetailPage: VM data:', { name: vm.name, powerState: vm.powerState, isRunning });
+    }
+    if (vm && isRunning) {
       console.log('🏴‍☠️ Fetching tmux sessions for', vm.name);
       dispatch(fetchSessions({ resourceGroup: vm.resourceGroup, vmName: vm.name }));
     }
-  }, [dispatch, vm]);
+  }, [dispatch, vm, isRunning]);
 
   if (!vm) {
     return (
@@ -61,18 +69,27 @@ function VMDetailPage() {
     navigate(`/tmux/${encodedVmId}/${encodeURIComponent(sessionName)}`);
   };
 
-  const isRunning = vm.powerState === 'running';
+  const getPowerStateColor = (): 'success' | 'error' | 'warning' | 'default' => {
+    const state = vm.powerState?.toLowerCase() || '';
+    if (state === 'running') return 'success';
+    if (state === 'deallocated' || state === 'stopped') return 'error';
+    if (state === 'starting' || state === 'stopping') return 'warning';
+    return 'default';
+  };
 
   return (
     <Box sx={{ p: 2 }}>
       {/* VM Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4" sx={{ flexGrow: 1 }}>
+        <IconButton onClick={() => navigate('/')} sx={{ mr: 1 }}>
+          <ArrowBackIcon />
+        </IconButton>
+        <Typography variant="h5" sx={{ flexGrow: 1 }}>
           {vm.name}
         </Typography>
         <Chip
-          label={vm.powerState}
-          color={isRunning ? 'success' : 'default'}
+          label={vm.powerState || 'unknown'}
+          color={getPowerStateColor()}
           size="medium"
         />
       </Box>

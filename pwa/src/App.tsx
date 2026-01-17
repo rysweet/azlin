@@ -21,7 +21,6 @@ import { msalInstance, initializeMsal } from './auth/msal-instance';
 
 // Lazy load pages
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
-const DashboardPage = React.lazy(() => import('./pages/DashboardPage'));
 const VMListPage = React.lazy(() => import('./pages/VMListPage'));
 const VMDetailPage = React.lazy(() => import('./pages/VMDetailPage'));
 const TmuxPage = React.lazy(() => import('./pages/TmuxPage'));
@@ -98,15 +97,7 @@ function App() {
           <Routes>
             <Route
               path="/login"
-              element={isAuthenticated ? <Navigate to="/dashboard" /> : <LoginPage />}
-            />
-            <Route
-              path="/dashboard"
-              element={isAuthenticated ? <DashboardPage /> : <Navigate to="/login" />}
-            />
-            <Route
-              path="/vms"
-              element={isAuthenticated ? <VMListPage /> : <Navigate to="/login" />}
+              element={isAuthenticated ? <Navigate to="/" /> : <LoginPage />}
             />
             <Route
               path="/vms/:vmId"
@@ -118,7 +109,7 @@ function App() {
             />
             <Route
               path="/"
-              element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />}
+              element={isAuthenticated ? <VMListPage /> : <Navigate to="/login" />}
             />
           </Routes>
         </React.Suspense>
