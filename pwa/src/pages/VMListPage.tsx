@@ -97,12 +97,14 @@ function VMListPage() {
                 <CardContent>
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="h6" component="div">
-                        {vm.name}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                        {vm.size}
-                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                        <Typography variant="h6" component="div">
+                          {vm.name}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          ({vm.size})
+                        </Typography>
+                      </Box>
                       <Box sx={{ mt: 1, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                         <Typography variant="body2" color="text.secondary">
                           <strong>Location:</strong> {vm.location}
@@ -134,7 +136,7 @@ function VMListPage() {
 
       <Box sx={{ mt: 2 }}>
         <Typography variant="body2" color="text.secondary">
-          Total: {vms.length} VM{vms.length !== 1 ? 's' : ''} | {vms.filter(v => v.powerState === 'running').length} running
+          Total: {vms.length} VM{vms.length !== 1 ? 's' : ''} | {vms.filter(v => v.powerState?.toLowerCase() === 'running').length} running
         </Typography>
       </Box>
     </Box>

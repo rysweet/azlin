@@ -91,20 +91,47 @@ export class AzureClient {
     }
 
     if (!response.ok) {
-      // Get detailed error response from Azure
-      let errorDetails = `${response.status} ${response.statusText}`;
+      // Read the response body as text first (can only read once)
+      let responseText = '';
       try {
-        const errorBody = await response.json();
-        errorDetails = JSON.stringify(errorBody, null, 2);
-        console.error('🏴‍☠️ Azure API error response:', errorBody);
+        responseText = await response.text();
       } catch (e) {
-        // Can't parse error body
+        // Could not read response body
+      }
+
+      // Try to parse as JSON for detailed error info
+      let errorDetails = `${response.status} ${response.statusText}`;
+      if (responseText) {
+        try {
+          const errorBody = JSON.parse(responseText);
+          errorDetails = errorBody?.error?.message || JSON.stringify(errorBody, null, 2);
+          console.error('🏴‍☠️ Azure API error response:', errorBody);
+        } catch (e) {
+          // Not JSON, use raw text
+          errorDetails = responseText || errorDetails;
+        }
+      }
+
+      // Handle specific HTTP status codes with user-friendly messages
+      if (response.status === 409) {
+        throw new Error(`VM is busy - another operation may be in progress. Please wait and try again. (${errorDetails})`);
       }
 
       throw new Error(`Azure API error: ${errorDetails}`);
     }
 
-    return response.json();
+    // Handle empty response body (e.g., 202 Accepted with no content)
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      return {} as T;
+    }
+
+    const text = await response.text();
+    if (!text || text.trim() === '') {
+      return {} as T;
+    }
+
+    return JSON.parse(text);
   }
 
   /**
