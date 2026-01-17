@@ -130,10 +130,8 @@ from azlin.modules.vscode_launcher import (
     VSCodeNotFoundError,
 )
 from azlin.multi_context_display import MultiContextDisplay
-from azlin.multi_context_list import (
-    MultiContextQueryError,
-    MultiContextVMQuery,
-)
+from azlin.multi_context_list import MultiContextQueryError
+from azlin.multi_context_list_async import query_all_contexts_parallel
 from azlin.prune import PruneManager
 from azlin.quota_manager import QuotaInfo, QuotaManager
 from azlin.remote_exec import (
@@ -3229,11 +3227,12 @@ def _handle_multi_context_list(
     try:
         click.echo(f"Querying VMs in resource group '{rg}' across {len(contexts)} contexts...\n")
 
-        query = MultiContextVMQuery(contexts=contexts, max_workers=5)
-        result = query.query_all_contexts(
+        result = query_all_contexts_parallel(
+            contexts=contexts,
             resource_group=rg,
             include_stopped=show_all,
             filter_prefix="azlin",  # Always filter to azlin VMs like single-context mode
+            cache=None,  # Will use default VMListCache
         )
 
     except MultiContextQueryError as e:
