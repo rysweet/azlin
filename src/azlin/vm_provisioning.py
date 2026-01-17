@@ -40,7 +40,7 @@ class VMConfig:
     resource_group: str
     location: str = "westus2"  # Better capacity than eastus
     size: str = "Standard_E16as_v5"  # Memory-optimized: 128GB RAM, 16 vCPU, 12.5 Gbps network
-    image: str = "Ubuntu2204"
+    image: str = "Canonical:ubuntu-24_04-lts:server:latest"
     ssh_public_key: str | None = None
     admin_username: str = "azureuser"
     disable_password_auth: bool = True
