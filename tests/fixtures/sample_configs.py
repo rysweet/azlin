@@ -19,7 +19,7 @@ COMPLETE_CONFIG: dict[str, Any] = {
         "name": "dev-vm",
         "size": "Standard_D2s_v3",
         "region": "eastus",
-        "image": "ubuntu-22.04",
+        "image": "ubuntu-24.04",
         "resource_group": "azlin-rg",
         "admin_username": "azureuser",
     },
@@ -116,7 +116,7 @@ vm:
   name: dev-vm
   size: Standard_D2s_v3
   region: eastus
-  image: ubuntu-22.04
+  image: ubuntu-24.04
   resource_group: azlin-rg
   admin_username: azureuser
 
@@ -171,7 +171,7 @@ COMPLETE_CONFIG_JSON = """{
     "name": "dev-vm",
     "size": "Standard_D2s_v3",
     "region": "eastus",
-    "image": "ubuntu-22.04",
+    "image": "ubuntu-24.04",
     "resource_group": "azlin-rg",
     "admin_username": "azureuser"
   },

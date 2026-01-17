@@ -410,7 +410,7 @@ class AzureCLIStrategy(ExecutionStrategy):
             # azlin new -> az vm create
             vm_name = context.intent.parameters.get("vm_name", "vm")
             rg = context.resource_group or "azlin-rg"
-            return f"az vm create --name {vm_name} --resource-group {rg} --image Ubuntu2204"
+            return f"az vm create --name {vm_name} --resource-group {rg} --image Canonical:ubuntu-24_04-lts:server:latest"
 
         if cmd == "list":
             # azlin list -> az vm list
@@ -442,7 +442,7 @@ class AzureCLIStrategy(ExecutionStrategy):
         if "provision" in intent_type or "create vm" in intent_type:
             vm_name = params.get("vm_name", "vm-" + str(int(time.time())))
             commands.append(
-                f"az vm create --name {vm_name} --resource-group {rg} --image Ubuntu2204"
+                f"az vm create --name {vm_name} --resource-group {rg} --image Canonical:ubuntu-24_04-lts:server:latest"
             )
 
         elif "list" in intent_type and "vm" in intent_type:
