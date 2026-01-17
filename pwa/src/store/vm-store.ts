@@ -29,7 +29,8 @@ const initialState: VMState = {
 
 // Create Azure client instance
 const getAzureClient = () => {
-  const subscriptionId = import.meta.env.VITE_AZURE_SUBSCRIPTION_ID;
+  const subscriptionId = import.meta.env.VITE_AZURE_SUBSCRIPTION_ID?.trim() || '';
+  console.log('🏴‍☠️ Creating Azure client with subscription:', subscriptionId);
   return new AzureClient(subscriptionId);
 };
 

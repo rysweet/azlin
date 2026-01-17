@@ -48,11 +48,27 @@ function VMListPage() {
 
           console.log(`🏴‍☠️ TOKEN has access to subscription: "${tokenSubId}"`);
           console.log(`🏴‍☠️ .env configured subscription:     "${envSubId}"`);
+          console.log(`🏴‍☠️ Token length: ${tokenSubId.length}, Env length: ${envSubId.length}`);
           console.log(`🏴‍☠️ IDs match: ${tokenSubId === envSubId}`);
 
           if (tokenSubId !== envSubId) {
-            console.error(`🏴‍☠️ ❌ MISMATCH! Token subscription differs from .env!`);
-            console.error(`🏴‍☠️    Update .env to use: ${tokenSubId}`);
+            console.error(`🏴‍☠️ ❌ MISMATCH! Character-by-character comparison:`);
+
+            // Show byte comparison
+            for (let i = 0; i < Math.max(tokenSubId.length, envSubId.length); i++) {
+              const tChar = tokenSubId[i] || '';
+              const eChar = envSubId[i] || '';
+
+              if (tChar !== eChar) {
+                console.error(`🏴‍☠️   Position ${i}: Token='${tChar}' (code ${tChar.charCodeAt(0)}) vs Env='${eChar}' (code ${eChar.charCodeAt(0)})`);
+              }
+            }
+
+            // Try trimming
+            const tokenTrimmed = tokenSubId.trim();
+            const envTrimmed = envSubId.trim();
+            console.log(`🏴‍☠️ After trim - Token: "${tokenTrimmed}" Env: "${envTrimmed}"`);
+            console.log(`🏴‍☠️ After trim match: ${tokenTrimmed === envTrimmed}`);
           }
         }
       } catch (e) {

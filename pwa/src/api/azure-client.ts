@@ -91,7 +91,17 @@ export class AzureClient {
     }
 
     if (!response.ok) {
-      throw new Error(`Azure API error: ${response.status} ${response.statusText}`);
+      // Get detailed error response from Azure
+      let errorDetails = `${response.status} ${response.statusText}`;
+      try {
+        const errorBody = await response.json();
+        errorDetails = JSON.stringify(errorBody, null, 2);
+        console.error('🏴‍☠️ Azure API error response:', errorBody);
+      } catch (e) {
+        // Can't parse error body
+      }
+
+      throw new Error(`Azure API error: ${errorDetails}`);
     }
 
     return response.json();
