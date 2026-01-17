@@ -269,14 +269,19 @@ export class AzureClient {
 
   /**
    * Execute shell script on VM via Run Command API
-   * Timeout: 90 seconds (Azure constraint)
+   *
+   * Azure Run Command returns 202 Accepted with a location header for async polling.
+   * We must poll that URL until the operation completes (up to 90 seconds).
    */
   async executeRunCommand(
     resourceGroup: string,
     vmName: string,
     script: string
   ): Promise<RunCommandResult> {
+    const token = await this.tokenStorage.getAccessToken();
     const path = `/subscriptions/${this.subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Compute/virtualMachines/${vmName}/runCommand`;
+    const url = new URL(`${AZURE_BASE_URL}${path}`);
+    url.searchParams.set('api-version', API_VERSION);
 
     const body = {
       commandId: 'RunShellScript',
@@ -284,8 +289,80 @@ export class AzureClient {
       parameters: [],
     };
 
-    const response = await this.post<any>(path, body);
-    return this.parseRunCommandResult(response);
+    console.log('🏴‍☠️ Executing Run Command on', vmName);
+
+    // Initial POST request
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    // Handle 409 Conflict (VM busy)
+    if (response.status === 409) {
+      throw new Error('VM is busy - another command may be running. Try again in a moment.');
+    }
+
+    if (!response.ok && response.status !== 202) {
+      const errorText = await response.text();
+      throw new Error(`Run Command failed: ${response.status} ${errorText}`);
+    }
+
+    // 202 Accepted - need to poll the location header
+    if (response.status === 202) {
+      const locationUrl = response.headers.get('location') || response.headers.get('azure-asyncoperation');
+      if (!locationUrl) {
+        throw new Error('Run Command returned 202 but no location header for polling');
+      }
+
+      console.log('🏴‍☠️ Run Command accepted, polling for result...');
+      return this.pollRunCommandResult(locationUrl);
+    }
+
+    // 200 OK - result inline (rare, but possible for very fast commands)
+    const result = await response.json();
+    return this.parseRunCommandResult(result);
+  }
+
+  /**
+   * Poll the async operation URL until Run Command completes
+   * Max polling time: 90 seconds (Azure Run Command timeout)
+   */
+  private async pollRunCommandResult(locationUrl: string): Promise<RunCommandResult> {
+    const token = await this.tokenStorage.getAccessToken();
+    const maxAttempts = 30; // 30 * 3s = 90 seconds max
+    const pollInterval = 3000; // 3 seconds
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      console.log(`🏴‍☠️ Polling Run Command result (attempt ${attempt + 1}/${maxAttempts})...`);
+
+      const response = await fetch(locationUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 202) {
+        // Still running, wait and retry
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        continue;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Run Command polling failed: ${response.status} ${errorText}`);
+      }
+
+      // Operation completed
+      const result = await response.json();
+      console.log('🏴‍☠️ Run Command completed:', result);
+      return this.parseRunCommandResult(result);
+    }
+
+    throw new Error('Run Command timed out after 90 seconds');
   }
 
   /**
