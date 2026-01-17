@@ -14,6 +14,54 @@ function VMListPage() {
 
   useEffect(() => {
     console.log('🏴‍☠️ VMListPage: Fetching VMs...');
+
+    // DIAGNOSTIC: First check what subscriptions the token can see
+    const testSubscriptionAccess = async () => {
+      try {
+        const token = await new (await import('../auth/token-storage')).TokenStorage().getAccessToken();
+        console.log('🏴‍☠️ Token length:', token?.length || 0);
+
+        // Test: List subscriptions to see what we have access to
+        const subsResponse = await fetch(
+          'https://management.azure.com/subscriptions?api-version=2022-12-01',
+          { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+
+        const subsData = await subsResponse.json();
+        console.log('🏴‍☠️ Subscriptions API response:', subsData);
+
+        if (subsData.value) {
+          const subs = subsData.value.map(s => ({
+            id: s.subscriptionId,
+            name: s.displayName
+          }));
+          console.log('🏴‍☠️ Subscriptions accessible:', subs);
+
+          // Log each subscription explicitly as STRING
+          subsData.value.forEach((s, i) => {
+            console.log(`🏴‍☠️ Subscription ${i + 1}: ID="${s.subscriptionId}" Name="${s.displayName}" State="${s.state}"`);
+          });
+
+          // Compare with env var
+          const envSubId = import.meta.env.VITE_AZURE_SUBSCRIPTION_ID;
+          const tokenSubId = subsData.value[0].subscriptionId;
+
+          console.log(`🏴‍☠️ TOKEN has access to subscription: "${tokenSubId}"`);
+          console.log(`🏴‍☠️ .env configured subscription:     "${envSubId}"`);
+          console.log(`🏴‍☠️ IDs match: ${tokenSubId === envSubId}`);
+
+          if (tokenSubId !== envSubId) {
+            console.error(`🏴‍☠️ ❌ MISMATCH! Token subscription differs from .env!`);
+            console.error(`🏴‍☠️    Update .env to use: ${tokenSubId}`);
+          }
+        }
+      } catch (e) {
+        console.error('🏴‍☠️ Subscription test failed:', e);
+      }
+    };
+
+    testSubscriptionAccess();
+
     dispatch(fetchVMs(undefined));
   }, [dispatch]);
 

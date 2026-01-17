@@ -16,7 +16,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { PublicClientApplication } from '@azure/msal-browser';
 import { AppDispatch } from './store/store';
-import { checkAuth, selectIsAuthenticated } from './store/auth-store';
+import { checkAuth, selectIsAuthenticated, setAuthenticated } from './store/auth-store';
 import { TokenStorage } from './auth/token-storage';
 
 // Lazy load pages
@@ -68,6 +68,7 @@ function App() {
 
       if (response) {
         console.log('🏴‍☠️ Redirect response received:', response);
+        console.log('🏴‍☠️ Account:', response.account?.username);
 
         // Save token
         const tokenStorage = new TokenStorage();
@@ -75,6 +76,12 @@ function App() {
         await tokenStorage.saveTokens(response.accessToken, '', expiresOn);
 
         console.log('🏴‍☠️ Token saved from redirect');
+
+        // CRITICAL: Set authenticated state in Redux
+        dispatch(setAuthenticated(true));
+        console.log('🏴‍☠️ Redux auth state set to authenticated');
+      } else {
+        console.log('🏴‍☠️ No redirect response - checking existing auth');
       }
 
       setMsalInitialized(true);
