@@ -10,29 +10,11 @@
  */
 
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import { PublicClientApplication, InteractionRequiredAuthError } from '@azure/msal-browser';
+import { InteractionRequiredAuthError } from '@azure/msal-browser';
 import { TokenStorage } from '../auth/token-storage';
+import { msalInstance, initializeMsal, AZURE_SCOPES } from '../auth/msal-instance';
 
 const tokenStorage = new TokenStorage();
-
-// MSAL configuration
-const msalConfig = {
-  auth: {
-    clientId: import.meta.env.VITE_AZURE_CLIENT_ID,
-    authority: `https://login.microsoftonline.com/${import.meta.env.VITE_AZURE_TENANT_ID}`,
-    redirectUri: window.location.origin, // Use current origin (http://localhost:3000)
-  },
-  cache: {
-    cacheLocation: 'localStorage',
-    storeAuthStateInCookie: false,
-  },
-};
-
-// Create MSAL instance
-const msalInstance = new PublicClientApplication(msalConfig);
-
-// Initialize MSAL
-await msalInstance.initialize();
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -54,6 +36,9 @@ const initialState: AuthState = {
 export const silentAuth = createAsyncThunk<boolean, void>(
   'auth/silent',
   async () => {
+    // Ensure MSAL is initialized
+    await initializeMsal();
+
     const accounts = msalInstance.getAllAccounts();
 
     if (accounts.length === 0) {
@@ -62,7 +47,7 @@ export const silentAuth = createAsyncThunk<boolean, void>(
 
     try {
       const response = await msalInstance.acquireTokenSilent({
-        scopes: ['https://management.azure.com/.default'],
+        scopes: AZURE_SCOPES,
         account: accounts[0],
       });
 
@@ -87,9 +72,12 @@ export const loginInteractive = createAsyncThunk<void, void>(
   'auth/loginInteractive',
   async () => {
     try {
+      // Ensure MSAL is initialized
+      await initializeMsal();
+
       // Use redirect flow instead of popup (more reliable, no COOP issues)
       await msalInstance.loginRedirect({
-        scopes: ['https://management.azure.com/.default', 'offline_access'],
+        scopes: AZURE_SCOPES,
       });
       // Note: This function never returns - page redirects
       // handleRedirectPromise() in App.tsx handles the return
@@ -105,8 +93,12 @@ export const loginInteractive = createAsyncThunk<void, void>(
 export const checkAuth = createAsyncThunk<boolean, void>(
   'auth/checkAuth',
   async () => {
+    // Ensure MSAL is initialized
+    await initializeMsal();
+
     // Try silent auth first
     const accounts = msalInstance.getAllAccounts();
+    console.log('checkAuth: Found accounts:', accounts.length);
 
     if (accounts.length === 0) {
       return false;
@@ -114,15 +106,17 @@ export const checkAuth = createAsyncThunk<boolean, void>(
 
     try {
       const response = await msalInstance.acquireTokenSilent({
-        scopes: ['https://management.azure.com/.default'],
+        scopes: AZURE_SCOPES,
         account: accounts[0],
       });
 
       const expiresOn = response.expiresOn?.getTime() || Date.now() + 3600000;
       await tokenStorage.saveTokens(response.accessToken, '', expiresOn);
+      console.log('checkAuth: Token acquired successfully');
 
       return true;
     } catch (error) {
+      console.log('checkAuth: Silent auth failed:', error);
       return false;
     }
   }
@@ -134,6 +128,9 @@ export const checkAuth = createAsyncThunk<boolean, void>(
 export const logout = createAsyncThunk<void, void>(
   'auth/logout',
   async () => {
+    // Ensure MSAL is initialized
+    await initializeMsal();
+
     const accounts = msalInstance.getAllAccounts();
 
     if (accounts.length > 0) {

@@ -14,10 +14,10 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { PublicClientApplication } from '@azure/msal-browser';
 import { AppDispatch } from './store/store';
 import { checkAuth, selectIsAuthenticated, setAuthenticated } from './store/auth-store';
 import { TokenStorage } from './auth/token-storage';
+import { msalInstance, initializeMsal } from './auth/msal-instance';
 
 // Lazy load pages
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
@@ -38,30 +38,16 @@ const theme = createTheme({
   },
 });
 
-// Create MSAL instance for redirect handling
-const msalConfig = {
-  auth: {
-    clientId: import.meta.env.VITE_AZURE_CLIENT_ID,
-    authority: `https://login.microsoftonline.com/${import.meta.env.VITE_AZURE_TENANT_ID}`,
-    redirectUri: window.location.origin,
-  },
-  cache: {
-    cacheLocation: 'localStorage',
-    storeAuthStateInCookie: false,
-  },
-};
-
-const msalInstance = new PublicClientApplication(msalConfig);
-
 function App() {
   const dispatch = useDispatch<AppDispatch>();
   const isAuthenticated = useSelector(selectIsAuthenticated);
-  const [msalInitialized, setMsalInitialized] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
     // Initialize MSAL and handle redirect response
     const initMsal = async () => {
-      await msalInstance.initialize();
+      // Use shared MSAL instance (single source of truth)
+      await initializeMsal();
 
       // Handle redirect response (user returning from Microsoft login)
       const response = await msalInstance.handleRedirectPromise();
@@ -82,16 +68,27 @@ function App() {
         console.log('🏴‍☠️ Redux auth state set to authenticated');
       } else {
         console.log('🏴‍☠️ No redirect response - checking existing auth');
+        // Only check auth if no redirect response (to avoid race condition)
+        dispatch(checkAuth());
       }
 
-      setMsalInitialized(true);
-
-      // Check if user is already authenticated
-      dispatch(checkAuth());
+      setIsInitializing(false);
     };
 
     initMsal();
   }, [dispatch]);
+
+  // Show loading while MSAL initializes to avoid flash of login page
+  if (isInitializing) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+          Loading...
+        </div>
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider theme={theme}>

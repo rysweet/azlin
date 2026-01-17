@@ -31,14 +31,20 @@ function VMListPage() {
         console.log('🏴‍☠️ Subscriptions API response:', subsData);
 
         if (subsData.value) {
-          const subs = subsData.value.map(s => ({
+          interface AzureSubscription {
+            subscriptionId: string;
+            displayName: string;
+            state: string;
+          }
+
+          const subs = (subsData.value as AzureSubscription[]).map((s: AzureSubscription) => ({
             id: s.subscriptionId,
             name: s.displayName
           }));
           console.log('🏴‍☠️ Subscriptions accessible:', subs);
 
           // Log each subscription explicitly as STRING
-          subsData.value.forEach((s, i) => {
+          (subsData.value as AzureSubscription[]).forEach((s: AzureSubscription, i: number) => {
             console.log(`🏴‍☠️ Subscription ${i + 1}: ID="${s.subscriptionId}" Name="${s.displayName}" State="${s.state}"`);
           });
 
