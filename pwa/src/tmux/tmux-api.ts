@@ -53,9 +53,13 @@ export class TmuxApi {
 
   /**
    * List all tmux sessions on a VM
+   * Uses enhanced format matching azlin CLI for better compatibility
    */
   async listSessions(resourceGroup: string, vmName: string): Promise<TmuxSession[]> {
-    const script = `tmux list-sessions 2>&1`;
+    // Use enhanced format that matches azlin CLI, with fallback to standard format
+    // Enhanced format: name:attached:windows:created (Unix timestamp)
+    // Fallback format: name: N windows (created date)
+    const script = `tmux list-sessions -F "#{session_name}:#{session_attached}:#{session_windows}:#{session_created}" 2>/dev/null || tmux list-sessions 2>/dev/null || echo ''`;
 
     try {
       const result = await this.azureClient.executeRunCommand(
@@ -64,12 +68,17 @@ export class TmuxApi {
         script
       );
 
-      if (result.exitCode !== 0) {
-        // No sessions running
+      console.log('🏴‍☠️ Tmux list-sessions result:', { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr });
+
+      // Parse output regardless of exit code - check content instead
+      const output = result.stdout.trim();
+
+      // No sessions: tmux returns error or empty output
+      if (!output || output.includes('no server running') || output.includes('error connecting')) {
         return [];
       }
 
-      return this.parseSessions(result.stdout);
+      return this.parseSessions(output);
     } catch (error) {
       const errorMessage = `Failed to list tmux sessions on VM ${vmName} in resource group ${resourceGroup}`;
       const originalError = error instanceof Error ? error.message : String(error);
@@ -79,26 +88,51 @@ export class TmuxApi {
 
   /**
    * Parse tmux list-sessions output
-   * Format: "main: 2 windows (created Mon Jan 15 10:00:00 2025)"
+   * Supports both enhanced format (name:attached:windows:created) and standard format
    */
   private parseSessions(output: string): TmuxSession[] {
     const lines = output.trim().split('\n').filter(line => line.length > 0);
+    const sessions: TmuxSession[] = [];
 
-    return lines.map(line => {
-      const match = line.match(/^([^:]+):\s+(\d+)\s+windows?\s+\(created\s+(.+)\)$/);
-
-      if (!match) {
-        return null;
+    for (const line of lines) {
+      // Try enhanced format first: name:attached:windows:created
+      const enhancedMatch = line.match(/^([^:]+):(\d+):(\d+):(\d+)$/);
+      if (enhancedMatch) {
+        const [, name, _attached, windowCount, createdTs] = enhancedMatch;
+        sessions.push({
+          name: name.trim(),
+          windowCount: parseInt(windowCount),
+          created: new Date(parseInt(createdTs) * 1000), // Unix timestamp to Date
+        });
+        continue;
       }
 
-      const [, name, windowCount, created] = match;
+      // Fallback to standard format: "main: 2 windows (created Mon Jan 15 10:00:00 2025)"
+      const standardMatch = line.match(/^([^:]+):\s+(\d+)\s+windows?\s+\(created\s+(.+)\)$/);
+      if (standardMatch) {
+        const [, name, windowCount, created] = standardMatch;
+        sessions.push({
+          name: name.trim(),
+          windowCount: parseInt(windowCount),
+          created: new Date(created),
+        });
+        continue;
+      }
 
-      return {
-        name: name.trim(),
-        windowCount: parseInt(windowCount),
-        created: new Date(created),
-      };
-    }).filter(Boolean) as TmuxSession[];
+      // Try even simpler format: just session name with basic info
+      const simpleMatch = line.match(/^([^:]+):\s+(\d+)\s+windows?/);
+      if (simpleMatch) {
+        const [, name, windowCount] = simpleMatch;
+        sessions.push({
+          name: name.trim(),
+          windowCount: parseInt(windowCount),
+          created: new Date(), // Unknown, use now
+        });
+      }
+    }
+
+    console.log('🏴‍☠️ Parsed tmux sessions:', sessions);
+    return sessions;
   }
 
   /**
