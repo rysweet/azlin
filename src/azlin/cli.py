@@ -9588,8 +9588,129 @@ def azdoit_main(
     azdoit_cli_main()
 
 
+@click.group(name="web")
+def web():
+    """Manage the Azlin Mobile PWA web server."""
+    pass
+
+
+@web.command(name="start")
+@click.option("--port", default=3000, help="Port to run the dev server on", type=int)
+@click.option("--host", default="localhost", help="Host to bind to", type=str)
+def web_start(port: int, host: str):
+    """Start the Azlin Mobile PWA development server.
+
+    This command starts the Vite dev server for the React PWA that manages
+    azlin VMs from iPhone/mobile devices.
+
+    Once started, open http://localhost:3000 in Safari on your iPhone and
+    add to home screen for a native-like app experience.
+    """
+    import subprocess
+    from pathlib import Path
+
+    # Find the PWA directory - try multiple locations
+    # 1. Development: src/azlin/cli.py -> ../../pwa
+    dev_pwa_dir = Path(__file__).parent.parent.parent / "pwa"
+
+    # 2. Installed via pip: site-packages/azlin/cli.py -> ../pwa
+    installed_pwa_dir = Path(__file__).parent.parent / "pwa"
+
+    # 3. Git repo: check if we're in a git repo
+    git_root_pwa_dir = None
+    try:
+        import subprocess as sp
+
+        git_root = sp.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=2
+        )
+        if git_root.returncode == 0:
+            git_root_pwa_dir = Path(git_root.stdout.strip()) / "pwa"
+    except Exception:
+        pass
+
+    # Try paths in order
+    pwa_dir = None
+    for candidate in [dev_pwa_dir, installed_pwa_dir, git_root_pwa_dir]:
+        if candidate and candidate.exists():
+            pwa_dir = candidate
+            break
+
+    if not pwa_dir:
+        click.echo("Error: PWA directory not found. Tried:", err=True)
+        click.echo(f"  - {dev_pwa_dir} (development)", err=True)
+        click.echo(f"  - {installed_pwa_dir} (installed)", err=True)
+        if git_root_pwa_dir:
+            click.echo(f"  - {git_root_pwa_dir} (git root)", err=True)
+        click.echo("\nThe PWA may not be installed yet.", err=True)
+        click.echo("Run this command from the azlin repository root.", err=True)
+        sys.exit(1)
+
+    # Check if node_modules exists
+    if not (pwa_dir / "node_modules").exists():
+        click.echo("Installing PWA dependencies (first time only)...")
+        subprocess.run(["npm", "install"], cwd=pwa_dir, check=True)
+
+    click.echo(f"🏴‍☠️ Starting Azlin Mobile PWA on http://{host}:{port}")
+    click.echo("📱 Open in Safari on your iPhone and add to home screen")
+    click.echo("Press Ctrl+C to stop the server")
+    click.echo("")
+
+    try:
+        subprocess.run(
+            ["npm", "run", "dev", "--", "--port", str(port), "--host", host],
+            cwd=pwa_dir,
+            check=True,
+        )
+    except KeyboardInterrupt:
+        click.echo("\n🛑 PWA server stopped")
+    except subprocess.CalledProcessError as e:
+        click.echo(f"Error starting PWA: {e}", err=True)
+        sys.exit(1)
+
+
+@web.command(name="stop")
+def web_stop():
+    """Stop the Azlin Mobile PWA development server.
+
+    Finds and terminates any running Vite dev server processes for the PWA.
+    """
+    import signal
+    import subprocess
+
+    try:
+        # Find vite processes
+        result = subprocess.run(["pgrep", "-f", "vite.*azlin"], capture_output=True, text=True)
+
+        if result.returncode != 0 or not result.stdout.strip():
+            click.echo("No running PWA server found")
+            return
+
+        pids = result.stdout.strip().split("\n")
+        click.echo(f"Found {len(pids)} PWA server process(es)")
+
+        for pid in pids:
+            try:
+                import os
+
+                os.kill(int(pid), signal.SIGTERM)
+                click.echo(f"✓ Stopped PWA server (PID: {pid})")
+            except ProcessLookupError:
+                pass  # Already stopped
+            except Exception as e:
+                click.echo(f"Warning: Could not stop PID {pid}: {e}", err=True)
+
+    except Exception as e:
+        click.echo(f"Error stopping PWA: {e}", err=True)
+        sys.exit(1)
+
+
+# Register web command group
+main.add_command(web)
+
+
 if __name__ == "__main__":
     main()
 
 
-__all__ = ["AzlinError", "CLIOrchestrator", "azdoit_main", "main"]
+__all__ = ["AzlinError", "CLIOrchestrator", "azdoit_main", "main", "web"]
