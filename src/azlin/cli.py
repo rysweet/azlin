@@ -3284,6 +3284,14 @@ def _handle_multi_context_list(
         result, show_errors=True, show_summary=True, wide_mode=wide_mode, compact_mode=compact_mode
     )
 
+    # Trigger background cache refresh to keep cache warm (non-blocking)
+    try:
+        from azlin.cache.background_refresh import trigger_background_refresh
+
+        trigger_background_refresh(contexts=contexts)
+    except Exception:
+        pass  # Never fail user operation due to background refresh
+
     # Step 5: Check if any contexts failed and set appropriate exit code
     if result.failed_contexts > 0:
         click.echo(
@@ -3439,6 +3447,14 @@ def list_command(
         # Get resource group from config or CLI
         rg = ConfigManager.get_resource_group(resource_group, config)
 
+        # Try to get current context (for background refresh later)
+        current_ctx = None
+        try:
+            context_config = ContextManager.load(config)
+            current_ctx = context_config.get_current_context()
+        except Exception:
+            pass  # Silently skip if context unavailable
+
         # Cross-RG discovery: ONLY if --show-all-vms flag is set
         if not rg and show_all_vms:
             click.echo("Listing all azlin-managed VMs across resource groups...\n")
@@ -3467,14 +3483,9 @@ def list_command(
             # Single RG listing (rg is guaranteed to be str here)
             assert rg is not None, "Resource group must be set in this branch"
 
-            # Show current context if available
-            try:
-                context_config = ContextManager.load(config)
-                current_ctx = context_config.get_current_context()
-                if current_ctx:
-                    click.echo(f"Context: {current_ctx.name}")
-            except Exception:
-                pass  # Silently skip if context unavailable
+            # Show current context name if available
+            if current_ctx:
+                click.echo(f"Context: {current_ctx.name}")
 
             click.echo(f"Listing VMs in resource group: {rg}\n")
             # Use tag-based query to include custom-named VMs (Issue #385 support)
@@ -3491,6 +3502,16 @@ def list_command(
                 sys.exit(1)
 
         vms = VMManager.sort_by_created_time(vms)
+
+        # Trigger background cache refresh to keep cache warm (non-blocking)
+        try:
+            from azlin.cache.background_refresh import trigger_background_refresh
+
+            # Create Context object from current context for refresh
+            if current_ctx:
+                trigger_background_refresh(contexts=[current_ctx])
+        except Exception:
+            pass  # Never fail user operation due to background refresh
 
         # Populate session names from tags (hybrid resolution: tags first, config fallback)
         for vm in vms:
