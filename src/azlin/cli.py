@@ -3150,6 +3150,7 @@ def _handle_multi_context_list(
     show_tmux: bool,
     wide_mode: bool = False,
     compact_mode: bool = False,
+    no_cache: bool = False,
 ) -> None:
     """Handle multi-context VM listing.
 
@@ -3285,12 +3286,28 @@ def _handle_multi_context_list(
     )
 
     # Trigger background cache refresh to keep cache warm (non-blocking)
-    try:
-        from azlin.cache.background_refresh import trigger_background_refresh
+    if not no_cache and rg:
+        try:
+            import subprocess
 
-        trigger_background_refresh(contexts=contexts)
-    except Exception:
-        pass  # Never fail user operation due to background refresh
+            # Build background refresh command
+            refresh_cmd = ["azlin", "list"]
+            if all_contexts:
+                refresh_cmd.append("--all-contexts")
+            elif contexts_pattern:
+                refresh_cmd.extend(["--contexts", contexts_pattern])
+            refresh_cmd.extend(["--rg", rg, "--all", "--no-cache", "--no-quota", "--no-tmux"])
+
+            # Spawn detached background process
+            subprocess.Popen(
+                refresh_cmd,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass  # Never fail user operation due to background refresh
 
     # Step 5: Check if any contexts failed and set appropriate exit code
     if result.failed_contexts > 0:
@@ -3349,6 +3366,13 @@ def _handle_multi_context_list(
     default=False,
     help="Measure SSH latency for running VMs (adds ~5s per VM, parallel)",
 )
+@click.option(
+    "--no-cache",
+    "no_cache",
+    is_flag=True,
+    default=False,
+    help="Bypass cache and fetch fresh data from Azure (used by background refresh)",
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -3362,6 +3386,7 @@ def list_command(
     wide_mode: bool = False,
     compact_mode: bool = False,
     with_latency: bool = False,
+    no_cache: bool = False,
 ):
     """List VMs in a resource group.
 
@@ -3431,6 +3456,7 @@ def list_command(
                 show_tmux=show_tmux,
                 wide_mode=wide_mode,
                 compact_mode=compact_mode,
+                no_cache=no_cache,
             )
             return  # Exit early - multi-context mode handled completely
 
@@ -3459,7 +3485,9 @@ def list_command(
         if not rg and show_all_vms:
             click.echo("Listing all azlin-managed VMs across resource groups...\n")
             try:
-                vms = TagManager.list_managed_vms(resource_group=None)
+                vms, was_cached = TagManager.list_managed_vms(
+                    resource_group=None, use_cache=not no_cache
+                )
                 if not show_all:
                     vms = [vm for vm in vms if vm.is_running()]
             except Exception as e:
@@ -3489,7 +3517,7 @@ def list_command(
 
             click.echo(f"Listing VMs in resource group: {rg}\n")
             # Use tag-based query to include custom-named VMs (Issue #385 support)
-            vms = TagManager.list_managed_vms(resource_group=rg)
+            vms, was_cached = TagManager.list_managed_vms(resource_group=rg, use_cache=not no_cache)
             if not show_all:
                 vms = [vm for vm in vms if vm.is_running()]
 
@@ -3503,15 +3531,33 @@ def list_command(
 
         vms = VMManager.sort_by_created_time(vms)
 
-        # Trigger background cache refresh to keep cache warm (non-blocking)
-        try:
-            from azlin.cache.background_refresh import trigger_background_refresh
+        # Trigger background cache refresh if we used cache (keep cache warm)
+        if was_cached and rg:
+            try:
+                import subprocess
 
-            # Create Context object from current context for refresh
-            if current_ctx:
-                trigger_background_refresh(contexts=[current_ctx])
-        except Exception:
-            pass  # Never fail user operation due to background refresh
+                # Build background refresh command
+                refresh_cmd = [
+                    "azlin",
+                    "list",
+                    "--rg",
+                    rg,
+                    "--all",
+                    "--no-cache",
+                    "--no-quota",
+                    "--no-tmux",
+                ]
+
+                # Spawn detached background process
+                subprocess.Popen(
+                    refresh_cmd,
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                )
+            except Exception:
+                pass  # Never fail user operation due to background refresh
 
         # Populate session names from tags (hybrid resolution: tags first, config fallback)
         for vm in vms:
@@ -3527,9 +3573,9 @@ def list_command(
             click.echo("No VMs found.")
             return
 
-        # Collect quota information if enabled
+        # Collect quota information if enabled (skip if cached)
         quota_by_region: dict[str, list[QuotaInfo]] = {}
-        if show_quota:
+        if show_quota and not was_cached:
             try:
                 # Get unique regions from VMs
                 regions = list({vm.location for vm in vms if vm.location})
@@ -3549,14 +3595,14 @@ def list_command(
             except Exception as e:
                 click.echo(f"Warning: Failed to fetch quota information: {e}", err=True)
 
-        # Collect tmux session information if enabled
+        # Collect tmux session information if enabled (skip if cached)
         tmux_by_vm: dict[str, list[TmuxSession]] = {}
-        if show_tmux:
+        if show_tmux and not was_cached:
             tmux_by_vm = _collect_tmux_sessions(vms)
 
-        # Measure SSH latency if enabled
+        # Measure SSH latency if enabled (skip if cached)
         latency_by_vm: dict[str, LatencyResult] = {}
-        if with_latency:
+        if with_latency and not was_cached:
             try:
                 from azlin.ssh.latency import SSHLatencyMeasurer
 
@@ -6798,7 +6844,7 @@ def status(resource_group: str | None, config: str | None, vm: str | None):
         # List VMs - use TagManager to filter by managed-by=azlin tag
         from azlin.tag_manager import TagManager
 
-        vms = TagManager.list_managed_vms(resource_group=rg)
+        vms, was_cached = TagManager.list_managed_vms(resource_group=rg)
 
         # Filter out stopped VMs by default (consistent with list command behavior)
         # Note: list command doesn't filter by default but shows all,

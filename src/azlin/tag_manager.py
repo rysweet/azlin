@@ -408,7 +408,7 @@ class TagManager:
             VMInfo if found, None otherwise
         """
         try:
-            vms = cls.list_managed_vms(resource_group)
+            vms, _ = cls.list_managed_vms(resource_group)
 
             # Find VM with matching session tag
             for vm in vms:
@@ -526,7 +526,7 @@ class TagManager:
     @classmethod
     def list_managed_vms(
         cls, resource_group: str | None = None, use_cache: bool = True
-    ) -> list[VMInfo]:
+    ) -> tuple[list[VMInfo], bool]:
         """List all azlin-managed VMs with optional caching.
 
         Args:
@@ -534,7 +534,7 @@ class TagManager:
             use_cache: Enable VM list caching (default: True)
 
         Returns:
-            List of VMInfo objects for managed VMs
+            Tuple of (List of VMInfo objects for managed VMs, was_cached: True if from cache)
 
         Raises:
             TagManagerError: If list operation fails
@@ -544,11 +544,11 @@ class TagManager:
         try:
             if resource_group:
                 # Single RG - use efficient cached listing
-                vms = VMManager.list_vms_with_cache(
+                vms, was_cached = VMManager.list_vms_with_cache(
                     resource_group=resource_group, include_stopped=True, use_cache=use_cache
                 )
                 # Filter to managed VMs only
-                return [vm for vm in vms if vm.is_managed()]
+                return [vm for vm in vms if vm.is_managed()], was_cached
 
             # Multi-RG query - fall back to tag-based query
             # Build Azure CLI command
@@ -588,7 +588,7 @@ class TagManager:
                     logger.warning(f"Failed to parse VM data: {e}")
                     continue
 
-            return vms
+            return vms, False  # Multi-RG path (no cache)
 
         except subprocess.TimeoutExpired as e:
             msg = "Azure CLI timeout while listing VMs"

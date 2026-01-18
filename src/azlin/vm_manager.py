@@ -715,7 +715,7 @@ class VMManager:
     @classmethod
     def list_vms_with_cache(
         cls, resource_group: str, include_stopped: bool = True, use_cache: bool = True
-    ) -> list[VMInfo]:
+    ) -> tuple[list[VMInfo], bool]:
         """List VMs with optional caching.
 
         This method implements tiered TTL caching:
@@ -735,14 +735,14 @@ class VMManager:
             use_cache: Enable caching (default: True)
 
         Returns:
-            List of VMInfo objects
+            Tuple of (List of VMInfo objects, was_cached: True if returned from cache)
 
         Raises:
             VMManagerError: If listing fails
         """
         if not use_cache:
             # Bypass cache - direct API call
-            return cls.list_vms(resource_group, include_stopped)
+            return cls.list_vms(resource_group, include_stopped), False
 
         from azlin.cache.vm_list_cache import VMListCache
 
@@ -780,7 +780,7 @@ class VMManager:
                 logger.debug(f"Cache hit: Using {len(result_vms)} cached VMs for {resource_group}")
                 if not include_stopped:
                     result_vms = [vm for vm in result_vms if vm.is_running()]
-                return result_vms
+                return result_vms, True  # Cache hit
 
         # Step 2: Cache miss or partial - fetch fresh data from Azure
         print(
@@ -809,7 +809,7 @@ class VMManager:
         if not include_stopped:
             fresh_vms = [vm for vm in fresh_vms if vm.is_running()]
 
-        return fresh_vms
+        return fresh_vms, False  # Cache miss/refresh
 
     @classmethod
     def invalidate_cache(cls, vm_name: str, resource_group: str) -> None:
