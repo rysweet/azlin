@@ -20,7 +20,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useSelector, useDispatch } from 'react-redux';
 import { AppDispatch } from '../store/store';
 import { selectVMById, startVM, stopVM } from '../store/vm-store';
-import { fetchSessions, selectSessionsByVmId, selectTmuxLoading, selectTmuxError } from '../store/tmux-store';
+import { fetchSessions, selectSessionsByVmId, selectTmuxLoading, selectTmuxError, selectPollingProgress } from '../store/tmux-store';
 
 function VMDetailPage() {
   const { vmId } = useParams<{ vmId: string }>();
@@ -33,6 +33,7 @@ function VMDetailPage() {
   const sessions = useSelector((state: any) => selectSessionsByVmId(state, vmIdKey));
   const tmuxLoading = useSelector(selectTmuxLoading);
   const tmuxError = useSelector(selectTmuxError);
+  const pollingProgress = useSelector(selectPollingProgress);
 
   // Check if VM is running (case-insensitive)
   const isRunning = vm?.powerState?.toLowerCase() === 'running';
@@ -141,9 +142,20 @@ function VMDetailPage() {
       )}
 
       {isRunning && tmuxLoading && (
-        <Box sx={{ display: 'flex', alignItems: 'center', p: 2 }}>
-          <CircularProgress size={24} sx={{ mr: 2 }} />
-          <Typography>Loading tmux sessions...</Typography>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', p: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+            <CircularProgress size={24} sx={{ mr: 2 }} />
+            <Typography>
+              {pollingProgress
+                ? pollingProgress.message
+                : 'Loading tmux sessions...'}
+            </Typography>
+          </Box>
+          {pollingProgress && (
+            <Typography variant="caption" color="text.secondary">
+              Attempt {pollingProgress.attempt} of {pollingProgress.maxAttempts}
+            </Typography>
+          )}
         </Box>
       )}
 

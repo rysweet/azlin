@@ -18,7 +18,7 @@
  * - Works with private IP VMs via Bastion
  */
 
-import { AzureClient } from '../api/azure-client';
+import { AzureClient, PollingProgress } from '../api/azure-client';
 
 export interface TmuxSession {
   name: string;
@@ -55,8 +55,14 @@ export class TmuxApi {
    * List all tmux sessions on a VM
    * Uses enhanced format matching azlin CLI for better compatibility
    * IMPORTANT: Run as azureuser because tmux sessions are per-user and Run Command runs as root
+   *
+   * @param onProgress - Optional callback to report polling progress to UI
    */
-  async listSessions(resourceGroup: string, vmName: string): Promise<TmuxSession[]> {
+  async listSessions(
+    resourceGroup: string,
+    vmName: string,
+    onProgress?: (progress: PollingProgress) => void
+  ): Promise<TmuxSession[]> {
     // Use enhanced format that matches azlin CLI, with fallback to standard format
     // Enhanced format: name:attached:windows:created (Unix timestamp)
     // Fallback format: name: N windows (created date)
@@ -67,7 +73,8 @@ export class TmuxApi {
       const result = await this.azureClient.executeRunCommand(
         resourceGroup,
         vmName,
-        script
+        script,
+        onProgress
       );
 
       console.log('🏴‍☠️ Tmux list-sessions result:', { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr });

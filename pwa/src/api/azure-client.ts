@@ -37,6 +37,12 @@ export interface RunCommandResult {
   executionTime?: string;
 }
 
+export interface PollingProgress {
+  attempt: number;
+  maxAttempts: number;
+  message: string;
+}
+
 export class AzureClient {
   public readonly subscriptionId: string;
   private tokenStorage: TokenStorage;
@@ -272,11 +278,14 @@ export class AzureClient {
    *
    * Azure Run Command returns 202 Accepted with a location header for async polling.
    * We must poll that URL until the operation completes (up to 90 seconds).
+   *
+   * @param onProgress - Optional callback to report polling progress to UI
    */
   async executeRunCommand(
     resourceGroup: string,
     vmName: string,
-    script: string
+    script: string,
+    onProgress?: (progress: PollingProgress) => void
   ): Promise<RunCommandResult> {
     const token = await this.tokenStorage.getAccessToken();
     const path = `/subscriptions/${this.subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Compute/virtualMachines/${vmName}/runCommand`;
@@ -319,7 +328,7 @@ export class AzureClient {
       }
 
       console.log('🏴‍☠️ Run Command accepted, polling for result...');
-      return this.pollRunCommandResult(locationUrl);
+      return this.pollRunCommandResult(locationUrl, onProgress);
     }
 
     // 200 OK - result inline (rare, but possible for very fast commands)
@@ -331,13 +340,26 @@ export class AzureClient {
    * Poll the async operation URL until Run Command completes
    * Max polling time: 90 seconds (Azure Run Command timeout)
    */
-  private async pollRunCommandResult(locationUrl: string): Promise<RunCommandResult> {
+  private async pollRunCommandResult(
+    locationUrl: string,
+    onProgress?: (progress: PollingProgress) => void
+  ): Promise<RunCommandResult> {
     const token = await this.tokenStorage.getAccessToken();
     const maxAttempts = 30; // 30 * 3s = 90 seconds max
     const pollInterval = 3000; // 3 seconds
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      console.log(`🏴‍☠️ Polling Run Command result (attempt ${attempt + 1}/${maxAttempts})...`);
+      const attemptNum = attempt + 1;
+      console.log(`🏴‍☠️ Polling Run Command result (attempt ${attemptNum}/${maxAttempts})...`);
+
+      // Report progress to UI
+      if (onProgress) {
+        onProgress({
+          attempt: attemptNum,
+          maxAttempts,
+          message: `Waiting for VM response... (${attemptNum}/${maxAttempts})`,
+        });
+      }
 
       const response = await fetch(locationUrl, {
         headers: {

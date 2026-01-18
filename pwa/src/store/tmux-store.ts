@@ -9,15 +9,16 @@
  * - Zero-BS: Real tmux commands via Azure Run Command API
  */
 
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { TmuxApi, TmuxSession, TmuxSnapshot } from '../tmux/tmux-api';
-import { AzureClient } from '../api/azure-client';
+import { AzureClient, PollingProgress } from '../api/azure-client';
 
 interface TmuxState {
   sessions: Record<string, TmuxSession[]>; // Keyed by vmId
   snapshots: Record<string, TmuxSnapshot>; // Keyed by vmId:sessionName
   loading: boolean;
   error: string | null;
+  pollingProgress: PollingProgress | null; // Track polling status for UI
 }
 
 const initialState: TmuxState = {
@@ -25,6 +26,7 @@ const initialState: TmuxState = {
   snapshots: {},
   loading: false,
   error: null,
+  pollingProgress: null,
 };
 
 const getTmuxApi = () => {
@@ -38,13 +40,24 @@ const getTmuxApi = () => {
  */
 export const fetchSessions = createAsyncThunk<
   { vmId: string; sessions: TmuxSession[] },
-  { resourceGroup: string; vmName: string }
+  { resourceGroup: string; vmName: string },
+  { dispatch: any }
 >(
   'tmux/fetchSessions',
-  async ({ resourceGroup, vmName }) => {
+  async ({ resourceGroup, vmName }, { dispatch }) => {
     const tmuxApi = getTmuxApi();
-    const sessions = await tmuxApi.listSessions(resourceGroup, vmName);
+
+    // Callback to update polling progress in the store
+    const onProgress = (progress: PollingProgress) => {
+      dispatch(setPollingProgress(progress));
+    };
+
+    const sessions = await tmuxApi.listSessions(resourceGroup, vmName, onProgress);
     const vmId = `${resourceGroup}/${vmName}`;
+
+    // Clear polling progress when done
+    dispatch(setPollingProgress(null));
+
     return { vmId, sessions };
   }
 );
@@ -85,6 +98,9 @@ const tmuxSlice = createSlice({
   reducers: {
     clearSnapshots: (state) => {
       state.snapshots = {};
+    },
+    setPollingProgress: (state, action: PayloadAction<PollingProgress | null>) => {
+      state.pollingProgress = action.payload;
     },
   },
   extraReducers: (builder) => {
@@ -134,7 +150,7 @@ const tmuxSlice = createSlice({
   },
 });
 
-export const { clearSnapshots } = tmuxSlice.actions;
+export const { clearSnapshots, setPollingProgress } = tmuxSlice.actions;
 
 // Selectors
 export const selectSessionsByVmId = (state: { tmux: TmuxState }, vmId: string) =>
@@ -146,5 +162,7 @@ export const selectSnapshotById = (state: { tmux: TmuxState }, snapshotId: strin
 export const selectTmuxLoading = (state: { tmux: TmuxState }) => state.tmux.loading;
 
 export const selectTmuxError = (state: { tmux: TmuxState }) => state.tmux.error;
+
+export const selectPollingProgress = (state: { tmux: TmuxState }) => state.tmux.pollingProgress;
 
 export default tmuxSlice.reducer;
