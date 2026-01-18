@@ -149,10 +149,9 @@ def mock_context_packager():
 
     # Mock package (returns temp archive path)
     def package_side_effect(*args, **kwargs):
-        temp_file = tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False)
-        temp_file.write(b"fake archive content")
-        temp_file.close()
-        return Path(temp_file.name)
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_file:
+            temp_file.write(b"fake archive content")
+            return Path(temp_file.name)
 
     mock_instance.package = Mock(side_effect=package_side_effect)
 
@@ -203,9 +202,8 @@ def test_complete_session_lifecycle(
     assert pool_status["active_sessions"] == 1
 
     # Step 4: Start session (PENDING → RUNNING)
-    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-        archive_path = Path(tmp.name)
-        archive_path.write_bytes(b"fake archive")
+    archive_path = Path(tempfile.mktemp(suffix=".tar.gz"))
+    archive_path.write_bytes(b"fake archive")
 
     try:
         session = session_mgr.start_session(session.session_id, archive_path)

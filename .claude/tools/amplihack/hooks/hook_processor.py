@@ -29,6 +29,7 @@ from typing import Any
 
 from error_protocol import HookError, HookErrorSeverity, HookException
 from json_protocol import RobustJSONParser
+from shutdown_context import is_shutdown_in_progress
 
 
 class HookProcessor(ABC):
@@ -75,7 +76,7 @@ class HookProcessor(ABC):
                 current = current.parent
 
             if found_root is None:
-                raise ValueError("Could not find project root with .claude marker")
+                raise ValueError("Could not find project root with .claude marker") from None
 
             self.project_root = found_root
 
@@ -117,7 +118,7 @@ class HookProcessor(ABC):
             resolved.relative_to(self.project_root)
             return resolved
         except ValueError:
-            raise ValueError(f"Path escapes project root: {path}")
+            raise ValueError(f"Path escapes project root: {path}") from None
 
     def log(self, message: str, level: str = "INFO"):
         """Log a message to the hook's log file.
@@ -151,18 +152,24 @@ class HookProcessor(ABC):
         Raises:
             json.JSONDecodeError: If input is not valid JSON
         """
-        # Skip stdin read during interrupt shutdown to avoid SystemExit race condition
-        if os.environ.get("AMPLIHACK_SHUTDOWN_IN_PROGRESS") == "1":
+        # Skip stdin read during shutdown to avoid blocking on closed/detached stdin
+        if is_shutdown_in_progress():
             self.log("Skipping stdin read during shutdown", "DEBUG")
             return {}
 
-        raw_input = sys.stdin.read()
-        if not raw_input.strip():
-            return {}
+        # Try to read from stdin
+        try:
+            raw_input = sys.stdin.read()
+            if not raw_input.strip():
+                return {}
 
-        # Use RobustJSONParser for resilient parsing
-        parser = RobustJSONParser()
-        return parser.parse(raw_input)
+            # Use RobustJSONParser for resilient parsing
+            parser = RobustJSONParser()
+            return parser.parse(raw_input)
+        except (AttributeError, OSError, ValueError) as e:
+            # stdin might be closed, detached, or invalid
+            self.log(f"stdin read failed: {e}", "DEBUG")
+            return {}
 
     def write_output(self, output: dict[str, Any]):
         """Write JSON output to stdout with fail-open pipe closure handling.

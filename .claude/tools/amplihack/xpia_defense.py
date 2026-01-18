@@ -953,7 +953,7 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
 
         except Exception as e:
             self.logger.error(f"Content validation failed: {e}")
-            raise ValidationError(f"Validation failed: {e!s}")
+            raise ValidationError(f"Validation failed: {e!s}") from e
 
     async def validate_bash_command(  # type: ignore
         self,
@@ -1060,7 +1060,7 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
 
         except Exception as e:
             self.logger.error(f"Failed to update configuration: {e}")
-            raise ConfigurationError(f"Configuration update failed: {e!s}")
+            raise ConfigurationError(f"Configuration update failed: {e!s}") from e
 
     def register_hook(self, registration: HookRegistration) -> str:  # type: ignore
         """Register a security hook, returns hook ID"""
@@ -1070,7 +1070,7 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
             return hook_id
         except Exception as e:
             self.logger.error(f"Failed to register hook {registration.name}: {e}")
-            raise HookError(f"Hook registration failed: {e!s}")
+            raise HookError(f"Hook registration failed: {e!s}") from e
 
     def unregister_hook(self, hook_id: str) -> bool:
         """Unregister a security hook"""
@@ -1081,7 +1081,7 @@ class SecurityValidator(XPIADefenseInterface):  # type: ignore
             return success
         except Exception as e:
             self.logger.error(f"Failed to unregister hook {hook_id}: {e}")
-            raise HookError(f"Hook unregistration failed: {e!s}")
+            raise HookError(f"Hook unregistration failed: {e!s}") from e
 
     async def health_check(self) -> dict[str, Any]:
         """Perform health check and return status"""

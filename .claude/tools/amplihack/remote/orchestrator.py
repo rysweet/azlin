@@ -79,9 +79,9 @@ class Orchestrator:
         except FileNotFoundError:
             raise ProvisioningError(
                 "Azlin not found. Please install:\n  pip install azlin\n  azlin configure"
-            )
+            ) from None
         except subprocess.TimeoutExpired:
-            raise ProvisioningError("Azlin version check timed out")
+            raise ProvisioningError("Azlin version check timed out") from None
 
     def provision_or_reuse(self, options: VMOptions) -> VM:
         """Get VM for execution (reuse existing or provision new).
@@ -216,7 +216,7 @@ class Orchestrator:
                 raise ProvisioningError(
                     f"VM provisioning timed out after {max_retries} attempts",
                     context={"vm_name": vm_name, "timeout": "10 minutes"},
-                )
+                ) from None
 
             except subprocess.CalledProcessError as e:
                 if attempt < max_retries - 1:
@@ -224,7 +224,7 @@ class Orchestrator:
                     if "quota" in e.stderr.lower() or "limit" in e.stderr.lower():
                         raise ProvisioningError(
                             f"Azure quota exceeded: {e.stderr}", context={"vm_name": vm_name}
-                        )
+                        ) from e
                     print(f"Provisioning failed, retrying ({attempt + 2}/{max_retries})...")
                     time.sleep(30)
                     continue
@@ -232,7 +232,7 @@ class Orchestrator:
                 raise ProvisioningError(
                     f"Failed to provision VM: {e.stderr}",
                     context={"vm_name": vm_name, "command": " ".join(cmd)},
-                )
+                ) from e
 
         raise ProvisioningError(
             f"Failed to provision VM after {max_retries} attempts", context={"vm_name": vm_name}
@@ -296,11 +296,11 @@ class Orchestrator:
             )
 
         except subprocess.CalledProcessError:
-            raise ProvisioningError(f"VM not found: {vm_name}", context={"vm_name": vm_name})
+            raise ProvisioningError(f"VM not found: {vm_name}", context={"vm_name": vm_name}) from None
         except subprocess.TimeoutExpired:
             raise ProvisioningError(
                 "Timeout while verifying VM existence", context={"vm_name": vm_name}
-            )
+            ) from None
 
     def cleanup(self, vm: VM, force: bool = False) -> bool:
         """Cleanup VM resources.
@@ -340,14 +340,14 @@ class Orchestrator:
             if force:
                 print(f"Warning: {error_msg}")
                 return False
-            raise CleanupError(error_msg, context={"vm_name": vm.name})
+            raise CleanupError(error_msg, context={"vm_name": vm.name}) from e
 
         except subprocess.TimeoutExpired:
             error_msg = "VM cleanup timed out"
             if force:
                 print(f"Warning: {error_msg} for {vm.name}")
                 return False
-            raise CleanupError(error_msg, context={"vm_name": vm.name})
+            raise CleanupError(error_msg, context={"vm_name": vm.name}) from None
 
     def _parse_azlin_list_json(self, output: str) -> list[VM]:
         """Parse JSON output from azlin list."""

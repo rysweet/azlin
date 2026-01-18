@@ -204,7 +204,7 @@ class SessionManager:
             self._used_ids = set(self._sessions.keys())
 
         except json.JSONDecodeError as e:
-            raise ValueError(f"State file corrupt: {e}")
+            raise ValueError(f"State file corrupt: {e}") from e
 
     def _save_state(self) -> None:
         """Save state to JSON file atomically with file locking.

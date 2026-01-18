@@ -125,7 +125,7 @@ def complete_amplihack_env(tmp_path):
 def test_end_to_end_minimal_profile(complete_amplihack_env):
     """Test complete workflow with minimal profile."""
     # Load profile
-    loader = ProfileLoader(builtin_profiles_dir=complete_amplihack_env / "profiles")
+    loader = ProfileLoader(profiles_dir=complete_amplihack_env / "profiles")
     profile = loader.load_profile("minimal")
 
     # Discover components
@@ -153,7 +153,7 @@ def test_end_to_end_minimal_profile(complete_amplihack_env):
 def test_end_to_end_full_profile(complete_amplihack_env):
     """Test complete workflow with full profile."""
     # Load profile
-    loader = ProfileLoader(builtin_profiles_dir=complete_amplihack_env / "profiles")
+    loader = ProfileLoader(profiles_dir=complete_amplihack_env / "profiles")
     profile = loader.load_profile("full")
 
     # Discover components
@@ -174,7 +174,7 @@ def test_end_to_end_full_profile(complete_amplihack_env):
 def test_end_to_end_category_based_profile(complete_amplihack_env):
     """Test complete workflow with category-based skill filtering."""
     # Load profile
-    loader = ProfileLoader(builtin_profiles_dir=complete_amplihack_env / "profiles")
+    loader = ProfileLoader(profiles_dir=complete_amplihack_env / "profiles")
     profile = loader.load_profile("office")
 
     # Discover components
@@ -202,7 +202,7 @@ def test_end_to_end_with_skill_index(complete_amplihack_env):
     assert (skills_dir / "_index.json").exists()
 
     # Load profile
-    loader = ProfileLoader(builtin_profiles_dir=complete_amplihack_env / "profiles")
+    loader = ProfileLoader(profiles_dir=complete_amplihack_env / "profiles")
     profile = loader.load_profile("minimal")
 
     # Discover components (should use index)
@@ -221,7 +221,7 @@ def test_end_to_end_with_skill_index(complete_amplihack_env):
 def test_end_to_end_token_estimation(complete_amplihack_env):
     """Test token count estimation in end-to-end workflow."""
     # Load profile
-    loader = ProfileLoader(builtin_profiles_dir=complete_amplihack_env / "profiles")
+    loader = ProfileLoader(profiles_dir=complete_amplihack_env / "profiles")
     profile = loader.load_profile("minimal")
 
     # Discover components
@@ -242,7 +242,7 @@ def test_end_to_end_token_estimation(complete_amplihack_env):
 
 def test_end_to_end_profile_comparison(complete_amplihack_env):
     """Test comparing token counts between different profiles."""
-    loader = ProfileLoader(builtin_profiles_dir=complete_amplihack_env / "profiles")
+    loader = ProfileLoader(profiles_dir=complete_amplihack_env / "profiles")
     discovery = ComponentDiscovery(root_dir=complete_amplihack_env)
     inventory = discovery.discover_all()
     filter_instance = ComponentFilter()
@@ -263,7 +263,7 @@ def test_end_to_end_profile_comparison(complete_amplihack_env):
 
 def test_end_to_end_nonexistent_profile(complete_amplihack_env):
     """Test error handling for nonexistent profile."""
-    loader = ProfileLoader(builtin_profiles_dir=complete_amplihack_env / "profiles")
+    loader = ProfileLoader(profiles_dir=complete_amplihack_env / "profiles")
 
     with pytest.raises(FileNotFoundError):
         loader.load_profile("nonexistent")
@@ -312,7 +312,7 @@ def test_end_to_end_empty_inventory():
 
 def test_end_to_end_list_available_profiles(complete_amplihack_env):
     """Test listing available profiles."""
-    loader = ProfileLoader(builtin_profiles_dir=complete_amplihack_env / "profiles")
+    loader = ProfileLoader(profiles_dir=complete_amplihack_env / "profiles")
     profiles = loader.list_profiles()
 
     assert "minimal" in profiles
@@ -324,7 +324,7 @@ def test_end_to_end_list_available_profiles(complete_amplihack_env):
 def test_end_to_end_component_verification(complete_amplihack_env):
     """Test that filtered components actually exist on filesystem."""
     # Load profile
-    loader = ProfileLoader(builtin_profiles_dir=complete_amplihack_env / "profiles")
+    loader = ProfileLoader(profiles_dir=complete_amplihack_env / "profiles")
     profile = loader.load_profile("minimal")
 
     # Discover and filter
@@ -350,7 +350,7 @@ def test_end_to_end_skill_index_rebuild(complete_amplihack_env):
 
     # Build initial index
     index_builder = SkillIndexBuilder(skills_dir=skills_dir)
-    index_data1 = index_builder.build_index()
+    index_builder.build_index()
 
     # Add new skill
     new_category = skills_dir / "new-category"
@@ -380,14 +380,14 @@ def test_end_to_end_performance(complete_amplihack_env):
     start = time.time()
 
     # Complete workflow
-    loader = ProfileLoader(builtin_profiles_dir=complete_amplihack_env / "profiles")
+    loader = ProfileLoader(profiles_dir=complete_amplihack_env / "profiles")
     profile = loader.load_profile("full")
 
     discovery = ComponentDiscovery(root_dir=complete_amplihack_env)
     inventory = discovery.discover_all()
 
     filter_instance = ComponentFilter()
-    components = filter_instance.filter(profile, inventory)
+    filter_instance.filter(profile, inventory)
 
     elapsed = time.time() - start
 

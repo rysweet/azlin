@@ -160,11 +160,11 @@ class Integrator:
         except subprocess.CalledProcessError as e:
             raise IntegrationError(
                 f"Failed to import branches: {e.stderr}", context={"bundle_path": str(bundle_path)}
-            )
+            ) from e
         except subprocess.TimeoutExpired:
             raise IntegrationError(
                 "Branch import timed out", context={"bundle_path": str(bundle_path)}
-            )
+            ) from None
 
     def _copy_logs(self, results_dir: Path) -> bool:
         """Copy logs from results to local repository.

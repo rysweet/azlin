@@ -174,7 +174,7 @@ def parse_linkinator_output(json_output: str) -> LinkCheckReport:
     try:
         data = json.loads(json_output)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON from linkinator: {e}")
+        raise ValueError(f"Invalid JSON from linkinator: {e}") from e
 
     # Extract links
     links = data.get("links", [])
