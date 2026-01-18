@@ -776,12 +776,16 @@ class VMManager:
 
             # If we have some fresh VMs and nothing needs refresh, use cache
             if result_vms and not vms_to_refresh:
+                print(f"[CACHE HIT] Using {len(result_vms)} cached VMs (60min TTL)")
                 logger.debug(f"Cache hit: Using {len(result_vms)} cached VMs for {resource_group}")
                 if not include_stopped:
                     result_vms = [vm for vm in result_vms if vm.is_running()]
                 return result_vms
 
         # Step 2: Cache miss or partial - fetch fresh data from Azure
+        print(
+            f"[CACHE MISS] Fetching from Azure (cached: {len(result_vms)}, refresh needed: {len(vms_to_refresh)})"
+        )
         logger.debug(
             f"Cache miss or partial: Fetching fresh VM data for {resource_group} "
             f"(cached: {len(result_vms)}, to_refresh: {len(vms_to_refresh)})"
