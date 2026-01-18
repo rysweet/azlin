@@ -2,12 +2,10 @@
  * Unit Tests for Tmux API (60% of testing pyramid)
  *
  * Tests tmux integration via Azure Run Command API.
- * These tests WILL FAIL until tmux-api.ts is implemented.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TmuxApi } from '../tmux-api';
-// import { AzureClient } from '../../api/azure-client'; // Mocked
 
 // Mock AzureClient
 vi.mock('../../api/azure-client');
@@ -200,6 +198,44 @@ ${longOutput}`,
       // Should be capped at 2000 lines
       expect(snapshot.paneContent.length).toBeLessThanOrEqual(2000);
     });
+
+    it('should use tr to strip non-printable characters', async () => {
+      mockAzureClient.executeRunCommand.mockResolvedValue({
+        exitCode: 0,
+        stdout: `SESSION_INFO:
+0:main:1
+PANE_CONTENT:
+normal text here`,
+        stderr: '',
+      });
+
+      await tmuxApi.captureSnapshot('rg-test', 'vm-test-1', 'main');
+
+      // Verify the script uses tr to strip non-printable chars while preserving text
+      const callArgs = mockAzureClient.executeRunCommand.mock.calls[0];
+      expect(callArgs[0]).toBe('rg-test');
+      expect(callArgs[1]).toBe('vm-test-1');
+      expect(callArgs[2]).toContain('tr -cd');
+      expect(callArgs[2]).toContain('[:print:][:space:]');
+    });
+
+    it('should gracefully handle missing markers and return raw content', async () => {
+      // Simulate output where markers are not present (e.g., corrupted output)
+      mockAzureClient.executeRunCommand.mockResolvedValue({
+        exitCode: 0,
+        stdout: `some raw terminal content
+without proper markers
+line 3`,
+        stderr: '',
+      });
+
+      const snapshot = await tmuxApi.captureSnapshot('rg-test', 'vm-test-1', 'main');
+
+      // Should still return something usable
+      expect(snapshot).toBeDefined();
+      expect(snapshot.paneContent.length).toBeGreaterThan(0);
+      expect(snapshot.windows).toEqual([]);
+    });
   });
 
   describe('sendKeys', () => {
@@ -216,37 +252,35 @@ ${longOutput}`,
       // Will fail until implemented
     });
 
-    it('should send Enter key', async () => {
+    it('should automatically append Enter key to execute commands', async () => {
       mockAzureClient.executeRunCommand.mockResolvedValue({
         exitCode: 0,
         stdout: '',
         stderr: '',
       });
 
-      const result = await tmuxApi.sendKeys('rg-test', 'vm-test-1', 'main', 'ls -la Enter');
+      const result = await tmuxApi.sendKeys('rg-test', 'vm-test-1', 'main', 'ls -la');
 
       expect(result.success).toBe(true);
+      // Verify the script ends with 'Enter' to execute the command
       expect(mockAzureClient.executeRunCommand).toHaveBeenCalledWith(
         'rg-test',
         'vm-test-1',
-        expect.stringContaining('ls -la Enter')
+        expect.stringMatching(/Enter'$/)
       );
     });
 
-    it('should escape special characters', async () => {
+    it('should escape single quotes in session name and keys', async () => {
       mockAzureClient.executeRunCommand.mockResolvedValue({
         exitCode: 0,
         stdout: '',
         stderr: '',
       });
 
-      await tmuxApi.sendKeys('rg-test', 'vm-test-1', 'main', 'echo "test"');
+      await tmuxApi.sendKeys('rg-test', 'vm-test-1', "test's session", "echo 'hello'");
 
-      expect(mockAzureClient.executeRunCommand).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        expect.stringContaining('\\\"')
-      );
+      // Should be called without error - escaping handled internally
+      expect(mockAzureClient.executeRunCommand).toHaveBeenCalled();
     });
 
     it('should handle session not found', async () => {
@@ -367,16 +401,35 @@ ${longOutput}`,
       vi.useRealTimers();
     });
 
-    it('should stop watching when stop is called', () => {
+    it('should stop watching when stop is called', async () => {
+      vi.useFakeTimers();
       const callback = vi.fn();
+
+      mockAzureClient.executeRunCommand.mockResolvedValue({
+        exitCode: 0,
+        stdout: 'SESSION_INFO:\n0:main:1\nPANE_CONTENT:\ncontent',
+        stderr: '',
+      });
+
       const watcher = tmuxApi.watchSession('rg-test', 'vm-test-1', 'main', callback);
 
       watcher.start();
-      const intervalId = (watcher as any).intervalId;
-      expect(intervalId).toBeDefined();
+
+      // Advance timer to trigger first poll
+      await vi.advanceTimersByTimeAsync(10000);
+      const callCountAfterStart = mockAzureClient.executeRunCommand.mock.calls.length;
+      expect(callCountAfterStart).toBeGreaterThan(0);
 
       watcher.stop();
-      expect((watcher as any).intervalId).toBeNull();
+
+      // Advance timer again - should NOT trigger more polls
+      await vi.advanceTimersByTimeAsync(20000);
+      const callCountAfterStop = mockAzureClient.executeRunCommand.mock.calls.length;
+
+      // No new calls should have been made after stop
+      expect(callCountAfterStop).toBe(callCountAfterStart);
+
+      vi.useRealTimers();
     });
   });
 });

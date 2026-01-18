@@ -13,14 +13,12 @@ import { configureStore } from '@reduxjs/toolkit';
 import vmReducer from './vm-store';
 import authReducer from './auth-store';
 import tmuxReducer from './tmux-store';
-import costReducer from './cost-store';
 
 export const store = configureStore({
   reducer: {
     vms: vmReducer,
     auth: authReducer,
     tmux: tmuxReducer,
-    costs: costReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

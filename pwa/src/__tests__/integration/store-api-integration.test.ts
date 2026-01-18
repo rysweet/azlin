@@ -10,23 +10,15 @@ import { configureStore } from '@reduxjs/toolkit';
 import type { RootState } from '../../store/store';
 import vmReducer, { fetchVMs, startVM, stopVM } from '../../store/vm-store';
 import tmuxReducer, { fetchSessions, captureSnapshot } from '../../store/tmux-store';
-import costReducer, { fetchCosts } from '../../store/cost-store';
 
 describe('Store + API Integration', () => {
   let store: ReturnType<typeof configureStore>;
-
-  // Helper to generate default cost date range
-  const getDefaultCostDateRange = () => ({
-    startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
-  });
 
   beforeEach(() => {
     store = configureStore({
       reducer: {
         vms: vmReducer,
         tmux: tmuxReducer,
-        costs: costReducer,
       },
     });
   });
@@ -213,91 +205,7 @@ describe('Store + API Integration', () => {
     });
   });
 
-  describe('Cost Store + Cost Management API', () => {
-    it('should fetch costs and populate store', async () => {
-      await store.dispatch(fetchCosts(getDefaultCostDateRange()) as any);
-
-      const state = (store.getState() as RootState).costs;
-
-      expect(state.loading).toBe(false);
-      expect(state.dailyCosts).toBeDefined();
-      expect(state.error).toBeNull();
-      // Will fail until implemented
-    });
-
-    it('should calculate total cost from daily costs', async () => {
-      await store.dispatch(fetchCosts(getDefaultCostDateRange()) as any);
-
-      const state = (store.getState() as RootState).costs;
-
-      expect(state.totalCost).toBeGreaterThanOrEqual(0);
-      expect(typeof state.totalCost).toBe('number');
-    });
-
-    it('should handle 24-hour cost data lag', async () => {
-      await store.dispatch(fetchCosts(getDefaultCostDateRange()) as any);
-
-      const state = (store.getState() as RootState).costs;
-      const today = new Date().toISOString().split('T')[0];
-
-      // Today's data might not be available yet
-      const todayCost = state.dailyCosts[today];
-      if (todayCost) {
-        // If available, should be marked as estimated
-        expect(state.estimatedDays).toContain(today);
-      }
-    });
-
-    it('should support cost date range queries', async () => {
-      const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      const endDate = new Date().toISOString().split('T')[0];
-
-      await store.dispatch(
-        fetchCosts({ startDate, endDate }) as any
-      );
-
-      const state = (store.getState() as RootState).costs;
-      const dateKeys = Object.keys(state.dailyCosts);
-
-      // Should only have data within range
-      dateKeys.forEach(dateStr => {
-        const date = new Date(dateStr);
-        expect(date >= startDate).toBe(true);
-        expect(date <= endDate).toBe(true);
-      });
-    });
-  });
-
   describe('Multi-Store Operations', () => {
-    it('should coordinate VM start with cost tracking', async () => {
-      // Fetch initial costs
-      await store.dispatch(fetchCosts(getDefaultCostDateRange()) as any);
-      // Verify initial costs exist
-      expect((store.getState() as RootState).costs.totalCost).toBeDefined();
-
-      // Start a VM
-      await store.dispatch(fetchVMs() as any);
-      const vm = (store.getState() as RootState).vms.items.find(v => v.powerState === 'deallocated');
-
-      if (vm) {
-        await store.dispatch(
-          startVM({
-            resourceGroup: vm.resourceGroup,
-            vmName: vm.name,
-          }) as any
-        );
-
-        // VM state should update
-        const vmsAfter = (store.getState() as RootState).vms.items;
-        const startedVM = vmsAfter.find(v => v.name === vm.name);
-        expect(startedVM?.powerState).toBe('running');
-
-        // Cost tracking remains independent (updated on schedule)
-        const costsAfter = (store.getState() as RootState).costs.totalCost;
-        expect(costsAfter).toBeDefined();
-      }
-    });
-
     it('should fetch VM list and tmux sessions in parallel', async () => {
       const startTime = Date.now();
 

@@ -77,8 +77,6 @@ export class TmuxApi {
         onProgress
       );
 
-      console.log('🏴‍☠️ Tmux list-sessions result:', { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr });
-
       // Parse output regardless of exit code - check content instead
       const output = result.stdout.trim();
 
@@ -107,7 +105,7 @@ export class TmuxApi {
       // Try enhanced format first: name:attached:windows:created
       const enhancedMatch = line.match(/^([^:]+):(\d+):(\d+):(\d+)$/);
       if (enhancedMatch) {
-        const [, name, _attached, windowCount, createdTs] = enhancedMatch;
+        const [, name, , windowCount, createdTs] = enhancedMatch;
         sessions.push({
           name: name.trim(),
           windowCount: parseInt(windowCount),
@@ -140,7 +138,6 @@ export class TmuxApi {
       }
     }
 
-    console.log('🏴‍☠️ Parsed tmux sessions:', sessions);
     return sessions;
   }
 
@@ -160,21 +157,11 @@ export class TmuxApi {
     const escapedSessionName = sessionName.replace(/'/g, "'\"'\"'");
 
     // Run as azureuser - tmux sessions belong to that user, not root
-    // IMPORTANT: Use cat -v to escape control characters that can corrupt the output buffer
-    // (Claude Code uses emoji and ANSI codes that break Azure Run Command's stdout handling)
-    const script = `su - azureuser -c '
-      # Check if session exists
-      tmux has-session -t '"'"'${escapedSessionName}'"'"' 2>/dev/null || exit 1
-
-      # Get session info
-      echo "SESSION_INFO:"
-      tmux list-windows -t '"'"'${escapedSessionName}'"'"' -F "#{window_index}:#{window_name}:#{window_active}"
-
-      echo "PANE_CONTENT:"
-      # Capture active pane (2000 lines of scrollback)
-      # Pipe through cat -v to escape control chars that corrupt Azure Run Command output
-      tmux capture-pane -t '"'"'${escapedSessionName}'"'"' -p -S -2000 | cat -v
-    '`;
+    // Strip non-printable characters that corrupt Azure Run Command stdout buffer:
+    // - tmux capture-pane (without -e) already strips ANSI escape codes by default
+    // - tr -cd '[:print:][:space:]' keeps printable chars and all whitespace (incl newlines)
+    // - This handles emoji and binary data from Claude Code that break Azure's output
+    const script = `su - azureuser -c 'echo "SESSION_INFO:"; tmux list-windows -t '"'"'${escapedSessionName}'"'"' -F "#{window_index}:#{window_name}:#{window_active}" 2>/dev/null; echo "PANE_CONTENT:"; tmux capture-pane -t '"'"'${escapedSessionName}'"'"' -p -S -2000 2>/dev/null | tr -cd "[:print:][:space:]"'`;
 
     const result = await this.azureClient.executeRunCommand(
       resourceGroup,
@@ -194,19 +181,14 @@ export class TmuxApi {
    * Parse tmux snapshot output
    */
   private parseSnapshot(output: string): TmuxSnapshot {
-    console.log('🏴‍☠️ parseSnapshot raw output:', output.substring(0, 500));
-
     const lines = output.split('\n');
 
     // Find markers - be flexible with whitespace and case
-    let sessionInfoIndex = lines.findIndex(line => line.trim() === 'SESSION_INFO:');
-    let paneContentIndex = lines.findIndex(line => line.trim() === 'PANE_CONTENT:');
-
-    console.log('🏴‍☠️ parseSnapshot markers:', { sessionInfoIndex, paneContentIndex, totalLines: lines.length });
+    const sessionInfoIndex = lines.findIndex(line => line.trim() === 'SESSION_INFO:');
+    const paneContentIndex = lines.findIndex(line => line.trim() === 'PANE_CONTENT:');
 
     if (sessionInfoIndex === -1 || paneContentIndex === -1) {
-      // If markers not found, try to parse whatever we have
-      console.warn('🏴‍☠️ Snapshot markers not found, returning raw content');
+      // If markers not found, return raw content as best effort
       return {
         windows: [],
         activeWindow: undefined,
@@ -246,6 +228,7 @@ export class TmuxApi {
   /**
    * Send keys to tmux session
    * Runs as azureuser since tmux sessions belong to that user
+   * Automatically appends Enter key to execute the command
    */
   async sendKeys(
     resourceGroup: string,
@@ -262,7 +245,8 @@ export class TmuxApi {
     const escapedKeys = keys.replace(/'/g, "'\"'\"'");
 
     // Run as azureuser - tmux sessions belong to that user, not root
-    const script = `su - azureuser -c 'tmux send-keys -t '"'"'${escapedSessionName}'"'"' '"'"'${escapedKeys}'"'"''`;
+    // Append 'Enter' to execute the command (tmux send-keys accepts key names)
+    const script = `su - azureuser -c 'tmux send-keys -t '"'"'${escapedSessionName}'"'"' '"'"'${escapedKeys}'"'"' Enter'`;
 
     const result = await this.azureClient.executeRunCommand(
       resourceGroup,
