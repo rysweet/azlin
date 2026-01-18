@@ -147,11 +147,14 @@ export class TmuxApi {
   /**
    * Capture tmux session snapshot (2000 lines max)
    * Runs as azureuser since tmux sessions belong to that user
+   *
+   * @param onProgress - Optional callback to report polling progress to UI
    */
   async captureSnapshot(
     resourceGroup: string,
     vmName: string,
-    sessionName: string
+    sessionName: string,
+    onProgress?: (progress: PollingProgress) => void
   ): Promise<TmuxSnapshot> {
     // Escape shell special characters in sessionName for the inner command
     const escapedSessionName = sessionName.replace(/'/g, "'\"'\"'");
@@ -173,7 +176,8 @@ export class TmuxApi {
     const result = await this.azureClient.executeRunCommand(
       resourceGroup,
       vmName,
-      script
+      script,
+      onProgress
     );
 
     if (result.exitCode !== 0) {

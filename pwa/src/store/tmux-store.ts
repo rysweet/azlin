@@ -67,13 +67,24 @@ export const fetchSessions = createAsyncThunk<
  */
 export const captureSnapshot = createAsyncThunk<
   { snapshotId: string; snapshot: TmuxSnapshot },
-  { resourceGroup: string; vmName: string; sessionName: string }
+  { resourceGroup: string; vmName: string; sessionName: string },
+  { dispatch: any }
 >(
   'tmux/captureSnapshot',
-  async ({ resourceGroup, vmName, sessionName }) => {
+  async ({ resourceGroup, vmName, sessionName }, { dispatch }) => {
     const tmuxApi = getTmuxApi();
-    const snapshot = await tmuxApi.captureSnapshot(resourceGroup, vmName, sessionName);
+
+    // Callback to update polling progress in the store
+    const onProgress = (progress: PollingProgress) => {
+      dispatch(setPollingProgress(progress));
+    };
+
+    const snapshot = await tmuxApi.captureSnapshot(resourceGroup, vmName, sessionName, onProgress);
     const snapshotId = `${resourceGroup}/${vmName}:${sessionName}`;
+
+    // Clear polling progress when done
+    dispatch(setPollingProgress(null));
+
     return { snapshotId, snapshot };
   }
 );
