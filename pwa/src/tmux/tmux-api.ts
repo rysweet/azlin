@@ -191,12 +191,25 @@ export class TmuxApi {
    * Parse tmux snapshot output
    */
   private parseSnapshot(output: string): TmuxSnapshot {
+    console.log('🏴‍☠️ parseSnapshot raw output:', output.substring(0, 500));
+
     const lines = output.split('\n');
-    const sessionInfoIndex = lines.indexOf('SESSION_INFO:');
-    const paneContentIndex = lines.indexOf('PANE_CONTENT:');
+
+    // Find markers - be flexible with whitespace and case
+    let sessionInfoIndex = lines.findIndex(line => line.trim() === 'SESSION_INFO:');
+    let paneContentIndex = lines.findIndex(line => line.trim() === 'PANE_CONTENT:');
+
+    console.log('🏴‍☠️ parseSnapshot markers:', { sessionInfoIndex, paneContentIndex, totalLines: lines.length });
 
     if (sessionInfoIndex === -1 || paneContentIndex === -1) {
-      throw new Error('Invalid snapshot format');
+      // If markers not found, try to parse whatever we have
+      console.warn('🏴‍☠️ Snapshot markers not found, returning raw content');
+      return {
+        windows: [],
+        activeWindow: undefined,
+        paneContent: lines.filter(line => line.length > 0),
+        timestamp: Date.now(),
+      };
     }
 
     // Parse windows
