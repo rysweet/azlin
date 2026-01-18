@@ -110,11 +110,11 @@ class ContextPackager:
         except subprocess.CalledProcessError as e:
             raise PackagingError(
                 f"Failed to list git files: {e.stderr}", context={"repo_path": str(self.repo_path)}
-            )
+            ) from e
         except subprocess.TimeoutExpired:
             raise PackagingError(
                 "Git ls-files command timed out", context={"repo_path": str(self.repo_path)}
-            )
+            ) from None
 
         # Scan each file
         for rel_path in files:
@@ -175,12 +175,12 @@ class ContextPackager:
             raise PackagingError(
                 f"Failed to create git bundle: {e.stderr}",
                 context={"repo_path": str(self.repo_path)},
-            )
+            ) from e
         except subprocess.TimeoutExpired:
             raise PackagingError(
                 "Git bundle creation timed out (>5 minutes)",
                 context={"repo_path": str(self.repo_path)},
-            )
+            ) from None
 
         # Verify bundle was created and is valid
         if not bundle_path.exists():
@@ -201,7 +201,7 @@ class ContextPackager:
             raise PackagingError(
                 f"Git bundle verification failed: {e.stderr}",
                 context={"bundle_path": str(bundle_path)},
-            )
+            ) from e
 
         return bundle_path
 
@@ -261,7 +261,7 @@ class ContextPackager:
         except Exception as e:
             raise PackagingError(
                 f"Failed to create tar archive: {e!s}", context={"archive_path": str(archive_path)}
-            )
+            ) from e
 
         # Step 5: Verify archive size
         archive_size = archive_path.stat().st_size

@@ -103,13 +103,13 @@ class AzCliWrapper:
             raise FileNotFoundError(
                 "Azure CLI (az) not found. Install from: "
                 "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
-            )
+            ) from None
 
         except subprocess.TimeoutExpired:
             raise subprocess.TimeoutExpired(
                 cmd=command,
                 timeout=timeout,
-            )
+            ) from None
 
     def devops_command(
         self,
@@ -228,7 +228,7 @@ def validate_work_item_id(work_item_id: str) -> int:
             raise ValueError("Work item ID must be positive")
         return id_int
     except ValueError as e:
-        raise ValueError(f"Invalid work item ID '{work_item_id}': {e}")
+        raise ValueError(f"Invalid work item ID '{work_item_id}': {e}") from e
 
 
 def format_table(headers: list[str], rows: list[list[str]]) -> str:

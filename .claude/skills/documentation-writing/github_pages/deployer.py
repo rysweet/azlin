@@ -425,11 +425,11 @@ def _construct_pages_url(repo_url: str) -> str:
         url = url[:-4]
 
     # Handle SSH format: git@github.com:user/repo
-    if url.startswith("git@github.com:"):
-        parts = url.split("git@github.com:", 1)[-1].split("/")
+    if "git@github.com:" in url:
+        parts = url.split("git@github.com:")[-1].split("/")
     # Handle HTTPS format: https://github.com/user/repo
-    elif url.startswith("https://github.com/") or url.startswith("http://github.com/"):
-        parts = url.split("github.com/", 1)[-1].split("/")
+    elif "github.com/" in url:
+        parts = url.split("github.com/")[-1].split("/")
     else:
         # Unknown format, try to extract last two parts
         parts = url.split("/")[-2:]

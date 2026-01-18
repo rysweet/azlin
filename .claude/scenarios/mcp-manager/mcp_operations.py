@@ -372,7 +372,7 @@ def import_servers(data: str, format: str = "json") -> list[MCPServer]:
     try:
         import_data = json.loads(data)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON data: {e}")
+        raise ValueError(f"Invalid JSON data: {e}") from e
 
     # Validate structure
     if not isinstance(import_data, dict):

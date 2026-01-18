@@ -1,6 +1,0 @@
-{"timestamp": "2026-01-17T12:55:16.888345", "metric": "auto_update_executed", "value": false, "hook": "session_start"}
-{"timestamp": "2026-01-17T12:55:16.891576", "metric": "global_hooks_migrated", "value": false, "hook": "session_start"}
-{"timestamp": "2026-01-17T12:55:16.896471", "metric": "prompt_length", "value": 0, "hook": "session_start"}
-{"timestamp": "2026-01-17T12:55:30.006722", "metric": "uvx_staging_success", "value": true, "hook": "session_start"}
-{"timestamp": "2026-01-17T12:55:30.014489", "metric": "settings_updated", "value": false, "hook": "session_start"}
-{"timestamp": "2026-01-17T12:55:30.019310", "metric": "neo4j_enabled", "value": false, "hook": "session_start"}

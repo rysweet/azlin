@@ -129,7 +129,7 @@ def generate_site(config: SiteConfig) -> GenerationResult:
     except FileNotFoundError:
         raise FileNotFoundError(
             "MkDocs not found. Install with: pip install mkdocs mkdocs-material"
-        )
+        ) from None
     except subprocess.TimeoutExpired:
         errors.append("MkDocs build timed out after 120 seconds")
         return GenerationResult(

@@ -652,3 +652,6 @@ coverage.json
 # Test artifacts
 keys.tar.gz
 template.yaml
+
+# Claude Code backup directories
+.claude.backup.*/

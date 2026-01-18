@@ -60,7 +60,7 @@ class ProfileLoader:
         try:
             parsed = urllib.parse.urlparse(uri)
         except Exception as e:
-            raise ValueError(f"Malformed URI: {uri}. Error: {e}")
+            raise ValueError(f"Malformed URI: {uri}. Error: {e}") from e
 
         # Route to appropriate loader based on scheme
         if parsed.scheme == "file":
@@ -120,7 +120,7 @@ class ProfileLoader:
         try:
             return file_path.read_text(encoding="utf-8")
         except PermissionError:
-            raise PermissionError(f"Insufficient permissions to read file: {file_path}")
+            raise PermissionError(f"Insufficient permissions to read file: {file_path}") from None
 
     def _load_builtin(self, path: str) -> str:
         """Load from built-in amplihack:// URI.
@@ -168,7 +168,7 @@ class ProfileLoader:
         except PermissionError:
             raise PermissionError(
                 f"Insufficient permissions to read built-in profile: {profile_name}"
-            )
+            ) from None
 
     def _list_builtin_profiles(self) -> list[str]:
         """List available built-in profiles.

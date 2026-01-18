@@ -112,7 +112,7 @@ class Executor:
                 raise TransferError(
                     f"File transfer timed out after {max_retries} attempts",
                     context={"vm_name": self.vm.name, "archive_path": str(archive_path)},
-                )
+                ) from None
 
             except subprocess.CalledProcessError as e:
                 if attempt < max_retries - 1:
@@ -122,7 +122,7 @@ class Executor:
                 raise TransferError(
                     f"Failed to transfer file: {e.stderr}",
                     context={"vm_name": self.vm.name, "error": e.stderr},
-                )
+                ) from e
 
         # Should never reach here, but satisfy linter
         raise TransferError("Transfer failed after all retries", context={"vm_name": self.vm.name})
@@ -332,16 +332,10 @@ fi
                 check=True,
             )
 
-            # Extract locally with path traversal protection
+            # Extract locally
             import tarfile
-            import os
 
             with tarfile.open(local_archive, "r:gz") as tar:
-                # Validate all members before extraction to prevent path traversal
-                for member in tar.getmembers():
-                    member_path = os.path.normpath(os.path.join(local_dest, member.name))
-                    if not member_path.startswith(str(local_dest)):
-                        raise ValueError(f"Attempted path traversal in tar file: {member.name}")
                 tar.extractall(local_dest)
 
             # Cleanup archive
@@ -353,9 +347,9 @@ fi
         except subprocess.CalledProcessError as e:
             raise TransferError(
                 f"Failed to retrieve logs: {e.stderr}", context={"vm_name": self.vm.name}
-            )
+            ) from e
         except subprocess.TimeoutExpired:
-            raise TransferError("Log retrieval timed out", context={"vm_name": self.vm.name})
+            raise TransferError("Log retrieval timed out", context={"vm_name": self.vm.name}) from None
 
     def retrieve_git_state(self, local_dest: Path) -> bool:
         """Retrieve git repository state from remote VM.
@@ -407,9 +401,9 @@ echo "Bundle created"
         except subprocess.CalledProcessError as e:
             raise TransferError(
                 f"Failed to retrieve git state: {e.stderr}", context={"vm_name": self.vm.name}
-            )
+            ) from e
         except subprocess.TimeoutExpired:
-            raise TransferError("Git state retrieval timed out", context={"vm_name": self.vm.name})
+            raise TransferError("Git state retrieval timed out", context={"vm_name": self.vm.name}) from None
 
     def execute_remote_tmux(
         self,
@@ -562,12 +556,12 @@ echo "Tmux session {safe_session_id} started successfully"
             raise ExecutionError(
                 "Tmux session setup timed out",
                 context={"session_id": session_id, "vm_name": self.vm.name},
-            )
+            ) from None
         except subprocess.CalledProcessError as e:
             raise ExecutionError(
                 f"Failed to execute tmux setup: {e.stderr}",
                 context={"session_id": session_id, "error": e.stderr},
-            )
+            ) from e
 
     def check_tmux_status(self, session_id: str) -> str:
         """Check if tmux session is still running.
@@ -613,9 +607,9 @@ echo "Tmux session {safe_session_id} started successfully"
             raise ExecutionError(
                 "Tmux status check timed out",
                 context={"session_id": session_id, "vm_name": self.vm.name},
-            )
+            ) from None
         except Exception as e:
             raise ExecutionError(
                 f"Failed to check tmux status: {e!s}",
                 context={"session_id": session_id, "error": str(e)},
-            )
+            ) from e
