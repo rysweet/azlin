@@ -3286,28 +3286,12 @@ def _handle_multi_context_list(
     )
 
     # Trigger background cache refresh to keep cache warm (non-blocking)
-    if not no_cache and rg:
-        try:
-            import subprocess
+    try:
+        from azlin.cache.background_refresh import trigger_background_refresh
 
-            # Build background refresh command
-            refresh_cmd = ["azlin", "list"]
-            if all_contexts:
-                refresh_cmd.append("--all-contexts")
-            elif contexts_pattern:
-                refresh_cmd.extend(["--contexts", contexts_pattern])
-            refresh_cmd.extend(["--rg", rg, "--all", "--no-cache", "--no-quota", "--no-tmux"])
-
-            # Spawn detached background process
-            subprocess.Popen(
-                refresh_cmd,
-                start_new_session=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-            )
-        except Exception:
-            pass  # Never fail user operation due to background refresh
+        trigger_background_refresh(contexts=contexts)
+    except Exception:
+        pass  # Never fail user operation due to background refresh
 
     # Step 5: Check if any contexts failed and set appropriate exit code
     if result.failed_contexts > 0:
@@ -3531,33 +3515,15 @@ def list_command(
 
         vms = VMManager.sort_by_created_time(vms)
 
-        # Trigger background cache refresh if we used cache (keep cache warm)
-        if was_cached and rg:
-            try:
-                import subprocess
+        # Trigger background cache refresh to keep cache warm (non-blocking)
+        try:
+            from azlin.cache.background_refresh import trigger_background_refresh
 
-                # Build background refresh command
-                refresh_cmd = [
-                    "azlin",
-                    "list",
-                    "--rg",
-                    rg,
-                    "--all",
-                    "--no-cache",
-                    "--no-quota",
-                    "--no-tmux",
-                ]
-
-                # Spawn detached background process
-                subprocess.Popen(
-                    refresh_cmd,
-                    start_new_session=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    stdin=subprocess.DEVNULL,
-                )
-            except Exception:
-                pass  # Never fail user operation due to background refresh
+            # Create Context object from current context for refresh
+            if current_ctx:
+                trigger_background_refresh(contexts=[current_ctx])
+        except Exception:
+            pass  # Never fail user operation due to background refresh
 
         # Populate session names from tags (hybrid resolution: tags first, config fallback)
         for vm in vms:
