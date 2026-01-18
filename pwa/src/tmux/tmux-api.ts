@@ -160,6 +160,8 @@ export class TmuxApi {
     const escapedSessionName = sessionName.replace(/'/g, "'\"'\"'");
 
     // Run as azureuser - tmux sessions belong to that user, not root
+    // IMPORTANT: Use cat -v to escape control characters that can corrupt the output buffer
+    // (Claude Code uses emoji and ANSI codes that break Azure Run Command's stdout handling)
     const script = `su - azureuser -c '
       # Check if session exists
       tmux has-session -t '"'"'${escapedSessionName}'"'"' 2>/dev/null || exit 1
@@ -170,7 +172,8 @@ export class TmuxApi {
 
       echo "PANE_CONTENT:"
       # Capture active pane (2000 lines of scrollback)
-      tmux capture-pane -t '"'"'${escapedSessionName}'"'"' -p -S -2000
+      # Pipe through cat -v to escape control chars that corrupt Azure Run Command output
+      tmux capture-pane -t '"'"'${escapedSessionName}'"'"' -p -S -2000 | cat -v
     '`;
 
     const result = await this.azureClient.executeRunCommand(
