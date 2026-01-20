@@ -269,7 +269,8 @@ export class TmuxApi {
     vmName: string,
     sessionName: string,
     onChangeCallback: (diff: { hasChanges: boolean; changedLines: any[] }) => void,
-    interval: number = 10000
+    interval: number = 10000,
+    onErrorCallback?: (error: Error) => void
   ): TmuxWatcher {
     let intervalId: number | null = null;
     let lastSnapshot: TmuxSnapshot | null = null;
@@ -293,6 +294,9 @@ export class TmuxApi {
           lastSnapshot = snapshot;
         } catch (error) {
           console.error('Watch session error:', error);
+          if (onErrorCallback) {
+            onErrorCallback(error instanceof Error ? error : new Error(String(error)));
+          }
         }
       }, interval);
     };

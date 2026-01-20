@@ -13,12 +13,21 @@ import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { TmuxApi, TmuxSession, TmuxSnapshot } from '../tmux/tmux-api';
 import { AzureClient, PollingProgress } from '../api/azure-client';
 
+export interface WatchState {
+  isWatching: boolean;
+  intervalSeconds: number;
+  autoScroll: boolean;
+  vibrateOnChange: boolean;
+  highlightedLines: Array<{ lineNumber: number; type: 'changed' | 'new' }>;
+}
+
 interface TmuxState {
   sessions: Record<string, TmuxSession[]>; // Keyed by vmId
   snapshots: Record<string, TmuxSnapshot>; // Keyed by vmId:sessionName
   loading: boolean;
   error: string | null;
   pollingProgress: PollingProgress | null; // Track polling status for UI
+  watchState: Record<string, WatchState>; // Keyed by snapshotId (vmId:sessionName)
 }
 
 const initialState: TmuxState = {
@@ -27,6 +36,7 @@ const initialState: TmuxState = {
   loading: false,
   error: null,
   pollingProgress: null,
+  watchState: {},
 };
 
 const getTmuxApi = () => {
@@ -113,6 +123,28 @@ const tmuxSlice = createSlice({
     setPollingProgress: (state, action: PayloadAction<PollingProgress | null>) => {
       state.pollingProgress = action.payload;
     },
+    setWatchState: (state, action: PayloadAction<{ snapshotId: string; watchState: Partial<WatchState> }>) => {
+      const { snapshotId, watchState } = action.payload;
+      state.watchState[snapshotId] = {
+        ...state.watchState[snapshotId],
+        isWatching: false,
+        intervalSeconds: 10,
+        autoScroll: true,
+        vibrateOnChange: false,
+        highlightedLines: [],
+        ...watchState,
+      };
+    },
+    setHighlightedLines: (state, action: PayloadAction<{ snapshotId: string; lines: Array<{ lineNumber: number; type: 'changed' | 'new' }> }>) => {
+      const { snapshotId, lines } = action.payload;
+      if (state.watchState[snapshotId]) {
+        state.watchState[snapshotId].highlightedLines = lines;
+      }
+    },
+    clearWatchState: (state, action: PayloadAction<string>) => {
+      const snapshotId = action.payload;
+      delete state.watchState[snapshotId];
+    },
   },
   extraReducers: (builder) => {
     // fetchSessions
@@ -161,7 +193,7 @@ const tmuxSlice = createSlice({
   },
 });
 
-export const { clearSnapshots, setPollingProgress } = tmuxSlice.actions;
+export const { clearSnapshots, setPollingProgress, setWatchState, setHighlightedLines, clearWatchState } = tmuxSlice.actions;
 
 // Selectors
 export const selectSessionsByVmId = (state: { tmux: TmuxState }, vmId: string) =>
@@ -175,5 +207,8 @@ export const selectTmuxLoading = (state: { tmux: TmuxState }) => state.tmux.load
 export const selectTmuxError = (state: { tmux: TmuxState }) => state.tmux.error;
 
 export const selectPollingProgress = (state: { tmux: TmuxState }) => state.tmux.pollingProgress;
+
+export const selectWatchState = (state: { tmux: TmuxState }, snapshotId: string): WatchState | undefined =>
+  state.tmux.watchState[snapshotId];
 
 export default tmuxSlice.reducer;
