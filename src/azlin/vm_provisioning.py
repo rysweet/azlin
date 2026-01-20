@@ -1016,11 +1016,14 @@ runcmd:
     EOF
   - chown azureuser:azureuser /home/azureuser/.tmux.conf
 
-  # AI CLI tools (optional - can be installed later to speed up provisioning)
-  # Uncomment these lines to install AI assistants during VM creation:
-  # - su - azureuser -c "npm install -g @github/copilot"
-  # - su - azureuser -c "npm install -g @openai/codex"
-  # - su - azureuser -c "npm install -g @anthropic-ai/claude-code"
+  # Claude Code AI Assistant
+  - su - azureuser -c "curl -fsSL https://claude.ai/install.sh | bash"
+  - |
+    if su - azureuser -c "claude --version" 2>/dev/null; then
+      echo "Claude Code installed successfully"
+    else
+      echo "WARNING: Claude Code installation may have failed - check ~/.local/bin/claude"
+    fi
 
   # Rust
   - su - azureuser -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
