@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Azlin PWA Icons Preview</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #0078d4;
+      text-align: center;
+    }
+    .icon-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+    .icon-card {
+      background: white;
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    .icon-card h3 {
+      margin: 0 0 1rem 0;
+      color: #333;
+      font-size: 1rem;
+    }
+    .icon-card img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+    }
+    .icon-card .size {
+      color: #666;
+      font-size: 0.875rem;
+      margin-top: 0.5rem;
+    }
+    .preview-section {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      margin: 2rem 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .preview-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin: 1rem 0;
+      padding: 1rem;
+      background: #f9f9f9;
+      border-radius: 8px;
+    }
+    .checklist {
+      list-style: none;
+      padding: 0;
+    }
+    .checklist li {
+      padding: 0.5rem 0;
+    }
+    .checklist li:before {
+      content: '✅ ';
+      margin-right: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎨 Azlin PWA Icons Preview</h1>
+
+  <div class="preview-section">
+    <h2>Icon Assets Overview</h2>
+    <ul class="checklist">
+      <li>PWA 192×192 icon (pwa-192x192.png)</li>
+      <li>PWA 512×512 icon with maskable support (pwa-512x512.png)</li>
+      <li>Apple Touch Icon 180×180 (apple-touch-icon.png)</li>
+      <li>Masked SVG icon for Safari (masked-icon.svg)</li>
+      <li>Multi-size favicon.ico (16×16, 32×32)</li>
+    </ul>
+  </div>
+
+  <div class="icon-grid">
+    <div class="icon-card">
+      <h3>PWA Icon (192×192)</h3>
+      <img src="pwa-192x192.png" alt="PWA 192x192 Icon">
+      <div class="size">192×192 pixels</div>
+    </div>
+
+    <div class="icon-card">
+      <h3>PWA Icon (512×512)</h3>
+      <img src="pwa-512x512.png" alt="PWA 512x512 Icon">
+      <div class="size">512×512 pixels (Maskable)</div>
+    </div>
+
+    <div class="icon-card">
+      <h3>Apple Touch Icon</h3>
+      <img src="apple-touch-icon.png" alt="Apple Touch Icon">
+      <div class="size">180×180 pixels</div>
+    </div>
+
+    <div class="icon-card">
+      <h3>Favicon (32×32)</h3>
+      <img src="favicon-32.png" alt="Favicon 32x32" style="image-rendering: pixelated; width: 128px; height: 128px;">
+      <div class="size">32×32 pixels (scaled up)</div>
+    </div>
+
+    <div class="icon-card">
+      <h3>Favicon (16×16)</h3>
+      <img src="favicon-16.png" alt="Favicon 16x16" style="image-rendering: pixelated; width: 128px; height: 128px;">
+      <div class="size">16×16 pixels (scaled up)</div>
+    </div>
+
+    <div class="icon-card">
+      <h3>Masked Icon (SVG)</h3>
+      <img src="masked-icon.svg" alt="Masked Icon">
+      <div class="size">SVG (Monochrome)</div>
+    </div>
+  </div>
+
+  <div class="preview-section">
+    <h2>Design Features</h2>
+    <ul class="checklist">
+      <li>Azure Blue background (#0078d4)</li>
+      <li>White 'A' lettermark for Azlin branding</li>
+      <li>Subtle cloud symbol referencing Azure</li>
+      <li>Rounded corners (128px radius)</li>
+      <li>Gradient overlay for depth</li>
+      <li>Maskable safe area (80% of canvas)</li>
+    </ul>
+  </div>
+
+  <div class="preview-section">
+    <h2>Browser Support</h2>
+    <div class="preview-row">
+      <strong>✅ Chrome/Edge:</strong> Uses pwa-192x192.png and pwa-512x512.png
+    </div>
+    <div class="preview-row">
+      <strong>✅ Safari (iOS/macOS):</strong> Uses apple-touch-icon.png and masked-icon.svg
+    </div>
+    <div class="preview-row">
+      <strong>✅ Firefox:</strong> Uses pwa-192x192.png and favicon.ico
+    </div>
+    <div class="preview-row">
+      <strong>✅ Samsung Internet:</strong> Uses maskable pwa-512x512.png
+    </div>
+  </div>
+</body>
+</html>

@@ -12,6 +12,9 @@
  */
 
 import { PublicClientApplication, Configuration } from '@azure/msal-browser';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('[MSAL]');
 
 // MSAL configuration
 const msalConfig: Configuration = {
@@ -47,7 +50,7 @@ export async function initializeMsal(): Promise<void> {
 
   initPromise = msalInstance.initialize().then(() => {
     isInitialized = true;
-    console.log('MSAL instance initialized');
+    logger.info('MSAL instance initialized');
   });
 
   return initPromise;

@@ -10,12 +10,17 @@ import {
   CardActionArea,
   Grid,
   Button,
+  Fab,
 } from '@mui/material';
+import { Add as AddIcon } from '@mui/icons-material';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { AppDispatch } from '../store/store';
 import { fetchVMs, selectAllVMs, selectIsLoading, selectError } from '../store/vm-store';
 import { formatVMSpecs, getVMTier } from '../utils/vm-size-specs';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('[VMListPage]');
 
 function VMListPage() {
   const dispatch = useDispatch<AppDispatch>();
@@ -25,13 +30,13 @@ function VMListPage() {
   const error = useSelector(selectError);
 
   useEffect(() => {
-    console.log('🏴‍☠️ VMListPage: Fetching VMs...');
+    logger.debug('Fetching VMs...');
     dispatch(fetchVMs(undefined));
   }, [dispatch]);
 
   useEffect(() => {
-    console.log('🏴‍☠️ VMListPage state:', { vmsCount: vms.length, loading, error });
-    console.log('🏴‍☠️ VMs:', vms);
+    logger.debug('VMListPage state:', { vmsCount: vms.length, loading, error });
+    logger.debug('VMs:', vms);
   }, [vms, loading, error]);
 
   const handleRefresh = () => {
@@ -148,6 +153,20 @@ function VMListPage() {
           Total: {vms.length} VM{vms.length !== 1 ? 's' : ''} | {vms.filter(v => v.powerState?.toLowerCase() === 'running').length} running
         </Typography>
       </Box>
+
+      {/* Floating Action Button for Create VM */}
+      <Fab
+        color="primary"
+        aria-label="create vm"
+        onClick={() => navigate('/vms/create')}
+        sx={{
+          position: 'fixed',
+          bottom: 16,
+          right: 16,
+        }}
+      >
+        <AddIcon />
+      </Fab>
     </Box>
   );
 }

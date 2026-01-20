@@ -2,25 +2,41 @@
  * Integration Tests: Redux Store + API (30% of testing pyramid)
  *
  * Tests Redux store interactions with Azure API.
- * These tests WILL FAIL until components are implemented.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { configureStore } from '@reduxjs/toolkit';
 import type { RootState } from '../../store/store';
 import vmReducer, { fetchVMs, startVM, stopVM } from '../../store/vm-store';
 import tmuxReducer, { fetchSessions, captureSnapshot } from '../../store/tmux-store';
+import { TokenStorage } from '../../auth/token-storage';
 
 describe('Store + API Integration', () => {
   let store: ReturnType<typeof configureStore>;
+  let tokenStorage: TokenStorage;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Set up tokens for Azure API calls
+    tokenStorage = new TokenStorage();
+    await tokenStorage.saveTokens(
+      'mock_access_token',
+      'mock_refresh_token',
+      Date.now() + 3600000
+    );
+
+    // Set subscription ID in environment
+    process.env.VITE_AZURE_SUBSCRIPTION_ID = 'sub-123';
+
     store = configureStore({
       reducer: {
         vms: vmReducer,
         tmux: tmuxReducer,
       },
     });
+  });
+
+  afterEach(async () => {
+    await tokenStorage.clearTokens();
   });
 
   describe('VM Store + Azure Compute API', () => {
@@ -92,16 +108,21 @@ describe('Store + API Integration', () => {
     });
 
     it('should handle API errors and set error state', async () => {
-      // Force an error by using invalid subscription
-      const invalidStore = configureStore({
-        reducer: { vms: vmReducer },
-      });
+      // Clear tokens to force authentication error
+      await tokenStorage.clearTokens();
 
-      await invalidStore.dispatch(fetchVMs() as any);
+      await store.dispatch(fetchVMs() as any);
 
-      const state = (invalidStore.getState() as RootState).vms;
+      const state = (store.getState() as RootState).vms;
       expect(state.error).toBeTruthy();
       expect(state.loading).toBe(false);
+
+      // Restore tokens for other tests
+      await tokenStorage.saveTokens(
+        'mock_access_token',
+        'mock_refresh_token',
+        Date.now() + 3600000
+      );
     });
 
     it('should support optimistic updates for VM operations', async () => {

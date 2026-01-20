@@ -18,11 +18,15 @@ import { AppDispatch } from './store/store';
 import { checkAuth, selectIsAuthenticated, setAuthenticated } from './store/auth-store';
 import { TokenStorage } from './auth/token-storage';
 import { msalInstance, initializeMsal } from './auth/msal-instance';
+import { createLogger } from './utils/logger';
+
+const logger = createLogger('[App]');
 
 // Lazy load pages
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
 const VMListPage = React.lazy(() => import('./pages/VMListPage'));
 const VMDetailPage = React.lazy(() => import('./pages/VMDetailPage'));
+const VMCreateWizardPage = React.lazy(() => import('./pages/VMCreateWizardPage'));
 const TmuxPage = React.lazy(() => import('./pages/TmuxPage'));
 
 const theme = createTheme({
@@ -52,21 +56,21 @@ function App() {
       const response = await msalInstance.handleRedirectPromise();
 
       if (response) {
-        console.log('🏴‍☠️ Redirect response received:', response);
-        console.log('🏴‍☠️ Account:', response.account?.username);
+        logger.debug('Redirect response received:', response);
+        logger.debug('Account:', response.account?.username);
 
         // Save token
         const tokenStorage = new TokenStorage();
         const expiresOn = response.expiresOn?.getTime() || Date.now() + 3600000;
         await tokenStorage.saveTokens(response.accessToken, '', expiresOn);
 
-        console.log('🏴‍☠️ Token saved from redirect');
+        logger.debug('Token saved from redirect');
 
         // CRITICAL: Set authenticated state in Redux
         dispatch(setAuthenticated(true));
-        console.log('🏴‍☠️ Redux auth state set to authenticated');
+        logger.debug('Redux auth state set to authenticated');
       } else {
-        console.log('🏴‍☠️ No redirect response - checking existing auth');
+        logger.debug('No redirect response - checking existing auth');
         // Only check auth if no redirect response (to avoid race condition)
         dispatch(checkAuth());
       }
@@ -98,6 +102,10 @@ function App() {
             <Route
               path="/login"
               element={isAuthenticated ? <Navigate to="/" /> : <LoginPage />}
+            />
+            <Route
+              path="/vms/create"
+              element={isAuthenticated ? <VMCreateWizardPage /> : <Navigate to="/login" />}
             />
             <Route
               path="/vms/:vmId"

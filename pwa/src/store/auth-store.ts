@@ -13,7 +13,9 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { InteractionRequiredAuthError } from '@azure/msal-browser';
 import { TokenStorage } from '../auth/token-storage';
 import { msalInstance, initializeMsal, AZURE_SCOPES } from '../auth/msal-instance';
+import { createLogger } from '../utils/logger';
 
+const logger = createLogger('[AuthStore]');
 const tokenStorage = new TokenStorage();
 
 interface AuthState {
@@ -98,7 +100,7 @@ export const checkAuth = createAsyncThunk<boolean, void>(
 
     // Try silent auth first
     const accounts = msalInstance.getAllAccounts();
-    console.log('checkAuth: Found accounts:', accounts.length);
+    logger.debug('checkAuth: Found accounts:', accounts.length);
 
     if (accounts.length === 0) {
       return false;
@@ -112,11 +114,11 @@ export const checkAuth = createAsyncThunk<boolean, void>(
 
       const expiresOn = response.expiresOn?.getTime() || Date.now() + 3600000;
       await tokenStorage.saveTokens(response.accessToken, '', expiresOn);
-      console.log('checkAuth: Token acquired successfully');
+      logger.debug('checkAuth: Token acquired successfully');
 
       return true;
     } catch (error) {
-      console.log('checkAuth: Silent auth failed:', error);
+      logger.debug('checkAuth: Silent auth failed:', error);
       return false;
     }
   }
