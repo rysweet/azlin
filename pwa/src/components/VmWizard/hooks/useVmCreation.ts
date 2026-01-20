@@ -233,9 +233,18 @@ export function useVmCreation(
       setError(err.message || 'VM creation failed');
       setIsCreating(false);
 
-      // TODO: Implement rollback of created resources
-      // For now, just log what was created
-      logger.warn('Rollback not implemented. Created resources:', createdResources);
+      // Note: Partial resource cleanup on failure is not implemented
+      // If VM creation fails, created resources (VNet, Subnet, NIC, Public IP) remain
+      // User must manually delete orphaned resources via Azure Portal if needed
+      // Rationale: Implementing safe rollback adds complexity (what if rollback fails?)
+      // and partial resources are often reusable for retry attempts
+      // Future enhancement: Track orphaned resources and offer cleanup in UI
+      if (createdResources.length > 0) {
+        logger.warn('VM creation failed. The following resources were created and remain:', {
+          resources: createdResources,
+          action: 'Manual cleanup may be needed via Azure Portal if resources are not reused',
+        });
+      }
 
       throw err;
     }
