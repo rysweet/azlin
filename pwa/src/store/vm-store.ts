@@ -12,6 +12,9 @@
 
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { AzureClient, VMInfo } from '../api/azure-client';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('[VMStore]');
 
 interface VMState {
   items: VMInfo[];
@@ -30,7 +33,7 @@ const initialState: VMState = {
 // Create Azure client instance
 const getAzureClient = () => {
   const subscriptionId = import.meta.env.VITE_AZURE_SUBSCRIPTION_ID?.trim() || '';
-  console.log('🏴‍☠️ Creating Azure client with subscription:', subscriptionId);
+  logger.debug('Creating Azure client with subscription:', subscriptionId);
   return new AzureClient(subscriptionId);
 };
 
@@ -49,19 +52,19 @@ export const fetchVMs = createAsyncThunk<VMInfo[], string | undefined>(
   async (resourceGroupOverride) => {
     // Use override if provided, otherwise use configured resource group
     const resourceGroup = resourceGroupOverride || getAzlinResourceGroup();
-    console.log('🏴‍☠️ fetchVMs thunk called', { resourceGroup });
+    logger.debug('fetchVMs thunk called', { resourceGroup });
 
     try {
       const client = getAzureClient();
-      console.log('🏴‍☠️ Azure client created, calling listVMs...');
+      logger.debug('Azure client created, calling listVMs...');
 
       // Fetch VMs from the specific resource group (azlin VMs)
       const vms = await client.listVMs(resourceGroup);
-      console.log('🏴‍☠️ listVMs returned:', vms.length, 'VMs from', resourceGroup || 'all resource groups');
+      logger.debug('listVMs returned:', vms.length, 'VMs from', resourceGroup || 'all resource groups');
 
       return vms;
     } catch (error) {
-      console.error('🏴‍☠️ fetchVMs failed:', error);
+      logger.error('fetchVMs failed:', error);
       throw error;
     }
   }

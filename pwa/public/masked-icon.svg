@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Monochrome icon for Safari pinned tabs -->
+  <!-- Simple, bold design that works in single color -->
+  <path fill="#000000" d="M256 64 L400 448 L344 448 L320 384 L192 384 L168 448 L112 448 L256 64 Z M232 304 L280 304 L256 208 Z"/>
+</svg>

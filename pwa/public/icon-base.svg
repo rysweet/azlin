@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Azure blue background -->
+  <rect width="512" height="512" fill="#0078d4" rx="128"/>
+
+  <!-- White 'A' for Azlin -->
+  <g fill="#ffffff">
+    <!-- Main 'A' letter -->
+    <path d="M256 120 L360 392 L320 392 L304 352 L208 352 L192 392 L152 392 L256 120 Z"/>
+    <polygon points="232,312 280,312 256,240"/>
+
+    <!-- Azure cloud symbol (simplified) -->
+    <path d="M380 280 C380 265 390 255 405 255 C420 255 430 265 430 280 L430 300 C430 315 420 325 405 325 L355 325 C340 325 330 315 330 300 C330 285 340 275 355 275 C355 275 355 280 355 280" opacity="0.3"/>
+  </g>
+
+  <!-- Subtle gradient overlay for depth -->
+  <defs>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.1" />
+      <stop offset="100%" style="stop-color:#000000;stop-opacity:0.05" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#shine)" rx="128"/>
+</svg>

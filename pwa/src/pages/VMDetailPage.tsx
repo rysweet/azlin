@@ -21,6 +21,9 @@ import { useSelector, useDispatch } from 'react-redux';
 import { AppDispatch } from '../store/store';
 import { selectVMById, startVM, stopVM } from '../store/vm-store';
 import { fetchSessions, selectSessionsByVmId, selectTmuxLoading, selectTmuxError, selectPollingProgress } from '../store/tmux-store';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('[VMDetailPage]');
 
 function VMDetailPage() {
   const { vmId } = useParams<{ vmId: string }>();
@@ -41,10 +44,10 @@ function VMDetailPage() {
   // Fetch tmux sessions when VM is running
   useEffect(() => {
     if (vm) {
-      console.log('🏴‍☠️ VMDetailPage: VM data:', { name: vm.name, powerState: vm.powerState, isRunning });
+      logger.debug('VM data:', { name: vm.name, powerState: vm.powerState, isRunning });
     }
     if (vm && isRunning) {
-      console.log('🏴‍☠️ Fetching tmux sessions for', vm.name);
+      logger.debug('Fetching tmux sessions for', vm.name);
       dispatch(fetchSessions({ resourceGroup: vm.resourceGroup, vmName: vm.name }));
     }
   }, [dispatch, vm, isRunning]);
