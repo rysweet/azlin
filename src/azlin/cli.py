@@ -9713,6 +9713,45 @@ def web_start(port: int, host: str):
         click.echo("Run this command from the azlin repository root.", err=True)
         sys.exit(1)
 
+    # Auto-generate .env from azlin config if needed
+    try:
+        from azlin.modules.pwa_config_generator import generate_pwa_env_from_azlin
+
+        result = generate_pwa_env_from_azlin(pwa_dir, force=False)
+
+        # Display success messages
+        if result.success and result.message:
+            click.echo(f"✅ {result.message}")
+
+            # Show config sources if available
+            if result.source_attribution:
+                click.echo("\n📋 Configuration sources:")
+                for var_name, source in result.source_attribution.items():
+                    click.echo(f"  • {var_name}: {source.value}")
+
+        # Display errors (blocking)
+        if not result.success:
+            click.echo("\n❌ Failed to generate PWA configuration:", err=True)
+            if result.error:
+                click.echo(f"   {result.error}", err=True)
+            click.echo("\n💡 Solutions:", err=True)
+            click.echo(
+                "   1. Install Azure CLI: https://docs.microsoft.com/cli/azure/install-azure-cli",
+                err=True,
+            )
+            click.echo("   2. Authenticate: az login", err=True)
+            click.echo("   3. Or manually create pwa/.env from pwa/.env.example", err=True)
+            sys.exit(1)
+
+    except ImportError as e:
+        # Module not available - skip config generation
+        click.echo(f"⚠️  PWA config generator not available: {e}", err=True)
+        click.echo("   Continuing without auto-config generation...", err=True)
+    except Exception as e:
+        # Non-fatal error - warn but continue
+        click.echo(f"⚠️  Config generation failed: {e}", err=True)
+        click.echo("   Continuing with manual .env setup...", err=True)
+
     # Check if node_modules exists
     if not (pwa_dir / "node_modules").exists():
         click.echo("Installing PWA dependencies (first time only)...")

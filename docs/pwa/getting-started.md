@@ -37,13 +37,43 @@ This installs all required packages including:
 
 ### Step 3: Configure Environment
 
-Create your environment file:
+**Zero-Config Experience**: If ye've already configured azlin with Azure CLI, the PWA auto-generates yer `.env` file from existing config!
+
+#### Automatic Configuration (Recommended)
+
+If ye've run `azlin` before and logged into Azure:
+
+```bash
+# Just start the PWA - config happens automatically
+npm start
+
+# Output shows where each config value came from:
+# ✓ Tenant ID: from Azure CLI (az account show)
+# ✓ Subscription ID: from Azure CLI
+# ✓ Bastion Name: from azlin config (~/.azlin/config.json)
+# ✓ Bastion RG: from azlin config
+# ! Client ID: Manual setup required (see below)
+```
+
+**What gets auto-configured:**
+- Tenant ID (from `az account show`)
+- Subscription ID (from `az account show`)
+- Bastion name and resource group (from `~/.azlin/config.json`)
+
+**What needs manual setup:**
+- Client ID (requires Azure AD app registration - see Step 4)
+
+**Important**: Auto-generation NEVER overwrites an existing `.env` file. Yer manual customizations be safe!
+
+#### Manual Configuration (If Needed)
+
+If automatic config fails or ye want full control:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your Azure details:
+Edit `.env` with yer Azure details:
 
 ```bash
 # Azure AD Configuration
@@ -284,6 +314,39 @@ tmux new -s test-session
 
 # Verify from PWA (refresh VM page)
 ```
+
+### Automatic Configuration Not Working
+
+**Problem**: PWA falls back to manual configuration
+
+**Possible causes and solutions:**
+
+1. **Azure CLI not configured**
+   ```bash
+   # Check if Azure CLI is logged in
+   az account show
+
+   # If not logged in:
+   az login
+   ```
+
+2. **Azlin config file missing**
+   ```bash
+   # Check if azlin config exists
+   cat ~/.azlin/config.json
+
+   # If missing, run azlin at least once:
+   azlin vm list
+   ```
+
+3. **Missing Bastion configuration**
+   ```bash
+   # Azlin config exists but no Bastion set up
+   # Run azlin to configure Bastion:
+   azlin bastion setup
+   ```
+
+**Fallback behavior**: If auto-config fails, the PWA tells ye exactly what's missin' and how to fix it. Ye can always create `.env` manually if needed.
 
 ### PWA Won't Install
 
