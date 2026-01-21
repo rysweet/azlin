@@ -15,22 +15,34 @@ Azlin Mobile PWA provides full VM management capabilities through a Progressive 
 
 ## Quick Start
 
+**Zero-Config Experience**: If ye've configured azlin already, the PWA sets itself up automatically!
+
 ```bash
 # Clone and install
 git clone https://github.com/rysweet/azlin.git
 cd azlin/pwa
 npm install
 
-# Configure Azure authentication
+# Zero-config start (if azlin is configured)
+npm start
+# ✓ Automatically pulls config from Azure CLI and azlin
+# ✓ Only CLIENT_ID needs manual setup (one-time)
+
+# Manual config (if needed)
 cp .env.example .env
 # Edit .env with your Azure credentials
-
-# Run development server
-npm start
 
 # Build for production
 npm run build
 ```
+
+**What happens automatically:**
+- Tenant ID and Subscription ID from `az account show`
+- Bastion configuration from `~/.azlin/config.json`
+- Clear feedback showing where each value came from
+
+**What needs one-time manual setup:**
+- Azure AD Client ID (requires app registration - see [Getting Started](./getting-started.md))
 
 Visit on your iPhone and tap "Add to Home Screen".
 

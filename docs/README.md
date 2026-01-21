@@ -8,6 +8,8 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 
 - **[../README.md](../README.md)** - Project overview, quick start, and installation
 - **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command reference and examples
+- **[pwa/README.md](pwa/README.md)** - Mobile PWA for managing VMs from iPhone (zero-config setup!)
+- **[pwa/getting-started.md](pwa/getting-started.md)** - PWA installation and automatic configuration guide
 - **[reference/destroy-command.md](reference/destroy-command.md)** - Complete guide to VM deletion
 - **[UV_USAGE.md](UV_USAGE.md)** - Using azlin with uv package manager
 - **[how-to/troubleshoot-connection-issues.md](how-to/troubleshoot-connection-issues.md)** - Comprehensive troubleshooting guide
