@@ -571,8 +571,8 @@ local.settings.json
 # ============================================
 # PACKAGE MANAGERS AND BUILD TOOLS
 # ============================================
-# Lock files (keep pyproject.toml but ignore lock files)
-package-lock.json
+# Lock files (keep package-lock.json for reproducible PWA builds)
+# package-lock.json - REMOVED: Needed for CI/CD reproducible builds
 yarn.lock
 pnpm-lock.yaml
 
