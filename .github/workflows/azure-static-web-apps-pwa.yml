@@ -36,6 +36,18 @@ jobs:
           cd pwa
           npm ci
 
+      - name: Debug - Check environment variables
+        run: |
+          echo "Checking if VITE_* env vars are set..."
+          echo "VITE_AZURE_CLIENT_ID is set: $([[ -n "$VITE_AZURE_CLIENT_ID" ]] && echo 'YES' || echo 'NO')"
+          echo "VITE_AZURE_TENANT_ID is set: $([[ -n "$VITE_AZURE_TENANT_ID" ]] && echo 'YES' || echo 'NO')"
+          echo "VITE_AZURE_SUBSCRIPTION_ID is set: $([[ -n "$VITE_AZURE_SUBSCRIPTION_ID" ]] && echo 'YES' || echo 'NO')"
+          echo "CLIENT_ID length: ${#VITE_AZURE_CLIENT_ID}"
+        env:
+          VITE_AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          VITE_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          VITE_AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Build PWA
         run: |
           cd pwa
