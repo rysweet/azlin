@@ -220,7 +220,9 @@ def format_conflict_error(conflict_info: ResourceConflictInfo) -> str:
     # Option 2: Delete existing (if we have enough info)
     if rg:
         lines.append("  # Or delete the existing resource:")
-        lines.append(f"  az vm delete --name {name} --resource-group {rg} --yes")
+        # Detect resource type from name and provide correct delete command
+        delete_cmd = _get_resource_delete_command(name, rg)
+        lines.append(f"  {delete_cmd}")
         lines.append("")
 
     # Option 3: Use existing
@@ -413,3 +415,51 @@ def _get_friendly_resource_type(resource_type: str) -> str:
 
     # Return as-is if no conversion possible
     return resource_type
+
+
+def _get_resource_delete_command(resource_name: str, resource_group: str) -> str:
+    """Get correct Azure CLI delete command based on resource name pattern.
+
+    Detects resource type from Azure naming conventions and returns
+    the appropriate delete command.
+
+    Args:
+        resource_name: Resource name (e.g., "azlin-devNSG", "my-vmVMNic")
+        resource_group: Resource group name
+
+    Returns:
+        Correct az CLI delete command for the resource type
+
+    Examples:
+        >>> _get_resource_delete_command("azlin-devNSG", "my-rg")
+        'az network nsg delete --name azlin-devNSG --resource-group my-rg'
+
+        >>> _get_resource_delete_command("my-vm", "my-rg")
+        'az vm delete --name my-vm --resource-group my-rg --yes'
+    """
+    # Detect resource type from name suffix patterns
+    # Azure automatically creates resources with these suffixes
+    if resource_name.endswith("NSG"):
+        # Network Security Group
+        return f"az network nsg delete --name {resource_name} --resource-group {resource_group}"
+
+    if resource_name.endswith("VMNic") or resource_name.endswith("NIC"):
+        # Network Interface Card
+        return f"az network nic delete --name {resource_name} --resource-group {resource_group}"
+
+    if resource_name.endswith("PublicIP"):
+        # Public IP Address
+        return (
+            f"az network public-ip delete --name {resource_name} --resource-group {resource_group}"
+        )
+
+    if resource_name.endswith("VNET") or resource_name.endswith("-vnet"):
+        # Virtual Network
+        return f"az network vnet delete --name {resource_name} --resource-group {resource_group}"
+
+    if "OsDisk" in resource_name or resource_name.endswith("Disk"):
+        # Managed Disk
+        return f"az disk delete --name {resource_name} --resource-group {resource_group} --yes"
+
+    # Default to VM delete (most common case)
+    return f"az vm delete --name {resource_name} --resource-group {resource_group} --yes"
