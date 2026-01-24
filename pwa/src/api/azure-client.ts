@@ -76,13 +76,26 @@ export class AzureClient {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(30000), // 30 second timeout
     };
 
     if (data) {
       options.body = JSON.stringify(data);
     }
 
-    const response = await fetch(url.toString(), options);
+    let response;
+    try {
+      response = await fetch(url.toString(), options);
+    } catch (error) {
+      // Handle timeout and network errors
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw new Error(`Azure API request timed out after 30s: ${method} ${path}`);
+      }
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Azure API request aborted: ${method} ${path}`);
+      }
+      throw new Error(`Azure API network error: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     // Handle rate limiting with retry (max 3 retries)
     if (response.status === 429) {
