@@ -2,8 +2,6 @@
 
 import inspect
 
-import pytest
-
 from azlin.modules.bastion_detector import BastionDetector
 from azlin.modules.vm_key_sync import DEFAULT_TIMEOUT, VMKeySync
 
