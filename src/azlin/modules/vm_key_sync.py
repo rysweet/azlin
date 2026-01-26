@@ -24,7 +24,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Constants
-DEFAULT_TIMEOUT = 30
+DEFAULT_TIMEOUT = 60
 MAX_KEY_LENGTH = 8192
 KEY_FINGERPRINT_LENGTH = 40
 
@@ -241,7 +241,7 @@ class VMKeySync:
         resource_group: str,
         public_key: str,
         ssh_user: str = "azureuser",
-        timeout: int = 30,
+        timeout: int = DEFAULT_TIMEOUT,
         method: str = "auto",
     ):
         """Append public key to VM's authorized_keys file.

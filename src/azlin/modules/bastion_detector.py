@@ -84,7 +84,7 @@ class BastionDetector:
         return "Azure operation failed"
 
     @staticmethod
-    def _check_azure_cli_responsive(timeout: int = 2) -> bool:
+    def _check_azure_cli_responsive(timeout: int = 10) -> bool:
         """Check if Azure CLI is responsive before making actual calls.
 
         Pre-flight check to avoid hanging on slow Azure CLI responses.
@@ -259,7 +259,7 @@ class BastionDetector:
             return cached
 
         # Pre-flight check: verify Azure CLI is responsive
-        if not cls._check_azure_cli_responsive(timeout=2):
+        if not cls._check_azure_cli_responsive(timeout=10):
             logger.warning("Azure CLI not responsive, skipping Bastion detection")
             return []
 
