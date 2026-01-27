@@ -41,11 +41,14 @@ class TestConfigParsingErrors:
         mock_read.return_value = "[invalid toml\nno closing bracket"
         with pytest.raises(ConfigError, match="Failed to parse config"):
             # Simulate TOML parsing
-            import tomli
+            try:
+                import tomllib
+            except ImportError:
+                import tomli as tomllib
 
             try:
-                tomli.loads(mock_read())
-            except tomli.TOMLDecodeError as e:
+                tomllib.loads(mock_read())
+            except Exception as e:
                 raise ConfigError(f"Failed to parse config: {e}") from e
 
     @patch("pathlib.Path.read_text")
@@ -238,11 +241,14 @@ class TestConfigImportErrors:
         """Test that invalid TOML raises ConfigError."""
         mock_read.return_value = "[invalid"
         with pytest.raises(ConfigError, match="Failed to parse import file"):
-            import tomli
+            try:
+                import tomllib
+            except ImportError:
+                import tomli as tomllib
 
             try:
-                tomli.loads(mock_read())
-            except tomli.TOMLDecodeError as e:
+                tomllib.loads(mock_read())
+            except Exception as e:
                 raise ConfigError(f"Failed to parse import file: {e}") from e
 
     def test_import_config_incompatible_version(self):

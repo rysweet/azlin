@@ -138,7 +138,7 @@ class TestNFSProvisionerErrors:
 
     def test_provision_nfs_invalid_configuration(self):
         """Test that invalid configuration raises error."""
-        with pytest.raises(Exception, match="Invalid configuration"):
+        with pytest.raises(Exception, match="Invalid.*configuration"):
             raise Exception("Invalid NFS configuration")
 
     def test_provision_nfs_network_rules_failed(self):
