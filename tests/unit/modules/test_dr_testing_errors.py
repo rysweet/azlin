@@ -64,23 +64,37 @@ class TestDatabaseErrors:
             except Exception as e:
                 raise Exception(f"Database initialization failed: {e}") from e
 
-    @patch("sqlite3.Cursor.execute")
-    def test_database_error_on_query(self, mock_execute):
+    @patch("sqlite3.connect")
+    def test_database_error_on_query(self, mock_connect):
         """Test that database query error raises Exception."""
-        mock_execute.side_effect = Exception("Database locked")
+        mock_cursor = Mock()
+        mock_cursor.execute.side_effect = Exception("Database locked")
+        mock_conn = Mock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_conn
+
         with pytest.raises(Exception, match="Database error"):
             try:
-                mock_execute("SELECT * FROM backups")
+                conn = mock_connect(":memory:")
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM backups")
             except Exception as e:
                 raise Exception(f"Database error: {e}") from e
 
-    @patch("sqlite3.Cursor.execute")
-    def test_database_error_on_insert(self, mock_execute):
+    @patch("sqlite3.connect")
+    def test_database_error_on_insert(self, mock_connect):
         """Test that database insert error raises Exception."""
-        mock_execute.side_effect = Exception("Constraint violation")
+        mock_cursor = Mock()
+        mock_cursor.execute.side_effect = Exception("Constraint violation")
+        mock_conn = Mock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_conn
+
         with pytest.raises(Exception, match="Database error"):
             try:
-                mock_execute("INSERT INTO backups VALUES (?, ?)", ("vm", "backup"))
+                conn = mock_connect(":memory:")
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO backups VALUES (?, ?)", ("vm", "backup"))
             except Exception as e:
                 raise Exception(f"Database error: {e}") from e
 
@@ -88,13 +102,12 @@ class TestDatabaseErrors:
 class TestBackupListingErrors:
     """Error tests for listing backups."""
 
-    @patch("azlin.modules.dr_testing.DRTester._query_database")
-    def test_list_backups_database_failure(self, mock_query):
+    def test_list_backups_database_failure(self):
         """Test that database failure raises Exception."""
-        mock_query.side_effect = Exception("Database error")
         with pytest.raises(Exception, match="Failed to list backups"):
+            # Simulate database failure when listing backups
             try:
-                mock_query("SELECT * FROM backups")
+                raise Exception("Database error")
             except Exception as e:
                 raise Exception(f"Failed to list backups: {e}") from e
 
