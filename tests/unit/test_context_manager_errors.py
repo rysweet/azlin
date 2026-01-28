@@ -89,7 +89,7 @@ class TestContextCreationErrors:
 
     def test_create_context_already_exists(self):
         """Test that creating duplicate context raises ContextError."""
-        with pytest.raises(ContextError, match="Context already exists"):
+        with pytest.raises(ContextError, match="Context .* already exists"):
             raise ContextError("Context 'production' already exists")
 
     def test_create_context_invalid_resource_group(self):
