@@ -206,13 +206,24 @@ class TestStorageDeleteErrors:
     @patch("azlin.modules.storage_manager.StorageManager.get_storage_status")
     def test_delete_storage_in_use(self, mock_status):
         """Test that deleting in-use storage raises StorageInUseError."""
-        from azlin.modules.storage_manager import StorageStatus
-        mock_status.return_value = StorageStatus(
+        from azlin.modules.storage_manager import StorageInfo, StorageStatus
+        from datetime import datetime
+
+        mock_info = StorageInfo(
             name="teststorage",
             resource_group="test-rg",
-            exists=True,
+            region="westus2",
+            tier="Standard",
+            size_gb=100,
+            nfs_endpoint="teststorage.file.core.windows.net:/teststorage/home",
+            created=datetime.now()
+        )
+        mock_status.return_value = StorageStatus(
+            info=mock_info,
+            used_gb=10.0,
+            utilization_percent=10.0,
             connected_vms=["vm1", "vm2"],
-            last_checked=None
+            cost_per_month=5.0
         )
         with pytest.raises(
             StorageInUseError,
@@ -224,13 +235,24 @@ class TestStorageDeleteErrors:
     @patch("azlin.modules.storage_manager.subprocess.run")
     def test_delete_storage_subprocess_failure(self, mock_run, mock_status):
         """Test that delete subprocess failure raises StorageError."""
-        from azlin.modules.storage_manager import StorageStatus
-        mock_status.return_value = StorageStatus(
+        from azlin.modules.storage_manager import StorageInfo, StorageStatus
+        from datetime import datetime
+
+        mock_info = StorageInfo(
             name="teststorage",
             resource_group="test-rg",
-            exists=True,
+            region="westus2",
+            tier="Standard",
+            size_gb=100,
+            nfs_endpoint="teststorage.file.core.windows.net:/teststorage/home",
+            created=datetime.now()
+        )
+        mock_status.return_value = StorageStatus(
+            info=mock_info,
+            used_gb=10.0,
+            utilization_percent=10.0,
             connected_vms=[],
-            last_checked=None
+            cost_per_month=5.0
         )
         mock_run.side_effect = subprocess.CalledProcessError(
             1, "az", stderr="ERROR: Failed to delete"
