@@ -138,7 +138,9 @@ class TestStorageCreationErrors:
     def test_create_storage_invalid_json(self, mock_run):
         """Test that invalid JSON response raises StorageError."""
         mock_run.return_value = Mock(stdout="not valid json{", returncode=0)
-        with pytest.raises(StorageError, match="Failed to parse (Azure CLI output|storage account info)"):
+        with pytest.raises(
+            StorageError, match="Failed to parse (Azure CLI output|storage account info)"
+        ):
             StorageManager.create_storage("teststorage", "test-rg", "westus2")
 
     @patch("azlin.modules.storage_manager.subprocess.run")
@@ -206,8 +208,9 @@ class TestStorageDeleteErrors:
     @patch("azlin.modules.storage_manager.StorageManager.get_storage_status")
     def test_delete_storage_in_use(self, mock_status):
         """Test that deleting in-use storage raises StorageInUseError."""
-        from azlin.modules.storage_manager import StorageInfo, StorageStatus
         from datetime import datetime
+
+        from azlin.modules.storage_manager import StorageInfo, StorageStatus
 
         mock_info = StorageInfo(
             name="teststorage",
@@ -235,8 +238,9 @@ class TestStorageDeleteErrors:
     @patch("azlin.modules.storage_manager.subprocess.run")
     def test_delete_storage_subprocess_failure(self, mock_run, mock_status):
         """Test that delete subprocess failure raises StorageError."""
-        from azlin.modules.storage_manager import StorageInfo, StorageStatus
         from datetime import datetime
+
+        from azlin.modules.storage_manager import StorageInfo, StorageStatus
 
         mock_info = StorageInfo(
             name="teststorage",
