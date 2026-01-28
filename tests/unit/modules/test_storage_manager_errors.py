@@ -216,14 +216,14 @@ class TestStorageDeleteErrors:
             tier="Standard",
             size_gb=100,
             nfs_endpoint="teststorage.file.core.windows.net:/teststorage/home",
-            created=datetime.now()
+            created=datetime.now(),
         )
         mock_status.return_value = StorageStatus(
             info=mock_info,
             used_gb=10.0,
             utilization_percent=10.0,
             connected_vms=["vm1", "vm2"],
-            cost_per_month=5.0
+            cost_per_month=5.0,
         )
         with pytest.raises(
             StorageInUseError,
@@ -245,14 +245,14 @@ class TestStorageDeleteErrors:
             tier="Standard",
             size_gb=100,
             nfs_endpoint="teststorage.file.core.windows.net:/teststorage/home",
-            created=datetime.now()
+            created=datetime.now(),
         )
         mock_status.return_value = StorageStatus(
             info=mock_info,
             used_gb=10.0,
             utilization_percent=10.0,
             connected_vms=[],
-            cost_per_month=5.0
+            cost_per_month=5.0,
         )
         mock_run.side_effect = subprocess.CalledProcessError(
             1, "az", stderr="ERROR: Failed to delete"
@@ -271,18 +271,14 @@ class TestNFSConfigurationErrors:
             1, "az", stderr="ERROR: Failed to update network rules"
         )
         with pytest.raises(StorageError, match="Failed to configure NFS network access"):
-            StorageManager.configure_nfs_network_access(
-                "teststorage", "test-rg", "subnet-id"
-            )
+            StorageManager.configure_nfs_network_access("teststorage", "test-rg", "subnet-id")
 
     @patch("azlin.modules.storage_manager.subprocess.run")
     def test_configure_nfs_unexpected_error(self, mock_run):
         """Test that unexpected error raises StorageError."""
         mock_run.side_effect = Exception("Unexpected error")
         with pytest.raises(StorageError, match="Unexpected error configuring NFS access"):
-            StorageManager.configure_nfs_network_access(
-                "teststorage", "test-rg", "subnet-id"
-            )
+            StorageManager.configure_nfs_network_access("teststorage", "test-rg", "subnet-id")
 
 
 class TestSSHKeyWriteErrors:
