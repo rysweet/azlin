@@ -512,7 +512,7 @@ class VMProvisioner:
             Uses Azure CLI with minimal output for fast check
         """
         try:
-            executor = AzureCLIExecutor(show_progress=False, timeout=10)
+            executor = AzureCLIExecutor(show_progress=False, timeout=30)  # Increased for WSL compatibility (Issue #580)
             result = executor.execute(
                 [
                     "az",
@@ -701,7 +701,7 @@ class VMProvisioner:
         """
         try:
             # Check if exists first
-            executor = AzureCLIExecutor(show_progress=True, timeout=10)
+            executor = AzureCLIExecutor(show_progress=True, timeout=30)  # Increased for WSL compatibility (Issue #580)
             result = executor.execute(["az", "group", "exists", "--name", resource_group])
 
             if result["stdout"].strip().lower() == "true":

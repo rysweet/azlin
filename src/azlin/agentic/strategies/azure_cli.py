@@ -258,7 +258,7 @@ class AzureCLIStrategy(ExecutionStrategy):
             result = subprocess.run(
                 ["az", "--version"],
                 capture_output=True,
-                timeout=5,
+                timeout=30,  # Increased for WSL compatibility (Issue #580)
                 check=False,
             )
             if result.returncode != 0:
@@ -271,7 +271,7 @@ class AzureCLIStrategy(ExecutionStrategy):
             result = subprocess.run(
                 ["az", "account", "show"],
                 capture_output=True,
-                timeout=5,
+                timeout=30,  # Increased for WSL compatibility (Issue #580)
                 check=False,
             )
             if result.returncode != 0:

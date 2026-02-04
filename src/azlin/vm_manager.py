@@ -367,7 +367,7 @@ class VMManager:
             ]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=10, check=True
+                cmd, capture_output=True, text=True, timeout=30, check=True  # Increased for WSL compatibility (Issue #580)
             )
 
             vm_data: dict[str, Any] = json.loads(result.stdout)
@@ -432,7 +432,7 @@ class VMManager:
             ]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=10, check=True
+                cmd, capture_output=True, text=True, timeout=30, check=True  # Increased for WSL compatibility (Issue #580)
             )
 
             subscription_id = result.stdout.strip()
@@ -498,7 +498,7 @@ class VMManager:
             ]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=10, check=True
+                cmd, capture_output=True, text=True, timeout=30, check=True  # Increased for WSL compatibility (Issue #580)
             )
 
             ip: str = result.stdout.strip()
@@ -578,7 +578,7 @@ class VMManager:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=5,  # Short timeout to avoid hanging
+                timeout=30,  # Increased for WSL compatibility (Issue #580)
                 check=True,
             )
 
@@ -627,7 +627,7 @@ class VMManager:
                 ]
 
                 result: subprocess.CompletedProcess[str] = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=5, check=True
+                    cmd, capture_output=True, text=True, timeout=30, check=True  # Increased for WSL compatibility (Issue #580)
                 )
 
                 public_ip_id: str = result.stdout.strip()
@@ -651,7 +651,7 @@ class VMManager:
                     ]
 
                     result: subprocess.CompletedProcess[str] = subprocess.run(
-                        cmd, capture_output=True, text=True, timeout=5, check=True
+                        cmd, capture_output=True, text=True, timeout=30, check=True  # Increased for WSL compatibility (Issue #580)
                     )
 
                     public_ip: str = result.stdout.strip()
