@@ -636,6 +636,25 @@ class SSHKeyVaultManager:
 
             target_path.chmod(0o600)  # Defense in depth
             logger.info(f"SSH key retrieved and saved to: {target_path}")
+
+            # Regenerate public key from private key to ensure they match (Issue #578)
+            # Bug fix: Public key file must be updated when private key changes
+            try:
+                pub_key_result = subprocess.run(
+                    ["ssh-keygen", "-y", "-f", str(target_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=True,
+                )
+                pub_key_content = pub_key_result.stdout.strip()
+                pub_key_path = Path(str(target_path) + ".pub")
+                pub_key_path.write_text(pub_key_content + "\n")
+                pub_key_path.chmod(0o644)
+                logger.info(f"Public key regenerated: {pub_key_path}")
+            except Exception as e:
+                logger.warning(f"Failed to regenerate public key (non-critical): {e}")
+
         except Exception as e:
             raise KeyVaultError(f"Failed to write key to file: {e}") from e
 
