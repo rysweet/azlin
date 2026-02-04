@@ -597,7 +597,7 @@ class ContextManager:
                     ["az", "account", "set", "--subscription", current_ctx.subscription_id],
                     check=True,
                     capture_output=True,
-                    timeout=10,
+                    timeout=30,  # Increased for WSL compatibility (Issue #580)
                     text=True,
                 )
 

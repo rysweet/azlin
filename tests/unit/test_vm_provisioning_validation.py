@@ -299,7 +299,7 @@ class TestCheckVMExists:
 
         # Verify
         assert result is True
-        mock_executor_class.assert_called_once_with(show_progress=False, timeout=10)
+        mock_executor_class.assert_called_once_with(show_progress=False, timeout=30)
         mock_executor.execute.assert_called_once()
 
         # Verify command structure
@@ -417,7 +417,7 @@ class TestCheckVMExists:
 
         Given: A VM existence check
         When: check_vm_exists is called
-        Then: Executor is initialized with timeout=10
+        Then: Executor is initialized with timeout=30
         """
         # Setup mock executor
         mock_executor = Mock()
@@ -433,7 +433,7 @@ class TestCheckVMExists:
         VMProvisioner.check_vm_exists("test-vm", "test-rg")
 
         # Verify timeout
-        mock_executor_class.assert_called_once_with(show_progress=False, timeout=10)
+        mock_executor_class.assert_called_once_with(show_progress=False, timeout=30)
 
     @patch("azlin.vm_provisioning.AzureCLIExecutor")
     def test_check_vm_exists_with_special_characters_in_name(self, mock_executor_class):

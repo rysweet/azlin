@@ -296,7 +296,9 @@ class Orchestrator:
             )
 
         except subprocess.CalledProcessError:
-            raise ProvisioningError(f"VM not found: {vm_name}", context={"vm_name": vm_name}) from None
+            raise ProvisioningError(
+                f"VM not found: {vm_name}", context={"vm_name": vm_name}
+            ) from None
         except subprocess.TimeoutExpired:
             raise ProvisioningError(
                 "Timeout while verifying VM existence", context={"vm_name": vm_name}

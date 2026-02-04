@@ -4,6 +4,10 @@ This file documents non-obvious problems, solutions, and patterns discovered dur
 
 **Archive**: Entries older than 3 months are moved to [DISCOVERIES_ARCHIVE.md](./DISCOVERIES_ARCHIVE.md).
 
+## February 2026
+
+- [SSH Key Sync Timeout and Silent Failure](#ssh-key-sync-timeout-and-silent-failure-2026-02-04)
+
 ## January 2026
 
 - [Bastion Detection Timeout Insufficient for WSL Environments](#bastion-detection-timeout-insufficient-for-wsl-2026-02-03)
@@ -35,6 +39,144 @@ This file documents non-obvious problems, solutions, and patterns discovered dur
 - [Pattern Applicability Framework](#pattern-applicability-analysis-framework-2025-10-20)
 - [Socratic Questioning Pattern](#socratic-questioning-pattern-2025-10-18)
 - [Expert Agent Creation Pattern](#expert-agent-creation-pattern-2025-10-18)
+
+---
+
+## SSH Key Sync Timeout and Silent Failure (2026-02-04)
+
+### Problem
+
+SSH connections fail with "Permission denied (publickey)" even though:
+- SSH key successfully retrieved from Key Vault ✅
+- Bastion tunnel successfully created ✅
+- User sees message "SSH key auto-sync completed successfully" ✅
+
+But SSH authentication still fails because the key was never actually deployed to the VM.
+
+### Root Cause
+
+**TWO BUGS** in `vm_connector.py:291-299`:
+
+**Bug #1: Timeout Too Short (Line 297)**
+```python
+timeout=5,  # Reduced from 30s default for faster failure
+```
+
+The code uses a **5-second timeout** for SSH key sync, but DEFAULT_TIMEOUT in `vm_key_sync.py` is **60 seconds**. In WSL environments, 5 seconds is insufficient for the Azure Run Command API to deploy the key to the VM.
+
+**The comment admits the bug**: "For first connections, sync will likely timeout anyway" - this is treating a bug as a feature!
+
+**Bug #2: Ignoring Result (Lines 293-299)**
+```python
+sync_manager.ensure_key_authorized(...)  # Result not captured!
+logger.info("SSH key auto-sync completed successfully")  # Logs success regardless!
+```
+
+The code:
+1. Calls `ensure_key_authorized()` but doesn't capture the `KeySyncResult` return value
+2. Logs "SSH key auto-sync completed successfully" WITHOUT checking if it actually succeeded
+3. Result contains `synced=False` and `error="Sync operation timed out"` but this is ignored
+4. User sees success message even though operation failed
+
+### Error Flow
+
+1. User runs `azlin connect haymaker-dev2`
+2. Key retrieved from Key Vault (works) ✅
+3. Auto-sync triggered with 5s timeout
+4. Azure Run Command API takes >5s to deploy key in WSL
+5. `ensure_key_authorized()` times out, returns `KeySyncResult(synced=False, error="Sync operation timed out")`
+6. Return value ignored, "completed successfully" logged anyway
+7. SSH connection attempts use local key
+8. VM doesn't have the key in authorized_keys (sync failed!)
+9. SSH says "Permission denied (publickey)" - key not on VM!
+
+### User's Output Evidence
+
+From the error log:
+```
+Auto-syncing SSH key to VM authorized_keys: haymaker-dev2
+Sync operation timed out for VM haymaker-dev2     ← Timeout error from vm_key_sync.py
+SSH key auto-sync completed successfully           ← False success from vm_connector.py
+...
+azureuser@127.0.0.1: Permission denied (publickey). ← Auth fails - key not on VM
+```
+
+The contradictory messages prove both bugs exist simultaneously.
+
+### Historical Context
+
+- **PR #575**: Increased DEFAULT_TIMEOUT from 30s to 60s for WSL compatibility
+- **test_timeout_values.py**: Validates DEFAULT_TIMEOUT >= 60s
+- **vm_connector.py**: Never updated to use DEFAULT_TIMEOUT, still hardcodes 5s!
+
+This is the same timeout pattern as Issue #576 (bastion detection), but in a different module.
+
+### Solutions
+
+**Fix #1: Use DEFAULT_TIMEOUT (60s)**
+```python
+from azlin.modules.vm_key_sync import DEFAULT_TIMEOUT, VMKeySync
+
+# Line 293-298
+result = sync_manager.ensure_key_authorized(
+    vm_name=conn_info.vm_name,
+    resource_group=conn_info.resource_group,
+    public_key=public_key,
+    timeout=DEFAULT_TIMEOUT,  # Use 60s for WSL compatibility
+)
+```
+
+**Fix #2: Check Result and Log Accurately**
+```python
+# Lines 293-302
+result = sync_manager.ensure_key_authorized(
+    vm_name=conn_info.vm_name,
+    resource_group=conn_info.resource_group,
+    public_key=public_key,
+    timeout=DEFAULT_TIMEOUT,
+)
+
+if result.synced:
+    logger.info(f"SSH key synced to VM authorized_keys in {result.duration_ms}ms")
+elif result.already_present:
+    logger.debug("SSH key already present in VM authorized_keys")
+elif result.error:
+    logger.warning(
+        f"SSH key auto-sync failed: {result.error}. "
+        f"Connection may fail if key not already on VM. "
+        f"Use 'azlin sync-keys {conn_info.vm_name}' to manually sync."
+    )
+```
+
+**Benefits**:
+1. Key actually gets deployed to VM (60s sufficient for WSL)
+2. User sees accurate status messages
+3. Failed syncs don't claim success
+4. User gets actionable guidance when sync fails
+5. Aligns with PR #575 timeout increase pattern
+
+### Testing Requirements
+
+After fix, verify:
+1. Fresh VM connection succeeds on first attempt
+2. SSH key sync completes within 60s
+3. Success message only appears when sync actually succeeds
+4. Failure message provides actionable guidance
+5. No regressions in existing functionality
+
+### Related Files
+
+- **Primary**: `src/azlin/vm_connector.py` (lines 291-302)
+- **Supporting**: `src/azlin/modules/vm_key_sync.py` (DEFAULT_TIMEOUT = 60)
+- **Tests**: `tests/unit/test_timeout_values.py`
+- **Related Issue**: #576 (bastion timeout - same pattern)
+- **Related PR**: #575 (increased DEFAULT_TIMEOUT to 60s for WSL)
+
+### Impact
+
+**Severity**: High - Blocks SSH connections to VMs
+**Scope**: All users trying to connect to VMs where key isn't already deployed
+**Workaround**: Manual key sync with `azlin sync-keys` before connecting
 
 ---
 

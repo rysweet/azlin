@@ -212,7 +212,9 @@ class AsyncVMManager:
         ]
 
         try:
-            output = await self._run_az_command(cmd, timeout=10)
+            output = await self._run_az_command(
+                cmd, timeout=30
+            )  # Increased for WSL compatibility (Issue #580)
             return json.loads(output)
         except Exception as e:
             logger.debug(f"Failed to get instance view for {vm_name}: {e}")

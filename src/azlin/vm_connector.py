@@ -276,7 +276,7 @@ class VMConnector:
 
                     # Proceed with auto-sync if not skipped
                     if not should_skip:
-                        from azlin.modules.vm_key_sync import VMKeySync
+                        from azlin.modules.vm_key_sync import DEFAULT_TIMEOUT, VMKeySync
 
                         logger.info(
                             f"Auto-syncing SSH key to VM authorized_keys: {_sanitize_for_logging(conn_info.vm_name)}"
@@ -288,17 +288,36 @@ class VMConnector:
                         # Instantiate VMKeySync with config dict
                         sync_manager = VMKeySync(config.to_dict())
 
-                        # Call instance method with reduced timeout (5s instead of 30s)
-                        # For first connections, sync will likely timeout anyway
-                        sync_manager.ensure_key_authorized(
+                        # Use DEFAULT_TIMEOUT (60s) for WSL compatibility (Issue #578)
+                        # Previous 5s timeout was insufficient for Azure Run Command API in WSL
+                        result = sync_manager.ensure_key_authorized(
                             vm_name=conn_info.vm_name,
                             resource_group=conn_info.resource_group,
                             public_key=public_key,
-                            timeout=5,  # Reduced from 30s default for faster failure
+                            timeout=DEFAULT_TIMEOUT,
                         )
-                        logger.info("SSH key auto-sync completed successfully")
+
+                        # Log accurate status based on actual result (Issue #578)
+                        if result.synced:
+                            print(
+                                f"✅ SSH key synced to VM authorized_keys in {result.duration_ms}ms"
+                            )
+                            logger.info(
+                                f"SSH key synced to VM authorized_keys in {result.duration_ms}ms"
+                            )
+                        elif result.already_present:
+                            print("✅ SSH key already present in VM authorized_keys")
+                            logger.debug("SSH key already present in VM authorized_keys")
+                        elif result.error:
+                            print(f"⚠️  SSH key auto-sync failed: {result.error}")
+                            logger.warning(
+                                f"SSH key auto-sync failed: {result.error}. "
+                                f"Connection may fail if key not already on VM. "
+                                f"Use 'azlin sync-keys {_sanitize_for_logging(conn_info.vm_name)}' to manually sync."
+                            )
             except Exception as e:
                 # Log warning but don't block connection
+                print(f"⚠️  Auto-sync exception: {e}")
                 logger.warning(f"Auto-sync SSH key failed: {e}, attempting connection anyway")
 
         # Track if key existed before ensure_key_exists() for accurate logging

@@ -216,7 +216,7 @@ def use_context(name: str, config: str | None):
                 check=True,
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=30,  # Increased for WSL compatibility (Issue #580)
             )
             logger.debug(f"Azure CLI subscription set to {ctx.subscription_id}")
         except subprocess.CalledProcessError as e:

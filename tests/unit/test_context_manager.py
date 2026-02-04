@@ -631,7 +631,7 @@ class TestEnsureSubscriptionActive:
             ]
             assert call_args[1]["check"] is True
             assert call_args[1]["capture_output"] is True
-            assert call_args[1]["timeout"] == 10
+            assert call_args[1]["timeout"] == 30
 
         del os.environ["AZLIN_TEST_MODE"]
 

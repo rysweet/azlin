@@ -27,7 +27,7 @@ def get_azure_username() -> str:
             shell=False,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=30,  # Increased for WSL compatibility (Issue #580)
         )
 
         if result.returncode == 0 and result.stdout.strip():
