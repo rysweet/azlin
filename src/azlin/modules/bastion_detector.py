@@ -332,7 +332,7 @@ class BastionDetector:
                 capture_output=True,
                 text=True,
                 check=False,  # Don't raise on error
-                timeout=10,  # Reduced from 30s for consistency
+                timeout=30,  # Increased for WSL compatibility (Issue #576)
             )
 
             if result.returncode != 0:
