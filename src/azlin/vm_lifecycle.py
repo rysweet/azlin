@@ -408,7 +408,11 @@ class VMLifecycleManager:
             ]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True  # Increased for WSL compatibility (Issue #580)
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,  # Increased for WSL compatibility (Issue #580)
             )
 
             public_ip_id: str = result.stdout.strip()
@@ -468,7 +472,11 @@ class VMLifecycleManager:
             ]
 
             result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True  # Increased for WSL compatibility (Issue #580)
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,  # Increased for WSL compatibility (Issue #580)
             )
 
             nic_data: dict[str, Any] = json.loads(result.stdout)

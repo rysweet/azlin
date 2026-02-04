@@ -335,7 +335,9 @@ class MultiContextVMQuery:
                 # Use Azure CLI to switch subscription
                 cmd = ["az", "account", "set", "--subscription", context.subscription_id]
 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)  # Increased for WSL compatibility (Issue #580)
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=30, check=True
+                )  # Increased for WSL compatibility (Issue #580)
 
                 logger.debug(f"Switched to subscription: {context.subscription_id}")
 

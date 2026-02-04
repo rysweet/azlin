@@ -299,8 +299,12 @@ class VMConnector:
 
                         # Log accurate status based on actual result (Issue #578)
                         if result.synced:
-                            print(f"✅ SSH key synced to VM authorized_keys in {result.duration_ms}ms")
-                            logger.info(f"SSH key synced to VM authorized_keys in {result.duration_ms}ms")
+                            print(
+                                f"✅ SSH key synced to VM authorized_keys in {result.duration_ms}ms"
+                            )
+                            logger.info(
+                                f"SSH key synced to VM authorized_keys in {result.duration_ms}ms"
+                            )
                         elif result.already_present:
                             print("✅ SSH key already present in VM authorized_keys")
                             logger.debug("SSH key already present in VM authorized_keys")

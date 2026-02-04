@@ -87,7 +87,9 @@ class ProfileParser:
                 msg = error["msg"]
                 error_messages.append(f"  - {field}: {msg}")
 
-            raise ValidationError.from_exception_data(title="ProfileConfig", line_errors=e.errors()) from e
+            raise ValidationError.from_exception_data(
+                title="ProfileConfig", line_errors=e.errors()
+            ) from e
 
         # Version validation happens automatically via @field_validator in ProfileConfig
         return profile

@@ -349,7 +349,9 @@ fi
                 f"Failed to retrieve logs: {e.stderr}", context={"vm_name": self.vm.name}
             ) from e
         except subprocess.TimeoutExpired:
-            raise TransferError("Log retrieval timed out", context={"vm_name": self.vm.name}) from None
+            raise TransferError(
+                "Log retrieval timed out", context={"vm_name": self.vm.name}
+            ) from None
 
     def retrieve_git_state(self, local_dest: Path) -> bool:
         """Retrieve git repository state from remote VM.
@@ -403,7 +405,9 @@ echo "Bundle created"
                 f"Failed to retrieve git state: {e.stderr}", context={"vm_name": self.vm.name}
             ) from e
         except subprocess.TimeoutExpired:
-            raise TransferError("Git state retrieval timed out", context={"vm_name": self.vm.name}) from None
+            raise TransferError(
+                "Git state retrieval timed out", context={"vm_name": self.vm.name}
+            ) from None
 
     def execute_remote_tmux(
         self,

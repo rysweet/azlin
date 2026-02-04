@@ -361,7 +361,11 @@ class AzureAuthenticator:
         # Priority 3: Azure CLI
         try:
             result = subprocess.run(
-                ["az", "account", "show"], capture_output=True, text=True, timeout=30, check=True  # Increased for WSL compatibility (Issue #580)
+                ["az", "account", "show"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,  # Increased for WSL compatibility (Issue #580)
             )
             account_data = json.loads(result.stdout)
             return account_data["id"]
@@ -395,7 +399,11 @@ class AzureAuthenticator:
         # Priority 3: Azure CLI
         try:
             result = subprocess.run(
-                ["az", "account", "show"], capture_output=True, text=True, timeout=30, check=True  # Increased for WSL compatibility (Issue #580)
+                ["az", "account", "show"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,  # Increased for WSL compatibility (Issue #580)
             )
             account_data = json.loads(result.stdout)
             return account_data["tenantId"]

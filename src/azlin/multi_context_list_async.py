@@ -135,7 +135,9 @@ class AsyncMultiContextVMQuery:
                     stderr=asyncio.subprocess.PIPE,
                 )
 
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)  # Increased for WSL compatibility (Issue #580)
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=30
+                )  # Increased for WSL compatibility (Issue #580)
 
                 if process.returncode != 0:
                     raise AsyncMultiContextQueryError(

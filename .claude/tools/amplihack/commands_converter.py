@@ -145,7 +145,7 @@ class CommandsConverter:
         lines.append(f"gh copilot explain .github/commands/{command_name}.md")
         lines.append("")
         lines.append(f"# Use patterns from this command")
-        lines.append(f"gh copilot suggest --context .github/commands/{command_name}.md \"your task\"")
+        lines.append(f'gh copilot suggest --context .github/commands/{command_name}.md "your task"')
         lines.append("```")
         lines.append("")
         lines.append("---")
@@ -176,7 +176,7 @@ class CommandsConverter:
         if not end_match:
             return {}
 
-        frontmatter_text = content[3:end_match.start()]
+        frontmatter_text = content[3 : end_match.start()]
 
         # Parse simple YAML (key: value pairs)
         frontmatter = {}
@@ -204,7 +204,7 @@ class CommandsConverter:
         if not end_match:
             return content
 
-        return content[end_match.end():]
+        return content[end_match.end() :]
 
     def _convert_at_notation(self, content: str) -> str:
         """Convert @ notation to relative paths.
@@ -219,11 +219,7 @@ class CommandsConverter:
         content = content.replace("@.claude/", "../../.claude/")
 
         # Replace [@file](path) with relative path
-        content = re.sub(
-            r"\[@([^\]]+)\]\(([^)]+)\)",
-            r"[\1](../../\2)",
-            content
-        )
+        content = re.sub(r"\[@([^\]]+)\]\(([^)]+)\)", r"[\1](../../\2)", content)
 
         return content
 
@@ -244,11 +240,9 @@ class CommandsConverter:
             content = command_file.read_text()
             description = self._extract_description(content)
 
-            commands.append({
-                "name": command_name,
-                "file": command_file.name,
-                "description": description
-            })
+            commands.append(
+                {"name": command_name, "file": command_file.name, "description": description}
+            )
 
         # Create README
         lines = []
@@ -264,8 +258,8 @@ class CommandsConverter:
             lines.append("")
             lines.append(f"**File**: `{cmd['file']}`")
             lines.append("")
-            if cmd['description']:
-                lines.append(cmd['description'])
+            if cmd["description"]:
+                lines.append(cmd["description"])
                 lines.append("")
             lines.append(f"**View**: `gh copilot explain .github/commands/{cmd['file']}`")
             lines.append("")
@@ -312,7 +306,9 @@ class CommandsConverter:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Convert Claude Code commands to Copilot-friendly docs")
+    parser = argparse.ArgumentParser(
+        description="Convert Claude Code commands to Copilot-friendly docs"
+    )
     parser.add_argument("--watch", action="store_true", help="Watch for changes and auto-convert")
     parser.add_argument("--command", help="Convert specific command only")
 
