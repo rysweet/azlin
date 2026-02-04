@@ -299,10 +299,13 @@ class VMConnector:
 
                         # Log accurate status based on actual result (Issue #578)
                         if result.synced:
+                            print(f"✅ SSH key synced to VM authorized_keys in {result.duration_ms}ms")
                             logger.info(f"SSH key synced to VM authorized_keys in {result.duration_ms}ms")
                         elif result.already_present:
+                            print("✅ SSH key already present in VM authorized_keys")
                             logger.debug("SSH key already present in VM authorized_keys")
                         elif result.error:
+                            print(f"⚠️  SSH key auto-sync failed: {result.error}")
                             logger.warning(
                                 f"SSH key auto-sync failed: {result.error}. "
                                 f"Connection may fail if key not already on VM. "
@@ -310,6 +313,7 @@ class VMConnector:
                             )
             except Exception as e:
                 # Log warning but don't block connection
+                print(f"⚠️  Auto-sync exception: {e}")
                 logger.warning(f"Auto-sync SSH key failed: {e}, attempting connection anyway")
 
         # Track if key existed before ensure_key_exists() for accurate logging
