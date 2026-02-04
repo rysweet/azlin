@@ -296,7 +296,7 @@ class BastionDetector:
 
         except subprocess.TimeoutExpired:
             # Graceful degradation: return empty list instead of raising
-            logger.warning("Bastion detection timed out after 10 seconds, skipping auto-detection")
+            logger.warning("Bastion detection timed out after 30 seconds, skipping auto-detection")
             return []
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr)
