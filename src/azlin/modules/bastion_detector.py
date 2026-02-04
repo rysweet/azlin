@@ -84,14 +84,20 @@ class BastionDetector:
         return "Azure operation failed"
 
     @staticmethod
-    def _check_azure_cli_responsive(timeout: int = 10) -> bool:
+    def _check_azure_cli_responsive(timeout: int = 30) -> bool:
         """Check if Azure CLI is responsive before making actual calls.
 
         Pre-flight check to avoid hanging on slow Azure CLI responses.
         Uses a fast command (az account show) to test responsiveness.
 
+        Timeout increased to 30s based on empirical evidence:
+        - WSL/Windows environments measure 8.3s for Azure CLI operations
+        - 3x safety margin accounts for slower environments
+        - Historical pattern: PR #575 used same timeout for similar operations
+        - Aligns with PR #557 pattern (other Azure CLI timeouts set to 30s)
+
         Args:
-            timeout: Maximum seconds to wait for response
+            timeout: Maximum seconds to wait for response (default: 30s for WSL compatibility)
 
         Returns:
             True if Azure CLI responds within timeout, False otherwise
@@ -259,7 +265,8 @@ class BastionDetector:
             return cached
 
         # Pre-flight check: verify Azure CLI is responsive
-        if not cls._check_azure_cli_responsive(timeout=10):
+        # Timeout increased to 30s for WSL compatibility (measured 8.3s actual execution time)
+        if not cls._check_azure_cli_responsive(timeout=30):
             logger.warning("Azure CLI not responsive, skipping Bastion detection")
             return []
 
@@ -269,13 +276,14 @@ class BastionDetector:
             if resource_group:
                 cmd.extend(["--resource-group", resource_group])
 
-            # Reduced timeout from 30s to 10s based on pre-flight check
+            # Timeout set to 30s for WSL compatibility (measured 8.3s execution time)
+            # Increased from 10s per Issue #576 - WSL environments need longer timeouts
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=10,
+                timeout=30,
             )
 
             bastions = json.loads(result.stdout)
