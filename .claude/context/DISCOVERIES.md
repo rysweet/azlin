@@ -6,6 +6,7 @@ This file documents non-obvious problems, solutions, and patterns discovered dur
 
 ## January 2026
 
+- [Bastion Detection Timeout Insufficient for WSL Environments](#bastion-detection-timeout-insufficient-for-wsl-2026-02-03)
 - [Ubuntu Version Update Available - 24.04 LTS Supported](#ubuntu-version-update-available-2404-lts-supported-2026-01-17)
 
 ## December 2025
@@ -34,6 +35,151 @@ This file documents non-obvious problems, solutions, and patterns discovered dur
 - [Pattern Applicability Framework](#pattern-applicability-analysis-framework-2025-10-20)
 - [Socratic Questioning Pattern](#socratic-questioning-pattern-2025-10-18)
 - [Expert Agent Creation Pattern](#expert-agent-creation-pattern-2025-10-18)
+
+---
+
+## Bastion Detection Timeout Insufficient for WSL (2026-02-03)
+
+### Problem
+
+Azlin commands (`azlin list`, `azlin connect`) fail in WSL environments with bastion detection timing out, preventing tunnel creation and causing all commands to fail.
+
+### Root Cause
+
+**Location**: `src/azlin/modules/bastion_detector.py:262`
+
+The bastion detection pre-flight check has a **hardcoded 10-second timeout** that's insufficient for Windows/WSL2 environments where Azure CLI operations take longer due to:
+
+1. **First-time bastion extension loading** - Extension installation adds overhead
+2. **WSL overhead** - Windows/WSL2 has additional latency vs native Linux
+3. **Network conditions** - Variable network latency can exceed 10s
+4. **System resources** - Constrained resources slow down Azure CLI
+
+**Code Flow**:
+```python
+# Line 262: Pre-flight check with 10s timeout
+if not cls._check_azure_cli_responsive(timeout=10):
+    logger.warning("Azure CLI not responsive, skipping Bastion detection")
+    return []  # Empty list causes tunnel creation to fail
+```
+
+When the pre-flight check times out:
+- Logs "Azure CLI not responsive, skipping Bastion detection"
+- Returns empty list (graceful degradation)
+- No bastions detected → No tunnels created → Commands fail silently
+
+### Historical Context
+
+**PR #575** (commit `ad152ef`) already increased timeout from **2s → 10s** to fix Windows/WSL2 issues, but 10s is still insufficient for some environments.
+
+Related timeout fixes in git history:
+- `ad152ef`: Increase timeout values for Windows/WSL2 (2s → 10s)
+- `215e40b`: Increase Azure CLI timeouts for list operations (10s → 30s)
+- `8fcd630`: Reduce Azure CLI timeout and add caching for Bastion detection
+
+### Why It's Not Always Reproducible
+
+Timing depends on:
+- Whether bastion extension is already loaded in current session
+- Current network latency to Azure
+- System resource availability
+- Azure CLI internal caching
+
+### Solutions
+
+**Option 1: Increase Timeout to 30 seconds** (Recommended - Simple)
+```python
+# Line 87: Increase default timeout
+def _check_azure_cli_responsive(timeout: int = 30) -> bool:
+
+# Line 262: Use 30s timeout
+if not cls._check_azure_cli_responsive(timeout=30):
+```
+
+**Pros**:
+- Simple one-line change
+- Aligns with other Azure CLI timeouts in codebase (line 335)
+- Consistent with PR #557 that increased other list operations to 30s
+
+**Cons**:
+- Commands may feel slow on first run in WSL
+
+**Option 2: Environment Variable Override** (Better flexibility)
+```python
+import os
+
+DEFAULT_BASTION_TIMEOUT = int(os.getenv("AZLIN_BASTION_TIMEOUT", "30"))
+
+def _check_azure_cli_responsive(
+    timeout: int = DEFAULT_BASTION_TIMEOUT
+) -> bool:
+```
+
+**Pros**:
+- Users can adjust for their environment
+- Default 30s works for most cases
+- Power users can tune performance
+
+**Cons**:
+- Slightly more complex
+- Need to document the environment variable
+
+**Option 3: Progressive Timeout** (Most robust)
+```python
+def _check_azure_cli_responsive_progressive() -> bool:
+    """Try increasing timeouts until CLI responds."""
+    for timeout in [10, 30, 60]:
+        if cls._check_azure_cli_responsive(timeout=timeout):
+            logger.debug(f"Azure CLI responded within {timeout}s")
+            return True
+    return False
+```
+
+**Pros**:
+- Self-adapts to environment
+- Fast when possible, patient when needed
+- Provides diagnostics (which timeout succeeded)
+
+**Cons**:
+- Most complex implementation
+- Could be slow in worst case (up to 60s)
+
+### Recommendation
+
+**Use Option 1** (increase to 30s) as immediate fix. This:
+- Aligns with existing Azure CLI timeout patterns in the codebase
+- Fixes the issue for most WSL environments
+- Minimal code change
+- Consistent with PR #557 approach for similar issues
+
+If 30s proves insufficient, add Option 2 (environment variable) for user customization.
+
+### Testing
+
+After fix, verify:
+1. `azlin list` succeeds in WSL on first run (cold start)
+2. Bastion detection succeeds with message "Detected Bastion host..."
+3. Tunnel creation succeeds
+4. Commands complete successfully
+
+Test conditions:
+- Fresh WSL session (no Azure CLI cache)
+- First bastion operation (extension not yet loaded)
+- Various network conditions
+
+### Related Files
+
+- **Primary**: `src/azlin/modules/bastion_detector.py` (lines 87, 262)
+- **Tests**: `tests/unit/test_timeout_values.py` (validates timeout defaults)
+- **Related PRs**: #575, #557, #520
+- **Issue**: User reported bastion detection timing out in WSL
+
+### Supporting Evidence
+
+- PR #575 increased timeout from 2s → 10s for Windows/WSL2
+- PR #557 increased other Azure CLI list operations to 30s
+- Test runs show `az network bastion list` takes 8.3s (close to 10s limit)
+- `az account show` pre-flight check takes <1s (not the bottleneck)
 
 ---
 
