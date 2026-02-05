@@ -343,11 +343,15 @@ class VSCodeLauncher:
             # Expand ~ to remote user's home (not local user!)
             if workspace_path.startswith("~/"):
                 workspace_path = f"/home/{user}/{workspace_path[2:]}"
+                logger.info(f"Expanded workspace path to: {workspace_path}")
             elif workspace_path == "~":
                 workspace_path = f"/home/{user}"
 
+        logger.info(f"Using workspace path: {workspace_path} (user: {user})")
+
         # Build VS Code remote URI
         remote_uri = f"vscode-remote://ssh-remote+{ssh_host}{workspace_path}"
+        logger.info(f"VS Code remote URI: {remote_uri}")
 
         # Build command with proper quoting
         cmd = [
