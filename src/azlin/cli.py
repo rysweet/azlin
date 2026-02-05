@@ -5505,7 +5505,7 @@ def code_command(
                     sys.exit(1)
 
                 click.echo(
-                    f"✓ Found bastion: {bastion_info['name']} (region: {bastion_info['location']})"
+                    f"✓ Found bastion: {bastion_info[\"name\"]} (region: {bastion_info[\"location\"]})"
                 )
 
                 # Get subscription ID and build VM resource ID
@@ -5529,8 +5529,8 @@ def code_command(
 
                 # Create tunnel
                 bastion_tunnel = bastion_manager.create_tunnel(
-                    bastion_name=bastion_info['name'],
-                    resource_group=bastion_info['resource_group'],
+                    bastion_name=bastion_info["name"],
+                    resource_group=bastion_info["resource_group"],
                     target_vm_id=vm_resource_id,
                     local_port=local_port,
                     remote_port=22,
