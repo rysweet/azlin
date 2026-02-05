@@ -341,11 +341,20 @@ class VSCodeLauncher:
             workspace_path = f"/home/{user}"
         else:
             # Expand ~ to remote user's home (not local user!)
+            # Handle both unexpanded (~/) and already-expanded (/home/localuser/) paths
             if workspace_path.startswith("~/"):
                 workspace_path = f"/home/{user}/{workspace_path[2:]}"
                 logger.info(f"Expanded workspace path to: {workspace_path}")
             elif workspace_path == "~":
                 workspace_path = f"/home/{user}"
+            else:
+                # If path is /home/{local_user}/..., replace with /home/{remote_user}/...
+                # This handles shell expansion of ~ before reaching our code
+                local_user = os.environ.get('USER', '')
+                if local_user and workspace_path.startswith(f"/home/{local_user}/"):
+                    # Replace local user with remote user
+                    workspace_path = f"/home/{user}/{workspace_path[len(f'/home/{local_user}/'):]}"
+                    logger.info(f"Corrected workspace path from local to remote user: {workspace_path}")
 
         logger.info(f"Using workspace path: {workspace_path} (user: {user})")
 
