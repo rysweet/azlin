@@ -5516,10 +5516,15 @@ def code_command(
 
                 # Create bastion tunnel (matches azlin connect approach)
                 click.echo(f"Creating bastion tunnel to {vm_name}...")
-                bastion_tunnel = BastionManager.create_tunnel(
+
+                # Initialize BastionManager and create tunnel
+                bastion_manager = BastionManager()
+                bastion_tunnel = bastion_manager.create_tunnel(
                     bastion_name=bastion_info['name'],
                     resource_group=bastion_info['resource_group'],
-                    target_resource_id=vm_resource_id,
+                    target_vm_id=vm_resource_id,
+                    local_port=0,  # Auto-assign available port
+                    remote_port=22,
                 )
 
                 # Use tunnel endpoint for VS Code
