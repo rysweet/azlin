@@ -5576,6 +5576,18 @@ def code_command(
         click.echo(f"  SSH Host: azlin-{vm_name}")
         if bastion_tunnel:
             click.echo(f"  Connection: via bastion tunnel at {final_host}:{tunnel_port}")
+            click.echo("\n⚠️  KEEP THIS TERMINAL OPEN - Bastion tunnel is active!")
+            click.echo("   The tunnel will close when you press Ctrl+C here.")
+            click.echo("")
+
+            # Keep tunnel alive until user interrupts
+            try:
+                click.echo("Press Ctrl+C to close the tunnel when done with VS Code...")
+                import time
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                click.echo("\n\nClosing bastion tunnel...")
         else:
             click.echo(f"  User: {user}@{final_host}")
 
