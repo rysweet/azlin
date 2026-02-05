@@ -6,6 +6,7 @@ configuration for Azure VMs. It handles:
 - SSH config file management
 - Extension installation
 - VS Code Remote-SSH connection
+- WSL environment detection and Windows SSH config sync
 
 Security:
 - Command injection prevention via shlex.quote()
@@ -15,6 +16,8 @@ Security:
 """
 
 import logging
+import os
+import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -22,6 +25,21 @@ from pathlib import Path
 from azlin.modules.vscode_config import VSCodeConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _is_wsl() -> bool:
+    """Detect if running in WSL environment."""
+    return 'microsoft' in platform.uname().release.lower() or os.path.exists('/proc/sys/fs/binfmt_misc/WSLInterop')
+
+
+def _get_windows_username() -> str | None:
+    """Get Windows username from WSL environment."""
+    try:
+        # Get from environment variable
+        wsl_user = os.environ.get('USER', '')
+        return wsl_user if wsl_user else None
+    except Exception:
+        return None
 
 
 class VSCodeLauncherError(Exception):
@@ -117,8 +135,62 @@ class VSCodeLauncher:
 
             logger.info(f"Added SSH config entry for {ssh_host}")
 
+            # If on WSL, also copy to Windows .ssh for VS Code compatibility
+            if _is_wsl():
+                cls._sync_ssh_config_to_windows(config)
+
         except OSError as e:
             raise VSCodeLauncherError(f"Failed to write SSH config: {e}") from e
+
+    @classmethod
+    def _sync_ssh_config_to_windows(cls, config: VSCodeConfig) -> None:
+        """Sync SSH config and keys to Windows .ssh directory for VS Code on WSL.
+
+        VS Code Remote-SSH on WSL/Windows uses Windows SSH by default, which reads
+        config from C:\\Users\\username\\.ssh\\config. This method copies the WSL
+        SSH config and keys to Windows location with corrected paths.
+        """
+        try:
+            # Get Windows username (assume same as WSL username)
+            username = _get_windows_username() or os.environ.get('USER', 'user')
+            windows_ssh_dir = Path(f"/mnt/c/Users/{username}/.ssh")
+
+            # Create Windows .ssh directory
+            windows_ssh_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy SSH keys to Windows
+            wsl_key_path = Path(config.key_path).expanduser()
+            windows_key_path = windows_ssh_dir / wsl_key_path.name
+            windows_pub_path = windows_ssh_dir / f"{wsl_key_path.name}.pub"
+
+            shutil.copy2(wsl_key_path, windows_key_path)
+            if wsl_key_path.with_suffix('.pub').exists():
+                shutil.copy2(wsl_key_path.with_suffix('.pub'), windows_pub_path)
+
+            # Generate Windows SSH config with Windows paths
+            ssh_host = f"azlin-{config.vm_name}"
+            windows_key_path_str = f"C:\\Users\\{username}\\.ssh\\{wsl_key_path.name}"
+
+            windows_config = [
+                f"Host {ssh_host}",
+                f"    HostName {config.host}",
+                f"    Port {config.port}",
+                f"    User {config.user}",
+                f"    IdentityFile {windows_key_path_str}",
+                "    StrictHostKeyChecking no",
+                "    UserKnownHostsFile NUL",
+                "    ServerAliveInterval 60",
+                "    ServerAliveCountMax 3",
+            ]
+
+            # Write to Windows SSH config
+            windows_config_path = windows_ssh_dir / "config"
+            windows_config_path.write_text("\n# Added by azlin\n" + "\n".join(windows_config) + "\n")
+
+            logger.info(f"Synced SSH config to Windows: {windows_config_path}")
+
+        except Exception as e:
+            logger.warning(f"Failed to sync SSH config to Windows (non-critical): {e}")
 
     @classmethod
     def install_extensions(cls, ssh_host: str, extensions: list[str]) -> None:
