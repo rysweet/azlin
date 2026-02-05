@@ -139,11 +139,12 @@ class VSCodeConfig:
         if self.bastion_info and self.vm_resource_id:
             bastion_name = self.bastion_info["name"]
             bastion_rg = self.bastion_info["resource_group"]
+            # Note: Use actual key path, not %i (SSH doesn't support %i in ProxyCommand)
             proxy_cmd = (
                 f"az network bastion ssh --name {bastion_name} "
                 f"--resource-group {bastion_rg} "
                 f"--target-resource-id {self.vm_resource_id} "
-                f"--auth-type ssh-key --username %r --ssh-key %i"
+                f"--auth-type ssh-key --username %r --ssh-key {self.key_path}"
             )
             config_lines.append(f"    ProxyCommand {proxy_cmd}")
         else:
