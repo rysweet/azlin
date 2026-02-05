@@ -50,6 +50,8 @@ class VSCodeLauncher:
     def check_vscode_installed(cls) -> str:
         """Check if VS Code CLI is installed.
 
+        Checks for both 'code' (stable) and 'code-insiders' (Insiders).
+
         Returns:
             str: Path to VS Code CLI executable
 
@@ -61,16 +63,17 @@ class VSCodeLauncher:
             >>> print(cli_path)
             /usr/local/bin/code
         """
-        code_path = shutil.which("code")
+        # Try 'code' first (stable), then 'code-insiders' (Insiders edition)
+        for code_cmd in ["code", "code-insiders"]:
+            code_path = shutil.which(code_cmd)
+            if code_path:
+                logger.debug(f"Found VS Code CLI at {code_path} ({code_cmd})")
+                return code_path
 
-        if not code_path:
-            raise VSCodeNotFoundError(
-                "VS Code CLI not found. Please install VS Code and ensure 'code' is in PATH.\n"
-                "Installation: https://code.visualstudio.com/docs/setup/mac#_launching-from-the-command-line"
-            )
-
-        logger.debug(f"Found VS Code CLI at {code_path}")
-        return code_path
+        raise VSCodeNotFoundError(
+            "VS Code CLI not found. Please install VS Code and ensure 'code' or 'code-insiders' is in PATH.\n"
+            "Installation: https://code.visualstudio.com/docs/setup/setup-overview#_launching-from-the-command-line"
+        )
 
     @classmethod
     def write_ssh_config(cls, config: VSCodeConfig) -> None:
