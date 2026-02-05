@@ -241,23 +241,27 @@ class VSCodeLauncher:
         port: int = 22,
         install_extensions: bool = True,
         workspace_path: str | None = None,
+        bastion_info: dict | None = None,
+        vm_resource_id: str | None = None,
     ) -> None:
         """Complete VS Code launch workflow.
 
         This is the main entry point that orchestrates:
         1. VS Code CLI check
-        2. SSH config generation and write
+        2. SSH config generation and write (with bastion support)
         3. Extension installation
         4. VS Code launch
 
         Args:
             vm_name: VM name for SSH host alias
-            host: VM IP address or hostname
+            host: VM IP address or hostname (private IP if using bastion)
             user: SSH username
             key_path: Path to SSH private key
             port: SSH port (default: 22)
             install_extensions: Install extensions (default: True)
             workspace_path: Optional custom workspace path
+            bastion_info: Bastion host info if VM is private-only (Issue #581)
+            vm_resource_id: VM Azure resource ID (required for bastion ProxyCommand)
 
         Raises:
             VSCodeNotFoundError: If VS Code CLI not found
@@ -274,13 +278,15 @@ class VSCodeLauncher:
         # Step 1: Check VS Code CLI
         cls.check_vscode_installed()
 
-        # Step 2: Generate configuration
+        # Step 2: Generate configuration (with optional bastion support)
         config = VSCodeConfig(
             vm_name=vm_name,
             host=host,
             user=user,
             key_path=key_path,
             port=port,
+            bastion_info=bastion_info,
+            vm_resource_id=vm_resource_id,
         )
 
         # Step 3: Write SSH config

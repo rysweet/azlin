@@ -5473,13 +5473,36 @@ def code_command(
                 )
                 sys.exit(1)
 
-            vm_ip = vm_info.public_ip or vm_info.private_ip
+            vm_name = vm_info.name
+            vm_ip = vm_info.public_ip
+            private_ip = vm_info.private_ip
+
+            # Check if VM needs bastion (no public IP)
+            bastion_info = None
+            if not vm_ip and private_ip:
+                click.echo(f"VM {vm_name} is private-only (no public IP), detecting bastion...")
+
+                # Auto-detect bastion (same logic as azlin connect)
+                bastion_info = BastionDetector.detect_bastion_for_vm(
+                    vm_name=vm_name,
+                    resource_group=rg,
+                    vm_location=vm_info.location
+                )
+
+                if bastion_info:
+                    click.echo(f"✓ Found bastion: {bastion_info['name']} (region: {bastion_info['location']})")
+                    vm_ip = private_ip  # Use private IP with bastion ProxyCommand
+                else:
+                    click.echo(
+                        f"Error: VM {vm_name} has no public IP and no bastion found.\n"
+                        f"Create a bastion: azlin bastion create --rg {rg}",
+                        err=True
+                    )
+                    sys.exit(1)
 
             if not vm_ip:
                 click.echo(f"Error: No IP address found for VM {vm_identifier}", err=True)
                 sys.exit(1)
-
-            vm_name = vm_info.name
 
         # Ensure SSH key exists
         key_path = Path(key).expanduser() if key else Path.home() / ".ssh" / "azlin_key"
@@ -5488,6 +5511,14 @@ def code_command(
         # Launch VS Code
         click.echo("Configuring VS Code Remote-SSH...")
 
+        # Build VM resource ID for bastion ProxyCommand if needed
+        vm_resource_id = None
+        if bastion_info and not VMConnector.is_valid_ip(vm_identifier):
+            vm_resource_id = (
+                f"/subscriptions/{vm_info.subscription_id}/resourceGroups/{rg}/"
+                f"providers/Microsoft.Compute/virtualMachines/{vm_name}"
+            )
+
         VSCodeLauncher.launch(
             vm_name=vm_name,
             host=vm_ip,
@@ -5495,6 +5526,8 @@ def code_command(
             key_path=ssh_keys.private_path,
             install_extensions=not no_extensions,
             workspace_path=workspace,
+            bastion_info=bastion_info,
+            vm_resource_id=vm_resource_id,
         )
 
         click.echo(f"\n✓ VS Code launched successfully for {original_identifier}")

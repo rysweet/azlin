@@ -65,16 +65,20 @@ class VSCodeConfig:
         key_path: Path,
         port: int = 22,
         config_dir: Path | None = None,
+        bastion_info: dict | None = None,
+        vm_resource_id: str | None = None,
     ):
         """Initialize VS Code configuration.
 
         Args:
             vm_name: VM name for SSH host alias
-            host: VM IP address or hostname
+            host: VM IP address or hostname (private IP if using bastion)
             user: SSH username
             key_path: Path to SSH private key
             port: SSH port (default: 22)
             config_dir: Custom config directory (default: ~/.azlin/vscode)
+            bastion_info: Bastion host info for private VMs (Issue #581)
+            vm_resource_id: VM Azure resource ID (required for bastion ProxyCommand)
 
         Security:
         - Validates all inputs
@@ -86,6 +90,8 @@ class VSCodeConfig:
         self.user = user
         self.key_path = key_path.expanduser()
         self.port = port
+        self.bastion_info = bastion_info
+        self.vm_resource_id = vm_resource_id
 
         # Config directory for VS Code settings
         if config_dir:
@@ -96,15 +102,26 @@ class VSCodeConfig:
     def generate_ssh_config_entry(self) -> str:
         """Generate SSH config entry for VS Code Remote-SSH.
 
+        Supports both direct connections and bastion tunnel connections (Issue #581).
+
         Returns:
             str: SSH config entry text
 
-        Example output:
+        Example output (direct):
             Host azlin-my-vm
                 HostName 10.0.0.5
                 User azureuser
                 IdentityFile ~/.ssh/azlin_key
                 Port 22
+                StrictHostKeyChecking no
+                UserKnownHostsFile /dev/null
+
+        Example output (bastion):
+            Host azlin-my-vm
+                HostName 10.0.0.5
+                User azureuser
+                IdentityFile ~/.ssh/azlin_key
+                ProxyCommand az network bastion ssh --name <bastion> --resource-group <rg> --target-resource-id <vm-id> --auth-type ssh-key --username %r --ssh-key %i
                 StrictHostKeyChecking no
                 UserKnownHostsFile /dev/null
         """
@@ -116,12 +133,30 @@ class VSCodeConfig:
             f"    HostName {self.host}",
             f"    User {self.user}",
             f"    IdentityFile {self.key_path}",
-            f"    Port {self.port}",
+        ]
+
+        # Add ProxyCommand for bastion tunnel connections (Issue #581)
+        if self.bastion_info and self.vm_resource_id:
+            bastion_name = self.bastion_info["name"]
+            bastion_rg = self.bastion_info["resource_group"]
+            proxy_cmd = (
+                f"az network bastion ssh --name {bastion_name} "
+                f"--resource-group {bastion_rg} "
+                f"--target-resource-id {self.vm_resource_id} "
+                f"--auth-type ssh-key --username %r --ssh-key %i"
+            )
+            config_lines.append(f"    ProxyCommand {proxy_cmd}")
+        else:
+            # Direct connection uses port
+            config_lines.append(f"    Port {self.port}")
+
+        # Common SSH options
+        config_lines.extend([
             "    StrictHostKeyChecking no",
             "    UserKnownHostsFile /dev/null",
             "    ServerAliveInterval 60",
             "    ServerAliveCountMax 3",
-        ]
+        ])
 
         return "\n".join(config_lines)
 
