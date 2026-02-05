@@ -5514,10 +5514,16 @@ def code_command(
         # Build VM resource ID for bastion ProxyCommand if needed
         vm_resource_id = None
         if bastion_info and not VMConnector.is_valid_ip(vm_identifier):
-            vm_resource_id = (
-                f"/subscriptions/{vm_info.subscription_id}/resourceGroups/{rg}/"
-                f"providers/Microsoft.Compute/virtualMachines/{vm_name}"
-            )
+            # Get subscription ID from current context
+            context_config = ContextManager.load()
+            current_context = context_config.get_current_context()
+            if current_context:
+                vm_resource_id = (
+                    f"/subscriptions/{current_context.subscription_id}/resourceGroups/{rg}/"
+                    f"providers/Microsoft.Compute/virtualMachines/{vm_name}"
+                )
+            else:
+                click.echo("Warning: No context set, bastion ProxyCommand may not work", err=True)
 
         VSCodeLauncher.launch(
             vm_name=vm_name,
