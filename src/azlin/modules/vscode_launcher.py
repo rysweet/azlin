@@ -250,12 +250,16 @@ class VSCodeLauncher:
         3. Extension installation
         4. VS Code launch
 
+        Works with both direct connections and bastion tunnels (Issue #581):
+        - Direct: host=VM_IP, port=22
+        - Bastion tunnel: host=127.0.0.1, port=tunnel_port
+
         Args:
             vm_name: VM name for SSH host alias
-            host: VM IP address or hostname
+            host: SSH host (VM IP or 127.0.0.1 for bastion tunnel)
             user: SSH username
             key_path: Path to SSH private key
-            port: SSH port (default: 22)
+            port: SSH port (22 for direct, tunnel port for bastion)
             install_extensions: Install extensions (default: True)
             workspace_path: Optional custom workspace path
 

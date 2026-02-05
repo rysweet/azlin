@@ -68,12 +68,16 @@ class VSCodeConfig:
     ):
         """Initialize VS Code configuration.
 
+        Supports both direct connections and bastion tunnels (Issue #581):
+        - Direct: host=VM_IP, port=22
+        - Bastion: host=127.0.0.1, port=tunnel_port
+
         Args:
             vm_name: VM name for SSH host alias
-            host: VM IP address or hostname
+            host: SSH host (VM IP or 127.0.0.1 for bastion tunnel)
             user: SSH username
             key_path: Path to SSH private key
-            port: SSH port (default: 22)
+            port: SSH port (22 for direct, tunnel port for bastion)
             config_dir: Custom config directory (default: ~/.azlin/vscode)
 
         Security:
@@ -96,17 +100,26 @@ class VSCodeConfig:
     def generate_ssh_config_entry(self) -> str:
         """Generate SSH config entry for VS Code Remote-SSH.
 
+        Supports both direct connections and bastion tunnel connections (Issue #581):
+        - Direct: host=VM_IP, port=22
+        - Bastion: host=127.0.0.1, port=tunnel_port
+
         Returns:
             str: SSH config entry text
 
-        Example output:
+        Example output (direct):
             Host azlin-my-vm
-                HostName 10.0.0.5
+                HostName 20.1.2.3
+                Port 22
                 User azureuser
                 IdentityFile ~/.ssh/azlin_key
-                Port 22
-                StrictHostKeyChecking no
-                UserKnownHostsFile /dev/null
+
+        Example output (bastion tunnel):
+            Host azlin-my-vm
+                HostName 127.0.0.1
+                Port 50024
+                User azureuser
+                IdentityFile ~/.ssh/azlin_key
         """
         # Use 'azlin-' prefix for SSH host to avoid conflicts
         ssh_host = f"azlin-{self.vm_name}"
@@ -114,9 +127,9 @@ class VSCodeConfig:
         config_lines = [
             f"Host {ssh_host}",
             f"    HostName {self.host}",
+            f"    Port {self.port}",
             f"    User {self.user}",
             f"    IdentityFile {self.key_path}",
-            f"    Port {self.port}",
             "    StrictHostKeyChecking no",
             "    UserKnownHostsFile /dev/null",
             "    ServerAliveInterval 60",

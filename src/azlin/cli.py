@@ -5456,10 +5456,16 @@ def code_command(
         # Get VM information
         click.echo(f"Setting up VS Code for {original_identifier}...")
 
+        # Initialize bastion-related variables (may be set later)
+        bastion_tunnel = None
+        tunnel_host: str = ""
+        tunnel_port: int = 22
+
         if VMConnector.is_valid_ip(vm_identifier):
             # Direct IP connection
             vm_ip = vm_identifier
             vm_name = f"vm-{vm_ip.replace('.', '-')}"
+            tunnel_host = vm_ip
         else:
             # Get VM info from Azure
             if not rg:
@@ -5473,13 +5479,81 @@ def code_command(
                 )
                 sys.exit(1)
 
-            vm_ip = vm_info.public_ip or vm_info.private_ip
+            vm_name = vm_info.name
+            vm_ip = vm_info.public_ip
+            private_ip = vm_info.private_ip
 
-            if not vm_ip:
+            # Check if VM needs bastion (no public IP)
+            tunnel_host = vm_ip if vm_ip else ""
+
+            if not vm_ip and private_ip:
+                click.echo(
+                    f"VM {vm_name} is private-only (no public IP), will use bastion tunnel..."
+                )
+
+                # Auto-detect bastion (same logic as azlin connect)
+                bastion_info = BastionDetector.detect_bastion_for_vm(
+                    vm_name=vm_name, resource_group=rg, vm_location=vm_info.location
+                )
+
+                if not bastion_info:
+                    click.echo(
+                        f"Error: VM {vm_name} has no public IP and no bastion found.\n"
+                        f"Create a bastion: azlin bastion create --rg {rg}",
+                        err=True,
+                    )
+                    sys.exit(1)
+
+                click.echo(
+                    f"✓ Found bastion: {bastion_info['name']} (region: {bastion_info['location']})"
+                )
+
+                # Get subscription ID and build VM resource ID
+                context_config = ContextManager.load()
+                current_context = context_config.get_current_context()
+                if not current_context:
+                    click.echo("Error: No context set, cannot create bastion tunnel", err=True)
+                    sys.exit(1)
+
+                vm_resource_id = (
+                    f"/subscriptions/{current_context.subscription_id}/resourceGroups/{rg}/"
+                    f"providers/Microsoft.Compute/virtualMachines/{vm_name}"
+                )
+
+                # Create bastion tunnel (matches azlin connect approach)
+                click.echo(f"Creating bastion tunnel to {vm_name}...")
+
+                # Initialize BastionManager and get available port
+                bastion_manager = BastionManager()
+                local_port = bastion_manager.get_available_port()
+
+                # Create tunnel
+                bastion_tunnel = bastion_manager.create_tunnel(
+                    bastion_name=bastion_info["name"],
+                    resource_group=bastion_info["resource_group"],
+                    target_vm_id=vm_resource_id,
+                    local_port=local_port,
+                    remote_port=22,
+                )
+
+                # Use tunnel endpoint for VS Code
+                tunnel_host = "127.0.0.1"
+                tunnel_port = bastion_tunnel.local_port
+
+                click.echo(f"✓ Bastion tunnel created on {tunnel_host}:{tunnel_port}")
+                click.echo("  (Tunnel will remain open for VS Code - close VS Code to stop tunnel)")
+
+                vm_ip = tunnel_host  # Use tunnel endpoint
+
+            if not vm_ip and not tunnel_host:
                 click.echo(f"Error: No IP address found for VM {vm_identifier}", err=True)
                 sys.exit(1)
 
-            vm_name = vm_info.name
+        # Determine final connection details
+        final_host = tunnel_host if bastion_tunnel else (vm_ip or "")
+        if not final_host:
+            click.echo(f"Error: No connection endpoint available for VM {vm_identifier}", err=True)
+            sys.exit(1)
 
         # Ensure SSH key exists
         key_path = Path(key).expanduser() if key else Path.home() / ".ssh" / "azlin_key"
@@ -5490,7 +5564,8 @@ def code_command(
 
         VSCodeLauncher.launch(
             vm_name=vm_name,
-            host=vm_ip,
+            host=final_host,
+            port=tunnel_port,
             user=user,
             key_path=ssh_keys.private_path,
             install_extensions=not no_extensions,
@@ -5499,7 +5574,10 @@ def code_command(
 
         click.echo(f"\n✓ VS Code launched successfully for {original_identifier}")
         click.echo(f"  SSH Host: azlin-{vm_name}")
-        click.echo(f"  User: {user}@{vm_ip}")
+        if bastion_tunnel:
+            click.echo(f"  Connection: via bastion tunnel at {final_host}:{tunnel_port}")
+        else:
+            click.echo(f"  User: {user}@{final_host}")
 
         if not no_extensions:
             click.echo("\nExtensions will be installed in VS Code.")
