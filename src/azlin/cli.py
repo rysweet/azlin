@@ -5517,13 +5517,16 @@ def code_command(
                 # Create bastion tunnel (matches azlin connect approach)
                 click.echo(f"Creating bastion tunnel to {vm_name}...")
 
-                # Initialize BastionManager and create tunnel
+                # Initialize BastionManager and get available port
                 bastion_manager = BastionManager()
+                local_port = bastion_manager.get_available_port()
+
+                # Create tunnel
                 bastion_tunnel = bastion_manager.create_tunnel(
                     bastion_name=bastion_info['name'],
                     resource_group=bastion_info['resource_group'],
                     target_vm_id=vm_resource_id,
-                    local_port=0,  # Auto-assign available port
+                    local_port=local_port,
                     remote_port=22,
                 )
 
