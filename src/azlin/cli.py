@@ -5456,10 +5456,16 @@ def code_command(
         # Get VM information
         click.echo(f"Setting up VS Code for {original_identifier}...")
 
+        # Initialize bastion-related variables (may be set later)
+        bastion_tunnel = None
+        tunnel_host: str = ""
+        tunnel_port: int = 22
+
         if VMConnector.is_valid_ip(vm_identifier):
             # Direct IP connection
             vm_ip = vm_identifier
             vm_name = f"vm-{vm_ip.replace('.', '-')}"
+            tunnel_host = vm_ip
         else:
             # Get VM info from Azure
             if not rg:
@@ -5478,9 +5484,7 @@ def code_command(
             private_ip = vm_info.private_ip
 
             # Check if VM needs bastion (no public IP)
-            bastion_tunnel = None
-            tunnel_host = vm_ip
-            tunnel_port = 22
+            tunnel_host = vm_ip if vm_ip else ""
 
             if not vm_ip and private_ip:
                 click.echo(f"VM {vm_name} is private-only (no public IP), will use bastion tunnel...")
@@ -5539,9 +5543,15 @@ def code_command(
 
                 vm_ip = tunnel_host  # Use tunnel endpoint
 
-            if not vm_ip:
+            if not vm_ip and not tunnel_host:
                 click.echo(f"Error: No IP address found for VM {vm_identifier}", err=True)
                 sys.exit(1)
+
+        # Determine final connection details
+        final_host = tunnel_host if bastion_tunnel else (vm_ip or "")
+        if not final_host:
+            click.echo(f"Error: No connection endpoint available for VM {vm_identifier}", err=True)
+            sys.exit(1)
 
         # Ensure SSH key exists
         key_path = Path(key).expanduser() if key else Path.home() / ".ssh" / "azlin_key"
@@ -5552,7 +5562,7 @@ def code_command(
 
         VSCodeLauncher.launch(
             vm_name=vm_name,
-            host=tunnel_host if bastion_tunnel else vm_ip,
+            host=final_host,
             port=tunnel_port,
             user=user,
             key_path=ssh_keys.private_path,
@@ -5562,7 +5572,10 @@ def code_command(
 
         click.echo(f"\n✓ VS Code launched successfully for {original_identifier}")
         click.echo(f"  SSH Host: azlin-{vm_name}")
-        click.echo(f"  User: {user}@{vm_ip}")
+        if bastion_tunnel:
+            click.echo(f"  Connection: via bastion tunnel at {final_host}:{tunnel_port}")
+        else:
+            click.echo(f"  User: {user}@{final_host}")
 
         if not no_extensions:
             click.echo("\nExtensions will be installed in VS Code.")
