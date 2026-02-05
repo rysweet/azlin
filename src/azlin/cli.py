@@ -5505,7 +5505,7 @@ def code_command(
                     sys.exit(1)
 
                 click.echo(
-                    f'✓ Found bastion: {bastion_info["name"]} (region: {bastion_info["location"]})'
+                    f"✓ Found bastion: {bastion_info['name']} (region: {bastion_info['location']})"
                 )
 
                 # Get subscription ID and build VM resource ID
