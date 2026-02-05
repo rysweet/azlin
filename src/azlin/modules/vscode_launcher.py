@@ -33,12 +33,34 @@ def _is_wsl() -> bool:
 
 
 def _get_windows_username() -> str | None:
-    """Get Windows username from WSL environment."""
+    """Get Windows username from WSL environment.
+
+    Tries multiple methods to determine the Windows username:
+    1. WSLENV / Windows environment variables
+    2. /mnt/c/Users directory (find current user's home)
+    3. Fallback to WSL username (may not match)
+    """
     try:
-        # Get from environment variable
-        wsl_user = os.environ.get('USER', '')
-        return wsl_user if wsl_user else None
-    except Exception:
+        # Method 1: Check /mnt/c/Users for the current user
+        # The directory that contains the WSL distribution is usually the Windows user
+        users_dir = Path("/mnt/c/Users")
+        if users_dir.exists():
+            # Look for a user directory that isn't Public, Default, etc.
+            for user_dir in users_dir.iterdir():
+                if user_dir.is_dir() and user_dir.name not in ['Public', 'Default', 'Default User', 'All Users']:
+                    # Check if this looks like the active user (has .ssh or recent files)
+                    if (user_dir / '.ssh').exists() or (user_dir / 'AppData').exists():
+                        logger.debug(f"Detected Windows username: {user_dir.name}")
+                        return user_dir.name
+
+        # Method 2: Try environment variable (set by Windows in WSL2)
+        win_user = os.environ.get('LOGNAME') or os.environ.get('USER')
+        if win_user:
+            return win_user
+
+        return None
+    except Exception as e:
+        logger.debug(f"Failed to detect Windows username: {e}")
         return None
 
 
@@ -189,8 +211,54 @@ class VSCodeLauncher:
 
             logger.info(f"Synced SSH config to Windows: {windows_config_path}")
 
+            # Also configure VS Code settings for remote platform
+            cls._configure_vscode_remote_platform(ssh_host, windows_ssh_dir.parent)
+
         except Exception as e:
             logger.warning(f"Failed to sync SSH config to Windows (non-critical): {e}")
+
+    @classmethod
+    def _configure_vscode_remote_platform(cls, ssh_host: str, windows_home: Path) -> None:
+        """Configure VS Code Remote-SSH platform setting for Linux hosts.
+
+        Creates or updates VS Code settings.json to include remote.SSH.remotePlatform
+        setting, telling VS Code the remote host is Linux (Azure Ubuntu VMs).
+        """
+        try:
+            import json
+
+            # VS Code settings location (Windows)
+            vscode_dir = windows_home / "AppData/Roaming/Code/User"
+            vscode_insiders_dir = windows_home / "AppData/Roaming/Code - Insiders/User"
+
+            # Try both Code and Code Insiders
+            for settings_dir in [vscode_dir, vscode_insiders_dir]:
+                if not settings_dir.exists():
+                    continue
+
+                settings_file = settings_dir / "settings.json"
+
+                # Load existing settings or create new
+                if settings_file.exists():
+                    try:
+                        settings = json.loads(settings_file.read_text())
+                    except json.JSONDecodeError:
+                        settings = {}
+                else:
+                    settings = {}
+
+                # Add remote platform setting
+                if "remote.SSH.remotePlatform" not in settings:
+                    settings["remote.SSH.remotePlatform"] = {}
+
+                settings["remote.SSH.remotePlatform"][ssh_host] = "linux"
+
+                # Write back
+                settings_file.write_text(json.dumps(settings, indent=2))
+                logger.info(f"Configured VS Code remote platform for {ssh_host}")
+
+        except Exception as e:
+            logger.warning(f"Failed to configure VS Code settings (non-critical): {e}")
 
     @classmethod
     def install_extensions(cls, ssh_host: str, extensions: list[str]) -> None:
