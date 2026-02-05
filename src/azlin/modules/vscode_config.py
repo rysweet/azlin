@@ -134,6 +134,8 @@ class VSCodeConfig:
             "    UserKnownHostsFile /dev/null",
             "    ServerAliveInterval 60",
             "    ServerAliveCountMax 3",
+            # Tell VS Code the remote OS is Linux (Azure Ubuntu VMs)
+            "    RemoteCommand true",  # VS Code uses this to detect Linux
         ]
 
         return "\n".join(config_lines)
