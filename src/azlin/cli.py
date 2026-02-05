@@ -5487,24 +5487,26 @@ def code_command(
             tunnel_host = vm_ip if vm_ip else ""
 
             if not vm_ip and private_ip:
-                click.echo(f"VM {vm_name} is private-only (no public IP), will use bastion tunnel...")
+                click.echo(
+                    f"VM {vm_name} is private-only (no public IP), will use bastion tunnel..."
+                )
 
                 # Auto-detect bastion (same logic as azlin connect)
                 bastion_info = BastionDetector.detect_bastion_for_vm(
-                    vm_name=vm_name,
-                    resource_group=rg,
-                    vm_location=vm_info.location
+                    vm_name=vm_name, resource_group=rg, vm_location=vm_info.location
                 )
 
                 if not bastion_info:
                     click.echo(
                         f"Error: VM {vm_name} has no public IP and no bastion found.\n"
                         f"Create a bastion: azlin bastion create --rg {rg}",
-                        err=True
+                        err=True,
                     )
                     sys.exit(1)
 
-                click.echo(f"✓ Found bastion: {bastion_info['name']} (region: {bastion_info['location']})")
+                click.echo(
+                    f"✓ Found bastion: {bastion_info['name']} (region: {bastion_info['location']})"
+                )
 
                 # Get subscription ID and build VM resource ID
                 context_config = ContextManager.load()
