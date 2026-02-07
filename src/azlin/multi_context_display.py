@@ -157,23 +157,23 @@ class MultiContextDisplay:
             table.add_column("Session Name", style="cyan", no_wrap=True)
             table.add_column("VM Name", style="white", no_wrap=True)
         elif compact_mode:
-            table.add_column("Session Name", style="cyan", width=15)
-            table.add_column("VM Name", style="white", width=20)
+            table.add_column("Session Name", style="cyan", width=12)
+            table.add_column("VM Name", style="white", width=18)
         else:
-            table.add_column("Session Name", style="cyan", width=20)
-            table.add_column("VM Name", style="white", width=30)
+            table.add_column("Session Name", style="cyan", width=14)
+            table.add_column("VM Name", style="white", width=22)
 
         if compact_mode:
             table.add_column("Status", width=8)
             table.add_column("IP", style="yellow", width=13)
             table.add_column("Region", width=8)
-            table.add_column("Size", width=12)
+            table.add_column("SKU", width=12)
             table.add_column("vCPUs", justify="right", width=5)
         else:
             table.add_column("Status", width=10)
             table.add_column("IP", style="yellow", width=15)
             table.add_column("Region", width=10)
-            table.add_column("Size", width=15)
+            table.add_column("SKU", width=15)
             table.add_column("vCPUs", justify="right", width=6)
 
         # Add VM rows
