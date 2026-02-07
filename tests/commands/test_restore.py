@@ -373,11 +373,11 @@ class TestTerminalLauncherIntegration:
             terminal_type=TerminalType.MACOS_TERMINAL,
         )
 
-        with patch("azlin.terminal_launcher.TerminalLauncher.launch") as mock_launch:
+        with patch.object(TerminalLauncher, "_launch_macos_terminal") as mock_launch:
             mock_launch.return_value = True
             result = TerminalLauncher.launch_session(config)
             assert result is True
-            mock_launch.assert_called_once()
+            mock_launch.assert_called_once_with(config)
 
     def test_launch_session_windows_terminal(self):
         """Test launching Windows Terminal."""
