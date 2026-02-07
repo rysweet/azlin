@@ -483,6 +483,8 @@ class TerminalLauncher:
             subprocess.Popen(
                 [
                     str(wt_path),
+                    "-p",
+                    config.vm_name,  # Use VM name as profile
                     "--title",
                     f"azlin - {config.vm_name}:{config.tmux_session}",
                     "wsl.exe",
@@ -536,9 +538,11 @@ class TerminalLauncher:
                 # Add separator before subsequent tabs
                 wt_args.append(";")
 
-            # Add new tab with command
+            # Add new tab with command and profile (profile = hostname)
             wt_args.extend([
                 "new-tab",
+                "-p",
+                config.vm_name,  # Use VM name as profile
                 "--title",
                 f"azlin - {config.vm_name}:{config.tmux_session}",
                 "wsl.exe",
