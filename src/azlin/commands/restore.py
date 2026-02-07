@@ -838,6 +838,10 @@ def restore_command(
                         click.echo(f"  gnome-terminal --title 'azlin - {session.vm_name}:{session.tmux_session}' -- bash -l -c '{azlin_cmd}'")
                     elif terminal_type == TerminalType.LINUX_XTERM:
                         click.echo(f"  xterm -title 'azlin - {session.vm_name}:{session.tmux_session}' -e bash -l -c '{azlin_cmd}'")
+                    else:
+                        # Unknown terminal type - show generic command
+                        click.echo(f"  Terminal: {terminal_type}")
+                        click.echo(f"  Command: {azlin_cmd}")
                     click.echo()
 
             raise click.exceptions.Exit(0)
