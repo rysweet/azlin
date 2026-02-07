@@ -141,6 +141,7 @@ from azlin.multi_context_list_async import query_all_contexts_parallel
 from azlin.network_security.bastion_connection_pool import (
     BastionConnectionPool,
     PooledTunnel,
+    SecurityError,
 )
 from azlin.prune import PruneManager
 from azlin.quota_manager import QuotaInfo, QuotaManager
@@ -3101,6 +3102,14 @@ def _create_tunnel_with_retry(
                 )
             return pooled_tunnel
 
+        except SecurityError:
+            # Security violations should fail-fast, no retry
+            logger.error(
+                f"Security violation during tunnel creation for VM {vm.name} - "
+                f"tunnel not bound to localhost"
+            )
+            raise
+
         except (BastionManagerError, TimeoutError, ConnectionError) as e:
             last_error = e
             if attempt < max_attempts:
@@ -3208,66 +3217,72 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                     idle_timeout=idle_timeout,
                 )
 
-                for idx, vm in enumerate(bastion_vms):
-                    try:
-                        # Rate limiting: Add delay between tunnel creations
-                        if idx > 0 and rate_limit > 0:
-                            logger.debug(f"Rate limiting: waiting {rate_limit}s before next tunnel")
-                            time.sleep(rate_limit)
+                try:
+                    for idx, vm in enumerate(bastion_vms):
+                        try:
+                            # Rate limiting: Add delay between tunnel creations
+                            if idx > 0 and rate_limit > 0:
+                                logger.debug(
+                                    f"Rate limiting: waiting {rate_limit}s before next tunnel"
+                                )
+                                time.sleep(rate_limit)
 
-                        # Detect Bastion host for this VM
-                        bastion_info = BastionDetector.detect_bastion_for_vm(
-                            vm.name, vm.resource_group, vm.location
-                        )
-
-                        if not bastion_info:
-                            logger.warning(
-                                f"No Bastion host found for VM {vm.name} in {vm.resource_group}"
+                            # Detect Bastion host for this VM
+                            bastion_info = BastionDetector.detect_bastion_for_vm(
+                                vm.name, vm.resource_group, vm.location
                             )
-                            continue
 
-                        # Get VM resource ID
-                        vm_resource_id = vm.get_resource_id(subscription_id)
+                            if not bastion_info:
+                                logger.warning(
+                                    f"No Bastion host found for VM {vm.name} in {vm.resource_group}"
+                                )
+                                continue
 
-                        # Create tunnel with retry logic (Issue #588)
-                        pooled_tunnel = _create_tunnel_with_retry(
-                            pool=pool,
-                            vm=vm,
-                            bastion_info={
-                                "name": bastion_info["name"],
-                                "resource_group": bastion_info["resource_group"],
-                            },
-                            vm_resource_id=vm_resource_id,
-                            max_attempts=retry_attempts,
-                        )
+                            # Get VM resource ID
+                            vm_resource_id = vm.get_resource_id(subscription_id)
 
-                        # Query tmux sessions through tunnel
-                        ssh_config = SSHConfig(
-                            host="127.0.0.1",
-                            port=pooled_tunnel.tunnel.local_port,
-                            user="azureuser",
-                            key_path=ssh_key_path,
-                        )
+                            # Create tunnel with retry logic (Issue #588)
+                            pooled_tunnel = _create_tunnel_with_retry(
+                                pool=pool,
+                                vm=vm,
+                                bastion_info={
+                                    "name": bastion_info["name"],
+                                    "resource_group": bastion_info["resource_group"],
+                                },
+                                vm_resource_id=vm_resource_id,
+                                max_attempts=retry_attempts,
+                            )
 
-                        # Get sessions for this VM (use longer timeout for Bastion tunnels)
-                        tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
-                            [ssh_config], timeout=BASTION_TUNNEL_TMUX_TIMEOUT, max_workers=1
-                        )
+                            # Query tmux sessions through tunnel
+                            ssh_config = SSHConfig(
+                                host="127.0.0.1",
+                                port=pooled_tunnel.tunnel.local_port,
+                                user="azureuser",
+                                key_path=ssh_key_path,
+                            )
 
-                        # Add sessions to result
-                        for session in tmux_sessions:
-                            if vm.name not in tmux_by_vm:
-                                tmux_by_vm[vm.name] = []
-                            # Update session VM name to actual VM name (not localhost)
-                            session.vm_name = vm.name
-                            tmux_by_vm[vm.name].append(session)
+                            # Get sessions for this VM (use longer timeout for Bastion tunnels)
+                            tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
+                                [ssh_config], timeout=BASTION_TUNNEL_TMUX_TIMEOUT, max_workers=1
+                            )
 
-                    except BastionManagerError as e:
-                        logger.warning(f"Failed to create Bastion tunnel for VM {vm.name}: {e}")
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to fetch tmux sessions from Bastion VM {vm.name}: {e}"
-                        )
+                            # Add sessions to result
+                            for session in tmux_sessions:
+                                if vm.name not in tmux_by_vm:
+                                    tmux_by_vm[vm.name] = []
+                                # Update session VM name to actual VM name (not localhost)
+                                session.vm_name = vm.name
+                                tmux_by_vm[vm.name].append(session)
+
+                        except BastionManagerError as e:
+                            logger.warning(f"Failed to create Bastion tunnel for VM {vm.name}: {e}")
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to fetch tmux sessions from Bastion VM {vm.name}: {e}"
+                            )
+                finally:
+                    # Ensure pool tunnels are cleaned up (Issue #588 review feedback)
+                    pool.close_all()
 
         except Exception as e:
             logger.warning(f"Failed to initialize Bastion support: {e}")

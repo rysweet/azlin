@@ -10,7 +10,7 @@ These tests follow TDD approach - they will FAIL until implementation is complet
 
 import os
 import time
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
