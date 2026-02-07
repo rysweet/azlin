@@ -413,22 +413,27 @@ class TerminalLauncher:
     @classmethod
     def _launch_macos_terminal(cls, config: RestoreSessionConfig) -> bool:
         """Launch macOS Terminal.app with azlin connect command."""
-        # Build azlin connect command (handles bastion automatically)
-        azlin_cmd = [
-            "azlin",
-            "connect",
-            "-y",
-            config.vm_name,
-            "--tmux-session",
-            config.tmux_session,
+        # Find full path to uvx
+        uvx_paths = [
+            str(Path.home() / ".local" / "bin" / "uvx"),
+            "/usr/local/bin/uvx",
+            "/usr/bin/uvx",
         ]
+        uvx_cmd = "uvx"
+        for path in uvx_paths:
+            if Path(path).exists():
+                uvx_cmd = path
+                break
+
+        # Build azlin connect command with full git repo syntax
+        azlin_cmd = f"{uvx_cmd} --from git+https://github.com/rysweet/azlin azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
             # Use osascript to launch Terminal.app with azlin connect
             applescript = f'''
                 tell application "Terminal"
                     activate
-                    do script "{" ".join(azlin_cmd)}"
+                    do script "{azlin_cmd}"
                 end tell
             '''
             subprocess.Popen(
@@ -461,17 +466,17 @@ class TerminalLauncher:
                 uvx_cmd = path
                 break
 
-        # Build azlin connect command (handles bastion automatically)
-        azlin_cmd = f"{uvx_cmd} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Build azlin connect command with full git repo syntax (handles bastion automatically)
+        azlin_cmd = f"{uvx_cmd} --from git+https://github.com/rysweet/azlin azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
-            # Launch separate wt.exe process for new window (each call creates new window)
+            # Launch separate wt.exe process - each invocation creates new window by default
             subprocess.Popen(
                 [
                     str(wt_path),
                     "--title",
                     f"azlin - {config.vm_name}:{config.tmux_session}",
-                    "wsl",
+                    "wsl.exe",
                     "-e",
                     "bash",
                     "-l",  # Login shell to load full environment
@@ -509,21 +514,29 @@ class TerminalLauncher:
                 uvx_cmd = path
                 break
 
-        # Build multi-tab command
-        wt_args = [str(wt_path), "-w", "0"]  # -w 0 = use existing window or create new
+        # Build multi-tab command - first tab uses default, rest use ; separator
+        wt_args = [str(wt_path)]
 
         for i, config in enumerate(sessions):
-            # Build azlin connect command with full path (handles bastion automatically)
-            azlin_cmd = f"{uvx_cmd} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            # Build azlin connect command with full git repo syntax
+            azlin_cmd = f"{uvx_cmd} --from git+https://github.com/rysweet/azlin azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
-            if i == 0:
-                # First tab
-                wt_args.extend(["new-tab", "--title", f"azlin - {config.vm_name}:{config.tmux_session}"])
-            else:
-                # Subsequent tabs
-                wt_args.extend([";", "new-tab", "--title", f"azlin - {config.vm_name}:{config.tmux_session}"])
+            if i > 0:
+                # Add separator before subsequent tabs
+                wt_args.append(";")
 
-            wt_args.extend(["wsl", "-e", "bash", "-l", "-c", azlin_cmd])
+            # Add new tab with command
+            wt_args.extend([
+                "new-tab",
+                "--title",
+                f"azlin - {config.vm_name}:{config.tmux_session}",
+                "wsl.exe",
+                "-e",
+                "bash",
+                "-l",
+                "-c",
+                azlin_cmd,
+            ])
 
         try:
             subprocess.Popen(
@@ -551,10 +564,8 @@ class TerminalLauncher:
                 uvx_cmd = path
                 break
 
-        # Build azlin connect command with full path (handles bastion automatically)
-        azlin_cmd = (
-            f"{uvx_cmd} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
-        )
+        # Build azlin connect command with full git repo syntax
+        azlin_cmd = f"{uvx_cmd} --from git+https://github.com/rysweet/azlin azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
             subprocess.Popen(
@@ -591,10 +602,8 @@ class TerminalLauncher:
                 uvx_cmd = path
                 break
 
-        # Build azlin connect command with full path (handles bastion automatically)
-        azlin_cmd = (
-            f"{uvx_cmd} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
-        )
+        # Build azlin connect command with full git repo syntax
+        azlin_cmd = f"{uvx_cmd} --from git+https://github.com/rysweet/azlin azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
             subprocess.Popen(
