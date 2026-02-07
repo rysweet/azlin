@@ -827,21 +827,22 @@ def restore_command(
                 click.echo("Mode: Separate windows\n")
                 for session in sessions:
                     azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session}"
-                    click.echo(f"Session: {session.vm_name}:{session.tmux_session} ({session.hostname})")
+                    # Print session info as comment for script-like output
+                    click.echo(f"# Session: {session.vm_name}:{session.tmux_session} ({session.hostname})")
                     if terminal_type == TerminalType.WINDOWS_TERMINAL:
                         wt_path = PlatformDetector.get_windows_terminal_path()
-                        click.echo(f"  {wt_path} -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' \\")
-                        click.echo(f"    wsl.exe -e bash -l -c '{azlin_cmd}'")
+                        click.echo(f"{wt_path} -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' \\")
+                        click.echo(f"  wsl.exe -e bash -l -c '{azlin_cmd}'")
                     elif terminal_type == TerminalType.MACOS_TERMINAL:
-                        click.echo(f"  osascript -e 'tell application \"Terminal\" to do script \"{azlin_cmd}\"'")
+                        click.echo(f"osascript -e 'tell application \"Terminal\" to do script \"{azlin_cmd}\"'")
                     elif terminal_type == TerminalType.LINUX_GNOME:
-                        click.echo(f"  gnome-terminal --title 'azlin - {session.vm_name}:{session.tmux_session}' -- bash -l -c '{azlin_cmd}'")
+                        click.echo(f"gnome-terminal --title 'azlin - {session.vm_name}:{session.tmux_session}' -- bash -l -c '{azlin_cmd}'")
                     elif terminal_type == TerminalType.LINUX_XTERM:
-                        click.echo(f"  xterm -title 'azlin - {session.vm_name}:{session.tmux_session}' -e bash -l -c '{azlin_cmd}'")
+                        click.echo(f"xterm -title 'azlin - {session.vm_name}:{session.tmux_session}' -e bash -l -c '{azlin_cmd}'")
                     else:
                         # Unknown terminal type - show generic command
-                        click.echo(f"  Terminal: {terminal_type}")
-                        click.echo(f"  Command: {azlin_cmd}")
+                        click.echo(f"# Terminal: {terminal_type}")
+                        click.echo(f"{azlin_cmd}")
                     click.echo()
 
             raise click.exceptions.Exit(0)
