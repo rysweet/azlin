@@ -215,16 +215,16 @@ class TestMultiContextDisplayCompactMode:
             calls = mock_table.add_column.call_args_list
             assert len(calls) >= 2  # At least Session Name and VM Name
 
-            # First column: Session Name with width=20 (standard)
+            # First column: Session Name with width=14 (standard)
             session_col_call = calls[0]
             assert "Session Name" in session_col_call[0]
-            assert session_col_call[1].get("width") == 20
+            assert session_col_call[1].get("width") == 14
             assert session_col_call[1].get("no_wrap") is not True
 
-            # Second column: VM Name with width=30 (standard)
+            # Second column: VM Name with width=22 (standard)
             vm_col_call = calls[1]
             assert "VM Name" in vm_col_call[0]
-            assert vm_col_call[1].get("width") == 30
+            assert vm_col_call[1].get("width") == 22
             assert vm_col_call[1].get("no_wrap") is not True
 
     def test_compact_mode_true_uses_narrow_columns(self, sample_context_result, mock_console):
@@ -245,12 +245,12 @@ class TestMultiContextDisplayCompactMode:
             column_specs = {call[0][0]: call[1] for call in calls}
 
             # Verify compact widths (narrower than standard)
-            assert column_specs.get("Session Name", {}).get("width") == 15  # vs 20 standard
-            assert column_specs.get("VM Name", {}).get("width") == 20  # vs 30 standard
+            assert column_specs.get("Session Name", {}).get("width") == 12  # vs 14 standard
+            assert column_specs.get("VM Name", {}).get("width") == 18  # vs 22 standard
             assert column_specs.get("Status", {}).get("width") == 8  # vs 10 standard
             assert column_specs.get("IP", {}).get("width") == 13  # vs 15 standard
             assert column_specs.get("Region", {}).get("width") == 8  # vs 10 standard
-            assert column_specs.get("Size", {}).get("width") == 12  # vs 15 standard
+            assert column_specs.get("SKU", {}).get("width") == 12  # vs 15 standard
             assert column_specs.get("vCPUs", {}).get("width") == 5  # vs 6 standard
 
     def test_session_name_column_exists_in_compact(self, sample_context_result, mock_console):
@@ -368,8 +368,8 @@ class TestRegressionCompactMode:
             column_specs = {call[0][0]: call[1] for call in calls}
 
             # Verify key columns have expected standard widths
-            assert column_specs.get("Session Name", {}).get("width") == 20
-            assert column_specs.get("VM Name", {}).get("width") == 30
+            assert column_specs.get("Session Name", {}).get("width") == 14
+            assert column_specs.get("VM Name", {}).get("width") == 22
             assert column_specs.get("Status", {}).get("width") == 10
             assert column_specs.get("IP", {}).get("width") == 15
 
@@ -430,5 +430,5 @@ class TestRegressionCompactMode:
             compact_first = compact_calls[0][1]
 
             assert wide_first.get("no_wrap") is True
-            assert compact_first.get("width") == 15
+            assert compact_first.get("width") == 12
             assert compact_first.get("no_wrap") is not True
