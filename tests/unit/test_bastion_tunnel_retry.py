@@ -181,13 +181,11 @@ class TestCreateTunnelWithRetry:
         )
 
         # Verify backoff occurred (at least 1s between calls, allowing for jitter)
-        if len(call_times) >= 2:
-            delay1 = call_times[1] - call_times[0]
-            assert delay1 >= 0.5, f"First delay {delay1}s should be at least 0.5s"
-
-        if len(call_times) >= 3:
-            delay2 = call_times[2] - call_times[1]
-            assert delay2 >= delay1 * 0.5, f"Second delay {delay2}s should be longer than first"
+        assert len(call_times) >= 3, f"Expected 3 call times, got {len(call_times)}"
+        delay1 = call_times[1] - call_times[0]
+        delay2 = call_times[2] - call_times[1]
+        assert delay1 >= 0.5, f"First delay {delay1}s should be at least 0.5s"
+        assert delay2 >= delay1 * 0.5, f"Second delay {delay2}s should be at least half the first"
 
 
 class TestCollectTmuxSessionsRateLimiting:
