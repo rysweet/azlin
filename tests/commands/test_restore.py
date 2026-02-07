@@ -12,19 +12,20 @@ Security requirements:
 - Error message sanitization
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
+
+import pytest
 from click.testing import CliRunner
 
 # Import will fail until implementation exists
 try:
     from azlin.commands.restore import (
-        restore_command,
-        RestoreSessionConfig,
         PlatformDetector,
+        RestoreSessionConfig,
         TerminalLauncher,
         TerminalType,
+        restore_command,
     )
 except ImportError:
     pytest.skip("azlin.commands.restore not implemented yet", allow_module_level=True)
@@ -159,15 +160,16 @@ class TestPlatformDetectorGetDefaultTerminal:
     def test_get_default_terminal_linux_gnome(self):
         """Test default terminal for Linux with gnome-terminal available."""
         with patch.object(PlatformDetector, "detect_platform", return_value="linux"):
-            with patch.object(PlatformDetector, "_has_command", side_effect=lambda cmd: cmd == "gnome-terminal"):
+            with patch.object(
+                PlatformDetector, "_has_command", side_effect=lambda cmd: cmd == "gnome-terminal"
+            ):
                 assert PlatformDetector.get_default_terminal() == TerminalType.LINUX_GNOME
 
     def test_get_default_terminal_linux_xterm(self):
         """Test fallback to xterm when gnome-terminal not available."""
         with patch.object(PlatformDetector, "detect_platform", return_value="linux"):
             with patch.object(
-                PlatformDetector, "_has_command",
-                side_effect=lambda cmd: cmd == "xterm"
+                PlatformDetector, "_has_command", side_effect=lambda cmd: cmd == "xterm"
             ):
                 assert PlatformDetector.get_default_terminal() == TerminalType.LINUX_XTERM
 
@@ -253,8 +255,9 @@ class TestSecurityInputValidation:
 
     def test_ssh_key_path_prevents_path_traversal(self):
         """Test SSH key path prevents directory traversal attacks."""
-        from azlin.commands.restore import SecurityValidationError
         import os
+
+        from azlin.commands.restore import SecurityValidationError
 
         # Temporarily disable BOTH test mode environment variables
         old_pytest = os.environ.get("PYTEST_CURRENT_TEST")
@@ -311,8 +314,9 @@ class TestSecurityInputValidation:
 
     def test_error_message_sanitization(self):
         """Test error messages don't leak sensitive information."""
-        from azlin.commands.restore import SecurityValidationError, RestoreSessionConfig
         import os
+
+        from azlin.commands.restore import RestoreSessionConfig, SecurityValidationError
 
         # Temporarily disable test mode to verify actual validation
         old_pytest = os.environ.get("PYTEST_CURRENT_TEST")
@@ -331,7 +335,7 @@ class TestSecurityInputValidation:
                     hostname="10.0.0.1",
                     username="testuser",
                     ssh_key_path=Path("/secret/path/to/private/key.pem"),
-                    tmux_session="test"
+                    tmux_session="test",
                 )
 
             error_msg = str(exc.value)
@@ -385,7 +389,9 @@ class TestTerminalLauncherIntegration:
             terminal_type=TerminalType.WINDOWS_TERMINAL,
         )
 
-        with patch.object(PlatformDetector, "get_windows_terminal_path", return_value=Path("/mnt/c/wt.exe")):
+        with patch.object(
+            PlatformDetector, "get_windows_terminal_path", return_value=Path("/mnt/c/wt.exe")
+        ):
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()
                 result = TerminalLauncher.launch_session(config)
@@ -410,7 +416,7 @@ class TestTerminalLauncherIntegration:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("/home/user/.ssh/id_rsa"),
                 terminal_type=TerminalType.MACOS_TERMINAL,
@@ -428,7 +434,7 @@ class TestTerminalLauncherIntegration:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("/home/user/.ssh/id_rsa"),
                 terminal_type=TerminalType.MACOS_TERMINAL,
@@ -447,7 +453,7 @@ class TestTerminalLauncherIntegration:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("/home/user/.ssh/id_rsa"),
                 terminal_type=TerminalType.WINDOWS_TERMINAL,
@@ -456,9 +462,7 @@ class TestTerminalLauncherIntegration:
         ]
 
         with patch.object(
-            TerminalLauncher,
-            "_launch_windows_terminal_multi_tab",
-            return_value=(3, 0)
+            TerminalLauncher, "_launch_windows_terminal_multi_tab", return_value=(3, 0)
         ):
             success_count, failed_count = TerminalLauncher.launch_all_sessions(
                 sessions, multi_tab=True
@@ -546,7 +550,9 @@ class TestRestoreCommandE2E:
 
         with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
             with patch("azlin.config_manager.ConfigManager.load_config"):
-                with patch("azlin.config_manager.ConfigManager.get_session_name", return_value=None):
+                with patch(
+                    "azlin.config_manager.ConfigManager.get_session_name", return_value=None
+                ):
                     result = runner.invoke(restore_command, ["--dry-run"])
                     assert result.exit_code == 0
                     assert "test-vm-1" in result.output
@@ -560,7 +566,9 @@ class TestRestoreCommandE2E:
 
         with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
             with patch("azlin.config_manager.ConfigManager.load_config"):
-                with patch("azlin.config_manager.ConfigManager.get_session_name", return_value=None):
+                with patch(
+                    "azlin.config_manager.ConfigManager.get_session_name", return_value=None
+                ):
                     with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(1, 0)):
                         result = runner.invoke(restore_command)
                         assert result.exit_code == 0
@@ -575,7 +583,9 @@ class TestRestoreCommandE2E:
         with patch("azlin.vm_manager.VMManager.list_vms") as mock_list:
             mock_list.return_value = mock_vms
             with patch("azlin.config_manager.ConfigManager.load_config"):
-                with patch("azlin.config_manager.ConfigManager.get_session_name", return_value=None):
+                with patch(
+                    "azlin.config_manager.ConfigManager.get_session_name", return_value=None
+                ):
                     with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(1, 0)):
                         result = runner.invoke(restore_command, ["--resource-group", "filtered-rg"])
                         assert result.exit_code == 0
@@ -589,7 +599,9 @@ class TestRestoreCommandE2E:
 
         with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
             with patch("azlin.config_manager.ConfigManager.load_config"):
-                with patch("azlin.config_manager.ConfigManager.get_session_name", return_value=None):
+                with patch(
+                    "azlin.config_manager.ConfigManager.get_session_name", return_value=None
+                ):
                     with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(2, 1)):
                         result = runner.invoke(restore_command)
                         assert result.exit_code == 1  # Partial failure
@@ -604,18 +616,20 @@ class TestRestoreCommandE2E:
 
         with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
             with patch("azlin.config_manager.ConfigManager.load_config"):
-                with patch("azlin.config_manager.ConfigManager.get_session_name", return_value=None):
+                with patch(
+                    "azlin.config_manager.ConfigManager.get_session_name", return_value=None
+                ):
                     with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(1, 0)):
-                        result = runner.invoke(
-                            restore_command, ["--terminal", "windows_terminal"]
-                        )
+                        result = runner.invoke(restore_command, ["--terminal", "windows_terminal"])
                         assert result.exit_code == 0
 
     def test_restore_command_config_error(self):
         """Test restore command handles config errors."""
         runner = CliRunner()
 
-        with patch("azlin.config_manager.ConfigManager.load_config", side_effect=Exception("Config error")):
+        with patch(
+            "azlin.config_manager.ConfigManager.load_config", side_effect=Exception("Config error")
+        ):
             result = runner.invoke(restore_command)
             assert result.exit_code == 2
             assert "error" in result.output.lower()
@@ -655,10 +669,13 @@ class TestRestoreCommandErrorHandling:
 
         with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
             with patch("azlin.config_manager.ConfigManager.load_config"):
-                with patch("azlin.config_manager.ConfigManager.get_session_name", return_value=None):
+                with patch(
+                    "azlin.config_manager.ConfigManager.get_session_name", return_value=None
+                ):
                     with patch.object(
-                        TerminalLauncher, "launch_all_sessions",
-                        side_effect=Exception("Terminal error")
+                        TerminalLauncher,
+                        "launch_all_sessions",
+                        side_effect=Exception("Terminal error"),
                     ):
                         result = runner.invoke(restore_command)
                         assert result.exit_code == 2

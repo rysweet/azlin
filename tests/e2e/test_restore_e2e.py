@@ -7,18 +7,19 @@ Testing pyramid: 10% of total test suite
 Focus on critical user paths and error scenarios.
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
+
+import pytest
 from click.testing import CliRunner
 
 # Import will fail until implementation exists
 try:
     from azlin.commands.restore import (
-        restore_command,
-        TerminalLauncher,
         PlatformDetector,
+        TerminalLauncher,
         TerminalType,
+        restore_command,
     )
 except ImportError:
     pytest.skip("azlin.commands.restore not implemented yet", allow_module_level=True)
@@ -60,7 +61,11 @@ class TestSuccessfulRestoreWorkflows:
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
             with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
-                with patch.object(PlatformDetector, "get_default_terminal", return_value=TerminalType.MACOS_TERMINAL):
+                with patch.object(
+                    PlatformDetector,
+                    "get_default_terminal",
+                    return_value=TerminalType.MACOS_TERMINAL,
+                ):
                     with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(2, 0)):
                         result = runner.invoke(restore_command)
 
@@ -85,10 +90,7 @@ class TestSuccessfulRestoreWorkflows:
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
             with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
                 with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(1, 0)):
-                    result = runner.invoke(
-                        restore_command,
-                        ["--resource-group", "custom-rg"]
-                    )
+                    result = runner.invoke(restore_command, ["--resource-group", "custom-rg"])
 
                     assert result.exit_code == 0
                     assert "Successfully restored" in result.output
@@ -99,16 +101,18 @@ class TestSuccessfulRestoreWorkflows:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
             with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
                 with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(1, 0)):
-                    result = runner.invoke(
-                        restore_command,
-                        ["--terminal", "windows_terminal"]
-                    )
+                    result = runner.invoke(restore_command, ["--terminal", "windows_terminal"])
 
                     assert result.exit_code == 0
                     assert "Successfully restored" in result.output
@@ -119,16 +123,18 @@ class TestSuccessfulRestoreWorkflows:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
             with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
                 with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(1, 0)):
-                    result = runner.invoke(
-                        restore_command,
-                        ["--config", "/tmp/custom-config.toml"]
-                    )
+                    result = runner.invoke(restore_command, ["--config", "/tmp/custom-config.toml"])
 
                     assert result.exit_code == 0
 
@@ -141,14 +147,25 @@ class TestSuccessfulRestoreWorkflows:
             terminal_multi_tab=True,
         )
         mock_vms = [
-            Mock(name=f"vm-{i}", resource_group="test-rg", power_state="VM running", public_ip=f"10.0.0.{i}")
+            Mock(
+                name=f"vm-{i}",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip=f"10.0.0.{i}",
+            )
             for i in range(3)
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
             with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
-                with patch.object(PlatformDetector, "get_default_terminal", return_value=TerminalType.WINDOWS_TERMINAL):
-                    with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(3, 0)) as mock_launch:
+                with patch.object(
+                    PlatformDetector,
+                    "get_default_terminal",
+                    return_value=TerminalType.WINDOWS_TERMINAL,
+                ):
+                    with patch.object(
+                        TerminalLauncher, "launch_all_sessions", return_value=(3, 0)
+                    ) as mock_launch:
                         result = runner.invoke(restore_command)
 
                         assert result.exit_code == 0
@@ -170,8 +187,18 @@ class TestDryRunMode:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
-            Mock(name="vm-2", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.2"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
+            Mock(
+                name="vm-2",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.2",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
@@ -189,7 +216,12 @@ class TestDryRunMode:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
@@ -242,7 +274,10 @@ class TestErrorScenarios:
         """Test error when config cannot be loaded."""
         runner = CliRunner()
 
-        with patch("azlin.config_manager.ConfigManager.load_config", side_effect=FileNotFoundError("Config not found")):
+        with patch(
+            "azlin.config_manager.ConfigManager.load_config",
+            side_effect=FileNotFoundError("Config not found"),
+        ):
             result = runner.invoke(restore_command)
 
             assert result.exit_code == 2
@@ -255,7 +290,9 @@ class TestErrorScenarios:
         mock_config = Mock(default_resource_group="test-rg")
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
-            with patch("azlin.vm_manager.VMManager.list_vms", side_effect=Exception("Azure API error")):
+            with patch(
+                "azlin.vm_manager.VMManager.list_vms", side_effect=Exception("Azure API error")
+            ):
                 result = runner.invoke(restore_command)
 
                 assert result.exit_code == 2
@@ -267,7 +304,12 @@ class TestErrorScenarios:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name=f"vm-{i}", resource_group="test-rg", power_state="VM running", public_ip=f"10.0.0.{i}")
+            Mock(
+                name=f"vm-{i}",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip=f"10.0.0.{i}",
+            )
             for i in range(5)
         ]
 
@@ -287,7 +329,12 @@ class TestErrorScenarios:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
@@ -312,14 +359,25 @@ class TestPlatformSpecificWorkflows:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
             with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
                 with patch.object(PlatformDetector, "detect_platform", return_value="macos"):
-                    with patch.object(PlatformDetector, "get_default_terminal", return_value=TerminalType.MACOS_TERMINAL):
-                        with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(1, 0)):
+                    with patch.object(
+                        PlatformDetector,
+                        "get_default_terminal",
+                        return_value=TerminalType.MACOS_TERMINAL,
+                    ):
+                        with patch.object(
+                            TerminalLauncher, "launch_all_sessions", return_value=(1, 0)
+                        ):
                             result = runner.invoke(restore_command)
 
                             assert result.exit_code == 0
@@ -330,15 +388,30 @@ class TestPlatformSpecificWorkflows:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
             with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
                 with patch.object(PlatformDetector, "detect_platform", return_value="wsl"):
-                    with patch.object(PlatformDetector, "get_default_terminal", return_value=TerminalType.WINDOWS_TERMINAL):
-                        with patch.object(PlatformDetector, "get_windows_terminal_path", return_value=Path("/mnt/c/wt.exe")):
-                            with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(1, 0)):
+                    with patch.object(
+                        PlatformDetector,
+                        "get_default_terminal",
+                        return_value=TerminalType.WINDOWS_TERMINAL,
+                    ):
+                        with patch.object(
+                            PlatformDetector,
+                            "get_windows_terminal_path",
+                            return_value=Path("/mnt/c/wt.exe"),
+                        ):
+                            with patch.object(
+                                TerminalLauncher, "launch_all_sessions", return_value=(1, 0)
+                            ):
                                 result = runner.invoke(restore_command)
 
                                 assert result.exit_code == 0
@@ -349,14 +422,25 @@ class TestPlatformSpecificWorkflows:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
             with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
                 with patch.object(PlatformDetector, "detect_platform", return_value="linux"):
-                    with patch.object(PlatformDetector, "get_default_terminal", return_value=TerminalType.LINUX_GNOME):
-                        with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(1, 0)):
+                    with patch.object(
+                        PlatformDetector,
+                        "get_default_terminal",
+                        return_value=TerminalType.LINUX_GNOME,
+                    ):
+                        with patch.object(
+                            TerminalLauncher, "launch_all_sessions", return_value=(1, 0)
+                        ):
                             result = runner.invoke(restore_command)
 
                             assert result.exit_code == 0
@@ -367,13 +451,20 @@ class TestPlatformSpecificWorkflows:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
             with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
                 with patch.object(PlatformDetector, "detect_platform", return_value="unknown"):
-                    with patch.object(PlatformDetector, "get_default_terminal", return_value=TerminalType.UNKNOWN):
+                    with patch.object(
+                        PlatformDetector, "get_default_terminal", return_value=TerminalType.UNKNOWN
+                    ):
                         result = runner.invoke(restore_command)
 
                         # Should either fail gracefully or provide error message
@@ -394,8 +485,18 @@ class TestOutputAndUserExperience:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
-            Mock(name="vm-2", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.2"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
+            Mock(
+                name="vm-2",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.2",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
@@ -403,7 +504,10 @@ class TestOutputAndUserExperience:
                 with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(2, 0)):
                     result = runner.invoke(restore_command)
 
-                    assert "Successfully restored" in result.output or "success" in result.output.lower()
+                    assert (
+                        "Successfully restored" in result.output
+                        or "success" in result.output.lower()
+                    )
                     assert "2" in result.output  # Number of sessions
 
     def test_error_provides_actionable_guidance(self):
@@ -425,7 +529,12 @@ class TestOutputAndUserExperience:
 
         mock_config = Mock(default_resource_group="test-rg")
         mock_vms = [
-            Mock(name=f"vm-{i}", resource_group="test-rg", power_state="VM running", public_ip=f"10.0.0.{i}")
+            Mock(
+                name=f"vm-{i}",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip=f"10.0.0.{i}",
+            )
             for i in range(3)
         ]
 
@@ -464,7 +573,9 @@ class TestSecurityE2E:
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):
             with patch("azlin.vm_manager.VMManager.list_vms", return_value=mock_vms):
-                with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(0, 1)) as mock_launch:
+                with patch.object(
+                    TerminalLauncher, "launch_all_sessions", return_value=(0, 1)
+                ) as mock_launch:
                     result = runner.invoke(restore_command)
 
                     # Should either reject dangerous input or handle it safely
@@ -481,7 +592,12 @@ class TestSecurityE2E:
             ssh_key_path="../../etc/passwd",
         )
         mock_vms = [
-            Mock(name="vm-1", resource_group="test-rg", power_state="VM running", public_ip="10.0.0.1"),
+            Mock(
+                name="vm-1",
+                resource_group="test-rg",
+                power_state="VM running",
+                public_ip="10.0.0.1",
+            ),
         ]
 
         with patch("azlin.config_manager.ConfigManager.load_config", return_value=mock_config):

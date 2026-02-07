@@ -29,7 +29,9 @@ logger = logging.getLogger(__name__)
 
 def _is_wsl() -> bool:
     """Detect if running in WSL environment."""
-    return 'microsoft' in platform.uname().release.lower() or os.path.exists('/proc/sys/fs/binfmt_misc/WSLInterop')
+    return "microsoft" in platform.uname().release.lower() or os.path.exists(
+        "/proc/sys/fs/binfmt_misc/WSLInterop"
+    )
 
 
 def _get_windows_username() -> str | None:
@@ -47,14 +49,16 @@ def _get_windows_username() -> str | None:
         if users_dir.exists():
             # Look for a user directory that isn't Public, Default, etc.
             for user_dir in users_dir.iterdir():
-                if user_dir.is_dir() and user_dir.name not in ['Public', 'Default', 'Default User', 'All Users']:
-                    # Check if this looks like the active user (has .ssh or recent files)
-                    if (user_dir / '.ssh').exists() or (user_dir / 'AppData').exists():
-                        logger.debug(f"Detected Windows username: {user_dir.name}")
-                        return user_dir.name
+                if (
+                    user_dir.is_dir()
+                    and user_dir.name not in ["Public", "Default", "Default User", "All Users"]
+                    and ((user_dir / ".ssh").exists() or (user_dir / "AppData").exists())
+                ):
+                    logger.debug(f"Detected Windows username: {user_dir.name}")
+                    return user_dir.name
 
         # Method 2: Try environment variable (set by Windows in WSL2)
-        win_user = os.environ.get('LOGNAME') or os.environ.get('USER')
+        win_user = os.environ.get("LOGNAME") or os.environ.get("USER")
         if win_user:
             return win_user
 
@@ -174,7 +178,7 @@ class VSCodeLauncher:
         """
         try:
             # Get Windows username (assume same as WSL username)
-            username = _get_windows_username() or os.environ.get('USER', 'user')
+            username = _get_windows_username() or os.environ.get("USER", "user")
             windows_ssh_dir = Path(f"/mnt/c/Users/{username}/.ssh")
 
             # Create Windows .ssh directory
@@ -186,8 +190,8 @@ class VSCodeLauncher:
             windows_pub_path = windows_ssh_dir / f"{wsl_key_path.name}.pub"
 
             shutil.copy2(wsl_key_path, windows_key_path)
-            if wsl_key_path.with_suffix('.pub').exists():
-                shutil.copy2(wsl_key_path.with_suffix('.pub'), windows_pub_path)
+            if wsl_key_path.with_suffix(".pub").exists():
+                shutil.copy2(wsl_key_path.with_suffix(".pub"), windows_pub_path)
 
             # Generate Windows SSH config with Windows paths
             ssh_host = f"azlin-{config.vm_name}"
@@ -207,7 +211,9 @@ class VSCodeLauncher:
 
             # Write to Windows SSH config
             windows_config_path = windows_ssh_dir / "config"
-            windows_config_path.write_text("\n# Added by azlin\n" + "\n".join(windows_config) + "\n")
+            windows_config_path.write_text(
+                "\n# Added by azlin\n" + "\n".join(windows_config) + "\n"
+            )
 
             logger.info(f"Synced SSH config to Windows: {windows_config_path}")
 
@@ -350,11 +356,13 @@ class VSCodeLauncher:
             else:
                 # If path is /home/{local_user}/..., replace with /home/{remote_user}/...
                 # This handles shell expansion of ~ before reaching our code
-                local_user = os.environ.get('USER', '')
+                local_user = os.environ.get("USER", "")
                 if local_user and workspace_path.startswith(f"/home/{local_user}/"):
                     # Replace local user with remote user
-                    workspace_path = f"/home/{user}/{workspace_path[len(f'/home/{local_user}/'):]}"
-                    logger.info(f"Corrected workspace path from local to remote user: {workspace_path}")
+                    workspace_path = f"/home/{user}/{workspace_path[len(f'/home/{local_user}/') :]}"
+                    logger.info(
+                        f"Corrected workspace path from local to remote user: {workspace_path}"
+                    )
 
         logger.info(f"Using workspace path: {workspace_path} (user: {user})")
 

@@ -9,9 +9,10 @@ Security focus:
 - Safe subprocess handling
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, mock_open
+from unittest.mock import Mock, mock_open, patch
+
+import pytest
 
 # Import will fail until implementation exists
 try:
@@ -146,8 +147,7 @@ class TestDefaultTerminalSelection:
         """Test Linux with gnome-terminal available."""
         with patch.object(PlatformDetector, "detect_platform", return_value="linux"):
             with patch.object(
-                PlatformDetector, "_has_command",
-                side_effect=lambda cmd: cmd == "gnome-terminal"
+                PlatformDetector, "_has_command", side_effect=lambda cmd: cmd == "gnome-terminal"
             ):
                 result = PlatformDetector.get_default_terminal()
                 assert result == TerminalType.LINUX_GNOME
@@ -156,8 +156,7 @@ class TestDefaultTerminalSelection:
         """Test Linux falls back to xterm when gnome-terminal unavailable."""
         with patch.object(PlatformDetector, "detect_platform", return_value="linux"):
             with patch.object(
-                PlatformDetector, "_has_command",
-                side_effect=lambda cmd: cmd == "xterm"
+                PlatformDetector, "_has_command", side_effect=lambda cmd: cmd == "xterm"
             ):
                 result = PlatformDetector.get_default_terminal()
                 assert result == TerminalType.LINUX_XTERM
@@ -194,8 +193,13 @@ class TestWindowsTerminalPathResolution:
         """Test finding wt.exe in user's AppData."""
         with patch.object(PlatformDetector, "detect_platform", return_value="wsl"):
             with patch.object(PlatformDetector, "_get_windows_username", return_value="testuser"):
-                expected_path = Path("/mnt/c/Users/testuser/AppData/Local/Microsoft/WindowsApps/wt.exe")
-                with patch("pathlib.Path.exists", side_effect=lambda: str(expected_path) in str(expected_path)):
+                expected_path = Path(
+                    "/mnt/c/Users/testuser/AppData/Local/Microsoft/WindowsApps/wt.exe"
+                )
+                with patch(
+                    "pathlib.Path.exists",
+                    side_effect=lambda: str(expected_path) in str(expected_path),
+                ):
                     result = PlatformDetector.get_windows_terminal_path()
                     assert result is not None
                     assert "wt.exe" in str(result)
@@ -204,7 +208,12 @@ class TestWindowsTerminalPathResolution:
         """Test using glob to find wt.exe with wildcards."""
         with patch.object(PlatformDetector, "detect_platform", return_value="wsl"):
             with patch.object(PlatformDetector, "_get_windows_username", return_value="testuser"):
-                with patch("glob.glob", return_value=["/mnt/c/Program Files/WindowsApps/Microsoft.WindowsTerminal_1.15.2874.0/wt.exe"]):
+                with patch(
+                    "glob.glob",
+                    return_value=[
+                        "/mnt/c/Program Files/WindowsApps/Microsoft.WindowsTerminal_1.15.2874.0/wt.exe"
+                    ],
+                ):
                     result = PlatformDetector.get_windows_terminal_path()
                     assert result is not None
                     assert "wt.exe" in str(result)

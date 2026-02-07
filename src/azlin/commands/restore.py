@@ -29,7 +29,6 @@ import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
 
 import click
 
@@ -71,9 +70,7 @@ def _validate_vm_name(vm_name: str) -> None:
     dangerous_chars = [";", "&", "|", "`", "$", "(", ")", "<", ">", "\n", "\r"]
     for char in dangerous_chars:
         if char in vm_name:
-            raise SecurityValidationError(
-                f"VM name contains dangerous character: {char}"
-            )
+            raise SecurityValidationError(f"VM name contains dangerous character: {char}")
 
 
 def _validate_hostname(hostname: str) -> None:
@@ -100,9 +97,7 @@ def _validate_hostname(hostname: str) -> None:
     dangerous_chars = [";", "&", "|", "`", "$", "(", ")", "<", ">", "\n", "\r"]
     for char in dangerous_chars:
         if char in hostname:
-            raise SecurityValidationError(
-                f"Hostname contains dangerous character: {char}"
-            )
+            raise SecurityValidationError(f"Hostname contains dangerous character: {char}")
 
 
 def _validate_session_name(session_name: str) -> None:
@@ -147,9 +142,7 @@ def _validate_username(username: str) -> None:
     dangerous_chars = [";", "&", "|", "`", "$", "(", ")", "<", ">", "\n", "\r", " "]
     for char in dangerous_chars:
         if char in username:
-            raise SecurityValidationError(
-                f"Username contains dangerous character: {char}"
-            )
+            raise SecurityValidationError(f"Username contains dangerous character: {char}")
 
 
 def _validate_ssh_key_path(ssh_key_path: Path) -> None:
@@ -162,7 +155,6 @@ def _validate_ssh_key_path(ssh_key_path: Path) -> None:
         SecurityValidationError: If path is outside allowed directories
     """
     import os
-    import tempfile
 
     # For tests, allow any path (tests will mock the actual usage)
     if os.getenv("AZLIN_TEST_MODE") == "true" or os.getenv("PYTEST_CURRENT_TEST"):
@@ -186,8 +178,7 @@ def _validate_ssh_key_path(ssh_key_path: Path) -> None:
             continue
 
     raise SecurityValidationError(
-        "SSH key path outside allowed directories.\n"
-        "Allowed: ~/.ssh/ or ~/.azlin/"
+        "SSH key path outside allowed directories.\nAllowed: ~/.ssh/ or ~/.azlin/"
     )
 
 
@@ -253,9 +244,9 @@ class PlatformDetector:
 
         if system == "Darwin":
             return "macos"
-        elif system == "Windows":
+        if system == "Windows":
             return "windows"
-        elif system == "Linux":
+        if system == "Linux":
             if cls._is_wsl():
                 return "wsl"
             return "linux"
@@ -265,7 +256,7 @@ class PlatformDetector:
     def _is_wsl(cls) -> bool:
         """Check if running in WSL."""
         try:
-            with open("/proc/version", "r") as f:
+            with open("/proc/version") as f:
                 return "microsoft" in f.read().lower()
         except Exception:
             return False
@@ -281,13 +272,13 @@ class PlatformDetector:
 
         if platform_name == "macos":
             return TerminalType.MACOS_TERMINAL
-        elif platform_name in ("wsl", "windows"):
+        if platform_name in ("wsl", "windows"):
             return TerminalType.WINDOWS_TERMINAL
-        elif platform_name == "linux":
+        if platform_name == "linux":
             # Prefer gnome-terminal, fallback to xterm
             if cls._has_command("gnome-terminal"):
                 return TerminalType.LINUX_GNOME
-            elif cls._has_command("xterm"):
+            if cls._has_command("xterm"):
                 return TerminalType.LINUX_XTERM
 
         return TerminalType.UNKNOWN
@@ -306,9 +297,7 @@ class PlatformDetector:
         windows_user = cls._get_windows_username()
         if windows_user:
             paths = [
-                Path(
-                    f"/mnt/c/Users/{windows_user}/AppData/Local/Microsoft/WindowsApps/wt.exe"
-                ),
+                Path(f"/mnt/c/Users/{windows_user}/AppData/Local/Microsoft/WindowsApps/wt.exe"),
                 Path("/mnt/c/Program Files/WindowsApps/Microsoft.WindowsTerminal*/wt.exe"),
             ]
 
@@ -376,15 +365,14 @@ class TerminalLauncher:
         try:
             if config.terminal_type == TerminalType.MACOS_TERMINAL:
                 return cls._launch_macos_terminal(config)
-            elif config.terminal_type == TerminalType.WINDOWS_TERMINAL:
+            if config.terminal_type == TerminalType.WINDOWS_TERMINAL:
                 return cls._launch_windows_terminal(config)
-            elif config.terminal_type == TerminalType.LINUX_GNOME:
+            if config.terminal_type == TerminalType.LINUX_GNOME:
                 return cls._launch_gnome_terminal(config)
-            elif config.terminal_type == TerminalType.LINUX_XTERM:
+            if config.terminal_type == TerminalType.LINUX_XTERM:
                 return cls._launch_xterm(config)
-            else:
-                logger.error(f"Unsupported terminal type: {config.terminal_type}")
-                return False
+            logger.error(f"Unsupported terminal type: {config.terminal_type}")
+            return False
         except Exception as e:
             logger.error(f"Failed to launch terminal: {e}")
             return False
@@ -428,6 +416,8 @@ class TerminalLauncher:
         """Launch macOS Terminal.app."""
         from azlin.terminal_launcher import (
             TerminalConfig,
+        )
+        from azlin.terminal_launcher import (
             TerminalLauncher as AzlinTerminalLauncher,
         )
 
@@ -542,6 +532,8 @@ class TerminalLauncher:
         """Launch gnome-terminal."""
         from azlin.terminal_launcher import (
             TerminalConfig,
+        )
+        from azlin.terminal_launcher import (
             TerminalLauncher as AzlinTerminalLauncher,
         )
 
@@ -560,6 +552,8 @@ class TerminalLauncher:
         """Launch xterm."""
         from azlin.terminal_launcher import (
             TerminalConfig,
+        )
+        from azlin.terminal_launcher import (
             TerminalLauncher as AzlinTerminalLauncher,
         )
 
@@ -622,7 +616,7 @@ def restore_command(
             config = ConfigManager.load_config(config_path)
         except Exception as e:
             click.echo(f"Error loading config: {e}", err=True)
-            raise click.exceptions.Exit(2)
+            raise click.exceptions.Exit(2) from None
 
         # Get resource group (CLI override or config default)
         rg = resource_group or config.default_resource_group
@@ -638,7 +632,7 @@ def restore_command(
             vms = VMManager.list_vms(rg, include_stopped=False)
         except Exception as e:
             click.echo(f"Error listing VMs: {e}", err=True)
-            raise click.exceptions.Exit(2)
+            raise click.exceptions.Exit(2) from None
 
         if not vms:
             click.echo("No running VMs found in resource group.", err=True)
@@ -666,9 +660,7 @@ def restore_command(
         sessions = []
         for vm in vms:
             if not vm.public_ip:
-                click.echo(
-                    f"Warning: VM '{vm.name}' has no public IP, skipping", err=True
-                )
+                click.echo(f"Warning: VM '{vm.name}' has no public IP, skipping", err=True)
                 continue
 
             # Get session name from config
@@ -710,27 +702,24 @@ def restore_command(
 
         # Report results
         if failed_count > 0:
-            click.echo(
-                f"Warning: {failed_count} sessions failed to launch", err=True
-            )
+            click.echo(f"Warning: {failed_count} sessions failed to launch", err=True)
             click.echo(f"Successfully restored {success_count} sessions")
             raise click.exceptions.Exit(1)
-        else:
-            click.echo(f"Successfully restored {success_count} sessions")
-            raise click.exceptions.Exit(0)
+        click.echo(f"Successfully restored {success_count} sessions")
+        raise click.exceptions.Exit(0)
 
     except click.exceptions.Exit:
         raise
     except Exception as e:
         logger.exception("Unexpected error in restore command")
         click.echo(f"Error: {e}", err=True)
-        raise click.exceptions.Exit(2)
+        raise click.exceptions.Exit(2) from e
 
 
 __all__ = [
-    "restore_command",
-    "RestoreSessionConfig",
     "PlatformDetector",
+    "RestoreSessionConfig",
     "TerminalLauncher",
     "TerminalType",
+    "restore_command",
 ]

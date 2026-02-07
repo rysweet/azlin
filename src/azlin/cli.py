@@ -75,11 +75,11 @@ from azlin.commands.doit import doit_group
 from azlin.commands.fleet import fleet_group
 from azlin.commands.github_runner import github_runner_group
 from azlin.commands.monitoring import status
-from azlin.commands.storage import storage_group
-from azlin.commands.tag import tag_group
 
 # Restore command
 from azlin.commands.restore import restore_command
+from azlin.commands.storage import storage_group
+from azlin.commands.tag import tag_group
 
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
@@ -5587,6 +5587,7 @@ def code_command(
             try:
                 click.echo("Press Ctrl+C to close the tunnel when done with VS Code...")
                 import time
+
                 while True:
                     time.sleep(1)
             except KeyboardInterrupt:

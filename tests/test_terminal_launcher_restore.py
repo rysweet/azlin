@@ -8,15 +8,16 @@ Security focus:
 - Path validation
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Import will fail until implementation exists
 try:
     from azlin.commands.restore import (
-        TerminalLauncher,
         RestoreSessionConfig,
+        TerminalLauncher,
         TerminalType,
     )
 except ImportError:
@@ -57,7 +58,9 @@ class TestLaunchSession:
             terminal_type=TerminalType.WINDOWS_TERMINAL,
         )
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()
@@ -146,7 +149,7 @@ class TestLaunchAllSessions:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("/home/user/.ssh/id_rsa"),
                 terminal_type=TerminalType.MACOS_TERMINAL,
@@ -164,7 +167,7 @@ class TestLaunchAllSessions:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("/home/user/.ssh/id_rsa"),
                 terminal_type=TerminalType.MACOS_TERMINAL,
@@ -182,7 +185,7 @@ class TestLaunchAllSessions:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("/home/user/.ssh/id_rsa"),
                 terminal_type=TerminalType.MACOS_TERMINAL,
@@ -192,8 +195,7 @@ class TestLaunchAllSessions:
 
         # First 3 succeed, last 2 fail
         with patch.object(
-            TerminalLauncher, "launch_session",
-            side_effect=[True, True, True, False, False]
+            TerminalLauncher, "launch_session", side_effect=[True, True, True, False, False]
         ):
             success_count, failed_count = TerminalLauncher.launch_all_sessions(sessions)
             assert success_count == 3
@@ -204,7 +206,7 @@ class TestLaunchAllSessions:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("/home/user/.ssh/id_rsa"),
                 terminal_type=TerminalType.WINDOWS_TERMINAL,
@@ -213,9 +215,7 @@ class TestLaunchAllSessions:
         ]
 
         with patch.object(
-            TerminalLauncher,
-            "_launch_windows_terminal_multi_tab",
-            return_value=(3, 0)
+            TerminalLauncher, "_launch_windows_terminal_multi_tab", return_value=(3, 0)
         ) as mock_multi:
             success_count, failed_count = TerminalLauncher.launch_all_sessions(
                 sessions, multi_tab=True
@@ -229,7 +229,7 @@ class TestLaunchAllSessions:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("/home/user/.ssh/id_rsa"),
                 terminal_type=TerminalType.MACOS_TERMINAL,
@@ -324,7 +324,9 @@ class TestLaunchWindowsTerminal:
             tmux_session="test-session",
         )
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()
@@ -342,7 +344,9 @@ class TestLaunchWindowsTerminal:
             tmux_session="test-session",
         )
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()
@@ -367,7 +371,9 @@ class TestLaunchWindowsTerminal:
             ssh_key_path=Path("/home/user/.ssh/id_rsa"),
         )
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = None
             result = TerminalLauncher._launch_windows_terminal(config)
             assert result is False
@@ -381,7 +387,9 @@ class TestLaunchWindowsTerminal:
             ssh_key_path=Path("/home/user/.ssh/id_rsa"),
         )
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen", side_effect=Exception("Launch failed")):
                 result = TerminalLauncher._launch_windows_terminal(config)
@@ -401,7 +409,7 @@ class TestLaunchWindowsTerminalMultiTab:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("/home/user/.ssh/id_rsa"),
                 tmux_session=f"session-{i}",
@@ -409,11 +417,15 @@ class TestLaunchWindowsTerminalMultiTab:
             for i in range(3)
         ]
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()
-                success_count, failed_count = TerminalLauncher._launch_windows_terminal_multi_tab(sessions)
+                success_count, failed_count = TerminalLauncher._launch_windows_terminal_multi_tab(
+                    sessions
+                )
                 assert success_count == 3
                 assert failed_count == 0
                 mock_popen.assert_called_once()
@@ -423,14 +435,16 @@ class TestLaunchWindowsTerminalMultiTab:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("/home/user/.ssh/id_rsa"),
             )
             for i in range(3)
         ]
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()
@@ -454,9 +468,13 @@ class TestLaunchWindowsTerminalMultiTab:
             )
         ]
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = None
-            success_count, failed_count = TerminalLauncher._launch_windows_terminal_multi_tab(sessions)
+            success_count, failed_count = TerminalLauncher._launch_windows_terminal_multi_tab(
+                sessions
+            )
             assert success_count == 0
             assert failed_count == len(sessions)
 
@@ -471,10 +489,14 @@ class TestLaunchWindowsTerminalMultiTab:
             )
         ]
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen", side_effect=Exception("Launch failed")):
-                success_count, failed_count = TerminalLauncher._launch_windows_terminal_multi_tab(sessions)
+                success_count, failed_count = TerminalLauncher._launch_windows_terminal_multi_tab(
+                    sessions
+                )
                 assert success_count == 0
                 assert failed_count == len(sessions)
 
@@ -496,7 +518,9 @@ class TestTerminalLauncherSecurity:
             ssh_key_path=Path("/home/user/.ssh/id_rsa"),
         )
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()
@@ -518,7 +542,9 @@ class TestTerminalLauncherSecurity:
             ssh_key_path=Path("/home/user/.ssh/id_rsa"),
         )
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()
@@ -538,7 +564,9 @@ class TestTerminalLauncherSecurity:
             ssh_key_path=Path("../../etc/passwd"),
         )
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()
@@ -560,7 +588,9 @@ class TestTerminalLauncherSecurity:
             tmux_session="session; malicious",
         )
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()
@@ -580,7 +610,9 @@ class TestTerminalLauncherSecurity:
             ssh_key_path=Path("/home/user/.ssh/id_rsa"),
         )
 
-        with patch("azlin.commands.restore.PlatformDetector.get_windows_terminal_path") as mock_path:
+        with patch(
+            "azlin.commands.restore.PlatformDetector.get_windows_terminal_path"
+        ) as mock_path:
             mock_path.return_value = Path("/mnt/c/wt.exe")
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = Mock()

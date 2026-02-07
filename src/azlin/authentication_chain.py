@@ -220,7 +220,7 @@ class AuthenticationChain:
 
         try:
             # Import here to avoid circular dependency
-            from azure.mgmt.resource import SubscriptionClient
+            from azure.mgmt.subscription import SubscriptionClient  # type: ignore[import-untyped]
 
             # Create subscription client
             client = SubscriptionClient(credentials)

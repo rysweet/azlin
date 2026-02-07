@@ -9,17 +9,17 @@ These tests verify integration between:
 Testing pyramid: 30% of total test suite
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from dataclasses import dataclass
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Import will fail until implementation exists
 try:
     from azlin.commands.restore import (
+        PlatformDetector,
         RestoreSessionConfig,
         TerminalLauncher,
-        PlatformDetector,
         TerminalType,
     )
 except ImportError:
@@ -69,9 +69,8 @@ class TestVMManagerIntegration:
         """Test restore handles VMManager errors."""
         with patch("azlin.vm_manager.VMManager.list_vms") as mock_list:
             mock_list.side_effect = Exception("Azure API error")
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(Exception, match="Azure API error"):
                 mock_list("test-rg")
-            assert "Azure API error" in str(exc_info.value)
 
     def test_restore_filters_by_resource_group(self):
         """Test restore filters VMs by resource group."""
@@ -218,7 +217,7 @@ class TestTerminalLauncherIntegration:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("~/.ssh/id_rsa"),
                 terminal_type=TerminalType.MACOS_TERMINAL,
@@ -236,7 +235,7 @@ class TestTerminalLauncherIntegration:
         sessions = [
             RestoreSessionConfig(
                 vm_name=f"vm-{i}",
-                hostname=f"192.168.1.{100+i}",
+                hostname=f"192.168.1.{100 + i}",
                 username="azureuser",
                 ssh_key_path=Path("~/.ssh/id_rsa"),
                 terminal_type=TerminalType.MACOS_TERMINAL,
@@ -246,8 +245,7 @@ class TestTerminalLauncherIntegration:
 
         # First 3 succeed, last 2 fail
         with patch.object(
-            TerminalLauncher, "launch_session",
-            side_effect=[True, True, True, False, False]
+            TerminalLauncher, "launch_session", side_effect=[True, True, True, False, False]
         ):
             success_count, failed_count = TerminalLauncher.launch_all_sessions(sessions)
             assert success_count == 3
@@ -319,7 +317,9 @@ class TestFullWorkflowIntegration:
         with patch("azlin.vm_manager.VMManager.list_vms") as mock_list:
             mock_list.return_value = mock_vms
 
-            with patch.object(PlatformDetector, "get_default_terminal", return_value=TerminalType.MACOS_TERMINAL):
+            with patch.object(
+                PlatformDetector, "get_default_terminal", return_value=TerminalType.MACOS_TERMINAL
+            ):
                 with patch.object(TerminalLauncher, "launch_all_sessions", return_value=(1, 0)):
                     vms = mock_list("filtered-rg", include_stopped=False)
                     terminal_type = PlatformDetector.get_default_terminal()
@@ -363,7 +363,9 @@ class TestFullWorkflowIntegration:
             mock_list.return_value = mock_vms
 
             with patch("azlin.config_manager.ConfigManager.get_session_name") as mock_get_session:
-                mock_get_session.side_effect = lambda vm_name: session_name_mapping.get(vm_name, "azlin")
+                mock_get_session.side_effect = lambda vm_name: session_name_mapping.get(
+                    vm_name, "azlin"
+                )
 
                 # Get session names
                 session_names = [mock_get_session(vm.name) for vm in mock_vms]
@@ -371,19 +373,16 @@ class TestFullWorkflowIntegration:
 
     def test_full_workflow_with_multi_tab_mode(self):
         """Test workflow with Windows Terminal multi-tab mode."""
-        mock_vms = [
-            Mock(name=f"vm-{i}", public_ip=f"10.0.0.{i}")
-            for i in range(3)
-        ]
+        mock_vms = [Mock(name=f"vm-{i}", public_ip=f"10.0.0.{i}") for i in range(3)]
 
         with patch("azlin.vm_manager.VMManager.list_vms") as mock_list:
             mock_list.return_value = mock_vms
 
-            with patch.object(PlatformDetector, "get_default_terminal", return_value=TerminalType.WINDOWS_TERMINAL):
+            with patch.object(
+                PlatformDetector, "get_default_terminal", return_value=TerminalType.WINDOWS_TERMINAL
+            ):
                 with patch.object(
-                    TerminalLauncher,
-                    "launch_all_sessions",
-                    return_value=(3, 0)
+                    TerminalLauncher, "launch_all_sessions", return_value=(3, 0)
                 ) as mock_launch:
                     vms = mock_list("test-rg", include_stopped=False)
                     terminal_type = PlatformDetector.get_default_terminal()
@@ -399,9 +398,7 @@ class TestFullWorkflowIntegration:
                         for vm in vms
                     ]
 
-                    success, failed = TerminalLauncher.launch_all_sessions(
-                        sessions, multi_tab=True
-                    )
+                    success, failed = TerminalLauncher.launch_all_sessions(sessions, multi_tab=True)
                     assert success == 3
                     assert failed == 0
                     mock_launch.assert_called_once()
@@ -419,22 +416,20 @@ class TestErrorHandlingIntegration:
         """Test handling VMManager failures."""
         with patch("azlin.vm_manager.VMManager.list_vms") as mock_list:
             mock_list.side_effect = Exception("Azure API timeout")
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(Exception, match="Azure API timeout"):
                 mock_list("test-rg")
-            assert "Azure API timeout" in str(exc_info.value)
 
     def test_handles_config_load_failure(self):
         """Test handling config load failures."""
         with patch("azlin.config_manager.ConfigManager.load_config") as mock_load:
             mock_load.side_effect = Exception("Config parse error")
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(Exception, match="Config parse error"):
                 mock_load()
-            assert "Config parse error" in str(exc_info.value)
 
     def test_handles_platform_detection_failure(self):
         """Test handling platform detection failures."""
         with patch("platform.system", side_effect=Exception("Platform error")):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Platform error"):
                 PlatformDetector.detect_platform()
 
     def test_continues_on_partial_terminal_launch_failure(self):
@@ -452,8 +447,7 @@ class TestErrorHandlingIntegration:
 
         # Simulate intermittent failures
         with patch.object(
-            TerminalLauncher, "launch_session",
-            side_effect=[True, False, True, False, True]
+            TerminalLauncher, "launch_session", side_effect=[True, False, True, False, True]
         ):
             success, failed = TerminalLauncher.launch_all_sessions(sessions)
             assert success == 3
