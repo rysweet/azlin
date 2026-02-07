@@ -24,7 +24,6 @@ import glob
 import logging
 import platform
 import re
-import shlex
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
@@ -429,7 +428,7 @@ class TerminalLauncher:
             applescript = f'''
                 tell application "Terminal"
                     activate
-                    do script "{' '.join(azlin_cmd)}"
+                    do script "{" ".join(azlin_cmd)}"
                 end tell
             '''
             subprocess.Popen(
@@ -441,7 +440,6 @@ class TerminalLauncher:
         except Exception as e:
             logger.error(f"Failed to launch macOS Terminal: {type(e).__name__}")
             return False
-
 
     @classmethod
     def _launch_windows_terminal(cls, config: RestoreSessionConfig) -> bool:
@@ -516,7 +514,9 @@ class TerminalLauncher:
     def _launch_gnome_terminal(cls, config: RestoreSessionConfig) -> bool:
         """Launch gnome-terminal with azlin connect command."""
         # Build azlin connect command (handles bastion automatically)
-        azlin_cmd = f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
+        azlin_cmd = (
+            f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
+        )
 
         try:
             subprocess.Popen(
@@ -541,7 +541,9 @@ class TerminalLauncher:
     def _launch_xterm(cls, config: RestoreSessionConfig) -> bool:
         """Launch xterm with azlin connect command."""
         # Build azlin connect command (handles bastion automatically)
-        azlin_cmd = f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
+        azlin_cmd = (
+            f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
+        )
 
         try:
             subprocess.Popen(
