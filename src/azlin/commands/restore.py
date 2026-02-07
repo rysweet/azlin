@@ -123,6 +123,35 @@ def _validate_session_name(session_name: str) -> None:
         raise SecurityValidationError(f"Invalid session name format: {session_name}")
 
 
+def _validate_username(username: str) -> None:
+    """Validate SSH username for command injection prevention.
+
+    Args:
+        username: Username to validate
+
+    Raises:
+        SecurityValidationError: If username contains invalid characters
+    """
+    if not isinstance(username, str):
+        raise SecurityValidationError(f"Username must be string, got {type(username)}")
+
+    if not username:
+        raise SecurityValidationError("Username cannot be empty")
+
+    # Allow alphanumeric, dots, hyphens, underscores (standard Unix usernames)
+    pattern = r"^[a-zA-Z0-9.\-_]+$"
+    if not re.match(pattern, username):
+        raise SecurityValidationError(f"Invalid username format: {username}")
+
+    # Additional command injection check
+    dangerous_chars = [";", "&", "|", "`", "$", "(", ")", "<", ">", "\n", "\r", " "]
+    for char in dangerous_chars:
+        if char in username:
+            raise SecurityValidationError(
+                f"Username contains dangerous character: {char}"
+            )
+
+
 def _validate_ssh_key_path(ssh_key_path: Path) -> None:
     """Validate SSH key path (allowlist ~/.ssh or ~/.azlin).
 
@@ -200,6 +229,7 @@ class RestoreSessionConfig:
         """Validate configuration after initialization."""
         _validate_vm_name(self.vm_name)
         _validate_hostname(self.hostname)
+        _validate_username(self.username)
         _validate_session_name(self.tmux_session)
         _validate_ssh_key_path(self.ssh_key_path)
 
