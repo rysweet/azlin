@@ -449,20 +449,32 @@ class TerminalLauncher:
             logger.error("Windows Terminal (wt.exe) not found")
             return False
 
-        # Build azlin connect command using uvx (handles bastion automatically)
-        azlin_cmd = f"uvx azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Find full path to uvx (typically ~/.local/bin/uvx)
+        uvx_paths = [
+            str(Path.home() / ".local" / "bin" / "uvx"),
+            "/usr/local/bin/uvx",
+            "/usr/bin/uvx",
+        ]
+        uvx_cmd = "uvx"  # Fallback to PATH
+        for path in uvx_paths:
+            if Path(path).exists():
+                uvx_cmd = path
+                break
+
+        # Build azlin connect command (handles bastion automatically)
+        azlin_cmd = f"{uvx_cmd} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
+            # Launch separate wt.exe process for new window (each call creates new window)
             subprocess.Popen(
                 [
                     str(wt_path),
-                    "-w", "-1",  # -w -1 forces new window (not tabs in existing)
                     "--title",
-                    f"azlin - {config.vm_name}",
+                    f"azlin - {config.vm_name}:{config.tmux_session}",
                     "wsl",
                     "-e",
                     "bash",
-                    "-l",  # Login shell to load full environment (PATH, etc.)
+                    "-l",  # Login shell to load full environment
                     "-c",
                     azlin_cmd,
                 ],
@@ -485,19 +497,31 @@ class TerminalLauncher:
             logger.error("Windows Terminal (wt.exe) not found")
             return 0, len(sessions)
 
+        # Find full path to uvx
+        uvx_paths = [
+            str(Path.home() / ".local" / "bin" / "uvx"),
+            "/usr/local/bin/uvx",
+            "/usr/bin/uvx",
+        ]
+        uvx_cmd = "uvx"  # Fallback
+        for path in uvx_paths:
+            if Path(path).exists():
+                uvx_cmd = path
+                break
+
         # Build multi-tab command
         wt_args = [str(wt_path), "-w", "0"]  # -w 0 = use existing window or create new
 
         for i, config in enumerate(sessions):
-            # Build azlin connect command using uvx (handles bastion automatically)
-            azlin_cmd = f"uvx azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            # Build azlin connect command with full path (handles bastion automatically)
+            azlin_cmd = f"{uvx_cmd} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
             if i == 0:
                 # First tab
-                wt_args.extend(["new-tab", "--title", f"azlin - {config.vm_name}"])
+                wt_args.extend(["new-tab", "--title", f"azlin - {config.vm_name}:{config.tmux_session}"])
             else:
                 # Subsequent tabs
-                wt_args.extend([";", "new-tab", "--title", f"azlin - {config.vm_name}"])
+                wt_args.extend([";", "new-tab", "--title", f"azlin - {config.vm_name}:{config.tmux_session}"])
 
             wt_args.extend(["wsl", "-e", "bash", "-l", "-c", azlin_cmd])
 
@@ -515,9 +539,21 @@ class TerminalLauncher:
     @classmethod
     def _launch_gnome_terminal(cls, config: RestoreSessionConfig) -> bool:
         """Launch gnome-terminal with azlin connect command."""
-        # Build azlin connect command using uvx (handles bastion automatically)
+        # Find full path to uvx
+        uvx_paths = [
+            str(Path.home() / ".local" / "bin" / "uvx"),
+            "/usr/local/bin/uvx",
+            "/usr/bin/uvx",
+        ]
+        uvx_cmd = "uvx"
+        for path in uvx_paths:
+            if Path(path).exists():
+                uvx_cmd = path
+                break
+
+        # Build azlin connect command with full path (handles bastion automatically)
         azlin_cmd = (
-            f"uvx azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
+            f"{uvx_cmd} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
         )
 
         try:
@@ -525,7 +561,7 @@ class TerminalLauncher:
                 [
                     "gnome-terminal",
                     "--title",
-                    f"azlin - {config.vm_name}",
+                    f"azlin - {config.vm_name}:{config.tmux_session}",
                     "--",
                     "bash",
                     "-l",  # Login shell for full environment
@@ -543,9 +579,21 @@ class TerminalLauncher:
     @classmethod
     def _launch_xterm(cls, config: RestoreSessionConfig) -> bool:
         """Launch xterm with azlin connect command."""
-        # Build azlin connect command using uvx (handles bastion automatically)
+        # Find full path to uvx
+        uvx_paths = [
+            str(Path.home() / ".local" / "bin" / "uvx"),
+            "/usr/local/bin/uvx",
+            "/usr/bin/uvx",
+        ]
+        uvx_cmd = "uvx"
+        for path in uvx_paths:
+            if Path(path).exists():
+                uvx_cmd = path
+                break
+
+        # Build azlin connect command with full path (handles bastion automatically)
         azlin_cmd = (
-            f"uvx azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
+            f"{uvx_cmd} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
         )
 
         try:
@@ -553,7 +601,7 @@ class TerminalLauncher:
                 [
                     "xterm",
                     "-title",
-                    f"azlin - {config.vm_name}",
+                    f"azlin - {config.vm_name}:{config.tmux_session}",
                     "-e",
                     "bash",
                     "-l",  # Login shell for full environment
