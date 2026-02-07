@@ -3635,23 +3635,23 @@ def list_command(
             table.add_column("Session Name", style="cyan", no_wrap=True)
             table.add_column("VM Name", style="white", no_wrap=True)
         elif compact_mode:
-            table.add_column("Session Name", style="cyan", width=15)
-            table.add_column("VM Name", style="white", width=20)
+            table.add_column("Session Name", style="cyan", width=12)
+            table.add_column("VM Name", style="white", width=18)
         else:
-            table.add_column("Session Name", style="cyan", width=20)
-            table.add_column("VM Name", style="white", width=30)
+            table.add_column("Session Name", style="cyan", width=14)
+            table.add_column("VM Name", style="white", width=22)
 
         if compact_mode:
             table.add_column("Status", width=8)
             table.add_column("IP", style="yellow", width=13)
             table.add_column("Region", width=8)
-            table.add_column("Size", width=12)
+            table.add_column("SKU", width=12)
             table.add_column("vCPUs", justify="right", width=5)
         else:
             table.add_column("Status", width=10)
             table.add_column("IP", style="yellow", width=15)
             table.add_column("Region", width=10)
-            table.add_column("Size", width=15)
+            table.add_column("SKU", width=15)
             table.add_column("vCPUs", justify="right", width=6)
         table.add_column("Memory", justify="right", width=8)
 
@@ -3659,7 +3659,7 @@ def list_command(
             table.add_column("Latency", justify="right", width=10)
 
         if show_tmux:
-            table.add_column("Tmux Sessions", style="magenta", width=30)
+            table.add_column("Tmux Sessions", style="magenta", width=45)
 
         # Add rows
         for vm in vms:
@@ -3758,6 +3758,11 @@ def list_command(
             summary_parts.append(f"{running_vms} running")
             summary_parts.append(f"{total_vcpus} vCPUs in use")
             summary_parts.append(f"{total_memory} GB memory in use")
+
+        # Add tmux session count if tmux display is enabled
+        if show_tmux and tmux_by_vm:
+            total_tmux_sessions = sum(len(sessions) for sessions in tmux_by_vm.values())
+            summary_parts.append(f"{total_tmux_sessions} tmux sessions")
 
         console.print(f"\n[bold]{' | '.join(summary_parts)}[/bold]")
 
