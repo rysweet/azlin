@@ -186,8 +186,8 @@ def _validate_ssh_key_path(ssh_key_path: Path) -> None:
             continue
 
     raise SecurityValidationError(
-        f"SSH key path outside allowed directories: {ssh_key_path}\n"
-        f"Allowed: ~/.ssh/ or ~/.azlin/"
+        "SSH key path outside allowed directories.\n"
+        "Allowed: ~/.ssh/ or ~/.azlin/"
     )
 
 

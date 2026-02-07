@@ -312,22 +312,39 @@ class TestSecurityInputValidation:
     def test_error_message_sanitization(self):
         """Test error messages don't leak sensitive information."""
         from azlin.commands.restore import SecurityValidationError, RestoreSessionConfig
+        import os
 
-        # Test: Invalid SSH key path shouldn't leak full path
-        with pytest.raises(SecurityValidationError) as exc:
-            RestoreSessionConfig(
-                vm_name="test-vm",
-                hostname="10.0.0.1",
-                username="testuser",
-                ssh_key_path=Path("/secret/path/to/private/key.pem"),
-                tmux_session="test"
-            )
+        # Temporarily disable test mode to verify actual validation
+        old_pytest = os.environ.get("PYTEST_CURRENT_TEST")
+        old_azlin = os.environ.get("AZLIN_TEST_MODE")
 
-        error_msg = str(exc.value)
-        # Error should be helpful but not leak full path details
-        assert "SSH key path" in error_msg.lower()
-        # Should not expose the full secret path
-        assert "/secret/path/to/private" not in error_msg
+        if old_pytest:
+            del os.environ["PYTEST_CURRENT_TEST"]
+        if old_azlin:
+            del os.environ["AZLIN_TEST_MODE"]
+
+        try:
+            # Test: Invalid SSH key path shouldn't leak full path
+            with pytest.raises(SecurityValidationError) as exc:
+                RestoreSessionConfig(
+                    vm_name="test-vm",
+                    hostname="10.0.0.1",
+                    username="testuser",
+                    ssh_key_path=Path("/secret/path/to/private/key.pem"),
+                    tmux_session="test"
+                )
+
+            error_msg = str(exc.value)
+            # Error should be helpful but not leak full path details
+            assert "ssh key path" in error_msg.lower()
+            # Should not expose the full secret path
+            assert "/secret/path/to/private" not in error_msg
+        finally:
+            # Restore test mode
+            if old_pytest:
+                os.environ["PYTEST_CURRENT_TEST"] = old_pytest
+            if old_azlin:
+                os.environ["AZLIN_TEST_MODE"] = old_azlin
 
 
 # ============================================================================
