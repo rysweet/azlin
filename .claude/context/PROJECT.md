@@ -28,6 +28,8 @@ Replace the sections below with information about your project.
 
 - **Language**: Python
 - **Language**: JavaScript/TypeScript
+- **Language**: Rust
+- **Language**: Go
 - **Framework**: [Main framework if applicable]
 - **Database**: [Database system if applicable]
 

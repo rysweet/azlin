@@ -14,6 +14,9 @@ Security:
 
 import ipaddress
 import logging
+import os
+import random
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +37,78 @@ from azlin.terminal_launcher import TerminalConfig, TerminalLauncher, TerminalLa
 from azlin.vm_manager import VMManager, VMManagerError
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# BASTION TUNNEL RETRY HELPERS (Issue #588)
+# ============================================================================
+
+
+def _get_config_int(env_var: str, default: int) -> int:
+    """Get integer config from environment with safe fallback."""
+    try:
+        return int(os.getenv(env_var, default))
+    except (ValueError, TypeError):
+        return default
+
+
+def _create_tunnel_with_retry(
+    bastion_manager: BastionManager,
+    bastion_name: str,
+    bastion_resource_group: str,
+    vm_resource_id: str,
+    local_port: int,
+    max_attempts: int = 3,
+):
+    """Create Bastion tunnel with retry logic.
+
+    Args:
+        bastion_manager: BastionManager instance
+        bastion_name: Bastion host name
+        bastion_resource_group: Bastion resource group
+        vm_resource_id: Full Azure VM resource ID
+        local_port: Local port to bind tunnel to
+        max_attempts: Maximum retry attempts (default: 3)
+
+    Returns:
+        BastionTunnel ready for use
+
+    Raises:
+        BastionManagerError: If tunnel creation fails after all retries
+    """
+    last_error: Exception | None = None
+    initial_delay = 1.0
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            logger.debug(f"Attempting tunnel creation (attempt {attempt}/{max_attempts})")
+            tunnel = bastion_manager.create_tunnel(
+                bastion_name=bastion_name,
+                resource_group=bastion_resource_group,
+                target_vm_id=vm_resource_id,
+                local_port=local_port,
+                remote_port=22,
+            )
+            if attempt > 1:
+                logger.info(f"Tunnel created successfully (attempt {attempt}/{max_attempts})")
+            return tunnel
+
+        except (BastionManagerError, TimeoutError, ConnectionError) as e:
+            last_error = e
+            if attempt < max_attempts:
+                delay = initial_delay * (2 ** (attempt - 1))
+                delay *= 1 + random.uniform(-0.2, 0.2)  # noqa: S311
+                logger.warning(
+                    f"Tunnel creation failed (attempt {attempt}/{max_attempts}), "
+                    f"retrying in {delay:.1f}s: {e}"
+                )
+                time.sleep(delay)
+            else:
+                logger.error(f"Tunnel creation failed after {max_attempts} attempts: {e}")
+
+    raise BastionManagerError(
+        f"Failed to create Bastion tunnel after {max_attempts} attempts"
+    ) from last_error
 
 
 def _sanitize_for_logging(value: str) -> str:
@@ -782,13 +857,17 @@ class VMConnector:
             # Find available port
             local_port = bastion_manager.get_available_port()
 
-            # Create tunnel
-            tunnel = bastion_manager.create_tunnel(
+            # Get retry attempts from environment
+            retry_attempts = _get_config_int("AZLIN_BASTION_RETRY_ATTEMPTS", 3)
+
+            # Create tunnel with retry logic (Issue #588)
+            tunnel = _create_tunnel_with_retry(
+                bastion_manager=bastion_manager,
                 bastion_name=bastion_name,
-                resource_group=bastion_resource_group,
-                target_vm_id=vm_resource_id,
+                bastion_resource_group=bastion_resource_group,
+                vm_resource_id=vm_resource_id,
                 local_port=local_port,
-                remote_port=22,
+                max_attempts=retry_attempts,
             )
 
             return (bastion_manager, tunnel)

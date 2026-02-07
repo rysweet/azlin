@@ -1087,20 +1087,40 @@ class CLIOrchestrator:
             self.progress.update("Allocating local port for Bastion tunnel...")
             local_port = bastion_mgr.get_available_port()
 
-            # Step 2: Create tunnel (60s timeout for tunnel establishment)
+            # Step 2: Create tunnel with retry logic (60s timeout, Issue #588)
             self.progress.update(
                 f"Creating Bastion tunnel via {bastion_info['name']} (localhost:{local_port})..."
             )
 
-            _tunnel = bastion_mgr.create_tunnel(
-                bastion_name=bastion_info["name"],
-                resource_group=bastion_info["resource_group"],
-                target_vm_id=vm_details.id,
-                local_port=local_port,
-                remote_port=22,
-                wait_for_ready=True,
-                timeout=60,
-            )
+            retry_attempts = _get_config_int("AZLIN_BASTION_RETRY_ATTEMPTS", 3)
+            last_error: Exception | None = None
+
+            for attempt in range(1, retry_attempts + 1):
+                try:
+                    _tunnel = bastion_mgr.create_tunnel(
+                        bastion_name=bastion_info["name"],
+                        resource_group=bastion_info["resource_group"],
+                        target_vm_id=vm_details.id,
+                        local_port=local_port,
+                        remote_port=22,
+                        wait_for_ready=True,
+                        timeout=60,
+                    )
+                    break  # Success
+                except (BastionManagerError, TimeoutError) as e:
+                    last_error = e
+                    if attempt < retry_attempts:
+                        delay = 1.0 * (2 ** (attempt - 1))
+                        delay *= 1 + random.uniform(-0.2, 0.2)  # noqa: S311
+                        self.progress.update(
+                            f"Tunnel creation failed (attempt {attempt}/{retry_attempts}), "
+                            f"retrying in {delay:.0f}s..."
+                        )
+                        time.sleep(delay)
+                    else:
+                        raise BastionManagerError(
+                            f"Failed to create Bastion tunnel after {retry_attempts} attempts"
+                        ) from e
 
             self.progress.update("Bastion tunnel established")
 
