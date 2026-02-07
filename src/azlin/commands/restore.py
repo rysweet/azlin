@@ -22,6 +22,7 @@ Security:
 
 import glob
 import logging
+import os
 import platform
 import re
 import subprocess
@@ -32,6 +33,10 @@ from pathlib import Path
 import click
 
 logger = logging.getLogger(__name__)
+
+# Default azlin repository for uvx installation
+# Can be overridden via AZLIN_REPO_URL environment variable
+DEFAULT_AZLIN_REPO = "git+https://github.com/rysweet/azlin"
 
 
 # ============================================================================
@@ -426,7 +431,9 @@ class TerminalLauncher:
                 break
 
         # Build azlin connect command with full git repo syntax
-        azlin_cmd = f"{uvx_cmd} --from git+https://github.com/rysweet/azlin azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Get repo URL from environment or use default
+        repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
+        azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
             # Use osascript to launch Terminal.app with azlin connect
@@ -467,7 +474,9 @@ class TerminalLauncher:
                 break
 
         # Build azlin connect command with full git repo syntax (handles bastion automatically)
-        azlin_cmd = f"{uvx_cmd} --from git+https://github.com/rysweet/azlin azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Get repo URL from environment or use default
+        repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
+        azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
             # Launch separate wt.exe process - each invocation creates new window by default
@@ -519,7 +528,9 @@ class TerminalLauncher:
 
         for i, config in enumerate(sessions):
             # Build azlin connect command with full git repo syntax
-            azlin_cmd = f"{uvx_cmd} --from git+https://github.com/rysweet/azlin azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            # Get repo URL from environment or use default
+        repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
+        azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
             if i > 0:
                 # Add separator before subsequent tabs
@@ -565,7 +576,9 @@ class TerminalLauncher:
                 break
 
         # Build azlin connect command with full git repo syntax
-        azlin_cmd = f"{uvx_cmd} --from git+https://github.com/rysweet/azlin azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Get repo URL from environment or use default
+        repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
+        azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
             subprocess.Popen(
@@ -603,7 +616,9 @@ class TerminalLauncher:
                 break
 
         # Build azlin connect command with full git repo syntax
-        azlin_cmd = f"{uvx_cmd} --from git+https://github.com/rysweet/azlin azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Get repo URL from environment or use default
+        repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
+        azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
             subprocess.Popen(
