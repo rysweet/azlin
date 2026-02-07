@@ -12,6 +12,7 @@ Security:
 
 import logging
 import re
+import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -335,7 +336,8 @@ class TerminalLauncher:
         elif config.tmux_session:
             # Interactive mode: attach to or create tmux session
             # This is used when: azlin connect vm (no command specified)
-            remote_cmd = f"tmux attach-session -t {config.tmux_session} || tmux new-session -s {config.tmux_session}"
+            safe_session = shlex.quote(config.tmux_session)
+            remote_cmd = f"tmux attach-session -t {safe_session} 2>/dev/null || tmux new-session -s {safe_session}"
             cmd.append(remote_cmd)
 
         return cmd
