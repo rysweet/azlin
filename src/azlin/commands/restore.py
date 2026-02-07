@@ -462,6 +462,7 @@ class TerminalLauncher:
                     "wsl",
                     "-e",
                     "bash",
+                    "-l",  # Login shell to load full environment (PATH, etc.)
                     "-c",
                     azlin_cmd,
                 ],
@@ -498,7 +499,7 @@ class TerminalLauncher:
                 # Subsequent tabs
                 wt_args.extend([";", "new-tab", "--title", f"azlin - {config.vm_name}"])
 
-            wt_args.extend(["wsl", "-e", "bash", "-c", azlin_cmd])
+            wt_args.extend(["wsl", "-e", "bash", "-l", "-c", azlin_cmd])
 
         try:
             subprocess.Popen(
@@ -527,6 +528,7 @@ class TerminalLauncher:
                     f"azlin - {config.vm_name}",
                     "--",
                     "bash",
+                    "-l",  # Login shell for full environment
                     "-c",
                     azlin_cmd,
                 ],
@@ -554,6 +556,7 @@ class TerminalLauncher:
                     f"azlin - {config.vm_name}",
                     "-e",
                     "bash",
+                    "-l",  # Login shell for full environment
                     "-c",
                     azlin_cmd,
                 ],
