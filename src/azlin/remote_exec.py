@@ -406,6 +406,8 @@ class TmuxSessionExecutor:
                 # Detect format by checking field structure
                 # New format has 3+ colons with field[1] being '0' or '1'
                 parts = line.split(":")
+                # Strip whitespace from all parts to handle edge cases
+                parts = [p.strip() for p in parts]
 
                 # Try new format first: name:attached:windows:created
                 # New format must have exactly 4 fields and field[1] must be '0' or '1'
@@ -419,7 +421,7 @@ class TmuxSessionExecutor:
                         pass
                     else:
                         # New format confirmed
-                        session_name = parts[0].strip()
+                        session_name = parts[0]  # Already stripped
                         attached = parts[1] == "1"  # '1' = connected, '0' = disconnected
 
                         # Created time is the remaining fields joined
@@ -439,8 +441,8 @@ class TmuxSessionExecutor:
                 # Fall back to old format: "name: X windows (created date) [attached]"
                 # Old format must have the word "window" in it to be valid
                 if len(parts) >= 2 and "window" in ":".join(parts[1:]):
-                    session_name = parts[0].strip()
-                    rest = ":".join(parts[1:]).strip()
+                    session_name = parts[0]  # Already stripped above
+                    rest = ":".join(parts[1:])  # Already stripped above
 
                     # Check if attached (old format uses "(attached)" suffix)
                     attached = "(attached)" in rest

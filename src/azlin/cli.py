@@ -4969,16 +4969,53 @@ def _interactive_vm_selection(
             sys.exit(0)
 
 
+def _is_valid_vm_name(vm_name: str, config: str | None) -> bool:
+    """Check if a string is a valid VM name (exists in the configured resource group).
+
+    Args:
+        vm_name: Potential VM name to check
+        config: Config file path (optional)
+
+    Returns:
+        True if a VM with this name exists, False otherwise
+    """
+    try:
+        rg = ConfigManager.get_resource_group(None, config)
+        if not rg:
+            return False
+        vm_info = VMManager.get_vm(vm_name, rg)
+        return vm_info is not None
+    except Exception:
+        return False
+
+
 def _resolve_vm_identifier(vm_identifier: str, config: str | None) -> tuple[str, str]:
     """Resolve session name to VM name and return both.
+
+    Only resolves session names to VM names if the identifier is NOT already
+    a valid VM name. This prevents accidental redirection when a VM name
+    happens to match a session name configured for a different VM.
+
+    Resolution is SKIPPED when:
+    - The identifier is a valid IP address
+    - The identifier is already a valid VM name
+    - The identifier equals the resolved VM name (self-referential)
 
     Returns:
         Tuple of (resolved_identifier, original_identifier)
     """
     original_identifier = vm_identifier
     if not VMConnector.is_valid_ip(vm_identifier):
+        # First check if this is already a valid VM name - if so, don't resolve
+        # This prevents: User types "amplifier" (a VM) but session "amplifier"
+        # exists on VM "atg-dev" -> should connect to VM "amplifier", not "atg-dev"
+        if _is_valid_vm_name(vm_identifier, config):
+            logger.debug(f"'{vm_identifier}' is a valid VM name, skipping session resolution")
+            return vm_identifier, original_identifier
+
+        # Not a VM name, try to resolve as session name
         resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_identifier, config)
-        if resolved_vm_name:
+        if resolved_vm_name and resolved_vm_name != vm_identifier:
             click.echo(f"Resolved session '{vm_identifier}' to VM '{resolved_vm_name}'")
             vm_identifier = resolved_vm_name
     return vm_identifier, original_identifier

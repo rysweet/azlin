@@ -525,7 +525,8 @@ class TerminalLauncher:
                 uvx_cmd = path
                 break
 
-        # Build multi-tab command - first tab uses default, rest use ; separator
+        # Build multi-tab command
+        # First tab is the default (no new-tab), subsequent tabs use ; new-tab
         wt_args = [str(wt_path)]
 
         for i, config in enumerate(sessions):
@@ -534,26 +535,40 @@ class TerminalLauncher:
             # Build azlin connect command with full git repo syntax
             azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
-            if i > 0:
-                # Add separator before subsequent tabs
-                wt_args.append(";")
-
-            # Add new tab with command and profile (profile = hostname)
-            wt_args.extend(
-                [
-                    "new-tab",
-                    "-p",
-                    config.vm_name,  # Use VM name as profile
-                    "--title",
-                    f"azlin - {config.vm_name}:{config.tmux_session}",
-                    "wsl.exe",
-                    "-e",
-                    "bash",
-                    "-l",
-                    "-c",
-                    azlin_cmd,
-                ]
-            )
+            if i == 0:
+                # First tab: use default tab arguments (no new-tab command)
+                wt_args.extend(
+                    [
+                        "-p",
+                        config.vm_name,  # Use VM name as profile
+                        "--title",
+                        f"azlin - {config.vm_name}:{config.tmux_session}",
+                        "wsl.exe",
+                        "-e",
+                        "bash",
+                        "-l",
+                        "-c",
+                        azlin_cmd,
+                    ]
+                )
+            else:
+                # Subsequent tabs: use ; new-tab separator
+                wt_args.extend(
+                    [
+                        ";",
+                        "new-tab",
+                        "-p",
+                        config.vm_name,  # Use VM name as profile
+                        "--title",
+                        f"azlin - {config.vm_name}:{config.tmux_session}",
+                        "wsl.exe",
+                        "-e",
+                        "bash",
+                        "-l",
+                        "-c",
+                        azlin_cmd,
+                    ]
+                )
 
         try:
             subprocess.Popen(
@@ -818,27 +833,46 @@ def restore_command(
                 wt_path = PlatformDetector.get_windows_terminal_path()
                 click.echo(f"{wt_path} \\")
                 for i, session in enumerate(sessions):
-                    sep = ";" if i > 0 else ""
                     azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session}"
-                    click.echo(f"  {sep} new-tab -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' \\")
-                    click.echo(f"    wsl.exe -e bash -l -c '{azlin_cmd}' \\")
+                    if i == 0:
+                        # First tab: no new-tab command
+                        click.echo(
+                            f"  -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' \\"
+                        )
+                        click.echo(f"    wsl.exe -e bash -l -c '{azlin_cmd}' \\")
+                    else:
+                        # Subsequent tabs: use ; new-tab
+                        click.echo(
+                            f"  ; new-tab -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' \\"
+                        )
+                        click.echo(f"    wsl.exe -e bash -l -c '{azlin_cmd}' \\")
                 click.echo()
             else:
                 click.echo("Mode: Separate windows\n")
                 for session in sessions:
                     azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session}"
                     # Print session info as comment for script-like output
-                    click.echo(f"# Session: {session.vm_name}:{session.tmux_session} ({session.hostname})")
+                    click.echo(
+                        f"# Session: {session.vm_name}:{session.tmux_session} ({session.hostname})"
+                    )
                     if terminal_type == TerminalType.WINDOWS_TERMINAL:
                         wt_path = PlatformDetector.get_windows_terminal_path()
-                        click.echo(f"{wt_path} -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' \\")
+                        click.echo(
+                            f"{wt_path} -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' \\"
+                        )
                         click.echo(f"  wsl.exe -e bash -l -c '{azlin_cmd}'")
                     elif terminal_type == TerminalType.MACOS_TERMINAL:
-                        click.echo(f"osascript -e 'tell application \"Terminal\" to do script \"{azlin_cmd}\"'")
+                        click.echo(
+                            f'osascript -e \'tell application "Terminal" to do script "{azlin_cmd}"\''
+                        )
                     elif terminal_type == TerminalType.LINUX_GNOME:
-                        click.echo(f"gnome-terminal --title 'azlin - {session.vm_name}:{session.tmux_session}' -- bash -l -c '{azlin_cmd}'")
+                        click.echo(
+                            f"gnome-terminal --title 'azlin - {session.vm_name}:{session.tmux_session}' -- bash -l -c '{azlin_cmd}'"
+                        )
                     elif terminal_type == TerminalType.LINUX_XTERM:
-                        click.echo(f"xterm -title 'azlin - {session.vm_name}:{session.tmux_session}' -e bash -l -c '{azlin_cmd}'")
+                        click.echo(
+                            f"xterm -title 'azlin - {session.vm_name}:{session.tmux_session}' -e bash -l -c '{azlin_cmd}'"
+                        )
                     else:
                         # Unknown terminal type - show generic command
                         click.echo(f"# Terminal: {terminal_type}")
