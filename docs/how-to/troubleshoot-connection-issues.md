@@ -1121,6 +1121,41 @@ If querying many VMs simultaneously:
 azlin list --sequential
 ```
 
+**Solution 4: Configure Bastion tunnel retry and rate limiting**
+
+When restoring 10+ VMs with `azlin restore`, tunnel creation may fail due to Azure Bastion rate limits or transient errors. Azlin automatically retries failed tunnel creations with exponential backoff.
+
+**Environment variables to tune behavior:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AZLIN_BASTION_RETRY_ATTEMPTS` | 3 | Max retry attempts per tunnel |
+| `AZLIN_BASTION_RATE_LIMIT` | 0.5 | Delay (seconds) between tunnel creations |
+| `AZLIN_BASTION_MAX_TUNNELS` | 10 | Max concurrent tunnels in connection pool |
+| `AZLIN_BASTION_IDLE_TIMEOUT` | 300 | Seconds before idle tunnel is cleaned up |
+
+**Example: Increase resilience fer slow networks:**
+```bash
+# More retries with longer delays between tunnels
+export AZLIN_BASTION_RETRY_ATTEMPTS=5
+export AZLIN_BASTION_RATE_LIMIT=2.0
+azlin restore
+```
+
+**Example: Check retry behavior in logs:**
+```bash
+azlin --debug restore 2>&1 | grep -i "tunnel\|retry"
+```
+
+Expected log output:
+```
+Attempting tunnel creation for VM vm-01
+Rate limiting: waiting 0.5s before next tunnel
+Failed to create tunnel for VM vm-02 (attempt 1/3), retrying in 1.0s
+Attempting tunnel creation for VM vm-02
+Tunnel created successfully for VM vm-02 (attempt 2/3)
+```
+
 ---
 
 ### Issue: Debug Logging Shows "Connection successful" But Still "No sessions"
