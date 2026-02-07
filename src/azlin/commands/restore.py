@@ -539,19 +539,21 @@ class TerminalLauncher:
                 wt_args.append(";")
 
             # Add new tab with command and profile (profile = hostname)
-            wt_args.extend([
-                "new-tab",
-                "-p",
-                config.vm_name,  # Use VM name as profile
-                "--title",
-                f"azlin - {config.vm_name}:{config.tmux_session}",
-                "wsl.exe",
-                "-e",
-                "bash",
-                "-l",
-                "-c",
-                azlin_cmd,
-            ])
+            wt_args.extend(
+                [
+                    "new-tab",
+                    "-p",
+                    config.vm_name,  # Use VM name as profile
+                    "--title",
+                    f"azlin - {config.vm_name}:{config.tmux_session}",
+                    "wsl.exe",
+                    "-e",
+                    "bash",
+                    "-l",
+                    "-c",
+                    azlin_cmd,
+                ]
+            )
 
         try:
             subprocess.Popen(
