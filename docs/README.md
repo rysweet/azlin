@@ -11,12 +11,18 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 - **[pwa/README.md](pwa/README.md)** - Mobile PWA for managing VMs from iPhone (zero-config setup!)
 - **[pwa/getting-started.md](pwa/getting-started.md)** - PWA installation and automatic configuration guide
 - **[reference/destroy-command.md](reference/destroy-command.md)** - Complete guide to VM deletion
+- **[how-to/restore-sessions.md](how-to/restore-sessions.md)** - Restore all active VM sessions with new terminal windows
+- **[tutorials/quick-start-restore.md](tutorials/quick-start-restore.md)** - 5-minute quick start guide for session restore
+- **[tutorials/platform-setup-restore.md](tutorials/platform-setup-restore.md)** - Platform-specific setup guide for session restore
+- **[reference/configuration-reference.md](reference/configuration-reference.md)** - Complete configuration reference for terminal and restore settings
 - **[UV_USAGE.md](UV_USAGE.md)** - Using azlin with uv package manager
 - **[how-to/troubleshoot-connection-issues.md](how-to/troubleshoot-connection-issues.md)** - Comprehensive troubleshooting guide
 - **[troubleshooting/timeout-issues.md](troubleshooting/timeout-issues.md)** - Timeout troubleshooting for azlin list command
+- **[troubleshooting/restore-issues.md](troubleshooting/restore-issues.md)** - Troubleshooting session restore issues
 - **[backup-disaster-recovery.md](backup-disaster-recovery.md)** - Automated backup scheduling, cross-region replication, and DR testing
 - **[features/tmux-session-status.md](features/tmux-session-status.md)** - Visual tmux session connection status in VM listings
 - **[features/memory-latency.md](features/memory-latency.md)** - Memory allocation and network latency monitoring
+- **[features/session-restore.md](features/session-restore.md)** - Automatic session restore feature overview and architecture
 
 ### For Developers
 

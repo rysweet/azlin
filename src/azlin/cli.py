@@ -75,6 +75,9 @@ from azlin.commands.doit import doit_group
 from azlin.commands.fleet import fleet_group
 from azlin.commands.github_runner import github_runner_group
 from azlin.commands.monitoring import status
+
+# Restore command
+from azlin.commands.restore import restore_command
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
@@ -5584,6 +5587,7 @@ def code_command(
             try:
                 click.echo("Press Ctrl+C to close the tunnel when done with VS Code...")
                 import time
+
                 while True:
                     time.sleep(1)
             except KeyboardInterrupt:
@@ -9212,6 +9216,9 @@ main.add_command(github_runner_group)
 
 # Register monitoring commands (Issue #423 - cli.py decomposition POC)
 main.add_command(status)
+
+# Register restore command
+main.add_command(restore_command, name="restore")
 
 # Register doit commands (replace old doit if it exists)
 if "doit" in main.commands:
