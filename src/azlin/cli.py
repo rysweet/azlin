@@ -78,6 +78,9 @@ from azlin.commands.monitoring import status
 from azlin.commands.storage import storage_group
 from azlin.commands.tag import tag_group
 
+# Restore command
+from azlin.commands.restore import restore_command
+
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.context_manager import ContextManager
@@ -9212,6 +9215,9 @@ main.add_command(github_runner_group)
 
 # Register monitoring commands (Issue #423 - cli.py decomposition POC)
 main.add_command(status)
+
+# Register restore command
+main.add_command(restore_command, name="restore")
 
 # Register doit commands (replace old doit if it exists)
 if "doit" in main.commands:
