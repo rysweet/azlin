@@ -527,10 +527,10 @@ class TerminalLauncher:
         wt_args = [str(wt_path)]
 
         for i, config in enumerate(sessions):
-            # Build azlin connect command with full git repo syntax
             # Get repo URL from environment or use default
-        repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
-        azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
+            # Build azlin connect command with full git repo syntax
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
             if i > 0:
                 # Add separator before subsequent tabs
