@@ -449,13 +449,14 @@ class TerminalLauncher:
             logger.error("Windows Terminal (wt.exe) not found")
             return False
 
-        # Build azlin connect command (handles bastion automatically)
-        azlin_cmd = f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Build azlin connect command using uvx (handles bastion automatically)
+        azlin_cmd = f"uvx azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
             subprocess.Popen(
                 [
                     str(wt_path),
+                    "-w", "-1",  # -w -1 forces new window (not tabs in existing)
                     "--title",
                     f"azlin - {config.vm_name}",
                     "wsl",
@@ -487,8 +488,8 @@ class TerminalLauncher:
         wt_args = [str(wt_path), "-w", "0"]  # -w 0 = use existing window or create new
 
         for i, config in enumerate(sessions):
-            # Build azlin connect command (handles bastion automatically)
-            azlin_cmd = f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            # Build azlin connect command using uvx (handles bastion automatically)
+            azlin_cmd = f"uvx azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
             if i == 0:
                 # First tab
@@ -513,9 +514,9 @@ class TerminalLauncher:
     @classmethod
     def _launch_gnome_terminal(cls, config: RestoreSessionConfig) -> bool:
         """Launch gnome-terminal with azlin connect command."""
-        # Build azlin connect command (handles bastion automatically)
+        # Build azlin connect command using uvx (handles bastion automatically)
         azlin_cmd = (
-            f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
+            f"uvx azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
         )
 
         try:
@@ -540,9 +541,9 @@ class TerminalLauncher:
     @classmethod
     def _launch_xterm(cls, config: RestoreSessionConfig) -> bool:
         """Launch xterm with azlin connect command."""
-        # Build azlin connect command (handles bastion automatically)
+        # Build azlin connect command using uvx (handles bastion automatically)
         azlin_cmd = (
-            f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
+            f"uvx azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
         )
 
         try:
@@ -653,7 +654,13 @@ def restore_command(
             click.echo("Error: Could not detect terminal type", err=True)
             raise click.exceptions.Exit(2)
 
-        # Build session configs
+        # Collect tmux sessions from VMs
+        click.echo("Collecting tmux sessions from VMs...")
+        from azlin.cli import _collect_tmux_sessions
+
+        tmux_by_vm = _collect_tmux_sessions(vms)
+
+        # Build session configs - one per (VM, tmux_session) pair
         sessions = []
         for vm in vms:
             # Use public IP if available, otherwise private IP (bastion will handle connection)
@@ -662,25 +669,44 @@ def restore_command(
                 click.echo(f"Warning: VM '{vm.name}' has no IP address, skipping", err=True)
                 continue
 
-            # Get session name from config
-            session_name = ConfigManager.get_session_name(vm.name, config_path) or "azlin"
-
             # Get SSH key path (assume default for now)
             ssh_key_path = Path.home() / ".ssh" / "id_rsa"
 
-            try:
-                session_config = RestoreSessionConfig(
-                    vm_name=vm.name,
-                    hostname=hostname,
-                    username="azureuser",  # Standard Azure VM default user
-                    ssh_key_path=ssh_key_path,
-                    tmux_session=session_name,
-                    terminal_type=terminal_type,
-                )
-                sessions.append(session_config)
-            except SecurityValidationError as e:
-                click.echo(f"Warning: Skipping VM '{vm.name}': {e}", err=True)
-                continue
+            # Get tmux sessions for this VM
+            vm_tmux_sessions = tmux_by_vm.get(vm.name, [])
+
+            if vm_tmux_sessions:
+                # Create one session config per tmux session
+                for tmux_sess in vm_tmux_sessions:
+                    try:
+                        session_config = RestoreSessionConfig(
+                            vm_name=vm.name,
+                            hostname=hostname,
+                            username="azureuser",  # Standard Azure VM default user
+                            ssh_key_path=ssh_key_path,
+                            tmux_session=tmux_sess.session_name,
+                            terminal_type=terminal_type,
+                        )
+                        sessions.append(session_config)
+                    except SecurityValidationError as e:
+                        click.echo(
+                            f"Warning: Skipping {vm.name}:{tmux_sess.session_name}: {e}",
+                            err=True,
+                        )
+            else:
+                # No tmux sessions found - use default "azlin" session
+                try:
+                    session_config = RestoreSessionConfig(
+                        vm_name=vm.name,
+                        hostname=hostname,
+                        username="azureuser",  # Standard Azure VM default user
+                        ssh_key_path=ssh_key_path,
+                        tmux_session="azlin",  # Default session
+                        terminal_type=terminal_type,
+                    )
+                    sessions.append(session_config)
+                except SecurityValidationError as e:
+                    click.echo(f"Warning: Skipping VM '{vm.name}': {e}", err=True)
 
         if not sessions:
             click.echo("No valid sessions to restore.", err=True)
