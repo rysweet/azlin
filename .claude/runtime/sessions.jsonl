@@ -1,2 +1,5 @@
 {"pid": 52041, "session_id": "session-a92362a1", "launch_dir": "/home/rysweet/src/azlin", "argv": ["/home/rysweet/.cache/uv/archive-v0/ZahtiQD3_DfsEZF-3vWFt/bin/amplihack", "launch"], "start_time": 1770176716.401954, "is_auto_mode": false, "is_nested": false, "parent_session_id": null, "status": "active", "end_time": null}
 {"pid": 517, "session_id": "session-6972ce47", "launch_dir": "/home/rysweet/src/azlin", "argv": ["/home/rysweet/.cache/uv/archive-v0/ZahtiQD3_DfsEZF-3vWFt/bin/amplihack", "launch", "--", "--resume"], "start_time": 1770211449.3319235, "is_auto_mode": false, "is_nested": false, "parent_session_id": null, "status": "active", "end_time": null}
+{"session_id": "session-6972ce47", "status": "completed", "end_time": 1770354094.3479085}
+{"session_id": "session-6972ce47", "status": "completed", "end_time": 1770354094.3617787}
+{"pid": 12088, "session_id": "session-4f79bd09", "launch_dir": "/home/rysweet/src/azlin", "argv": ["/home/rysweet/.cache/uv/archive-v0/igfhF8Qq6IUDQ3lAljE5B/bin/amplihack", "launch"], "start_time": 1770424752.4986682, "is_auto_mode": false, "is_nested": false, "parent_session_id": null, "status": "active", "end_time": null}

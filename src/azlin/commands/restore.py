@@ -793,11 +793,53 @@ def restore_command(
             click.echo("No valid sessions to restore.", err=True)
             raise click.exceptions.Exit(2)
 
-        # Dry run mode
+        # Dry run mode - show actual commands that would be executed
         if dry_run:
-            click.echo(f"Would restore {len(sessions)} sessions:")
-            for session in sessions:
-                click.echo(f"  - {session.vm_name} ({session.hostname})")
+            click.echo(f"Would restore {len(sessions)} sessions:\n")
+
+            # Get repo URL and uvx path for display
+            repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
+            uvx_paths = [
+                str(Path.home() / ".local" / "bin" / "uvx"),
+                "/usr/local/bin/uvx",
+                "/usr/bin/uvx",
+            ]
+            uvx_cmd = "uvx"
+            for path in uvx_paths:
+                if Path(path).exists():
+                    uvx_cmd = path
+                    break
+
+            # Display mode (multi-tab vs separate windows)
+            multi_tab = not no_multi_tab
+            if multi_tab and terminal_type == TerminalType.WINDOWS_TERMINAL:
+                click.echo("Mode: Multi-tab (one window, multiple tabs)\n")
+                click.echo("Command:")
+                wt_path = PlatformDetector.get_windows_terminal_path()
+                click.echo(f"{wt_path} \\")
+                for i, session in enumerate(sessions):
+                    sep = ";" if i > 0 else ""
+                    azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session}"
+                    click.echo(f"  {sep} new-tab -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' \\")
+                    click.echo(f"    wsl.exe -e bash -l -c '{azlin_cmd}' \\")
+                click.echo()
+            else:
+                click.echo("Mode: Separate windows\n")
+                for session in sessions:
+                    azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session}"
+                    click.echo(f"Session: {session.vm_name}:{session.tmux_session} ({session.hostname})")
+                    if terminal_type == TerminalType.WINDOWS_TERMINAL:
+                        wt_path = PlatformDetector.get_windows_terminal_path()
+                        click.echo(f"  {wt_path} -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' \\")
+                        click.echo(f"    wsl.exe -e bash -l -c '{azlin_cmd}'")
+                    elif terminal_type == TerminalType.MACOS_TERMINAL:
+                        click.echo(f"  osascript -e 'tell application \"Terminal\" to do script \"{azlin_cmd}\"'")
+                    elif terminal_type == TerminalType.LINUX_GNOME:
+                        click.echo(f"  gnome-terminal --title 'azlin - {session.vm_name}:{session.tmux_session}' -- bash -l -c '{azlin_cmd}'")
+                    elif terminal_type == TerminalType.LINUX_XTERM:
+                        click.echo(f"  xterm -title 'azlin - {session.vm_name}:{session.tmux_session}' -e bash -l -c '{azlin_cmd}'")
+                    click.echo()
+
             raise click.exceptions.Exit(0)
 
         # Launch sessions
