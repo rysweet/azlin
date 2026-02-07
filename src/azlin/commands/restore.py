@@ -413,48 +413,46 @@ class TerminalLauncher:
 
     @classmethod
     def _launch_macos_terminal(cls, config: RestoreSessionConfig) -> bool:
-        """Launch macOS Terminal.app."""
-        from azlin.terminal_launcher import (
-            TerminalConfig,
-        )
-        from azlin.terminal_launcher import (
-            TerminalLauncher as AzlinTerminalLauncher,
-        )
+        """Launch macOS Terminal.app with azlin connect command."""
+        # Build azlin connect command (handles bastion automatically)
+        azlin_cmd = [
+            "azlin",
+            "connect",
+            "-y",
+            config.vm_name,
+            "--tmux-session",
+            config.tmux_session,
+        ]
 
-        terminal_config = TerminalConfig(
-            ssh_host=config.hostname,
-            ssh_user=config.username,
-            ssh_key_path=config.ssh_key_path,
-            tmux_session=config.tmux_session,
-            title=f"azlin - {config.vm_name}",
-        )
+        try:
+            # Use osascript to launch Terminal.app with azlin connect
+            applescript = f'''
+                tell application "Terminal"
+                    activate
+                    do script "{' '.join(azlin_cmd)}"
+                end tell
+            '''
+            subprocess.Popen(
+                ["osascript", "-e", applescript],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to launch macOS Terminal: {type(e).__name__}")
+            return False
 
-        return AzlinTerminalLauncher.launch(terminal_config, fallback_inline=False)
 
     @classmethod
     def _launch_windows_terminal(cls, config: RestoreSessionConfig) -> bool:
-        """Launch Windows Terminal (single window)."""
+        """Launch Windows Terminal with azlin connect command."""
         wt_path = PlatformDetector.get_windows_terminal_path()
         if not wt_path:
             logger.error("Windows Terminal (wt.exe) not found")
             return False
 
-        # Build SSH command using argument list (security)
-        ssh_cmd_args = [
-            "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
-            "-i",
-            str(config.ssh_key_path),
-            "-t",
-            f"{config.username}@{config.hostname}",
-            f"tmux attach-session -t {config.tmux_session} || tmux new-session -s {config.tmux_session}",
-        ]
-
-        # Use shlex.join for proper shell escaping (prevents command injection)
-        ssh_cmd_str = shlex.join(ssh_cmd_args)
+        # Build azlin connect command (handles bastion automatically)
+        azlin_cmd = f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
         try:
             subprocess.Popen(
@@ -466,14 +464,14 @@ class TerminalLauncher:
                     "-e",
                     "bash",
                     "-c",
-                    ssh_cmd_str,
+                    azlin_cmd,
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to launch Windows Terminal: {e}")
+            logger.error(f"Failed to launch Windows Terminal: {type(e).__name__}")
             return False
 
     @classmethod
@@ -491,21 +489,8 @@ class TerminalLauncher:
         wt_args = [str(wt_path), "-w", "0"]  # -w 0 = use existing window or create new
 
         for i, config in enumerate(sessions):
-            # Build SSH command
-            ssh_cmd_args = [
-                "ssh",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-i",
-                str(config.ssh_key_path),
-                "-t",
-                f"{config.username}@{config.hostname}",
-                f"tmux attach-session -t {config.tmux_session} || tmux new-session -s {config.tmux_session}",
-            ]
-            # Use shlex.join for proper shell escaping (prevents command injection)
-            ssh_cmd_str = shlex.join(ssh_cmd_args)
+            # Build azlin connect command (handles bastion automatically)
+            azlin_cmd = f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
             if i == 0:
                 # First tab
@@ -514,7 +499,7 @@ class TerminalLauncher:
                 # Subsequent tabs
                 wt_args.extend([";", "new-tab", "--title", f"azlin - {config.vm_name}"])
 
-            wt_args.extend(["wsl", "-e", "bash", "-c", ssh_cmd_str])
+            wt_args.extend(["wsl", "-e", "bash", "-c", azlin_cmd])
 
         try:
             subprocess.Popen(
@@ -529,43 +514,53 @@ class TerminalLauncher:
 
     @classmethod
     def _launch_gnome_terminal(cls, config: RestoreSessionConfig) -> bool:
-        """Launch gnome-terminal."""
-        from azlin.terminal_launcher import (
-            TerminalConfig,
-        )
-        from azlin.terminal_launcher import (
-            TerminalLauncher as AzlinTerminalLauncher,
-        )
+        """Launch gnome-terminal with azlin connect command."""
+        # Build azlin connect command (handles bastion automatically)
+        azlin_cmd = f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
 
-        terminal_config = TerminalConfig(
-            ssh_host=config.hostname,
-            ssh_user=config.username,
-            ssh_key_path=config.ssh_key_path,
-            tmux_session=config.tmux_session,
-            title=f"azlin - {config.vm_name}",
-        )
-
-        return AzlinTerminalLauncher.launch(terminal_config, fallback_inline=False)
+        try:
+            subprocess.Popen(
+                [
+                    "gnome-terminal",
+                    "--title",
+                    f"azlin - {config.vm_name}",
+                    "--",
+                    "bash",
+                    "-c",
+                    azlin_cmd,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to launch gnome-terminal: {type(e).__name__}")
+            return False
 
     @classmethod
     def _launch_xterm(cls, config: RestoreSessionConfig) -> bool:
-        """Launch xterm."""
-        from azlin.terminal_launcher import (
-            TerminalConfig,
-        )
-        from azlin.terminal_launcher import (
-            TerminalLauncher as AzlinTerminalLauncher,
-        )
+        """Launch xterm with azlin connect command."""
+        # Build azlin connect command (handles bastion automatically)
+        azlin_cmd = f"azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}; exec bash"
 
-        terminal_config = TerminalConfig(
-            ssh_host=config.hostname,
-            ssh_user=config.username,
-            ssh_key_path=config.ssh_key_path,
-            tmux_session=config.tmux_session,
-            title=f"azlin - {config.vm_name}",
-        )
-
-        return AzlinTerminalLauncher.launch(terminal_config, fallback_inline=False)
+        try:
+            subprocess.Popen(
+                [
+                    "xterm",
+                    "-title",
+                    f"azlin - {config.vm_name}",
+                    "-e",
+                    "bash",
+                    "-c",
+                    azlin_cmd,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to launch xterm: {type(e).__name__}")
+            return False
 
 
 # ============================================================================
@@ -659,8 +654,10 @@ def restore_command(
         # Build session configs
         sessions = []
         for vm in vms:
-            if not vm.public_ip:
-                click.echo(f"Warning: VM '{vm.name}' has no public IP, skipping", err=True)
+            # Use public IP if available, otherwise private IP (bastion will handle connection)
+            hostname = vm.public_ip or vm.private_ip
+            if not hostname:
+                click.echo(f"Warning: VM '{vm.name}' has no IP address, skipping", err=True)
                 continue
 
             # Get session name from config
@@ -672,7 +669,7 @@ def restore_command(
             try:
                 session_config = RestoreSessionConfig(
                     vm_name=vm.name,
-                    hostname=vm.public_ip,
+                    hostname=hostname,
                     username="azureuser",  # Standard Azure VM default user
                     ssh_key_path=ssh_key_path,
                     tmux_session=session_name,
