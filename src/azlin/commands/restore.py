@@ -788,10 +788,25 @@ def restore_command(
             raise click.exceptions.Exit(2)
 
         # Collect tmux sessions from VMs
-        click.echo("Collecting tmux sessions from VMs...")
+        if verbose:
+            click.echo("Collecting tmux sessions from VMs...")
         from azlin.cli import _collect_tmux_sessions
+        import sys
+        import io
 
-        tmux_by_vm = _collect_tmux_sessions(vms)
+        # Suppress bastion tunnel output unless verbose
+        if not verbose:
+            old_stdout = sys.stdout
+            old_stderr = sys.stderr
+            sys.stdout = io.StringIO()
+            sys.stderr = io.StringIO()
+
+        try:
+            tmux_by_vm = _collect_tmux_sessions(vms)
+        finally:
+            if not verbose:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
 
         # Build session configs - one per (VM, tmux_session) pair
         sessions = []
@@ -877,19 +892,19 @@ def restore_command(
             # Display mode (multi-tab vs separate windows)
             multi_tab = not no_multi_tab
             if multi_tab and terminal_type == TerminalType.WINDOWS_TERMINAL:
-                click.echo("Mode: Multi-tab (new window, sequential launch)\n")
-                click.echo("Tabs to open:")
+                click.echo("#!/bin/bash")
+                click.echo("# azlin restore script - Multi-tab mode")
+                click.echo(f"# Would restore {len(sessions)} sessions in one window\n")
                 wt_path = PlatformDetector.get_windows_terminal_path()
+                window_id = "azlin-restore-$(uuidgen | cut -c1-8)"
                 for i, session in enumerate(sessions):
                     azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session}"
+                    click.echo(f"# Session: {session.vm_name}:{session.tmux_session} ({session.hostname})")
                     if i == 0:
-                        click.echo(
-                            f"  {i + 1}. {wt_path} --window <unique-id> -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' ..."
-                        )
+                        click.echo(f"{wt_path} --window {window_id} -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' wsl.exe -e bash -l -c '{azlin_cmd}'")
                     else:
-                        click.echo(
-                            f"  {i + 1}. {wt_path} --window <unique-id> new-tab -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' ..."
-                        )
+                        click.echo(f"sleep 0.5  # Delay for tab creation")
+                        click.echo(f"{wt_path} --window {window_id} new-tab -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' wsl.exe -e bash -l -c '{azlin_cmd}'")
                 click.echo()
             else:
                 click.echo("Mode: Separate windows\n")
