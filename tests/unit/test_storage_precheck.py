@@ -20,9 +20,9 @@ from azlin.modules.storage_manager import StorageInfo
 @pytest.fixture
 def orchestrator():
     """Create orchestrator with mocked dependencies."""
-    with patch("azlin.cli.AzureAuthenticator"):
-        with patch("azlin.cli.VMProvisioner"):
-            with patch("azlin.cli.ProgressDisplay"):
+    with patch("azlin.azure_auth.AzureAuthenticator"):
+        with patch("azlin.commands.provisioning.VMProvisioner"):
+            with patch("azlin.modules.progress.ProgressDisplay"):
                 orch = CLIOrchestrator(
                     resource_group="test-rg",
                     region="westus2",

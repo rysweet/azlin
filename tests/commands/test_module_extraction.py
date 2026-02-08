@@ -885,7 +885,7 @@ class TestLifecycleCommandsE2E:
                 ),
                 patch("azlin.vm_manager.VMManager.get_vm", return_value=mock_vm_info),
                 patch("azlin.vm_lifecycle.VMLifecycleManager.delete_vm") as mock_delete,
-                patch("azlin.cli._cleanup_key_from_vault"),
+                patch("azlin.commands.lifecycle._cleanup_key_from_vault"),
             ):
                 mock_result = MagicMock()
                 mock_result.success = True

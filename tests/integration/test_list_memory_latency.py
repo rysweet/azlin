@@ -38,13 +38,13 @@ def mock_infrastructure():
     - Context management
     """
     with (
-        patch("azlin.cli.SSHKeyManager") as mock_ssh_key_mgr,
-        patch("azlin.cli.BastionDetector") as mock_bastion_detector,
-        patch("azlin.cli.BastionManager") as mock_bastion_manager,
-        patch("azlin.cli.AzureAuthenticator") as mock_azure_auth,
-        patch("azlin.cli.TmuxSessionExecutor") as mock_tmux_executor,
-        patch("azlin.cli.RemoteExecutor") as mock_remote_executor,
-        patch("azlin.cli.ContextManager") as mock_context_mgr,
+        patch("azlin.commands.monitoring.SSHKeyManager") as mock_ssh_key_mgr,
+        patch("azlin.commands.monitoring.BastionDetector") as mock_bastion_detector,
+        patch("azlin.commands.monitoring.BastionManager") as mock_bastion_manager,
+        patch("azlin.azure_auth.AzureAuthenticator") as mock_azure_auth,
+        patch("azlin.commands.monitoring.TmuxSessionExecutor") as mock_tmux_executor,
+        patch("azlin.commands.monitoring.RemoteExecutor") as mock_remote_executor,
+        patch("azlin.commands.monitoring.ContextManager") as mock_context_mgr,
     ):
         # Mock SSH key manager
         mock_key_pair = SSHKeyPair(
@@ -148,9 +148,9 @@ def mock_latency_results():
 class TestMemoryColumnDisplay:
     """Test that memory column appears in default list output."""
 
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_memory_column_appears_by_default(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -175,9 +175,9 @@ class TestMemoryColumnDisplay:
         # Should show memory total in summary (16 + 8 + 64 = 88 GB)
         assert "88 GB" in result.output
 
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_memory_column_for_stopped_vms(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -198,9 +198,9 @@ class TestMemoryColumnDisplay:
         # Note: Summary only includes RUNNING VMs (88 GB), not stopped (16 GB)
         assert "memory in use" in result.output.lower()
 
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_memory_column_unknown_vm_size(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_infrastructure
     ):
@@ -239,9 +239,9 @@ class TestMemoryColumnDisplay:
         # Unknown VM size: QuotaManager returns 0, summary shows "0 GB memory in use"
         assert "0 GB memory in use" in result.output or "memory in use" in result.output.lower()
 
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_memory_column_alignment(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -271,9 +271,9 @@ class TestLatencyColumnDisplay:
     """Test --with-latency flag and latency column display."""
 
     @patch("azlin.ssh.latency.SSHLatencyMeasurer")
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_latency_flag_adds_column(
         self,
         mock_config,
@@ -315,9 +315,9 @@ class TestLatencyColumnDisplay:
         # Check that "ms" appears (from latency values) - Rich may truncate exact values
         assert "ms" in result.output.lower() or "timeout" in result.output.lower()
 
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_latency_not_shown_by_default(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -338,9 +338,9 @@ class TestLatencyColumnDisplay:
         # No ms values should appear (except maybe in other contexts)
 
     @patch("azlin.ssh.latency.SSHLatencyMeasurer")
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_latency_stopped_vm_shows_dash(
         self,
         mock_config,
@@ -379,9 +379,9 @@ class TestLatencyColumnDisplay:
         assert len(running_measured) == 3
 
     @patch("azlin.ssh.latency.SSHLatencyMeasurer")
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_latency_timeout_shows_timeout(
         self,
         mock_config,
@@ -424,9 +424,9 @@ class TestLatencyColumnDisplay:
         assert "dev-vm-001" in result.output
 
     @patch("azlin.ssh.latency.SSHLatencyMeasurer")
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_latency_connection_error_shows_error(
         self,
         mock_config,
@@ -477,9 +477,9 @@ class TestLatencyColumnDisplay:
 class TestSummaryLineMemory:
     """Test that summary line includes memory totals."""
 
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_summary_includes_total_memory(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -502,9 +502,9 @@ class TestSummaryLineMemory:
         # Total: 88 GB
         assert "88 GB" in result.output or "88 GB memory" in result.output.lower()
 
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_summary_excludes_stopped_vms(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -536,9 +536,9 @@ class TestMemoryLatencyWithOtherFlags:
     """Test memory and latency columns work with other flags."""
 
     @patch("azlin.ssh.latency.SSHLatencyMeasurer")
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_memory_and_latency_with_sessions(
         self,
         mock_config,
@@ -572,9 +572,9 @@ class TestMemoryLatencyWithOtherFlags:
         assert "Measuring SSH latency" in result.output
         assert "dev-vm-001" in result.output  # Verify table rendered
 
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_memory_with_all_flag(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -594,9 +594,9 @@ class TestMemoryLatencyWithOtherFlags:
         assert any(vm.name in result.output for vm in mock_vm_list)
 
     @patch("azlin.ssh.latency.SSHLatencyMeasurer")
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_latency_with_all_flag(
         self,
         mock_config,
@@ -640,9 +640,9 @@ class TestErrorHandling:
     """Test error handling for latency measurement."""
 
     @patch("azlin.ssh.latency.SSHLatencyMeasurer")
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_latency_measurement_failure_doesnt_crash(
         self,
         mock_config,
@@ -675,9 +675,9 @@ class TestErrorHandling:
         assert "dev-vm-001" in result.output  # VM list should still appear
 
     @patch("azlin.ssh.latency.SSHLatencyMeasurer")
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_latency_missing_ssh_key_handled(
         self,
         mock_config,
@@ -706,9 +706,9 @@ class TestErrorHandling:
         # Should show warning about failure
         assert "warning" in result.output.lower() or "failed" in result.output.lower()
 
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_memory_lookup_failure_shows_dash(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_infrastructure
     ):
@@ -759,9 +759,9 @@ class TestJSONOutput:
 
     @pytest.mark.skip(reason="JSON output format not yet implemented for list command")
     @patch("azlin.ssh.latency.SSHLatencyMeasurer")
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_json_output_includes_memory(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -787,9 +787,9 @@ class TestJSONOutput:
 
     @pytest.mark.skip(reason="JSON output format not yet implemented for list command")
     @patch("azlin.ssh.latency.SSHLatencyMeasurer")
-    @patch("azlin.cli.TagManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.TagManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_json_output_includes_latency(
         self,
         mock_config,
