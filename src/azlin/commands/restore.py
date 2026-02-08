@@ -812,7 +812,11 @@ def restore_command(
         if verbose:
             click.echo(f"\nCollected tmux sessions:")
             for vm_name, vm_sessions in tmux_by_vm.items():
-                click.echo(f"  {vm_name}: {[s.session_name for s in vm_sessions]}")
+                session_info = []
+                for s in vm_sessions:
+                    # Show both session name and its vm_name field for debugging
+                    session_info.append(f"{s.session_name}(vm_name={s.vm_name})")
+                click.echo(f"  {vm_name}: {session_info}")
             click.echo()
 
         # Build session configs - one per (VM, tmux_session) pair
