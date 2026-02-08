@@ -810,19 +810,21 @@ def restore_command(
         # Collect tmux sessions from VMs
         # Uses same function as azlin list for consistency
         from azlin.cli import _collect_tmux_sessions
-        from contextlib import redirect_stdout, redirect_stderr
-        import io
+        import logging
 
         if verbose and not dry_run:
             click.echo("Collecting tmux sessions...")
 
-        # Suppress ALL output during session collection unless verbose
-        # Use contextlib redirects which work with click.echo()
+        # Suppress all azlin module logging unless verbose
         if not verbose:
-            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                tmux_by_vm = _collect_tmux_sessions(vms)
-        else:
-            tmux_by_vm = _collect_tmux_sessions(vms)
+            # Set root azlin logger and all submodules to WARNING (suppresses INFO/DEBUG)
+            logging.getLogger("azlin").setLevel(logging.WARNING)
+            logging.getLogger("azlin.modules").setLevel(logging.WARNING)
+            logging.getLogger("azlin.modules.bastion_manager").setLevel(logging.WARNING)
+            logging.getLogger("azlin.modules.bastion_detector").setLevel(logging.WARNING)
+            logging.getLogger("azlin.modules.bastion_pool").setLevel(logging.WARNING)
+
+        tmux_by_vm = _collect_tmux_sessions(vms)
 
         if verbose:
             click.echo(f"\nSession collection results:")
