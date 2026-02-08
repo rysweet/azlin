@@ -4028,6 +4028,7 @@ def list_command(
             hints.append("[cyan]  azlin list -w[/cyan]        [dim]Wide mode (show VM Name, SKU columns)[/dim]")
             hints.append("[cyan]  azlin list -r[/cyan]        [dim]Restore all tmux sessions in new terminal window[/dim]")
             hints.append("[cyan]  azlin list -q[/cyan]        [dim]Show quota usage (slower)[/dim]")
+            hints.append("[cyan]  azlin list -v[/cyan]        [dim]Verbose mode (show tunnel/SSH details)[/dim]")
             console.print("\n".join(hints))
 
         # Handle -r flag: run restore with already-collected session data
