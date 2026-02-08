@@ -558,9 +558,9 @@ class TerminalLauncher:
         for i, config in enumerate(sessions):
             # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
             if config.tmux_session:
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
-        else:
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
+                azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            else:
+                azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
 
             # All tabs target the same uniquely-named window
             # First call creates the window, subsequent calls add tabs to it
