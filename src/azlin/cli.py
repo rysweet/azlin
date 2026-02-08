@@ -83,6 +83,9 @@ from azlin.commands.lifecycle import destroy, kill, killall, prune, start, stop
 
 # Monitoring/operations commands (Issue #423 - cli.py decomposition)
 from azlin.commands.monitoring import (
+    _create_tunnel_with_retry,
+    _get_config_float,
+    _get_config_int,
     cost,
     list_command,
     os_update,
@@ -122,11 +125,15 @@ from azlin.commands.web import web_group
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 
+# Backward compatibility imports for tests that patch azlin.cli.*
+from azlin.context_manager import ContextManager  # noqa: F401
+
 # ip_diagnostics imports moved to azlin.commands.ip_commands (Issue #423)
 from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.bastion_provisioner import BastionProvisioner
 from azlin.modules.cost_estimator import CostEstimator
+from azlin.modules.file_transfer.session_manager import SessionManager  # noqa: F401
 from azlin.modules.github_setup import GitHubSetupError, GitHubSetupHandler
 from azlin.modules.home_sync import (
     HomeSyncError,
@@ -148,8 +155,11 @@ from azlin.modules.ssh_key_vault import (
     create_key_vault_manager_with_auto_setup,
 )
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
+from azlin.remote_exec import RemoteExecutor, TmuxSessionExecutor  # noqa: F401
 from azlin.security_audit import SecurityAuditLogger
+from azlin.tag_manager import TagManager  # noqa: F401
 from azlin.vm_connector import VMConnector, VMConnectorError
+from azlin.vm_manager import VMInfo, VMManager  # noqa: F401
 from azlin.vm_provisioning import (
     ProvisioningError,
     VMDetails,
@@ -157,25 +167,6 @@ from azlin.vm_provisioning import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _get_config_int(env_var: str, default: int) -> int:
-    """Get integer from environment variable or use default.
-
-    Args:
-        env_var: Environment variable name
-        default: Default value if not set or invalid
-
-    Returns:
-        Integer value from environment or default
-    """
-    import os
-
-    try:
-        value = os.environ.get(env_var)
-        return int(value) if value else default
-    except (ValueError, TypeError):
-        return default
 
 
 class AzlinError(Exception):
@@ -2521,4 +2512,12 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["AzlinError", "CLIOrchestrator", "azdoit_main", "main"]
+__all__ = [
+    "AzlinError",
+    "CLIOrchestrator",
+    "_create_tunnel_with_retry",
+    "_get_config_float",
+    "_get_config_int",
+    "azdoit_main",
+    "main",
+]
