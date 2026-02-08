@@ -3890,9 +3890,9 @@ def list_command(
 
         # IP column
         if compact_mode:
-            table.add_column("IP", style="yellow", width=13)
-        else:
             table.add_column("IP", style="yellow", width=15)
+        else:
+            table.add_column("IP", style="yellow", width=18)
 
         # Region column
         if compact_mode:
