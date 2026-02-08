@@ -3801,11 +3801,13 @@ def list_command(
                     # Update cache with fresh tmux data
                     # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
                     for vm_name, sessions in tmux_by_vm.items():
-                        # Fix vm_name in each session to use actual VM name, not IP
+                        # Create corrected copies - don't mutate originals!
                         corrected_sessions = []
                         for s in sessions:
-                            s.vm_name = vm_name  # Overwrite IP with actual VM name
-                            corrected_sessions.append(s.to_dict())
+                            # Create dict with corrected vm_name
+                            session_dict = s.to_dict()
+                            session_dict['vm_name'] = vm_name  # Replace IP with actual VM name
+                            corrected_sessions.append(session_dict)
                         cache.set_tmux(vm_name, rg, corrected_sessions)
             else:
                 # Cache miss - collect and cache tmux sessions
@@ -3821,10 +3823,12 @@ def list_command(
                 # Cache the collected sessions
                 # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
                 for vm_name, sessions in tmux_by_vm.items():
+                    # Create corrected copies - don't mutate originals!
                     corrected_sessions = []
                     for s in sessions:
-                        s.vm_name = vm_name  # Overwrite IP with actual VM name
-                        corrected_sessions.append(s.to_dict())
+                        session_dict = s.to_dict()
+                        session_dict['vm_name'] = vm_name  # Replace IP with actual VM name
+                        corrected_sessions.append(session_dict)
                     cache.set_tmux(vm_name, rg, corrected_sessions)
 
         # Measure SSH latency if enabled (skip if cached)
