@@ -9,7 +9,6 @@ Commands:
 
 Internal Functions:
     - _do_impl: Shared implementation for natural language command execution
-    - _doit_old_impl: Legacy doit implementation (deprecated)
 """
 
 import logging
@@ -34,8 +33,6 @@ from azlin.vm_manager import VMManager
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "_do_impl",
-    "_doit_old_impl",
     "azdoit_main",
     "do",
 ]
@@ -353,166 +350,6 @@ def do(
         Integration tested: 7/7 tests passing with real Azure resources
     """
     _do_impl(request, dry_run, yes, resource_group, config, verbose)
-
-
-def _doit_old_impl(
-    objective: str,
-    dry_run: bool,
-    resource_group: str | None,
-    config: str | None,
-    verbose: bool,
-):
-    """[DEPRECATED] Enhanced agentic Azure infrastructure management (old version).
-
-    This command provides multi-strategy execution with state persistence
-    and intelligent fallback handling. It enhances the basic 'do' command
-    with objective tracking, cost estimation, and failure recovery.
-
-    \b
-    Examples:
-        azlin doit "provision an AKS cluster with 3 nodes"
-        azlin doit "create a VM optimized for ML workloads" --dry-run
-        azlin doit "set up a complete dev environment" --verbose
-
-    \b
-    Phase 1 Features (Current):
-        - Objective state persistence at ~/.azlin/objectives/<uuid>.json
-        - Audit logging to ~/.azlin/audit.log
-        - Secure file permissions (0600)
-
-    \b
-    Future Phases (Not Yet Implemented):
-        - Multi-strategy execution (CLI, Terraform, MCP, Custom)
-        - Automatic fallback on failures
-        - Cost estimation and optimization
-        - MS Learn documentation research
-        - Intelligent failure recovery
-
-    \b
-    Requirements:
-        - ANTHROPIC_API_KEY environment variable must be set
-        - Active Azure authentication
-    """
-    import os
-
-    try:
-        # Check for API key
-        if not os.getenv("ANTHROPIC_API_KEY"):
-            click.echo("Error: ANTHROPIC_API_KEY environment variable is required", err=True)
-            click.echo("\nSet your API key with:", err=True)
-            click.echo("  export ANTHROPIC_API_KEY=your-key-here", err=True)
-            sys.exit(1)
-
-        # Import azdoit components
-        from azlin.agentic.audit_logger import AuditLogger
-        from azlin.agentic.objective_manager import ObjectiveManager
-        from azlin.agentic.types import Intent
-
-        # Parse natural language intent (using existing parser)
-        if verbose:
-            click.echo(f"Parsing objective: {objective}")
-
-        # Get resource group for context
-        rg = ConfigManager.get_resource_group(resource_group, config)
-        context = {}
-        if rg:
-            context["resource_group"] = rg
-
-        # Parse intent
-        parser = IntentParser()
-        intent_dict = parser.parse(objective, context=context if context else None)
-
-        # Convert to Intent dataclass
-        intent = Intent(
-            intent=intent_dict["intent"],
-            parameters=intent_dict["parameters"],
-            confidence=intent_dict["confidence"],
-            azlin_commands=intent_dict["azlin_commands"],
-            explanation=intent_dict.get("explanation"),
-        )
-
-        if verbose:
-            click.echo("\nParsed Intent:")
-            click.echo(f"  Type: {intent.intent}")
-            click.echo(f"  Confidence: {intent.confidence:.1%}")
-            if intent.explanation:
-                click.echo(f"  Plan: {intent.explanation}")
-
-        # Create objective state
-        manager = ObjectiveManager()
-        state = manager.create(
-            natural_language=objective,
-            intent=intent,
-        )
-
-        # Log creation
-        logger_inst = AuditLogger()
-        logger_inst.log(
-            "OBJECTIVE_CREATED",
-            objective_id=state.id,
-            details={"objective": objective[:100], "confidence": f"{intent.confidence:.2f}"},
-        )
-
-        # Display objective info
-        click.echo("\n" + "=" * 80)
-        click.echo(f"Objective Created: {state.id}")
-        click.echo("=" * 80)
-        click.echo(f"\nObjective: {objective}")
-        click.echo(f"Status: {state.status.value}")
-        click.echo(f"State file: ~/.azlin/objectives/{state.id}.json")
-        click.echo(f"Created at: {state.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
-
-        if verbose:
-            click.echo("\nIntent details:")
-            click.echo(f"  Type: {intent.intent}")
-            click.echo(f"  Parameters: {intent.parameters}")
-
-        # Phase 2: Strategy Selection and Execution
-        from azlin.agentic.strategies import (
-            AzureCLIStrategy,
-            TerraformStrategy,
-        )
-
-        strategies = [
-            AzureCLIStrategy(),
-            TerraformStrategy(),
-        ]
-
-        # Find applicable strategy
-        selected_strategy = None
-        for strategy in strategies:
-            if strategy.can_handle(intent):
-                selected_strategy = strategy
-                break
-
-        if not selected_strategy:
-            click.echo("\nNo strategy available for this objective.", err=True)
-            sys.exit(1)
-
-        click.echo(f"\nUsing strategy: {selected_strategy.name}")
-
-        if dry_run:
-            click.echo("\n[DRY RUN] Would execute using the above strategy.")
-            sys.exit(0)
-
-        # Execute strategy
-        result = selected_strategy.execute(state, intent)
-
-        if result.success:
-            click.echo("\nObjective completed successfully!")
-        else:
-            click.echo(f"\nObjective failed: {result.error}", err=True)
-            sys.exit(1)
-
-    except Exception as e:
-        click.echo(f"\nUnexpected error: {e}", err=True)
-        if verbose:
-            logger.exception("Unexpected error in doit command")
-        sys.exit(1)
-
-    except KeyboardInterrupt:
-        click.echo("\n\nCancelled by user.")
-        sys.exit(130)
 
 
 @click.command()

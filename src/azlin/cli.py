@@ -2390,14 +2390,9 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
 
 # ip command moved to azlin.commands.ip_commands (Issue #423)
 
-# NLP commands (_do_impl, do, _doit_old_impl) moved to azlin.commands.nlp (Issue #423 - cli.py decomposition)
+# NLP commands (do, azdoit_main) moved to azlin.commands.nlp (Issue #423 - cli.py decomposition)
 # See: src/azlin/commands/nlp.py
 # The 'do' command is imported above and registered via main.add_command(do) below.
-
-
-# NLP commands (_do_impl, do, _doit_old_impl) moved to azlin.commands.nlp (Issue #423 - cli.py decomposition)
-# See: src/azlin/commands/nlp.py
-# The "do" command is imported above and registered via main.add_command(do) below.
 
 # Batch commands moved to azlin.commands.batch (Issue #423 - cli.py decomposition)
 
