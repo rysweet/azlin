@@ -166,9 +166,11 @@ from azlin.network_security.bastion_connection_pool import (  # noqa: F401
     BastionConnectionPool,
 )
 from azlin.remote_exec import (  # noqa: F401
+    OSUpdateExecutor,
     PSCommandExecutor,
     RemoteExecutor,
     TmuxSessionExecutor,
+    WCommandExecutor,
 )
 from azlin.security_audit import SecurityAuditLogger
 from azlin.tag_manager import TagManager  # noqa: F401
