@@ -108,11 +108,11 @@ class TestListCommandCompactFlag:
 
         # Mock all the dependencies to focus on flag parsing
         with (
-            patch("azlin.cli.ContextManager"),
-            patch("azlin.cli.ConfigManager"),
-            patch("azlin.cli.TagManager"),
-            patch("azlin.cli.VMManager"),
-            patch("azlin.cli.Console"),
+            patch("azlin.commands.monitoring.ContextManager"),
+            patch("azlin.commands.monitoring.ConfigManager"),
+            patch("azlin.commands.monitoring.TagManager"),
+            patch("azlin.commands.monitoring.VMManager"),
+            patch("azlin.commands.monitoring.Console"),
         ):
             # This should not error on flag parsing
             result = runner.invoke(main, ["list", "--compact"])
@@ -126,11 +126,11 @@ class TestListCommandCompactFlag:
         runner = CliRunner()
 
         with (
-            patch("azlin.cli.ContextManager"),
-            patch("azlin.cli.ConfigManager"),
-            patch("azlin.cli.TagManager"),
-            patch("azlin.cli.VMManager"),
-            patch("azlin.cli.Console"),
+            patch("azlin.commands.monitoring.ContextManager"),
+            patch("azlin.commands.monitoring.ConfigManager"),
+            patch("azlin.commands.monitoring.TagManager"),
+            patch("azlin.commands.monitoring.VMManager"),
+            patch("azlin.commands.monitoring.Console"),
         ):
             result = runner.invoke(main, ["list", "-c"])
 
@@ -142,11 +142,11 @@ class TestListCommandCompactFlag:
         runner = CliRunner()
 
         with (
-            patch("azlin.cli.ContextManager"),
-            patch("azlin.cli.ConfigManager"),
-            patch("azlin.cli.TagManager"),
-            patch("azlin.cli.VMManager"),
-            patch("azlin.cli.Console"),
+            patch("azlin.commands.monitoring.ContextManager"),
+            patch("azlin.commands.monitoring.ConfigManager"),
+            patch("azlin.commands.monitoring.TagManager"),
+            patch("azlin.commands.monitoring.VMManager"),
+            patch("azlin.commands.monitoring.Console"),
         ):
             # Try to use both flags together
             result = runner.invoke(main, ["list", "--compact", "--wide"])
@@ -160,12 +160,12 @@ class TestListCommandCompactFlag:
         runner = CliRunner()
 
         with (
-            patch("azlin.cli.ContextManager"),
-            patch("azlin.cli.ConfigManager"),
-            patch("azlin.cli.TagManager"),
-            patch("azlin.cli.VMManager"),
-            patch("azlin.cli.Console"),
-            patch("azlin.cli._handle_multi_context_list") as mock_handler,
+            patch("azlin.commands.monitoring.ContextManager"),
+            patch("azlin.commands.monitoring.ConfigManager"),
+            patch("azlin.commands.monitoring.TagManager"),
+            patch("azlin.commands.monitoring.VMManager"),
+            patch("azlin.commands.monitoring.Console"),
+            patch("azlin.commands.monitoring._handle_multi_context_list") as mock_handler,
         ):
             result = runner.invoke(main, ["list", "--compact", "--all-contexts"])
 
@@ -179,11 +179,11 @@ class TestListCommandCompactFlag:
         runner = CliRunner()
 
         with (
-            patch("azlin.cli.ContextManager"),
-            patch("azlin.cli.ConfigManager"),
-            patch("azlin.cli.TagManager"),
-            patch("azlin.cli.VMManager"),
-            patch("azlin.cli.Console"),
+            patch("azlin.commands.monitoring.ContextManager"),
+            patch("azlin.commands.monitoring.ConfigManager"),
+            patch("azlin.commands.monitoring.TagManager"),
+            patch("azlin.commands.monitoring.VMManager"),
+            patch("azlin.commands.monitoring.Console"),
         ):
             # Test with both flags
             result = runner.invoke(main, ["list", "--compact", "--show-tmux"])
