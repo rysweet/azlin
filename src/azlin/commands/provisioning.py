@@ -11,6 +11,8 @@ Commands:
     - help_command: Enhanced help for commands
 """
 
+from __future__ import annotations
+
 import contextlib
 import logging
 import subprocess
@@ -369,7 +371,7 @@ def _update_config_state(
 
 
 def _execute_command_mode(
-    orchestrator: "CLIOrchestrator",
+    orchestrator: CLIOrchestrator,
     command: str,
     session_name: str | None = None,
     config: str | None = None,
@@ -411,7 +413,7 @@ def _execute_command_mode(
 
 
 def _provision_pool(
-    orchestrator: "CLIOrchestrator",
+    orchestrator: CLIOrchestrator,
     pool: int,
     vm_name: str,
     final_rg: str | None,
