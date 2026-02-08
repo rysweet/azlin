@@ -3766,14 +3766,18 @@ def list_command(
                 click.echo(f"Warning: Failed to fetch quota information: {e}", err=True)
 
         # Collect tmux session information if enabled
-        # Always collect when show_tmux=True (don't skip on cache hit)
+        # Note: Tmux sessions are NOT cached - always collected fresh to ensure accuracy
+        # Use --no-tmux to skip collection and speed up list command
         tmux_by_vm: dict[str, list[TmuxSession]] = {}
         if show_tmux:
             running_count = len([vm for vm in vms if vm.is_running()])
+            # Show spinner only if not verbose (verbose shows detailed tunnel output)
             if running_count > 0 and not verbose:
                 with console.status(f"[dim]Collecting tmux sessions from {running_count} VMs...[/dim]"):
                     tmux_by_vm = _collect_tmux_sessions(vms)
             else:
+                if verbose:
+                    click.echo(f"Collecting tmux sessions from {running_count} VMs...")
                 tmux_by_vm = _collect_tmux_sessions(vms)
 
         # Measure SSH latency if enabled (skip if cached)
