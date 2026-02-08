@@ -3287,9 +3287,10 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                                 f"for VM {vm.name} (resource_id={vm_resource_id})"
                             )
 
-                            # Get sessions for this VM (use longer timeout for Bastion tunnels)
-                            tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
-                                [ssh_config], timeout=BASTION_TUNNEL_TMUX_TIMEOUT, max_workers=1
+                            # Get sessions for this VM with EXPLICIT vm_name (not from ssh_config!)
+                            # This ensures sessions have correct vm_name from the start
+                            tmux_sessions = TmuxSessionExecutor.get_sessions_single_vm(
+                                ssh_config, vm_name=vm.name, timeout=BASTION_TUNNEL_TMUX_TIMEOUT
                             )
 
                             # Add sessions to result
@@ -3300,12 +3301,10 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                             else:
                                 logger.debug(f"No tmux sessions found on {vm.name}")
 
-                            for session in tmux_sessions:
-                                if vm.name not in tmux_by_vm:
-                                    tmux_by_vm[vm.name] = []
-                                # Update session VM name to actual VM name (not localhost)
-                                session.vm_name = vm.name
-                                tmux_by_vm[vm.name].append(session)
+                            # Add sessions to result (vm_name already correct from get_sessions_single_vm)
+                            if vm.name not in tmux_by_vm:
+                                tmux_by_vm[vm.name] = []
+                            tmux_by_vm[vm.name].extend(tmux_sessions)
 
                         except BastionManagerError as e:
                             logger.warning(f"Failed to create Bastion tunnel for VM {vm.name}: {e}")
