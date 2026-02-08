@@ -811,7 +811,13 @@ def restore_command(
         # Uses same function as azlin list for consistency
         from azlin.cli import _collect_tmux_sessions
 
-        if verbose:
+        # Suppress bastion logging unless verbose mode
+        if not verbose:
+            import logging
+            logging.getLogger("azlin.modules.bastion_manager").setLevel(logging.WARNING)
+            logging.getLogger("azlin.modules.bastion_detector").setLevel(logging.WARNING)
+
+        if verbose and not dry_run:
             click.echo("Collecting tmux sessions...")
 
         tmux_by_vm = _collect_tmux_sessions(vms)
@@ -893,15 +899,17 @@ def restore_command(
                 click.echo("# azlin restore script - Multi-tab mode")
                 click.echo(f"# Would restore {len(sessions)} sessions in one window\n")
                 wt_path = PlatformDetector.get_windows_terminal_path()
-                window_id = "azlin-restore-$(uuidgen | cut -c1-8)"
+                # Use proper shell variable syntax that will actually expand when run
+                click.echo('WINDOW_ID="azlin-restore-$(uuidgen | cut -c1-8)"')
+                click.echo()
                 for i, session in enumerate(sessions):
                     azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session}"
                     click.echo(f"# Session: {session.vm_name}:{session.tmux_session} ({session.hostname})")
                     if i == 0:
-                        click.echo(f"{wt_path} --window {window_id} -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' wsl.exe -e bash -l -c '{azlin_cmd}'")
+                        click.echo(f'{wt_path} --window "$WINDOW_ID" -p {session.vm_name} --title \'azlin - {session.vm_name}:{session.tmux_session}\' wsl.exe -e bash -l -c \'{azlin_cmd}\'')
                     else:
                         click.echo(f"sleep 0.5  # Delay for tab creation")
-                        click.echo(f"{wt_path} --window {window_id} new-tab -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' wsl.exe -e bash -l -c '{azlin_cmd}'")
+                        click.echo(f'{wt_path} --window "$WINDOW_ID" new-tab -p {session.vm_name} --title \'azlin - {session.vm_name}:{session.tmux_session}\' wsl.exe -e bash -l -c \'{azlin_cmd}\'')
                 click.echo()
             else:
                 click.echo("Mode: Separate windows\n")
@@ -953,6 +961,10 @@ def restore_command(
 
     except click.exceptions.Exit:
         raise
+    except KeyboardInterrupt:
+        # Let Ctrl+C work naturally
+        click.echo("\nInterrupted by user", err=True)
+        raise click.exceptions.Exit(130) from None
     except Exception as e:
         logger.exception("Unexpected error in restore command")
         click.echo(f"Error: {e}", err=True)
