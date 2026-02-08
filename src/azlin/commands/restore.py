@@ -435,7 +435,11 @@ class TerminalLauncher:
         # Build azlin connect command with full git repo syntax
         # Get repo URL from environment or use default
         repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
-        azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
+        if config.tmux_session:
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        else:
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
 
         try:
             # Use osascript to launch Terminal.app with azlin connect
@@ -478,7 +482,11 @@ class TerminalLauncher:
         # Build azlin connect command with full git repo syntax (handles bastion automatically)
         # Get repo URL from environment or use default
         repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
-        azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
+        if config.tmux_session:
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        else:
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
 
         try:
             # Launch separate wt.exe process - each invocation creates new window by default
@@ -548,7 +556,11 @@ class TerminalLauncher:
 
         # Launch tabs one at a time with delays to avoid WT race conditions
         for i, config in enumerate(sessions):
+            # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
+        if config.tmux_session:
             azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        else:
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
 
             # All tabs target the same uniquely-named window
             # First call creates the window, subsequent calls add tabs to it
@@ -629,7 +641,11 @@ class TerminalLauncher:
         # Build azlin connect command with full git repo syntax
         # Get repo URL from environment or use default
         repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
-        azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
+        if config.tmux_session:
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        else:
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
 
         try:
             subprocess.Popen(
@@ -669,7 +685,11 @@ class TerminalLauncher:
         # Build azlin connect command with full git repo syntax
         # Get repo URL from environment or use default
         repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
-        azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
+        if config.tmux_session:
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+        else:
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
 
         try:
             subprocess.Popen(
@@ -787,32 +807,10 @@ def restore_command(
             click.echo("Error: Could not detect terminal type", err=True)
             raise click.exceptions.Exit(2)
 
-        # Get tmux sessions from cache (azlin list already collected them correctly)
-        # Don't call _collect_tmux_sessions here - it causes race conditions with parallel bastion tunnels!
-        from azlin.cache.vm_list_cache import VMListCache
-        from azlin.remote_exec import TmuxSession
+        # SIMPLIFIED APPROACH: Don't pre-collect sessions!
+        # Just connect to each VM and let azlin connect discover sessions.
+        # This avoids all the bastion tunnel race conditions and session cross-contamination.
 
-        cache = VMListCache()
-        tmux_by_vm: dict[str, list[TmuxSession]] = {}
-
-        # Use cached tmux data (faster and avoids tunnel race conditions)
-        for vm in vms:
-            entry = cache.get(vm.name, vm.resource_group)
-            if entry and entry.tmux_sessions:
-                # Use cached sessions
-                tmux_by_vm[vm.name] = [
-                    TmuxSession.from_dict(s) for s in entry.tmux_sessions
-                ]
-                if verbose:
-                    sessions_str = [s.session_name for s in tmux_by_vm[vm.name]]
-                    click.echo(f"[CACHE] {vm.name}: {sessions_str}")
-            else:
-                # No cached sessions - VM has no tmux sessions or cache miss
-                if verbose:
-                    click.echo(f"[NO CACHE] {vm.name}: Using default 'azlin' session")
-                tmux_by_vm[vm.name] = []
-
-        # Build session configs - one per (VM, tmux_session) pair
         sessions = []
         for vm in vms:
             # Use public IP if available, otherwise private IP (bastion will handle connection)
@@ -824,41 +822,22 @@ def restore_command(
             # Get SSH key path (assume default for now)
             ssh_key_path = Path.home() / ".ssh" / "id_rsa"
 
-            # Get tmux sessions for this VM
-            vm_tmux_sessions = tmux_by_vm.get(vm.name, [])
-
-            if vm_tmux_sessions:
-                # Create one session config per tmux session
-                for tmux_sess in vm_tmux_sessions:
-                    try:
-                        session_config = RestoreSessionConfig(
-                            vm_name=vm.name,
-                            hostname=hostname,
-                            username="azureuser",  # Standard Azure VM default user
-                            ssh_key_path=ssh_key_path,
-                            tmux_session=tmux_sess.session_name,
-                            terminal_type=terminal_type,
-                        )
-                        sessions.append(session_config)
-                    except SecurityValidationError as e:
-                        click.echo(
-                            f"Warning: Skipping {vm.name}:{tmux_sess.session_name}: {e}",
-                            err=True,
-                        )
-            else:
-                # No tmux sessions found - use default "azlin" session
-                try:
-                    session_config = RestoreSessionConfig(
-                        vm_name=vm.name,
-                        hostname=hostname,
-                        username="azureuser",  # Standard Azure VM default user
-                        ssh_key_path=ssh_key_path,
-                        tmux_session="azlin",  # Default session
-                        terminal_type=terminal_type,
-                    )
-                    sessions.append(session_config)
-                except SecurityValidationError as e:
-                    click.echo(f"Warning: Skipping VM '{vm.name}': {e}", err=True)
+            # Create ONE session config per VM (no --tmux-session specified)
+            # azlin connect will discover and attach to available sessions on the VM
+            try:
+                session_config = RestoreSessionConfig(
+                    vm_name=vm.name,
+                    hostname=hostname,
+                    username="azureuser",
+                    ssh_key_path=ssh_key_path,
+                    tmux_session="",  # Empty = let azlin connect decide
+                    terminal_type=terminal_type,
+                )
+                sessions.append(session_config)
+                if verbose:
+                    click.echo(f"Will restore: {vm.name} (auto-discover sessions)")
+            except SecurityValidationError as e:
+                click.echo(f"Warning: Skipping VM '{vm.name}': {e}", err=True)
 
         if not sessions:
             click.echo("No valid sessions to restore.", err=True)
