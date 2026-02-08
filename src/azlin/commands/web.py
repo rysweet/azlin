@@ -62,7 +62,7 @@ def web_start(port: int, host: str):
         if git_root.returncode == 0:
             git_root_pwa_dir = Path(git_root.stdout.strip()) / "pwa"
     except Exception:
-        pass
+        pass  # Git command failed - not in a git repo, which is fine
 
     # Try paths in order
     pwa_dir = None

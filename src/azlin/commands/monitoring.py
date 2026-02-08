@@ -420,7 +420,7 @@ def _handle_multi_context_list(
             "Quota information will be omitted.\n",
             err=True,
         )
-        show_quota = False  # Disable for now
+        # Note: show_quota disabled for multi-context - feature not yet implemented
 
     if show_tmux:
         click.echo(
@@ -428,7 +428,7 @@ def _handle_multi_context_list(
             "Tmux session information will be omitted.\n",
             err=True,
         )
-        show_tmux = False  # Disable for now
+        # Note: show_tmux disabled for multi-context - feature not yet implemented
 
     # Step 1: Select contexts based on pattern or all flag
     try:
@@ -451,14 +451,9 @@ def _handle_multi_context_list(
     try:
         click.echo(f"Querying VMs in resource group '{rg}' across {len(contexts)} contexts...\n")
 
-        # Check if cache exists before query
-
         from azlin.cache.vm_list_cache import VMListCache
 
         cache = VMListCache()
-        cache_file = cache.cache_path
-        cache_exists_before = cache_file.exists()
-
         # Note: Cache debug info available via logger.debug() if needed
 
         result = query_all_contexts_parallel(

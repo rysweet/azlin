@@ -460,9 +460,9 @@ def _execute_sync(selected_vm: VMInfo, ssh_key_pair: SSHKeyPair, dry_run: bool) 
             # Find available port
             local_port = bastion_mgr.get_available_port()
 
-            # Create tunnel
+            # Create tunnel (tunnel object kept alive for connection duration)
             click.echo(f"Creating Bastion tunnel through {bastion_info['name']}...")
-            _tunnel = bastion_mgr.create_tunnel(
+            bastion_mgr.create_tunnel(
                 bastion_name=bastion_info["name"],
                 resource_group=bastion_info["resource_group"],
                 target_vm_id=vm_resource_id,
@@ -644,7 +644,6 @@ def connect(
             "Use -- separator to pass remote commands: azlin connect my-vm -- ls -la"
         )
 
-    console = Console()
     try:
         # Ensure Azure CLI subscription matches current context
         from azlin.context_manager import ContextError
