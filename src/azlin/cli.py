@@ -3287,6 +3287,13 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                             )
 
                             # Add sessions to result
+                            if tmux_sessions:
+                                logger.debug(
+                                    f"Found {len(tmux_sessions)} tmux sessions on {vm.name}"
+                                )
+                            else:
+                                logger.debug(f"No tmux sessions found on {vm.name}")
+
                             for session in tmux_sessions:
                                 if vm.name not in tmux_by_vm:
                                     tmux_by_vm[vm.name] = []
@@ -3300,6 +3307,8 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                             logger.warning(
                                 f"Failed to fetch tmux sessions from Bastion VM {vm.name}: {e}"
                             )
+                            import traceback
+                            logger.debug(f"Traceback: {traceback.format_exc()}")
                 finally:
                     # Ensure pool tunnels are cleaned up (Issue #588 review feedback)
                     pool.close_all()
