@@ -807,37 +807,51 @@ def restore_command(
             click.echo("Error: Could not detect terminal type", err=True)
             raise click.exceptions.Exit(2)
 
-        # SIMPLIFIED APPROACH: Don't pre-collect sessions!
-        # Just connect to each VM and let azlin connect discover sessions.
-        # This avoids all the bastion tunnel race conditions and session cross-contamination.
+        # Collect tmux sessions from VMs
+        # Uses same function as azlin list for consistency
+        from azlin.cli import _collect_tmux_sessions
 
+        if verbose:
+            click.echo("Collecting tmux sessions...")
+
+        tmux_by_vm = _collect_tmux_sessions(vms)
+
+        if verbose:
+            click.echo(f"\nSession collection results:")
+            for vm_name, vm_sessions in tmux_by_vm.items():
+                session_names = [s.session_name for s in vm_sessions]
+                click.echo(f"  {vm_name}: {session_names}")
+            click.echo()
+
+        # Build session configs - one per (VM, tmux_session) pair
         sessions = []
         for vm in vms:
-            # Use public IP if available, otherwise private IP (bastion will handle connection)
             hostname = vm.public_ip or vm.private_ip
             if not hostname:
                 click.echo(f"Warning: VM '{vm.name}' has no IP address, skipping", err=True)
                 continue
 
-            # Get SSH key path (assume default for now)
             ssh_key_path = Path.home() / ".ssh" / "id_rsa"
+            vm_sessions = tmux_by_vm.get(vm.name, [])
 
-            # Create ONE session config per VM (no --tmux-session specified)
-            # azlin connect will discover and attach to available sessions on the VM
-            try:
-                session_config = RestoreSessionConfig(
-                    vm_name=vm.name,
-                    hostname=hostname,
-                    username="azureuser",
-                    ssh_key_path=ssh_key_path,
-                    tmux_session="",  # Empty = let azlin connect decide
-                    terminal_type=terminal_type,
-                )
-                sessions.append(session_config)
+            if vm_sessions:
+                # Create one config per session (1:1 mapping for azlin connect commands)
+                for tmux_sess in vm_sessions:
+                    try:
+                        session_config = RestoreSessionConfig(
+                            vm_name=vm.name,
+                            hostname=hostname,
+                            username="azureuser",
+                            ssh_key_path=ssh_key_path,
+                            tmux_session=tmux_sess.session_name,
+                            terminal_type=terminal_type,
+                        )
+                        sessions.append(session_config)
+                    except SecurityValidationError as e:
+                        click.echo(f"Warning: Skipping {vm.name}:{tmux_sess.session_name}: {e}", err=True)
+            else:
                 if verbose:
-                    click.echo(f"Will restore: {vm.name} (auto-discover sessions)")
-            except SecurityValidationError as e:
-                click.echo(f"Warning: Skipping VM '{vm.name}': {e}", err=True)
+                    click.echo(f"No sessions found on {vm.name}, skipping")
 
         if not sessions:
             click.echo("No valid sessions to restore.", err=True)
