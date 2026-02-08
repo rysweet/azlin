@@ -3838,24 +3838,20 @@ def list_command(
 
                 bastions = BastionDetector.list_bastions(rg)
                 if bastions:
-                    bastion_console = Console()
-                    bastion_console.print("[bold cyan]Azure Bastion Hosts[/bold cyan]")
-                    bastion_table = Table(show_header=True, header_style="bold magenta")
+                    bastion_table = Table(title="Azure Bastion Hosts", show_header=True, header_style="bold")
                     bastion_table.add_column("Name", style="cyan")
-                    bastion_table.add_column("Location", style="blue")
-                    bastion_table.add_column("SKU", style="green")
-                    bastion_table.add_column("State", style="yellow")
+                    bastion_table.add_column("Location")
+                    bastion_table.add_column("SKU")
 
                     for bastion in bastions:
                         bastion_table.add_row(
                             bastion.get("name", "Unknown"),
                             bastion.get("location", "N/A"),
                             bastion.get("sku", {}).get("name", "N/A"),
-                            bastion.get("provisioningState", "N/A"),
                         )
 
-                    bastion_console.print(bastion_table)
-                    bastion_console.print(f"[dim]Total: {len(bastions)} Bastion host(s)[/dim]\n")
+                    console.print(bastion_table)
+                    console.print()  # Spacing before VM table
             except Exception as e:
                 logger.debug(f"Bastion listing skipped: {e}")
 
@@ -3934,7 +3930,7 @@ def list_command(
             ip = (
                 f"{vm.public_ip} (Public)"
                 if vm.public_ip
-                else f"{vm.private_ip} (Private)"
+                else f"{vm.private_ip} (Bast)"
                 if vm.private_ip
                 else "N/A"
             )
@@ -3958,9 +3954,9 @@ def list_command(
                     formatted_sessions = []
                     for s in sessions[:3]:  # Show max 3
                         if s.attached:
-                            formatted_sessions.append(f"[bold]{escape(s.session_name)}[/bold]")
+                            formatted_sessions.append(f"[white bold]{escape(s.session_name)}[/white bold]")
                         else:
-                            formatted_sessions.append(f"[dim]{escape(s.session_name)}[/dim]")
+                            formatted_sessions.append(f"[bright_black]{escape(s.session_name)}[/bright_black]")
                     session_names = ", ".join(formatted_sessions)
                     if len(sessions) > 3:
                         session_names += f" (+{len(sessions) - 3} more)"
@@ -4030,8 +4026,8 @@ def list_command(
             hints.append("[dim]Hints:[/dim]")
             hints.append("[cyan]  azlin list -a[/cyan]        [dim]Show all VMs across all resource groups[/dim]")
             hints.append("[cyan]  azlin list -w[/cyan]        [dim]Wide mode (show VM Name, SKU columns)[/dim]")
-            hints.append("[cyan]  azlin list -r[/cyan]        [dim]Restore all tmux sessions in new WT window[/dim]")
-            hints.append("[cyan]  azlin list --no-quota[/cyan] [dim]Skip quota check (faster)[/dim]")
+            hints.append("[cyan]  azlin list -r[/cyan]        [dim]Restore all tmux sessions in new terminal window[/dim]")
+            hints.append("[cyan]  azlin list -q[/cyan]        [dim]Show quota usage (slower)[/dim]")
             console.print("\n".join(hints))
 
         # Handle -r flag: run restore with already-collected session data
