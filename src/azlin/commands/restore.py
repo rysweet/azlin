@@ -787,37 +787,30 @@ def restore_command(
             click.echo("Error: Could not detect terminal type", err=True)
             raise click.exceptions.Exit(2)
 
-        # Collect tmux sessions from VMs
-        if verbose:
-            click.echo("Collecting tmux sessions from VMs...")
-        from azlin.cli import _collect_tmux_sessions
-        import sys
-        import io
+        # Get tmux sessions from cache (azlin list already collected them correctly)
+        # Don't call _collect_tmux_sessions here - it causes race conditions with parallel bastion tunnels!
+        from azlin.cache.vm_list_cache import VMListCache
+        from azlin.remote_exec import TmuxSession
 
-        # Suppress bastion tunnel output unless verbose
-        if not verbose:
-            old_stdout = sys.stdout
-            old_stderr = sys.stderr
-            sys.stdout = io.StringIO()
-            sys.stderr = io.StringIO()
+        cache = VMListCache()
+        tmux_by_vm: dict[str, list[TmuxSession]] = {}
 
-        try:
-            tmux_by_vm = _collect_tmux_sessions(vms)
-        finally:
-            if not verbose:
-                sys.stdout = old_stdout
-                sys.stderr = old_stderr
-
-        # Debug: Show what sessions were collected
-        if verbose:
-            click.echo(f"\nCollected tmux sessions:")
-            for vm_name, vm_sessions in tmux_by_vm.items():
-                session_info = []
-                for s in vm_sessions:
-                    # Show both session name and its vm_name field for debugging
-                    session_info.append(f"{s.session_name}(vm_name={s.vm_name})")
-                click.echo(f"  {vm_name}: {session_info}")
-            click.echo()
+        # Use cached tmux data (faster and avoids tunnel race conditions)
+        for vm in vms:
+            entry = cache.get(vm.name, vm.resource_group)
+            if entry and entry.tmux_sessions:
+                # Use cached sessions
+                tmux_by_vm[vm.name] = [
+                    TmuxSession.from_dict(s) for s in entry.tmux_sessions
+                ]
+                if verbose:
+                    sessions_str = [s.session_name for s in tmux_by_vm[vm.name]]
+                    click.echo(f"[CACHE] {vm.name}: {sessions_str}")
+            else:
+                # No cached sessions - VM has no tmux sessions or cache miss
+                if verbose:
+                    click.echo(f"[NO CACHE] {vm.name}: Using default 'azlin' session")
+                tmux_by_vm[vm.name] = []
 
         # Build session configs - one per (VM, tmux_session) pair
         sessions = []
