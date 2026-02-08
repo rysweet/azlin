@@ -810,17 +810,28 @@ def restore_command(
         # Collect tmux sessions from VMs
         # Uses same function as azlin list for consistency
         from azlin.cli import _collect_tmux_sessions
-
-        # Suppress bastion logging unless verbose mode
-        if not verbose:
-            import logging
-            logging.getLogger("azlin.modules.bastion_manager").setLevel(logging.WARNING)
-            logging.getLogger("azlin.modules.bastion_detector").setLevel(logging.WARNING)
+        import sys
+        import io
 
         if verbose and not dry_run:
             click.echo("Collecting tmux sessions...")
 
-        tmux_by_vm = _collect_tmux_sessions(vms)
+        # Suppress ALL output (click.echo and logger) during session collection unless verbose
+        if not verbose:
+            # Save original streams
+            old_stdout = sys.stdout
+            old_stderr = sys.stderr
+            # Redirect to null
+            sys.stdout = io.StringIO()
+            sys.stderr = io.StringIO()
+
+        try:
+            tmux_by_vm = _collect_tmux_sessions(vms)
+        finally:
+            # Restore original streams
+            if not verbose:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
 
         if verbose:
             click.echo(f"\nSession collection results:")
