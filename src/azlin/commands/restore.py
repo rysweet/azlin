@@ -808,6 +808,13 @@ def restore_command(
                 sys.stdout = old_stdout
                 sys.stderr = old_stderr
 
+        # Debug: Show what sessions were collected
+        if verbose:
+            click.echo(f"\nCollected tmux sessions:")
+            for vm_name, vm_sessions in tmux_by_vm.items():
+                click.echo(f"  {vm_name}: {[s.session_name for s in vm_sessions]}")
+            click.echo()
+
         # Build session configs - one per (VM, tmux_session) pair
         sessions = []
         for vm in vms:
