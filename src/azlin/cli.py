@@ -3766,9 +3766,9 @@ def list_command(
                 click.echo(f"Warning: Failed to fetch quota information: {e}", err=True)
 
         # Collect tmux session information if enabled
-        # Force collection when -r flag is used (need sessions for restore)
+        # Always collect when show_tmux=True (don't skip on cache hit)
         tmux_by_vm: dict[str, list[TmuxSession]] = {}
-        if show_tmux and (not was_cached or run_restore):
+        if show_tmux:
             running_count = len([vm for vm in vms if vm.is_running()])
             if running_count > 0 and not verbose:
                 with console.status(f"[dim]Collecting tmux sessions from {running_count} VMs...[/dim]"):
