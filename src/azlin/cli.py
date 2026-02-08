@@ -3799,9 +3799,14 @@ def list_command(
                         click.echo(f"Collecting tmux sessions from {len(vms)} VMs...")
                     tmux_by_vm = _collect_tmux_sessions(vms)
                     # Update cache with fresh tmux data
+                    # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
                     for vm_name, sessions in tmux_by_vm.items():
-                        session_dicts = [s.to_dict() for s in sessions]
-                        cache.set_tmux(vm_name, rg, session_dicts)
+                        # Fix vm_name in each session to use actual VM name, not IP
+                        corrected_sessions = []
+                        for s in sessions:
+                            s.vm_name = vm_name  # Overwrite IP with actual VM name
+                            corrected_sessions.append(s.to_dict())
+                        cache.set_tmux(vm_name, rg, corrected_sessions)
             else:
                 # Cache miss - collect and cache tmux sessions
                 running_count = len([vm for vm in vms if vm.is_running()])
@@ -3814,9 +3819,13 @@ def list_command(
                     tmux_by_vm = _collect_tmux_sessions(vms)
 
                 # Cache the collected sessions
+                # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
                 for vm_name, sessions in tmux_by_vm.items():
-                    session_dicts = [s.to_dict() for s in sessions]
-                    cache.set_tmux(vm_name, rg, session_dicts)
+                    corrected_sessions = []
+                    for s in sessions:
+                        s.vm_name = vm_name  # Overwrite IP with actual VM name
+                        corrected_sessions.append(s.to_dict())
+                    cache.set_tmux(vm_name, rg, corrected_sessions)
 
         # Measure SSH latency if enabled (skip if cached)
         latency_by_vm: dict[str, LatencyResult] = {}
