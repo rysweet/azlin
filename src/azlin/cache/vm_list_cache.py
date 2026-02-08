@@ -79,6 +79,8 @@ class VMCacheEntry:
         immutable_timestamp: Timestamp for immutable data
         mutable_data: Mutable VM state (power state, IPs)
         mutable_timestamp: Timestamp for mutable data
+        tmux_sessions: Tmux session data (session names, attached status)
+        tmux_timestamp: Timestamp for tmux data
     """
 
     vm_name: str
@@ -87,6 +89,8 @@ class VMCacheEntry:
     immutable_timestamp: float = 0.0
     mutable_data: dict[str, Any] = field(default_factory=dict)
     mutable_timestamp: float = 0.0
+    tmux_sessions: list[dict[str, Any]] = field(default_factory=list)
+    tmux_timestamp: float = 0.0
 
     def is_immutable_expired(self, ttl: int = 86400) -> bool:
         """Check if immutable data has expired.
@@ -116,6 +120,20 @@ class VMCacheEntry:
         age = time.time() - self.mutable_timestamp
         return age > ttl
 
+    def is_tmux_expired(self, ttl: int = 300) -> bool:
+        """Check if tmux session data has expired.
+
+        Args:
+            ttl: Time-to-live in seconds (default: 300 = 5min)
+
+        Returns:
+            True if expired, False otherwise
+        """
+        if self.tmux_timestamp == 0.0:
+            return True
+        age = time.time() - self.tmux_timestamp
+        return age > ttl
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization.
 
@@ -129,6 +147,8 @@ class VMCacheEntry:
             "immutable_timestamp": self.immutable_timestamp,
             "mutable_data": self.mutable_data,
             "mutable_timestamp": self.mutable_timestamp,
+            "tmux_sessions": self.tmux_sessions,
+            "tmux_timestamp": self.tmux_timestamp,
         }
 
     @classmethod
@@ -148,6 +168,8 @@ class VMCacheEntry:
             immutable_timestamp=data.get("immutable_timestamp", 0.0),
             mutable_data=data.get("mutable_data", {}),
             mutable_timestamp=data.get("mutable_timestamp", 0.0),
+            tmux_sessions=data.get("tmux_sessions", []),
+            tmux_timestamp=data.get("tmux_timestamp", 0.0),
         )
 
 
@@ -440,6 +462,46 @@ class VMListCache:
             self._save_cache(entries)
 
             logger.debug(f"Cache set (full): '{key}'")
+
+    def set_tmux(
+        self,
+        vm_name: str,
+        resource_group: str,
+        tmux_sessions: list[dict[str, Any]],
+    ) -> None:
+        """Set tmux session data in cache for a VM.
+
+        Args:
+            vm_name: VM name
+            resource_group: Resource group name
+            tmux_sessions: List of tmux session dicts
+
+        Raises:
+            VMListCacheError: If cache update fails
+        """
+        try:
+            entries = self._load_cache()
+            key = make_cache_key(vm_name, resource_group)
+
+            if key in entries:
+                # Update existing entry
+                entries[key].tmux_sessions = tmux_sessions
+                entries[key].tmux_timestamp = time.time()
+            else:
+                # Create new entry with just tmux data
+                entries[key] = VMCacheEntry(
+                    vm_name=vm_name,
+                    resource_group=resource_group,
+                    tmux_sessions=tmux_sessions,
+                    tmux_timestamp=time.time(),
+                )
+
+            self._save_cache(entries)
+            logger.debug(f"Cache set (tmux): '{key}' with {len(tmux_sessions)} sessions")
+
+        except Exception as e:
+            logger.warning(f"Failed to cache tmux sessions for {vm_name}: {e}")
+            raise VMListCacheError(f"Failed to cache tmux sessions: {e}") from e
 
         except Exception as e:
             raise VMListCacheError(f"Failed to set full cache for '{vm_name}': {e}") from e

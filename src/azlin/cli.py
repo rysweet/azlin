@@ -3766,19 +3766,57 @@ def list_command(
                 click.echo(f"Warning: Failed to fetch quota information: {e}", err=True)
 
         # Collect tmux session information if enabled
-        # Note: Tmux sessions are NOT cached - always collected fresh to ensure accuracy
-        # Use --no-tmux to skip collection and speed up list command
+        # Tmux sessions are cached with 5min TTL - collected fresh only if stale or cache miss
         tmux_by_vm: dict[str, list[TmuxSession]] = {}
         if show_tmux:
-            running_count = len([vm for vm in vms if vm.is_running()])
-            # Show spinner only if not verbose (verbose shows detailed tunnel output)
-            if running_count > 0 and not verbose:
-                with console.status(f"[dim]Collecting tmux sessions from {running_count} VMs...[/dim]"):
+            from azlin.cache.vm_list_cache import VMListCache
+            cache = VMListCache()
+
+            # Check if we can use cached tmux sessions (on cache hit with fresh tmux data)
+            if was_cached:
+                # Try to use cached tmux sessions
+                tmux_from_cache = {}
+                all_fresh = True
+                for vm in vms:
+                    entry = cache.get(vm.name, vm.resource_group)
+                    if entry and not entry.is_tmux_expired():
+                        # Cached tmux data is fresh
+                        tmux_from_cache[vm.name] = [
+                            TmuxSession.from_dict(s) for s in entry.tmux_sessions
+                        ]
+                    else:
+                        all_fresh = False
+                        break
+
+                if all_fresh and tmux_from_cache:
+                    # All tmux data is fresh - use cache
+                    tmux_by_vm = tmux_from_cache
+                    if verbose:
+                        click.echo(f"[TMUX CACHE HIT] Using cached tmux sessions")
+                else:
+                    # Some stale - collect fresh
+                    if verbose:
+                        click.echo(f"Collecting tmux sessions from {len(vms)} VMs...")
                     tmux_by_vm = _collect_tmux_sessions(vms)
+                    # Update cache with fresh tmux data
+                    for vm_name, sessions in tmux_by_vm.items():
+                        session_dicts = [s.to_dict() for s in sessions]
+                        cache.set_tmux(vm_name, rg, session_dicts)
             else:
-                if verbose:
-                    click.echo(f"Collecting tmux sessions from {running_count} VMs...")
-                tmux_by_vm = _collect_tmux_sessions(vms)
+                # Cache miss - collect and cache tmux sessions
+                running_count = len([vm for vm in vms if vm.is_running()])
+                if running_count > 0 and not verbose:
+                    with console.status(f"[dim]Collecting tmux sessions from {running_count} VMs...[/dim]"):
+                        tmux_by_vm = _collect_tmux_sessions(vms)
+                else:
+                    if verbose:
+                        click.echo(f"Collecting tmux sessions from {running_count} VMs...")
+                    tmux_by_vm = _collect_tmux_sessions(vms)
+
+                # Cache the collected sessions
+                for vm_name, sessions in tmux_by_vm.items():
+                    session_dicts = [s.to_dict() for s in sessions]
+                    cache.set_tmux(vm_name, rg, session_dicts)
 
         # Measure SSH latency if enabled (skip if cached)
         latency_by_vm: dict[str, LatencyResult] = {}
