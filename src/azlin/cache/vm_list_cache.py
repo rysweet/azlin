@@ -463,6 +463,10 @@ class VMListCache:
 
             logger.debug(f"Cache set (full): '{key}'")
 
+        except Exception as e:
+            logger.warning(f"Failed to cache VM {vm_name}: {e}")
+            raise VMListCacheError(f"Failed to set full cache: {e}") from e
+
     def set_tmux(
         self,
         vm_name: str,
