@@ -3281,6 +3281,12 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                                 key_path=ssh_key_path,
                             )
 
+                            # Debug: Log which VM this tunnel targets
+                            logger.info(
+                                f"Querying tmux on tunnel port {pooled_tunnel.tunnel.local_port} "
+                                f"for VM {vm.name} (resource_id={vm_resource_id})"
+                            )
+
                             # Get sessions for this VM (use longer timeout for Bastion tunnels)
                             tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
                                 [ssh_config], timeout=BASTION_TUNNEL_TMUX_TIMEOUT, max_workers=1
