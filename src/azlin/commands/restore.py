@@ -557,7 +557,7 @@ class TerminalLauncher:
         # Launch tabs one at a time with delays to avoid WT race conditions
         for i, config in enumerate(sessions):
             # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
-        if config.tmux_session:
+            if config.tmux_session:
             azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
         else:
             azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
