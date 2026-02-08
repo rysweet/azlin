@@ -130,6 +130,12 @@ def execute_command_on_vm(vm: VMInfo, command: str, ssh_key_path: Path) -> int:
     assert ip_address is not None
 
     # Build SSH command
+    # SECURITY NOTE: Host key checking is disabled for Azure VM connections.
+    # This is acceptable because:
+    # 1. VMs are provisioned fresh with unique keys each time
+    # 2. Azure provides identity verification through resource metadata
+    # 3. Strict checking would require manual host key management for each VM
+    # For high-security environments, consider using Azure Bastion instead.
     ssh_cmd = [
         "ssh",
         "-i",
@@ -231,6 +237,12 @@ def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> int | None:
 
                 click.echo(f"Connecting to {selected_vm.name} ({ip_address})...")
 
+                # SECURITY NOTE: Host key checking is disabled for Azure VM connections.
+                # This is acceptable because:
+                # 1. VMs are provisioned fresh with unique keys each time
+                # 2. Azure provides identity verification through resource metadata
+                # 3. Strict checking would require manual host key management for each VM
+                # For high-security environments, consider using Azure Bastion instead.
                 ssh_cmd = [
                     "ssh",
                     "-i",

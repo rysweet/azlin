@@ -48,23 +48,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    # Private helpers (alphabetized)
-    "_copy_home_directories",
-    "_display_clone_results",
-    "_display_pool_results",
-    "_ensure_source_vm_running",
-    "_execute_command_mode",
-    "_generate_clone_configs",
-    "_load_config_and_template",
-    "_provision_clone_vms",
-    "_provision_pool",
-    "_resolve_source_vm",
-    "_resolve_vm_settings",
-    "_set_clone_session_names",
-    "_update_config_state",
-    "_validate_and_resolve_source_vm",
-    "_validate_config_path",
-    "_validate_inputs",
     # Commands (alphabetized)
     "clone",
     "create_command",

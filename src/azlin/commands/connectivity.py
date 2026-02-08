@@ -51,17 +51,6 @@ from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
 
 __all__ = [
-    # Helper functions (for use by other modules)
-    "_auto_sync_home_directory",
-    "_execute_sync",
-    "_get_sync_vm_by_name",
-    "_interactive_vm_selection",
-    "_perform_sync",
-    "_resolve_tmux_session",
-    "_resolve_vm_identifier",
-    "_select_sync_vm_interactive",
-    "_try_fetch_key_from_vault",
-    "_verify_vm_exists",
     # Commands
     "code_command",
     "connect",
