@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from azlin.modules.storage_manager import StorageInfo
 
 import click
+from rich.console import Console  # noqa: F401
 
 from azlin import __version__
 from azlin.auth_models import AuthConfig, AuthMethod
@@ -87,6 +88,8 @@ from azlin.commands.monitoring import (
     _create_tunnel_with_retry,
     _get_config_float,
     _get_config_int,
+    _get_ssh_config_for_vm,  # noqa: F401 - backward compat for tests
+    _handle_multi_context_list,  # noqa: F401 - backward compat for tests
     cost,
     list_command,
     os_update,
@@ -128,12 +131,15 @@ from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 
 # Backward compatibility imports for tests that patch azlin.cli.*
 from azlin.context_manager import ContextManager  # noqa: F401
+from azlin.distributed_top import DistributedTopExecutor  # noqa: F401
 
 # ip_diagnostics imports moved to azlin.commands.ip_commands (Issue #423)
 from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.bastion_provisioner import BastionProvisioner
 from azlin.modules.cost_estimator import CostEstimator
+from azlin.modules.file_transfer.file_transfer import FileTransfer  # noqa: F401
+from azlin.modules.file_transfer.path_parser import PathParser  # noqa: F401
 from azlin.modules.file_transfer.session_manager import SessionManager  # noqa: F401
 from azlin.modules.github_setup import GitHubSetupError, GitHubSetupHandler
 from azlin.modules.home_sync import (
@@ -156,7 +162,14 @@ from azlin.modules.ssh_key_vault import (
     create_key_vault_manager_with_auto_setup,
 )
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
-from azlin.remote_exec import RemoteExecutor, TmuxSessionExecutor  # noqa: F401
+from azlin.network_security.bastion_connection_pool import (  # noqa: F401
+    BastionConnectionPool,
+)
+from azlin.remote_exec import (  # noqa: F401
+    PSCommandExecutor,
+    RemoteExecutor,
+    TmuxSessionExecutor,
+)
 from azlin.security_audit import SecurityAuditLogger
 from azlin.tag_manager import TagManager  # noqa: F401
 from azlin.vm_connector import VMConnector, VMConnectorError
