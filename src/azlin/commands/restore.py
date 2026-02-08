@@ -386,12 +386,14 @@ class TerminalLauncher:
         cls,
         sessions: list[RestoreSessionConfig],
         multi_tab: bool = False,
+        verbose: bool = False,
     ) -> tuple[int, int]:
         """Launch multiple sessions.
 
         Args:
             sessions: List of session configurations
             multi_tab: Use multi-tab mode if supported (Windows Terminal)
+            verbose: Show detailed output including commands
 
         Returns:
             Tuple of (successful_count, failed_count)
@@ -401,7 +403,7 @@ class TerminalLauncher:
 
         # Windows Terminal multi-tab support
         if multi_tab and sessions[0].terminal_type == TerminalType.WINDOWS_TERMINAL:
-            return cls._launch_windows_terminal_multi_tab(sessions)
+            return cls._launch_windows_terminal_multi_tab(sessions, verbose=verbose)
 
         # Launch individual windows
         success_count = 0
@@ -506,6 +508,7 @@ class TerminalLauncher:
     def _launch_windows_terminal_multi_tab(
         cls,
         sessions: list[RestoreSessionConfig],
+        verbose: bool = False,
     ) -> tuple[int, int]:
         """Launch Windows Terminal with multiple tabs in a NEW window.
 
@@ -538,6 +541,10 @@ class TerminalLauncher:
 
         # Generate unique window name so we don't mix with existing windows
         window_name = f"azlin-restore-{uuid.uuid4().hex[:8]}"
+
+        if verbose:
+            click.echo(f"[restore] Window: {window_name}")
+            click.echo(f"[restore] Launching {len(sessions)} tabs...")
 
         # Launch tabs one at a time with delays to avoid WT race conditions
         for i, config in enumerate(sessions):
@@ -580,6 +587,10 @@ class TerminalLauncher:
                 ]
 
             try:
+                if verbose:
+                    click.echo(f"  [{i+1}/{len(sessions)}] {config.vm_name}:{config.tmux_session}")
+                    click.echo(f"       {azlin_cmd}")
+                
                 subprocess.Popen(
                     wt_args,
                     stdout=subprocess.DEVNULL,
@@ -711,12 +722,19 @@ class TerminalLauncher:
     is_flag=True,
     help="Disable multi-tab mode (Windows Terminal)",
 )
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="Show detailed output including terminal commands",
+)
 def restore_command(
     resource_group: str | None,
     config_path: str | None,
     terminal: str | None,
     dry_run: bool,
     no_multi_tab: bool,
+    verbose: bool = False,
 ) -> None:
     """Restore ALL active azlin sessions."""
     try:
@@ -910,7 +928,7 @@ def restore_command(
         # Launch sessions
         multi_tab = not no_multi_tab
         success_count, failed_count = TerminalLauncher.launch_all_sessions(
-            sessions, multi_tab=multi_tab
+            sessions, multi_tab=multi_tab, verbose=verbose
         )
 
         # Report results

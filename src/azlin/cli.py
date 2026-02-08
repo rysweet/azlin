@@ -3765,9 +3765,10 @@ def list_command(
             except Exception as e:
                 click.echo(f"Warning: Failed to fetch quota information: {e}", err=True)
 
-        # Collect tmux session information if enabled (skip if cached)
+        # Collect tmux session information if enabled
+        # Force collection when -r flag is used (need sessions for restore)
         tmux_by_vm: dict[str, list[TmuxSession]] = {}
-        if show_tmux and not was_cached:
+        if show_tmux and (not was_cached or run_restore):
             running_count = len([vm for vm in vms if vm.is_running()])
             if running_count > 0 and not verbose:
                 with console.status(f"[dim]Collecting tmux sessions from {running_count} VMs...[/dim]"):
@@ -4035,9 +4036,9 @@ def list_command(
         if run_restore and show_tmux and tmux_by_vm:
             console.print("\n[bold cyan]Restoring sessions...[/bold cyan]")
             from azlin.commands.restore import restore_command
-            # Invoke restore command via Click context
+            # Invoke restore command via Click context, passing verbose flag
             ctx = click.get_current_context()
-            ctx.invoke(restore_command)
+            ctx.invoke(restore_command, verbose=verbose)
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)
