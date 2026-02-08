@@ -3307,8 +3307,9 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                             logger.warning(
                                 f"Failed to fetch tmux sessions from Bastion VM {vm.name}: {e}"
                             )
+
                 finally:
-                    # Ensure pool tunnels are cleaned up (Issue #588 review feedback)
+                    # Ensure pool tunnels are cleaned up after ALL VMs processed
                     pool.close_all()
 
         except Exception as e:
