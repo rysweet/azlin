@@ -83,6 +83,7 @@ from azlin.commands.lifecycle import destroy, kill, killall, prune, start, stop
 
 # Monitoring/operations commands (Issue #423 - cli.py decomposition)
 from azlin.commands.monitoring import (
+    _collect_tmux_sessions,
     _create_tunnel_with_retry,
     _get_config_float,
     _get_config_int,
@@ -2515,6 +2516,7 @@ if __name__ == "__main__":
 __all__ = [
     "AzlinError",
     "CLIOrchestrator",
+    "_collect_tmux_sessions",
     "_create_tunnel_with_retry",
     "_get_config_float",
     "_get_config_int",
