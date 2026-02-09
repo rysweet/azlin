@@ -523,8 +523,13 @@ class TerminalLauncher:
 
         Uses sequential tab launching with delays to avoid WT race conditions.
         Creates a uniquely-named window so restored tabs don't mix with existing ones.
+
+        CRITICAL: Uses a unique window ID (based on UUID) for ALL tabs to prevent
+        session crossing when multiple windows exist. Using "-w 0" caused tabs to
+        go to wrong windows when focus changed during the loop.
         """
         import time
+        import uuid
 
         wt_path = PlatformDetector.get_windows_terminal_path()
         if not wt_path:
@@ -545,8 +550,13 @@ class TerminalLauncher:
 
         repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
 
+        # Generate unique window ID to prevent session crossing
+        # Using UUID ensures tabs don't accidentally go to other windows
+        window_id = f"azlin-restore-{uuid.uuid4().hex[:8]}"
+
         if verbose:
             click.echo(f"[restore] Launching {len(sessions)} tabs sequentially...")
+            click.echo(f"[restore] Using window ID: {window_id}")
 
         # Launch tabs SEQUENTIALLY with delays (prevents race conditions)
 
@@ -559,41 +569,24 @@ class TerminalLauncher:
                     f"  [{i + 1}/{len(sessions)}] Launching {config.vm_name}:{config.tmux_session}"
                 )
 
-            # Build wt.exe command for this tab
-            if i == 0:
-                # First tab: create new window
-                wt_args = [
-                    str(wt_path),
-                    "new-tab",
-                    "-p",
-                    config.vm_name,
-                    "--title",
-                    f"azlin - {config.vm_name}:{config.tmux_session}",
-                    "wsl.exe",
-                    "-e",
-                    "bash",
-                    "-l",
-                    "-c",
-                    azlin_cmd,
-                ]
-            else:
-                # Subsequent tabs: add to most recent window (window 0)
-                wt_args = [
-                    str(wt_path),
-                    "-w",
-                    "0",
-                    "new-tab",
-                    "-p",
-                    config.vm_name,
-                    "--title",
-                    f"azlin - {config.vm_name}:{config.tmux_session}",
-                    "wsl.exe",
-                    "-e",
-                    "bash",
-                    "-l",
-                    "-c",
-                    azlin_cmd,
-                ]
+            # Build wt.exe command - use unique window ID for ALL tabs
+            # First tab creates the window, subsequent tabs join it by ID
+            wt_args = [
+                str(wt_path),
+                "-w",
+                window_id,
+                "new-tab",
+                "-p",
+                config.vm_name,
+                "--title",
+                f"azlin - {config.vm_name}:{config.tmux_session}",
+                "wsl.exe",
+                "-e",
+                "bash",
+                "-l",
+                "-c",
+                azlin_cmd,
+            ]
 
             try:
                 subprocess.Popen(wt_args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -917,15 +910,12 @@ def restore_command(
                     click.echo(
                         f"# Session: {session.vm_name}:{session.tmux_session} ({session.hostname})"
                     )
-                    if i == 0:
-                        click.echo(
-                            f"{wt_path} --window \"$WINDOW_ID\" -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' wsl.exe -e bash -l -c '{azlin_cmd}'"
-                        )
-                    else:
-                        click.echo("sleep 0.5  # Delay for tab creation")
-                        click.echo(
-                            f"{wt_path} --window \"$WINDOW_ID\" new-tab -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' wsl.exe -e bash -l -c '{azlin_cmd}'"
-                        )
+                    # All tabs use same window ID with new-tab - first creates window, others join
+                    if i > 0:
+                        click.echo("sleep 15  # Delay for connection to establish")
+                    click.echo(
+                        f"{wt_path} -w \"$WINDOW_ID\" new-tab -p {session.vm_name} --title 'azlin - {session.vm_name}:{session.tmux_session}' wsl.exe -e bash -l -c '{azlin_cmd}'"
+                    )
                 click.echo()
             else:
                 click.echo("Mode: Separate windows\n")
