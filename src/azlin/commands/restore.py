@@ -749,8 +749,8 @@ def restore_command(
         # Suppress bastion output unless verbose
         import sys
         import io
+        old_stdout, old_stderr = sys.stdout, sys.stderr
         if not verbose:
-            old_stdout, old_stderr = sys.stdout, sys.stderr
             sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
 
         try:
