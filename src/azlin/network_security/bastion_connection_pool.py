@@ -151,6 +151,7 @@ class BastionConnectionPool:
 
             # Check if pool is disabled (force new tunnels)
             import os
+
             pool_disabled = os.environ.get("AZLIN_DISABLE_BASTION_POOL") == "1"
 
             # Only check pool if not disabled

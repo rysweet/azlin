@@ -3,8 +3,8 @@
 This test reproduces the critical bug where tmux sessions get assigned to wrong VMs.
 """
 
-import pytest
 from pathlib import Path
+
 from azlin.remote_exec import TmuxSession
 
 
@@ -22,14 +22,14 @@ def test_tmux_session_vm_name_preserved_through_cache():
             session_name="session1",
             windows=2,
             created_time="2024-01-01",
-            attached=True
+            attached=True,
         ),
         TmuxSession(
             vm_name="10.0.0.1",
             session_name="session2",
             windows=1,
             created_time="2024-01-01",
-            attached=False
+            attached=False,
         ),
     ]
 
@@ -39,7 +39,7 @@ def test_tmux_session_vm_name_preserved_through_cache():
             session_name="session3",
             windows=3,
             created_time="2024-01-01",
-            attached=True
+            attached=True,
         ),
     ]
 
@@ -79,12 +79,32 @@ def test_restore_session_mapping_with_real_data_structure():
     # Key: actual VM name, Value: list of TmuxSessions with vm_name=IP
     tmux_by_vm = {
         "amplifier": [
-            TmuxSession(vm_name="10.0.0.13", session_name="amplifier", windows=2, created_time="", attached=True),
-            TmuxSession(vm_name="10.0.0.13", session_name="rusty", windows=1, created_time="", attached=False),
+            TmuxSession(
+                vm_name="10.0.0.13",
+                session_name="amplifier",
+                windows=2,
+                created_time="",
+                attached=True,
+            ),
+            TmuxSession(
+                vm_name="10.0.0.13",
+                session_name="rusty",
+                windows=1,
+                created_time="",
+                attached=False,
+            ),
         ],
         "seldon-dev": [
-            TmuxSession(vm_name="10.0.0.14", session_name="azlin", windows=1, created_time="", attached=True),
-            TmuxSession(vm_name="10.0.0.14", session_name="wikigr", windows=2, created_time="", attached=False),
+            TmuxSession(
+                vm_name="10.0.0.14", session_name="azlin", windows=1, created_time="", attached=True
+            ),
+            TmuxSession(
+                vm_name="10.0.0.14",
+                session_name="wikigr",
+                windows=2,
+                created_time="",
+                attached=False,
+            ),
         ],
     }
 
@@ -128,7 +148,5 @@ def test_restore_session_mapping_with_real_data_structure():
     actual_sessions = [(s.vm_name, s.tmux_session) for s in sessions]
 
     assert actual_sessions == expected_sessions, (
-        f"Session mapping is wrong!\n"
-        f"Expected: {expected_sessions}\n"
-        f"Actual: {actual_sessions}"
+        f"Session mapping is wrong!\nExpected: {expected_sessions}\nActual: {actual_sessions}"
     )

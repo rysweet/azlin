@@ -507,9 +507,6 @@ class VMListCache:
             logger.warning(f"Failed to cache tmux sessions for {vm_name}: {e}")
             raise VMListCacheError(f"Failed to cache tmux sessions: {e}") from e
 
-        except Exception as e:
-            raise VMListCacheError(f"Failed to set full cache for '{vm_name}': {e}") from e
-
     def delete(self, vm_name: str, resource_group: str) -> bool:
         """Delete cache entry for VM.
 

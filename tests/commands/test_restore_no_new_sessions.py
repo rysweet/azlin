@@ -4,9 +4,8 @@ CRITICAL BUG: restore is creating sessions that don't exist on VMs.
 This happens when tmux_by_vm data incorrectly maps sessions to wrong VMs.
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+
 from azlin.commands.restore import RestoreSessionConfig, TerminalType
 from azlin.remote_exec import TmuxSession
 
@@ -42,7 +41,7 @@ def test_restore_only_restores_existing_sessions():
                 session_name=session_name,
                 windows=1,
                 created_time="2024-01-01",
-                attached=False
+                attached=False,
             )
             for session_name in session_names
         ]
@@ -119,11 +118,17 @@ def test_tmux_by_vm_integrity_after_collection():
     # This simulates what _collect_tmux_sessions should return
     tmux_by_vm = {
         "vm-a": [
-            TmuxSession(vm_name="vm-a", session_name="sess1", windows=1, created_time="", attached=False),
-            TmuxSession(vm_name="vm-a", session_name="sess2", windows=1, created_time="", attached=False),
+            TmuxSession(
+                vm_name="vm-a", session_name="sess1", windows=1, created_time="", attached=False
+            ),
+            TmuxSession(
+                vm_name="vm-a", session_name="sess2", windows=1, created_time="", attached=False
+            ),
         ],
         "vm-b": [
-            TmuxSession(vm_name="vm-b", session_name="sess3", windows=1, created_time="", attached=False),
+            TmuxSession(
+                vm_name="vm-b", session_name="sess3", windows=1, created_time="", attached=False
+            ),
         ],
     }
 

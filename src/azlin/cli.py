@@ -3309,11 +3309,15 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                             # Get sessions for this VM with EXPLICIT vm_name (not from ssh_config!)
                             # This ensures sessions have correct vm_name from the start
                             # DEBUG: Log tunnel mapping
-                            logger.info(f"DEBUG: Querying VM {vm.name} via tunnel port {pooled_tunnel.tunnel.local_port}")
+                            logger.info(
+                                f"DEBUG: Querying VM {vm.name} via tunnel port {pooled_tunnel.tunnel.local_port}"
+                            )
                             tmux_sessions = TmuxSessionExecutor.get_sessions_single_vm(
                                 ssh_config, vm_name=vm.name, timeout=BASTION_TUNNEL_TMUX_TIMEOUT
                             )
-                            logger.info(f"DEBUG: VM {vm.name} returned {len(tmux_sessions)} sessions: {[s.session_name for s in tmux_sessions]}")
+                            logger.info(
+                                f"DEBUG: VM {vm.name} returned {len(tmux_sessions)} sessions: {[s.session_name for s in tmux_sessions]}"
+                            )
 
                             # Add sessions to result
                             if tmux_sessions:
@@ -3515,7 +3519,14 @@ def _handle_multi_context_list(
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--all", "show_all", help="Show all VMs (including stopped)", is_flag=True)
 @click.option("--tag", help="Filter VMs by tag (format: key or key=value)", type=str)
-@click.option("--quota", "-q", "show_quota", is_flag=True, default=False, help="Show Azure vCPU quota information (slower)")
+@click.option(
+    "--quota",
+    "-q",
+    "show_quota",
+    is_flag=True,
+    default=False,
+    help="Show Azure vCPU quota information (slower)",
+)
 @click.option("--show-tmux/--no-tmux", default=True, help="Show active tmux sessions")
 @click.option(
     "--show-all-vms",
@@ -3632,7 +3643,9 @@ def list_command(
         logging.getLogger("azlin.modules.bastion_manager").setLevel(logging.WARNING)
         logging.getLogger("azlin.modules.bastion_detector").setLevel(logging.WARNING)
         logging.getLogger("azlin.modules.ssh_keys").setLevel(logging.WARNING)
-        logging.getLogger("azlin.network_security.bastion_connection_pool").setLevel(logging.WARNING)
+        logging.getLogger("azlin.network_security.bastion_connection_pool").setLevel(
+            logging.WARNING
+        )
 
     console = Console()
     try:
@@ -3798,6 +3811,7 @@ def list_command(
         tmux_by_vm: dict[str, list[TmuxSession]] = {}
         if show_tmux:
             from azlin.cache.vm_list_cache import VMListCache
+
             cache = VMListCache()
 
             # Check if we can use cached tmux sessions (on cache hit with fresh tmux data)
@@ -3820,7 +3834,7 @@ def list_command(
                     # All tmux data is fresh - use cache
                     tmux_by_vm = tmux_from_cache
                     if verbose:
-                        click.echo(f"[TMUX CACHE HIT] Using cached tmux sessions")
+                        click.echo("[TMUX CACHE HIT] Using cached tmux sessions")
                 else:
                     # Some stale - collect fresh
                     if verbose:
@@ -3828,20 +3842,23 @@ def list_command(
                     tmux_by_vm = _collect_tmux_sessions(vms)
                     # Update cache with fresh tmux data
                     # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
-                    for vm_name, sessions in tmux_by_vm.items():
-                        # Create corrected copies - don't mutate originals!
-                        corrected_sessions = []
-                        for s in sessions:
-                            # Create dict with corrected vm_name
-                            session_dict = s.to_dict()
-                            session_dict['vm_name'] = vm_name  # Replace IP with actual VM name
-                            corrected_sessions.append(session_dict)
-                        cache.set_tmux(vm_name, rg, corrected_sessions)
+                    if rg:  # Only cache if resource group is known
+                        for vm_name, sessions in tmux_by_vm.items():
+                            # Create corrected copies - don't mutate originals!
+                            corrected_sessions = []
+                            for s in sessions:
+                                # Create dict with corrected vm_name
+                                session_dict = s.to_dict()
+                                session_dict["vm_name"] = vm_name  # Replace IP with actual VM name
+                                corrected_sessions.append(session_dict)
+                            cache.set_tmux(vm_name, rg, corrected_sessions)
             else:
                 # Cache miss - collect and cache tmux sessions
                 running_count = len([vm for vm in vms if vm.is_running()])
                 if running_count > 0 and not verbose:
-                    with console.status(f"[dim]Collecting tmux sessions from {running_count} VMs...[/dim]"):
+                    with console.status(
+                        f"[dim]Collecting tmux sessions from {running_count} VMs...[/dim]"
+                    ):
                         tmux_by_vm = _collect_tmux_sessions(vms)
                 else:
                     if verbose:
@@ -3850,14 +3867,15 @@ def list_command(
 
                 # Cache the collected sessions
                 # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
-                for vm_name, sessions in tmux_by_vm.items():
-                    # Create corrected copies - don't mutate originals!
-                    corrected_sessions = []
-                    for s in sessions:
-                        session_dict = s.to_dict()
-                        session_dict['vm_name'] = vm_name  # Replace IP with actual VM name
-                        corrected_sessions.append(session_dict)
-                    cache.set_tmux(vm_name, rg, corrected_sessions)
+                if rg:  # Only cache if resource group is known
+                    for vm_name, sessions in tmux_by_vm.items():
+                        # Create corrected copies - don't mutate originals!
+                        corrected_sessions = []
+                        for s in sessions:
+                            session_dict = s.to_dict()
+                            session_dict["vm_name"] = vm_name  # Replace IP with actual VM name
+                            corrected_sessions.append(session_dict)
+                        cache.set_tmux(vm_name, rg, corrected_sessions)
 
         # Measure SSH latency if enabled (skip if cached)
         latency_by_vm: dict[str, LatencyResult] = {}
@@ -3922,7 +3940,9 @@ def list_command(
 
                 bastions = BastionDetector.list_bastions(rg)
                 if bastions:
-                    bastion_table = Table(title="Azure Bastion Hosts", show_header=True, header_style="bold")
+                    bastion_table = Table(
+                        title="Azure Bastion Hosts", show_header=True, header_style="bold"
+                    )
                     bastion_table.add_column("Name", style="cyan")
                     bastion_table.add_column("Location")
                     bastion_table.add_column("SKU")
@@ -3946,7 +3966,7 @@ def list_command(
         # Add columns based on mode
         # Default: Session Name, Tmux Sessions, Status, IP, Region, vCPUs, Memory
         # Wide (-w): Also shows VM Name, SKU
-        
+
         # Session Name column
         if wide_mode:
             table.add_column("Session", style="cyan", no_wrap=True)
@@ -4038,9 +4058,13 @@ def list_command(
                     formatted_sessions = []
                     for s in sessions[:3]:  # Show max 3
                         if s.attached:
-                            formatted_sessions.append(f"[white bold]{escape(s.session_name)}[/white bold]")
+                            formatted_sessions.append(
+                                f"[white bold]{escape(s.session_name)}[/white bold]"
+                            )
                         else:
-                            formatted_sessions.append(f"[bright_black]{escape(s.session_name)}[/bright_black]")
+                            formatted_sessions.append(
+                                f"[bright_black]{escape(s.session_name)}[/bright_black]"
+                            )
                     session_names = ", ".join(formatted_sessions)
                     if len(sessions) > 3:
                         session_names += f" (+{len(sessions) - 3} more)"
@@ -4108,17 +4132,26 @@ def list_command(
         if not show_all_vms:
             hints = []
             hints.append("[dim]Hints:[/dim]")
-            hints.append("[cyan]  azlin list -a[/cyan]        [dim]Show all VMs across all resource groups[/dim]")
-            hints.append("[cyan]  azlin list -w[/cyan]        [dim]Wide mode (show VM Name, SKU columns)[/dim]")
-            hints.append("[cyan]  azlin list -r[/cyan]        [dim]Restore all tmux sessions in new terminal window[/dim]")
+            hints.append(
+                "[cyan]  azlin list -a[/cyan]        [dim]Show all VMs across all resource groups[/dim]"
+            )
+            hints.append(
+                "[cyan]  azlin list -w[/cyan]        [dim]Wide mode (show VM Name, SKU columns)[/dim]"
+            )
+            hints.append(
+                "[cyan]  azlin list -r[/cyan]        [dim]Restore all tmux sessions in new terminal window[/dim]"
+            )
             hints.append("[cyan]  azlin list -q[/cyan]        [dim]Show quota usage (slower)[/dim]")
-            hints.append("[cyan]  azlin list -v[/cyan]        [dim]Verbose mode (show tunnel/SSH details)[/dim]")
+            hints.append(
+                "[cyan]  azlin list -v[/cyan]        [dim]Verbose mode (show tunnel/SSH details)[/dim]"
+            )
             console.print("\n".join(hints))
 
         # Handle -r flag: run restore with already-collected session data
         if run_restore and show_tmux and tmux_by_vm:
             console.print("\n[bold cyan]Restoring sessions...[/bold cyan]")
             from azlin.commands.restore import restore_command
+
             # Invoke restore command via Click context, passing verbose flag
             ctx = click.get_current_context()
             ctx.invoke(restore_command, verbose=verbose)
