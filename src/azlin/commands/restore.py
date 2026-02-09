@@ -401,9 +401,10 @@ class TerminalLauncher:
         if not sessions:
             return 0, 0
 
-        # Windows Terminal multi-tab support
-        if multi_tab and sessions[0].terminal_type == TerminalType.WINDOWS_TERMINAL:
-            return cls._launch_windows_terminal_multi_tab(sessions, verbose=verbose)
+        # Windows Terminal multi-tab support - DISABLED due to WT bugs with --window
+        # Use separate windows instead (each wt.exe call creates new window)
+        # if multi_tab and sessions[0].terminal_type == TerminalType.WINDOWS_TERMINAL:
+        #     return cls._launch_windows_terminal_multi_tab(sessions, verbose=verbose)
 
         # Launch individual windows
         success_count = 0
