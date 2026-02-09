@@ -3308,9 +3308,12 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
 
                             # Get sessions for this VM with EXPLICIT vm_name (not from ssh_config!)
                             # This ensures sessions have correct vm_name from the start
+                            # DEBUG: Log tunnel mapping
+                            logger.info(f"DEBUG: Querying VM {vm.name} via tunnel port {pooled_tunnel.tunnel.local_port}")
                             tmux_sessions = TmuxSessionExecutor.get_sessions_single_vm(
                                 ssh_config, vm_name=vm.name, timeout=BASTION_TUNNEL_TMUX_TIMEOUT
                             )
+                            logger.info(f"DEBUG: VM {vm.name} returned {len(tmux_sessions)} sessions: {[s.session_name for s in tmux_sessions]}")
 
                             # Add sessions to result
                             if tmux_sessions:
