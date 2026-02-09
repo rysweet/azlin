@@ -585,6 +585,7 @@ class TerminalLauncher:
                     str(wt_path),
                     "--window",
                     window_name,
+                    ";",  # Semicolon separator required before new-tab!
                     "new-tab",
                     "-p",
                     config.vm_name,
