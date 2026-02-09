@@ -719,6 +719,10 @@ def restore_command(
         from azlin.config_manager import ConfigManager
         from azlin.vm_manager import VMManager
 
+        # CRITICAL: Disable bastion tunnel pool to prevent connection confusion
+        # Force each connection to use a fresh tunnel (no reuse)
+        os.environ["AZLIN_DISABLE_BASTION_POOL"] = "1"
+
         # Load config
         try:
             config = ConfigManager.load_config(config_path)

@@ -149,8 +149,12 @@ class BastionConnectionPool:
         with self._lock:
             key = (bastion_name, target_vm_id, remote_port)
 
-            # Check for existing tunnel
-            if key in self.pool:
+            # Check if pool is disabled (force new tunnels)
+            import os
+            if os.environ.get("AZLIN_DISABLE_BASTION_POOL") == "1":
+                logger.info(f"Pool disabled - forcing new tunnel for {target_vm_id}")
+                # Skip pool lookup, go straight to creating new tunnel
+            elif key in self.pool:
                 pooled = self.pool[key]
 
                 # Verify health
