@@ -801,6 +801,12 @@ def restore_command(
 
         # Build session configs - one per (VM, tmux_session) pair
         sessions = []
+        if verbose:
+            total_collected = sum(len(sessions) for sessions in tmux_by_vm.values())
+            click.echo(f"[restore] Collected {total_collected} tmux sessions from {len(tmux_by_vm)} VMs")
+            for vm_name, vm_sessions in tmux_by_vm.items():
+                click.echo(f"  {vm_name}: {[s.session_name for s in vm_sessions]}")
+
         for vm in vms:
             hostname = vm.public_ip or vm.private_ip
             if not hostname:
@@ -823,11 +829,13 @@ def restore_command(
                             terminal_type=terminal_type,
                         )
                         sessions.append(session_config)
+                        if verbose:
+                            click.echo(f"[restore] Config: {vm.name}:{tmux_sess.session_name}")
                     except SecurityValidationError as e:
                         click.echo(f"Warning: Skipping {vm.name}:{tmux_sess.session_name}: {e}", err=True)
             else:
                 if verbose:
-                    click.echo(f"No sessions found on {vm.name}, skipping")
+                    click.echo(f"[restore] No sessions found on {vm.name}, skipping")
 
         if not sessions:
             click.echo("No valid sessions to restore.", err=True)
