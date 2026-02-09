@@ -788,7 +788,7 @@ def restore_command(
                 continue
 
             ssh_key_path = Path.home() / ".ssh" / "id_rsa"
-            vm_sessions = tmux_by_vm.get(vm.name, [])
+            # vm_sessions comes from loop iteration over vm_session_pairs
 
             if vm_sessions:
                 # Create one config per session (1:1 mapping for azlin connect commands)
