@@ -3154,6 +3154,25 @@ def _create_tunnel_with_retry(
     ) from last_error
 
 
+def get_vm_session_pairs(
+    resource_group: str,
+    config_path: str | None = None,
+    include_stopped: bool = False,
+) -> list[tuple[VMInfo, list[TmuxSession]]]:
+    """Get canonical VM/session pairs - SINGLE SOURCE OF TRUTH.
+
+    Used by both 'azlin list --show-tmux' and 'azlin restore'.
+    """
+    vms = VMManager.list_vms(resource_group, include_stopped=include_stopped)
+    if not vms:
+        return []
+
+    tmux_by_vm = _collect_tmux_sessions(vms)
+
+    # Return (VM, sessions) pairs
+    return [(vm, tmux_by_vm.get(vm.name, [])) for vm in vms]
+
+
 def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """Collect tmux sessions from running VMs.
 

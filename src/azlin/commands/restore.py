@@ -744,14 +744,16 @@ def restore_command(
             )
             raise click.exceptions.Exit(2)
 
-        # Get running VMs
+        # Get VM/session pairs - SHARED CODE with azlin list
+        from azlin.cli import get_vm_session_pairs
+
         try:
-            vms = VMManager.list_vms(rg, include_stopped=False)
+            vm_session_pairs = get_vm_session_pairs(rg, config_path, include_stopped=False)
         except Exception as e:
-            click.echo(f"Error listing VMs: {e}", err=True)
+            click.echo(f"Error getting VM/session data: {e}", err=True)
             raise click.exceptions.Exit(2) from None
 
-        if not vms:
+        if not vm_session_pairs:
             click.echo("No running VMs found in resource group.", err=True)
             click.echo("Run 'azlin list' to see available VMs.")
             raise click.exceptions.Exit(2)
@@ -773,41 +775,13 @@ def restore_command(
             click.echo("Error: Could not detect terminal type", err=True)
             raise click.exceptions.Exit(2)
 
-        # Collect tmux sessions from VMs
-        # Uses same function as azlin list for consistency
-        from azlin.cli import _collect_tmux_sessions
-        import logging
-
-        if verbose and not dry_run:
-            click.echo("Collecting tmux sessions...")
-
-        # Suppress all azlin module logging unless verbose
-        if not verbose:
-            # Set root azlin logger and all submodules to WARNING (suppresses INFO/DEBUG)
-            logging.getLogger("azlin").setLevel(logging.WARNING)
-            logging.getLogger("azlin.modules").setLevel(logging.WARNING)
-            logging.getLogger("azlin.modules.bastion_manager").setLevel(logging.WARNING)
-            logging.getLogger("azlin.modules.bastion_detector").setLevel(logging.WARNING)
-            logging.getLogger("azlin.modules.bastion_pool").setLevel(logging.WARNING)
-
-        tmux_by_vm = _collect_tmux_sessions(vms)
-
-        if verbose:
-            click.echo(f"\nSession collection results:")
-            for vm_name, vm_sessions in tmux_by_vm.items():
-                session_names = [s.session_name for s in vm_sessions]
-                click.echo(f"  {vm_name}: {session_names}")
-            click.echo()
-
-        # Build session configs - one per (VM, tmux_session) pair
+        # Build session configs from shared VM/session data
         sessions = []
         if verbose:
-            total_collected = sum(len(sessions) for sessions in tmux_by_vm.values())
-            click.echo(f"[restore] Collected {total_collected} tmux sessions from {len(tmux_by_vm)} VMs")
-            for vm_name, vm_sessions in tmux_by_vm.items():
-                click.echo(f"  {vm_name}: {[s.session_name for s in vm_sessions]}")
+            total = sum(len(sess_list) for _, sess_list in vm_session_pairs)
+            click.echo(f"[restore] {total} sessions from {len(vm_session_pairs)} VMs")
 
-        for vm in vms:
+        for vm, vm_sessions in vm_session_pairs:
             hostname = vm.public_ip or vm.private_ip
             if not hostname:
                 click.echo(f"Warning: VM '{vm.name}' has no IP address, skipping", err=True)
