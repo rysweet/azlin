@@ -3154,6 +3154,25 @@ def _create_tunnel_with_retry(
     ) from last_error
 
 
+def get_vm_session_pairs(
+    resource_group: str,
+    config_path: str | None = None,
+    include_stopped: bool = False,
+) -> list[tuple[VMInfo, list[TmuxSession]]]:
+    """Get canonical VM/session pairs - SINGLE SOURCE OF TRUTH.
+
+    Used by both 'azlin list --show-tmux' and 'azlin restore'.
+    """
+    vms = VMManager.list_vms(resource_group, include_stopped=include_stopped)
+    if not vms:
+        return []
+
+    tmux_by_vm = _collect_tmux_sessions(vms)
+
+    # Return (VM, sessions) pairs
+    return [(vm, tmux_by_vm.get(vm.name, [])) for vm in vms]
+
+
 def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """Collect tmux sessions from running VMs.
 
@@ -3281,18 +3300,37 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                                 key_path=ssh_key_path,
                             )
 
-                            # Get sessions for this VM (use longer timeout for Bastion tunnels)
-                            tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
-                                [ssh_config], timeout=BASTION_TUNNEL_TMUX_TIMEOUT, max_workers=1
+                            # Debug: Log which VM this tunnel targets
+                            logger.info(
+                                f"Querying tmux on tunnel port {pooled_tunnel.tunnel.local_port} "
+                                f"for VM {vm.name} (resource_id={vm_resource_id})"
+                            )
+
+                            # Get sessions for this VM with EXPLICIT vm_name (not from ssh_config!)
+                            # This ensures sessions have correct vm_name from the start
+                            # DEBUG: Log tunnel mapping
+                            logger.info(
+                                f"DEBUG: Querying VM {vm.name} via tunnel port {pooled_tunnel.tunnel.local_port}"
+                            )
+                            tmux_sessions = TmuxSessionExecutor.get_sessions_single_vm(
+                                ssh_config, vm_name=vm.name, timeout=BASTION_TUNNEL_TMUX_TIMEOUT
+                            )
+                            logger.info(
+                                f"DEBUG: VM {vm.name} returned {len(tmux_sessions)} sessions: {[s.session_name for s in tmux_sessions]}"
                             )
 
                             # Add sessions to result
-                            for session in tmux_sessions:
-                                if vm.name not in tmux_by_vm:
-                                    tmux_by_vm[vm.name] = []
-                                # Update session VM name to actual VM name (not localhost)
-                                session.vm_name = vm.name
-                                tmux_by_vm[vm.name].append(session)
+                            if tmux_sessions:
+                                logger.debug(
+                                    f"Found {len(tmux_sessions)} tmux sessions on {vm.name}"
+                                )
+                            else:
+                                logger.debug(f"No tmux sessions found on {vm.name}")
+
+                            # Add sessions to result (vm_name already correct from get_sessions_single_vm)
+                            if vm.name not in tmux_by_vm:
+                                tmux_by_vm[vm.name] = []
+                            tmux_by_vm[vm.name].extend(tmux_sessions)
 
                         except BastionManagerError as e:
                             logger.warning(f"Failed to create Bastion tunnel for VM {vm.name}: {e}")
@@ -3300,8 +3338,9 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                             logger.warning(
                                 f"Failed to fetch tmux sessions from Bastion VM {vm.name}: {e}"
                             )
+
                 finally:
-                    # Ensure pool tunnels are cleaned up (Issue #588 review feedback)
+                    # Ensure pool tunnels are cleaned up after ALL VMs processed
                     pool.close_all()
 
         except Exception as e:
@@ -3480,7 +3519,14 @@ def _handle_multi_context_list(
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option("--all", "show_all", help="Show all VMs (including stopped)", is_flag=True)
 @click.option("--tag", help="Filter VMs by tag (format: key or key=value)", type=str)
-@click.option("--show-quota/--no-quota", default=True, help="Show Azure vCPU quota information")
+@click.option(
+    "--quota",
+    "-q",
+    "show_quota",
+    is_flag=True,
+    default=False,
+    help="Show Azure vCPU quota information (slower)",
+)
 @click.option("--show-tmux/--no-tmux", default=True, help="Show active tmux sessions")
 @click.option(
     "--show-all-vms",
@@ -3528,6 +3574,22 @@ def _handle_multi_context_list(
     default=False,
     help="Bypass cache and fetch fresh data from Azure (used by background refresh)",
 )
+@click.option(
+    "--verbose",
+    "-v",
+    "verbose",
+    is_flag=True,
+    default=False,
+    help="Show detailed output (tunnel creation, SSH commands, etc.)",
+)
+@click.option(
+    "--restore",
+    "-r",
+    "run_restore",
+    is_flag=True,
+    default=False,
+    help="After listing, restore all tmux sessions in Windows Terminal tabs",
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -3542,6 +3604,8 @@ def list_command(
     compact_mode: bool = False,
     with_latency: bool = False,
     no_cache: bool = False,
+    verbose: bool = False,
+    run_restore: bool = False,
 ):
     """List VMs in a resource group.
 
@@ -3572,6 +3636,16 @@ def list_command(
             err=True,
         )
         sys.exit(1)
+
+    # Configure logging based on verbose flag
+    if not verbose:
+        # Suppress INFO logs for bastion/tunnel operations (show only warnings+)
+        logging.getLogger("azlin.modules.bastion_manager").setLevel(logging.WARNING)
+        logging.getLogger("azlin.modules.bastion_detector").setLevel(logging.WARNING)
+        logging.getLogger("azlin.modules.ssh_keys").setLevel(logging.WARNING)
+        logging.getLogger("azlin.network_security.bastion_connection_pool").setLevel(
+            logging.WARNING
+        )
 
     console = Console()
     try:
@@ -3732,10 +3806,76 @@ def list_command(
             except Exception as e:
                 click.echo(f"Warning: Failed to fetch quota information: {e}", err=True)
 
-        # Collect tmux session information if enabled (skip if cached)
+        # Collect tmux session information if enabled
+        # Tmux sessions are cached with 5min TTL - collected fresh only if stale or cache miss
         tmux_by_vm: dict[str, list[TmuxSession]] = {}
-        if show_tmux and not was_cached:
-            tmux_by_vm = _collect_tmux_sessions(vms)
+        if show_tmux:
+            from azlin.cache.vm_list_cache import VMListCache
+
+            cache = VMListCache()
+
+            # Check if we can use cached tmux sessions (on cache hit with fresh tmux data)
+            if was_cached:
+                # Try to use cached tmux sessions
+                tmux_from_cache = {}
+                all_fresh = True
+                for vm in vms:
+                    entry = cache.get(vm.name, vm.resource_group)
+                    if entry and not entry.is_tmux_expired():
+                        # Cached tmux data is fresh
+                        tmux_from_cache[vm.name] = [
+                            TmuxSession.from_dict(s) for s in entry.tmux_sessions
+                        ]
+                    else:
+                        all_fresh = False
+                        break
+
+                if all_fresh and tmux_from_cache:
+                    # All tmux data is fresh - use cache
+                    tmux_by_vm = tmux_from_cache
+                    if verbose:
+                        click.echo("[TMUX CACHE HIT] Using cached tmux sessions")
+                else:
+                    # Some stale - collect fresh
+                    if verbose:
+                        click.echo(f"Collecting tmux sessions from {len(vms)} VMs...")
+                    tmux_by_vm = _collect_tmux_sessions(vms)
+                    # Update cache with fresh tmux data
+                    # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
+                    if rg:  # Only cache if resource group is known
+                        for vm_name, sessions in tmux_by_vm.items():
+                            # Create corrected copies - don't mutate originals!
+                            corrected_sessions = []
+                            for s in sessions:
+                                # Create dict with corrected vm_name
+                                session_dict = s.to_dict()
+                                session_dict["vm_name"] = vm_name  # Replace IP with actual VM name
+                                corrected_sessions.append(session_dict)
+                            cache.set_tmux(vm_name, rg, corrected_sessions)
+            else:
+                # Cache miss - collect and cache tmux sessions
+                running_count = len([vm for vm in vms if vm.is_running()])
+                if running_count > 0 and not verbose:
+                    with console.status(
+                        f"[dim]Collecting tmux sessions from {running_count} VMs...[/dim]"
+                    ):
+                        tmux_by_vm = _collect_tmux_sessions(vms)
+                else:
+                    if verbose:
+                        click.echo(f"Collecting tmux sessions from {running_count} VMs...")
+                    tmux_by_vm = _collect_tmux_sessions(vms)
+
+                # Cache the collected sessions
+                # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
+                if rg:  # Only cache if resource group is known
+                    for vm_name, sessions in tmux_by_vm.items():
+                        # Create corrected copies - don't mutate originals!
+                        corrected_sessions = []
+                        for s in sessions:
+                            session_dict = s.to_dict()
+                            session_dict["vm_name"] = vm_name  # Replace IP with actual VM name
+                            corrected_sessions.append(session_dict)
+                        cache.set_tmux(vm_name, rg, corrected_sessions)
 
         # Measure SSH latency if enabled (skip if cached)
         latency_by_vm: dict[str, LatencyResult] = {}
@@ -3793,40 +3933,89 @@ def list_command(
             console.print(quota_table)
             console.print()  # Add spacing
 
+        # List Bastion hosts BEFORE VMs table (moved from end)
+        if rg:
+            try:
+                from azlin.modules.bastion_detector import BastionDetector
+
+                bastions = BastionDetector.list_bastions(rg)
+                if bastions:
+                    bastion_table = Table(
+                        title="Azure Bastion Hosts", show_header=True, header_style="bold"
+                    )
+                    bastion_table.add_column("Name", style="cyan")
+                    bastion_table.add_column("Location")
+                    bastion_table.add_column("SKU")
+
+                    for bastion in bastions:
+                        bastion_table.add_row(
+                            bastion.get("name", "Unknown"),
+                            bastion.get("location", "N/A"),
+                            bastion.get("sku", {}).get("name", "N/A"),
+                        )
+
+                    console.print(bastion_table)
+                    console.print()  # Spacing before VM table
+            except Exception as e:
+                logger.debug(f"Bastion listing skipped: {e}")
+
         # Create Rich table for VMs
         console = Console()
         table = Table(title="Azure VMs", show_header=True, header_style="bold")
 
-        # Add columns
-        if wide_mode:
-            table.add_column("Session Name", style="cyan", no_wrap=True)
-            table.add_column("VM Name", style="white", no_wrap=True)
-        elif compact_mode:
-            table.add_column("Session Name", style="cyan", width=12)
-            table.add_column("VM Name", style="white", width=18)
-        else:
-            table.add_column("Session Name", style="cyan", width=14)
-            table.add_column("VM Name", style="white", width=22)
+        # Add columns based on mode
+        # Default: Session Name, Tmux Sessions, Status, IP, Region, vCPUs, Memory
+        # Wide (-w): Also shows VM Name, SKU
 
-        if compact_mode:
-            table.add_column("Status", width=8)
-            table.add_column("IP", style="yellow", width=13)
-            table.add_column("Region", width=8)
-            table.add_column("SKU", width=12)
-            table.add_column("vCPUs", justify="right", width=5)
+        # Session Name column
+        if wide_mode:
+            table.add_column("Session", style="cyan", no_wrap=True)
+        elif compact_mode:
+            table.add_column("Session", style="cyan", width=12)
         else:
-            table.add_column("Status", width=10)
+            table.add_column("Session", style="cyan", width=14)
+
+        # Tmux Sessions column (moved to 2nd position)
+        if show_tmux:
+            if compact_mode:
+                table.add_column("Tmux", style="magenta", width=30)
+            else:
+                table.add_column("Tmux Sessions", style="magenta", width=40)
+
+        # VM Name column (only in wide mode)
+        if wide_mode:
+            table.add_column("VM Name", style="white", no_wrap=True)
+
+        # Status column
+        if compact_mode:
+            table.add_column("Status", width=6)
+        else:
+            table.add_column("Status", width=8)
+
+        # IP column
+        if compact_mode:
             table.add_column("IP", style="yellow", width=15)
-            table.add_column("Region", width=10)
+        else:
+            table.add_column("IP", style="yellow", width=18)
+
+        # Region column
+        if compact_mode:
+            table.add_column("Rgn", width=6)
+        else:
+            table.add_column("Region", width=8)
+
+        # SKU column (only in wide mode)
+        if wide_mode:
             table.add_column("SKU", width=15)
-            table.add_column("vCPUs", justify="right", width=6)
-        table.add_column("Memory", justify="right", width=8)
+
+        # vCPUs column (narrower)
+        table.add_column("CPU", justify="right", width=4)
+
+        # Memory column (narrower)
+        table.add_column("Mem", justify="right", width=6)
 
         if with_latency:
-            table.add_column("Latency", justify="right", width=10)
-
-        if show_tmux:
-            table.add_column("Tmux Sessions", style="magenta", width=45)
+            table.add_column("Latency", justify="right", width=8)
 
         # Add rows
         for vm in vms:
@@ -3845,7 +4034,7 @@ def list_command(
             ip = (
                 f"{vm.public_ip} (Public)"
                 if vm.public_ip
-                else f"{vm.private_ip} (Private)"
+                else f"{vm.private_ip} (Bast)"
                 if vm.private_ip
                 else "N/A"
             )
@@ -3859,45 +4048,51 @@ def list_command(
             memory_gb = QuotaManager.get_vm_size_memory(size) if size != "N/A" else 0
             memory_display = f"{memory_gb} GB" if memory_gb > 0 else "-"
 
-            # Build row data
-            row_data = [
-                session_display,
-                vm.name,
-                status_display,
-                ip,
-                vm.location,
-                size,
-                vcpu_display,
-                memory_display,
-            ]
+            # Build row data (order must match column order above)
+            row_data = [session_display]
 
-            # Add latency if enabled
-            if with_latency:
-                if vm.name in latency_by_vm:
-                    result = latency_by_vm[vm.name]
-                    row_data.append(result.display_value())
-                else:
-                    # VM is stopped (not measured)
-                    row_data.append("-")
-
-            # Add tmux sessions if enabled
+            # Tmux sessions (if enabled, comes 2nd)
             if show_tmux:
                 if vm.name in tmux_by_vm:
                     sessions = tmux_by_vm[vm.name]
-                    # Format sessions with bold (connected) or dim (disconnected) markup (Issue #499)
                     formatted_sessions = []
                     for s in sessions[:3]:  # Show max 3
                         if s.attached:
-                            formatted_sessions.append(f"[bold]{escape(s.session_name)}[/bold]")
+                            formatted_sessions.append(
+                                f"[white bold]{escape(s.session_name)}[/white bold]"
+                            )
                         else:
-                            formatted_sessions.append(f"[dim]{escape(s.session_name)}[/dim]")
-
+                            formatted_sessions.append(
+                                f"[bright_black]{escape(s.session_name)}[/bright_black]"
+                            )
                     session_names = ", ".join(formatted_sessions)
                     if len(sessions) > 3:
                         session_names += f" (+{len(sessions) - 3} more)"
                     row_data.append(session_names)
                 elif vm.is_running():
                     row_data.append("[dim]No sessions[/dim]")
+                else:
+                    row_data.append("-")
+
+            # VM Name (only in wide mode)
+            if wide_mode:
+                row_data.append(vm.name)
+
+            # Status, IP, Region
+            row_data.extend([status_display, ip, vm.location])
+
+            # SKU (only in wide mode)
+            if wide_mode:
+                row_data.append(size)
+
+            # vCPUs and Memory
+            row_data.extend([vcpu_display, memory_display])
+
+            # Latency (if enabled)
+            if with_latency:
+                if vm.name in latency_by_vm:
+                    result = latency_by_vm[vm.name]
+                    row_data.append(result.display_value())
                 else:
                     row_data.append("-")
 
@@ -3933,43 +4128,33 @@ def list_command(
 
         console.print(f"\n[bold]{' | '.join(summary_parts)}[/bold]")
 
-        # Show helpful message if not already showing all VMs
+        # Show helpful hints
         if not show_all_vms:
-            console.print(
-                "\n[dim]To show all VMs accessible by this subscription, run:[/dim]\n"
-                "[cyan]  azlin list --show-all-vms[/cyan] (or: [cyan]azlin list -a[/cyan])\n\n"
-                "[dim]To show VMs across multiple contexts, run:[/dim]\n"
-                "[cyan]  azlin list --all-contexts --rg <resource-group>[/cyan]\n"
-                '[cyan]  azlin list --contexts "pattern*" --rg <resource-group>[/cyan]'
+            hints = []
+            hints.append("[dim]Hints:[/dim]")
+            hints.append(
+                "[cyan]  azlin list -a[/cyan]        [dim]Show all VMs across all resource groups[/dim]"
             )
+            hints.append(
+                "[cyan]  azlin list -w[/cyan]        [dim]Wide mode (show VM Name, SKU columns)[/dim]"
+            )
+            hints.append(
+                "[cyan]  azlin list -r[/cyan]        [dim]Restore all tmux sessions in new terminal window[/dim]"
+            )
+            hints.append("[cyan]  azlin list -q[/cyan]        [dim]Show quota usage (slower)[/dim]")
+            hints.append(
+                "[cyan]  azlin list -v[/cyan]        [dim]Verbose mode (show tunnel/SSH details)[/dim]"
+            )
+            console.print("\n".join(hints))
 
-        # List Bastion hosts in the same resource group
-        if rg:
-            try:
-                from azlin.modules.bastion_detector import BastionDetector
+        # Handle -r flag: run restore with already-collected session data
+        if run_restore and show_tmux and tmux_by_vm:
+            console.print("\n[bold cyan]Restoring sessions...[/bold cyan]")
+            from azlin.commands.restore import restore_command
 
-                bastions = BastionDetector.list_bastions(rg)
-                if bastions:
-                    console.print("\n[bold cyan]Azure Bastion Hosts[/bold cyan]")
-                    bastion_table = Table(show_header=True, header_style="bold magenta")
-                    bastion_table.add_column("Name", style="cyan")
-                    bastion_table.add_column("Location", style="blue")
-                    bastion_table.add_column("SKU", style="green")
-                    bastion_table.add_column("State", style="yellow")
-
-                    for bastion in bastions:
-                        bastion_table.add_row(
-                            bastion.get("name", "Unknown"),
-                            bastion.get("location", "N/A"),
-                            bastion.get("sku", {}).get("name", "N/A"),
-                            bastion.get("provisioningState", "N/A"),
-                        )
-
-                    console.print(bastion_table)
-                    console.print(f"\n[bold]Total: {len(bastions)} Bastion host(s)[/bold]")
-            except Exception as e:
-                # Silently skip if Bastion listing fails
-                logger.debug(f"Bastion listing skipped: {e}")
+            # Invoke restore command via Click context, passing verbose flag
+            ctx = click.get_current_context()
+            ctx.invoke(restore_command, verbose=verbose)
 
     except VMManagerError as e:
         click.echo(f"Error: {e}", err=True)

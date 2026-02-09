@@ -287,5 +287,3 @@ To modify preferences, use the `/amplihack:customize` command:
 
 
 <!-- AMPLIHACK_CONTEXT_END -->
-
-

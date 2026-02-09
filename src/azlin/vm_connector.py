@@ -851,6 +851,11 @@ class VMConnector:
                     f"Ensure Azure CLI is authenticated."
                 )
 
+            # DEBUG: Log tunnel creation
+            logger.info(f"DEBUG BASTION: Creating tunnel for VM {vm_name}")
+            logger.info(f"DEBUG BASTION: Resource ID: {vm_resource_id}")
+            logger.info(f"DEBUG BASTION: Bastion: {bastion_name} in {bastion_resource_group}")
+
             # Create bastion manager
             bastion_manager = BastionManager()
 
