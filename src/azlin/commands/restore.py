@@ -570,9 +570,10 @@ class TerminalLauncher:
                 subprocess.Popen(wt_args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 success_count += 1
 
-                # Wait for connection to establish before launching next tab
+                # Wait for connection to FULLY establish before next tab
+                # Longer delays prevent bastion tunnel/connection pool confusion
                 if i < len(sessions) - 1:
-                    time.sleep(2.0 if i == 0 else 1.0)
+                    time.sleep(5.0 if i == 0 else 3.0)
 
             except Exception as e:
                 logger.error(f"Failed tab {config.vm_name}:{config.tmux_session}: {e}")
