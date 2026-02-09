@@ -737,13 +737,29 @@ def restore_command(
         # Get VM/session pairs - SHARED CODE with azlin list
         from azlin.cli import get_vm_session_pairs
 
+        # DEBUG: Open log file
+        debug_log = open("/tmp/azlin_restore_debug.log", "w")
+        debug_log.write(f"=== RESTORE DEBUG ===\nResource group: {rg}\n\n")
+
         try:
             vm_session_pairs = get_vm_session_pairs(rg, config_path, include_stopped=False)
+
+            # DEBUG: Log collected data
+            debug_log.write(f"Collected {len(vm_session_pairs)} VMs:\n")
+            for vm, sessions in vm_session_pairs:
+                debug_log.write(f"  {vm.name} ({vm.public_ip or vm.private_ip}):\n")
+                for sess in sessions:
+                    debug_log.write(f"    - {sess.session_name}\n")
+            debug_log.flush()
+
         except Exception as e:
+            debug_log.write(f"ERROR: {e}\n")
+            debug_log.close()
             click.echo(f"Error getting VM/session data: {e}", err=True)
             raise click.exceptions.Exit(2) from None
 
         if not vm_session_pairs:
+            debug_log.close()
             click.echo("No running VMs found in resource group.", err=True)
             click.echo("Run 'azlin list' to see available VMs.")
             raise click.exceptions.Exit(2)
