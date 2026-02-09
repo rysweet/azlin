@@ -571,9 +571,9 @@ class TerminalLauncher:
                 success_count += 1
 
                 # Wait for connection to FULLY establish before next tab
-                # Longer delays prevent bastion tunnel/connection pool confusion
+                # VERY long delays to ensure complete connection (testing)
                 if i < len(sessions) - 1:
-                    time.sleep(5.0 if i == 0 else 3.0)
+                    time.sleep(15.0)
 
             except Exception as e:
                 logger.error(f"Failed tab {config.vm_name}:{config.tmux_session}: {e}")
