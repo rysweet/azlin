@@ -562,11 +562,12 @@ class TerminalLauncher:
             else:
                 azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
 
-            # All tabs target the same uniquely-named window
+            # All tabs use new-tab command targeting the named window
             # First call creates the window, subsequent calls add tabs to it
             if i == 0:
                 wt_args = [
                     str(wt_path),
+                    "new-tab",
                     "--window",
                     window_name,
                     "-p",
@@ -583,10 +584,9 @@ class TerminalLauncher:
             else:
                 wt_args = [
                     str(wt_path),
+                    "new-tab",
                     "--window",
                     window_name,
-                    ";",  # Semicolon separator required before new-tab!
-                    "new-tab",
                     "-p",
                     config.vm_name,
                     "--title",
