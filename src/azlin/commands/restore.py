@@ -552,14 +552,8 @@ class TerminalLauncher:
         wt_args = [str(wt_path)]
 
         for i, config in enumerate(sessions):
-            # Build command - ATTACH ONLY (don't create new sessions)
-            # Use SSH directly with attach-only tmux command to avoid creating sessions
-            if config.tmux_session:
-                # Only attach, don't create (no || new-session fallback)
-                tmux_cmd = f"tmux attach-session -t {config.tmux_session}"
-                azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} -- {tmux_cmd}"
-            else:
-                azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
+            # Build command - always specify tmux session (collected from actual sessions)
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
             if verbose:
                 click.echo(f"  [{i+1}/{len(sessions)}] {config.vm_name}:{config.tmux_session}")
