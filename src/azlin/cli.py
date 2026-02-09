@@ -5530,6 +5530,12 @@ def _cleanup_key_from_vault(vm_name: str, config: str | None) -> None:
     "--max-retries", default=3, help="Maximum reconnection attempts (default: 3)", type=int
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip all confirmation prompts (e.g., Bastion)")
+@click.option(
+    "--disable-bastion-pool",
+    is_flag=True,
+    hidden=True,
+    help="Disable bastion tunnel pool (used by restore to prevent session crossing)",
+)
 @click.argument("remote_command", nargs=-1, type=str)
 @click.pass_context
 def connect(
@@ -5544,6 +5550,7 @@ def connect(
     no_reconnect: bool,
     max_retries: int,
     yes: bool,
+    disable_bastion_pool: bool,
     remote_command: tuple[str, ...],
 ):
     """Connect to existing VM via SSH.
@@ -5599,6 +5606,13 @@ def connect(
         # Set maximum reconnection attempts
         azlin connect my-vm --max-retries 5
     """
+    # Set environment variable to disable bastion pool if flag is passed
+    # This is critical to prevent session crossing when called from restore (Issue #593)
+    if disable_bastion_pool:
+        import os
+
+        os.environ["AZLIN_DISABLE_BASTION_POOL"] = "1"
+
     # Validate remote command syntax BEFORE entering try block
     # If remote_command has values but passthrough_command is not in ctx.obj,
     # it means user typed "connect my-vm ls" without "--", which is invalid

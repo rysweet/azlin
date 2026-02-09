@@ -688,3 +688,134 @@ class TestRestoreCommandErrorHandling:
             result = runner.invoke(restore_command)
             # Error message should suggest what to do next
             assert "azlin list" in result.output or "no VMs" in result.output.lower()
+
+
+class TestSessionCrossingPrevention:
+    """Tests for issue #593: Prevent session crossing due to env var not propagating.
+
+    The bug: When running `azlin restore`, the AZLIN_DISABLE_BASTION_POOL env var
+    doesn't propagate through `bash -l` to uvx subprocesses, causing the bastion
+    pool to be enabled when it should be disabled, leading to tunnel reuse that
+    can connect to the wrong VM.
+
+    The fix: Pass `--disable-bastion-pool` flag via CLI instead of env var.
+    """
+
+    def test_multi_tab_command_includes_disable_bastion_pool_flag(self):
+        """Test that multi-tab launch includes --disable-bastion-pool in connect command."""
+        sessions = [
+            RestoreSessionConfig(
+                vm_name=f"vm-{i}",
+                hostname=f"192.168.1.{100 + i}",
+                username="azureuser",
+                ssh_key_path=Path("/home/user/.ssh/id_rsa"),
+                terminal_type=TerminalType.WINDOWS_TERMINAL,
+                tmux_session=f"session-{i}",
+            )
+            for i in range(2)
+        ]
+
+        with patch.object(
+            PlatformDetector, "get_windows_terminal_path", return_value=Path("/mnt/c/wt.exe")
+        ):
+            with patch("subprocess.Popen") as mock_popen:
+                with patch("time.sleep"):  # Skip delays
+                    mock_popen.return_value = Mock()
+                    TerminalLauncher._launch_windows_terminal_multi_tab(sessions)
+
+                    # Verify Popen was called with --disable-bastion-pool in the command
+                    assert mock_popen.call_count >= 1
+                    for call in mock_popen.call_args_list:
+                        args = call[0][0]  # First positional arg is the command list
+                        # Find the bash -c command argument
+                        for arg in args:
+                            if isinstance(arg, str) and "azlin connect" in arg:
+                                assert "--disable-bastion-pool" in arg, (
+                                    f"Command missing --disable-bastion-pool: {arg}"
+                                )
+
+    def test_single_window_command_includes_disable_bastion_pool_flag(self):
+        """Test that single window launch includes --disable-bastion-pool in connect command."""
+        config = RestoreSessionConfig(
+            vm_name="test-vm",
+            hostname="192.168.1.100",
+            username="azureuser",
+            ssh_key_path=Path("/home/user/.ssh/id_rsa"),
+            terminal_type=TerminalType.WINDOWS_TERMINAL,
+            tmux_session="my-session",
+        )
+
+        with patch.object(
+            PlatformDetector, "get_windows_terminal_path", return_value=Path("/mnt/c/wt.exe")
+        ):
+            with patch("subprocess.Popen") as mock_popen:
+                mock_popen.return_value = Mock()
+                TerminalLauncher._launch_windows_terminal(config)
+
+                # Verify Popen was called
+                assert mock_popen.call_count == 1
+                args = mock_popen.call_args[0][0]
+
+                # Find the bash -c command argument
+                for arg in args:
+                    if isinstance(arg, str) and "azlin connect" in arg:
+                        assert "--disable-bastion-pool" in arg, (
+                            f"Command missing --disable-bastion-pool: {arg}"
+                        )
+                        break
+                else:
+                    pytest.fail("No azlin connect command found in Popen args")
+
+    def test_macos_terminal_command_includes_disable_bastion_pool_flag(self):
+        """Test that macOS terminal launch includes --disable-bastion-pool in connect command."""
+        config = RestoreSessionConfig(
+            vm_name="test-vm",
+            hostname="192.168.1.100",
+            username="azureuser",
+            ssh_key_path=Path("/home/user/.ssh/id_rsa"),
+            terminal_type=TerminalType.MACOS_TERMINAL,
+            tmux_session="my-session",
+        )
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value = Mock()
+            TerminalLauncher._launch_macos_terminal(config)
+
+            # Verify Popen was called
+            assert mock_popen.call_count == 1
+            args = mock_popen.call_args[0][0]
+
+            # For osascript, the command is embedded in the script
+            script_content = args[2]  # osascript -e "script"
+            assert "--disable-bastion-pool" in script_content, (
+                f"Command missing --disable-bastion-pool: {script_content}"
+            )
+
+    def test_gnome_terminal_command_includes_disable_bastion_pool_flag(self):
+        """Test that GNOME terminal launch includes --disable-bastion-pool in connect command."""
+        config = RestoreSessionConfig(
+            vm_name="test-vm",
+            hostname="192.168.1.100",
+            username="azureuser",
+            ssh_key_path=Path("/home/user/.ssh/id_rsa"),
+            terminal_type=TerminalType.LINUX_GNOME,
+            tmux_session="my-session",
+        )
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value = Mock()
+            TerminalLauncher._launch_gnome_terminal(config)
+
+            # Verify Popen was called
+            assert mock_popen.call_count == 1
+            args = mock_popen.call_args[0][0]
+
+            # Find the bash -c command argument
+            for arg in args:
+                if isinstance(arg, str) and "azlin connect" in arg:
+                    assert "--disable-bastion-pool" in arg, (
+                        f"Command missing --disable-bastion-pool: {arg}"
+                    )
+                    break
+            else:
+                pytest.fail("No azlin connect command found in Popen args")
