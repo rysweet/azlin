@@ -746,6 +746,13 @@ def restore_command(
         debug_log = open("/tmp/azlin_restore_debug.log", "w")
         debug_log.write(f"=== RESTORE DEBUG ===\nResource group: {rg}\n\n")
 
+        # Suppress bastion output unless verbose
+        import sys
+        import io
+        if not verbose:
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+            sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
+
         try:
             vm_session_pairs = get_vm_session_pairs(rg, config_path, include_stopped=False)
 
@@ -762,6 +769,10 @@ def restore_command(
             debug_log.close()
             click.echo(f"Error getting VM/session data: {e}", err=True)
             raise click.exceptions.Exit(2) from None
+        finally:
+            # Restore stdout/stderr
+            if not verbose:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
 
         if not vm_session_pairs:
             debug_log.close()

@@ -12,3 +12,4 @@
 {"session_id": "session-d3ccf47a", "status": "completed", "end_time": 1770610989.711275}
 {"session_id": "session-d3ccf47a", "status": "completed", "end_time": 1770610989.7114775}
 {"pid": 2111, "session_id": "session-150fb3e6", "launch_dir": "/home/rysweet/src/azlin", "argv": ["/home/rysweet/.cache/uv/archive-v0/ZdOmLLy_fBltDfy-mITsQ/bin/amplihack", "launch", "--", "--continue"], "start_time": 1770611002.0673652, "is_auto_mode": false, "is_nested": false, "parent_session_id": null, "status": "active", "end_time": null}
+{"pid": 514, "session_id": "session-65857baf", "launch_dir": "/home/rysweet/src/azlin", "argv": ["/home/rysweet/.cache/uv/archive-v0/ZdOmLLy_fBltDfy-mITsQ/bin/amplihack", "launch", "--", "--continue"], "start_time": 1770650996.2382889, "is_auto_mode": false, "is_nested": false, "parent_session_id": null, "status": "active", "end_time": null}
