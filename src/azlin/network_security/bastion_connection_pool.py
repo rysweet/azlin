@@ -151,10 +151,10 @@ class BastionConnectionPool:
 
             # Check if pool is disabled (force new tunnels)
             import os
-            if os.environ.get("AZLIN_DISABLE_BASTION_POOL") == "1":
-                logger.info(f"Pool disabled - forcing new tunnel for {target_vm_id}")
-                # Skip pool lookup, go straight to creating new tunnel
-            elif key in self.pool:
+            pool_disabled = os.environ.get("AZLIN_DISABLE_BASTION_POOL") == "1"
+
+            # Only check pool if not disabled
+            if not pool_disabled and key in self.pool:
                 pooled = self.pool[key]
 
                 # Verify health
@@ -172,7 +172,9 @@ class BastionConnectionPool:
                 self.manager.close_tunnel(pooled.tunnel)
                 del self.pool[key]
 
-            # Create new tunnel (SLOW PATH)
+            # Create new tunnel (SLOW PATH or pool disabled)
+            if pool_disabled:
+                logger.info(f"Pool disabled - creating fresh tunnel for {target_vm_id[:50]}...")
             if len(self.pool) >= self.max_tunnels:
                 self._evict_idle_tunnel()
 
