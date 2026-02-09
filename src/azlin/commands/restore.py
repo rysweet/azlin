@@ -546,48 +546,38 @@ class TerminalLauncher:
         repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
 
         if verbose:
-            click.echo(f"[restore] Launching {len(sessions)} tabs in one window...")
+            click.echo(f"[restore] Launching {len(sessions)} tabs sequentially...")
 
-        # Build single wt.exe command with all tabs separated by semicolons
-        wt_args = [str(wt_path)]
+        # Launch tabs SEQUENTIALLY with delays (prevents race conditions)
+        import time
 
+        success_count = 0
         for i, config in enumerate(sessions):
-            # Build command - always specify tmux session (collected from actual sessions)
             azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
 
             if verbose:
-                click.echo(f"  [{i+1}/{len(sessions)}] {config.vm_name}:{config.tmux_session}")
+                click.echo(f"  [{i+1}/{len(sessions)}] Launching {config.vm_name}:{config.tmux_session}")
 
-            # Add semicolon separator before each tab after the first
-            if i > 0:
-                wt_args.append(";")
+            # Build wt.exe command for this tab
+            if i == 0:
+                # First tab: create new window
+                wt_args = [str(wt_path), "new-tab", "-p", config.vm_name, "--title", f"azlin - {config.vm_name}:{config.tmux_session}", "wsl.exe", "-e", "bash", "-l", "-c", azlin_cmd]
+            else:
+                # Subsequent tabs: add to most recent window (window 0)
+                wt_args = [str(wt_path), "-w", "0", "new-tab", "-p", config.vm_name, "--title", f"azlin - {config.vm_name}:{config.tmux_session}", "wsl.exe", "-e", "bash", "-l", "-c", azlin_cmd]
 
-            # Add tab arguments
-            wt_args.extend([
-                "new-tab",
-                "-p",
-                config.vm_name,
-                "--title",
-                f"azlin - {config.vm_name}:{config.tmux_session}",
-                "wsl.exe",
-                "-e",
-                "bash",
-                "-l",
-                "-c",
-                azlin_cmd,
-            ])
+            try:
+                subprocess.Popen(wt_args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                success_count += 1
 
-        # Single wt.exe call with all tabs
-        try:
-            subprocess.Popen(
-                wt_args,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            return len(sessions), 0
-        except Exception as e:
-            logger.error(f"Failed to launch Windows Terminal multi-tab: {e}")
-            return 0, len(sessions)
+                # Wait for connection to establish before launching next tab
+                if i < len(sessions) - 1:
+                    time.sleep(2.0 if i == 0 else 1.0)
+
+            except Exception as e:
+                logger.error(f"Failed tab {config.vm_name}:{config.tmux_session}: {e}")
+
+        return success_count, len(sessions) - success_count
 
     @classmethod
     def _launch_gnome_terminal(cls, config: RestoreSessionConfig) -> bool:
