@@ -819,3 +819,32 @@ class TestSessionCrossingPrevention:
                     break
             else:
                 pytest.fail("No azlin connect command found in Popen args")
+
+    def test_xterm_command_includes_disable_bastion_pool_flag(self):
+        """Test that xterm launch includes --disable-bastion-pool in connect command."""
+        config = RestoreSessionConfig(
+            vm_name="test-vm",
+            hostname="192.168.1.100",
+            username="azureuser",
+            ssh_key_path=Path("/home/user/.ssh/id_rsa"),
+            terminal_type=TerminalType.LINUX_XTERM,
+            tmux_session="my-session",
+        )
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value = Mock()
+            TerminalLauncher._launch_xterm(config)
+
+            # Verify Popen was called
+            assert mock_popen.call_count == 1
+            args = mock_popen.call_args[0][0]
+
+            # Find the bash -c command argument
+            for arg in args:
+                if isinstance(arg, str) and "azlin connect" in arg:
+                    assert "--disable-bastion-pool" in arg, (
+                        f"Command missing --disable-bastion-pool: {arg}"
+                    )
+                    break
+            else:
+                pytest.fail("No azlin connect command found in Popen args")
