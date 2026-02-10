@@ -176,7 +176,8 @@ logger = logging.getLogger(__name__)
 # Backward compatibility exports for tests that patch azlin.cli.*
 from azlin.modules.file_transfer import FileTransfer  # noqa: F401
 from azlin.modules.file_transfer.path_parser import PathParser  # noqa: F401
-from azlin.remote_exec import DistributedTopExecutor, PSCommandExecutor, TmuxSessionExecutor  # noqa: F401
+from azlin.distributed_top import DistributedTopExecutor  # noqa: F401
+from azlin.remote_exec import PSCommandExecutor, TmuxSessionExecutor  # noqa: F401
 from azlin.tag_manager import TagManager  # noqa: F401
 
 
