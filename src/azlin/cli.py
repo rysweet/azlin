@@ -20,7 +20,6 @@ Commands:
 
 import contextlib
 import logging
-import os
 import random
 import subprocess
 import sys
@@ -31,12 +30,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from azlin.modules.storage_manager import StorageInfo
-    from azlin.ssh.latency import LatencyResult
 
 import click
 from rich.console import Console
-from rich.markup import escape
-from rich.table import Table
 
 from azlin import __version__
 from azlin.agentic import (
@@ -54,41 +50,73 @@ from azlin.azure_auth import AuthenticationError, AzureAuthenticator
 from azlin.batch_executor import BatchExecutor, BatchExecutorError, BatchResult, BatchSelector
 from azlin.click_group import AzlinGroup
 
-# Ask commands (Natural Language Fleet Queries)
-from azlin.commands.ask import ask_command, ask_group
-
-# Auth commands
-from azlin.commands.auth import auth
-
-# Autopilot commands
-from azlin.commands.autopilot import autopilot_group
-
-# Bastion commands
-# Storage commands
-from azlin.commands.bastion import bastion_group
-from azlin.commands.compose import compose_group
-
-# Context commands
-from azlin.commands.context import context_group
-
-# Doit commands
-from azlin.commands.costs import costs_group
-from azlin.commands.doit import doit_group
-from azlin.commands.fleet import fleet_group
-from azlin.commands.github_runner import github_runner_group
-from azlin.commands.monitoring import status
-
-# Restore command
-from azlin.commands.restore import restore_command
-from azlin.commands.storage import storage_group
-from azlin.commands.tag import tag_group
+# Import all commands from modular command modules
+from azlin.commands import (
+    # Additional command groups
+    ask_command,
+    ask_group,
+    autopilot_group,
+    azdoit_main,
+    bastion_group,
+    # Batch Commands
+    batch,
+    clone,
+    code_command,
+    compose_group,
+    # Connectivity Commands
+    connect,
+    context_group,
+    costs_group,
+    cp,
+    create,
+    destroy,
+    # NLP Commands
+    do,
+    doit_group,
+    # Environment Commands
+    env,
+    fleet_group,
+    github_runner_group,
+    # IP Commands
+    ip,
+    # Keys Commands
+    keys_group,
+    kill,
+    killall,
+    list_command,
+    # Provisioning Commands
+    new,
+    prune,
+    ps,
+    restore_command,
+    session_command,
+    # Snapshot Commands
+    snapshot,
+    # Lifecycle Commands
+    start,
+    status,
+    stop,
+    storage_group,
+    sync,
+    sync_keys,
+    tag_group,
+    # Template Commands
+    template,
+    top,
+    vm,
+    # Monitoring Commands
+    w,
+    # Web Commands
+    web,
+)
+from azlin.commands import (
+    auth_group as auth,
+)
 
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.context_manager import ContextManager
-from azlin.context_selector import ContextSelector, ContextSelectorError
 from azlin.cost_tracker import CostTracker, CostTrackerError
-from azlin.distributed_top import DistributedTopError, DistributedTopExecutor
 from azlin.env_manager import EnvManager, EnvManagerError
 from azlin.ip_diagnostics import (
     check_connectivity,
@@ -100,13 +128,6 @@ from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.bastion_provisioner import BastionProvisioner
 from azlin.modules.cost_estimator import CostEstimator
-from azlin.modules.file_transfer import (
-    FileTransfer,
-    FileTransferError,
-    PathParser,
-    SessionManager,
-    TransferEndpoint,
-)
 from azlin.modules.github_setup import GitHubSetupError, GitHubSetupHandler
 from azlin.modules.home_sync import (
     HomeSyncError,
@@ -130,36 +151,16 @@ from azlin.modules.ssh_key_vault import (
     create_key_vault_manager_with_auto_setup,
 )
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
-from azlin.modules.vscode_launcher import (
-    VSCodeLauncher,
-    VSCodeLauncherError,
-    VSCodeNotFoundError,
-)
-from azlin.multi_context_display import MultiContextDisplay
-from azlin.multi_context_list import MultiContextQueryError
-from azlin.multi_context_list_async import query_all_contexts_parallel
-from azlin.network_security.bastion_connection_pool import (
-    BastionConnectionPool,
-    PooledTunnel,
-    SecurityError,
-)
-from azlin.prune import PruneManager
-from azlin.quota_manager import QuotaInfo, QuotaManager
 from azlin.remote_exec import (
     OSUpdateExecutor,
-    PSCommandExecutor,
     RemoteExecError,
     RemoteExecutor,
-    TmuxSession,
-    TmuxSessionExecutor,
-    WCommandExecutor,
 )
 from azlin.security_audit import SecurityAuditLogger
-from azlin.tag_manager import TagManager
 from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 from azlin.vm_connector import VMConnector, VMConnectorError
-from azlin.vm_lifecycle import DeletionSummary, VMLifecycleError, VMLifecycleManager
-from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController
+from azlin.vm_lifecycle import DeletionSummary, VMLifecycleManager
+from azlin.vm_lifecycle_control import VMLifecycleController
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
 from azlin.vm_provisioning import (
     PoolProvisioningResult,
@@ -1091,6 +1092,8 @@ class CLIOrchestrator:
             self.progress.update(
                 f"Creating Bastion tunnel via {bastion_info['name']} (localhost:{local_port})..."
             )
+
+            from azlin.commands.monitoring import _get_config_int
 
             retry_attempts = _get_config_int("AZLIN_BASTION_RETRY_ATTEMPTS", 3)
             last_error: Exception | None = None
@@ -2128,10 +2131,10 @@ def show_interactive_menu(vms: list[VMInfo], ssh_key_path: Path) -> int | None:
     click.echo("Available VMs:")
     click.echo("=" * 60)
 
-    for idx, vm in enumerate(vms, 1):
-        status = vm.get_status_display()
-        ip = vm.public_ip or "No IP"
-        click.echo(f"  {idx}. {vm.name} - {status} - {ip}")
+    for idx, vm_info in enumerate(vms, 1):
+        status = vm_info.get_status_display()
+        ip = vm_info.public_ip or "No IP"
+        click.echo(f"  {idx}. {vm_info.name} - {status} - {ip}")
 
     click.echo("  n. Create new VM")
     click.echo("=" * 60)
@@ -2254,10 +2257,10 @@ def select_vm_for_command(vms: list[VMInfo], command: str) -> VMInfo | None:
     click.echo("=" * 60)
     click.echo("\nAvailable VMs:")
 
-    for idx, vm in enumerate(vms, 1):
-        status = vm.get_status_display()
-        ip = vm.public_ip or "No IP"
-        click.echo(f"  {idx}. {vm.name} - {status} - {ip}")
+    for idx, vm_info in enumerate(vms, 1):
+        status = vm_info.get_status_display()
+        ip = vm_info.public_ip or "No IP"
+        click.echo(f"  {idx}. {vm_info.name} - {status} - {ip}")
 
     click.echo("  n. Create new VM and execute")
     click.echo("=" * 60)
@@ -2759,10 +2762,10 @@ def _display_pool_results(result: PoolProvisioningResult) -> None:
     if result.successful:
         click.echo("\nSuccessfully Provisioned VMs:")
         click.echo("=" * 80)
-        for vm in result.successful:
+        for vm_item in result.successful:
             # Display 'Bastion' instead of empty string when no public IP
-            ip_display = vm.public_ip if vm.public_ip else "(Bastion)"
-            click.echo(f"  {vm.name:<30} {ip_display:<15} {vm.location}")
+            ip_display = vm_item.public_ip if vm_item.public_ip else "(Bastion)"
+            click.echo(f"  {vm_item.name:<30} {ip_display:<15} {vm_item.location}")
         click.echo("=" * 80)
 
     if result.failed:
@@ -2811,1679 +2814,13 @@ def _validate_config_path(
     return value
 
 
-@main.command(name="new")
-@click.pass_context
-@click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option(
-    "--size",
-    help="VM size tier: s(mall), m(edium), l(arge), xl (default: l)",
-    type=click.Choice(["s", "m", "l", "xl"], case_sensitive=False),
-)
-@click.option("--vm-size", help="Azure VM size (overrides --size)", type=str)
-@click.option("--region", help="Azure region", type=str)
-@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
-@click.option("--name", help="Custom VM name", type=str)
-@click.option("--pool", help="Number of VMs to create in parallel", type=int)
-@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
-@click.option(
-    "--config", help="Config file path", type=click.Path(), callback=_validate_config_path
-)
-@click.option("--template", help="Template name to use for VM configuration", type=str)
-@click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
-@click.option(
-    "--no-nfs",
-    is_flag=True,
-    help="Skip NFS storage mounting (use local home directory only)",
-)
-@click.option(
-    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
-)
-@click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
-@click.option(
-    "--yes",
-    "-y",
-    is_flag=True,
-    help="Accept all defaults and confirmations (non-interactive mode)",
-)
-@click.option(
-    "--home-disk-size",
-    type=int,
-    help="Size of separate /home disk in GB (default: 100)",
-)
-@click.option(
-    "--no-home-disk",
-    is_flag=True,
-    help="Disable separate /home disk (use OS disk)",
-)
-def new_command(
-    ctx: click.Context,
-    repo: str | None,
-    size: str | None,
-    vm_size: str | None,
-    region: str | None,
-    resource_group: str | None,
-    name: str | None,
-    pool: int | None,
-    no_auto_connect: bool,
-    config: str | None,
-    template: str | None,
-    nfs_storage: str | None,
-    no_nfs: bool,
-    no_bastion: bool,
-    bastion_name: str | None,
-    yes: bool,
-    home_disk_size: int | None,
-    no_home_disk: bool,
-) -> None:
-    """Provision a new Azure VM with development tools.
-
-    SSH keys are automatically stored in Azure Key Vault for cross-system access.
-
-    Creates a new Ubuntu VM in Azure with all development tools pre-installed.
-    Optionally connects via SSH and clones a GitHub repository.
-
-    \b
-    EXAMPLES:
-        # Provision basic VM (uses size 'l' = 128GB RAM)
-        $ azlin new
-
-        # Provision with size tier (s=8GB, m=64GB, l=128GB, xl=256GB)
-        $ azlin new --size m     # Medium: 64GB RAM
-        $ azlin new --size s     # Small: 8GB RAM (original default)
-        $ azlin new --size xl    # Extra-large: 256GB RAM
-
-        # Provision with exact VM size (overrides --size)
-        $ azlin new --vm-size Standard_E8as_v5
-
-        # Provision with custom name
-        $ azlin new --name my-dev-vm --size m
-
-        # Provision and clone repository
-        $ azlin new --repo https://github.com/owner/repo
-
-        # Provision 5 VMs in parallel
-        $ azlin new --pool 5 --size l
-
-        # Provision from template
-        $ azlin new --template dev-vm
-
-        # Provision with NFS storage for shared home directory
-        $ azlin new --nfs-storage myteam-shared --name worker-1
-
-        # Provision and execute command
-        $ azlin new --size xl -- python train.py
-    """
-    # Check for passthrough command
-    command = None
-    if ctx.obj and "passthrough_command" in ctx.obj:
-        command = ctx.obj["passthrough_command"]
-    elif ctx.args:
-        command = " ".join(ctx.args)
-
-    # Load configuration and template
-    azlin_config, template_config = _load_config_and_template(config, template)
-
-    # Resolve VM settings
-    final_rg, final_region, final_vm_size = _resolve_vm_settings(
-        resource_group, region, size, vm_size, azlin_config, template_config
-    )
-
-    # Generate VM name (don't use custom name for Azure VM resource name)
-    vm_name = generate_vm_name(None, command)
-
-    # Validate inputs
-    _validate_inputs(pool, repo)
-
-    # Create orchestrator
-    orchestrator = CLIOrchestrator(
-        repo=repo,
-        vm_size=final_vm_size,
-        region=final_region,
-        resource_group=final_rg,
-        auto_connect=not no_auto_connect,
-        config_file=config,
-        nfs_storage=nfs_storage,
-        no_nfs=no_nfs,
-        session_name=name,
-        no_bastion=no_bastion,
-        bastion_name=bastion_name,
-        auto_approve=yes,
-        home_disk_size=home_disk_size,
-        no_home_disk=no_home_disk,
-    )
-
-    # Update config state (resource group only, session name saved after VM creation)
-    if final_rg:
-        try:
-            ConfigManager.update_config(config, default_resource_group=final_rg)
-        except ConfigError as e:
-            logger.debug(f"Failed to update config: {e}")
-
-    # Handle command execution mode
-    if command and not pool:
-        _execute_command_mode(orchestrator, command, name, config)
-
-    # Handle pool provisioning
-    if pool and pool > 1:
-        _provision_pool(
-            orchestrator, pool, vm_name, final_rg, final_region, final_vm_size, name, config
-        )
-
-    # Standard single VM provisioning
-    exit_code = orchestrator.run()
-
-    # Save session name mapping AFTER VM creation (now we have actual VM name)
-    if name and orchestrator.vm_details:
-        try:
-            actual_vm_name = orchestrator.vm_details.name
-            ConfigManager.set_session_name(actual_vm_name, name, config)
-            logger.debug(f"Saved session name mapping: {actual_vm_name} -> {name}")
-        except ConfigError as e:
-            logger.warning(f"Failed to save session name: {e}")
-
-    sys.exit(exit_code)
-
-
-# Alias: 'vm' for 'new'
-@main.command(name="vm")
-@click.pass_context
-@click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
-@click.option("--region", help="Azure region", type=str)
-@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
-@click.option("--name", help="Custom VM name", type=str)
-@click.option("--pool", help="Number of VMs to create in parallel", type=int)
-@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--template", help="Template name to use for VM configuration", type=str)
-@click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
-@click.option(
-    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
-)
-@click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
-def vm_command(ctx: click.Context, **kwargs: Any) -> Any:
-    """Alias for 'new' command. Provision a new Azure VM."""
-    return ctx.invoke(new_command, **kwargs)
-
-
-# Alias: 'create' for 'new'
-@main.command(name="create")
-@click.pass_context
-@click.option("--repo", help="GitHub repository URL to clone", type=str)
-@click.option("--vm-size", help="Azure VM size", type=str)
-@click.option("--region", help="Azure region", type=str)
-@click.option("--resource-group", "--rg", help="Azure resource group", type=str)
-@click.option("--name", help="Custom VM name", type=str)
-@click.option("--pool", help="Number of VMs to create in parallel", type=int)
-@click.option("--no-auto-connect", help="Do not auto-connect via SSH", is_flag=True)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--template", help="Template name to use for VM configuration", type=str)
-@click.option("--nfs-storage", help="NFS storage account name to mount as home directory", type=str)
-@click.option(
-    "--no-bastion", help="Skip bastion auto-detection and always create public IP", is_flag=True
-)
-@click.option("--bastion-name", help="Explicit bastion host name to use for private VM", type=str)
-def create_command(ctx: click.Context, **kwargs: Any) -> Any:
-    """Alias for 'new' command. Provision a new Azure VM."""
-    return ctx.invoke(new_command, **kwargs)
-
-
-# SSH timeout configuration for tmux session detection
-# These values be based on empirical observation and conservative estimates:
-# - Direct SSH: 95th percentile ~3s, buffer to 5s fer network variability
-# - Bastion: Routing through Azure Bastion adds ~5-7s latency, plus VM SSH startup ~3-5s, buffer to 15s
-DIRECT_SSH_TMUX_TIMEOUT = 5  # Seconds - Direct SSH connections (public IP)
-BASTION_TUNNEL_TMUX_TIMEOUT = 15  # Seconds - Bastion tunnels (routing latency + VM SSH startup)
-
-
-# ============================================================================
-# BASTION TUNNEL RETRY HELPERS (Issue #588)
-# ============================================================================
-
-
-def _get_config_int(env_var: str, default: int) -> int:
-    """Get integer config from environment with safe fallback.
-
-    Args:
-        env_var: Environment variable name
-        default: Default value if not set or invalid
-
-    Returns:
-        Integer value from environment or default
-    """
-    try:
-        return int(os.getenv(env_var, default))
-    except (ValueError, TypeError):
-        logger.warning(f"Invalid {env_var}, using default: {default}")
-        return default
-
-
-def _get_config_float(env_var: str, default: float) -> float:
-    """Get float config from environment with safe fallback.
-
-    Args:
-        env_var: Environment variable name
-        default: Default value if not set or invalid
-
-    Returns:
-        Float value from environment or default
-    """
-    try:
-        return float(os.getenv(env_var, default))
-    except (ValueError, TypeError):
-        logger.warning(f"Invalid {env_var}, using default: {default}")
-        return default
-
-
-def _create_tunnel_with_retry(
-    pool: BastionConnectionPool,
-    vm: "VMInfo",
-    bastion_info: dict[str, str],
-    vm_resource_id: str,
-    max_attempts: int = 3,
-) -> PooledTunnel:
-    """Create Bastion tunnel with retry logic using connection pool.
-
-    Combines:
-    - Connection pool for reuse (BastionConnectionPool)
-    - Retry with exponential backoff for resilience
-    - Clear error messages for debugging
-
-    Args:
-        pool: BastionConnectionPool instance
-        vm: VM information
-        bastion_info: Bastion host details (name, resource_group)
-        vm_resource_id: Full Azure VM resource ID
-        max_attempts: Maximum retry attempts (default: 3)
-
-    Returns:
-        PooledTunnel ready for use
-
-    Raises:
-        BastionManagerError: If tunnel creation fails after all retries
-    """
-    last_error: Exception | None = None
-    initial_delay = 1.0  # Start with 1 second delay
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            logger.debug(
-                f"Attempting tunnel creation for VM {vm.name} (attempt {attempt}/{max_attempts})"
-            )
-            pooled_tunnel = pool.get_or_create_tunnel(
-                bastion_name=bastion_info["name"],
-                resource_group=bastion_info["resource_group"],
-                target_vm_id=vm_resource_id,
-                remote_port=22,
-            )
-            if attempt > 1:
-                logger.info(
-                    f"Tunnel created successfully for VM {vm.name} (attempt {attempt}/{max_attempts})"
-                )
-            return pooled_tunnel
-
-        except SecurityError:
-            # Security violations should fail-fast, no retry
-            logger.error(
-                f"Security violation during tunnel creation for VM {vm.name} - "
-                f"tunnel not bound to localhost"
-            )
-            raise
-
-        except (BastionManagerError, TimeoutError, ConnectionError) as e:
-            last_error = e
-            if attempt < max_attempts:
-                # Exponential backoff with jitter
-                delay = initial_delay * (2 ** (attempt - 1))
-                # Add small jitter (up to 20%) - S311 safe, not used for crypto
-                delay *= 1 + random.uniform(-0.2, 0.2)  # noqa: S311
-                logger.warning(
-                    f"Failed to create tunnel for VM {vm.name} (attempt {attempt}/{max_attempts}), "
-                    f"retrying in {delay:.1f}s: {e}"
-                )
-                time.sleep(delay)
-            else:
-                logger.error(
-                    f"Failed to create Bastion tunnel for VM {vm.name} "
-                    f"after {max_attempts} attempts: {e}"
-                )
-
-    # All retries exhausted
-    raise BastionManagerError(
-        f"Failed to create Bastion tunnel for VM {vm.name} after {max_attempts} attempts"
-    ) from last_error
-
-
-def get_vm_session_pairs(
-    resource_group: str,
-    config_path: str | None = None,
-    include_stopped: bool = False,
-) -> list[tuple[VMInfo, list[TmuxSession]]]:
-    """Get canonical VM/session pairs - SINGLE SOURCE OF TRUTH.
-
-    Used by both 'azlin list --show-tmux' and 'azlin restore'.
-    """
-    vms = VMManager.list_vms(resource_group, include_stopped=include_stopped)
-    if not vms:
-        return []
-
-    tmux_by_vm = _collect_tmux_sessions(vms)
-
-    # Return (VM, sessions) pairs
-    return [(vm, tmux_by_vm.get(vm.name, [])) for vm in vms]
-
-
-def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
-    """Collect tmux sessions from running VMs.
-
-    Supports both direct SSH (VMs with public IPs) and Bastion tunneling
-    (VMs with only private IPs).
-
-    Args:
-        vms: List of VMInfo objects
-
-    Returns:
-        Dictionary mapping VM name to list of tmux sessions
-    """
-    tmux_by_vm: dict[str, list[TmuxSession]] = {}
-
-    # Ensure SSH key is available for connecting to VMs
-    try:
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
-        ssh_key_path = ssh_key_pair.private_path
-    except SSHKeyError as e:
-        logger.warning(
-            f"Cannot collect tmux sessions: SSH key validation failed: {e}\n"
-            "Tmux sessions will not be displayed.\n"
-            "To fix this, ensure your SSH key is available or run 'azlin' commands "
-            "to set up SSH access."
-        )
-        return tmux_by_vm
-
-    # Classify VMs into direct SSH (public IP) and Bastion (private IP only)
-    direct_ssh_vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
-    bastion_vms = [vm for vm in vms if vm.is_running() and vm.private_ip and not vm.public_ip]
-
-    # Handle direct SSH VMs (existing code path)
-    try:
-        ssh_configs = []
-        vm_name_map = {}  # Map IP to VM name for result matching
-
-        for vm in direct_ssh_vms:
-            # Type assertion: vm.public_ip is guaranteed non-None by direct_ssh_vms filter
-            assert vm.public_ip is not None
-            ssh_config = SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_path)
-            ssh_configs.append(ssh_config)
-            vm_name_map[vm.public_ip] = vm.name
-
-        # Query tmux sessions in parallel
-        if ssh_configs:
-            tmux_sessions = TmuxSessionExecutor.get_sessions_parallel(
-                ssh_configs, timeout=DIRECT_SSH_TMUX_TIMEOUT, max_workers=10
-            )
-
-            # Map sessions to VM names
-            for session in tmux_sessions:
-                # Map from IP back to VM name
-                if session.vm_name in vm_name_map:
-                    vm_name = vm_name_map[session.vm_name]
-                    if vm_name not in tmux_by_vm:
-                        tmux_by_vm[vm_name] = []
-                    tmux_by_vm[vm_name].append(session)
-
-    except Exception as e:
-        logger.warning(f"Failed to fetch tmux sessions from direct SSH VMs: {e}")
-
-    # Handle Bastion VMs (with retry logic and rate limiting - Issue #588)
-    if bastion_vms:
-        try:
-            # Get subscription ID for resource ID generation
-            auth = AzureAuthenticator()
-            subscription_id = auth.get_subscription_id()
-
-            # Load configuration from environment
-            max_tunnels = _get_config_int("AZLIN_BASTION_MAX_TUNNELS", 10)
-            idle_timeout = _get_config_int("AZLIN_BASTION_IDLE_TIMEOUT", 300)
-            rate_limit = _get_config_float("AZLIN_BASTION_RATE_LIMIT", 0.5)
-            retry_attempts = _get_config_int("AZLIN_BASTION_RETRY_ATTEMPTS", 3)
-
-            # Use context manager to ensure tunnel cleanup
-            with BastionManager() as bastion_manager:
-                # Initialize connection pool for tunnel reuse
-                pool = BastionConnectionPool(
-                    bastion_manager,
-                    max_tunnels=max_tunnels,
-                    idle_timeout=idle_timeout,
-                )
-
-                try:
-                    for idx, vm in enumerate(bastion_vms):
-                        try:
-                            # Rate limiting: Add delay between tunnel creations
-                            if idx > 0 and rate_limit > 0:
-                                logger.debug(
-                                    f"Rate limiting: waiting {rate_limit}s before next tunnel"
-                                )
-                                time.sleep(rate_limit)
-
-                            # Detect Bastion host for this VM
-                            bastion_info = BastionDetector.detect_bastion_for_vm(
-                                vm.name, vm.resource_group, vm.location
-                            )
-
-                            if not bastion_info:
-                                logger.warning(
-                                    f"No Bastion host found for VM {vm.name} in {vm.resource_group}"
-                                )
-                                continue
-
-                            # Get VM resource ID
-                            vm_resource_id = vm.get_resource_id(subscription_id)
-
-                            # Create tunnel with retry logic (Issue #588)
-                            pooled_tunnel = _create_tunnel_with_retry(
-                                pool=pool,
-                                vm=vm,
-                                bastion_info={
-                                    "name": bastion_info["name"],
-                                    "resource_group": bastion_info["resource_group"],
-                                },
-                                vm_resource_id=vm_resource_id,
-                                max_attempts=retry_attempts,
-                            )
-
-                            # Query tmux sessions through tunnel
-                            ssh_config = SSHConfig(
-                                host="127.0.0.1",
-                                port=pooled_tunnel.tunnel.local_port,
-                                user="azureuser",
-                                key_path=ssh_key_path,
-                            )
-
-                            # Debug: Log which VM this tunnel targets
-                            logger.debug(
-                                f"Querying tmux on tunnel port {pooled_tunnel.tunnel.local_port} "
-                                f"for VM {vm.name} (resource_id={vm_resource_id})"
-                            )
-
-                            # Get sessions for this VM with EXPLICIT vm_name (not from ssh_config!)
-                            # This ensures sessions have correct vm_name from the start
-                            # DEBUG: Log tunnel mapping
-                            logger.debug(
-                                f"Querying VM {vm.name} via tunnel port {pooled_tunnel.tunnel.local_port}"
-                            )
-                            tmux_sessions = TmuxSessionExecutor.get_sessions_single_vm(
-                                ssh_config, vm_name=vm.name, timeout=BASTION_TUNNEL_TMUX_TIMEOUT
-                            )
-                            logger.debug(
-                                f"VM {vm.name} returned {len(tmux_sessions)} sessions: {[s.session_name for s in tmux_sessions]}"
-                            )
-
-                            # Add sessions to result
-                            if tmux_sessions:
-                                logger.debug(
-                                    f"Found {len(tmux_sessions)} tmux sessions on {vm.name}"
-                                )
-                            else:
-                                logger.debug(f"No tmux sessions found on {vm.name}")
-
-                            # Add sessions to result (vm_name already correct from get_sessions_single_vm)
-                            if vm.name not in tmux_by_vm:
-                                tmux_by_vm[vm.name] = []
-                            tmux_by_vm[vm.name].extend(tmux_sessions)
-
-                        except BastionManagerError as e:
-                            logger.warning(f"Failed to create Bastion tunnel for VM {vm.name}: {e}")
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to fetch tmux sessions from Bastion VM {vm.name}: {e}"
-                            )
-
-                finally:
-                    # Ensure pool tunnels are cleaned up after ALL VMs processed
-                    pool.close_all()
-
-        except Exception as e:
-            logger.warning(f"Failed to initialize Bastion support: {e}")
-
-    return tmux_by_vm
-
-
-def _handle_multi_context_list(
-    all_contexts: bool,
-    contexts_pattern: str | None,
-    resource_group: str | None,
-    config: str | None,
-    show_all: bool,
-    tag: str | None,
-    show_quota: bool,
-    show_tmux: bool,
-    wide_mode: bool = False,
-    compact_mode: bool = False,
-    no_cache: bool = False,
-) -> None:
-    """Handle multi-context VM listing.
-
-    This function orchestrates VM listing across multiple Azure contexts using
-    the context_selector, multi_context_list, and multi_context_display modules.
-
-    Args:
-        all_contexts: Query all configured contexts
-        contexts_pattern: Glob pattern for context selection
-        resource_group: Resource group to query (required for multi-context)
-        config: Config file path
-        show_all: Include stopped VMs
-        tag: Tag filter (format: key or key=value)
-        show_quota: Show quota information (not supported in multi-context)
-        show_tmux: Show tmux sessions (not supported in multi-context)
-        wide_mode: Prevent VM name truncation in table output
-
-    Raises:
-        SystemExit: On validation or execution errors
-    """
-    # Validate: Cannot use both flags
-    if all_contexts and contexts_pattern:
-        click.echo(
-            "Error: Cannot use both --all-contexts and --contexts. Choose one.",
-            err=True,
-        )
-        sys.exit(1)
-
-    # Validate: Resource group is required for multi-context queries
-    # Unlike single-context mode, we can't query "all RGs" across multiple subscriptions
-    rg = ConfigManager.get_resource_group(resource_group, config)
-    if not rg:
-        click.echo(
-            "Error: Multi-context queries require a resource group.\n"
-            "Use --resource-group or set default in ~/.azlin/config.toml",
-            err=True,
-        )
-        sys.exit(1)
-
-    # Feature limitation warnings
-    if show_quota:
-        click.echo(
-            "Warning: --show-quota is not yet supported for multi-context queries. "
-            "Quota information will be omitted.\n",
-            err=True,
-        )
-        show_quota = False  # Disable for now
-
-    if show_tmux:
-        click.echo(
-            "Warning: --show-tmux is not yet supported for multi-context queries. "
-            "Tmux session information will be omitted.\n",
-            err=True,
-        )
-        show_tmux = False  # Disable for now
-
-    # Step 1: Select contexts based on pattern or all flag
-    try:
-        selector = ContextSelector(config_path=config)
-
-        if all_contexts:
-            click.echo("Selecting all configured contexts...\n")
-            contexts = selector.select_contexts(all_contexts=True)
-        else:
-            click.echo(f"Selecting contexts matching pattern: {contexts_pattern}\n")
-            contexts = selector.select_contexts(pattern=contexts_pattern)
-
-        click.echo(f"Selected {len(contexts)} context(s): {', '.join(c.name for c in contexts)}\n")
-
-    except ContextSelectorError as e:
-        click.echo(f"Error selecting contexts: {e}", err=True)
-        sys.exit(1)
-
-    # Step 2: Query VMs across all selected contexts in parallel
-    try:
-        click.echo(f"Querying VMs in resource group '{rg}' across {len(contexts)} contexts...\n")
-
-        # Check if cache exists before query
-        import json
-
-        from azlin.cache.vm_list_cache import VMListCache
-
-        cache = VMListCache()
-        cache_file = cache.cache_path
-        cache_exists_before = cache_file.exists()
-
-        if cache_exists_before:
-            with open(cache_file) as f:
-                cache_data = json.load(f)
-            click.echo(f"[DEBUG] Cache file exists with {len(cache_data)} entries before query")
-        else:
-            click.echo(f"[DEBUG] No cache file found at {cache_file}")
-
-        result = query_all_contexts_parallel(
-            contexts=contexts,
-            resource_group=rg,
-            include_stopped=show_all,
-            filter_prefix="azlin",  # Always filter to azlin VMs like single-context mode
-            cache=cache,  # Pass explicit cache instance
-        )
-
-        # Check cache after query
-        if cache_file.exists():
-            with open(cache_file) as f:
-                cache_data_after = json.load(f)
-            click.echo(f"[DEBUG] Cache file has {len(cache_data_after)} entries after query")
-        else:
-            click.echo("[DEBUG] WARNING: No cache file created after query!")
-
-    except MultiContextQueryError as e:
-        click.echo(f"Error querying contexts: {e}", err=True)
-        sys.exit(1)
-
-    # Step 3: Apply tag filter if specified (post-query filtering)
-    if tag:
-        try:
-            # Filter VMs in each successful context result
-            from azlin.tag_manager import TagManager
-
-            for ctx_result in result.context_results:
-                if ctx_result.success and ctx_result.vms:
-                    ctx_result.vms = TagManager.filter_vms_by_tag(ctx_result.vms, tag)
-
-            click.echo(f"Applied tag filter: {tag}\n")
-        except Exception as e:
-            click.echo(f"Error filtering by tag: {e}", err=True)
-            sys.exit(1)
-
-    # Step 4: Display results using Rich tables
-    display = MultiContextDisplay()
-    display.display_results(
-        result, show_errors=True, show_summary=True, wide_mode=wide_mode, compact_mode=compact_mode
-    )
-
-    # Trigger background cache refresh to keep cache warm (non-blocking)
-    try:
-        from azlin.cache.background_refresh import trigger_background_refresh
-
-        trigger_background_refresh(contexts=contexts)
-    except Exception:
-        pass  # Never fail user operation due to background refresh
-
-    # Step 5: Check if any contexts failed and set appropriate exit code
-    if result.failed_contexts > 0:
-        click.echo(
-            f"\nWarning: {result.failed_contexts} context(s) failed to query. "
-            "See error details above.",
-            err=True,
-        )
-        # Don't exit with error - partial success is still useful
-        # User can see which contexts failed and why
-
-
-@main.command(name="list")
-@click.option("--resource-group", "--rg", help="Resource group to list VMs from", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--all", "show_all", help="Show all VMs (including stopped)", is_flag=True)
-@click.option("--tag", help="Filter VMs by tag (format: key or key=value)", type=str)
-@click.option(
-    "--quota",
-    "-q",
-    "show_quota",
-    is_flag=True,
-    default=False,
-    help="Show Azure vCPU quota information (slower)",
-)
-@click.option("--show-tmux/--no-tmux", default=True, help="Show active tmux sessions")
-@click.option(
-    "--show-all-vms",
-    "-a",
-    "show_all_vms",
-    help="List all VMs across all resource groups (expensive operation)",
-    is_flag=True,
-)
-@click.option(
-    "--all-contexts",
-    "all_contexts",
-    help="List VMs across all configured contexts (requires context configuration)",
-    is_flag=True,
-)
-@click.option(
-    "--contexts",
-    "contexts_pattern",
-    help="List VMs from contexts matching glob pattern (e.g., 'prod*', 'dev-*')",
-    type=str,
-)
-@click.option(
-    "--wide",
-    "-w",
-    "wide_mode",
-    help="Prevent VM name truncation in table output",
-    is_flag=True,
-)
-@click.option(
-    "--compact",
-    "-c",
-    "compact_mode",
-    help="Use compact column widths for table output",
-    is_flag=True,
-)
-@click.option(
-    "--with-latency",
-    is_flag=True,
-    default=False,
-    help="Measure SSH latency for running VMs (adds ~5s per VM, parallel)",
-)
-@click.option(
-    "--no-cache",
-    "no_cache",
-    is_flag=True,
-    default=False,
-    help="Bypass cache and fetch fresh data from Azure (used by background refresh)",
-)
-@click.option(
-    "--verbose",
-    "-v",
-    "verbose",
-    is_flag=True,
-    default=False,
-    help="Show detailed output (tunnel creation, SSH commands, etc.)",
-)
-@click.option(
-    "--restore",
-    "-r",
-    "run_restore",
-    is_flag=True,
-    default=False,
-    help="After listing, restore all tmux sessions in Windows Terminal tabs",
-)
-def list_command(
-    resource_group: str | None,
-    config: str | None,
-    show_all: bool,
-    tag: str | None,
-    show_quota: bool,
-    show_tmux: bool,
-    show_all_vms: bool,
-    all_contexts: bool,
-    contexts_pattern: str | None,
-    wide_mode: bool = False,
-    compact_mode: bool = False,
-    with_latency: bool = False,
-    no_cache: bool = False,
-    verbose: bool = False,
-    run_restore: bool = False,
-):
-    """List VMs in a resource group.
-
-    By default, lists azlin-managed VMs in the configured resource group.
-    Use --show-all-vms (-a) to scan all VMs across all resource groups (expensive).
-
-    Shows VM name, status, IP address, region, size, vCPUs, memory (GB), and optionally quota/tmux/latency info.
-
-    \b
-    Examples:
-        azlin list                    # VMs in default RG with quota & tmux
-        azlin list --rg my-rg         # VMs in specific RG
-        azlin list --all              # Include stopped VMs
-        azlin list --tag env=dev      # Filter by tag
-        azlin list --with-latency     # Include SSH latency measurements
-        azlin list --show-all-vms     # All VMs across all RGs (expensive)
-        azlin list -a                 # Same as --show-all-vms
-        azlin list --no-quota         # Skip quota information
-        azlin list --no-tmux          # Skip tmux session info
-        azlin list --all-contexts     # VMs across all configured contexts
-        azlin list --contexts "prod*" # VMs from production contexts
-        azlin list --contexts "*-dev" --all  # All VMs (including stopped) in dev contexts
-    """
-    # Validate mutually exclusive display modes
-    if compact_mode and wide_mode:
-        click.echo(
-            "Error: --compact and --wide are mutually exclusive.\nUse one or the other, not both.",
-            err=True,
-        )
-        sys.exit(1)
-
-    # Configure logging based on verbose flag
-    if not verbose:
-        # Suppress INFO logs for bastion/tunnel operations (show only warnings+)
-        logging.getLogger("azlin.modules.bastion_manager").setLevel(logging.WARNING)
-        logging.getLogger("azlin.modules.bastion_detector").setLevel(logging.WARNING)
-        logging.getLogger("azlin.modules.ssh_keys").setLevel(logging.WARNING)
-        logging.getLogger("azlin.network_security.bastion_connection_pool").setLevel(
-            logging.WARNING
-        )
-
-    console = Console()
-    try:
-        # NEW: Multi-context query mode (Issue #350)
-        # Check for multi-context flags first, before single-context logic
-        # Multi-context mode has its own subscription switching per context
-        if all_contexts or contexts_pattern:
-            # Validate mutually exclusive flags
-            if show_all_vms:
-                click.echo(
-                    "Error: Cannot use --all-contexts or --contexts with --show-all-vms.\n"
-                    "These are mutually exclusive modes:\n"
-                    "  - Multi-context mode: Query specific RG across multiple contexts\n"
-                    "  - All-VMs mode: Query all RGs in single context\n\n"
-                    "Use one or the other, not both.",
-                    err=True,
-                )
-                sys.exit(1)
-
-            # Validate empty pattern
-            if contexts_pattern and not contexts_pattern.strip():
-                click.echo(
-                    "Error: --contexts pattern cannot be empty.\n"
-                    "Provide a glob pattern (e.g., 'prod*', '*-dev') or use --all-contexts.",
-                    err=True,
-                )
-                sys.exit(1)
-
-            _handle_multi_context_list(
-                all_contexts=all_contexts,
-                contexts_pattern=contexts_pattern,
-                resource_group=resource_group,
-                config=config,
-                show_all=show_all,
-                tag=tag,
-                show_quota=show_quota,
-                show_tmux=show_tmux,
-                wide_mode=wide_mode,
-                compact_mode=compact_mode,
-                no_cache=no_cache,
-            )
-            return  # Exit early - multi-context mode handled completely
-
-        # EXISTING: Single-context query mode continues below...
-        # Ensure Azure CLI subscription matches current context for single-context queries
-        from azlin.context_manager import ContextError
-
-        try:
-            ContextManager.ensure_subscription_active(config)
-        except ContextError as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
-
-        # Get resource group from config or CLI
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        # Try to get current context (for background refresh later)
-        current_ctx = None
-        try:
-            context_config = ContextManager.load(config)
-            current_ctx = context_config.get_current_context()
-        except Exception:
-            pass  # Silently skip if context unavailable
-
-        # Cross-RG discovery: ONLY if --show-all-vms flag is set
-        if not rg and show_all_vms:
-            click.echo("Listing all azlin-managed VMs across resource groups...\n")
-            try:
-                vms, was_cached = TagManager.list_managed_vms(
-                    resource_group=None, use_cache=not no_cache
-                )
-                if not show_all:
-                    vms = [vm for vm in vms if vm.is_running()]
-            except Exception as e:
-                click.echo(
-                    f"Error: Failed to list VMs across resource groups: {e}\n"
-                    "Use --resource-group or set default in ~/.azlin/config.toml",
-                    err=True,
-                )
-                sys.exit(1)
-        elif not rg and not show_all_vms:
-            # No RG and no --show-all-vms flag: require RG or show help
-            click.echo("Error: No resource group specified and no default configured.", err=True)
-            click.echo("Use --resource-group or set default in ~/.azlin/config.toml\n", err=True)
-            click.echo(
-                "To show all VMs accessible by this subscription, run:\n"
-                "  azlin list --show-all-vms\n"
-                "  (or use the short form: azlin list -a)"
-            )
-            sys.exit(1)
-        else:
-            # Single RG listing (rg is guaranteed to be str here)
-            assert rg is not None, "Resource group must be set in this branch"
-
-            # Show current context name if available
-            if current_ctx:
-                click.echo(f"Context: {current_ctx.name}")
-
-            click.echo(f"Listing VMs in resource group: {rg}\n")
-            # Use tag-based query to include custom-named VMs (Issue #385 support)
-            vms, was_cached = TagManager.list_managed_vms(resource_group=rg, use_cache=not no_cache)
-            if not show_all:
-                vms = [vm for vm in vms if vm.is_running()]
-
-        # Filter by tag if specified
-        if tag:
-            try:
-                vms = TagManager.filter_vms_by_tag(vms, tag)
-            except Exception as e:
-                click.echo(f"Error filtering by tag: {e}", err=True)
-                sys.exit(1)
-
-        vms = VMManager.sort_by_created_time(vms)
-
-        # Trigger background cache refresh to keep cache warm (non-blocking)
-        try:
-            from azlin.cache.background_refresh import trigger_background_refresh
-
-            # Create Context object from current context for refresh
-            if current_ctx:
-                trigger_background_refresh(contexts=[current_ctx])
-        except Exception:
-            pass  # Never fail user operation due to background refresh
-
-        # Populate session names from tags (hybrid resolution: tags first, config fallback)
-        for vm in vms:
-            # Use tags already in memory instead of making N API calls (fixes Issue #219)
-            if vm.tags and TagManager.TAG_SESSION in vm.tags:
-                vm.session_name = vm.tags[TagManager.TAG_SESSION]
-            else:
-                # Fall back to config file
-                vm.session_name = ConfigManager.get_session_name(vm.name, config)
-
-        # Display results
-        if not vms:
-            click.echo("No VMs found.")
-            return
-
-        # Collect quota information if enabled (skip if cached)
-        quota_by_region: dict[str, list[QuotaInfo]] = {}
-        if show_quota and not was_cached:
-            try:
-                # Get unique regions from VMs
-                regions = list({vm.location for vm in vms if vm.location})
-                if regions:
-                    # Fetch quota for all regions in parallel
-                    regional_quotas = QuotaManager.get_regional_quotas(regions)
-
-                    # Filter to relevant quota types (cores and VM families)
-                    for region, quotas in regional_quotas.items():
-                        relevant_quotas = [
-                            q
-                            for q in quotas
-                            if "cores" in q.quota_name.lower() or "family" in q.quota_name.lower()
-                        ]
-                        if relevant_quotas:
-                            quota_by_region[region] = relevant_quotas
-            except Exception as e:
-                click.echo(f"Warning: Failed to fetch quota information: {e}", err=True)
-
-        # Collect tmux session information if enabled
-        # Tmux sessions are cached with 5min TTL - collected fresh only if stale or cache miss
-        tmux_by_vm: dict[str, list[TmuxSession]] = {}
-        if show_tmux:
-            from azlin.cache.vm_list_cache import VMListCache
-
-            cache = VMListCache()
-
-            # Check if we can use cached tmux sessions (on cache hit with fresh tmux data)
-            if was_cached:
-                # Try to use cached tmux sessions
-                tmux_from_cache = {}
-                all_fresh = True
-                for vm in vms:
-                    entry = cache.get(vm.name, vm.resource_group)
-                    if entry and not entry.is_tmux_expired():
-                        # Cached tmux data is fresh
-                        tmux_from_cache[vm.name] = [
-                            TmuxSession.from_dict(s) for s in entry.tmux_sessions
-                        ]
-                    else:
-                        all_fresh = False
-                        break
-
-                if all_fresh and tmux_from_cache:
-                    # All tmux data is fresh - use cache
-                    tmux_by_vm = tmux_from_cache
-                    if verbose:
-                        click.echo("[TMUX CACHE HIT] Using cached tmux sessions")
-                else:
-                    # Some stale - collect fresh
-                    if verbose:
-                        click.echo(f"Collecting tmux sessions from {len(vms)} VMs...")
-                    tmux_by_vm = _collect_tmux_sessions(vms)
-                    # Update cache with fresh tmux data
-                    # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
-                    if rg:  # Only cache if resource group is known
-                        for vm_name, sessions in tmux_by_vm.items():
-                            # Create corrected copies - don't mutate originals!
-                            corrected_sessions = []
-                            for s in sessions:
-                                # Create dict with corrected vm_name
-                                session_dict = s.to_dict()
-                                session_dict["vm_name"] = vm_name  # Replace IP with actual VM name
-                                corrected_sessions.append(session_dict)
-                            cache.set_tmux(vm_name, rg, corrected_sessions)
-            else:
-                # Cache miss - collect and cache tmux sessions
-                running_count = len([vm for vm in vms if vm.is_running()])
-                if running_count > 0 and not verbose:
-                    with console.status(
-                        f"[dim]Collecting tmux sessions from {running_count} VMs...[/dim]"
-                    ):
-                        tmux_by_vm = _collect_tmux_sessions(vms)
-                else:
-                    if verbose:
-                        click.echo(f"Collecting tmux sessions from {running_count} VMs...")
-                    tmux_by_vm = _collect_tmux_sessions(vms)
-
-                # Cache the collected sessions
-                # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
-                if rg:  # Only cache if resource group is known
-                    for vm_name, sessions in tmux_by_vm.items():
-                        # Create corrected copies - don't mutate originals!
-                        corrected_sessions = []
-                        for s in sessions:
-                            session_dict = s.to_dict()
-                            session_dict["vm_name"] = vm_name  # Replace IP with actual VM name
-                            corrected_sessions.append(session_dict)
-                        cache.set_tmux(vm_name, rg, corrected_sessions)
-
-        # Measure SSH latency if enabled (skip if cached)
-        latency_by_vm: dict[str, LatencyResult] = {}
-        if with_latency and not was_cached:
-            try:
-                from azlin.ssh.latency import SSHLatencyMeasurer
-
-                # Use default SSH key path
-                ssh_key_path = "~/.ssh/id_rsa"
-
-                # Measure latencies in parallel
-                console_temp = Console()
-                console_temp.print("[dim]Measuring SSH latency for running VMs...[/dim]")
-
-                measurer = SSHLatencyMeasurer(timeout=5.0, max_workers=10)
-                latency_by_vm = measurer.measure_batch(
-                    vms=vms, ssh_user="azureuser", ssh_key_path=ssh_key_path
-                )
-
-            except Exception as e:
-                click.echo(f"Warning: Failed to measure latencies: {e}", err=True)
-
-        # Display quota summary header if enabled
-        if show_quota and quota_by_region:
-            console = Console()
-            quota_table = Table(
-                title="Azure vCPU Quota Summary", show_header=True, header_style="bold"
-            )
-            quota_table.add_column("Region", style="cyan")
-            quota_table.add_column("Quota Type", style="white")
-            quota_table.add_column("Used / Total", justify="right")
-            quota_table.add_column("Available", justify="right", style="green")
-            quota_table.add_column("Usage %", justify="right")
-
-            for region in sorted(quota_by_region.keys()):
-                quotas = quota_by_region[region]
-                # Show only the most relevant quotas (total cores and specific families in use)
-                for quota in quotas:
-                    if quota.quota_name.lower() == "cores" or quota.current_usage > 0:
-                        usage_pct = quota.usage_percentage()
-                        usage_style = (
-                            "red" if usage_pct > 80 else "yellow" if usage_pct > 60 else "green"
-                        )
-
-                        quota_table.add_row(
-                            region,
-                            quota.quota_name,
-                            f"{quota.current_usage} / {quota.limit if quota.limit >= 0 else '∞'}",
-                            str(quota.available()) if quota.limit >= 0 else "∞",
-                            f"[{usage_style}]{usage_pct:.0f}%[/{usage_style}]"
-                            if quota.limit > 0
-                            else "N/A",
-                        )
-
-            console.print(quota_table)
-            console.print()  # Add spacing
-
-        # List Bastion hosts BEFORE VMs table (moved from end)
-        if rg:
-            try:
-                from azlin.modules.bastion_detector import BastionDetector
-
-                bastions = BastionDetector.list_bastions(rg)
-                if bastions:
-                    bastion_table = Table(
-                        title="Azure Bastion Hosts", show_header=True, header_style="bold"
-                    )
-                    bastion_table.add_column("Name", style="cyan")
-                    bastion_table.add_column("Location")
-                    bastion_table.add_column("SKU")
-
-                    for bastion in bastions:
-                        bastion_table.add_row(
-                            bastion.get("name", "Unknown"),
-                            bastion.get("location", "N/A"),
-                            bastion.get("sku", {}).get("name", "N/A"),
-                        )
-
-                    console.print(bastion_table)
-                    console.print()  # Spacing before VM table
-            except Exception as e:
-                logger.debug(f"Bastion listing skipped: {e}")
-
-        # Create Rich table for VMs
-        console = Console()
-        table = Table(title="Azure VMs", show_header=True, header_style="bold")
-
-        # Add columns based on mode
-        # Default: Session Name, Tmux Sessions, Status, IP, Region, vCPUs, Memory
-        # Wide (-w): Also shows VM Name, SKU
-
-        # Session Name column
-        if wide_mode:
-            table.add_column("Session", style="cyan", no_wrap=True)
-        elif compact_mode:
-            table.add_column("Session", style="cyan", width=12)
-        else:
-            table.add_column("Session", style="cyan", width=14)
-
-        # Tmux Sessions column (moved to 2nd position)
-        if show_tmux:
-            if compact_mode:
-                table.add_column("Tmux", style="magenta", width=30)
-            else:
-                table.add_column("Tmux Sessions", style="magenta", width=40)
-
-        # VM Name column (only in wide mode)
-        if wide_mode:
-            table.add_column("VM Name", style="white", no_wrap=True)
-
-        # Status column
-        if compact_mode:
-            table.add_column("Status", width=6)
-        else:
-            table.add_column("Status", width=8)
-
-        # IP column
-        if compact_mode:
-            table.add_column("IP", style="yellow", width=15)
-        else:
-            table.add_column("IP", style="yellow", width=18)
-
-        # Region column
-        if compact_mode:
-            table.add_column("Rgn", width=6)
-        else:
-            table.add_column("Region", width=8)
-
-        # SKU column (only in wide mode)
-        if wide_mode:
-            table.add_column("SKU", width=15)
-
-        # vCPUs column (narrower)
-        table.add_column("CPU", justify="right", width=4)
-
-        # Memory column (narrower)
-        table.add_column("Mem", justify="right", width=6)
-
-        if with_latency:
-            table.add_column("Latency", justify="right", width=8)
-
-        # Add rows
-        for vm in vms:
-            session_display = escape(vm.session_name) if vm.session_name else "-"
-            status = vm.get_status_display()
-
-            # Color code status
-            if vm.is_running():
-                status_display = f"[green]{status}[/green]"
-            elif vm.is_stopped():
-                status_display = f"[red]{status}[/red]"
-            else:
-                status_display = f"[yellow]{status}[/yellow]"
-
-            # Display IP with type indicator (Issue #492)
-            ip = (
-                f"{vm.public_ip} (Public)"
-                if vm.public_ip
-                else f"{vm.private_ip} (Bast)"
-                if vm.private_ip
-                else "N/A"
-            )
-            size = vm.vm_size or "N/A"
-
-            # Get vCPU count for the VM
-            vcpus = QuotaManager.get_vm_size_vcpus(size) if size != "N/A" else 0
-            vcpu_display = str(vcpus) if vcpus > 0 else "-"
-
-            # Get memory for the VM
-            memory_gb = QuotaManager.get_vm_size_memory(size) if size != "N/A" else 0
-            memory_display = f"{memory_gb} GB" if memory_gb > 0 else "-"
-
-            # Build row data (order must match column order above)
-            row_data = [session_display]
-
-            # Tmux sessions (if enabled, comes 2nd)
-            if show_tmux:
-                if vm.name in tmux_by_vm:
-                    sessions = tmux_by_vm[vm.name]
-                    formatted_sessions = []
-                    for s in sessions[:3]:  # Show max 3
-                        if s.attached:
-                            formatted_sessions.append(
-                                f"[white bold]{escape(s.session_name)}[/white bold]"
-                            )
-                        else:
-                            formatted_sessions.append(
-                                f"[bright_black]{escape(s.session_name)}[/bright_black]"
-                            )
-                    session_names = ", ".join(formatted_sessions)
-                    if len(sessions) > 3:
-                        session_names += f" (+{len(sessions) - 3} more)"
-                    row_data.append(session_names)
-                elif vm.is_running():
-                    row_data.append("[dim]No sessions[/dim]")
-                else:
-                    row_data.append("-")
-
-            # VM Name (only in wide mode)
-            if wide_mode:
-                row_data.append(vm.name)
-
-            # Status, IP, Region
-            row_data.extend([status_display, ip, vm.location])
-
-            # SKU (only in wide mode)
-            if wide_mode:
-                row_data.append(size)
-
-            # vCPUs and Memory
-            row_data.extend([vcpu_display, memory_display])
-
-            # Latency (if enabled)
-            if with_latency:
-                if vm.name in latency_by_vm:
-                    result = latency_by_vm[vm.name]
-                    row_data.append(result.display_value())
-                else:
-                    row_data.append("-")
-
-            table.add_row(*row_data)
-
-        # Display the table
-        console.print(table)
-
-        # Summary
-        total_vcpus = sum(
-            QuotaManager.get_vm_size_vcpus(vm.vm_size)
-            for vm in vms
-            if vm.vm_size and vm.is_running()
-        )
-
-        total_memory = sum(
-            QuotaManager.get_vm_size_memory(vm.vm_size)
-            for vm in vms
-            if vm.vm_size and vm.is_running()
-        )
-
-        summary_parts = [f"Total: {len(vms)} VMs"]
-        if show_quota:
-            running_vms = sum(1 for vm in vms if vm.is_running())
-            summary_parts.append(f"{running_vms} running")
-            summary_parts.append(f"{total_vcpus} vCPUs in use")
-            summary_parts.append(f"{total_memory} GB memory in use")
-
-        # Add tmux session count if tmux display is enabled
-        if show_tmux and tmux_by_vm:
-            total_tmux_sessions = sum(len(sessions) for sessions in tmux_by_vm.values())
-            summary_parts.append(f"{total_tmux_sessions} tmux sessions")
-
-        console.print(f"\n[bold]{' | '.join(summary_parts)}[/bold]")
-
-        # Show helpful hints
-        if not show_all_vms:
-            hints = []
-            hints.append("[dim]Hints:[/dim]")
-            hints.append(
-                "[cyan]  azlin list -a[/cyan]        [dim]Show all VMs across all resource groups[/dim]"
-            )
-            hints.append(
-                "[cyan]  azlin list -w[/cyan]        [dim]Wide mode (show VM Name, SKU columns)[/dim]"
-            )
-            hints.append(
-                "[cyan]  azlin list -r[/cyan]        [dim]Restore all tmux sessions in new terminal window[/dim]"
-            )
-            hints.append("[cyan]  azlin list -q[/cyan]        [dim]Show quota usage (slower)[/dim]")
-            hints.append(
-                "[cyan]  azlin list -v[/cyan]        [dim]Verbose mode (show tunnel/SSH details)[/dim]"
-            )
-            console.print("\n".join(hints))
-
-        # Handle -r flag: run restore with already-collected session data
-        if run_restore and show_tmux and tmux_by_vm:
-            console.print("\n[bold cyan]Restoring sessions...[/bold cyan]")
-            from azlin.commands.restore import restore_command
-
-            # Invoke restore command via Click context, passing verbose flag
-            ctx = click.get_current_context()
-            ctx.invoke(restore_command, verbose=verbose)
-
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except ConfigError as e:
-        click.echo(f"Config error: {e}", err=True)
-        sys.exit(1)
-
-
-@main.command(name="session")
-@click.argument("vm_name", type=str)
-@click.argument("session_name", type=str, required=False)
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--clear", is_flag=True, help="Clear session name")
-def session_command(
-    vm_name: str,
-    session_name: str | None,
-    resource_group: str | None,
-    config: str | None,
-    clear: bool,
-):
-    """Set or view session name for a VM.
-
-    Session names are labels that help you identify what you're working on.
-    They appear in the 'azlin list' output alongside the VM name.
-
-    \b
-    Examples:
-        # Set session name
-        azlin session azlin-vm-12345 my-project
-
-        # View current session name
-        azlin session azlin-vm-12345
-
-        # Clear session name
-        azlin session azlin-vm-12345 --clear
-    """
-    try:
-        # Resolve session name to VM name if applicable
-        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
-        if resolved_vm_name:
-            vm_name = resolved_vm_name
-
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified and no default configured.", err=True)
-            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
-            sys.exit(1)
-
-        # Verify VM exists
-        vm = VMManager.get_vm(vm_name, rg)
-
-        if not vm:
-            click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
-            sys.exit(1)
-
-        # Clear session name
-        if clear:
-            cleared_tag = False
-            cleared_config = False
-
-            # Clear from tags
-            try:
-                cleared_tag = TagManager.delete_session_name(vm_name, rg)
-            except Exception as e:
-                logger.warning(f"Failed to clear session from tags: {e}")
-
-            # Clear from config
-            cleared_config = ConfigManager.delete_session_name(vm_name, config)
-
-            if cleared_tag or cleared_config:
-                locations = []
-                if cleared_tag:
-                    locations.append("VM tags")
-                if cleared_config:
-                    locations.append("local config")
-                click.echo(
-                    f"Cleared session name for VM '{vm_name}' from {' and '.join(locations)}"
-                )
-            else:
-                click.echo(f"No session name set for VM '{vm_name}'")
-            return
-
-        # View current session name (hybrid: tags first, config fallback)
-        if not session_name:
-            # Try tags first
-            current_name = TagManager.get_session_name(vm_name, rg)
-            source = "VM tags" if current_name else None
-
-            # Fall back to config
-            if not current_name:
-                current_name = ConfigManager.get_session_name(vm_name, config)
-                source = "local config" if current_name else None
-
-            if current_name:
-                click.echo(f"Session name for '{vm_name}': {current_name} (from {source})")
-            else:
-                click.echo(f"No session name set for VM '{vm_name}'")
-                click.echo(f"\nSet one with: azlin session {vm_name} <session_name>")
-            return
-
-        # Set session name (write to both tags and config)
-        success_tag = False
-        success_config = False
-
-        # Set in tags (primary)
-        try:
-            TagManager.set_session_name(vm_name, rg, session_name)
-            success_tag = True
-        except Exception as e:
-            logger.warning(f"Failed to set session in tags: {e}")
-            click.echo(f"Warning: Could not set session name in VM tags: {e}", err=True)
-
-        # Set in config (backward compatibility)
-        try:
-            ConfigManager.set_session_name(vm_name, session_name, config)
-            success_config = True
-        except Exception as e:
-            logger.warning(f"Failed to set session in config: {e}")
-
-        if success_tag or success_config:
-            locations = []
-            if success_tag:
-                locations.append("VM tags")
-            if success_config:
-                locations.append("local config")
-            click.echo(
-                f"Set session name for '{vm_name}' to '{session_name}' in {' and '.join(locations)}"
-            )
-        else:
-            click.echo("Error: Failed to set session name", err=True)
-            sys.exit(1)
-
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except ConfigError as e:
-        click.echo(f"Config error: {e}", err=True)
-        sys.exit(1)
-
-
-@main.command()
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-def w(resource_group: str | None, config: str | None):
-    """Run 'w' command on all VMs.
-
-    Shows who is logged in and what they are doing on each VM.
-
-    \b
-    Examples:
-        azlin w
-        azlin w --rg my-resource-group
-    """
-    try:
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified.", err=True)
-            sys.exit(1)
-
-        # Get SSH key
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
-
-        # List running VMs
-        vms = VMManager.list_vms(rg, include_stopped=False)
-        vms = VMManager.filter_by_prefix(vms, "azlin")
-
-        # Populate session names from tags (same logic as list command)
-        for vm in vms:
-            # Use tags already in memory instead of making N API calls
-            if vm.tags and TagManager.TAG_SESSION in vm.tags:
-                vm.session_name = vm.tags[TagManager.TAG_SESSION]
-            else:
-                # Fall back to config file
-                vm.session_name = ConfigManager.get_session_name(vm.name, config)
-
-        if not vms:
-            click.echo("No running VMs found.")
-            return
-
-        running_vms = [vm for vm in vms if vm.is_running()]
-
-        if not running_vms:
-            click.echo("No running VMs found.")
-            return
-
-        # Get SSH configs with bastion support (Issue #281 fix)
-        from azlin.cli_helpers import get_ssh_configs_for_vms
-
-        ssh_configs, routes = get_ssh_configs_for_vms(
-            vms=running_vms,
-            ssh_key_path=ssh_key_pair.private_path,
-            skip_interactive=True,  # Batch operation
-            show_summary=True,
-        )
-
-        if not ssh_configs:
-            click.echo("No reachable VMs found.")
-            return
-
-        click.echo(f"Running 'w' on {len(ssh_configs)} VMs...\n")
-
-        # Execute in parallel (bastion tunnels cleaned up automatically via atexit)
-        results = WCommandExecutor.execute_w_on_routes(routes, timeout=30)
-
-        # Display output
-        output = WCommandExecutor.format_w_output(results)
-        click.echo(output)
-
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
-@main.command()
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option(
-    "--interval",
-    "-i",
-    help="Refresh interval in seconds (default 10)",
-    type=int,
-    default=10,
-)
-@click.option(
-    "--timeout",
-    "-t",
-    help="SSH timeout per VM in seconds (default 5)",
-    type=int,
-    default=5,
-)
-def top(
-    resource_group: str | None,
-    config: str | None,
-    interval: int,
-    timeout: int,
-):
-    """Run distributed top command on all VMs.
-
-    Shows real-time CPU, memory, load, and top processes across all VMs
-    in a unified dashboard that updates every N seconds.
-
-    \b
-    Examples:
-        azlin top                    # Default: 10s refresh
-        azlin top -i 5               # 5 second refresh
-        azlin top --rg my-rg         # Specific resource group
-        azlin top -i 15 -t 10        # 15s refresh, 10s timeout
-
-    \b
-    Press Ctrl+C to exit the dashboard.
-    """
-    try:
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified.", err=True)
-            sys.exit(1)
-
-        # Get SSH key
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
-
-        # List running VMs
-        vms = VMManager.list_vms(rg, include_stopped=False)
-        vms = VMManager.filter_by_prefix(vms, "azlin")
-
-        if not vms:
-            click.echo("No running VMs found.")
-            return
-
-        running_vms = [vm for vm in vms if vm.is_running()]
-
-        if not running_vms:
-            click.echo("No running VMs found.")
-            return
-
-        # Get SSH configs with bastion support (Issue #281 fix)
-        from azlin.cli_helpers import get_ssh_configs_for_vms
-
-        ssh_configs, _routes = get_ssh_configs_for_vms(
-            vms=running_vms,
-            ssh_key_path=ssh_key_pair.private_path,
-            skip_interactive=True,  # Batch operation
-            show_summary=True,
-        )
-
-        if not ssh_configs:
-            click.echo("No reachable VMs found.")
-            return
-
-        click.echo(
-            f"Starting distributed top for {len(ssh_configs)} VMs "
-            f"(refresh: {interval}s, timeout: {timeout}s)..."
-        )
-        click.echo("Press Ctrl+C to exit.\n")
-
-        # Create and run executor (bastion tunnels cleaned up automatically via atexit)
-        executor = DistributedTopExecutor(
-            ssh_configs=ssh_configs,
-            interval=interval,
-            timeout=timeout,
-        )
-        executor.run_dashboard()
-
-    except VMManagerError as e:
-        # VMManagerError is already user-friendly
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except DistributedTopError as e:
-        # DistributedTopError is already user-friendly
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo("\nDashboard stopped by user.")
-        sys.exit(0)
-    except Exception as e:
-        # Log detailed error for debugging, show generic error to user
-        logger.debug(f"Unexpected error in distributed top: {e}", exc_info=True)
-        click.echo("Error: An unexpected error occurred. Run with --verbose for details.", err=True)
-        sys.exit(1)
+# new command - Moved to azlin.commands.provisioning (Issue #423 refactor)
+# vm command - Moved to azlin.commands.provisioning (Issue #423 refactor)
+# create command - Moved to azlin.commands.provisioning (Issue #423 refactor)
+# list_command command - Moved to azlin.commands.monitoring (Issue #423 refactor)
+# session_command command - Moved to azlin.commands.monitoring (Issue #423 refactor)
+# w command - Moved to azlin.commands.monitoring (Issue #423 refactor)
+# top command - Moved to azlin.commands.monitoring (Issue #423 refactor)
 
 
 @main.command(name="os-update")
@@ -4543,99 +2880,7 @@ def os_update(vm_identifier: str, resource_group: str | None, config: str | None
         sys.exit(1)
 
 
-@main.command()
-@click.argument("vm_name", type=str)
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--force", is_flag=True, help="Skip confirmation prompt")
-def kill(vm_name: str, resource_group: str | None, config: str | None, force: bool):
-    """Delete a VM and all associated resources.
-
-    Deletes the VM, NICs, disks, and public IPs.
-
-    \b
-    Examples:
-        azlin kill azlin-vm-12345
-        azlin kill my-vm --rg my-resource-group
-        azlin kill my-vm --force
-    """
-    try:
-        # Resolve session name to VM name if applicable
-        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
-        if resolved_vm_name:
-            vm_name = resolved_vm_name
-
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified.", err=True)
-            sys.exit(1)
-
-        # Validate VM exists
-        vm = VMManager.get_vm(vm_name, rg)
-
-        if not vm:
-            click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'.", err=True)
-            sys.exit(1)
-
-        # Show confirmation prompt unless --force
-        if not force:
-            click.echo("\nVM Details:")
-            click.echo(f"  Name:           {vm.name}")
-            click.echo(f"  Resource Group: {vm.resource_group}")
-            click.echo(f"  Status:         {vm.get_status_display()}")
-            click.echo(f"  IP:             {vm.public_ip or 'N/A'}")
-            click.echo(f"  Size:           {vm.vm_size or 'N/A'}")
-            click.echo("\nThis will delete the VM and all associated resources (NICs, disks, IPs).")
-            click.echo("This action cannot be undone.\n")
-
-            confirm = input("Are you sure you want to delete this VM? [y/N]: ").lower()
-            if confirm not in ["y", "yes"]:
-                click.echo("Cancelled.")
-                return
-
-        # Delete VM
-        click.echo(f"\nDeleting VM '{vm_name}'...")
-
-        result = VMLifecycleManager.delete_vm(
-            vm_name=vm_name, resource_group=rg, force=True, no_wait=False
-        )
-
-        if result.success:
-            click.echo(f"\nSuccess! {result.message}")
-            if result.resources_deleted:
-                click.echo("\nDeleted resources:")
-                for resource in result.resources_deleted:
-                    click.echo(f"  - {resource}")
-
-            # Clean up SSH key from Key Vault
-            _cleanup_key_from_vault(vm_name, config)
-
-            # Clean up session name mapping
-            try:
-                if ConfigManager.delete_session_name(vm_name, config):
-                    click.echo("\nRemoved session name mapping")
-            except ConfigError:
-                pass  # Config cleanup is non-critical
-        else:
-            click.echo(f"\nError: {result.message}", err=True)
-            sys.exit(1)
-
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except VMLifecycleError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo("\nCancelled by user.")
-        sys.exit(130)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        sys.exit(1)
-
-
+# kill command - Moved to azlin.commands.lifecycle (Issue #423 refactor)
 def _handle_delete_resource_group(rg: str, vm_name: str, force: bool, dry_run: bool) -> None:
     """Handle resource group deletion."""
     if dry_run:
@@ -4768,88 +3013,24 @@ def _execute_vm_deletion(vm_name: str, rg: str, force: bool, config: str | None 
         sys.exit(1)
 
 
-@main.command(name="destroy")
-@click.argument("vm_name", type=str)
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--force", is_flag=True, help="Skip confirmation prompt")
-@click.option(
-    "--dry-run", is_flag=True, help="Show what would be deleted without actually deleting"
-)
-@click.option(
-    "--delete-rg", is_flag=True, help="Delete the entire resource group (use with caution)"
-)
-def destroy(
-    vm_name: str,
-    resource_group: str | None,
-    config: str | None,
-    force: bool,
-    dry_run: bool,
-    delete_rg: bool,
-):
-    """Destroy a VM and optionally the entire resource group.
-
-    This is an alias for the 'kill' command with additional options.
-    Deletes the VM, NICs, disks, and public IPs.
-
-    \b
-    Examples:
-        azlin destroy azlin-vm-12345
-        azlin destroy my-vm --dry-run
-        azlin destroy my-vm --delete-rg --force
-        azlin destroy my-vm --rg my-resource-group
-    """
-    try:
-        # Resolve session name to VM name if applicable
-        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
-        if resolved_vm_name:
-            vm_name = resolved_vm_name
-
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified.", err=True)
-            sys.exit(1)
-
-        if delete_rg:
-            _handle_delete_resource_group(rg, vm_name, force, dry_run)
-            return
-
-        if dry_run:
-            _handle_vm_dry_run(vm_name, rg)
-            return
-
-        _execute_vm_deletion(vm_name, rg, force, config)
-
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except VMLifecycleError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo("\nCancelled by user.")
-        sys.exit(130)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        sys.exit(1)
+# destroy command - Moved to azlin.commands.lifecycle (Issue #423 refactor)
 
 
 def _confirm_killall(vms: list[Any], rg: str) -> bool:
     """Display VMs and get confirmation for bulk deletion."""
     click.echo(f"\nFound {len(vms)} VM(s) in resource group '{rg}':")
     click.echo("=" * 80)
-    for vm in vms:
-        status = vm.get_status_display()
+    for vm_item in vms:
+        status = vm_item.get_status_display()
         # Display IP with type indicator (Issue #492)
         ip = (
-            f"{vm.public_ip} (Public)"
-            if vm.public_ip
-            else f"{vm.private_ip} (Private)"
-            if vm.private_ip
+            f"{vm_item.public_ip} (Public)"
+            if vm_item.public_ip
+            else f"{vm_item.private_ip} (Private)"
+            if vm_item.private_ip
             else "N/A"
         )
-        click.echo(f"  {vm.name:<35} {status:<15} {ip:<15}")
+        click.echo(f"  {vm_item.name:<35} {status:<15} {ip:<15}")
     click.echo("=" * 80)
 
     click.echo(f"\nThis will delete all {len(vms)} VM(s) and their associated resources.")
@@ -4882,288 +3063,9 @@ def _display_killall_results(summary: DeletionSummary) -> None:
                 click.echo(f"  - {result.vm_name}: {result.message}")
 
 
-@main.command()
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--force", is_flag=True, help="Skip confirmation prompt")
-@click.option("--prefix", default="azlin", help="Only delete VMs with this prefix")
-def killall(resource_group: str | None, config: str | None, force: bool, prefix: str):
-    """Delete all VMs in resource group.
-
-    Deletes all VMs matching the prefix and their associated resources.
-
-    \b
-    Examples:
-        azlin killall
-        azlin killall --rg my-resource-group
-        azlin killall --prefix test-vm
-        azlin killall --force
-    """
-    try:
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified.", err=True)
-            sys.exit(1)
-
-        vms = VMManager.list_vms(rg, include_stopped=True)
-        vms = VMManager.filter_by_prefix(vms, prefix)
-
-        if not vms:
-            click.echo(f"No VMs found with prefix '{prefix}' in resource group '{rg}'.")
-            return
-
-        if not force and not _confirm_killall(vms, rg):
-            click.echo("Cancelled.")
-            return
-
-        click.echo(f"\nDeleting {len(vms)} VM(s) in parallel...")
-
-        summary = VMLifecycleManager.delete_all_vms(
-            resource_group=rg, force=True, vm_prefix=prefix, max_workers=5
-        )
-
-        # Clean up session names for successfully deleted VMs
-        cleaned_count = 0
-        for result in summary.results:
-            if result.success:
-                try:
-                    if ConfigManager.delete_session_name(result.vm_name):
-                        cleaned_count += 1
-                except ConfigError:
-                    pass  # Config cleanup is non-critical
-
-        _display_killall_results(summary)
-
-        if cleaned_count > 0:
-            click.echo(f"\nRemoved {cleaned_count} session name mapping(s)")
-
-        if not summary.all_succeeded:
-            sys.exit(1)
-
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except VMLifecycleError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo("\nCancelled by user.")
-        sys.exit(130)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        sys.exit(1)
-
-
-@main.command()
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option(
-    "--age-days", default=1, type=click.IntRange(min=1), help="Age threshold in days (default: 1)"
-)
-@click.option(
-    "--idle-days", default=1, type=click.IntRange(min=1), help="Idle threshold in days (default: 1)"
-)
-@click.option("--dry-run", is_flag=True, help="Preview without deleting")
-@click.option("--force", is_flag=True, help="Skip confirmation prompt")
-@click.option("--include-running", is_flag=True, help="Include running VMs")
-@click.option("--include-named", is_flag=True, help="Include named sessions")
-def prune(
-    resource_group: str | None,
-    config: str | None,
-    age_days: int,
-    idle_days: int,
-    dry_run: bool,
-    force: bool,
-    include_running: bool,
-    include_named: bool,
-):
-    """Prune inactive VMs based on age and idle time.
-
-    Identifies and optionally deletes VMs that are:
-    - Older than --age-days (default: 1)
-    - Idle for longer than --idle-days (default: 1)
-    - Stopped/deallocated (unless --include-running)
-    - Without named sessions (unless --include-named)
-
-    \b
-    Examples:
-        azlin prune --dry-run                    # Preview what would be deleted
-        azlin prune                              # Delete VMs idle for 1+ days (default)
-        azlin prune --age-days 7 --idle-days 3   # Custom thresholds
-        azlin prune --force                      # Skip confirmation
-        azlin prune --include-running            # Include running VMs
-    """
-    try:
-        # Ensure Azure CLI subscription matches current context
-        from azlin.context_manager import ContextError
-
-        try:
-            ContextManager.ensure_subscription_active(config)
-        except ContextError as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
-
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified.", err=True)
-            click.echo("Set default with: azlin config set default_resource_group <name>")
-            click.echo("Or specify with --resource-group option.")
-            sys.exit(1)
-
-        # Get candidates (single API call)
-        candidates, connection_data = PruneManager.get_candidates(
-            resource_group=rg,
-            age_days=age_days,
-            idle_days=idle_days,
-            include_running=include_running,
-            include_named=include_named,
-        )
-
-        # If no candidates, exit early
-        if not candidates:
-            click.echo("No VMs eligible for pruning.")
-            return
-
-        # Display table
-        table = PruneManager.format_prune_table(candidates, connection_data)
-        click.echo("\n" + table + "\n")
-
-        # In dry-run mode, just show what would be deleted
-        if dry_run:
-            click.echo(f"DRY RUN: {len(candidates)} VM(s) would be deleted.")
-            click.echo("Run without --dry-run to actually delete these VMs.")
-            return
-
-        # If not force mode, ask for confirmation
-        if not force:
-            click.echo(f"This will delete {len(candidates)} VM(s) and their associated resources.")
-            click.echo("This action cannot be undone.\n")
-
-            if not click.confirm(
-                f"Are you sure you want to delete {len(candidates)} VM(s)?", default=False
-            ):
-                click.echo("Cancelled.")
-                return
-
-        # Execute deletion
-        click.echo(f"\nDeleting {len(candidates)} VM(s)...")
-        result = PruneManager.execute_prune(candidates, rg)
-
-        # Display deletion summary
-        deleted = result["deleted"]
-        failed = result["failed"]
-
-        click.echo("\n" + "=" * 80)
-        click.echo("Deletion Summary")
-        click.echo("=" * 80)
-        click.echo(f"Total VMs:     {len(candidates)}")
-        click.echo(f"Succeeded:     {deleted}")
-        click.echo(f"Failed:        {failed}")
-        click.echo("=" * 80)
-
-        # Show errors if any
-        if result["errors"]:
-            click.echo("\nErrors:")
-            for error in result["errors"]:
-                click.echo(f"  - {error}")
-
-        # Exit with error code if any failed
-        if failed > 0:
-            sys.exit(1)
-
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo("\nCancelled by user.")
-        sys.exit(130)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        sys.exit(1)
-
-
-@main.command()
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--grouped", is_flag=True, help="Group output by VM instead of prefixing")
-def ps(resource_group: str | None, config: str | None, grouped: bool):
-    """Run 'ps aux' command on all VMs.
-
-    Shows running processes on each VM. Output is prefixed with [vm-name].
-    SSH processes are automatically filtered out.
-
-    \b
-    Examples:
-        azlin ps
-        azlin ps --rg my-resource-group
-        azlin ps --grouped
-    """
-    try:
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified.", err=True)
-            sys.exit(1)
-
-        # Get SSH key
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
-
-        # List running VMs
-        vms = VMManager.list_vms(rg, include_stopped=False)
-        vms = VMManager.filter_by_prefix(vms, "azlin")
-
-        if not vms:
-            click.echo("No running VMs found.")
-            return
-
-        running_vms = [vm for vm in vms if vm.is_running()]
-
-        if not running_vms:
-            click.echo("No running VMs found.")
-            return
-
-        # Get SSH configs with bastion support (Issue #281 fix)
-        from azlin.cli_helpers import get_ssh_configs_for_vms
-
-        ssh_configs, _routes = get_ssh_configs_for_vms(
-            vms=running_vms,
-            ssh_key_path=ssh_key_pair.private_path,
-            skip_interactive=True,  # Batch operation
-            show_summary=True,
-        )
-
-        if not ssh_configs:
-            click.echo("No reachable VMs found.")
-            return
-
-        click.echo(f"Running 'ps aux' on {len(ssh_configs)} VMs...\n")
-
-        # Execute in parallel (bastion tunnels cleaned up automatically via atexit)
-        results = PSCommandExecutor.execute_ps_on_vms(ssh_configs, timeout=30)
-
-        # Display output
-        if grouped:
-            output = PSCommandExecutor.format_ps_output_grouped(results, filter_ssh=True)
-        else:
-            output = PSCommandExecutor.format_ps_output(results, filter_ssh=True)
-
-        click.echo(output)
-
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except RemoteExecError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
+# killall command - Moved to azlin.commands.lifecycle (Issue #423 refactor)
+# prune command - Moved to azlin.commands.lifecycle (Issue #423 refactor)
+# ps command - Moved to azlin.commands.monitoring (Issue #423 refactor)
 @main.command()
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
@@ -5275,9 +3177,9 @@ def _interactive_vm_selection(
         if response.lower() == "y":
             from click import Context
 
-            ctx = Context(new_command)
+            ctx = Context(new)
             ctx.invoke(
-                new_command,
+                new,
                 resource_group=rg,
                 config=config,
                 no_tmux=no_tmux,
@@ -5288,10 +3190,10 @@ def _interactive_vm_selection(
 
     click.echo("\nAvailable VMs:")
     click.echo("─" * 60)
-    for i, vm in enumerate(vms, 1):
-        status_emoji = "🟢" if vm.is_running() else "🔴"
+    for i, vm_info in enumerate(vms, 1):
+        status_emoji = "🟢" if vm_info.is_running() else "🔴"
         click.echo(
-            f"{i:2}. {status_emoji} {vm.name:<30} {vm.location:<15} {vm.vm_size or 'unknown'}"
+            f"{i:2}. {status_emoji} {vm_info.name:<30} {vm_info.location:<15} {vm_info.vm_size or 'unknown'}"
         )
     click.echo("─" * 60)
     click.echo(" 0. Create new VM")
@@ -5308,9 +3210,9 @@ def _interactive_vm_selection(
             if selection == 0:
                 from click import Context
 
-                ctx = Context(new_command)
+                ctx = Context(new)
                 ctx.invoke(
-                    new_command,
+                    new,
                     resource_group=rg,
                     config=config,
                     no_tmux=no_tmux,
@@ -5517,523 +3419,8 @@ def _cleanup_key_from_vault(vm_name: str, config: str | None) -> None:
         logger.warning(f"Unexpected error during Key Vault cleanup: {e}")
 
 
-@main.command()
-@click.argument("vm_identifier", type=str, required=False)
-@click.option("--resource-group", "--rg", help="Resource group (required for VM name)", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--no-tmux", is_flag=True, help="Skip tmux session")
-@click.option("--tmux-session", help="Tmux session name (default: azlin)", type=str)
-@click.option("--user", default="azureuser", help="SSH username (default: azureuser)", type=str)
-@click.option("--key", help="SSH private key path", type=click.Path(exists=True))
-@click.option("--no-reconnect", is_flag=True, help="Disable auto-reconnect on disconnect")
-@click.option(
-    "--max-retries", default=3, help="Maximum reconnection attempts (default: 3)", type=int
-)
-@click.option("--yes", "-y", is_flag=True, help="Skip all confirmation prompts (e.g., Bastion)")
-@click.option(
-    "--disable-bastion-pool",
-    is_flag=True,
-    hidden=True,
-    help="Disable bastion tunnel pool (used by restore to prevent session crossing)",
-)
-@click.argument("remote_command", nargs=-1, type=str)
-@click.pass_context
-def connect(
-    ctx: click.Context,
-    vm_identifier: str | None,
-    resource_group: str | None,
-    config: str | None,
-    no_tmux: bool,
-    tmux_session: str | None,
-    user: str,
-    key: str | None,
-    no_reconnect: bool,
-    max_retries: int,
-    yes: bool,
-    disable_bastion_pool: bool,
-    remote_command: tuple[str, ...],
-):
-    """Connect to existing VM via SSH.
-
-    If VM_IDENTIFIER is not provided, displays an interactive list of available
-    VMs to choose from, or option to create a new VM.
-
-    VM_IDENTIFIER can be either:
-    - VM name (requires --resource-group or default config)
-    - Session name (will be resolved to VM name)
-    - IP address (direct connection)
-
-    Use -- to separate remote command from options.
-
-    By default, auto-reconnect is ENABLED. If your SSH session disconnects,
-    you will be prompted to reconnect. Use --no-reconnect to disable this.
-
-    \b
-    Examples:
-        # Interactive selection
-        azlin connect
-
-        # Connect to VM by name
-        azlin connect my-vm
-
-        # Connect to VM by session name
-        azlin connect my-project
-
-        # Connect to VM by name with explicit resource group
-        azlin connect my-vm --rg my-resource-group
-
-        # Connect by IP address
-        azlin connect 20.1.2.3
-
-        # Connect without tmux
-        azlin connect my-vm --no-tmux
-
-        # Connect with custom tmux session name
-        azlin connect my-vm --tmux-session dev
-
-        # Connect and run command
-        azlin connect my-vm -- ls -la
-
-        # Connect with custom SSH user
-        azlin connect my-vm --user myuser
-
-        # Connect with custom SSH key
-        azlin connect my-vm --key ~/.ssh/custom_key
-
-        # Disable auto-reconnect
-        azlin connect my-vm --no-reconnect
-
-        # Set maximum reconnection attempts
-        azlin connect my-vm --max-retries 5
-    """
-    # Set environment variable to disable bastion pool if flag is passed
-    # This is critical to prevent session crossing when called from restore (Issue #593)
-    if disable_bastion_pool:
-        import os
-
-        os.environ["AZLIN_DISABLE_BASTION_POOL"] = "1"
-
-    # Validate remote command syntax BEFORE entering try block
-    # If remote_command has values but passthrough_command is not in ctx.obj,
-    # it means user typed "connect my-vm ls" without "--", which is invalid
-    # Use ClickException (not UsageError) to avoid showing usage help text
-    if remote_command and not (ctx.obj and "passthrough_command" in ctx.obj):
-        # remote_command was populated by Click's nargs=-1 without -- separator
-        raise click.ClickException(
-            f"Got unexpected extra argument ({remote_command[0]})\n"
-            "Use -- separator to pass remote commands: azlin connect my-vm -- ls -la"
-        )
-
-    console = Console()
-    try:
-        # Ensure Azure CLI subscription matches current context
-        from azlin.context_manager import ContextError
-
-        try:
-            ContextManager.ensure_subscription_active(config)
-        except ContextError as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
-
-        # Get passthrough command from context (if using -- syntax)
-        # AzlinGroup strips -- and everything after from sys.argv and stores in ctx.obj
-        if ctx.obj and "passthrough_command" in ctx.obj:
-            passthrough_cmd = ctx.obj["passthrough_command"]
-            # Override remote_command with the passthrough version
-            remote_command = tuple(passthrough_cmd.split())
-
-        # Interactive VM selection if no identifier provided
-        if not vm_identifier:
-            rg = ConfigManager.get_resource_group(resource_group, config)
-            if not rg:
-                click.echo(
-                    "Error: Resource group required.\n"
-                    "Use --resource-group or set default in ~/.azlin/config.toml",
-                    err=True,
-                )
-                sys.exit(1)
-            vm_identifier = _interactive_vm_selection(rg, config, no_tmux, tmux_session)
-
-        # Parse remote command and key path
-        # If using -- separator, ALL arguments after it are the remote command
-        command = " ".join(remote_command) if remote_command else None
-
-        key_path = Path(key).expanduser() if key else None
-
-        # Resolve session name to VM name
-        vm_identifier, original_identifier = _resolve_vm_identifier(vm_identifier, config)
-
-        # Get resource group for VM name (not IP)
-        if not VMConnector.is_valid_ip(vm_identifier):
-            rg = ConfigManager.get_resource_group(resource_group, config)
-
-            # Auto-detect resource group if not provided and feature is enabled
-            if not rg:
-                from azlin.modules.resource_group_discovery import ResourceGroupDiscovery
-
-                try:
-                    azlin_config = ConfigManager.load_config(config)
-
-                    # Only attempt auto-detection if enabled in config
-                    if azlin_config.resource_group_auto_detect:
-                        logger.info(f"Auto-detecting resource group for VM: {vm_identifier}")
-                        discovery = ResourceGroupDiscovery(azlin_config.__dict__)
-                        discovered_rg = discovery.find_vm_resource_group(vm_identifier)
-                        if discovered_rg:
-                            logger.info(
-                                f"Auto-detected resource group: {discovered_rg.resource_group}"
-                            )
-                            rg = discovered_rg.resource_group
-                        else:
-                            logger.debug(f"Auto-detection failed for VM: {vm_identifier}")
-                except Exception as e:
-                    logger.warning(f"Auto-detect resource group failed: {e}")
-                    # Fall through to existing error handling
-
-            # If still no resource group, show error
-            if not rg:
-                click.echo(
-                    "Error: Resource group required for VM name.\n"
-                    "Use --resource-group or set default in ~/.azlin/config.toml",
-                    err=True,
-                )
-                sys.exit(1)
-            _verify_vm_exists(vm_identifier, original_identifier, rg)
-        else:
-            rg = resource_group
-
-        # Auto-fetch SSH key from Key Vault if local key is missing
-        if key_path is None:
-            # Use default key path
-            key_path = SSHKeyManager.DEFAULT_KEY_PATH
-
-        # Check if key exists locally, if not try to fetch from vault
-        if not key_path.exists():
-            logger.debug(f"SSH key not found at {key_path}, attempting Key Vault fetch")
-            _try_fetch_key_from_vault(vm_identifier, key_path, config)
-
-        # Resolve tmux session name (use original_identifier so tmux session matches user input)
-        tmux_session = _resolve_tmux_session(original_identifier, tmux_session, no_tmux, config)
-
-        # Connect to VM
-        display_name = (
-            original_identifier if original_identifier != vm_identifier else vm_identifier
-        )
-        click.echo(f"Connecting to {display_name}...")
-
-        # Check NFS quota before connecting (if VM uses NFS storage)
-        if not VMConnector.is_valid_ip(vm_identifier) and rg:
-            from azlin.modules.nfs_quota_manager import NFSQuotaManager
-
-            try:
-                nfs_info = NFSQuotaManager.check_vm_nfs_storage(vm_identifier, rg)
-                if nfs_info:
-                    storage_account, share_name, _ = nfs_info
-                    quota_info = NFSQuotaManager.get_nfs_quota_info(storage_account, share_name, rg)
-                    warning = NFSQuotaManager.check_quota_warning(quota_info)
-
-                    if warning.is_warning and not yes:
-                        click.echo()
-                        click.echo(warning.message)
-                        if NFSQuotaManager.prompt_and_expand_quota(quota_info):
-                            result = NFSQuotaManager.expand_nfs_quota(
-                                storage_account, share_name, rg, quota_info.quota_gb + 100
-                            )
-                            if result.success:
-                                click.echo(
-                                    f"✅ Quota expanded to {result.new_quota_gb}GB "
-                                    f"(+${result.cost_increase_monthly:.2f}/month)"
-                                )
-                            else:
-                                click.echo(f"⚠️  Quota expansion failed: {result.errors}")
-                        click.echo()
-            except Exception as e:
-                # Don't block connection if quota check fails
-                logger.debug(f"NFS quota check failed: {e}")
-
-        # Disable reconnect for remote commands (no terminal for prompts)
-        should_reconnect = (not no_reconnect) and (command is None)
-
-        success = VMConnector.connect(
-            vm_identifier=vm_identifier,
-            resource_group=rg,
-            use_tmux=not no_tmux,
-            tmux_session=tmux_session,
-            remote_command=command,
-            ssh_user=user,
-            ssh_key_path=key_path,
-            enable_reconnect=should_reconnect,
-            max_reconnect_retries=max_retries,
-            skip_prompts=yes,
-        )
-
-        sys.exit(0 if success else 1)
-
-    except VMConnectorError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except ConfigError as e:
-        click.echo(f"Config error: {e}", err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo("\nCancelled by user.")
-        sys.exit(130)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        logger.exception("Unexpected error in connect command")
-        sys.exit(1)
-
-
-@main.command(name="code")
-@click.argument("vm_identifier", type=str)
-@click.option("--resource-group", "--rg", help="Resource group (required for VM name)", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--user", default="azureuser", help="SSH username (default: azureuser)", type=str)
-@click.option("--key", help="SSH private key path", type=click.Path(exists=True))
-@click.option("--no-extensions", is_flag=True, help="Skip extension installation (faster launch)")
-@click.option("--workspace", help="Remote workspace path (default: /home/user)", type=str)
-def code_command(
-    vm_identifier: str,
-    resource_group: str | None,
-    config: str | None,
-    user: str,
-    key: str | None,
-    no_extensions: bool,
-    workspace: str | None,
-):
-    """Launch VS Code with Remote-SSH for a VM.
-
-    One-click VS Code launch that automatically:
-    - Configures SSH connection in ~/.ssh/config
-    - Installs configured extensions from ~/.azlin/vscode/extensions.json
-    - Sets up port forwarding from ~/.azlin/vscode/ports.json
-    - Launches VS Code Remote-SSH
-
-    VM_IDENTIFIER can be:
-    - VM name (requires --resource-group or default config)
-    - Session name (will be resolved to VM name)
-    - IP address (direct connection)
-
-    Configuration:
-    Create ~/.azlin/vscode/ directory with optional files:
-    - extensions.json: {"extensions": ["ms-python.python", ...]}
-    - ports.json: {"forwards": [{"local": 3000, "remote": 3000}, ...]}
-    - settings.json: VS Code workspace settings
-
-    \b
-    Examples:
-        # Launch VS Code for VM
-        azlin code my-dev-vm
-
-        # Launch with explicit resource group
-        azlin code my-vm --rg my-resource-group
-
-        # Launch by session name
-        azlin code my-project
-
-        # Launch by IP address
-        azlin code 20.1.2.3
-
-        # Skip extension installation (faster)
-        azlin code my-vm --no-extensions
-
-        # Open specific remote directory
-        azlin code my-vm --workspace /home/azureuser/projects
-
-        # Custom SSH user
-        azlin code my-vm --user myuser
-
-        # Custom SSH key
-        azlin code my-vm --key ~/.ssh/custom_key
-    """
-    try:
-        # Resolve session name to VM name
-        vm_identifier, original_identifier = _resolve_vm_identifier(vm_identifier, config)
-
-        # Get resource group for VM name (not IP)
-        if not VMConnector.is_valid_ip(vm_identifier):
-            rg = ConfigManager.get_resource_group(resource_group, config)
-            if not rg:
-                click.echo(
-                    "Error: Resource group required for VM name.\n"
-                    "Use --resource-group or set default in ~/.azlin/config.toml",
-                    err=True,
-                )
-                sys.exit(1)
-            _verify_vm_exists(vm_identifier, original_identifier, rg)
-        else:
-            rg = resource_group
-
-        # Get VM information
-        click.echo(f"Setting up VS Code for {original_identifier}...")
-
-        # Initialize bastion-related variables (may be set later)
-        bastion_tunnel = None
-        tunnel_host: str = ""
-        tunnel_port: int = 22
-
-        if VMConnector.is_valid_ip(vm_identifier):
-            # Direct IP connection
-            vm_ip = vm_identifier
-            vm_name = f"vm-{vm_ip.replace('.', '-')}"
-            tunnel_host = vm_ip
-        else:
-            # Get VM info from Azure
-            if not rg:
-                click.echo("Error: Resource group required", err=True)
-                sys.exit(1)
-
-            vm_info = VMManager.get_vm(vm_identifier, rg)
-            if vm_info is None:
-                click.echo(
-                    f"Error: VM '{vm_identifier}' not found in resource group '{rg}'", err=True
-                )
-                sys.exit(1)
-
-            vm_name = vm_info.name
-            vm_ip = vm_info.public_ip
-            private_ip = vm_info.private_ip
-
-            # Check if VM needs bastion (no public IP)
-            tunnel_host = vm_ip if vm_ip else ""
-
-            if not vm_ip and private_ip:
-                click.echo(
-                    f"VM {vm_name} is private-only (no public IP), will use bastion tunnel..."
-                )
-
-                # Auto-detect bastion (same logic as azlin connect)
-                bastion_info = BastionDetector.detect_bastion_for_vm(
-                    vm_name=vm_name, resource_group=rg, vm_location=vm_info.location
-                )
-
-                if not bastion_info:
-                    click.echo(
-                        f"Error: VM {vm_name} has no public IP and no bastion found.\n"
-                        f"Create a bastion: azlin bastion create --rg {rg}",
-                        err=True,
-                    )
-                    sys.exit(1)
-
-                click.echo(
-                    f"✓ Found bastion: {bastion_info['name']} (region: {bastion_info['location']})"
-                )
-
-                # Get subscription ID and build VM resource ID
-                context_config = ContextManager.load()
-                current_context = context_config.get_current_context()
-                if not current_context:
-                    click.echo("Error: No context set, cannot create bastion tunnel", err=True)
-                    sys.exit(1)
-
-                vm_resource_id = (
-                    f"/subscriptions/{current_context.subscription_id}/resourceGroups/{rg}/"
-                    f"providers/Microsoft.Compute/virtualMachines/{vm_name}"
-                )
-
-                # Create bastion tunnel (matches azlin connect approach)
-                click.echo(f"Creating bastion tunnel to {vm_name}...")
-
-                # Initialize BastionManager and get available port
-                bastion_manager = BastionManager()
-                local_port = bastion_manager.get_available_port()
-
-                # Create tunnel
-                bastion_tunnel = bastion_manager.create_tunnel(
-                    bastion_name=bastion_info["name"],
-                    resource_group=bastion_info["resource_group"],
-                    target_vm_id=vm_resource_id,
-                    local_port=local_port,
-                    remote_port=22,
-                )
-
-                # Use tunnel endpoint for VS Code
-                tunnel_host = "127.0.0.1"
-                tunnel_port = bastion_tunnel.local_port
-
-                click.echo(f"✓ Bastion tunnel created on {tunnel_host}:{tunnel_port}")
-                click.echo("  (Tunnel will remain open for VS Code - close VS Code to stop tunnel)")
-
-                vm_ip = tunnel_host  # Use tunnel endpoint
-
-            if not vm_ip and not tunnel_host:
-                click.echo(f"Error: No IP address found for VM {vm_identifier}", err=True)
-                sys.exit(1)
-
-        # Determine final connection details
-        final_host = tunnel_host if bastion_tunnel else (vm_ip or "")
-        if not final_host:
-            click.echo(f"Error: No connection endpoint available for VM {vm_identifier}", err=True)
-            sys.exit(1)
-
-        # Ensure SSH key exists
-        key_path = Path(key).expanduser() if key else Path.home() / ".ssh" / "azlin_key"
-        ssh_keys = SSHKeyManager.ensure_key_exists(key_path)
-
-        # Launch VS Code
-        click.echo("Configuring VS Code Remote-SSH...")
-
-        VSCodeLauncher.launch(
-            vm_name=vm_name,
-            host=final_host,
-            port=tunnel_port,
-            user=user,
-            key_path=ssh_keys.private_path,
-            install_extensions=not no_extensions,
-            workspace_path=workspace,
-        )
-
-        click.echo(f"\n✓ VS Code launched successfully for {original_identifier}")
-        click.echo(f"  SSH Host: azlin-{vm_name}")
-        if bastion_tunnel:
-            click.echo(f"  Connection: via bastion tunnel at {final_host}:{tunnel_port}")
-            click.echo("\n⚠️  KEEP THIS TERMINAL OPEN - Bastion tunnel is active!")
-            click.echo("   The tunnel will close when you press Ctrl+C here.")
-            click.echo("")
-
-            # Keep tunnel alive until user interrupts
-            try:
-                click.echo("Press Ctrl+C to close the tunnel when done with VS Code...")
-                import time
-
-                while True:
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                click.echo("\n\nClosing bastion tunnel...")
-        else:
-            click.echo(f"  User: {user}@{final_host}")
-
-        if not no_extensions:
-            click.echo("\nExtensions will be installed in VS Code.")
-            click.echo("Use --no-extensions to skip extension installation for faster launch.")
-
-        click.echo("\nTo customize:")
-        click.echo("  Extensions: ~/.azlin/vscode/extensions.json")
-        click.echo("  Port forwards: ~/.azlin/vscode/ports.json")
-        click.echo("  Settings: ~/.azlin/vscode/settings.json")
-
-    except VSCodeNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except VSCodeLauncherError as e:
-        click.echo(f"Error launching VS Code: {e}", err=True)
-        sys.exit(1)
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except ConfigError as e:
-        click.echo(f"Config error: {e}", err=True)
-        sys.exit(1)
-    except SSHKeyError as e:
-        click.echo(f"SSH key error: {e}", err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo("\nCancelled by user.")
-        sys.exit(130)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        logger.exception("Unexpected error in code command")
-        sys.exit(1)
+# connect command - Moved to azlin.commands.connectivity (Issue #423 refactor)
+# code_command command - Moved to azlin.commands.connectivity (Issue #423 refactor)
 
 
 @main.command()
@@ -6170,105 +3557,8 @@ def update(vm_identifier: str, resource_group: str | None, config: str | None, t
         sys.exit(1)
 
 
-@main.command()
-@click.argument("vm_name", type=str)
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option(
-    "--deallocate/--no-deallocate", default=True, help="Deallocate to save costs (default: yes)"
-)
-def stop(vm_name: str, resource_group: str | None, config: str | None, deallocate: bool):
-    """Stop or deallocate a VM.
-
-    Stopping a VM with --deallocate (default) fully releases compute resources
-    and stops billing for the VM (storage charges still apply).
-
-    \b
-    Examples:
-        azlin stop my-vm
-        azlin stop my-vm --rg my-resource-group
-        azlin stop my-vm --no-deallocate
-    """
-    try:
-        # Resolve session name to VM name if applicable
-        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
-        if resolved_vm_name:
-            vm_name = resolved_vm_name
-
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified.", err=True)
-            sys.exit(1)
-
-        click.echo(f"{'Deallocating' if deallocate else 'Stopping'} VM '{vm_name}'...")
-
-        result = VMLifecycleController.stop_vm(
-            vm_name=vm_name, resource_group=rg, deallocate=deallocate, no_wait=False
-        )
-
-        if result.success:
-            click.echo(f"Success! {result.message}")
-            if result.cost_impact:
-                click.echo(f"Cost impact: {result.cost_impact}")
-        else:
-            click.echo(f"Error: {result.message}", err=True)
-            sys.exit(1)
-
-    except VMLifecycleControlError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        sys.exit(1)
-
-
-@main.command()
-@click.argument("vm_name", type=str)
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-def start(vm_name: str, resource_group: str | None, config: str | None):
-    """Start a stopped or deallocated VM.
-
-    \b
-    Examples:
-        azlin start my-vm
-        azlin start my-vm --rg my-resource-group
-    """
-    try:
-        # Resolve session name to VM name if applicable
-        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
-        if resolved_vm_name:
-            vm_name = resolved_vm_name
-
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        if not rg:
-            click.echo("Error: No resource group specified.", err=True)
-            sys.exit(1)
-
-        click.echo(f"Starting VM '{vm_name}'...")
-
-        result = VMLifecycleController.start_vm(vm_name=vm_name, resource_group=rg, no_wait=False)
-
-        if result.success:
-            click.echo(f"Success! {result.message}")
-            if result.cost_impact:
-                click.echo(f"Cost impact: {result.cost_impact}")
-        else:
-            click.echo(f"Error: {result.message}", err=True)
-            sys.exit(1)
-
-    except VMLifecycleControlError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        sys.exit(1)
-
-
+# stop command - Moved to azlin.commands.lifecycle (Issue #423 refactor)
+# start command - Moved to azlin.commands.lifecycle (Issue #423 refactor)
 def _get_sync_vm_by_name(vm_name: str, rg: str):
     """Get and validate a specific VM for syncing."""
     vm = VMManager.get_vm(vm_name, rg)
@@ -6308,10 +3598,10 @@ def _select_sync_vm_interactive(rg: str):
 
     # Show menu
     click.echo("\nSelect VM to sync to:")
-    for idx, vm in enumerate(vms, 1):
+    for idx, vm_info in enumerate(vms, 1):
         # Display public IP if available, otherwise show "(Bastion)"
-        ip_display = vm.public_ip if vm.public_ip else f"{vm.private_ip} (Bastion)"
-        click.echo(f"  {idx}. {vm.name} - {ip_display}")
+        ip_display = vm_info.public_ip if vm_info.public_ip else f"{vm_info.private_ip} (Bastion)"
+        click.echo(f"  {idx}. {vm_info.name} - {ip_display}")
 
     choice = input("\nSelect VM (number): ").strip()
     try:
@@ -6439,402 +3729,9 @@ def _execute_sync(selected_vm: VMInfo, ssh_key_pair: SSHKeyPair, dry_run: bool) 
         sys.exit(1)
 
 
-@main.command()
-@click.option("--vm-name", help="VM name to sync to", type=str)
-@click.option("--dry-run", help="Show what would be synced", is_flag=True)
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-def sync(vm_name: str | None, dry_run: bool, resource_group: str | None, config: str | None):
-    """Sync ~/.azlin/home/ to VM home directory.
-
-    Syncs local configuration files to remote VM for consistent
-    development environment.
-
-    \b
-    Examples:
-        azlin sync                    # Interactive VM selection
-        azlin sync --vm-name myvm     # Sync to specific VM
-        azlin sync --dry-run          # Show what would be synced
-    """
-    try:
-        # Get SSH key
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
-
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-        if not rg:
-            click.echo("Error: Resource group required for VM name.", err=True)
-            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
-            sys.exit(1)
-
-        # Resolve session name to VM name if applicable
-        if vm_name:
-            resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
-            if resolved_vm_name:
-                vm_name = resolved_vm_name
-
-        # Get VM
-        if vm_name:
-            selected_vm = _get_sync_vm_by_name(vm_name, rg)
-        else:
-            selected_vm = _select_sync_vm_interactive(rg)
-
-        # Execute sync
-        _execute_sync(selected_vm, ssh_key_pair, dry_run)
-
-    except HomeSyncError as e:
-        click.echo(f"\nSync failed: {e}", err=True)
-        sys.exit(1)
-
-    except (VMManagerError, ConfigError) as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-    except KeyboardInterrupt:
-        click.echo("\nCancelled by user.")
-        sys.exit(130)
-
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        logger.exception("Unexpected error in sync command")
-        sys.exit(1)
-
-
-@main.command(name="sync-keys")
-@click.argument("vm_name")
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--ssh-user", default="azureuser", help="SSH username (default: azureuser)")
-@click.option("--timeout", default=60, help="Timeout in seconds (default: 60)")
-@click.option("--config", help="Config file path", type=click.Path())
-def sync_keys(
-    vm_name: str, resource_group: str | None, ssh_user: str, timeout: int, config: str | None
-):
-    """Manually sync SSH keys to VM authorized_keys.
-
-    This command synchronizes SSH public keys from your local machine
-    to the target VM's authorized_keys file. Useful for newly created
-    VMs or when auto-sync was skipped.
-
-    \b
-    Examples:
-        azlin sync-keys myvm                      # Sync to VM in default resource group
-        azlin sync-keys myvm --rg my-rg           # Sync to VM in specific resource group
-        azlin sync-keys myvm --timeout 120        # Sync with extended timeout
-    """
-    try:
-        # Get SSH key pair
-        ssh_key_pair = SSHKeyManager.ensure_key_exists()
-
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-        if not rg:
-            click.echo("Error: Resource group required.", err=True)
-            click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
-            sys.exit(1)
-
-        # Resolve session name to VM name if applicable
-        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_name, config)
-        if resolved_vm_name:
-            click.echo(f"Resolved session name '{vm_name}' to VM '{resolved_vm_name}'")
-            vm_name = resolved_vm_name
-
-        # Verify VM exists
-        try:
-            vm = VMManager.get_vm(vm_name, rg)
-            if not vm:
-                click.echo(f"Error: VM '{vm_name}' not found in resource group '{rg}'", err=True)
-                sys.exit(1)
-
-            if not vm.is_running():
-                click.echo(
-                    f"Warning: VM '{vm_name}' is not running (state: {vm.power_state}). "
-                    "Key sync may fail.",
-                    err=True,
-                )
-        except Exception as e:
-            click.echo(f"Error: Could not verify VM status: {e}", err=True)
-            sys.exit(1)
-
-        # Get config for sync settings
-        azlin_config = ConfigManager.load_config(config)
-
-        # Import VMKeySync
-        from azlin.modules.vm_key_sync import VMKeySync
-
-        # Derive public key from private key
-        public_key = SSHKeyManager.get_public_key(ssh_key_pair.private_path)
-
-        click.echo(f"Syncing SSH key to VM '{vm_name}' in resource group '{rg}'...")
-
-        # Instantiate VMKeySync with config dict
-        sync_manager = VMKeySync(azlin_config.to_dict())
-
-        # Sync keys
-        sync_manager.ensure_key_authorized(
-            vm_name=vm_name,
-            resource_group=rg,
-            public_key=public_key,
-        )
-
-        click.echo(f"✓ SSH keys successfully synced to VM '{vm_name}'")
-
-    except (VMManagerError, ConfigError, SSHKeyError) as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-    except KeyboardInterrupt:
-        click.echo("\nCancelled by user.")
-        sys.exit(130)
-
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        logger.exception("Unexpected error in sync-keys command")
-        sys.exit(1)
-
-
-@main.command()
-@click.argument("args", nargs=-1, required=True)
-@click.option("--dry-run", is_flag=True, help="Show what would be transferred")
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-def cp(
-    args: tuple[str, ...],
-    dry_run: bool,
-    resource_group: str | None,
-    config: str | None,
-):
-    """Copy files between local machine and VMs.
-
-    Supports bidirectional file transfer with security-hardened path validation.
-    Accepts multiple source files when copying to a single destination.
-
-    Arguments support session:path notation:
-    - Local path: myfile.txt
-    - Remote path: vm1:~/myfile.txt
-
-    \b
-    Examples:
-        azlin cp myfile.txt vm1:~/                     # Single file to remote
-        azlin cp file1.txt file2.txt file3.py vm1:~/   # Multiple files to remote
-        azlin cp vm1:~/data.txt ./                     # Remote to local
-        azlin cp vm1:~/src vm2:~/dest                  # Remote to remote (not supported)
-        azlin cp --dry-run test.txt vm1:~/             # Show transfer plan
-    """
-    src_manager, dst_manager = None, None
-    try:
-        # Parse args: all but last are sources, last is destination
-        if len(args) < 2:
-            click.echo("Error: At least one source and one destination required", err=True)
-            click.echo("Usage: azlin cp SOURCE... DESTINATION", err=True)
-            sys.exit(1)
-
-        sources = args[:-1]
-        destination = args[-1]
-
-        # Get resource group
-        rg = ConfigManager.get_resource_group(resource_group, config)
-
-        # Get SSH key
-        SSHKeyManager.ensure_key_exists()
-
-        # Parse destination first (shared by all sources)
-        dest_session_name, dest_path_str = SessionManager.parse_session_path(destination)
-
-        if dest_session_name is None:
-            # Local destination - resolve from cwd, allow absolute paths
-            dest_path = PathParser.parse_and_validate(
-                dest_path_str, allow_absolute=True, is_local=True
-            )
-            dest_endpoint = TransferEndpoint(path=dest_path, session=None)
-        else:
-            # Remote destination
-            if not rg:
-                click.echo("Error: Resource group required for remote sessions.", err=True)
-                click.echo("Use --resource-group or set default in ~/.azlin/config.toml", err=True)
-                sys.exit(1)
-
-            # Get session (returns tuple now)
-            vm_session, dst_manager = SessionManager.get_vm_session(
-                dest_session_name, rg, VMManager
-            )
-
-            # Parse remote path (allow relative to home)
-            dest_path = PathParser.parse_and_validate(
-                dest_path_str,
-                allow_absolute=True,
-                base_dir=Path("/home") / vm_session.user,
-                is_local=False,  # Remote path - don't validate against local filesystem
-            )
-
-            dest_endpoint = TransferEndpoint(path=dest_path, session=vm_session)
-
-        # Parse all sources and create endpoints
-        source_endpoints: list[TransferEndpoint] = []
-        for source in sources:
-            source_session_name, source_path_str = SessionManager.parse_session_path(source)
-
-            if source_session_name is None:
-                # Local source - resolve from cwd, allow absolute paths
-                source_path = PathParser.parse_and_validate(
-                    source_path_str, allow_absolute=True, is_local=True
-                )
-                source_endpoint = TransferEndpoint(path=source_path, session=None)
-            else:
-                # Remote source
-                if not rg:
-                    click.echo("Error: Resource group required for remote sessions.", err=True)
-                    click.echo(
-                        "Use --resource-group or set default in ~/.azlin/config.toml", err=True
-                    )
-                    sys.exit(1)
-
-                # Get session (returns tuple now) - reuse if same session
-                if src_manager is None:
-                    vm_session, src_manager = SessionManager.get_vm_session(
-                        source_session_name, rg, VMManager
-                    )
-                else:
-                    # Already have a session - verify it's the same VM
-                    vm_session, _ = SessionManager.get_vm_session(
-                        source_session_name, rg, VMManager
-                    )
-
-                # Parse remote path (allow relative to home)
-                source_path = PathParser.parse_and_validate(
-                    source_path_str,
-                    allow_absolute=True,
-                    base_dir=Path("/home") / vm_session.user,
-                    is_local=False,  # Remote path - don't validate against local filesystem
-                )
-
-                source_endpoint = TransferEndpoint(path=source_path, session=vm_session)
-
-            source_endpoints.append(source_endpoint)
-
-        # Validate all sources are from the same location (all local or all same remote)
-        first_source = source_endpoints[0]
-        for idx, src_endpoint in enumerate(source_endpoints[1:], start=1):
-            if (first_source.session is None) != (src_endpoint.session is None):
-                click.echo(
-                    "Error: All sources must be from the same location "
-                    "(either all local or all from the same VM)",
-                    err=True,
-                )
-                sys.exit(1)
-            if (
-                first_source.session
-                and src_endpoint.session
-                and first_source.session.name != src_endpoint.session.name
-            ):
-                click.echo("Error: All remote sources must be from the same VM", err=True)
-                sys.exit(1)
-
-        # Display transfer plan
-        click.echo("\nTransfer Plan:")
-        if len(source_endpoints) == 1:
-            if source_endpoints[0].session is None:
-                click.echo(f"  Source: {source_endpoints[0].path} (local)")
-            else:
-                click.echo(
-                    f"  Source: {source_endpoints[0].session.name}:{source_endpoints[0].path}"
-                )
-        else:
-            click.echo(f"  Sources: {len(source_endpoints)} files")
-            for src_endpoint in source_endpoints:
-                if src_endpoint.session is None:
-                    click.echo(f"    - {src_endpoint.path} (local)")
-                else:
-                    click.echo(f"    - {src_endpoint.session.name}:{src_endpoint.path}")
-
-        if dest_endpoint.session is None:
-            click.echo(f"  Dest:   {dest_endpoint.path} (local)")
-        else:
-            click.echo(f"  Dest:   {dest_endpoint.session.name}:{dest_endpoint.path}")
-
-        click.echo()
-
-        if dry_run:
-            click.echo("Dry run - no files transferred")
-            return
-
-        # Execute transfers
-        total_files = 0
-        total_bytes = 0
-        total_duration = 0.0
-        all_errors: list[str] = []
-
-        for idx, source_endpoint in enumerate(source_endpoints, start=1):
-            if len(source_endpoints) > 1:
-                source_name = (
-                    source_endpoint.path.name
-                    if source_endpoint.session is None
-                    else f"{source_endpoint.session.name}:{source_endpoint.path.name}"
-                )
-                click.echo(f"[{idx}/{len(source_endpoints)}] Transferring {source_name}...")
-
-            result = FileTransfer.transfer(source_endpoint, dest_endpoint)
-
-            total_files += result.files_transferred
-            total_bytes += result.bytes_transferred
-            total_duration += result.duration_seconds
-
-            if result.success:
-                if len(source_endpoints) > 1:
-                    click.echo(
-                        f"  ✓ {result.bytes_transferred / 1024:.1f} KB "
-                        f"in {result.duration_seconds:.1f}s"
-                    )
-            else:
-                all_errors.extend(result.errors)
-                if len(source_endpoints) > 1:
-                    click.echo(
-                        f"  ✗ Failed: {result.errors[0] if result.errors else 'Unknown error'}"
-                    )
-
-        # Display summary
-        if all_errors:
-            click.echo("\nTransfer completed with errors:", err=True)
-            click.echo(
-                f"Transferred {total_files} files ({total_bytes / 1024:.1f} KB) "
-                f"in {total_duration:.1f}s"
-            )
-            for error in all_errors:
-                click.echo(f"  {error}", err=True)
-            sys.exit(1)
-        else:
-            if len(source_endpoints) > 1:
-                click.echo(
-                    f"\nSuccess! Transferred {total_files} files "
-                    f"({total_bytes / 1024:.1f} KB) in {total_duration:.1f}s"
-                )
-            else:
-                click.echo(
-                    f"Success! Transferred {total_files} files "
-                    f"({total_bytes / 1024:.1f} KB) in {total_duration:.1f}s"
-                )
-
-    except FileTransferError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except ConfigError as e:
-        click.echo(f"Config error: {e}", err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo("\nCancelled by user.")
-        sys.exit(130)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        logger.exception("Unexpected error in cp command")
-        sys.exit(1)
-    finally:
-        # Cleanup bastion tunnels
-        if src_manager:
-            src_manager.close_all_tunnels()
-        if dst_manager:
-            dst_manager.close_all_tunnels()
+# sync command - Moved to azlin.commands.connectivity (Issue #423 refactor)
+# sync_keys command - Moved to azlin.commands.connectivity (Issue #423 refactor)
+# cp command - Moved to azlin.commands.connectivity (Issue #423 refactor)
 
 
 def _validate_and_resolve_source_vm(source_vm: str, rg: str, config: str | None) -> VMInfo:
@@ -6848,9 +3745,9 @@ def _validate_and_resolve_source_vm(source_vm: str, rg: str, config: str | None)
         vms = VMManager.list_vms(rg)
         if vms:
             click.echo("\nAvailable VMs:", err=True)
-            for vm in vms:
-                display_name = vm.session_name or vm.name
-                click.echo(f"  - {display_name} ({vm.name})", err=True)
+            for vm_item in vms:
+                display_name = vm_item.session_name or vm_item.name
+                click.echo(f"  - {display_name} ({vm_item.name})", err=True)
         sys.exit(1)
 
     return source_vm_info
@@ -6923,13 +3820,15 @@ def _display_clone_results(
     click.echo(f"Clone operation complete: {successful_copies}/{len(result.successful)} successful")
     click.echo("=" * 70)
     click.echo("\nCloned VMs:")
-    for vm in result.successful:
-        session_name = ConfigManager.get_session_name(vm.name, config) if session_prefix else None
-        copy_status = "✓" if copy_results.get(vm.name, False) else "✗"
-        display_name = f"{session_name} ({vm.name})" if session_name else vm.name
+    for vm_item in result.successful:
+        session_name = (
+            ConfigManager.get_session_name(vm_item.name, config) if session_prefix else None
+        )
+        copy_status = "✓" if copy_results.get(vm_item.name, False) else "✗"
+        display_name = f"{session_name} ({vm_item.name})" if session_name else vm_item.name
         click.echo(f"  {copy_status} {display_name}")
-        click.echo(f"     IP: {vm.public_ip}")
-        click.echo(f"     Size: {vm.size}, Region: {vm.location}")
+        click.echo(f"     IP: {vm_item.public_ip}")
+        click.echo(f"     Size: {vm_item.size}, Region: {vm_item.location}")
 
     if result.failed:
         click.echo("\nFailed provisioning:")
@@ -6947,126 +3846,7 @@ def _display_clone_results(
         click.echo(f"  azlin connect {connect_target}")
 
 
-@main.command()
-@click.argument("source_vm", type=str)
-@click.option("--num-replicas", type=int, default=1, help="Number of clones to create (default: 1)")
-@click.option("--session-prefix", type=str, help="Session name prefix for clones")
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--vm-size", help="VM size for clones (default: same as source)", type=str)
-@click.option("--region", help="Azure region (default: same as source)", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-def clone(
-    source_vm: str,
-    num_replicas: int,
-    session_prefix: str | None,
-    resource_group: str | None,
-    vm_size: str | None,
-    region: str | None,
-    config: str | None,
-):
-    """Clone a VM with its home directory contents.
-
-    Creates new VM(s) and copies the entire home directory from the source VM.
-    Useful for creating development environments, parallel testing, or team onboarding.
-
-    \b
-    Examples:
-        # Clone single VM
-        azlin clone amplihack
-
-        # Clone with custom session name
-        azlin clone amplihack --session-prefix dev-env
-
-        # Clone multiple replicas
-        azlin clone amplihack --num-replicas 3 --session-prefix worker
-        # Creates: worker-1, worker-2, worker-3
-
-        # Clone with specific VM size
-        azlin clone my-vm --vm-size Standard_D4s_v3
-
-    The source VM can be specified by VM name or session name.
-    Home directory security filters are applied (no SSH keys, credentials, etc.).
-    """
-    try:
-        # Validate num-replicas
-        if num_replicas < 1:
-            click.echo("Error: num-replicas must be >= 1", err=True)
-            sys.exit(1)
-
-        # Load configuration and get resource group
-        cfg = ConfigManager.load_config(config)
-        rg = resource_group or cfg.default_resource_group
-        if not rg:
-            click.echo("Error: No resource group specified and no default configured", err=True)
-            sys.exit(1)
-
-        # Resolve and validate source VM
-        source_vm_info = _validate_and_resolve_source_vm(source_vm, rg, config)
-
-        # Ensure source VM is running
-        source_vm_info = _ensure_source_vm_running(source_vm_info, rg)
-
-        # Generate and display clone configurations
-        click.echo(f"\nGenerating configurations for {num_replicas} clone(s)...")
-        clone_configs = _generate_clone_configs(
-            source_vm=source_vm_info,
-            num_replicas=num_replicas,
-            vm_size=vm_size,
-            region=region,
-        )
-
-        click.echo("\nClone plan:")
-        for i, clone_config in enumerate(clone_configs, 1):
-            click.echo(f"  Clone {i}: {clone_config.name}")
-            click.echo(f"    Size: {clone_config.size}")
-            click.echo(f"    Region: {clone_config.location}")
-
-        # Provision VMs
-        result = _provision_clone_vms(clone_configs, num_replicas)
-
-        # Copy home directories
-        click.echo("\nCopying home directories from source VM...")
-        ssh_key_path = Path.home() / ".ssh" / "id_rsa"
-        copy_results = _copy_home_directories(
-            source_vm=source_vm_info,
-            clone_vms=result.successful,
-            ssh_key_path=str(ssh_key_path),
-            max_workers=min(5, len(result.successful)),
-        )
-
-        # Check copy results
-        failed_copies = len(copy_results) - sum(1 for success in copy_results.values() if success)
-        if failed_copies > 0:
-            click.echo(f"\nWarning: {failed_copies} home directory copy operations failed")
-
-        # Set session names if prefix provided
-        if session_prefix:
-            click.echo(f"\nSetting session names with prefix: {session_prefix}")
-            _set_clone_session_names(
-                clone_vms=result.successful,
-                session_prefix=session_prefix,
-                config_path=config,
-            )
-
-        # Display results
-        _display_clone_results(result, copy_results, session_prefix, config)
-
-    except VMManagerError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except ProvisioningError as e:
-        click.echo(f"Provisioning error: {e}", err=True)
-        sys.exit(1)
-    except ConfigError as e:
-        click.echo(f"Config error: {e}", err=True)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        click.echo("\nClone operation cancelled by user.")
-        sys.exit(130)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        logger.exception("Unexpected error in clone command")
-        sys.exit(1)
+# clone command - Moved to azlin.commands.provisioning (Issue #423 refactor)
 
 
 def _resolve_source_vm(
@@ -7096,11 +3876,11 @@ def _resolve_source_vm(
 
     # Try finding in list (case-insensitive match)
     all_vms = VMManager.list_vms(resource_group)
-    for vm in all_vms:
-        if vm.name.lower() == source_vm.lower():
-            return vm
-        if vm.session_name and vm.session_name.lower() == source_vm.lower():
-            return vm
+    for vm_item in all_vms:
+        if vm_item.name.lower() == source_vm.lower():
+            return vm_item
+        if vm_item.session_name and vm_item.session_name.lower() == source_vm.lower():
+            return vm_item
 
     return None
 
@@ -7272,29 +4052,16 @@ def _set_clone_session_names(
         click.echo(f"  Set session name: {session_prefix} -> {clone_vms[0].name}")
     else:
         # Multiple clones: use numbered suffixes
-        for i, vm in enumerate(clone_vms, 1):
+        for i, clone_vm in enumerate(clone_vms, 1):
             session_name = f"{session_prefix}-{i}"
-            ConfigManager.set_session_name(vm.name, session_name, config_path)
-            click.echo(f"  Set session name: {session_name} -> {vm.name}")
+            ConfigManager.set_session_name(clone_vm.name, session_name, config_path)
+            click.echo(f"  Set session name: {session_name} -> {clone_vm.name}")
 
 
 # Status command moved to azlin.commands.monitoring (Issue #423 - cli.py decomposition POC)
 
 
-@main.group()
-def ip():
-    """IP diagnostics and network troubleshooting commands.
-
-    Commands to diagnose IP address classification and connectivity issues.
-
-    \b
-    Examples:
-        azlin ip check my-vm
-        azlin ip check --all
-    """
-    pass
-
-
+# ip command - Moved to azlin.commands.ip_commands (Issue #423 refactor)
 @ip.command(name="check")
 @click.argument("vm_identifier", required=False)
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
@@ -7377,22 +4144,22 @@ def ip_check(
                 sys.exit(1)
 
         # Run diagnostics on each VM
-        for vm in vms:
-            if not vm.public_ip:
-                click.echo(f"\nVM: {vm.name}")
+        for vm_item in vms:
+            if not vm_item.public_ip:
+                click.echo(f"\nVM: {vm_item.name}")
                 click.echo("  Status: No public IP assigned (VM may be stopped)")
                 continue
 
-            click.echo(f"\nVM: {vm.name}")
+            click.echo(f"\nVM: {vm_item.name}")
 
             # Get NSG information if available
             # Note: NSG info would need to be extracted from VM details
             # For now, we'll skip NSG checking as it requires additional Azure API calls
 
             diagnostic_data = {
-                "ip": vm.public_ip,
-                "classification": classify_ip_address(vm.public_ip),
-                "connectivity": check_connectivity(vm.public_ip, port=port),
+                "ip": vm_item.public_ip,
+                "classification": classify_ip_address(vm_item.public_ip),
+                "connectivity": check_connectivity(vm_item.public_ip, port=port),
                 "nsg_check": None,  # Would require additional Azure NSG query
             }
 
@@ -7633,99 +4400,7 @@ def _do_impl(
         sys.exit(130)
 
 
-@main.command()
-@click.argument("request", type=str)
-@click.option("--dry-run", is_flag=True, help="Show execution plan without running commands")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
-@click.option("--resource-group", "--rg", help="Resource group", type=str)
-@click.option("--config", help="Config file path", type=click.Path())
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed execution information")
-def do(
-    request: str,
-    dry_run: bool,
-    yes: bool,
-    resource_group: str | None,
-    config: str | None,
-    verbose: bool,
-):
-    """Execute natural language azlin commands using AI.
-
-    The 'do' command understands natural language and automatically translates
-    your requests into the appropriate azlin commands. Just describe what you
-    want in plain English.
-
-    \b
-    Quick Start:
-        1. Set API key: export ANTHROPIC_API_KEY=your-key-here
-        2. Get key from: https://console.anthropic.com/
-        3. Try: azlin do "list all my vms"
-
-    \b
-    VM Management Examples:
-        azlin do "create a new vm called Sam"
-        azlin do "show me all my vms"
-        azlin do "what is the status of my vms"
-        azlin do "start my development vm"
-        azlin do "stop all test vms"
-
-    \b
-    Cost & Monitoring:
-        azlin do "what are my azure costs"
-        azlin do "show me costs by vm"
-        azlin do "what's my spending this month"
-
-    \b
-    File Operations:
-        azlin do "sync all my vms"
-        azlin do "sync my home directory to vm Sam"
-        azlin do "copy myproject to the vm"
-
-    \b
-    Resource Cleanup:
-        azlin do "delete vm called test-123" --dry-run  # Preview first
-        azlin do "delete all test vms"                   # Then execute
-        azlin do "stop idle vms to save costs"
-
-    \b
-    Complex Operations:
-        azlin do "create 5 test vms and sync them all"
-        azlin do "set up a new development environment"
-        azlin do "show costs and stop any idle vms"
-
-    \b
-    Options:
-        --dry-run      Preview actions without executing anything
-        --yes, -y      Skip confirmation prompts (for automation)
-        --verbose, -v  Show detailed parsing and confidence scores
-        --rg NAME      Specify Azure resource group
-
-    \b
-    Safety Features:
-        - Shows plan and asks for confirmation (unless --yes)
-        - High accuracy: 95-100% confidence on VM operations
-        - Graceful error handling for invalid requests
-        - Dry-run mode to preview without executing
-
-    \b
-    Error Handling:
-        - Invalid requests (0% confidence): No commands executed
-        - Ambiguous requests (low confidence): Asks for confirmation
-        - Always shows what will be executed before running
-
-    \b
-    Requirements:
-        - ANTHROPIC_API_KEY environment variable (get from console.anthropic.com)
-        - Azure CLI authenticated (az login)
-        - Active Azure subscription
-
-    \b
-    For More Examples:
-        See docs/AZDOIT.md for 50+ examples and comprehensive guide
-        Integration tested: 7/7 tests passing with real Azure resources
-    """
-    _do_impl(request, dry_run, yes, resource_group, config, verbose)
-
-
+# do command - Moved to azlin.commands.nlp (Issue #423 refactor)
 # NOTE: Old doit command commented out in favor of new doit_group with subcommands
 # @main.command(name="doit-old")
 # @click.argument("objective", type=str)
@@ -8301,23 +4976,7 @@ def _doit_old_impl(
         sys.exit(130)
 
 
-@main.group()
-def batch():
-    """Batch operations on multiple VMs.
-
-    Execute operations on multiple VMs simultaneously using
-    tag-based selection, pattern matching, or all VMs.
-
-    \b
-    Examples:
-        azlin batch stop --tag 'env=dev'
-        azlin batch start --vm-pattern 'test-*'
-        azlin batch command 'git pull' --all
-        azlin batch sync --tag 'env=dev'
-    """
-    pass
-
-
+# batch command - Moved to azlin.commands.batch (Issue #423 refactor)
 @batch.command(name="stop")
 @click.option("--tag", help="Filter VMs by tag (format: key=value)", type=str)
 @click.option("--vm-pattern", help="Filter VMs by name pattern (glob)", type=str)
@@ -8353,83 +5012,9 @@ def batch_stop(
     pass
 
 
-@main.group(name="keys")
-def keys_group():
-    """SSH key management and rotation.
-
-    Manage SSH keys across Azure VMs with rotation, backup, and export functionality.
-    """
-    pass
-
-
-@main.group(name="template")
-def template():
-    """Manage VM configuration templates.
-
-    Templates allow you to save and reuse VM configurations.
-    Stored in ~/.azlin/templates/ as YAML files.
-
-    \b
-    SUBCOMMANDS:
-        create   Create a new template
-        list     List all templates
-        delete   Delete a template
-        export   Export template to file
-        import   Import template from file
-
-    \b
-    EXAMPLES:
-        # Create a template interactively
-        azlin template create dev-vm
-
-        # List all templates
-        azlin template list
-
-        # Delete a template
-        azlin template delete dev-vm
-
-        # Export a template
-        azlin template export dev-vm my-template.yaml
-
-        # Import a template
-        azlin template import my-template.yaml
-
-        # Use a template when creating VM
-        azlin new --template dev-vm
-    """
-    pass
-
-
-@main.group(name="snapshot")
-@click.pass_context
-def snapshot(ctx: click.Context) -> None:
-    """Manage VM snapshots and scheduled backups.
-
-    Enable scheduled snapshots, sync snapshots manually, or manage snapshot schedules.
-
-    \b
-    EXAMPLES:
-        # Enable scheduled snapshots (every 24 hours, keep 2)
-        $ azlin snapshot enable my-vm --every 24
-
-        # Enable with custom retention (every 12 hours, keep 5)
-        $ azlin snapshot enable my-vm --every 12 --keep 5
-
-        # Sync snapshots now (checks all VMs with schedules)
-        $ azlin snapshot sync
-
-        # Sync specific VM
-        $ azlin snapshot sync --vm my-vm
-
-        # Disable scheduled snapshots
-        $ azlin snapshot disable my-vm
-
-        # Show snapshot schedule
-        $ azlin snapshot status my-vm
-    """
-    pass
-
-
+# keys_group command - Moved to azlin.commands.keys (Issue #423 refactor)
+# template command - Moved to azlin.commands.templates (Issue #423 refactor)
+# snapshot command - Moved to azlin.commands.snapshots (Issue #423 refactor)
 @snapshot.command(name="enable")
 @click.argument("vm_name", type=str)
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
@@ -9633,24 +6218,61 @@ if "doit" in main.commands:
     del main.commands["doit"]
 main.add_command(doit_group)
 
+# Register NLP commands (Issue #423 refactor)
+main.add_command(do)
+main.add_command(azdoit_main, name="azdoit")
 
-@main.group()
-def env():
-    """Manage environment variables on VMs.
+# Register provisioning commands (Issue #423 refactor)
+main.add_command(new)
+main.add_command(vm)
+main.add_command(create)
+main.add_command(clone)
 
-    Commands to set, list, delete, and export environment variables
-    stored in ~/.bashrc on remote VMs.
+# Register lifecycle commands (Issue #423 refactor)
+main.add_command(start)
+main.add_command(stop)
+main.add_command(kill)
+main.add_command(destroy)
+main.add_command(killall)
+main.add_command(prune)
 
-    \b
-    Examples:
-        azlin env set my-vm DATABASE_URL="postgres://localhost/db"
-        azlin env list my-vm
-        azlin env delete my-vm API_KEY
-        azlin env export my-vm prod.env
-    """
-    pass
+# Register connectivity commands (Issue #423 refactor)
+main.add_command(connect)
+main.add_command(code_command, name="code")
+main.add_command(sync)
+main.add_command(sync_keys, name="sync-keys")
+main.add_command(cp)
+
+# Register monitoring commands (Issue #423 refactor)
+main.add_command(list_command, name="list")
+main.add_command(session_command, name="session")
+main.add_command(w)
+main.add_command(ps)
+main.add_command(top)
+
+# Register batch commands (Issue #423 refactor)
+main.add_command(batch)
+
+# Register IP diagnostic commands (Issue #423 refactor)
+main.add_command(ip)
+
+# Register environment commands (Issue #423 refactor)
+main.add_command(env)
+
+# Register keys commands (Issue #423 refactor)
+main.add_command(keys_group, name="keys")
+
+# Register snapshot commands (Issue #423 refactor)
+main.add_command(snapshot)
+
+# Register template commands (Issue #423 refactor)
+main.add_command(template)
+
+# Register web commands (Issue #423 refactor)
+main.add_command(web)
 
 
+# env command - Moved to azlin.commands.env (Issue #423 refactor)
 @env.command(name="set")
 @click.argument("vm_identifier", type=str)
 @click.argument("env_var", type=str)
@@ -10197,10 +6819,6 @@ def web_stop():
     except Exception as e:
         click.echo(f"Error stopping PWA: {e}", err=True)
         sys.exit(1)
-
-
-# Register web command group
-main.add_command(web)
 
 
 if __name__ == "__main__":
