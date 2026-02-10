@@ -191,13 +191,13 @@ class TestCreateTunnelWithRetry:
 class TestCollectTmuxSessionsRateLimiting:
     """Test rate limiting in _collect_tmux_sessions."""
 
-    @patch("azlin.cli.BastionDetector")
-    @patch("azlin.cli.BastionManager")
-    @patch("azlin.cli.BastionConnectionPool")
-    @patch("azlin.cli._create_tunnel_with_retry")
-    @patch("azlin.cli.TmuxSessionExecutor")
-    @patch("azlin.cli.AzureAuthenticator")
-    @patch("azlin.cli.SSHKeyManager")
+    @patch("azlin.commands.monitoring.BastionDetector")
+    @patch("azlin.commands.monitoring.BastionManager")
+    @patch("azlin.commands.monitoring.BastionConnectionPool")
+    @patch("azlin.commands.monitoring._create_tunnel_with_retry")
+    @patch("azlin.commands.monitoring.TmuxSessionExecutor")
+    @patch("azlin.commands.monitoring.AzureAuthenticator")
+    @patch("azlin.commands.monitoring.SSHKeyManager")
     def test_rate_limiting_delay_between_tunnels(
         self,
         mock_ssh_key_mgr,
@@ -209,7 +209,7 @@ class TestCollectTmuxSessionsRateLimiting:
         mock_detector,
     ):
         """Test rate limiting adds delay between tunnel creations."""
-        from azlin.cli import _collect_tmux_sessions
+        from azlin.commands.monitoring import _collect_tmux_sessions
 
         # Setup mocks
         mock_ssh_key_mgr.ensure_key_exists.return_value = MagicMock(private_path="/path/to/key")
