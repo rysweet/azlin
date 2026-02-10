@@ -179,6 +179,7 @@ from azlin.modules.file_transfer.path_parser import PathParser  # noqa: F401
 from azlin.distributed_top import DistributedTopExecutor  # noqa: F401
 from azlin.remote_exec import PSCommandExecutor, TmuxSessionExecutor  # noqa: F401
 from azlin.tag_manager import TagManager  # noqa: F401
+from azlin.network_security.bastion_connection_pool import BastionConnectionPool  # noqa: F401
 from azlin.commands.monitoring import _create_tunnel_with_retry, _handle_multi_context_list  # noqa: F401
 
 
