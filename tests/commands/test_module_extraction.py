@@ -919,9 +919,9 @@ class TestBehavioralEquivalence:
             from azlin.cli import main
 
             with (
-                patch("azlin.ip_diagnostics.classify_ip_address") as mock_classify,
-                patch("azlin.ip_diagnostics.check_connectivity") as mock_connect,
-                patch("azlin.ip_diagnostics.format_diagnostic_report") as mock_format,
+                patch("azlin.commands.ip_commands.classify_ip_address") as mock_classify,
+                patch("azlin.commands.ip_commands.check_connectivity") as mock_connect,
+                patch("azlin.commands.ip_commands.format_diagnostic_report") as mock_format,
             ):
                 mock_classify.return_value = {"type": "public"}
                 mock_connect.return_value = {"reachable": True}
