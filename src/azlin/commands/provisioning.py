@@ -24,7 +24,7 @@ from azlin.vm_provisioning import ProvisioningError
 from azlin.remote_exec import RemoteExecutor
 from azlin.modules.ssh_connector import SSHConfig, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyManager
-from azlin.vm_lifecycle import VMLifecycleController
+from azlin.vm_lifecycle_control import VMLifecycleController
 from azlin.vm_manager import VMInfo, VMManager
 from azlin.vm_provisioning import PoolProvisioningResult, VMConfig, VMProvisioner
 from azlin.vm_size_tiers import VMSizeTierError, VMSizeTiers
