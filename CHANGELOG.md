@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.2.0] - 2026-02-10
 
-<<<<<<< Updated upstream
-=======
 ### Major Features
 
 #### 🔄 `azlin restore` - Automatic Session Restoration (#583)
@@ -49,7 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed "Size" to "SKU" for clarity
 - Rebalanced column widths for better readability
 
->>>>>>> Stashed changes
 ### Changed
 - **BREAKING**: Decomposed monolithic cli.py (10,011 lines) into 11 modular command files
   - Reduced cli.py from 10,011 to 2,527 lines (75% reduction)
