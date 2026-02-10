@@ -169,13 +169,14 @@ from azlin.remote_exec import (  # noqa: F401
     OSUpdateExecutor,
     PSCommandExecutor,
     RemoteExecutor,
+    TmuxSession,
     TmuxSessionExecutor,
     WCommandExecutor,
 )
 from azlin.security_audit import SecurityAuditLogger
 from azlin.tag_manager import TagManager  # noqa: F401
 from azlin.vm_connector import VMConnector, VMConnectorError
-from azlin.vm_manager import VMInfo, VMManager  # noqa: F401
+from azlin.vm_manager import VMInfo, VMManager
 from azlin.vm_provisioning import (
     ProvisioningError,
     VMDetails,
@@ -2329,6 +2330,26 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
         click.echo(ctx.get_help())
         ctx.exit(0)  # Use ctx.exit() instead of sys.exit() for Click compatibility
         return  # Explicit return for code clarity (never reached)
+
+
+def get_vm_session_pairs(
+    resource_group: str,
+    config_path: str | None = None,
+    include_stopped: bool = False,
+) -> list[tuple[VMInfo, list[TmuxSession]]]:
+    """Get canonical VM/session pairs - SINGLE SOURCE OF TRUTH.
+
+    Used by both 'azlin list --show-tmux' and 'azlin restore'.
+    This function centralizes the logic for pairing VMs with their tmux sessions.
+    """
+    vms = VMManager.list_vms(resource_group, include_stopped=include_stopped)
+    if not vms:
+        return []
+
+    tmux_by_vm = _collect_tmux_sessions(vms)
+
+    # Return (VM, sessions) pairs
+    return [(vm, tmux_by_vm.get(vm.name, [])) for vm in vms]
 
 
 # --- Provisioning commands extracted to azlin.commands.provisioning (Issue #423) ---

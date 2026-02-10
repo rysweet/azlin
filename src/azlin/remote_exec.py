@@ -14,6 +14,7 @@ import logging
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import Any
 
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.ssh_routing_resolver import SSHRoute
@@ -276,6 +277,27 @@ class TmuxSession:
     created_time: str
     attached: bool = False
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for caching."""
+        return {
+            "vm_name": self.vm_name,
+            "session_name": self.session_name,
+            "windows": self.windows,
+            "created_time": self.created_time,
+            "attached": self.attached,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TmuxSession":
+        """Create from cached dictionary."""
+        return cls(
+            vm_name=data["vm_name"],
+            session_name=data["session_name"],
+            windows=data["windows"],
+            created_time=data["created_time"],
+            attached=data.get("attached", False),
+        )
+
 
 @dataclass
 class TmuxSessionInfo:
@@ -410,9 +432,9 @@ class TmuxSessionExecutor:
                 parts = [p.strip() for p in parts]
 
                 # Try new format first: name:attached:windows:created
-                # New format must have exactly 4 fields and field[1] must be '0' or '1'
+                # New format must have exactly 4 fields and field[1] must be numeric (client count)
                 # field[2] must be numeric (windows count)
-                if len(parts) >= 4 and parts[1] in ("0", "1"):
+                if len(parts) >= 4 and parts[1].isdigit():
                     # Validate windows field is numeric to confirm new format
                     try:
                         windows = int(parts[2])
@@ -422,7 +444,8 @@ class TmuxSessionExecutor:
                     else:
                         # New format confirmed
                         session_name = parts[0]  # Already stripped
-                        attached = parts[1] == "1"  # '1' = connected, '0' = disconnected
+                        # attached is count of clients: 0=none, 1+=connected
+                        attached = int(parts[1]) > 0
 
                         # Created time is the remaining fields joined
                         created_time = ":".join(parts[3:]) if len(parts) > 3 else ""

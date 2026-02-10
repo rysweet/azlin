@@ -814,6 +814,7 @@ class VMManager:
         fresh_vms = cls.list_vms(resource_group, include_stopped=True)
 
         # Step 3: Update cache with fresh data
+        fresh_vm_names = {vm.name for vm in fresh_vms}
         for vm in fresh_vms:
             try:
                 cache.set_full(
@@ -824,6 +825,16 @@ class VMManager:
                 )
             except Exception as e:
                 logger.warning(f"Failed to cache VM {vm.name}: {e}")
+
+        # Step 3b: Remove stale cache entries for VMs that no longer exist
+        # This prevents deleted VMs from triggering cache misses forever
+        for entry in cached_entries:
+            if entry.vm_name not in fresh_vm_names:
+                try:
+                    cache.delete(entry.vm_name, resource_group)
+                    logger.debug(f"Removed stale cache entry for deleted VM: {entry.vm_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to remove stale cache entry {entry.vm_name}: {e}")
 
         # Step 4: Filter by power state if needed
         if not include_stopped:
