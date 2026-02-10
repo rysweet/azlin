@@ -34,9 +34,9 @@ from azlin.modules.ssh_keys import SSHKeyError
 from azlin.network_security.bastion_connection_pool import (
     BastionConnectionPool,
     PooledTunnel,
+    SecurityError,
 )
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
-from azlin.network_security.security_policy import SecurityError
 from azlin.ps_command import PSCommandExecutor
 from azlin.quota_manager import QuotaInfo, QuotaManager
 from azlin.ssh.latency import LatencyResult
