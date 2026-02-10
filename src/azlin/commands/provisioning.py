@@ -19,10 +19,8 @@ import click
 
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
-from azlin.exceptions import (
-    ProvisioningError,
-    VMManagerError,
-)
+from azlin.vm_manager import VMManagerError
+from azlin.vm_provisioning import ProvisioningError
 from azlin.remote_exec import RemoteExecutor
 from azlin.modules.ssh_connector import SSHConfig, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyManager
