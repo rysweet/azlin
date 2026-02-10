@@ -19,7 +19,7 @@ from rich.console import Console
 
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.context_manager import ContextError, ContextManager
-from azlin.models import SSHConfig
+from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.bastion_detector import BastionDetector
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.file_transfer import FileTransfer, FileTransferError, TransferEndpoint
