@@ -7,7 +7,7 @@ from __future__ import annotations
 
 # Additional command groups
 from .ask import ask_group
-from .auth import auth_group
+from .auth import auth as auth_group
 from .autopilot import autopilot_group
 from .bastion import bastion_group
 
