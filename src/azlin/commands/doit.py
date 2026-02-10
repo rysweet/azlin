@@ -425,3 +425,5 @@ def examples_command():
 
 # Alias for backward compatibility
 do = doit_group
+
+__all__ = ["doit_group", "do"]
