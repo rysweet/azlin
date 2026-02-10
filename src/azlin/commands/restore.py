@@ -445,11 +445,14 @@ class TerminalLauncher:
             azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --disable-bastion-pool"
 
         try:
+            # Escape special characters for AppleScript string embedding
+            # AppleScript requires escaping backslashes and double quotes
+            safe_cmd = azlin_cmd.replace("\\", "\\\\").replace('"', '\\"')
             # Use osascript to launch Terminal.app with azlin connect
             applescript = f'''
                 tell application "Terminal"
                     activate
-                    do script "{azlin_cmd}"
+                    do script "{safe_cmd}"
                 end tell
             '''
             subprocess.Popen(

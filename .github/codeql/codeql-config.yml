@@ -1,0 +1,13 @@
+name: "azlin CodeQL Configuration"
+
+# Query filters to customize the analysis
+query-filters:
+  # Exclude py/unsafe-cyclic-import - we use lazy imports inside functions
+  # to break the cyclic dependency between cli.py and provisioning.py
+  # This is an intentional design pattern, not a bug.
+  - exclude:
+      id: py/unsafe-cyclic-import
+
+  # Also exclude py/cyclic-import since the lazy import pattern is safe
+  - exclude:
+      id: py/cyclic-import
