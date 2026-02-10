@@ -25,7 +25,7 @@ from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.file_transfer import FileTransfer, FileTransferError, TransferEndpoint
 from azlin.modules.home_sync import HomeSyncError, HomeSyncManager
 from azlin.modules.nfs_quota_manager import NFSQuotaManager
-from azlin.modules.path_parser import PathParser
+from azlin.modules.file_transfer.path_parser import PathParser
 from azlin.modules.session_manager import SessionManager
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
 from azlin.modules.vscode_launcher import (
