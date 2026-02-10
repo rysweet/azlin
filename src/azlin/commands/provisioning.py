@@ -23,10 +23,9 @@ from azlin.exceptions import (
     ProvisioningError,
     VMManagerError,
 )
-from azlin.modules.remote_executor import RemoteExecutor
-from azlin.modules.ssh_config import SSHConfig
-from azlin.modules.ssh_connector import SSHConnector
-from azlin.modules.ssh_key_manager import SSHKeyManager
+from azlin.remote_exec import RemoteExecutor
+from azlin.modules.ssh_connector import SSHConfig, SSHConnector
+from azlin.modules.ssh_keys import SSHKeyManager
 from azlin.vm_lifecycle import VMLifecycleController
 from azlin.vm_manager import VMInfo, VMManager
 from azlin.vm_provisioning import PoolProvisioningResult, VMConfig, VMProvisioner

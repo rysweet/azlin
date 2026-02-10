@@ -27,7 +27,7 @@ from azlin.config_manager import ConfigError, ConfigManager
 from azlin.context_manager import ContextError, ContextManager
 from azlin.modules.cleanup_orchestrator import CleanupOrchestrator
 from azlin.modules.interaction_handler import CLIInteractionHandler
-from azlin.modules.prune_manager import PruneManager
+from azlin.prune import PruneManager
 from azlin.modules.ssh_key_vault import KeyVaultError, create_key_vault_manager
 from azlin.vm_lifecycle import DeletionSummary, VMLifecycleError, VMLifecycleManager
 from azlin.vm_lifecycle_control import VMLifecycleControlError, VMLifecycleController

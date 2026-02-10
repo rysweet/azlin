@@ -22,7 +22,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from azlin.modules.compose import ComposeOrchestrator
+from azlin.modules.compose.orchestrator import ComposeOrchestrator
 
 logger = logging.getLogger(__name__)
 console = Console()
