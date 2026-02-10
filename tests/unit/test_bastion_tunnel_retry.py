@@ -22,7 +22,7 @@ class TestGetConfigHelpers:
 
     def test_get_config_int_returns_default_when_not_set(self):
         """Test _get_config_int returns default when env var not set."""
-        from azlin.cli import _get_config_int
+        from azlin.commands.monitoring import _get_config_int
 
         # Ensure env var is not set
         with patch.dict(os.environ, {}, clear=True):
@@ -31,7 +31,7 @@ class TestGetConfigHelpers:
 
     def test_get_config_int_returns_env_value_when_set(self):
         """Test _get_config_int returns env var value when set."""
-        from azlin.cli import _get_config_int
+        from azlin.commands.monitoring import _get_config_int
 
         with patch.dict(os.environ, {"AZLIN_TEST_VAR": "100"}):
             result = _get_config_int("AZLIN_TEST_VAR", 42)
@@ -39,7 +39,7 @@ class TestGetConfigHelpers:
 
     def test_get_config_int_returns_default_on_invalid_value(self):
         """Test _get_config_int returns default when env var is invalid."""
-        from azlin.cli import _get_config_int
+        from azlin.commands.monitoring import _get_config_int
 
         with patch.dict(os.environ, {"AZLIN_TEST_VAR": "not_a_number"}):
             result = _get_config_int("AZLIN_TEST_VAR", 42)
@@ -47,7 +47,7 @@ class TestGetConfigHelpers:
 
     def test_get_config_float_returns_default_when_not_set(self):
         """Test _get_config_float returns default when env var not set."""
-        from azlin.cli import _get_config_float
+        from azlin.commands.monitoring import _get_config_float
 
         with patch.dict(os.environ, {}, clear=True):
             result = _get_config_float("AZLIN_TEST_VAR", 1.5)
@@ -55,7 +55,7 @@ class TestGetConfigHelpers:
 
     def test_get_config_float_returns_env_value_when_set(self):
         """Test _get_config_float returns env var value when set."""
-        from azlin.cli import _get_config_float
+        from azlin.commands.monitoring import _get_config_float
 
         with patch.dict(os.environ, {"AZLIN_TEST_VAR": "2.5"}):
             result = _get_config_float("AZLIN_TEST_VAR", 1.5)
@@ -63,7 +63,7 @@ class TestGetConfigHelpers:
 
     def test_get_config_float_returns_default_on_invalid_value(self):
         """Test _get_config_float returns default when env var is invalid."""
-        from azlin.cli import _get_config_float
+        from azlin.commands.monitoring import _get_config_float
 
         with patch.dict(os.environ, {"AZLIN_TEST_VAR": "not_a_number"}):
             result = _get_config_float("AZLIN_TEST_VAR", 1.5)
@@ -94,7 +94,7 @@ class TestCreateTunnelWithRetry:
 
     def test_create_tunnel_success_first_attempt(self, mock_pool, mock_vm, bastion_info):
         """Test tunnel creation succeeds on first attempt."""
-        from azlin.cli import _create_tunnel_with_retry
+        from azlin.commands.monitoring import _create_tunnel_with_retry
 
         mock_pooled_tunnel = MagicMock()
         mock_pooled_tunnel.tunnel.local_port = 50000
@@ -113,7 +113,7 @@ class TestCreateTunnelWithRetry:
 
     def test_create_tunnel_retries_on_transient_failure(self, mock_pool, mock_vm, bastion_info):
         """Test tunnel creation retries on transient failure."""
-        from azlin.cli import _create_tunnel_with_retry
+        from azlin.commands.monitoring import _create_tunnel_with_retry
 
         mock_pooled_tunnel = MagicMock()
         mock_pooled_tunnel.tunnel.local_port = 50000
@@ -138,7 +138,7 @@ class TestCreateTunnelWithRetry:
 
     def test_create_tunnel_raises_after_max_attempts(self, mock_pool, mock_vm, bastion_info):
         """Test tunnel creation raises BastionManagerError after max attempts exhausted."""
-        from azlin.cli import _create_tunnel_with_retry
+        from azlin.commands.monitoring import _create_tunnel_with_retry
 
         # Fail all attempts
         mock_pool.get_or_create_tunnel.side_effect = BastionManagerError("Persistent failure")
@@ -159,7 +159,7 @@ class TestCreateTunnelWithRetry:
 
     def test_create_tunnel_uses_exponential_backoff(self, mock_pool, mock_vm, bastion_info):
         """Test tunnel creation uses exponential backoff between retries."""
-        from azlin.cli import _create_tunnel_with_retry
+        from azlin.commands.monitoring import _create_tunnel_with_retry
 
         mock_pooled_tunnel = MagicMock()
         call_times = []
@@ -257,7 +257,7 @@ class TestEnvironmentVariableConfiguration:
 
     def test_default_retry_attempts(self):
         """Test default retry attempts is 3."""
-        from azlin.cli import _get_config_int
+        from azlin.commands.monitoring import _get_config_int
 
         with patch.dict(os.environ, {}, clear=True):
             result = _get_config_int("AZLIN_BASTION_RETRY_ATTEMPTS", 3)
@@ -265,7 +265,7 @@ class TestEnvironmentVariableConfiguration:
 
     def test_default_rate_limit(self):
         """Test default rate limit is 0.5 seconds."""
-        from azlin.cli import _get_config_float
+        from azlin.commands.monitoring import _get_config_float
 
         with patch.dict(os.environ, {}, clear=True):
             result = _get_config_float("AZLIN_BASTION_RATE_LIMIT", 0.5)
@@ -273,7 +273,7 @@ class TestEnvironmentVariableConfiguration:
 
     def test_default_max_tunnels(self):
         """Test default max tunnels is 10."""
-        from azlin.cli import _get_config_int
+        from azlin.commands.monitoring import _get_config_int
 
         with patch.dict(os.environ, {}, clear=True):
             result = _get_config_int("AZLIN_BASTION_MAX_TUNNELS", 10)
@@ -281,7 +281,7 @@ class TestEnvironmentVariableConfiguration:
 
     def test_default_idle_timeout(self):
         """Test default idle timeout is 300 seconds."""
-        from azlin.cli import _get_config_int
+        from azlin.commands.monitoring import _get_config_int
 
         with patch.dict(os.environ, {}, clear=True):
             result = _get_config_int("AZLIN_BASTION_IDLE_TIMEOUT", 300)
@@ -289,7 +289,7 @@ class TestEnvironmentVariableConfiguration:
 
     def test_custom_retry_attempts_from_env(self):
         """Test custom retry attempts from environment variable."""
-        from azlin.cli import _get_config_int
+        from azlin.commands.monitoring import _get_config_int
 
         with patch.dict(os.environ, {"AZLIN_BASTION_RETRY_ATTEMPTS": "5"}):
             result = _get_config_int("AZLIN_BASTION_RETRY_ATTEMPTS", 3)
@@ -297,7 +297,7 @@ class TestEnvironmentVariableConfiguration:
 
     def test_custom_rate_limit_from_env(self):
         """Test custom rate limit from environment variable."""
-        from azlin.cli import _get_config_float
+        from azlin.commands.monitoring import _get_config_float
 
         with patch.dict(os.environ, {"AZLIN_BASTION_RATE_LIMIT": "2.0"}):
             result = _get_config_float("AZLIN_BASTION_RATE_LIMIT", 0.5)
