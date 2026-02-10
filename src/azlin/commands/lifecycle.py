@@ -96,12 +96,12 @@ def start(vm_name: str, resource_group: str | None, config: str | None):
 @click.option("--resource-group", "--rg", help="Resource group", type=str)
 @click.option("--config", help="Config file path", type=click.Path())
 @click.option(
-    "--no-deallocate", is_flag=True, help="Stop VM without deallocating (keeps billing active)"
+    "--deallocate/--no-deallocate", default=True, help="Deallocate to save costs (default: yes)"
 )
-def stop(vm_name: str, resource_group: str | None, config: str | None, no_deallocate: bool):
+def stop(vm_name: str, resource_group: str | None, config: str | None, deallocate: bool):
     """Stop or deallocate a VM.
 
-    Stopping a VM with deallocate (default) fully releases compute resources
+    Stopping a VM with --deallocate (default) fully releases compute resources
     and stops billing for the VM (storage charges still apply).
 
     \b
@@ -110,8 +110,6 @@ def stop(vm_name: str, resource_group: str | None, config: str | None, no_deallo
         azlin stop my-vm --rg my-resource-group
         azlin stop my-vm --no-deallocate
     """
-    # Invert the flag logic: CLI has --no-deallocate, but function expects deallocate
-    deallocate = not no_deallocate
 
     try:
         # Resolve session name to VM name if applicable
