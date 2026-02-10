@@ -2,9 +2,9 @@
 
 **[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)**
 
-**Version:** 2.2.0
+**Version:** 2.2.1
 **Last Updated:** 2026-02-10
-**[Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.0)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/tag/v2.2.0)**
+**[Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.1)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/tag/v2.2.1)**
 
 **One command to create a fully-equipped development VM on Azure**
 
@@ -53,7 +53,7 @@ The Azlin Mobile PWA brings full VM management to your mobile device. Install it
 
 **[PWA Documentation](docs/pwa/README.md)** | **[Getting Started](docs/pwa/getting-started.md)** | **[Architecture](docs/pwa/architecture.md)**
 
-## What's New in v2.2.0
+## What's New in v2.2.1
 
 ### azlin restore - Automatic Session Restoration
 Restore all your development sessions with one command:
@@ -86,7 +86,7 @@ azlin code my-private-vm  # Automatically creates Bastion tunnel
 - Automatic retry logic for reliability
 - No public IP required
 
-See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.0) for complete feature list including iOS PWA, separate /home disk support, and more.
+See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.1) for complete feature list including iOS PWA, separate /home disk support, and more.
 
 ---
 
