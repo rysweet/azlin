@@ -1052,6 +1052,11 @@ class ConfigManager:
         Returns:
             True if wizard should run, False if config is complete
         """
+        # CRITICAL: Skip wizard in test mode (Issue #279)
+        if os.getenv("AZLIN_TEST_MODE") == "true":
+            logger.debug("Test mode active, skipping first-run wizard check")
+            return False
+
         try:
             if custom_path:
                 config_path = Path(custom_path).expanduser().resolve()
