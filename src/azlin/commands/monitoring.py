@@ -35,13 +35,13 @@ from azlin.network_security.bastion_connection_pool import (
     BastionConnectionPool,
     PooledTunnel,
 )
-from azlin.network_security.bastion_manager import BastionManager, BastionManagerError
+from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.network_security.security_policy import SecurityError
 from azlin.ps_command import PSCommandExecutor
 from azlin.quota_manager import QuotaInfo, QuotaManager
 from azlin.ssh.latency import LatencyResult
-from azlin.ssh.ssh_config import SSHConfig
-from azlin.ssh_manager import SSHKeyManager
+from azlin.modules.ssh_connector import SSHConfig
+from azlin.modules.ssh_keys import SSHKeyManager
 from azlin.tag_manager import TagManager
 from azlin.tmux.models import TmuxSession
 from azlin.tmux.session_executor import TmuxSessionExecutor
