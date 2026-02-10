@@ -10,7 +10,8 @@ import sys
 
 import click
 
-from azlin.config import ConfigManager, SSHConfig
+from azlin.config_manager import ConfigManager
+from azlin.modules.ssh_connector import SSHConfig
 from azlin.env_manager import EnvManager, EnvManagerError
 from azlin.modules.ssh_keys import SSHKeyManager
 from azlin.vm_connector import VMConnector
