@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from azlin.config import AzlinConfig, ConfigError, ConfigManager, TemplateError, TemplateManager
-from azlin.config.template import VMTemplateConfig
+from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
+from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 from azlin.exceptions import (
     ProvisioningError,
     VMManagerError,

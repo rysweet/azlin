@@ -11,7 +11,7 @@ from pathlib import Path
 
 import click
 
-from azlin.config import ConfigManager
+from azlin.config_manager import ConfigManager
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
 from azlin.logging_config import get_logger
 
