@@ -437,10 +437,12 @@ class TerminalLauncher:
         # Get repo URL from environment or use default
         repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
         # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
+        # CRITICAL: Include --disable-bastion-pool to prevent session crossing (Issue #593)
+        # The env var AZLIN_DISABLE_BASTION_POOL doesn't propagate through bash -l
         if config.tmux_session:
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session} --disable-bastion-pool"
         else:
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --disable-bastion-pool"
 
         try:
             # Use osascript to launch Terminal.app with azlin connect
@@ -484,10 +486,12 @@ class TerminalLauncher:
         # Get repo URL from environment or use default
         repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
         # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
+        # CRITICAL: Include --disable-bastion-pool to prevent session crossing (Issue #593)
+        # The env var AZLIN_DISABLE_BASTION_POOL doesn't propagate through bash -l
         if config.tmux_session:
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session} --disable-bastion-pool"
         else:
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --disable-bastion-pool"
 
         try:
             # Launch separate wt.exe process - each invocation creates new window by default
@@ -562,7 +566,9 @@ class TerminalLauncher:
 
         success_count = 0
         for i, config in enumerate(sessions):
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            # CRITICAL: Include --disable-bastion-pool to prevent session crossing (Issue #593)
+            # The env var AZLIN_DISABLE_BASTION_POOL doesn't propagate through bash -l
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session} --disable-bastion-pool"
 
             if verbose:
                 click.echo(
@@ -621,10 +627,12 @@ class TerminalLauncher:
         # Get repo URL from environment or use default
         repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
         # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
+        # CRITICAL: Include --disable-bastion-pool to prevent session crossing (Issue #593)
+        # The env var AZLIN_DISABLE_BASTION_POOL doesn't propagate through bash -l
         if config.tmux_session:
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session} --disable-bastion-pool"
         else:
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --disable-bastion-pool"
 
         try:
             subprocess.Popen(
@@ -665,10 +673,12 @@ class TerminalLauncher:
         # Get repo URL from environment or use default
         repo_url = os.environ.get("AZLIN_REPO_URL", DEFAULT_AZLIN_REPO)
         # Build command - omit --tmux-session if empty (let azlin connect auto-discover)
+        # CRITICAL: Include --disable-bastion-pool to prevent session crossing (Issue #593)
+        # The env var AZLIN_DISABLE_BASTION_POOL doesn't propagate through bash -l
         if config.tmux_session:
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session}"
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --tmux-session {config.tmux_session} --disable-bastion-pool"
         else:
-            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name}"
+            azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {config.vm_name} --disable-bastion-pool"
 
         try:
             subprocess.Popen(
@@ -906,7 +916,8 @@ def restore_command(
                 click.echo('WINDOW_ID="azlin-restore-$(uuidgen | cut -c1-8)"')
                 click.echo()
                 for i, session in enumerate(sessions):
-                    azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session}"
+                    # CRITICAL: Include --disable-bastion-pool to prevent session crossing (Issue #593)
+                    azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session} --disable-bastion-pool"
                     click.echo(
                         f"# Session: {session.vm_name}:{session.tmux_session} ({session.hostname})"
                     )
@@ -920,7 +931,8 @@ def restore_command(
             else:
                 click.echo("Mode: Separate windows\n")
                 for session in sessions:
-                    azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session}"
+                    # CRITICAL: Include --disable-bastion-pool to prevent session crossing (Issue #593)
+                    azlin_cmd = f"{uvx_cmd} --from {repo_url} azlin connect -y {session.vm_name} --tmux-session {session.tmux_session} --disable-bastion-pool"
                     # Print session info as comment for script-like output
                     click.echo(
                         f"# Session: {session.vm_name}:{session.tmux_session} ({session.hostname})"
