@@ -926,7 +926,7 @@ def _handle_multi_context_list(
 
     # Step 1: Select contexts based on pattern or all flag
     try:
-        from azlin.multi_context.context_selector import ContextSelector, ContextSelectorError
+        from azlin.context_selector import ContextSelector, ContextSelectorError
 
         selector = ContextSelector(config_path=config)
 
@@ -963,7 +963,7 @@ def _handle_multi_context_list(
         else:
             click.echo(f"[DEBUG] No cache file found at {cache_file}")
 
-        from azlin.multi_context.multi_context_list import (
+        from azlin.multi_context_list import (
             MultiContextQueryError,
             query_all_contexts_parallel,
         )
@@ -1002,7 +1002,7 @@ def _handle_multi_context_list(
             sys.exit(1)
 
     # Step 4: Display results using Rich tables
-    from azlin.multi_context.multi_context_display import MultiContextDisplay
+    from azlin.multi_context_display import MultiContextDisplay
 
     display = MultiContextDisplay()
     display.display_results(

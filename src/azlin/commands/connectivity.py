@@ -217,8 +217,8 @@ def _try_fetch_key_from_vault(vm_name: str, key_path: Path, config: str | None) 
         True if key was fetched successfully, False otherwise
     """
     try:
-        from azlin.modules.auth_config import AuthConfig, AuthMethod
-        from azlin.modules.key_vault_manager import create_key_vault_manager
+        from azlin.auth_models import AuthConfig, AuthMethod
+        from azlin.modules.ssh_key_vault import create_key_vault_manager
 
         # Load context to get key_vault_name
         context_config = ContextManager.load(config)

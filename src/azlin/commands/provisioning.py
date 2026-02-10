@@ -29,7 +29,7 @@ from azlin.vm_size_tiers import VMSizeTierError, VMSizeTiers
 
 if TYPE_CHECKING:
     from azlin.cli import CLIOrchestrator
-    from azlin.modules.vm_details import VMDetails
+    from azlin.vm_provisioning import VMDetails
 
 __all__ = ["clone", "create", "new", "vm"]
 
