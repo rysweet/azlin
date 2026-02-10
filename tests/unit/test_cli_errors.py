@@ -20,7 +20,7 @@ from click.testing import CliRunner
 from azlin.azure_auth import AuthenticationError
 from azlin.cli import AzlinError
 from azlin.cli import main as cli
-from azlin.cli import new_command as new
+from azlin.commands.provisioning import new
 
 
 class TestAuthenticationErrors:
