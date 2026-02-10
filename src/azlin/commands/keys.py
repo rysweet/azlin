@@ -13,9 +13,8 @@ import click
 
 from azlin.config_manager import ConfigManager
 from azlin.key_rotator import KeyRotationError, SSHKeyRotator
-from azlin.logging_config import get_logger
 
-logger = get_logger()
+logger = __import__("logging").getLogger(__name__)
 
 __all__ = ["keys_group"]
 
