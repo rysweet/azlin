@@ -27,7 +27,7 @@ class TestAuthenticationErrors:
     """Error tests for authentication failures."""
 
     @pytest.mark.skip(reason="Conceptual test - auth integration not yet implemented")
-    @patch("azlin.azure_auth.AzureAuthenticator.authenticate")
+    @patch("azlin.cli.AzureAuthenticator.authenticate")
     def test_new_command_auth_failure(self, mock_auth):
         """Test that authentication failure raises AuthenticationError."""
         mock_auth.side_effect = AuthenticationError("Failed to authenticate")
@@ -36,7 +36,7 @@ class TestAuthenticationErrors:
         assert result.exit_code != 0
 
     @pytest.mark.skip(reason="Conceptual test - auth integration not yet implemented")
-    @patch("azlin.azure_auth.AzureAuthenticator.authenticate")
+    @patch("azlin.cli.AzureAuthenticator.authenticate")
     def test_list_command_auth_failure(self, mock_auth):
         """Test that list command handles auth errors."""
         mock_auth.side_effect = AuthenticationError("No valid credentials")
@@ -49,7 +49,7 @@ class TestPrerequisiteErrors:
     """Error tests for missing prerequisites."""
 
     @pytest.mark.skip(reason="Conceptual test - prerequisite checking not yet centralized")
-    @patch("azlin.modules.prerequisites.check_prerequisites")
+    @patch("azlin.cli.check_prerequisites")
     def test_missing_prerequisites(self, mock_check):
         """Test that missing prerequisites raises AzlinError."""
         mock_result = Mock()
@@ -222,7 +222,7 @@ class TestAzureCLIErrors:
 class TestUserCancellationErrors:
     """Error tests for user cancellation."""
 
-    @patch("click.confirm")
+    @patch("azlin.cli.click.confirm")
     def test_user_cancels_provisioning(self, mock_confirm):
         """Test that user cancellation raises click.Abort."""
         mock_confirm.return_value = False
@@ -234,7 +234,7 @@ class TestUserCancellationErrors:
 class TestConfigurationErrors:
     """Error tests for configuration issues."""
 
-    @patch("azlin.config_manager.ConfigManager.load_config")
+    @patch("azlin.cli.ConfigManager.load_config")
     def test_config_load_failure(self, mock_load):
         """Test that config load failure is handled gracefully."""
         from azlin.config_manager import ConfigError

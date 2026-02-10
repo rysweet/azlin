@@ -16,11 +16,11 @@ from azlin.vm_manager import VMInfo
 class TestWCommandWithBastion:
     """Test 'w' command with bastion-only VMs."""
 
-    @patch("azlin.commands.monitoring.BastionManager")
-    @patch("azlin.commands.monitoring.WCommandExecutor")
-    @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.BastionManager")
+    @patch("azlin.cli.WCommandExecutor")
+    @patch("azlin.cli.SSHKeyManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_w_command_includes_private_vms(
         self,
         mock_config_mgr,
@@ -97,8 +97,8 @@ class TestWCommandWithBastion:
         assert ssh_configs[1].host == "127.0.0.1"
         assert ssh_configs[1].port == 50022
 
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_w_command_skips_stopped_vms(self, mock_config_mgr, mock_vm_mgr):
         """Test w command skips stopped VMs."""
         mock_config_mgr.get_resource_group.return_value = "test-rg"
@@ -132,8 +132,8 @@ class TestWCommandWithBastion:
         # Should only process running VM
         # (Implementation detail - verify in actual test execution)
 
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_w_command_fails_gracefully_no_reachable_vms(self, mock_config_mgr, mock_vm_mgr):
         """Test w command handles case with no reachable VMs."""
         mock_config_mgr.get_resource_group.return_value = "test-rg"
@@ -173,11 +173,11 @@ class TestWCommandWithBastion:
 class TestTopCommandWithBastion:
     """Test 'top' command with bastion-only VMs."""
 
-    @patch("azlin.commands.monitoring.BastionManager")
-    @patch("azlin.commands.monitoring.DistributedTopExecutor")
-    @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.BastionManager")
+    @patch("azlin.cli.DistributedTopExecutor")
+    @patch("azlin.cli.SSHKeyManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_top_command_includes_private_vms(
         self,
         mock_config_mgr,
@@ -253,11 +253,11 @@ class TestTopCommandWithBastion:
 class TestPsCommandWithBastion:
     """Test 'ps' command with bastion-only VMs."""
 
-    @patch("azlin.commands.monitoring.BastionManager")
-    @patch("azlin.commands.monitoring.PSCommandExecutor")
-    @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.BastionManager")
+    @patch("azlin.cli.PSCommandExecutor")
+    @patch("azlin.cli.SSHKeyManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_ps_command_includes_private_vms(
         self,
         mock_config_mgr,
@@ -335,11 +335,11 @@ class TestPsCommandWithBastion:
 class TestBastionTunnelReuse:
     """Test bastion tunnel reuse across multiple SSH connections."""
 
-    @patch("azlin.commands.monitoring.BastionManager")
-    @patch("azlin.commands.monitoring.WCommandExecutor")
-    @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.BastionManager")
+    @patch("azlin.cli.WCommandExecutor")
+    @patch("azlin.cli.SSHKeyManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_single_tunnel_for_multiple_private_vms(
         self,
         mock_config_mgr,
@@ -406,9 +406,9 @@ class TestBastionTunnelReuse:
 class TestErrorHandling:
     """Test error handling for bastion connectivity issues."""
 
-    @patch("azlin.commands.monitoring.BastionManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.BastionManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_command_handles_bastion_not_available(
         self, mock_config_mgr, mock_vm_mgr, mock_bastion_mgr
     ):
@@ -442,11 +442,11 @@ class TestErrorHandling:
         assert result.exit_code != 0
         assert "bastion" in result.output.lower() or "connectivity" in result.output.lower()
 
-    @patch("azlin.commands.monitoring.BastionManager")
-    @patch("azlin.commands.monitoring.WCommandExecutor")
-    @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.BastionManager")
+    @patch("azlin.cli.WCommandExecutor")
+    @patch("azlin.cli.SSHKeyManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_command_continues_with_mixed_success(
         self,
         mock_config_mgr,

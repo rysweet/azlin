@@ -39,13 +39,13 @@ def mock_infrastructure():
     - Context management
     """
     with (
-        patch("azlin.commands.monitoring.SSHKeyManager") as mock_ssh_key_mgr,
-        patch("azlin.commands.monitoring.BastionDetector") as mock_bastion_detector,
-        patch("azlin.commands.monitoring.BastionManager") as mock_bastion_manager,
-        patch("azlin.azure_auth.AzureAuthenticator") as mock_azure_auth,
-        patch("azlin.commands.monitoring.TmuxSessionExecutor") as mock_tmux_executor,
-        patch("azlin.commands.monitoring.RemoteExecutor") as mock_remote_executor,
-        patch("azlin.commands.monitoring.ContextManager") as mock_context_mgr,
+        patch("azlin.cli.SSHKeyManager") as mock_ssh_key_mgr,
+        patch("azlin.cli.BastionDetector") as mock_bastion_detector,
+        patch("azlin.cli.BastionManager") as mock_bastion_manager,
+        patch("azlin.cli.AzureAuthenticator") as mock_azure_auth,
+        patch("azlin.cli.TmuxSessionExecutor") as mock_tmux_executor,
+        patch("azlin.cli.RemoteExecutor") as mock_remote_executor,
+        patch("azlin.cli.ContextManager") as mock_context_mgr,
     ):
         # Mock SSH key manager
         mock_key_pair = SSHKeyPair(
@@ -137,9 +137,9 @@ def mock_vm_list():
 class TestConnectedSessionDisplay:
     """Test that connected sessions display in BOLD text."""
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_connected_sessions_display_bold(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -175,9 +175,9 @@ class TestConnectedSessionDisplay:
         # Just verify the session name appears
         assert "dev-session" in result.output, f"Session name not found in output:\n{result.output}"
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_multiple_connected_sessions_all_bold(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -216,9 +216,9 @@ class TestConnectedSessionDisplay:
 class TestDisconnectedSessionDisplay:
     """Test that disconnected sessions display in DIM text."""
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_disconnected_sessions_display_dim(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -250,9 +250,9 @@ class TestDisconnectedSessionDisplay:
         # Disconnected session should have DIM markup
         assert "detached-session" in result.output
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_multiple_disconnected_sessions_all_dim(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -288,9 +288,9 @@ class TestDisconnectedSessionDisplay:
 class TestMixedSessionDisplay:
     """Test display with mix of connected and disconnected sessions."""
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_mixed_connected_disconnected_sessions(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -321,9 +321,9 @@ class TestMixedSessionDisplay:
         # Disconnected sessions should be dim
         assert "disconnected1" in result.output
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_multiple_vms_with_different_session_states(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -362,9 +362,9 @@ class TestMixedSessionDisplay:
 class TestEdgeCaseDisplay:
     """Test edge cases for session display."""
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_no_sessions_shows_placeholder(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -386,9 +386,9 @@ class TestEdgeCaseDisplay:
         # Should show "No sessions" placeholder (already dim in existing code)
         assert "No sessions" in result.output
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_all_sessions_connected(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -418,9 +418,9 @@ class TestEdgeCaseDisplay:
         # Formatting verified by presence of session name
         # Formatting verified by presence of session name
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_all_sessions_disconnected(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -450,9 +450,9 @@ class TestEdgeCaseDisplay:
         assert "[bold]d1[/bold]" not in result.output
         assert "[bold]d2[/bold]" not in result.output
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_more_than_3_sessions_truncation_preserves_formatting(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):
@@ -495,9 +495,9 @@ class TestEdgeCaseDisplay:
 class TestBackwardCompatibility:
     """Test that old format sessions still display correctly."""
 
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.VMManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.cli.TagManager")
+    @patch("azlin.cli.VMManager")
+    @patch("azlin.cli.ConfigManager")
     def test_old_format_sessions_display_without_formatting(
         self, mock_config, mock_vm_manager, mock_tag_manager, mock_vm_list, mock_infrastructure
     ):

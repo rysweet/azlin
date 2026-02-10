@@ -148,9 +148,9 @@ class TestOSUpdateExecutor:
 class TestOSUpdateCLI:
     """Test CLI integration for os-update command."""
 
-    @patch("azlin.commands.monitoring.OSUpdateExecutor")
-    @patch("azlin.commands.monitoring._get_ssh_config_for_vm")
-    @patch("azlin.commands.monitoring.click.echo")
+    @patch("azlin.cli.OSUpdateExecutor")
+    @patch("azlin.cli._get_ssh_config_for_vm")
+    @patch("azlin.cli.click.echo")
     def test_os_update_command_exists(self, mock_echo, mock_get_config, mock_executor):
         """Test that os-update command is registered."""
         # This test will pass once we add the command to cli.py
@@ -161,9 +161,9 @@ class TestOSUpdateCLI:
             cmd.name for cmd in main.commands.values()
         ]
 
-    @patch("azlin.commands.monitoring.OSUpdateExecutor")
-    @patch("azlin.commands.monitoring._get_ssh_config_for_vm")
-    @patch("azlin.commands.monitoring.click.echo")
+    @patch("azlin.cli.OSUpdateExecutor")
+    @patch("azlin.cli._get_ssh_config_for_vm")
+    @patch("azlin.cli.click.echo")
     def test_os_update_with_session_name(self, mock_echo, mock_get_config, mock_executor):
         """Test os-update with session name."""
         mock_config = SSHConfig(
@@ -189,9 +189,9 @@ class TestOSUpdateCLI:
         mock_get_config.assert_called_once()
         mock_executor.execute_os_update.assert_called_once()
 
-    @patch("azlin.commands.monitoring.OSUpdateExecutor")
-    @patch("azlin.commands.monitoring._get_ssh_config_for_vm")
-    @patch("azlin.commands.monitoring.click.echo")
+    @patch("azlin.cli.OSUpdateExecutor")
+    @patch("azlin.cli._get_ssh_config_for_vm")
+    @patch("azlin.cli.click.echo")
     def test_os_update_handles_errors(self, mock_echo, mock_get_config, mock_executor):
         """Test os-update handles errors gracefully."""
         mock_config = SSHConfig(

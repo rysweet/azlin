@@ -218,13 +218,12 @@ def setup(
 
             data["auth"]["profiles"][profile] = profile_config
 
-            # Save with atomic file creation and proper permissions
+            # Save
             ConfigManager.ensure_config_dir()
             temp_path = config_path.with_suffix(".tmp")
-            # Use os.open with O_CREAT to atomically create file with 0o600 permissions
-            fd = os.open(str(temp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "wb") as f:
+            with open(temp_path, "wb") as f:
                 tomli_w.dump(data, f)
+            os.chmod(temp_path, 0o600)
             temp_path.replace(config_path)
 
         click.echo(click.style(f"\n✓ Profile '{profile}' saved successfully!", fg="green"))
@@ -551,12 +550,11 @@ def remove(profile: str, yes: bool):
         # Remove profile
         del profiles[profile]
 
-        # Save with atomic file creation and proper permissions
+        # Save
         temp_path = config_path.with_suffix(".tmp")
-        # Use os.open with O_CREAT to atomically create file with 0o600 permissions
-        fd = os.open(str(temp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "wb") as f:
+        with open(temp_path, "wb") as f:
             tomli_w.dump(data, f)
+        os.chmod(temp_path, 0o600)
         temp_path.replace(config_path)
 
         click.echo(click.style(f"\n✓ Profile '{profile}' removed successfully!", fg="green"))
