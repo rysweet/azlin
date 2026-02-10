@@ -1,10 +1,10 @@
 # azlin - Azure Ubuntu VM Provisioning CLI
 
-**[📚 Full Documentation](https://rysweet.github.io/azlin/)** | **[🚀 Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[💬 Discussions](https://github.com/rysweet/azlin/discussions)**
+**[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)**
 
-**Version:** 0.4.0
-**Last Updated:** 2025-12-03
-**[📝 Release Notes](https://github.com/rysweet/azlin/releases/tag/v0.4.0)** | **[📊 Changelog](https://github.com/rysweet/azlin/compare/v0.3.2...v0.4.0)** | **[🚀 Latest Release](https://github.com/rysweet/azlin/releases/tag/v0.4.0)**
+**Version:** 2.2.0
+**Last Updated:** 2026-02-10
+**[Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.0)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/tag/v2.2.0)**
 
 **One command to create a fully-equipped development VM on Azure**
 
@@ -39,7 +39,7 @@ azlin automates the tedious process of setting up Azure Ubuntu VMs for developme
 
 **Total time**: 4-7 minutes from command to working development environment.
 
-## 📱 Azlin Mobile PWA (NEW!)
+##  Azlin Mobile PWA (NEW!)
 
 **Manage your Azure VMs from your iPhone!**
 
@@ -51,9 +51,38 @@ The Azlin Mobile PWA brings full VM management to your mobile device. Install it
 - **Cost Tracking**: Real-time cost monitoring and budget alerts
 - **Offline Ready**: Service worker caching for instant loads
 
-**[📱 PWA Documentation](docs/pwa/README.md)** | **[🚀 Getting Started](docs/pwa/getting-started.md)** | **[🏗️ Architecture](docs/pwa/architecture.md)**
+**[PWA Documentation](docs/pwa/README.md)** | **[Getting Started](docs/pwa/getting-started.md)** | **[Architecture](docs/pwa/architecture.md)**
 
-## ✨ What's New in v0.4.0
+## What's New in v2.2.0
+
+### azlin restore - Session Restoration
+One command to restore all your development sessions:
+```bash
+azlin restore  # Launches terminals for all active VMs
+```
+Smart platform detection with multi-tab support for Windows Terminal. See [azlin restore documentation](https://rysweet.github.io/azlin/commands/restore/) for details.
+
+### CLI Modular Architecture
+Complete refactoring of the CLI into 11 self-contained command modules:
+- Reduced cli.py from 10,011 to 2,527 lines (75% reduction)
+- Improved maintainability with clear module boundaries
+- 100% backward compatibility preserved
+- 74/74 tests passing
+
+### Intelligent Caching
+- 60-minute cache TTL with background refresh
+- 90% reduction in Azure API calls
+- Sub-100ms response time on cache hits
+
+### Bastion Tunnel Support
+VS Code launcher and improved connectivity for private IP VMs with automatic retry logic.
+
+### Complete Feature List
+See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.0) for all 6 major features and improvements.
+
+---
+
+## What's New in v0.4.0
 
 ### Separate Home Disk (NEW)
 VMs now automatically get a dedicated 100GB disk for `/home`:
@@ -71,7 +100,7 @@ azlin new --no-home-disk        # Disable (use OS disk)
 
 See [Separate Home Disk Guide](docs/how-to/separate-home-disk.md) for details.
 
-## ✨ What's New in v0.3.2
+##  What's New in v0.3.2
 
 ### Custom VM Names
 Give your VMs meaningful names instead of timestamps:
@@ -984,7 +1013,7 @@ azlin connect myproject  # Much easier!
 
 ### `azlin connect` - SSH into a VM
 
-Connect to a VM with automatic tmux session management and **auto-reconnect on disconnect** ✨.
+Connect to a VM with automatic tmux session management and **auto-reconnect on disconnect** .
 
 ```bash
 # Connect to a VM by name
@@ -2169,11 +2198,11 @@ azlin doit deploy "Function App triggered by Storage queue saving to Cosmos DB"
 ```
 
 **What the agent does:**
-- 🎯 Parses your goal into executable sub-goals
+-  Parses your goal into executable sub-goals
 - 🤖 Deploys resources autonomously (ReAct loop: Reason → Act → Observe → Evaluate)
 - ✅ Self-evaluates and adapts to failures
 - 📦 Generates production-ready Terraform + Bicep
-- 📚 Creates teaching materials with architecture diagrams
+-  Creates teaching materials with architecture diagrams
 
 ### Management
 
