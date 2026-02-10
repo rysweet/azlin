@@ -6,7 +6,7 @@ This package contains modular command implementations organized by functionality
 from __future__ import annotations
 
 # Additional command groups
-from .ask import ask_group
+from .ask import ask_command, ask_group
 from .auth import auth as auth_group
 from .autopilot import autopilot_group
 from .bastion import bastion_group
@@ -19,7 +19,7 @@ from .compose import compose_group
 from .connectivity import code_command, connect, cp, sync, sync_keys
 from .context import context_group
 from .costs import costs_group
-from .doit import do
+from .doit import do, doit_group
 
 # Environment
 from .env import _get_ssh_config_for_vm, env
@@ -60,6 +60,7 @@ __all__ = [
     # Environment
     "_get_ssh_config_for_vm",
     # Additional command groups
+    "ask_command",
     "ask_group",
     "auth_group",
     "autopilot_group",
@@ -80,6 +81,7 @@ __all__ = [
     "create",
     "destroy",
     "do",
+    "doit_group",
     "env",
     "fleet_group",
     "github_runner_group",
