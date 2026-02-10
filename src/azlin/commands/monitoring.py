@@ -25,7 +25,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from azlin.auth import AzureAuthenticator
+from azlin.azure_auth import AzureAuthenticator
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.context_manager import ContextError, ContextManager
 from azlin.distributed_top import DistributedTopError, DistributedTopExecutor
