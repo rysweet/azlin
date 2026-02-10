@@ -1205,7 +1205,8 @@ def list_command(
 
         # EXISTING: Single-context query mode continues below...
         # Ensure Azure CLI subscription matches current context for single-context queries
-        from azlin.context_manager import ContextManager, ContextError
+        from azlin.context_manager import ContextError, ContextManager
+
         try:
             ContextManager.ensure_subscription_active(config)
         except ContextError as e:
