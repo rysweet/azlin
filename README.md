@@ -55,30 +55,38 @@ The Azlin Mobile PWA brings full VM management to your mobile device. Install it
 
 ## What's New in v2.2.0
 
-### azlin restore - Session Restoration
-One command to restore all your development sessions:
+### azlin restore - Automatic Session Restoration
+Restore all your development sessions with one command:
 ```bash
 azlin restore  # Launches terminals for all active VMs
+azlin restore --dry-run  # Preview what would be restored
 ```
-Smart platform detection with multi-tab support for Windows Terminal. See [azlin restore documentation](https://rysweet.github.io/azlin/commands/restore/) for details.
 
-### CLI Modular Architecture
-Complete refactoring of the CLI into 11 self-contained command modules:
-- Reduced cli.py from 10,011 to 2,527 lines (75% reduction)
-- Improved maintainability with clear module boundaries
-- 100% backward compatibility preserved
-- 74/74 tests passing
+**Features:**
+- Works on macOS, Windows Terminal, WSL, and Linux
+- Multi-tab support for Windows Terminal
+- Configurable terminal preferences in ~/.azlin/config.toml
+- Smart session-to-VM mapping
 
-### Intelligent Caching
-- 60-minute cache TTL with background refresh
-- 90% reduction in Azure API calls
-- Sub-100ms response time on cache hits
+See [azlin restore documentation](https://rysweet.github.io/azlin/commands/restore/) for details.
 
-### Bastion Tunnel Support
-VS Code launcher and improved connectivity for private IP VMs with automatic retry logic.
+### Faster Performance
+**azlin list is now 10x faster** with intelligent caching:
+- First run: ~3 seconds
+- Cached results: <100ms
+- Auto-refreshes in background
+- 90% fewer Azure API calls
 
-### Complete Feature List
-See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.0) for all 6 major features and improvements.
+### Private IP VM Support
+**azlin code now works with Bastion-only VMs:**
+```bash
+azlin code my-private-vm  # Automatically creates Bastion tunnel
+```
+- VS Code launcher supports Bastion tunnels
+- Automatic retry logic for reliability
+- No public IP required
+
+See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.0) for complete feature list including iOS PWA, separate /home disk support, and more.
 
 ---
 
