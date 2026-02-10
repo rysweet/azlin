@@ -925,9 +925,9 @@ def _handle_multi_context_list(
         show_tmux = False  # Disable for now
 
     # Step 1: Select contexts based on pattern or all flag
-    try:
-        from azlin.context_selector import ContextSelector, ContextSelectorError
+    from azlin.context_selector import ContextSelector, ContextSelectorError
 
+    try:
         selector = ContextSelector(config_path=config)
 
         if all_contexts:
@@ -944,6 +944,9 @@ def _handle_multi_context_list(
         sys.exit(1)
 
     # Step 2: Query VMs across all selected contexts in parallel
+    from azlin.multi_context_list import MultiContextQueryError
+    from azlin.multi_context_list_async import query_all_contexts_parallel
+
     try:
         click.echo(f"Querying VMs in resource group '{rg}' across {len(contexts)} contexts...\n")
 
@@ -962,9 +965,6 @@ def _handle_multi_context_list(
             click.echo(f"[DEBUG] Cache file exists with {len(cache_data)} entries before query")
         else:
             click.echo(f"[DEBUG] No cache file found at {cache_file}")
-
-        from azlin.multi_context_list import MultiContextQueryError
-        from azlin.multi_context_list_async import query_all_contexts_parallel
 
         result = query_all_contexts_parallel(
             contexts=contexts,
