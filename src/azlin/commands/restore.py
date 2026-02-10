@@ -771,7 +771,7 @@ def restore_command(
             raise click.exceptions.Exit(2)
 
         # Get VM/session pairs - SHARED CODE with azlin list
-        from azlin.cli import get_vm_session_pairs
+        from azlin.commands.monitoring import get_vm_session_pairs
 
         # DEBUG: Open log file (using tempfile for security)
         debug_log_file = tempfile.NamedTemporaryFile(  # noqa: SIM115

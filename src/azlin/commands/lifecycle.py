@@ -361,7 +361,7 @@ def killall(resource_group: str | None, config: str | None, force: bool, prefix:
         click.echo(f"\nDeleting {len(vms)} VM(s) in parallel...")
 
         # Execute bulk deletion
-        summary = VMLifecycleManager.delete_vms_bulk(
+        summary = VMLifecycleManager.delete_vms_bulk(  # type: ignore[attr-defined]
             vms=[vm.name for vm in vms], resource_group=rg, parallel=True
         )
 

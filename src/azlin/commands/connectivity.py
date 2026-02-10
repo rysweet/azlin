@@ -245,8 +245,8 @@ def _try_fetch_key_from_vault(vm_name: str, key_path: Path, config: str | None) 
         )
 
         # Try to fetch key
-        secret_name = SSHKeyManager.get_secret_name(vm_name)
-        result = manager.get_ssh_key_pair(secret_name)
+        secret_name = SSHKeyManager.get_secret_name(vm_name)  # type: ignore[attr-defined]
+        result = manager.get_ssh_key_pair(secret_name)  # type: ignore[attr-defined]
 
         if result and result.private_key and result.public_key:
             # Save keys locally

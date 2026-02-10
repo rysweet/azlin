@@ -963,10 +963,8 @@ def _handle_multi_context_list(
         else:
             click.echo(f"[DEBUG] No cache file found at {cache_file}")
 
-        from azlin.multi_context_list import (
-            MultiContextQueryError,
-            query_all_contexts_parallel,
-        )
+        from azlin.multi_context_list import MultiContextQueryError
+        from azlin.multi_context_list_async import query_all_contexts_parallel
 
         result = query_all_contexts_parallel(
             contexts=contexts,
