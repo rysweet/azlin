@@ -39,8 +39,8 @@ except ImportError:
         run_automation = None
 
 __all__ = [
-    "register_context_hook",
     "context_management_hook",
+    "register_context_hook",
 ]
 
 # ============================================================================

@@ -50,7 +50,7 @@ import io
 import os
 import sys
 
-__all__ = ["is_shutdown_in_progress", "mark_shutdown", "clear_shutdown"]
+__all__ = ["clear_shutdown", "is_shutdown_in_progress", "mark_shutdown"]
 
 
 def is_shutdown_in_progress() -> bool:

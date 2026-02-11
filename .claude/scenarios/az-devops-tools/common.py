@@ -266,8 +266,8 @@ __all__ = [
     "AzCliWrapper",
     "CommandResult",
     "ExitCode",
-    "load_config",
-    "handle_error",
-    "validate_work_item_id",
     "format_table",
+    "handle_error",
+    "load_config",
+    "validate_work_item_id",
 ]

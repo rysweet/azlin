@@ -20,17 +20,15 @@ Options:
 """
 
 import argparse
-import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
 
 
 class CommandsConverter:
     """Converts Claude Code commands to Copilot-friendly docs."""
 
-    def __init__(self, root_dir: Optional[Path] = None):
+    def __init__(self, root_dir: Path | None = None):
         """Initialize converter.
 
         Args:
@@ -49,7 +47,7 @@ class CommandsConverter:
             current = current.parent
         raise RuntimeError("Could not find repository root (.claude/ directory)")
 
-    def convert_all(self) -> Dict[str, bool]:
+    def convert_all(self) -> dict[str, bool]:
         """Convert all commands.
 
         Returns:
@@ -141,10 +139,10 @@ class CommandsConverter:
         lines.append("")
         lines.append("**Example**:")
         lines.append("```bash")
-        lines.append(f"# Reference this command's approach")
+        lines.append("# Reference this command's approach")
         lines.append(f"gh copilot explain .github/commands/{command_name}.md")
         lines.append("")
-        lines.append(f"# Use patterns from this command")
+        lines.append("# Use patterns from this command")
         lines.append(f'gh copilot suggest --context .github/commands/{command_name}.md "your task"')
         lines.append("```")
         lines.append("")
@@ -159,7 +157,7 @@ class CommandsConverter:
 
         return "\n".join(lines)
 
-    def _extract_frontmatter(self, content: str) -> Dict[str, str]:
+    def _extract_frontmatter(self, content: str) -> dict[str, str]:
         """Extract YAML frontmatter.
 
         Args:

@@ -1,0 +1,72 @@
+scenario:
+  name: "Compound VM:Session Format - Connect to New Session"
+  description: |
+    Verifies that 'azlin connect vm:session' correctly parses compound format,
+    finds the VM by name, and creates/connects to the specified tmux session.
+
+    User Requirement: "if that vm existed and the session name did not would
+    start a new tmux session with that name"
+  type: cli
+  tags: [compound-naming, critical, smoke]
+
+  prerequisites:
+    - "Azure CLI authenticated (az login)"
+    - "VM 'atg-dev' exists in resource group rysweet-linux-vm-pool"
+    - "azlin CLI installed from PR branch"
+
+  variables:
+    branch: "feat/compound-vm-session-naming"
+    test_vm: "atg-dev"
+    test_session: "test-compound-session"
+
+  steps:
+    # Step 1: Launch azlin connect with compound identifier
+    - action: launch
+      target: "uvx"
+      args:
+        - "--from"
+        - "git+https://github.com/rysweet/azlin@${branch}"
+        - "azlin"
+        - "connect"
+        - "${test_vm}:${test_session}"
+        - "--"
+        - "echo"
+        - "Connected to compound session"
+      description: "Connect using compound identifier format"
+      timeout: 120s
+
+    # Step 2: Verify compound identifier was parsed
+    - action: verify_output
+      contains: "Resolved '${test_vm}:${test_session}' to VM"
+      description: "CLI should show it parsed the compound format"
+      timeout: 5s
+
+    # Step 3: Verify connection initiated
+    - action: verify_output
+      contains: "Connecting to ${test_vm}:${test_session}"
+      description: "Should show compound format in connection message"
+      timeout: 5s
+
+    # Step 4: Verify no errors about "VM not found" (common failure mode)
+    - action: verify_output
+      not_contains: "VM not found"
+      description: "Should find VM by name part of compound identifier"
+
+    # Step 5: Verify exit code (0 = success, connection worked)
+    - action: verify_exit_code
+      expected: 0
+      description: "Connection should succeed"
+      timeout: 120s
+
+  # Success criteria
+  success_criteria:
+    - "Compound identifier parsed correctly (vm:session)"
+    - "VM found by hostname part"
+    - "Session name extracted and used for tmux"
+    - "Connection successful"
+
+  # Evidence to collect
+  evidence:
+    - "Full command output"
+    - "Error messages (if any)"
+    - "Exit code"

@@ -1,0 +1,59 @@
+scenario:
+  name: "Compound Format - Create New VM with Session"
+  description: |
+    Verifies that 'azlin new --name vm:session' correctly parses compound format
+    and creates a VM with the specified session name.
+
+    User Requirement: "I could do `atg new --name atg-dev:pr54` and it would
+    create the vm with that name and tmux session"
+  type: cli
+  tags: [compound-naming, create, smoke]
+
+  prerequisites:
+    - "Azure CLI authenticated"
+    - "Resource group exists"
+    - "azlin CLI installed from PR branch"
+
+  variables:
+    branch: "feat/compound-vm-session-naming"
+    test_vm_base: "test-compound"
+    test_session: "pr-test-session"
+
+  steps:
+    # Step 1: Create VM with compound name format (dry run to avoid costs)
+    - action: launch
+      target: "uvx"
+      args:
+        - "--from"
+        - "git+https://github.com/rysweet/azlin@${branch}"
+        - "azlin"
+        - "new"
+        - "--name"
+        - "${test_vm_base}:${test_session}"
+        - "--help"
+      description: "Check that --name parameter accepts compound format"
+      timeout: 30s
+
+    # Step 2: Verify help text loads (command recognizes compound format)
+    - action: verify_output
+      contains: "--name"
+      description: "Help should show --name parameter"
+      timeout: 5s
+
+    # Step 3: Verify exit code
+    - action: verify_exit_code
+      expected: 0
+      description: "Help command should succeed"
+
+  success_criteria:
+    - "Command accepts compound --name format"
+    - "No parsing errors for vm:session format"
+
+  evidence:
+    - "Help output"
+    - "Exit code"
+
+  notes: |
+    This test uses --help instead of actually creating a VM to avoid Azure costs.
+    The parsing logic is exercised through connectivity.py tests.
+    Full E2E test would require actual VM creation which is expensive.

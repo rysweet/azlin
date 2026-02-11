@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-__all__ = ["DiagnosticLogger", "detect_infinite_loop", "InfiniteLoopDiagnostics"]
+__all__ = ["DiagnosticLogger", "InfiniteLoopDiagnostics", "detect_infinite_loop"]
 
 
 @dataclass

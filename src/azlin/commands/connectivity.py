@@ -17,6 +17,12 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+from azlin.compound_identifier import (
+    AmbiguousIdentifierError,
+    CompoundIdentifierError,
+    parse_identifier,
+    resolve_to_vm,
+)
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.context_manager import ContextError, ContextManager
 from azlin.modules.bastion_detector import BastionDetector
@@ -140,34 +146,83 @@ def _is_valid_vm_name(vm_name: str, config: str | None) -> bool:
 
 
 def _resolve_vm_identifier(vm_identifier: str, config: str | None) -> tuple[str, str]:
-    """Resolve session name to VM name and return both.
+    """Resolve compound identifier or session name to VM name and return both.
 
-    Only resolves session names to VM names if the identifier is NOT already
-    a valid VM name. This prevents accidental redirection when a VM name
-    happens to match a session name configured for a different VM.
+    Supports compound identifiers (vm:session) and legacy session resolution.
+    Resolution order:
+    1. If IP address, skip resolution
+    2. Try parse_identifier() for compound format (vm:session or :session)
+    3. If compound format with VM name, resolve using resolve_to_vm()
+    4. If simple format, fall back to legacy session resolution
 
     Resolution is SKIPPED when:
     - The identifier is a valid IP address
-    - The identifier is already a valid VM name
+    - The identifier is already a valid VM name (legacy behavior)
     - The identifier equals the resolved VM name (self-referential)
 
     Returns:
         Tuple of (resolved_identifier, original_identifier)
+
+    Raises:
+        SystemExit: On CompoundIdentifierError or AmbiguousIdentifierError
     """
     original_identifier = vm_identifier
-    if not VMConnector.is_valid_ip(vm_identifier):
-        # First check if this is already a valid VM name - if so, don't resolve
-        # This prevents: User types "amplifier" (a VM) but session "amplifier"
-        # exists on VM "atg-dev" -> should connect to VM "amplifier", not "atg-dev"
-        if _is_valid_vm_name(vm_identifier, config):
-            logger.debug(f"'{vm_identifier}' is a valid VM name, skipping session resolution")
-            return vm_identifier, original_identifier
 
-        # Not a VM name, try to resolve as session name
-        resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_identifier, config)
-        if resolved_vm_name and resolved_vm_name != vm_identifier:
-            click.echo(f"Resolved session '{vm_identifier}' to VM '{resolved_vm_name}'")
-            vm_identifier = resolved_vm_name
+    # Skip resolution for IP addresses
+    if VMConnector.is_valid_ip(vm_identifier):
+        return vm_identifier, original_identifier
+
+    # Try parsing as compound identifier
+    try:
+        vm_name, session_name = parse_identifier(vm_identifier)
+
+        # Compound format detected (has colon)
+        if ":" in vm_identifier:
+            # Get resource group for VM lookup
+            rg = ConfigManager.get_resource_group(None, config)
+            if not rg:
+                click.echo(
+                    "Error: Resource group required for compound identifier resolution.\n"
+                    "Use --resource-group or set default in ~/.azlin/config.toml",
+                    err=True,
+                )
+                sys.exit(1)
+
+            # Get available VMs
+            try:
+                vms = VMManager.list_vms(resource_group=rg, include_stopped=False)
+            except VMManagerError as e:
+                click.echo(f"Error listing VMs: {e}", err=True)
+                sys.exit(1)
+
+            # Resolve using compound identifier module
+            try:
+                resolved_vm = resolve_to_vm(vm_identifier, vms, config)
+                click.echo(f"Resolved '{vm_identifier}' to VM '{resolved_vm.name}'")
+                return resolved_vm.name, original_identifier
+            except (CompoundIdentifierError, AmbiguousIdentifierError) as e:
+                click.echo(f"Error: {e}", err=True)
+                sys.exit(1)
+
+    except CompoundIdentifierError as e:
+        # Invalid format (e.g., multiple colons)
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    # Simple format (no colon) - use legacy resolution
+    # First check if this is already a valid VM name - if so, don't resolve
+    # This prevents: User types "amplifier" (a VM) but session "amplifier"
+    # exists on VM "atg-dev" -> should connect to VM "amplifier", not "atg-dev"
+    if _is_valid_vm_name(vm_identifier, config):
+        logger.debug(f"'{vm_identifier}' is a valid VM name, skipping session resolution")
+        return vm_identifier, original_identifier
+
+    # Not a VM name, try to resolve as session name using config
+    resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_identifier, config)
+    if resolved_vm_name and resolved_vm_name != vm_identifier:
+        click.echo(f"Resolved session '{vm_identifier}' to VM '{resolved_vm_name}'")
+        vm_identifier = resolved_vm_name
+
     return vm_identifier, original_identifier
 
 
@@ -196,13 +251,28 @@ def _resolve_tmux_session(
     """Resolve tmux session name from provided value.
 
     Returns the explicit --tmux-session value if provided.
+    If identifier is compound format (vm:session), extracts session name.
     Otherwise defaults to 'azlin' to provide consistent tmux session naming.
 
     Note: Session name (from config) is used to identify the VM, NOT as the tmux session name.
     """
     if no_tmux:
         return None
-    return tmux_session if tmux_session else "azlin"
+
+    # Explicit --tmux-session flag takes precedence
+    if tmux_session:
+        return tmux_session
+
+    # Extract session from compound identifier
+    if ":" in identifier:
+        try:
+            _, session_name = parse_identifier(identifier)
+            if session_name:
+                return session_name
+        except CompoundIdentifierError:
+            pass  # Fall through to default
+
+    return "azlin"
 
 
 def _try_fetch_key_from_vault(vm_name: str, key_path: Path, config: str | None) -> bool:

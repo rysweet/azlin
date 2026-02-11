@@ -16,13 +16,12 @@ from hook_processor import HookProcessor
 # Clean imports through package structure
 sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
-    from context_preservation import ContextPreserver
-    from paths import get_project_root
-    from settings_migrator import migrate_global_hooks
-
     from amplihack.context.adaptive.detector import LauncherDetector
     from amplihack.context.adaptive.strategies import ClaudeStrategy, CopilotStrategy
     from amplihack.utils.paths import FrameworkPathResolver
+    from context_preservation import ContextPreserver
+    from paths import get_project_root
+    from settings_migrator import migrate_global_hooks
 except ImportError:
     # Fallback imports for standalone execution
     get_project_root = None
@@ -318,8 +317,7 @@ class SessionStartHook(HookProcessor):
 
         if launcher_type == "copilot":
             return CopilotStrategy(self.project_root, self.log)
-        else:
-            return ClaudeStrategy(self.project_root, self.log)
+        return ClaudeStrategy(self.project_root, self.log)
 
     def _check_version_mismatch(self) -> None:
         """Check for version mismatch and offer to update.

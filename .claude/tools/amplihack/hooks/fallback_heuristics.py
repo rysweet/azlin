@@ -160,4 +160,4 @@ class AddressedChecker:
         return any(phrase in text for phrase in keywords)
 
 
-__all__ = ["AddressedChecker", "HEURISTIC_PATTERNS"]
+__all__ = ["HEURISTIC_PATTERNS", "AddressedChecker"]

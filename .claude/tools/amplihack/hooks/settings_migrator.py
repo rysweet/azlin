@@ -360,7 +360,7 @@ def migrate_global_hooks(project_root: Path | None = None) -> HookMigrationResul
     return migrator.migrate_to_project_local()
 
 
-__all__ = ["SettingsMigrator", "HookMigrationResult", "migrate_global_hooks"]
+__all__ = ["HookMigrationResult", "SettingsMigrator", "migrate_global_hooks"]
 
 
 if __name__ == "__main__":
