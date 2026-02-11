@@ -28,7 +28,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -61,7 +61,7 @@ class VMListCacheError(Exception):
     pass
 
 
-class CacheLayer(str, Enum):
+class CacheLayer(StrEnum):
     """Cache layer types with different TTLs."""
 
     IMMUTABLE = "immutable"  # 24h TTL - VM metadata that rarely changes

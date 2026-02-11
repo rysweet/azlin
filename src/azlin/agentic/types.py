@@ -6,7 +6,7 @@ This module defines all dataclasses and enums used throughout the azdoit system.
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 from typing import Any, NotRequired, TypedDict
 
 from azlin.agentic.serialization import (
@@ -37,7 +37,7 @@ class WorkflowHistoryEvent(TypedDict):
     details: dict[str, Any]
 
 
-class Strategy(str, Enum):
+class Strategy(StrEnum):
     """Available execution strategies."""
 
     AZURE_CLI = "azure_cli"
@@ -45,7 +45,7 @@ class Strategy(str, Enum):
     CUSTOM_CODE = "custom_code"
 
 
-class ObjectiveStatus(str, Enum):
+class ObjectiveStatus(StrEnum):
     """Objective execution status."""
 
     PENDING = "pending"
@@ -54,7 +54,7 @@ class ObjectiveStatus(str, Enum):
     FAILED = "failed"
 
 
-class FailureType(str, Enum):
+class FailureType(StrEnum):
     """Failure classification for recovery strategies."""
 
     RESOURCE_NOT_FOUND = "resource_not_found"

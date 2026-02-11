@@ -350,10 +350,14 @@ class TestListCommandSyntax:
         runner = CliRunner()
         result = runner.invoke(main, ["list"])
 
-        # Should either succeed (if config exists) or show error about missing RG
+        # Should either succeed (if config exists) or show error about missing context
         assert result.exit_code in [0, 1]
         if result.exit_code == 1:
-            assert "resource group" in result.output.lower()
+            # Error message changed with new structure
+            assert (
+                "no current context set" in result.output.lower()
+                or "resource group" in result.output.lower()
+            )
 
     def test_list_with_rg_option(self):
         """Test 'azlin list --rg my-rg' accepts resource group."""

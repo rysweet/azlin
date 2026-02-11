@@ -17,6 +17,7 @@ Test Coverage:
 - Signal handling during cleanup
 """
 
+import json
 import os
 import signal
 import subprocess
@@ -391,7 +392,3 @@ def cleanup_env_var():
 def pytest_configure(config):
     """Register custom pytest markers"""
     config.addinivalue_line("markers", "integration: marks tests as integration tests")
-
-
-# Import json at module level for stop hook tests
-import json

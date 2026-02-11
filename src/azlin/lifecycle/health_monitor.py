@@ -18,12 +18,12 @@ Public API (Studs):
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 logger = logging.getLogger(__name__)
 
 
-class VMState(str, Enum):
+class VMState(StrEnum):
     """VM power states from Azure."""
 
     RUNNING = "running"

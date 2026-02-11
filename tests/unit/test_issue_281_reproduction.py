@@ -22,9 +22,9 @@ class TestIssue281BugReproduction:
     @patch("azlin.cli_helpers.get_ssh_configs_for_vms")
     @patch("azlin.remote_exec.WCommandExecutor.execute_w_on_routes")
     @patch("azlin.remote_exec.WCommandExecutor.format_w_output")
-    @patch("azlin.cli.SSHKeyManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.SSHKeyManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_issue_281_w_command_filters_out_bastion_only_vms(
         self,
         mock_config_mgr,
@@ -142,10 +142,10 @@ class TestIssue281BugReproduction:
         )
 
     @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
-    @patch("azlin.cli.DistributedTopExecutor")
-    @patch("azlin.cli.SSHKeyManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.DistributedTopExecutor")
+    @patch("azlin.commands.monitoring.SSHKeyManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_issue_281_top_command_filters_out_bastion_only_vms(
         self,
         mock_config_mgr,
@@ -243,10 +243,10 @@ class TestIssue281BugReproduction:
             pytest.fail("DistributedTopExecutor was not called")
 
     @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
-    @patch("azlin.cli.PSCommandExecutor")
-    @patch("azlin.cli.SSHKeyManager")
-    @patch("azlin.cli.VMManager")
-    @patch("azlin.cli.ConfigManager")
+    @patch("azlin.commands.monitoring.PSCommandExecutor")
+    @patch("azlin.commands.monitoring.SSHKeyManager")
+    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.ConfigManager")
     def test_issue_281_ps_command_filters_out_bastion_only_vms(
         self,
         mock_config_mgr,

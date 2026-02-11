@@ -421,3 +421,9 @@ def examples_command():
     console.print("  --dry-run      Show what would be deployed")
     console.print("  --output-dir   Custom output directory")
     console.print("  --quiet        Less verbose output\n")
+
+
+# Alias for backward compatibility
+do = doit_group
+
+__all__ = ["do", "doit_group"]

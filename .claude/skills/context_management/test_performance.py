@@ -10,7 +10,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / ".claude" / "tools" / "amplihack" / "hooks"))
 sys.path.insert(0, str(project_root / ".claude" / "skills"))
 
-from context_management.automation import ContextAutomation
+from context_management.automation import ContextAutomation  # noqa: E402
 
 
 def test_performance():

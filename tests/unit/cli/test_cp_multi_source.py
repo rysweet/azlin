@@ -27,7 +27,9 @@ class TestCpMultiSourceSyntax:
         runner = CliRunner()
         with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
             with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
-                with patch("azlin.cli.SessionManager.get_vm_session") as mock_session:
+                with patch(
+                    "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
+                ) as mock_session:
                     with patch("azlin.cli.FileTransfer.transfer") as mock_transfer:
                         # Setup mocks
                         mock_vm_session = Mock(spec=VMSession)
@@ -60,7 +62,9 @@ class TestCpMultiSourceSyntax:
         runner = CliRunner()
         with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
             with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
-                with patch("azlin.cli.SessionManager.get_vm_session") as mock_session:
+                with patch(
+                    "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
+                ) as mock_session:
                     with patch("azlin.cli.FileTransfer.transfer") as mock_transfer:
                         # Setup mocks
                         mock_vm_session = Mock(spec=VMSession)
@@ -128,7 +132,9 @@ class TestCpMultiSourceTransfer:
         runner = CliRunner()
         with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
             with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
-                with patch("azlin.cli.SessionManager.get_vm_session") as mock_session:
+                with patch(
+                    "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
+                ) as mock_session:
                     with patch("azlin.cli.FileTransfer.transfer") as mock_transfer:
                         with patch(
                             "azlin.cli.PathParser.parse_and_validate",
@@ -179,7 +185,9 @@ class TestCpMultiSourceTransfer:
         runner = CliRunner()
         with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
             with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
-                with patch("azlin.cli.SessionManager.get_vm_session") as mock_session:
+                with patch(
+                    "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
+                ) as mock_session:
                     with patch("azlin.cli.FileTransfer.transfer") as mock_transfer:
                         with patch(
                             "azlin.cli.PathParser.parse_and_validate",
@@ -226,7 +234,9 @@ class TestCpMultiSourceTransfer:
         runner = CliRunner()
         with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
             with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
-                with patch("azlin.cli.SessionManager.get_vm_session") as mock_session:
+                with patch(
+                    "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
+                ) as mock_session:
                     with patch(
                         "azlin.cli.PathParser.parse_and_validate",
                         side_effect=lambda p, **kwargs: Path(p),
@@ -261,7 +271,9 @@ class TestCpMultiSourceValidation:
         runner = CliRunner()
         with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
             with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
-                with patch("azlin.cli.SessionManager.get_vm_session") as mock_session:
+                with patch(
+                    "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
+                ) as mock_session:
                     with patch(
                         "azlin.cli.PathParser.parse_and_validate",
                         side_effect=lambda p, **kwargs: Path(p),
@@ -294,7 +306,9 @@ class TestCpMultiSourceValidation:
         runner = CliRunner()
         with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
             with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
-                with patch("azlin.cli.SessionManager.get_vm_session") as mock_session:
+                with patch(
+                    "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
+                ) as mock_session:
                     with patch(
                         "azlin.cli.PathParser.parse_and_validate",
                         side_effect=lambda p, **kwargs: Path(p),
@@ -338,7 +352,9 @@ class TestCpMultiSourceErrorHandling:
         runner = CliRunner()
         with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
             with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
-                with patch("azlin.cli.SessionManager.get_vm_session") as mock_session:
+                with patch(
+                    "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
+                ) as mock_session:
                     with patch("azlin.cli.FileTransfer.transfer") as mock_transfer:
                         with patch(
                             "azlin.cli.PathParser.parse_and_validate",

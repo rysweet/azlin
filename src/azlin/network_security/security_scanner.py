@@ -33,7 +33,7 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class SecurityScannerError(Exception):
     pass
 
 
-class ScanSeverity(str, Enum):
+class ScanSeverity(StrEnum):
     """Security finding severity levels."""
 
     CRITICAL = "critical"

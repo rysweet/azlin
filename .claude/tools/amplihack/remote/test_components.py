@@ -16,7 +16,7 @@ remote_dir = Path(__file__).parent
 tools_dir = remote_dir.parent
 sys.path.insert(0, str(tools_dir))
 
-from remote.context_packager import ContextPackager
+from remote.context_packager import ContextPackager  # noqa: E402
 
 
 def test_secret_detection():

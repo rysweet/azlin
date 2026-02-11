@@ -14,7 +14,7 @@ Security features:
 """
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -39,7 +39,7 @@ def validate_uuid(value: str, field_name: str) -> None:
         raise ValueError(f"{field_name} must be valid UUID format, got: {value}") from e
 
 
-class AuthMethod(str, Enum):
+class AuthMethod(StrEnum):
     """Authentication method enumeration.
 
     Defines the authentication methods supported by azlin:

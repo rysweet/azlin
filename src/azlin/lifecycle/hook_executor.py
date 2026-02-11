@@ -18,14 +18,14 @@ import os
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from subprocess import TimeoutExpired
 
 logger = logging.getLogger(__name__)
 
 
-class HookType(str, Enum):
+class HookType(StrEnum):
     """Lifecycle event types for hooks."""
 
     ON_START = "on_start"

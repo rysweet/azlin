@@ -17,10 +17,10 @@ remote_dir = Path(__file__).parent
 tools_dir = remote_dir.parent
 sys.path.insert(0, str(tools_dir))
 
-from remote.context_packager import ContextPackager
-from remote.errors import ExecutionError, PackagingError
-from remote.executor import Executor
-from remote.orchestrator import VM
+from remote.context_packager import ContextPackager  # noqa: E402
+from remote.errors import ExecutionError, PackagingError  # noqa: E402
+from remote.executor import Executor  # noqa: E402
+from remote.orchestrator import VM  # noqa: E402
 
 
 def test_with_existing_vm(vm_name: str):
