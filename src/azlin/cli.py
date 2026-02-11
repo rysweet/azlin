@@ -171,20 +171,22 @@ from azlin.vm_provisioning import (
 )
 from azlin.vm_size_tiers import VMSizeTierError, VMSizeTiers
 
-logger = logging.getLogger(__name__)
-
 # Backward compatibility exports for tests that patch azlin.cli.*
-from azlin.modules.file_transfer import FileTransfer  # noqa: F401
-from azlin.modules.file_transfer.path_parser import PathParser  # noqa: F401
-from azlin.distributed_top import DistributedTopExecutor  # noqa: F401
-from azlin.remote_exec import PSCommandExecutor, TmuxSessionExecutor  # noqa: F401
-from azlin.tag_manager import TagManager  # noqa: F401
-from azlin.network_security.bastion_connection_pool import BastionConnectionPool  # noqa: F401
 from azlin.commands.monitoring import (  # noqa: F401
     _collect_tmux_sessions,
     _create_tunnel_with_retry,
     _handle_multi_context_list,
 )
+from azlin.distributed_top import DistributedTopExecutor  # noqa: F401
+from azlin.modules.file_transfer import FileTransfer  # noqa: F401
+from azlin.modules.file_transfer.path_parser import PathParser  # noqa: F401
+from azlin.network_security.bastion_connection_pool import (  # noqa: F401
+    BastionConnectionPool,
+)
+from azlin.remote_exec import PSCommandExecutor, TmuxSessionExecutor  # noqa: F401
+from azlin.tag_manager import TagManager  # noqa: F401
+
+logger = logging.getLogger(__name__)
 
 
 class AzlinError(Exception):

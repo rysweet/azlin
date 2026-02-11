@@ -354,7 +354,10 @@ class TestListCommandSyntax:
         assert result.exit_code in [0, 1]
         if result.exit_code == 1:
             # Error message changed with new structure
-            assert "no current context set" in result.output.lower() or "resource group" in result.output.lower()
+            assert (
+                "no current context set" in result.output.lower()
+                or "resource group" in result.output.lower()
+            )
 
     def test_list_with_rg_option(self):
         """Test 'azlin list --rg my-rg' accepts resource group."""

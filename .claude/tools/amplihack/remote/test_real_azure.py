@@ -18,10 +18,10 @@ tools_dir = remote_dir.parent
 sys.path.insert(0, str(tools_dir))
 
 # Now import as a package
-from remote.context_packager import ContextPackager
-from remote.errors import ExecutionError, PackagingError, ProvisioningError
-from remote.executor import Executor
-from remote.orchestrator import Orchestrator, VMOptions
+from remote.context_packager import ContextPackager  # noqa: E402
+from remote.errors import ExecutionError, PackagingError, ProvisioningError  # noqa: E402
+from remote.executor import Executor  # noqa: E402
+from remote.orchestrator import Orchestrator, VMOptions  # noqa: E402
 
 
 def test_minimal_smoke():
