@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
+from azlin.compound_identifier import CompoundIdentifierError, parse_identifier
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.modules.ssh_connector import SSHConfig, SSHConnector
 from azlin.modules.ssh_keys import SSHKeyManager
@@ -42,18 +43,46 @@ logger = logging.getLogger(__name__)
 
 
 def generate_vm_name(custom_name: str | None = None, command: str | None = None) -> str:
-    """Generate VM name.
+    """Generate VM name, parsing compound format if provided.
+
+    Supports compound format in custom_name:
+    - "vm-name" -> returns "vm-name"
+    - "vm-name:session" -> returns "vm-name" (session extracted separately)
 
     Args:
-        custom_name: Custom name from --name flag
+        custom_name: Custom name from --name flag (may be compound format)
         command: Command string for slug extraction
 
     Returns:
-        VM name
+        VM name (without session part if compound format)
+
+    Raises:
+        SystemExit: If compound format is invalid
     """
     if custom_name:
-        return custom_name
+        # Try parsing as compound identifier
+        try:
+            vm_name, session_name = parse_identifier(custom_name)
 
+            # Reject session-only format (:session) - VM name is required
+            if vm_name is None:
+                click.echo(
+                    f"Error: Invalid --name format '{custom_name}': VM name is required for provisioning.\n"
+                    "Use format 'vm-name' or 'vm-name:session', not ':session'",
+                    err=True,
+                )
+                sys.exit(1)
+
+            # Return just the VM name part
+            # Session name will be handled by the caller (saved to config later)
+            return vm_name
+
+        except CompoundIdentifierError as e:
+            # Invalid format (e.g., multiple colons)
+            click.echo(f"Error: Invalid --name format: {e}", err=True)
+            sys.exit(1)
+
+    # No custom name - generate timestamp-based name
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     if command:
@@ -805,8 +834,34 @@ def new(
         resource_group, region, size, vm_size, azlin_config, template_config
     )
 
-    # Generate VM name (don't use custom name for Azure VM resource name)
-    vm_name = generate_vm_name(None, command)
+    # Parse --name parameter to extract VM name and session name
+    vm_name_from_param = None
+    session_name_from_param = None
+
+    if name:
+        try:
+            # Parse compound identifier (supports "vm-name" or "vm-name:session")
+            vm_name_from_param, session_name_from_param = parse_identifier(name)
+
+            # Reject session-only format (:session) - VM name is required
+            if vm_name_from_param is None:
+                click.echo(
+                    f"Error: Invalid --name format '{name}': VM name is required for provisioning.\n"
+                    "Use format 'vm-name' or 'vm-name:session', not ':session'",
+                    err=True,
+                )
+                sys.exit(1)
+
+        except CompoundIdentifierError as e:
+            # Invalid format (e.g., multiple colons)
+            click.echo(f"Error: Invalid --name format: {e}", err=True)
+            sys.exit(1)
+
+    # Generate VM name (use custom name if provided, otherwise generate timestamp-based)
+    vm_name = generate_vm_name(vm_name_from_param, command)
+
+    # Use session name from compound identifier, or fall back to simple name
+    session_name = session_name_from_param if session_name_from_param else name
 
     # Validate inputs
     _validate_inputs(pool, repo)
@@ -821,7 +876,7 @@ def new(
         config_file=config,
         nfs_storage=nfs_storage,
         no_nfs=no_nfs,
-        session_name=name,
+        session_name=session_name,
         no_bastion=no_bastion,
         bastion_name=bastion_name,
         auto_approve=yes,
