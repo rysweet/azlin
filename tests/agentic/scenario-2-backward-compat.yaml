@@ -1,0 +1,58 @@
+scenario:
+  name: "Backward Compatibility - Simple VM Name"
+  description: |
+    Verifies that simple VM names (without colon) still work exactly as before.
+    This ensures the compound naming feature doesn't break existing workflows.
+  type: cli
+  tags: [backward-compatibility, critical, regression]
+
+  prerequisites:
+    - "Azure CLI authenticated"
+    - "VM 'atg-dev' exists"
+    - "azlin CLI installed from PR branch"
+
+  variables:
+    branch: "feat/compound-vm-session-naming"
+    test_vm: "atg-dev"
+
+  steps:
+    # Step 1: Connect using simple VM name (no colon)
+    - action: launch
+      target: "uvx"
+      args:
+        - "--from"
+        - "git+https://github.com/rysweet/azlin@${branch}"
+        - "azlin"
+        - "connect"
+        - "${test_vm}"
+        - "--"
+        - "echo"
+        - "Simple connection works"
+      description: "Connect using simple VM name (backward compatibility)"
+      timeout: 120s
+
+    # Step 2: Verify connection message (should NOT show compound format parsing)
+    - action: verify_output
+      contains: "Connecting to ${test_vm}"
+      description: "Should use simple connection flow"
+      timeout: 5s
+
+    # Step 3: Verify no compound format parsing happened
+    - action: verify_output
+      not_contains: "Resolved"
+      description: "Simple names should not trigger compound parsing"
+
+    # Step 4: Verify connection succeeded
+    - action: verify_exit_code
+      expected: 0
+      description: "Connection should succeed with simple name"
+      timeout: 120s
+
+  success_criteria:
+    - "Simple VM name works without compound parsing"
+    - "No regression in existing functionality"
+    - "Connection successful"
+
+  evidence:
+    - "Command output showing simple connection flow"
+    - "Exit code"
