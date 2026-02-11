@@ -5,7 +5,7 @@ Estimates costs based on resource types, sizes, and Azure pricing.
 
 import logging
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 from typing import Any, ClassVar
 
 from azlin.agentic.types import CostEstimate
@@ -13,7 +13,7 @@ from azlin.agentic.types import CostEstimate
 logger = logging.getLogger(__name__)
 
 
-class PricingRegion(str, Enum):
+class PricingRegion(StrEnum):
     """Azure pricing regions."""
 
     US_EAST = "eastus"

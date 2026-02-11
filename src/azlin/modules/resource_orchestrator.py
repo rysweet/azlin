@@ -44,7 +44,7 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ class RollbackError(OrchestratorError):
 
 
 # Enums
-class DecisionAction(str, Enum):
+class DecisionAction(StrEnum):
     """User decision actions for resource operations."""
 
     CREATE = "create"  # Create the resource
@@ -79,7 +79,7 @@ class DecisionAction(str, Enum):
     CANCEL = "cancel"  # Cancel entire operation
 
 
-class ResourceType(str, Enum):
+class ResourceType(StrEnum):
     """Types of resources that can be orchestrated."""
 
     BASTION = "bastion"
@@ -89,7 +89,7 @@ class ResourceType(str, Enum):
     NSG = "nsg"
 
 
-class ResourceStatus(str, Enum):
+class ResourceStatus(StrEnum):
     """Status of orchestrated resources."""
 
     PENDING = "pending"

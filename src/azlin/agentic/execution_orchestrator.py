@@ -11,7 +11,7 @@ import logging
 import subprocess
 import time
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from azlin.agentic.strategies.azure_cli import AzureCLIStrategy
@@ -33,7 +33,7 @@ class ExecutionOrchestratorError(Exception):
     pass
 
 
-class RetryDecision(str, Enum):
+class RetryDecision(StrEnum):
     """Decision on whether to retry after a failure."""
 
     RETRY_SAME = "retry_same"  # Retry with same strategy

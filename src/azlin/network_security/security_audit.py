@@ -36,14 +36,14 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-class AuditEventType(str, Enum):
+class AuditEventType(StrEnum):
     """Types of security events to audit."""
 
     BASTION_OPT_OUT = "bastion_opt_out"

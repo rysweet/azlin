@@ -7,7 +7,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +16,7 @@ from azlin.agentic.types import CostEstimate
 logger = logging.getLogger(__name__)
 
 
-class BudgetPeriod(str, Enum):
+class BudgetPeriod(StrEnum):
     """Budget tracking period."""
 
     DAILY = "daily"
@@ -24,7 +24,7 @@ class BudgetPeriod(str, Enum):
     MONTHLY = "monthly"
 
 
-class AlertLevel(str, Enum):
+class AlertLevel(StrEnum):
     """Budget alert severity."""
 
     INFO = "info"  # <50% of budget

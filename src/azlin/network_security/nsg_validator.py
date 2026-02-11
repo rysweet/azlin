@@ -23,11 +23,11 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class RuleSeverity(str, Enum):
+class RuleSeverity(StrEnum):
     """Severity levels for policy findings."""
 
     CRITICAL = "CRITICAL"

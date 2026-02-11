@@ -113,10 +113,18 @@ from azlin.commands import (
     auth_group as auth,
 )
 
+# Backward compatibility exports for tests that patch azlin.cli.*
+from azlin.commands.monitoring import (  # noqa: F401
+    _collect_tmux_sessions,
+    _create_tunnel_with_retry,
+    _handle_multi_context_list,
+)
+
 # New modules for v2.0
 from azlin.config_manager import AzlinConfig, ConfigError, ConfigManager
 from azlin.context_manager import ContextManager
 from azlin.cost_tracker import CostTracker, CostTrackerError
+from azlin.distributed_top import DistributedTopExecutor  # noqa: F401
 from azlin.env_manager import EnvManager, EnvManagerError
 from azlin.ip_diagnostics import (
     check_connectivity,
@@ -128,6 +136,8 @@ from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.bastion_provisioner import BastionProvisioner
 from azlin.modules.cost_estimator import CostEstimator
+from azlin.modules.file_transfer import FileTransfer  # noqa: F401
+from azlin.modules.file_transfer.path_parser import PathParser  # noqa: F401
 from azlin.modules.github_setup import GitHubSetupError, GitHubSetupHandler
 from azlin.modules.home_sync import (
     HomeSyncError,
@@ -151,12 +161,18 @@ from azlin.modules.ssh_key_vault import (
     create_key_vault_manager_with_auto_setup,
 )
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager, SSHKeyPair
-from azlin.remote_exec import (
+from azlin.network_security.bastion_connection_pool import (  # noqa: F401
+    BastionConnectionPool,
+)
+from azlin.remote_exec import (  # noqa: F401
     OSUpdateExecutor,
+    PSCommandExecutor,
     RemoteExecError,
     RemoteExecutor,
+    TmuxSessionExecutor,
 )
 from azlin.security_audit import SecurityAuditLogger
+from azlin.tag_manager import TagManager  # noqa: F401
 from azlin.template_manager import TemplateError, TemplateManager, VMTemplateConfig
 from azlin.vm_connector import VMConnector, VMConnectorError
 from azlin.vm_lifecycle import DeletionSummary, VMLifecycleManager
@@ -170,21 +186,6 @@ from azlin.vm_provisioning import (
     VMProvisioner,
 )
 from azlin.vm_size_tiers import VMSizeTierError, VMSizeTiers
-
-# Backward compatibility exports for tests that patch azlin.cli.*
-from azlin.commands.monitoring import (  # noqa: F401
-    _collect_tmux_sessions,
-    _create_tunnel_with_retry,
-    _handle_multi_context_list,
-)
-from azlin.distributed_top import DistributedTopExecutor  # noqa: F401
-from azlin.modules.file_transfer import FileTransfer  # noqa: F401
-from azlin.modules.file_transfer.path_parser import PathParser  # noqa: F401
-from azlin.network_security.bastion_connection_pool import (  # noqa: F401
-    BastionConnectionPool,
-)
-from azlin.remote_exec import PSCommandExecutor, TmuxSessionExecutor  # noqa: F401
-from azlin.tag_manager import TagManager  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
