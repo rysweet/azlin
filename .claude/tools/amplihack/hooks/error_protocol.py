@@ -60,10 +60,10 @@ class HookValidationError(HookException):
 
 
 __all__ = [
+    "HookConfigError",
     "HookError",
     "HookErrorSeverity",
     "HookException",
     "HookImportError",
-    "HookConfigError",
     "HookValidationError",
 ]

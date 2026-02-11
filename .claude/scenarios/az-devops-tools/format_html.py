@@ -297,12 +297,12 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "markdown_to_html",
-    "html_p",
-    "html_heading",
-    "html_list",
     "html_code",
+    "html_heading",
     "html_link",
-    "process_inline_formatting",
+    "html_list",
+    "html_p",
     "main",
+    "markdown_to_html",
+    "process_inline_formatting",
 ]

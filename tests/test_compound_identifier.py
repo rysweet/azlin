@@ -8,19 +8,18 @@ Test-Driven Development (TDD) approach following testing pyramid:
 Target test ratio: 3:1 (300 lines for ~100 lines implementation)
 """
 
+from unittest.mock import patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, mock_open
 
 from azlin.compound_identifier import (
+    AmbiguousIdentifierError,
+    CompoundIdentifierError,
+    format_display,
     parse_identifier,
     resolve_to_vm,
-    format_display,
-    CompoundIdentifierError,
-    AmbiguousIdentifierError,
 )
 from azlin.vm_manager import VMInfo
-
 
 # =============================================================================
 # UNIT TESTS (60% of coverage) - Fast, focused tests
@@ -374,7 +373,8 @@ resource_group = "rg1"
     def test_resolve_prioritizes_vm_name_over_session(self, sample_vms):
         """When ambiguous, compound format is required - simple name alone should error."""
         # Add VM where name matches another VM's session
-        vms = sample_vms + [
+        vms = [
+            *sample_vms,
             VMInfo(
                 name="dev",  # Same as azlin-vm-1's session name
                 resource_group="rg3",

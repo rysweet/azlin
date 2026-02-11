@@ -15,16 +15,15 @@ Public API:
 """
 
 from pathlib import Path
-from typing import Optional
 
 from azlin.vm_manager import VMInfo
 
 __all__ = [
+    "AmbiguousIdentifierError",
+    "CompoundIdentifierError",
+    "format_display",
     "parse_identifier",
     "resolve_to_vm",
-    "format_display",
-    "CompoundIdentifierError",
-    "AmbiguousIdentifierError",
 ]
 
 
@@ -91,9 +90,7 @@ def parse_identifier(identifier: str) -> tuple[str | None, str | None]:
     return (vm_part if vm_part else None, session_part if session_part else None)
 
 
-def resolve_to_vm(
-    identifier: str, vms: list[VMInfo], config_path: str | None = None
-) -> VMInfo:
+def resolve_to_vm(identifier: str, vms: list[VMInfo], config_path: str | None = None) -> VMInfo:
     """Resolve identifier to specific VM from list.
 
     Resolution order:
@@ -122,10 +119,10 @@ def resolve_to_vm(
     # Try config file lookup first (if provided and file exists)
     if config_path and Path(config_path).exists():
         try:
-            import tomli
+            import tomllib
 
             with open(config_path, "rb") as f:
-                config = tomli.load(f)
+                config = tomllib.load(f)
 
             # Check for session mapping
             sessions = config.get("sessions", {})
@@ -141,6 +138,7 @@ def resolve_to_vm(
             # Fall back to VM list search since config lookup is optional
             # This preserves existing behavior while making errors visible
             import sys
+
             print(
                 f"Warning: Config file lookup failed ({type(e).__name__}: {e}), "
                 f"falling back to VM list search",
@@ -182,8 +180,7 @@ def resolve_to_vm(
 
         if len(matches) > 1:
             suggestions = "\n".join(
-                f"  - {format_display(vm)} ({vm.public_ip or 'no IP'})"
-                for vm in matches
+                f"  - {format_display(vm)} ({vm.public_ip or 'no IP'})" for vm in matches
             )
             raise AmbiguousIdentifierError(
                 f"Multiple VMs found with session '{session_name}':\n{suggestions}\n\nUse compound format to specify: <vm-name>:{session_name}"
@@ -208,8 +205,7 @@ def resolve_to_vm(
     if len(vm_matches) > 0 and len(session_matches) > 0:
         all_matches = vm_matches + session_matches
         suggestions = "\n".join(
-            f"  - {format_display(vm)} ({vm.public_ip or 'no IP'})"
-            for vm in all_matches
+            f"  - {format_display(vm)} ({vm.public_ip or 'no IP'})" for vm in all_matches
         )
         raise AmbiguousIdentifierError(
             f"Multiple VMs match '{identifier}':\n{suggestions}\n\nUse compound format to specify which one"
@@ -218,20 +214,15 @@ def resolve_to_vm(
     # Multiple session matches
     if len(session_matches) > 1:
         suggestions = "\n".join(
-            f"  - {format_display(vm)} ({vm.public_ip or 'no IP'})"
-            for vm in session_matches
+            f"  - {format_display(vm)} ({vm.public_ip or 'no IP'})" for vm in session_matches
         )
         raise AmbiguousIdentifierError(
             f"Multiple VMs found with session '{identifier}':\n{suggestions}\n\nUse compound format to specify: <vm-name>:{identifier}"
         )
 
     # No matches
-    available = ", ".join(
-        format_display(vm) for vm in vms if vm.session_name or vm.name
-    )
-    raise CompoundIdentifierError(
-        f"VM or session '{identifier}' not found. Available: {available}"
-    )
+    available = ", ".join(format_display(vm) for vm in vms if vm.session_name or vm.name)
+    raise CompoundIdentifierError(f"VM or session '{identifier}' not found. Available: {available}")
 
 
 def format_display(vm: VMInfo) -> str:
