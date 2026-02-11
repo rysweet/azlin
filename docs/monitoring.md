@@ -2,6 +2,23 @@
 
 Comprehensive monitoring dashboard with real-time metrics, proactive alerting, historical trend analysis, and resource utilization forecasting for Azure VMs.
 
+## VM Discovery for Monitoring Commands
+
+**All monitoring commands use tag-based VM discovery**, ensuring consistent behavior across `azlin w`, `azlin ps`, `azlin top`, and the monitoring dashboard.
+
+**Key Features:**
+- **Tag-based discovery** (primary): Discovers VMs with `azlin-managed=true` tag
+- **Name-prefix fallback** (backward compatibility): Falls back to VMs with "azlin-" prefix
+- **Custom name support**: Works with any VM name format, including compound names like "hostname:session"
+- **Consistent behavior**: Same discovery logic as `azlin list`
+
+**Supported VM Name Formats:**
+- Standard: `azlin-vm-1234567890`
+- Custom: `myproject`
+- Compound: `myhost:dev`, `api-server:prod`
+
+For complete VM discovery documentation, troubleshooting, and migration guide, see [VM Discovery for Monitoring Commands](monitoring-commands-vm-discovery.md).
+
 ## Quick Start
 
 ```bash

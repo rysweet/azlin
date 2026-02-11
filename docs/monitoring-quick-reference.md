@@ -1,5 +1,7 @@
 # Monitoring Quick Reference
 
+**All monitoring commands use tag-based VM discovery**, supporting custom VM names including compound formats like "hostname:session". See [VM Discovery for Monitoring Commands](monitoring-commands-vm-discovery.md) for details.
+
 ## Commands
 
 ```bash
