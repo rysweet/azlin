@@ -251,13 +251,28 @@ def _resolve_tmux_session(
     """Resolve tmux session name from provided value.
 
     Returns the explicit --tmux-session value if provided.
+    If identifier is compound format (vm:session), extracts session name.
     Otherwise defaults to 'azlin' to provide consistent tmux session naming.
 
     Note: Session name (from config) is used to identify the VM, NOT as the tmux session name.
     """
     if no_tmux:
         return None
-    return tmux_session if tmux_session else "azlin"
+
+    # Explicit --tmux-session flag takes precedence
+    if tmux_session:
+        return tmux_session
+
+    # Extract session from compound identifier
+    if ":" in identifier:
+        try:
+            _, session_name = parse_identifier(identifier)
+            if session_name:
+                return session_name
+        except CompoundIdentifierError:
+            pass  # Fall through to default
+
+    return "azlin"
 
 
 def _try_fetch_key_from_vault(vm_name: str, key_path: Path, config: str | None) -> bool:

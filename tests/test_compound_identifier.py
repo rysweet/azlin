@@ -290,15 +290,25 @@ class TestResolveToVM:
         with pytest.raises(AmbiguousIdentifierError, match="Multiple VMs"):
             resolve_to_vm("dev", vms, config_path=None)
 
-    def test_resolve_compound_mismatch_raises_error(self, sample_vms):
-        """Resolve compound identifier where VM exists but session doesn't match."""
-        with pytest.raises(CompoundIdentifierError, match="session name mismatch"):
-            resolve_to_vm("azlin-vm-1:wrong-session", sample_vms, config_path=None)
+    def test_resolve_compound_mismatch_returns_vm(self, sample_vms):
+        """Resolve compound identifier where VM exists but session doesn't match - returns VM.
 
-    def test_resolve_compound_no_session_name_raises_error(self, sample_vms):
-        """Resolve compound identifier where VM has no session name."""
-        with pytest.raises(CompoundIdentifierError, match="no session name"):
-            resolve_to_vm("azlin-vm-3:dev", sample_vms, config_path=None)
+        Per user requirement: "if that vm existed and the session name did not
+        would start a new tmux session with that name"
+        """
+        vm = resolve_to_vm("azlin-vm-1:wrong-session", sample_vms, config_path=None)
+        assert vm.name == "azlin-vm-1"
+        # SSH layer will create "wrong-session" on this VM
+
+    def test_resolve_compound_no_session_name_returns_vm(self, sample_vms):
+        """Resolve compound identifier where VM has no session name - returns VM anyway.
+
+        Per user requirement: If VM exists but session doesn't, return VM
+        and let SSH layer create the new session.
+        """
+        vm = resolve_to_vm("azlin-vm-3:dev", sample_vms, config_path=None)
+        assert vm.name == "azlin-vm-3"
+        # Session will be created by SSH layer
 
     def test_resolve_empty_vm_list(self):
         """Resolve with empty VM list should raise error."""
@@ -693,8 +703,12 @@ class TestErrorMessages:
         assert "azlin-vm-1" in error_msg or "dev" in error_msg
         assert "Available" in error_msg or "available" in error_msg
 
-    def test_session_mismatch_error_shows_actual_session(self):
-        """Session mismatch error shows actual session name."""
+    def test_session_mismatch_returns_vm_anyway(self):
+        """Session mismatch returns VM (SSH layer will create new session).
+
+        Per user requirement: "if that vm existed and the session name did not
+        would start a new tmux session with that name"
+        """
         vms = [
             VMInfo(
                 name="azlin-vm",
@@ -705,12 +719,10 @@ class TestErrorMessages:
             ),
         ]
 
-        with pytest.raises(CompoundIdentifierError) as exc_info:
-            resolve_to_vm("azlin-vm:wrong-session", vms, config_path=None)
-
-        error_msg = str(exc_info.value)
-        assert "actual-session" in error_msg
-        assert "wrong-session" in error_msg
+        # Should return VM even though session doesn't match
+        vm = resolve_to_vm("azlin-vm:wrong-session", vms, config_path=None)
+        assert vm.name == "azlin-vm"
+        # SSH layer will create "wrong-session" on this VM
 
 
 # =============================================================================

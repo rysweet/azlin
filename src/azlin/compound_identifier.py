@@ -155,18 +155,9 @@ def resolve_to_vm(identifier: str, vms: list[VMInfo], config_path: str | None = 
                 f"VM '{vm_name}' not found. Available VMs: {', '.join(vm.name for vm in vms)}"
             )
 
-        # If session_name is specified, verify it matches
-        if session_name is not None:
-            if not matching_vm.session_name:
-                raise CompoundIdentifierError(
-                    f"VM '{vm_name}' has no session name (cannot match '{session_name}')"
-                )
-
-            if matching_vm.session_name != session_name:
-                raise CompoundIdentifierError(
-                    f"VM '{vm_name}' session name mismatch: expected '{session_name}', actual '{matching_vm.session_name}'"
-                )
-
+        # Return the VM - session will be created/connected by SSH layer
+        # Per user requirement: "if that vm existed and the session name did not
+        # would start a new tmux session with that name"
         return matching_vm
 
     # Session-only format (:session)
