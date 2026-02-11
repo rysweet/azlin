@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "azlin"
-version = "2.2.1"
+version = "2.2.2"
 description = "Azure VM fleet management CLI - provision, manage, and monitor development VMs"
 requires-python = ">=3.11"
 authors = [
