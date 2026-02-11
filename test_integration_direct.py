@@ -1,8 +1,8 @@
 """Direct integration test - bypasses __init__.py to avoid dependency issues."""
 
+import inspect
 import sys
 from pathlib import Path
-import inspect
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -19,21 +19,21 @@ try:
     import connectivity
 
     # Check that CompoundIdentifierError is imported
-    if hasattr(connectivity, 'CompoundIdentifierError'):
+    if hasattr(connectivity, "CompoundIdentifierError"):
         print("  ✓ connectivity.py imports CompoundIdentifierError")
     else:
         print("  ✗ connectivity.py doesn't import CompoundIdentifierError")
         sys.exit(1)
 
     # Check that parse_identifier is imported
-    if hasattr(connectivity, 'parse_identifier'):
+    if hasattr(connectivity, "parse_identifier"):
         print("  ✓ connectivity.py imports parse_identifier")
     else:
         print("  ✗ connectivity.py doesn't import parse_identifier")
         sys.exit(1)
 
     # Check that resolve_to_vm is imported
-    if hasattr(connectivity, 'resolve_to_vm'):
+    if hasattr(connectivity, "resolve_to_vm"):
         print("  ✓ connectivity.py imports resolve_to_vm")
     else:
         print("  ✗ connectivity.py doesn't import resolve_to_vm")
@@ -69,11 +69,14 @@ try:
     print(f"    - Compound format detection: {'✓' if ':' in resolve_source else '✗'}")
     print(f"    - Resource group lookup: {'✓' if 'get_resource_group' in resolve_source else '✗'}")
     print(f"    - VM list retrieval: {'✓' if 'list_vms' in resolve_source else '✗'}")
-    print(f"    - Legacy resolution fallback: {'✓' if 'get_vm_name_by_session' in resolve_source else '✗'}")
+    print(
+        f"    - Legacy resolution fallback: {'✓' if 'get_vm_name_by_session' in resolve_source else '✗'}"
+    )
 
 except Exception as e:
     print(f"  ✗ Test failed: {e}")
     import traceback
+
     traceback.print_exc()
     sys.exit(1)
 
@@ -83,14 +86,14 @@ try:
     import provisioning
 
     # Check that CompoundIdentifierError is imported
-    if hasattr(provisioning, 'CompoundIdentifierError'):
+    if hasattr(provisioning, "CompoundIdentifierError"):
         print("  ✓ provisioning.py imports CompoundIdentifierError")
     else:
         print("  ✗ provisioning.py doesn't import CompoundIdentifierError")
         sys.exit(1)
 
     # Check that parse_identifier is imported
-    if hasattr(provisioning, 'parse_identifier'):
+    if hasattr(provisioning, "parse_identifier"):
         print("  ✓ provisioning.py imports parse_identifier")
     else:
         print("  ✗ provisioning.py doesn't import parse_identifier")
@@ -119,7 +122,9 @@ try:
         sys.exit(1)
 
     print("\n  Full provisioning integration verification:")
-    print(f"    - Compound format parsing in new(): {'✓' if 'vm_name_from_param' in new_source else '✗'}")
+    print(
+        f"    - Compound format parsing in new(): {'✓' if 'vm_name_from_param' in new_source else '✗'}"
+    )
     print(f"    - Session extraction: {'✓' if 'session_name_from_param' in new_source else '✗'}")
     print(f"    - Session-only rejection: {'✓' if 'VM name is required' in new_source else '✗'}")
     print(f"    - Invalid format handling: {'✓' if 'Invalid --name format' in new_source else '✗'}")
@@ -127,6 +132,7 @@ try:
 except Exception as e:
     print(f"  ✗ Test failed: {e}")
     import traceback
+
     traceback.print_exc()
     sys.exit(1)
 
@@ -136,7 +142,9 @@ print("=" * 70)
 print("\n✓ All integration points verified successfully!")
 print("\nIntegration Summary:")
 print("  [connectivity.py]")
-print("    - Imports: parse_identifier, resolve_to_vm, CompoundIdentifierError, AmbiguousIdentifierError")
+print(
+    "    - Imports: parse_identifier, resolve_to_vm, CompoundIdentifierError, AmbiguousIdentifierError"
+)
 print("    - _resolve_vm_identifier(): Fully integrated with compound identifier module")
 print("    - Error handling: Catches and displays user-friendly errors")
 print("  [provisioning.py]")

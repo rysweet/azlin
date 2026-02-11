@@ -19,7 +19,8 @@ print("=" * 70)
 # Test 1: Import compound_identifier module
 print("\n[Test 1] Import compound_identifier module...")
 try:
-    from azlin.compound_identifier import parse_identifier, resolve_to_vm, CompoundIdentifierError
+    from azlin.compound_identifier import CompoundIdentifierError, parse_identifier
+
     print("✓ Successfully imported compound_identifier functions")
 except ImportError as e:
     print(f"✗ Failed to import: {e}")
@@ -30,17 +31,20 @@ print("\n[Test 2] Test parse_identifier() function...")
 try:
     # Simple format
     vm_name, session_name = parse_identifier("myvm")
-    assert vm_name == "myvm" and session_name is None, f"Expected ('myvm', None), got ({vm_name}, {session_name})"
+    assert vm_name == "myvm", f"Expected vm_name='myvm', got {vm_name}"
+    assert session_name is None, f"Expected session_name=None, got {session_name}"
     print(f"  ✓ Simple format: 'myvm' -> ({vm_name}, {session_name})")
 
     # Compound format
     vm_name, session_name = parse_identifier("myvm:dev")
-    assert vm_name == "myvm" and session_name == "dev", f"Expected ('myvm', 'dev'), got ({vm_name}, {session_name})"
+    assert vm_name == "myvm", f"Expected vm_name='myvm', got {vm_name}"
+    assert session_name == "dev", f"Expected session_name='dev', got {session_name}"
     print(f"  ✓ Compound format: 'myvm:dev' -> ({vm_name}, {session_name})")
 
     # Session-only format
     vm_name, session_name = parse_identifier(":dev")
-    assert vm_name is None and session_name == "dev", f"Expected (None, 'dev'), got ({vm_name}, {session_name})"
+    assert vm_name is None, f"Expected vm_name=None, got {vm_name}"
+    assert session_name == "dev", f"Expected session_name='dev', got {session_name}"
     print(f"  ✓ Session-only format: ':dev' -> ({vm_name}, {session_name})")
 
     # Invalid format should raise error
@@ -59,14 +63,18 @@ except Exception as e:
 print("\n[Test 3] Verify connectivity.py imports compound_identifier...")
 try:
     from azlin.commands import connectivity
+
     # Check that parse_identifier is imported
-    if hasattr(connectivity, 'parse_identifier'):
+    if hasattr(connectivity, "parse_identifier"):
         print("  ✓ connectivity.py has parse_identifier imported")
     else:
-        print("  ⚠ connectivity.py doesn't have parse_identifier in namespace (may be imported locally in functions)")
+        print(
+            "  ⚠ connectivity.py doesn't have parse_identifier in namespace (may be imported locally in functions)"
+        )
 
     # Check that _resolve_vm_identifier exists and mentions compound
     import inspect
+
     resolve_source = inspect.getsource(connectivity._resolve_vm_identifier)
     if "parse_identifier" in resolve_source:
         print("  ✓ _resolve_vm_identifier() uses parse_identifier()")
@@ -76,10 +84,11 @@ try:
 
 except ImportError as e:
     print(f"  ✗ Failed to import connectivity: {e}")
-    print(f"     (This is expected if 'rich' module not installed)")
+    print("     (This is expected if 'rich' module not installed)")
 except Exception as e:
     print(f"  ✗ Test failed: {e}")
     import traceback
+
     traceback.print_exc()
     sys.exit(1)
 
@@ -89,13 +98,16 @@ try:
     from azlin.commands import provisioning
 
     # Check that parse_identifier is imported
-    if hasattr(provisioning, 'parse_identifier'):
+    if hasattr(provisioning, "parse_identifier"):
         print("  ✓ provisioning.py has parse_identifier imported")
     else:
-        print("  ⚠ provisioning.py doesn't have parse_identifier in namespace (may be imported locally)")
+        print(
+            "  ⚠ provisioning.py doesn't have parse_identifier in namespace (may be imported locally)"
+        )
 
     # Check that generate_vm_name mentions compound
     import inspect
+
     gen_source = inspect.getsource(provisioning.generate_vm_name)
     if "parse_identifier" in gen_source:
         print("  ✓ generate_vm_name() uses parse_identifier()")
@@ -105,10 +117,11 @@ try:
 
 except ImportError as e:
     print(f"  ✗ Failed to import provisioning: {e}")
-    print(f"     (This is expected if 'rich' module not installed)")
+    print("     (This is expected if 'rich' module not installed)")
 except Exception as e:
     print(f"  ✗ Test failed: {e}")
     import traceback
+
     traceback.print_exc()
     sys.exit(1)
 
@@ -138,6 +151,8 @@ print("INTEGRATION TEST COMPLETE")
 print("=" * 70)
 print("\n✓ All integration points verified successfully!")
 print("\nNext steps:")
-print("  1. Run full test suite with: pytest tests/commands/test_cli_compound_identifier_integration.py")
+print(
+    "  1. Run full test suite with: pytest tests/commands/test_cli_compound_identifier_integration.py"
+)
 print("  2. Manual testing: azlin connect atg-dev:amplihack")
 print("  3. Manual testing: azlin new --name myvm:dev")

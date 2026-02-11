@@ -20,13 +20,11 @@ Philosophy:
 - Testing pyramid: Integration tests at appropriate level
 """
 
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from azlin.compound_identifier import AmbiguousIdentifierError, CompoundIdentifierError
 from azlin.vm_manager import VMInfo
 
 # =============================================================================
@@ -569,4 +567,6 @@ class TestCompoundIdentifierErrorHandling:
                 result = cli_runner.invoke(connect, [":dev"])
 
                 # Should show both VMs and suggest using vm1:dev or vm2:dev
-                assert ("vm1" in result.output and "vm2" in result.output) or "multiple" in result.output.lower()
+                assert (
+                    "vm1" in result.output and "vm2" in result.output
+                ) or "multiple" in result.output.lower()
