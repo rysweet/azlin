@@ -4,6 +4,8 @@ import unittest
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
+import pytest
+
 from ..errors import CleanupError, ProvisioningError
 from ..orchestrator import VM, Orchestrator, VMOptions
 
@@ -18,17 +20,17 @@ class TestOrchestrator(unittest.TestCase):
 
         # Should not raise
         orchestrator = Orchestrator()
-        self.assertIsNotNone(orchestrator)
+        assert orchestrator is not None
 
     @patch("subprocess.run")
     def test_verify_azlin_not_installed(self, mock_run):
         """Test error when azlin not installed."""
         mock_run.side_effect = FileNotFoundError()
 
-        with self.assertRaises(ProvisioningError) as ctx:
+        with pytest.raises(ProvisioningError) as ctx:
             Orchestrator()
 
-        self.assertIn("not found", str(ctx.exception))
+        assert "not found" in str(ctx.value)
 
     @patch("subprocess.run")
     def test_provision_new_vm_success(self, mock_run):
@@ -40,9 +42,9 @@ class TestOrchestrator(unittest.TestCase):
 
         vm = orchestrator._provision_new_vm(options)
 
-        self.assertIsNotNone(vm)
-        self.assertTrue(vm.name.startswith("amplihack-testuser-"))
-        self.assertEqual(vm.size, "Standard_D2s_v3")
+        assert vm is not None
+        assert vm.name.startswith("amplihack-testuser-")
+        assert vm.size == "Standard_D2s_v3"
 
     @patch("subprocess.run")
     def test_provision_vm_timeout(self, mock_run):
@@ -60,10 +62,10 @@ class TestOrchestrator(unittest.TestCase):
         orchestrator = Orchestrator()
         options = VMOptions()
 
-        with self.assertRaises(ProvisioningError) as ctx:
+        with pytest.raises(ProvisioningError) as ctx:
             orchestrator._provision_new_vm(options)
 
-        self.assertIn("timeout", str(ctx.exception).lower())
+        assert "timeout" in str(ctx.value).lower()
 
     @patch("subprocess.run")
     def test_provision_vm_quota_error(self, mock_run):
@@ -81,11 +83,11 @@ class TestOrchestrator(unittest.TestCase):
         orchestrator = Orchestrator()
         options = VMOptions()
 
-        with self.assertRaises(ProvisioningError) as ctx:
+        with pytest.raises(ProvisioningError) as ctx:
             orchestrator._provision_new_vm(options)
 
         # Should fail fast on quota errors
-        self.assertIn("quota", str(ctx.exception).lower())
+        assert "quota" in str(ctx.value).lower()
 
     @patch("subprocess.run")
     def test_cleanup_vm_success(self, mock_run):
@@ -97,10 +99,10 @@ class TestOrchestrator(unittest.TestCase):
 
         result = orchestrator.cleanup(vm)
 
-        self.assertTrue(result)
+        assert result
         # Check that cleanup command was called (2 calls: version check + cleanup)
-        self.assertEqual(mock_run.call_count, 2)
-        self.assertIn("kill", mock_run.call_args[0][0])
+        assert mock_run.call_count == 2
+        assert "kill" in mock_run.call_args[0][0]
 
     @patch("subprocess.run")
     def test_cleanup_vm_failure(self, mock_run):
@@ -121,7 +123,7 @@ class TestOrchestrator(unittest.TestCase):
         orchestrator = Orchestrator()
         vm = VM(name="test-vm", size="Standard_D2s_v3", region="eastus")
 
-        with self.assertRaises(CleanupError):
+        with pytest.raises(CleanupError):
             orchestrator.cleanup(vm, force=False)
 
     @patch("subprocess.run")
@@ -145,7 +147,7 @@ class TestOrchestrator(unittest.TestCase):
 
         # Should not raise with force=True
         result = orchestrator.cleanup(vm, force=True)
-        self.assertFalse(result)
+        assert not result
 
     @patch("subprocess.run")
     def test_find_reusable_vm_found(self, mock_run):
@@ -175,9 +177,9 @@ other-vm-123                  Standard_D4s_v3   westus
 
         vm = orchestrator._find_reusable_vm(options)
 
-        self.assertIsNotNone(vm)
-        self.assertEqual(vm.name, "amplihack-testuser-20251120")
-        self.assertEqual(vm.size, "Standard_D2s_v3")
+        assert vm is not None
+        assert vm.name == "amplihack-testuser-20251120"
+        assert vm.size == "Standard_D2s_v3"
 
     @patch("subprocess.run")
     def test_find_reusable_vm_none_found(self, mock_run):
@@ -189,7 +191,7 @@ other-vm-123                  Standard_D4s_v3   westus
 
         vm = orchestrator._find_reusable_vm(options)
 
-        self.assertIsNone(vm)
+        assert vm is None
 
     @patch("subprocess.run")
     def test_provision_or_reuse_with_specific_vm(self, mock_run):
@@ -202,7 +204,7 @@ other-vm-123                  Standard_D4s_v3   westus
 
         vm = orchestrator.provision_or_reuse(options)
 
-        self.assertEqual(vm.name, "amplihack-specific-vm")
+        assert vm.name == "amplihack-specific-vm"
 
     def test_vm_age_calculation(self):
         """Test VM age calculation."""
@@ -220,10 +222,10 @@ amplihack-ryan-20251119      Standard_D4s_v3   westus
         orchestrator = Orchestrator()
         vms = orchestrator._parse_azlin_list_text(output)
 
-        self.assertEqual(len(vms), 2)
-        self.assertEqual(vms[0].name, "amplihack-ryan-20251120")
-        self.assertEqual(vms[0].size, "Standard_D2s_v3")
-        self.assertEqual(vms[1].size, "Standard_D4s_v3")
+        assert len(vms) == 2
+        assert vms[0].name == "amplihack-ryan-20251120"
+        assert vms[0].size == "Standard_D2s_v3"
+        assert vms[1].size == "Standard_D4s_v3"
 
 
 class TestVMOptions(unittest.TestCase):
@@ -233,11 +235,11 @@ class TestVMOptions(unittest.TestCase):
         """Test default VMOptions values."""
         options = VMOptions()
 
-        self.assertEqual(options.size, "Standard_D2s_v3")
-        self.assertIsNone(options.region)
-        self.assertIsNone(options.vm_name)
-        self.assertFalse(options.no_reuse)
-        self.assertFalse(options.keep_vm)
+        assert options.size == "Standard_D2s_v3"
+        assert options.region is None
+        assert options.vm_name is None
+        assert not options.no_reuse
+        assert not options.keep_vm
 
     def test_custom_options(self):
         """Test custom VMOptions values."""
@@ -245,11 +247,11 @@ class TestVMOptions(unittest.TestCase):
             size="Standard_D4s_v3", region="westus", vm_name="my-vm", no_reuse=True, keep_vm=True
         )
 
-        self.assertEqual(options.size, "Standard_D4s_v3")
-        self.assertEqual(options.region, "westus")
-        self.assertEqual(options.vm_name, "my-vm")
-        self.assertTrue(options.no_reuse)
-        self.assertTrue(options.keep_vm)
+        assert options.size == "Standard_D4s_v3"
+        assert options.region == "westus"
+        assert options.vm_name == "my-vm"
+        assert options.no_reuse
+        assert options.keep_vm
 
 
 if __name__ == "__main__":

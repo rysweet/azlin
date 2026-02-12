@@ -176,11 +176,11 @@ def validate_replacements(inventory: InventoryData, replacements: dict) -> list[
             continue
 
         # Check each shape
-        for shape_key in shapes_data.keys():
+        for shape_key in shapes_data:
             if shape_key not in inventory[slide_key]:
                 # Find shapes without replacements defined and show their content
                 unused_with_content = []
-                for k in inventory[slide_key].keys():
+                for k in inventory[slide_key]:
                     if k not in shapes_data:
                         shape_data = inventory[slide_key][k]
                         # Get text from paragraphs as preview

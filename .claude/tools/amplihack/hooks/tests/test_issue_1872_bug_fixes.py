@@ -22,6 +22,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import contextlib
+
 from power_steering_checker import (
     CheckerResult,
     ConsiderationAnalysis,
@@ -106,9 +108,9 @@ class TestBug1MathDisplay(unittest.TestCase):
         results_text = self.checker._format_results_text(analysis, "DEVELOPMENT")
 
         # Verify format includes all three counts
-        self.assertIn("2 passed", results_text, "Should show passed count")
-        self.assertIn("1 failed", results_text, "Should show failed count")
-        self.assertIn("19 skipped", results_text, "Should show skipped count")
+        assert "2 passed" in results_text, "Should show passed count"
+        assert "1 failed" in results_text, "Should show failed count"
+        assert "19 skipped" in results_text, "Should show skipped count"
 
     def test_summary_math_totals_correctly(self):
         """Test that X + Y + Z = total considerations."""
@@ -151,19 +153,19 @@ class TestBug1MathDisplay(unittest.TestCase):
         failed_match = re.search(r"(\d+)\s+failed", results_text)
         skipped_match = re.search(r"(\d+)\s+skipped", results_text)
 
-        self.assertIsNotNone(passed_match, "Should show passed count")
-        self.assertIsNotNone(failed_match, "Should show failed count")
-        self.assertIsNotNone(skipped_match, "Should show skipped count")
+        assert passed_match is not None, "Should show passed count"
+        assert failed_match is not None, "Should show failed count"
+        assert skipped_match is not None, "Should show skipped count"
 
         passed = int(passed_match.group(1))
         failed = int(failed_match.group(1))
         skipped = int(skipped_match.group(1))
 
         # Verify math: X + Y + Z = 22
-        self.assertEqual(passed + failed + skipped, 22, "Sum should equal total considerations")
-        self.assertEqual(passed, 5, "Should have 5 passed")
-        self.assertEqual(failed, 3, "Should have 3 failed")
-        self.assertEqual(skipped, 14, "Should have 14 skipped")
+        assert passed + failed + skipped == 22, "Sum should equal total considerations"
+        assert passed == 5, "Should have 5 passed"
+        assert failed == 3, "Should have 3 failed"
+        assert skipped == 14, "Should have 14 skipped"
 
     def test_summary_format_with_parentheses(self):
         """Test that summary uses format (X passed, Y failed, Z skipped) with parentheses."""
@@ -195,10 +197,8 @@ class TestBug1MathDisplay(unittest.TestCase):
         # Should contain format: (1 passed, 1 failed, 20 skipped)
 
         pattern = r"\(\s*1\s+passed\s*,\s*1\s+failed\s*,\s*20\s+skipped\s*\)"
-        self.assertRegex(
-            results_text,
-            pattern,
-            "Should have format (X passed, Y failed, Z skipped)",
+        assert re.search(pattern, results_text), (
+            "Should have format (X passed, Y failed, Z skipped)"
         )
 
 
@@ -268,9 +268,9 @@ class TestBug2SDKErrorVisibility(unittest.TestCase):
         stderr_output = mock_stderr.getvalue()
 
         # Verify error was logged to stderr
-        self.assertIn("[Power Steering SDK Error]", stderr_output, "Should have error prefix")
-        self.assertIn("test_check", stderr_output, "Should include consideration ID")
-        self.assertIn("SDK connection timeout", stderr_output, "Should include error message")
+        assert "[Power Steering SDK Error]" in stderr_output, "Should have error prefix"
+        assert "test_check" in stderr_output, "Should include consideration ID"
+        assert "SDK connection timeout" in stderr_output, "Should include error message"
 
     @patch("sys.stderr", new_callable=io.StringIO)
     @patch("power_steering_checker.SDK_AVAILABLE", True)
@@ -294,20 +294,16 @@ class TestBug2SDKErrorVisibility(unittest.TestCase):
 
         transcript = []
 
-        try:
+        with contextlib.suppress(Exception):
             asyncio.run(
                 checker._check_single_consideration_async(consideration, transcript, "session_123")
             )
-        except Exception:
-            pass
 
         stderr_output = mock_stderr.getvalue()
 
         # Verify format
-        self.assertRegex(
-            stderr_output,
-            r"\[Power Steering SDK Error\]\s+philosophy_check:",
-            "Should match format: [Power Steering SDK Error] {id}:",
+        assert re.search(r"\[Power Steering SDK Error\]\s+philosophy_check:", stderr_output), (
+            "Should match format: [Power Steering SDK Error] {id}:"
         )
 
     @patch("power_steering_checker.SDK_AVAILABLE", True)
@@ -336,8 +332,8 @@ class TestBug2SDKErrorVisibility(unittest.TestCase):
             checker._check_single_consideration_async(consideration, transcript, "test_session")
         )
 
-        self.assertIsNotNone(result, "Should return a result")
-        self.assertTrue(result.satisfied, "Should fail-open with satisfied=True")
+        assert result is not None, "Should return a result"
+        assert result.satisfied, "Should fail-open with satisfied=True"
 
 
 class TestBug3FailureReasonExtraction(unittest.TestCase):
@@ -390,12 +386,12 @@ class TestBug3FailureReasonExtraction(unittest.TestCase):
         result = asyncio.run(analyze_consideration(conversation, consideration, self.project_root))
 
         # Verify return type is tuple
-        self.assertIsInstance(result, tuple, "Should return tuple")
-        self.assertEqual(len(result), 2, "Should return 2-element tuple")
+        assert isinstance(result, tuple), "Should return tuple"
+        assert len(result) == 2, "Should return 2-element tuple"
 
         satisfied, reason = result
-        self.assertIsInstance(satisfied, bool, "First element should be bool")
-        self.assertIsInstance(reason, (str, type(None)), "Second element should be str or None")
+        assert isinstance(satisfied, bool), "First element should be bool"
+        assert isinstance(reason, (str, type(None))), "Second element should be str or None"
 
     @patch("claude_power_steering.CLAUDE_SDK_AVAILABLE", True)
     @patch("claude_power_steering.query")
@@ -424,9 +420,9 @@ class TestBug3FailureReasonExtraction(unittest.TestCase):
             analyze_consideration(conversation, consideration, self.project_root)
         )
 
-        self.assertFalse(satisfied, "Should be not satisfied")
-        self.assertIsNotNone(reason, "Reason should not be None when check fails")
-        self.assertIn("incomplete", reason.lower(), "Reason should mention incomplete tasks")
+        assert not satisfied, "Should be not satisfied"
+        assert reason is not None, "Reason should not be None when check fails"
+        assert "incomplete" in reason.lower(), "Reason should mention incomplete tasks"
 
     @patch("claude_power_steering.CLAUDE_SDK_AVAILABLE", True)
     @patch("claude_power_steering.query")
@@ -456,9 +452,9 @@ class TestBug3FailureReasonExtraction(unittest.TestCase):
             analyze_consideration(conversation, consideration, self.project_root)
         )
 
-        self.assertFalse(satisfied)
-        self.assertIsNotNone(reason)
-        self.assertLessEqual(len(reason), 200, "Reason should be truncated to 200 chars")
+        assert not satisfied
+        assert reason is not None
+        assert len(reason) <= 200, "Reason should be truncated to 200 chars"
 
     @patch("claude_power_steering.CLAUDE_SDK_AVAILABLE", True)
     @patch("claude_power_steering.query")
@@ -486,8 +482,8 @@ class TestBug3FailureReasonExtraction(unittest.TestCase):
             analyze_consideration(conversation, consideration, self.project_root)
         )
 
-        self.assertTrue(satisfied, "Should be satisfied")
-        self.assertIsNone(reason, "Reason should be None when check passes")
+        assert satisfied, "Should be satisfied"
+        assert reason is None, "Reason should be None when check passes"
 
 
 class TestBug4FinalGuidanceGeneration(unittest.TestCase):
@@ -515,7 +511,7 @@ class TestBug4FinalGuidanceGeneration(unittest.TestCase):
         try:
             from claude_power_steering import generate_final_guidance
 
-            self.assertTrue(callable(generate_final_guidance), "Should be callable")
+            assert callable(generate_final_guidance), "Should be callable"
         except ImportError:
             self.fail("generate_final_guidance function should exist")
 
@@ -546,9 +542,9 @@ class TestBug4FinalGuidanceGeneration(unittest.TestCase):
         )
 
         # Verify SDK was called
-        self.assertTrue(mock_query.called, "SDK query should be called")
-        self.assertIsInstance(guidance, str, "Should return string")
-        self.assertGreater(len(guidance), 0, "Guidance should not be empty")
+        assert mock_query.called, "SDK query should be called"
+        assert isinstance(guidance, str), "Should return string"
+        assert len(guidance) > 0, "Guidance should not be empty"
 
     @patch("claude_power_steering.CLAUDE_SDK_AVAILABLE", True)
     @patch("claude_power_steering.query")
@@ -576,8 +572,8 @@ class TestBug4FinalGuidanceGeneration(unittest.TestCase):
         call_args = mock_query.call_args
         prompt = call_args[1]["prompt"]  # Get keyword argument 'prompt'
 
-        self.assertIn("ci_status", prompt, "Prompt should include check ID")
-        self.assertIn("failing", prompt.lower(), "Prompt should include failure reason")
+        assert "ci_status" in prompt, "Prompt should include check ID"
+        assert "failing" in prompt.lower(), "Prompt should include failure reason"
 
     @patch("claude_power_steering.CLAUDE_SDK_AVAILABLE", False)
     def test_generate_final_guidance_fallback_when_sdk_unavailable(self):
@@ -596,12 +592,12 @@ class TestBug4FinalGuidanceGeneration(unittest.TestCase):
         )
 
         # Should still return guidance (template-based)
-        self.assertIsInstance(guidance, str, "Should return string even without SDK")
-        self.assertGreater(len(guidance), 0, "Should have fallback guidance")
+        assert isinstance(guidance, str), "Should return string even without SDK"
+        assert len(guidance) > 0, "Should have fallback guidance"
 
         # Template should mention the checks
-        self.assertIn("todos_complete", guidance, "Should mention failed check")
-        self.assertIn("local_testing", guidance, "Should mention failed check")
+        assert "todos_complete" in guidance, "Should mention failed check"
+        assert "local_testing" in guidance, "Should mention failed check"
 
     @patch("claude_power_steering.CLAUDE_SDK_AVAILABLE", True)
     @patch("claude_power_steering.query")
@@ -629,8 +625,8 @@ class TestBug4FinalGuidanceGeneration(unittest.TestCase):
         )
 
         # Guidance should be specific, not generic
-        self.assertIn("3", guidance, "Should mention specific number from failure reason")
-        self.assertIn("pytest", guidance.lower(), "Should mention specific tool from reason")
+        assert "3" in guidance, "Should mention specific number from failure reason"
+        assert "pytest" in guidance.lower(), "Should mention specific tool from reason"
 
     @patch("claude_power_steering.CLAUDE_SDK_AVAILABLE", True)
     @patch("claude_power_steering.query")
@@ -655,9 +651,9 @@ class TestBug4FinalGuidanceGeneration(unittest.TestCase):
         )
 
         # Should fall back to template
-        self.assertIsInstance(guidance, str, "Should return string")
-        self.assertGreater(len(guidance), 0, "Should have fallback guidance")
-        self.assertIn("ci_status", guidance, "Template should mention failed check")
+        assert isinstance(guidance, str), "Should return string"
+        assert len(guidance) > 0, "Should have fallback guidance"
+        assert "ci_status" in guidance, "Template should mention failed check"
 
 
 class TestBug3Integration(unittest.TestCase):
@@ -715,9 +711,9 @@ class TestBug3Integration(unittest.TestCase):
             checker._check_single_consideration_async(consideration, transcript, "test_session")
         )
 
-        self.assertIsNotNone(result, "Should return result")
-        self.assertFalse(result.satisfied, "Should capture satisfied=False")
-        self.assertIn("not executed", result.reason, "Should capture reason string")
+        assert result is not None, "Should return result"
+        assert not result.satisfied, "Should capture satisfied=False"
+        assert "not executed" in result.reason, "Should capture reason string"
 
     @patch("power_steering_checker.SDK_AVAILABLE", True)
     @patch("power_steering_checker.analyze_consideration")
@@ -744,9 +740,9 @@ class TestBug3Integration(unittest.TestCase):
             checker._check_single_consideration_async(consideration, transcript, "test_session")
         )
 
-        self.assertTrue(result.satisfied, "Should be satisfied")
+        assert result.satisfied, "Should be satisfied"
         # Reason should use default when None returned
-        self.assertIsInstance(result.reason, str, "Should have string reason even when None")
+        assert isinstance(result.reason, str), "Should have string reason even when None"
 
 
 if __name__ == "__main__":

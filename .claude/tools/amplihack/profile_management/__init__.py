@@ -31,25 +31,25 @@ from .models import (
 from .parser import ProfileParser
 
 __all__ = [
-    # Models
-    "ProfileConfig",
-    "ComponentsConfig",
+    # Discovery & Filtering
+    "ComponentDiscovery",
+    "ComponentFilter",
+    "ComponentInventory",
     "ComponentSpec",
-    "SkillSpec",
+    "ComponentsConfig",
+    "ConfigManager",
     "MetadataConfig",
     "PerformanceConfig",
+    # CLI & Config
+    "ProfileCLI",
+    # Models
+    "ProfileConfig",
     # Loader & Parser
     "ProfileLoader",
     "ProfileParser",
-    # Discovery & Filtering
-    "ComponentDiscovery",
-    "ComponentInventory",
-    "ComponentFilter",
     # Indexing
     "SkillIndexBuilder",
-    # CLI & Config
-    "ProfileCLI",
-    "ConfigManager",
+    "SkillSpec",
     "cli_main",
 ]
 

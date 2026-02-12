@@ -25,7 +25,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .cli_detector import CLIDetector
 
@@ -116,7 +116,7 @@ class BastionManager:
         self.active_tunnels: list[BastionTunnel] = []
 
         # Detect Linux CLI path for WSL2 compatibility
-        self._linux_cli_path: Optional[Path] = None
+        self._linux_cli_path: Path | None = None
         try:
             detector = CLIDetector()
             self._linux_cli_path = detector.get_linux_cli_path()

@@ -126,11 +126,7 @@ def _validate_sdk_response(response: str) -> bool:
 
         # Check for suspicious patterns (case-insensitive)
         response_lower = response.lower()
-        for pattern in SUSPICIOUS_PATTERNS:
-            if re.search(pattern, response_lower):
-                return False
-
-        return True
+        return all(not re.search(pattern, response_lower) for pattern in SUSPICIOUS_PATTERNS)
     except Exception:
         # Fail-open on validation error
         return True

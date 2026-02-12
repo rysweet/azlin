@@ -123,7 +123,7 @@ class ContextManagementOrchestrator:
         }
 
     def _handle_rehydrate(
-        self, snapshot_id: str = None, level: str = "standard", **kwargs
+        self, snapshot_id: str | None = None, level: str = "standard", **kwargs
     ) -> dict[str, Any]:
         """Handle 'rehydrate' action - restore context from snapshot.
 

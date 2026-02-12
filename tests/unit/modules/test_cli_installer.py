@@ -9,10 +9,9 @@ Tests written BEFORE implementation (TDD approach).
 All tests should FAIL initially.
 """
 
+import contextlib
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, call, patch
-
-import pytest
+from unittest.mock import Mock, patch
 
 # Import will fail initially - this is expected in TDD red phase
 try:
@@ -182,9 +181,10 @@ class TestInstallPreChecks:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = Path("/usr/bin/az")
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install") as mock_prompt:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install") as mock_prompt,
+        ):
             result = installer.install()
 
             # Should NOT have prompted user
@@ -200,12 +200,16 @@ class TestInstallDownload:
         installer = CLIInstaller()
 
         mock_detector = Mock()
-        mock_detector.get_linux_cli_path.side_effect = [None, Path("/usr/bin/az")]  # Before and after install
+        mock_detector.get_linux_cli_path.side_effect = [
+            None,
+            Path("/usr/bin/az"),
+        ]  # Before and after install
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             result = installer.install()
@@ -221,20 +225,21 @@ class TestInstallDownload:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.side_effect = Exception("Timeout test")
 
-            try:
+            with contextlib.suppress(BaseException):
                 installer.install()
-            except:
-                pass
 
             # Verify timeout parameter was used
             if mock_run.called:
-                assert mock_run.call_args.kwargs.get("timeout", 0) == 300 or True  # Implementation detail
+                assert (
+                    mock_run.call_args.kwargs.get("timeout", 0) == 300 or True
+                )  # Implementation detail
 
     def test_install_download_network_failure(self):
         """Test install handles network failure during download."""
@@ -243,17 +248,20 @@ class TestInstallDownload:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             # Simulate network error
             mock_run.side_effect = Exception("Network unreachable")
 
             result = installer.install()
 
             assert result.status == InstallStatus.FAILED
-            assert "network" in result.error_message.lower() or "error" in result.error_message.lower()
+            assert (
+                "network" in result.error_message.lower() or "error" in result.error_message.lower()
+            )
 
     def test_install_download_timeout_failure(self):
         """Test install handles timeout during download."""
@@ -262,12 +270,14 @@ class TestInstallDownload:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             # Simulate timeout
             import subprocess
+
             mock_run.side_effect = subprocess.TimeoutExpired(cmd="curl", timeout=300)
 
             result = installer.install()
@@ -286,10 +296,11 @@ class TestInstallExecution:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.side_effect = [None, Path("/usr/bin/az")]
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             result = installer.install()
@@ -305,16 +316,15 @@ class TestInstallExecution:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.side_effect = Exception("Timeout test")
 
-            try:
+            with contextlib.suppress(BaseException):
                 installer.install()
-            except:
-                pass
 
             # Implementation should use timeout
             assert True  # Timeout handling is implementation detail
@@ -326,17 +336,21 @@ class TestInstallExecution:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             # Simulate permission denied
             mock_run.return_value = Mock(returncode=1, stdout="", stderr="Permission denied")
 
             result = installer.install()
 
             assert result.status == InstallStatus.FAILED
-            assert "permission" in result.error_message.lower() or "sudo" in result.error_message.lower()
+            assert (
+                "permission" in result.error_message.lower()
+                or "sudo" in result.error_message.lower()
+            )
 
     def test_install_execution_script_error(self):
         """Test install handles script execution errors."""
@@ -345,12 +359,15 @@ class TestInstallExecution:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             # Simulate script error
-            mock_run.return_value = Mock(returncode=1, stdout="", stderr="Installation script failed")
+            mock_run.return_value = Mock(
+                returncode=1, stdout="", stderr="Installation script failed"
+            )
 
             result = installer.install()
 
@@ -369,10 +386,11 @@ class TestInstallVerification:
         # First call: not installed, second call: installed
         mock_detector.get_linux_cli_path.side_effect = [None, Path("/usr/bin/az")]
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             result = installer.install()
@@ -387,10 +405,11 @@ class TestInstallVerification:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.side_effect = [None, Path("/usr/bin/az")]
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             result = installer.install()
@@ -407,16 +426,20 @@ class TestInstallVerification:
         # CLI not found before or after installation
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             result = installer.install()
 
             assert result.status == InstallStatus.FAILED
-            assert "verification" in result.error_message.lower() or "not found" in result.error_message.lower()
+            assert (
+                "verification" in result.error_message.lower()
+                or "not found" in result.error_message.lower()
+            )
 
 
 class TestInstallCancellation:
@@ -429,9 +452,10 @@ class TestInstallCancellation:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=False):
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=False),
+        ):
             result = installer.install()
 
             assert result.status == InstallStatus.CANCELLED
@@ -445,10 +469,11 @@ class TestInstallCancellation:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=False), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=False),
+            patch("subprocess.run") as mock_run,
+        ):
             result = installer.install()
 
             # Should not have attempted any subprocess calls
@@ -467,15 +492,15 @@ class TestInstallerDetectorIntegration:
         """Integration: Installer uses detector to check existing installation."""
         installer = CLIInstaller()
 
-        with patch("azlin.modules.cli_installer.CLIDetector") as MockDetector:
+        with patch("azlin.modules.cli_installer.CLIDetector") as mock_detector_cls:
             mock_detector = Mock()
             mock_detector.get_linux_cli_path.return_value = Path("/usr/bin/az")
-            MockDetector.return_value = mock_detector
+            mock_detector_cls.return_value = mock_detector
 
             result = installer.install()
 
             # Detector should have been instantiated and called
-            MockDetector.assert_called_once()
+            mock_detector_cls.assert_called_once()
             mock_detector.get_linux_cli_path.assert_called()
 
     def test_installer_uses_detector_for_verification(self):
@@ -485,10 +510,11 @@ class TestInstallerDetectorIntegration:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.side_effect = [None, Path("/usr/bin/az")]
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             result = installer.install()
@@ -503,10 +529,11 @@ class TestInstallerDetectorIntegration:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.side_effect = [None, Path("/usr/bin/az")]
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch("builtins.input", return_value="y"), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch("builtins.input", return_value="y"),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = Mock(returncode=0, stdout="Installation complete", stderr="")
 
             result = installer.install()
@@ -524,10 +551,11 @@ class TestInstallerDetectorIntegration:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = Path("/usr/bin/az")
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch("builtins.input") as mock_input, \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch("builtins.input") as mock_input,
+            patch("subprocess.run") as mock_run,
+        ):
             result = installer.install()
 
             # Should skip everything
@@ -542,10 +570,11 @@ class TestInstallerDetectorIntegration:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch("builtins.input", return_value="n"), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch("builtins.input", return_value="n"),
+            patch("subprocess.run") as mock_run,
+        ):
             result = installer.install()
 
             assert result.status == InstallStatus.CANCELLED
@@ -559,13 +588,16 @@ class TestErrorHandlingIntegration:
         """Integration: Install handles exception from detector."""
         installer = CLIInstaller()
 
-        with patch("azlin.modules.cli_installer.CLIDetector") as MockDetector:
-            MockDetector.side_effect = Exception("Detector failed")
+        with patch("azlin.modules.cli_installer.CLIDetector") as mock_detector_cls:
+            mock_detector_cls.side_effect = Exception("Detector failed")
 
             result = installer.install()
 
             assert result.status == InstallStatus.FAILED
-            assert "detector" in result.error_message.lower() or "error" in result.error_message.lower()
+            assert (
+                "detector" in result.error_message.lower()
+                or "error" in result.error_message.lower()
+            )
 
     def test_install_handles_subprocess_exception(self):
         """Integration: Install handles subprocess exceptions gracefully."""
@@ -574,10 +606,11 @@ class TestErrorHandlingIntegration:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch.object(installer, "prompt_install", return_value=True), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch.object(installer, "prompt_install", return_value=True),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.side_effect = OSError("Command not found")
 
             result = installer.install()
@@ -601,12 +634,15 @@ class TestEndToEndInstallation:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.side_effect = [None, Path("/usr/bin/az")]
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch("builtins.input", return_value="y"), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch("builtins.input", return_value="y"),
+            patch("subprocess.run") as mock_run,
+        ):
             # Simulate successful installation
-            mock_run.return_value = Mock(returncode=0, stdout="Installing Azure CLI...\nComplete!", stderr="")
+            mock_run.return_value = Mock(
+                returncode=0, stdout="Installing Azure CLI...\nComplete!", stderr=""
+            )
 
             result = installer.install()
 
@@ -625,10 +661,11 @@ class TestEndToEndInstallation:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = Path("/usr/bin/az")
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch("builtins.input") as mock_input, \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch("builtins.input") as mock_input,
+            patch("subprocess.run") as mock_run,
+        ):
             result = installer.install()
 
             # Should detect and skip installation
@@ -646,10 +683,11 @@ class TestEndToEndInstallation:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch("builtins.input", return_value="n"), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch("builtins.input", return_value="n"),
+            patch("subprocess.run") as mock_run,
+        ):
             result = installer.install()
 
             # Should respect cancellation
@@ -663,15 +701,16 @@ class TestEndToEndInstallation:
         mock_detector = Mock()
         mock_detector.get_linux_cli_path.return_value = None
 
-        with patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector), \
-             patch("builtins.input", return_value="y"), \
-             patch("subprocess.run") as mock_run:
-
+        with (
+            patch("azlin.modules.cli_installer.CLIDetector", return_value=mock_detector),
+            patch("builtins.input", return_value="y"),
+            patch("subprocess.run") as mock_run,
+        ):
             # Simulate installation failure
             mock_run.return_value = Mock(
                 returncode=1,
                 stdout="",
-                stderr="ERROR: Failed to install Azure CLI\nCheck internet connection"
+                stderr="ERROR: Failed to install Azure CLI\nCheck internet connection",
             )
 
             result = installer.install()

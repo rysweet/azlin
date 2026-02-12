@@ -16,7 +16,6 @@ import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 from .cli_detector import CLIDetector
 
@@ -35,8 +34,8 @@ class InstallResult:
     """Result of installation attempt."""
 
     status: InstallStatus
-    cli_path: Optional[Path] = None
-    error_message: Optional[str] = None
+    cli_path: Path | None = None
+    error_message: str | None = None
 
 
 class CLIInstaller:
@@ -76,10 +75,9 @@ class CLIInstaller:
 
                 if response in ["y", "yes"]:
                     return True
-                elif response in ["n", "no", ""]:
+                if response in ["n", "no", ""]:
                     return False
-                else:
-                    print("Invalid input. Please enter 'y' or 'n'.")
+                print("Invalid input. Please enter 'y' or 'n'.")
 
         except (KeyboardInterrupt, EOFError):
             # User pressed Ctrl+C or input stream closed
@@ -114,7 +112,7 @@ class CLIInstaller:
             return InstallResult(
                 status=InstallStatus.FAILED,
                 cli_path=None,
-                error_message=f"Error checking existing installation: {str(e)}",
+                error_message=f"Error checking existing installation: {e!s}",
             )
 
         # Prompt user
@@ -156,7 +154,7 @@ class CLIInstaller:
             return InstallResult(
                 status=InstallStatus.FAILED,
                 cli_path=None,
-                error_message=f"Network error during download: {str(e)}",
+                error_message=f"Network error during download: {e!s}",
             )
 
         # Execute installation script with sudo
@@ -178,12 +176,11 @@ class CLIInstaller:
                         cli_path=None,
                         error_message="Permission denied. Make sure you have sudo access.",
                     )
-                else:
-                    return InstallResult(
-                        status=InstallStatus.FAILED,
-                        cli_path=None,
-                        error_message=f"Installation script failed: {error_msg}",
-                    )
+                return InstallResult(
+                    status=InstallStatus.FAILED,
+                    cli_path=None,
+                    error_message=f"Installation script failed: {error_msg}",
+                )
 
         except subprocess.TimeoutExpired:
             return InstallResult(
@@ -195,13 +192,13 @@ class CLIInstaller:
             return InstallResult(
                 status=InstallStatus.FAILED,
                 cli_path=None,
-                error_message=f"Command not found or OS error: {str(e)}",
+                error_message=f"Command not found or OS error: {e!s}",
             )
         except Exception as e:
             return InstallResult(
                 status=InstallStatus.FAILED,
                 cli_path=None,
-                error_message=f"Error during installation: {str(e)}",
+                error_message=f"Error during installation: {e!s}",
             )
 
         # Verify installation
@@ -218,18 +215,17 @@ class CLIInstaller:
                     cli_path=linux_cli,
                     error_message=None,
                 )
-            else:
-                return InstallResult(
-                    status=InstallStatus.FAILED,
-                    cli_path=None,
-                    error_message="Installation completed but CLI verification failed. Azure CLI may not be in PATH.",
-                )
+            return InstallResult(
+                status=InstallStatus.FAILED,
+                cli_path=None,
+                error_message="Installation completed but CLI verification failed. Azure CLI may not be in PATH.",
+            )
         except Exception as e:
             return InstallResult(
                 status=InstallStatus.FAILED,
                 cli_path=None,
-                error_message=f"Error verifying installation: {str(e)}",
+                error_message=f"Error verifying installation: {e!s}",
             )
 
 
-__all__ = ["InstallStatus", "InstallResult", "CLIInstaller"]
+__all__ = ["CLIInstaller", "InstallResult", "InstallStatus"]

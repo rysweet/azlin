@@ -146,12 +146,11 @@ def link_parent(
     parent_type = get_work_item_type(parent_id, org, project)
 
     # Validate link compatibility (warning only, not blocking)
-    if child_type and parent_type:
-        if not validate_link_compatibility(child_type, parent_type):
-            print(
-                f"Warning: Linking {child_type} to {parent_type} may not be a standard relationship",
-                file=sys.stderr,
-            )
+    if child_type and parent_type and not validate_link_compatibility(child_type, parent_type):
+        print(
+            f"Warning: Linking {child_type} to {parent_type} may not be a standard relationship",
+            file=sys.stderr,
+        )
 
     # Create link
     wrapper = AzCliWrapper(org=org, project=project)

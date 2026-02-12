@@ -15,7 +15,6 @@ import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
 
 
 @dataclass
@@ -29,10 +28,10 @@ class SubprocessResult:
 
 
 def safe_run(
-    cmd: List[str],
-    cwd: Optional[Path] = None,
-    timeout: Optional[int] = 30,
-    env: Optional[dict] = None,
+    cmd: list[str],
+    cwd: Path | None = None,
+    timeout: int | None = 30,
+    env: dict | None = None,
 ) -> SubprocessResult:
     """
     Execute subprocess with pipe deadlock prevention.
@@ -77,7 +76,7 @@ def safe_run(
         return SubprocessResult(
             returncode=1,
             stdout="",
-            stderr=f"Error executing command: {str(e)}",
+            stderr=f"Error executing command: {e!s}",
             timed_out=False,
         )
     except Exception as e:
@@ -85,7 +84,7 @@ def safe_run(
         return SubprocessResult(
             returncode=1,
             stdout="",
-            stderr=f"Unexpected error: {str(e)}",
+            stderr=f"Unexpected error: {e!s}",
             timed_out=False,
         )
 
@@ -100,17 +99,13 @@ def safe_run(
             data = pipe.read()
             if data:
                 storage.append(data)
-        except (IOError, OSError):
+        except OSError:
             # Pipe closed - normal during process termination
             pass
 
     # Start background threads to drain pipes
-    stdout_thread = threading.Thread(
-        target=drain_pipe, args=(process.stdout, stdout_data)
-    )
-    stderr_thread = threading.Thread(
-        target=drain_pipe, args=(process.stderr, stderr_data)
-    )
+    stdout_thread = threading.Thread(target=drain_pipe, args=(process.stdout, stdout_data))
+    stderr_thread = threading.Thread(target=drain_pipe, args=(process.stderr, stderr_data))
 
     stdout_thread.daemon = True
     stderr_thread.daemon = True

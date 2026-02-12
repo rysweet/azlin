@@ -210,7 +210,7 @@ class TestCrossLanguageIntegration:
     """Test integration across multiple languages."""
 
     @pytest.mark.parametrize(
-        "language,project_fixture",
+        ("language", "project_fixture"),
         [
             ("python", "python_project"),
             ("javascript", "javascript_project"),

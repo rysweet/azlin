@@ -248,7 +248,7 @@ class TestRealConfigFiles:
     """Test with actual config files in the configs directory."""
 
     @pytest.mark.parametrize(
-        "language,config_file",
+        ("language", "config_file"),
         [
             ("python", "debugpy.json"),
             ("javascript", "node.json"),

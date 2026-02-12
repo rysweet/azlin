@@ -31,39 +31,39 @@ class TestEnvironmentDisable(unittest.TestCase):
     def test_disabled_with_zero(self):
         """Test AMPLIHACK_AUTO_PRECOMMIT=0 disables hook."""
         with patch.dict(os.environ, {"AMPLIHACK_AUTO_PRECOMMIT": "0"}):
-            self.assertTrue(self.hook._is_env_disabled())
+            assert self.hook._is_env_disabled()
 
     def test_disabled_with_false(self):
         """Test AMPLIHACK_AUTO_PRECOMMIT=false disables hook."""
         with patch.dict(os.environ, {"AMPLIHACK_AUTO_PRECOMMIT": "false"}):
-            self.assertTrue(self.hook._is_env_disabled())
+            assert self.hook._is_env_disabled()
 
     def test_disabled_with_no(self):
         """Test AMPLIHACK_AUTO_PRECOMMIT=no disables hook."""
         with patch.dict(os.environ, {"AMPLIHACK_AUTO_PRECOMMIT": "no"}):
-            self.assertTrue(self.hook._is_env_disabled())
+            assert self.hook._is_env_disabled()
 
     def test_disabled_with_off(self):
         """Test AMPLIHACK_AUTO_PRECOMMIT=off disables hook."""
         with patch.dict(os.environ, {"AMPLIHACK_AUTO_PRECOMMIT": "off"}):
-            self.assertTrue(self.hook._is_env_disabled())
+            assert self.hook._is_env_disabled()
 
     def test_disabled_case_insensitive(self):
         """Test environment variable is case insensitive."""
         with patch.dict(os.environ, {"AMPLIHACK_AUTO_PRECOMMIT": "FALSE"}):
-            self.assertTrue(self.hook._is_env_disabled())
+            assert self.hook._is_env_disabled()
 
     def test_enabled_with_other_values(self):
         """Test other values don't disable hook."""
         with patch.dict(os.environ, {"AMPLIHACK_AUTO_PRECOMMIT": "1"}):
-            self.assertFalse(self.hook._is_env_disabled())
+            assert not self.hook._is_env_disabled()
         with patch.dict(os.environ, {"AMPLIHACK_AUTO_PRECOMMIT": "true"}):
-            self.assertFalse(self.hook._is_env_disabled())
+            assert not self.hook._is_env_disabled()
 
     def test_enabled_when_not_set(self):
         """Test hook enabled when environment variable not set."""
         with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(self.hook._is_env_disabled())
+            assert not self.hook._is_env_disabled()
 
 
 class TestPrecommitAvailability(unittest.TestCase):
@@ -83,32 +83,32 @@ class TestPrecommitAvailability(unittest.TestCase):
             )
             result = self.hook._is_precommit_available()
 
-            self.assertTrue(result["available"])
-            self.assertEqual(result["version"], "pre-commit 3.5.0")
+            assert result["available"]
+            assert result["version"] == "pre-commit 3.5.0"
 
     def test_precommit_not_found(self):
         """Test handling when pre-commit command not found."""
         with patch("subprocess.run", side_effect=FileNotFoundError()):
             result = self.hook._is_precommit_available()
 
-            self.assertFalse(result["available"])
-            self.assertIn("not found in PATH", result["error"])
+            assert not result["available"]
+            assert "not found in PATH" in result["error"]
 
     def test_precommit_timeout(self):
         """Test handling when pre-commit check times out."""
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("pre-commit", 5)):
             result = self.hook._is_precommit_available()
 
-            self.assertFalse(result["available"])
-            self.assertIn("timed out", result["error"])
+            assert not result["available"]
+            assert "timed out" in result["error"]
 
     def test_precommit_os_error(self):
         """Test handling of OS errors."""
         with patch("subprocess.run", side_effect=OSError("Disk error")):
             result = self.hook._is_precommit_available()
 
-            self.assertFalse(result["available"])
-            self.assertIn("OS error", result["error"])
+            assert not result["available"]
+            assert "OS error" in result["error"]
 
     def test_precommit_nonzero_exit(self):
         """Test handling when pre-commit returns non-zero exit code."""
@@ -120,8 +120,8 @@ class TestPrecommitAvailability(unittest.TestCase):
             )
             result = self.hook._is_precommit_available()
 
-            self.assertFalse(result["available"])
-            self.assertIn("returned 1", result["error"])
+            assert not result["available"]
+            assert "returned 1" in result["error"]
 
 
 class TestHooksInstalled(unittest.TestCase):
@@ -145,7 +145,7 @@ class TestHooksInstalled(unittest.TestCase):
     def test_hooks_not_installed_file_missing(self):
         """Test detection when hook file doesn't exist."""
         result = self.hook._are_hooks_installed()
-        self.assertFalse(result["installed"])
+        assert not result["installed"]
 
     def test_hooks_installed_valid_precommit(self):
         """Test detection when valid pre-commit hook exists."""
@@ -157,15 +157,15 @@ class TestHooksInstalled(unittest.TestCase):
             "sys.exit(main())\n"
         )
         result = self.hook._are_hooks_installed()
-        self.assertTrue(result["installed"])
+        assert result["installed"]
 
     def test_hooks_corrupted_too_small(self):
         """Test detection of corrupted hook (too small)."""
         self.hook_file.write_text("#!/bin/sh\n")
         result = self.hook._are_hooks_installed()
 
-        self.assertFalse(result["installed"])
-        self.assertTrue(result.get("corrupted", False))
+        assert not result["installed"]
+        assert result.get("corrupted", False)
 
     def test_hooks_corrupted_not_precommit(self):
         """Test detection when hook is not pre-commit managed."""
@@ -177,8 +177,8 @@ class TestHooksInstalled(unittest.TestCase):
         )
         result = self.hook._are_hooks_installed()
 
-        self.assertFalse(result["installed"])
-        self.assertTrue(result.get("corrupted", False))
+        assert not result["installed"]
+        assert result.get("corrupted", False)
 
     def test_hooks_permission_error(self):
         """Test handling of permission errors."""
@@ -186,16 +186,16 @@ class TestHooksInstalled(unittest.TestCase):
         with patch.object(Path, "read_text", side_effect=PermissionError()):
             result = self.hook._are_hooks_installed()
 
-            self.assertFalse(result["installed"])
-            self.assertIn("Permission denied", result["error"])
+            assert not result["installed"]
+            assert "Permission denied" in result["error"]
 
     def test_hooks_unicode_error(self):
         """Test handling of invalid text encoding."""
         self.hook_file.write_bytes(b"\xff\xfe\x00\x00invalid")
         result = self.hook._are_hooks_installed()
 
-        self.assertFalse(result["installed"])
-        self.assertTrue(result.get("corrupted", False))
+        assert not result["installed"]
+        assert result.get("corrupted", False)
 
 
 class TestInstallHooks(unittest.TestCase):
@@ -215,8 +215,8 @@ class TestInstallHooks(unittest.TestCase):
             )
             result = self.hook._install_hooks()
 
-            self.assertTrue(result["success"])
-            self.assertNotIn("error", result)
+            assert result["success"]
+            assert "error" not in result
 
     def test_install_permission_denied(self):
         """Test handling of permission errors during installation."""
@@ -228,8 +228,8 @@ class TestInstallHooks(unittest.TestCase):
             )
             result = self.hook._install_hooks()
 
-            self.assertFalse(result["success"])
-            self.assertIn("Permission denied", result["error"])
+            assert not result["success"]
+            assert "Permission denied" in result["error"]
 
     def test_install_network_error(self):
         """Test handling of network errors during installation."""
@@ -241,8 +241,8 @@ class TestInstallHooks(unittest.TestCase):
             )
             result = self.hook._install_hooks()
 
-            self.assertFalse(result["success"])
-            self.assertIn("Network error", result["error"])
+            assert not result["success"]
+            assert "Network error" in result["error"]
 
     def test_install_invalid_config(self):
         """Test handling of invalid config file."""
@@ -254,32 +254,32 @@ class TestInstallHooks(unittest.TestCase):
             )
             result = self.hook._install_hooks()
 
-            self.assertFalse(result["success"])
-            self.assertIn("Invalid .pre-commit-config.yaml", result["error"])
+            assert not result["success"]
+            assert "Invalid .pre-commit-config.yaml" in result["error"]
 
     def test_install_timeout(self):
         """Test handling of installation timeout."""
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("pre-commit", 30)):
             result = self.hook._install_hooks()
 
-            self.assertFalse(result["success"])
-            self.assertIn("timed out", result["error"])
+            assert not result["success"]
+            assert "timed out" in result["error"]
 
     def test_install_file_not_found(self):
         """Test handling when pre-commit not found."""
         with patch("subprocess.run", side_effect=FileNotFoundError()):
             result = self.hook._install_hooks()
 
-            self.assertFalse(result["success"])
-            self.assertIn("not found", result["error"])
+            assert not result["success"]
+            assert "not found" in result["error"]
 
     def test_install_os_error(self):
         """Test handling of OS errors during installation."""
         with patch("subprocess.run", side_effect=OSError("Disk full")):
             result = self.hook._install_hooks()
 
-            self.assertFalse(result["success"])
-            self.assertIn("OS error", result["error"])
+            assert not result["success"]
+            assert "OS error" in result["error"]
 
 
 class TestProcessWorkflow(unittest.TestCase):
@@ -303,14 +303,14 @@ class TestProcessWorkflow(unittest.TestCase):
         with patch.dict(os.environ, {"AMPLIHACK_AUTO_PRECOMMIT": "0"}):
             result = self.hook.process({})
 
-            self.assertEqual(result, {})
+            assert result == {}
             self.hook.save_metric.assert_called_with("precommit_env_disabled", True)
 
     def test_process_not_git_repo(self):
         """Test process early exit when not a git repo."""
         result = self.hook.process({})
 
-        self.assertEqual(result, {})
+        assert result == {}
         self.hook.save_metric.assert_called_with("precommit_not_git_repo", True)
 
     def test_process_no_config(self):
@@ -320,7 +320,7 @@ class TestProcessWorkflow(unittest.TestCase):
 
         result = self.hook.process({})
 
-        self.assertEqual(result, {})
+        assert result == {}
         self.hook.save_metric.assert_called_with("precommit_no_config", True)
 
     def test_process_precommit_not_available(self):
@@ -337,7 +337,7 @@ class TestProcessWorkflow(unittest.TestCase):
         ):
             result = self.hook.process({})
 
-            self.assertEqual(result, {})
+            assert result == {}
             self.hook.save_metric.assert_called_with("precommit_available", False)
 
     def test_process_hooks_already_installed(self):
@@ -359,7 +359,7 @@ class TestProcessWorkflow(unittest.TestCase):
             ):
                 result = self.hook.process({})
 
-                self.assertEqual(result, {})
+                assert result == {}
                 self.hook.save_metric.assert_called_with("precommit_already_installed", True)
 
     def test_process_successful_install(self):
@@ -386,7 +386,7 @@ class TestProcessWorkflow(unittest.TestCase):
                 ):
                     result = self.hook.process({})
 
-                    self.assertEqual(result, {})
+                    assert result == {}
                     self.hook.save_metric.assert_called_with("precommit_installed", True)
 
     def test_process_failed_install(self):
@@ -413,11 +413,11 @@ class TestProcessWorkflow(unittest.TestCase):
                 ):
                     result = self.hook.process({})
 
-                    self.assertEqual(result, {})
+                    assert result == {}
                     # Check both metrics were saved
                     calls = self.hook.save_metric.call_args_list
-                    self.assertIn(call("precommit_installed", False), calls)
-                    self.assertIn(call("precommit_install_error", "Permission denied"), calls)
+                    assert call("precommit_installed", False) in calls
+                    assert call("precommit_install_error", "Permission denied") in calls
 
     def test_process_graceful_exception_handling(self):
         """Test that exceptions are handled gracefully."""
@@ -433,7 +433,7 @@ class TestProcessWorkflow(unittest.TestCase):
         ):
             result = self.hook.process({})
 
-            self.assertEqual(result, {})
+            assert result == {}
             # Should log error and save metric
             self.hook.log.assert_called()
             self.hook.save_metric.assert_called()

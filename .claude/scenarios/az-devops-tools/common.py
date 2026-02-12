@@ -127,7 +127,7 @@ class AzCliWrapper:
         Returns:
             CommandResult with execution details
         """
-        command = ["az", "devops"] + subcommand
+        command = ["az", "devops", *subcommand]
 
         # Add default org/project if set
         if self.org:
@@ -259,7 +259,7 @@ def format_table(headers: list[str], rows: list[list[str]]) -> str:
         " | ".join(str(cell).ljust(w) for cell, w in zip(row, widths, strict=False)) for row in rows
     ]
 
-    return "\n".join([header_line, separator] + formatted_rows)
+    return "\n".join([header_line, separator, *formatted_rows])
 
 
 __all__ = [

@@ -117,10 +117,9 @@ if __name__ == "__main__":
         config = generate_config(args.language, args.project_dir, **kwargs)
 
         # Validate if requested
-        if args.validate:
-            if not validate_config(config):
-                print("ERROR: Invalid configuration generated", file=sys.stderr)
-                sys.exit(1)
+        if args.validate and not validate_config(config):
+            print("ERROR: Invalid configuration generated", file=sys.stderr)
+            sys.exit(1)
 
         # Output config
         config_json = json.dumps(config, indent=2)

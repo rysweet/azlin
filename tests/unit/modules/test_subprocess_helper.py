@@ -10,12 +10,8 @@ All tests should FAIL initially.
 """
 
 import subprocess
-import threading
-import time
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, call, patch
-
-import pytest
+from unittest.mock import Mock, patch
 
 # Import will fail initially - this is expected in TDD red phase
 try:
@@ -188,7 +184,11 @@ class TestTimeoutHandling:
             result = safe_run(["sleep", "100"], timeout=1)
 
             # Process should be terminated
-            assert mock_process.terminate.called or mock_process.kill.called or result.timed_out is True
+            assert (
+                mock_process.terminate.called
+                or mock_process.kill.called
+                or result.timed_out is True
+            )
 
     def test_safe_run_timeout_default_30_seconds(self):
         """Test safe_run uses 30 second default timeout."""
@@ -206,7 +206,9 @@ class TestTimeoutHandling:
 
             # Should have used default timeout
             if mock_process.wait.called:
-                call_kwargs = mock_process.wait.call_args.kwargs if mock_process.wait.call_args else {}
+                call_kwargs = (
+                    mock_process.wait.call_args.kwargs if mock_process.wait.call_args else {}
+                )
                 assert call_kwargs.get("timeout", 30) == 30 or True  # Implementation detail
 
 
@@ -275,9 +277,7 @@ class TestPipeDeadlockPrevention:
 
     def test_safe_run_uses_background_threads(self):
         """Test safe_run uses background threads for pipe draining."""
-        with patch("subprocess.Popen") as mock_popen, \
-             patch("threading.Thread") as mock_thread:
-
+        with patch("subprocess.Popen") as mock_popen, patch("threading.Thread") as mock_thread:
             mock_process = Mock()
             mock_process.wait.return_value = None
             mock_process.returncode = 0
@@ -290,7 +290,7 @@ class TestPipeDeadlockPrevention:
             result = safe_run(["echo", "test"])
 
             # Should have created threads for draining (implementation detail)
-            assert result.returncode == 0 or mock_thread.called or True
+            assert True
 
 
 class TestWorkingDirectory:
@@ -347,7 +347,7 @@ class TestWorkingDirectory:
             cwd_path = Path("/home/user")
             result = safe_run(["ls"], cwd=cwd_path)
 
-            assert result.returncode == 0 or True
+            assert True
 
 
 class TestEnvironmentVariables:
@@ -550,7 +550,7 @@ class TestEndToEndAzureCLISimulation:
         # Simulate: az vm create (long-running command with continuous output)
         result = safe_run(
             ["sh", "-c", "for i in 1 2 3; do echo 'Creating resource $i'; sleep 0.1; done"],
-            timeout=10
+            timeout=10,
         )
 
         assert result.returncode == 0
@@ -560,8 +560,12 @@ class TestEndToEndAzureCLISimulation:
         """E2E: Simulate Azure CLI bastion tunnel (continuous output, no timeout)."""
         # Simulate: az network bastion tunnel (runs indefinitely until killed)
         result = safe_run(
-            ["sh", "-c", "echo 'Tunnel established'; for i in 1 2 3; do echo 'Traffic: $i'; sleep 0.1; done"],
-            timeout=2
+            [
+                "sh",
+                "-c",
+                "echo 'Tunnel established'; for i in 1 2 3; do echo 'Traffic: $i'; sleep 0.1; done",
+            ],
+            timeout=2,
         )
 
         # Should either complete or timeout gracefully
@@ -570,10 +574,7 @@ class TestEndToEndAzureCLISimulation:
     def test_e2e_azure_cli_error_simulation(self):
         """E2E: Simulate Azure CLI error (non-zero exit, error output)."""
         # Simulate: az command that fails
-        result = safe_run(
-            ["sh", "-c", "echo 'ERROR: Resource not found' >&2; exit 1"],
-            timeout=10
-        )
+        result = safe_run(["sh", "-c", "echo 'ERROR: Resource not found' >&2; exit 1"], timeout=10)
 
         assert result.returncode == 1
         assert result.timed_out is False
@@ -606,8 +607,12 @@ class TestEndToEndRealWorldWorkflow:
         """E2E: Handle failed command and provide error details."""
         # User workflow: Command fails, need error details for troubleshooting
         result = safe_run(
-            ["sh", "-c", "echo 'Attempting operation...'; echo 'ERROR: Failed with code 500' >&2; exit 1"],
-            timeout=10
+            [
+                "sh",
+                "-c",
+                "echo 'Attempting operation...'; echo 'ERROR: Failed with code 500' >&2; exit 1",
+            ],
+            timeout=10,
         )
 
         # Should capture failure details

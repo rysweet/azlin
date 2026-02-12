@@ -9,11 +9,8 @@ Tests written BEFORE implementation (TDD approach).
 All tests should FAIL initially.
 """
 
-import platform
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, mock_open, patch
-
-import pytest
+from unittest.mock import patch
 
 # Import will fail initially - this is expected in TDD red phase
 try:
@@ -60,10 +57,14 @@ class TestEnvironmentDetection:
         """Test WSL2 detection via /proc/version containing 'microsoft'."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("pathlib.Path.exists", return_value=True), \
-             patch("pathlib.Path.read_text", return_value="Linux version 5.10.16.3-microsoft-standard-WSL2"):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("pathlib.Path.exists", return_value=True),
+            patch(
+                "pathlib.Path.read_text",
+                return_value="Linux version 5.10.16.3-microsoft-standard-WSL2",
+            ),
+        ):
             env_info = detector.detect()
 
             assert env_info.environment == Environment.WSL2
@@ -72,10 +73,11 @@ class TestEnvironmentDetection:
         """Test WSL2 detection via /proc/version containing 'wsl2'."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("pathlib.Path.exists", return_value=True), \
-             patch("pathlib.Path.read_text", return_value="Linux version 5.10.16.3-wsl2"):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.read_text", return_value="Linux version 5.10.16.3-wsl2"),
+        ):
             env_info = detector.detect()
 
             assert env_info.environment == Environment.WSL2
@@ -87,9 +89,10 @@ class TestEnvironmentDetection:
         def mock_exists(self):
             return str(self) == "/run/WSL"
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("pathlib.Path.exists", mock_exists):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("pathlib.Path.exists", mock_exists),
+        ):
             env_info = detector.detect()
 
             assert env_info.environment == Environment.WSL2
@@ -98,10 +101,16 @@ class TestEnvironmentDetection:
         """Test WSL2 detection via WSL_DISTRO_NAME environment variable."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "Ubuntu-20.04" if k == "WSL_DISTRO_NAME" else default), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: (
+                    "Ubuntu-20.04" if k == "WSL_DISTRO_NAME" else default
+                ),
+            ),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.environment == Environment.WSL2
@@ -110,10 +119,16 @@ class TestEnvironmentDetection:
         """Test WSL2 detection via WSL_INTEROP environment variable."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "/run/WSL/8_interop" if k == "WSL_INTEROP" else default), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: (
+                    "/run/WSL/8_interop" if k == "WSL_INTEROP" else default
+                ),
+            ),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.environment == Environment.WSL2
@@ -122,11 +137,12 @@ class TestEnvironmentDetection:
         """Test native Linux detection (no WSL2 indicators)."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", return_value=None), \
-             patch("pathlib.Path.exists", return_value=False), \
-             patch("pathlib.Path.read_text", return_value="Linux version 5.10.0-generic"):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("os.environ.get", return_value=None),
+            patch("pathlib.Path.exists", return_value=False),
+            patch("pathlib.Path.read_text", return_value="Linux version 5.10.0-generic"),
+        ):
             env_info = detector.detect()
 
             assert env_info.environment == Environment.LINUX_NATIVE
@@ -157,23 +173,30 @@ class TestCLIDetection:
         """Test Windows CLI detection via /mnt/c/ path."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("shutil.which", return_value="/mnt/c/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "shutil.which",
+                return_value="/mnt/c/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd",
+            ),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.cli_type == CLIType.WINDOWS
-            assert env_info.cli_path == Path("/mnt/c/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd")
+            assert env_info.cli_path == Path(
+                "/mnt/c/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd"
+            )
 
     def test_detect_windows_cli_mnt_d_path(self):
         """Test Windows CLI detection via /mnt/d/ path."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("shutil.which", return_value="/mnt/d/Azure/CLI/az.cmd"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value="/mnt/d/Azure/CLI/az.cmd"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.cli_type == CLIType.WINDOWS
@@ -182,10 +205,11 @@ class TestCLIDetection:
         """Test Windows CLI detection via .exe extension."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("shutil.which", return_value="/mnt/c/tools/az.exe"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value="/mnt/c/tools/az.exe"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.cli_type == CLIType.WINDOWS
@@ -202,10 +226,11 @@ class TestCLIDetection:
         ]
 
         for path in test_cases:
-            with patch("platform.system", return_value="Linux"), \
-                 patch("shutil.which", return_value=path), \
-                 patch("pathlib.Path.exists", return_value=False):
-
+            with (
+                patch("platform.system", return_value="Linux"),
+                patch("shutil.which", return_value=path),
+                patch("pathlib.Path.exists", return_value=False),
+            ):
                 env_info = detector.detect()
 
                 assert env_info.cli_type == CLIType.WINDOWS, f"Failed for path: {path}"
@@ -214,10 +239,11 @@ class TestCLIDetection:
         """Test Linux CLI detection via /usr/bin/az path."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("shutil.which", return_value="/usr/bin/az"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value="/usr/bin/az"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.cli_type == CLIType.LINUX
@@ -227,10 +253,11 @@ class TestCLIDetection:
         """Test Linux CLI detection via /usr/local/bin/az path."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("shutil.which", return_value="/usr/local/bin/az"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value="/usr/local/bin/az"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.cli_type == CLIType.LINUX
@@ -239,10 +266,11 @@ class TestCLIDetection:
         """Test detection when Azure CLI is not installed."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("shutil.which", return_value=None), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value=None),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.cli_type == CLIType.NONE
@@ -252,10 +280,11 @@ class TestCLIDetection:
         """Test CLI detection handles empty path from which()."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("shutil.which", return_value=""), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value=""),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.cli_type == CLIType.NONE
@@ -268,11 +297,15 @@ class TestProblemDetection:
         """Test problem detection: WSL2 + Windows CLI = problem."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default), \
-             patch("shutil.which", return_value="/mnt/c/Program Files/Azure/CLI/az.cmd"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default,
+            ),
+            patch("shutil.which", return_value="/mnt/c/Program Files/Azure/CLI/az.cmd"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.has_problem is True
@@ -284,11 +317,15 @@ class TestProblemDetection:
         """Test no problem: WSL2 + Linux CLI = OK."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default), \
-             patch("shutil.which", return_value="/usr/bin/az"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default,
+            ),
+            patch("shutil.which", return_value="/usr/bin/az"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.has_problem is False
@@ -298,12 +335,13 @@ class TestProblemDetection:
         """Test no problem: Native Linux + Linux CLI = OK."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", return_value=None), \
-             patch("shutil.which", return_value="/usr/bin/az"), \
-             patch("pathlib.Path.exists", return_value=False), \
-             patch("pathlib.Path.read_text", return_value="Linux version 5.10.0-generic"):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("os.environ.get", return_value=None),
+            patch("shutil.which", return_value="/usr/bin/az"),
+            patch("pathlib.Path.exists", return_value=False),
+            patch("pathlib.Path.read_text", return_value="Linux version 5.10.0-generic"),
+        ):
             env_info = detector.detect()
 
             assert env_info.has_problem is False
@@ -312,11 +350,15 @@ class TestProblemDetection:
         """Test no problem: WSL2 + no CLI = OK (nothing to fix)."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default), \
-             patch("shutil.which", return_value=None), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default,
+            ),
+            patch("shutil.which", return_value=None),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.has_problem is False
@@ -325,11 +367,15 @@ class TestProblemDetection:
         """Test problem description provides actionable guidance."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default), \
-             patch("shutil.which", return_value="/mnt/c/Program Files/Azure/CLI/az.cmd"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default,
+            ),
+            patch("shutil.which", return_value="/mnt/c/Program Files/Azure/CLI/az.cmd"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             description = env_info.problem_description.lower()
@@ -382,10 +428,11 @@ class TestGetLinuxCLIPath:
         detector = CLIDetector()
 
         # Simulate which() returning Windows path, but explicit check finds Linux
-        with patch("shutil.which", return_value="/mnt/c/az.cmd"), \
-             patch("pathlib.Path.exists", return_value=True), \
-             patch("pathlib.Path.is_file", return_value=True):
-
+        with (
+            patch("shutil.which", return_value="/mnt/c/az.cmd"),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.is_file", return_value=True),
+        ):
             path = detector.get_linux_cli_path()
 
             # Should find Linux CLI even if which() returns Windows path
@@ -399,25 +446,31 @@ class TestEdgeCases:
         """Test handling when /proc/version is not readable."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("pathlib.Path.exists", return_value=True), \
-             patch("pathlib.Path.read_text", side_effect=PermissionError()), \
-             patch("os.environ.get", return_value=None):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.read_text", side_effect=PermissionError()),
+            patch("os.environ.get", return_value=None),
+        ):
             # Should not crash, should fallback to other detection methods
             env_info = detector.detect()
 
-            assert env_info.environment in [Environment.WSL2, Environment.LINUX_NATIVE, Environment.UNKNOWN]
+            assert env_info.environment in [
+                Environment.WSL2,
+                Environment.LINUX_NATIVE,
+                Environment.UNKNOWN,
+            ]
 
     def test_proc_version_empty_content(self):
         """Test handling when /proc/version has empty content."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("pathlib.Path.exists", return_value=True), \
-             patch("pathlib.Path.read_text", return_value=""), \
-             patch("os.environ.get", return_value=None):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.read_text", return_value=""),
+            patch("os.environ.get", return_value=None),
+        ):
             env_info = detector.detect()
 
             # Should treat as native Linux when no WSL indicators
@@ -427,10 +480,11 @@ class TestEdgeCases:
         """Test handling when which() returns relative path."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("shutil.which", return_value="./az"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value="./az"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             # Should handle relative path correctly
@@ -442,10 +496,11 @@ class TestEdgeCases:
 
         path_with_spaces = "/mnt/c/Program Files (x86)/Microsoft SDKs/Azure/CLI/az.cmd"
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("shutil.which", return_value=path_with_spaces), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("shutil.which", return_value=path_with_spaces),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.cli_type == CLIType.WINDOWS
@@ -458,15 +513,19 @@ class TestEdgeCases:
         def mock_env_get(key, default=None):
             if key == "WSL_DISTRO_NAME":
                 return "Ubuntu-20.04"
-            elif key == "WSL_INTEROP":
+            if key == "WSL_INTEROP":
                 return "/run/WSL/8_interop"
             return default
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=mock_env_get), \
-             patch("pathlib.Path.exists", return_value=True), \
-             patch("pathlib.Path.read_text", return_value="Linux version 5.10.16.3-microsoft-standard-WSL2"):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("os.environ.get", side_effect=mock_env_get),
+            patch("pathlib.Path.exists", return_value=True),
+            patch(
+                "pathlib.Path.read_text",
+                return_value="Linux version 5.10.16.3-microsoft-standard-WSL2",
+            ),
+        ):
             env_info = detector.detect()
 
             # Should still correctly identify as WSL2
@@ -485,11 +544,15 @@ class TestDetectorIntegration:
         """Integration: Full detection flow for WSL2 + Windows CLI problem."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default), \
-             patch("shutil.which", return_value="/mnt/c/Program Files/Azure/CLI/az.cmd"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default,
+            ),
+            patch("shutil.which", return_value="/mnt/c/Program Files/Azure/CLI/az.cmd"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             # Verify all fields are populated correctly
@@ -503,11 +566,15 @@ class TestDetectorIntegration:
         """Integration: Full detection flow for WSL2 + Linux CLI (OK)."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default), \
-             patch("shutil.which", return_value="/usr/bin/az"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default,
+            ),
+            patch("shutil.which", return_value="/usr/bin/az"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             assert env_info.environment == Environment.WSL2
@@ -520,12 +587,13 @@ class TestDetectorIntegration:
         """Integration: Full detection flow for native Linux + Linux CLI."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", return_value=None), \
-             patch("shutil.which", return_value="/usr/bin/az"), \
-             patch("pathlib.Path.exists", return_value=False), \
-             patch("pathlib.Path.read_text", return_value="Linux version 5.10.0-generic"):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("os.environ.get", return_value=None),
+            patch("shutil.which", return_value="/usr/bin/az"),
+            patch("pathlib.Path.exists", return_value=False),
+            patch("pathlib.Path.read_text", return_value="Linux version 5.10.0-generic"),
+        ):
             env_info = detector.detect()
 
             assert env_info.environment == Environment.LINUX_NATIVE
@@ -536,11 +604,15 @@ class TestDetectorIntegration:
         """Integration: detect() and get_linux_cli_path() work together."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default), \
-             patch("shutil.which", side_effect=lambda cmd: "/usr/bin/az" if cmd == "az" else None), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default,
+            ),
+            patch("shutil.which", side_effect=lambda cmd: "/usr/bin/az" if cmd == "az" else None),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
             linux_cli_path = detector.get_linux_cli_path()
 
@@ -552,12 +624,13 @@ class TestDetectorIntegration:
         """Integration: Multiple detect() calls are independent."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", return_value=None), \
-             patch("shutil.which", return_value="/usr/bin/az"), \
-             patch("pathlib.Path.exists", return_value=False), \
-             patch("pathlib.Path.read_text", return_value="Linux version 5.10.0-generic"):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("os.environ.get", return_value=None),
+            patch("shutil.which", return_value="/usr/bin/az"),
+            patch("pathlib.Path.exists", return_value=False),
+            patch("pathlib.Path.read_text", return_value="Linux version 5.10.0-generic"),
+        ):
             env_info1 = detector.detect()
             env_info2 = detector.detect()
 
@@ -579,11 +652,20 @@ class TestEndToEndWorkflows:
         """E2E: Detect WSL2 + Windows CLI problem and provide guidance."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "Ubuntu-20.04" if k == "WSL_DISTRO_NAME" else default), \
-             patch("shutil.which", return_value="/mnt/c/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: (
+                    "Ubuntu-20.04" if k == "WSL_DISTRO_NAME" else default
+                ),
+            ),
+            patch(
+                "shutil.which",
+                return_value="/mnt/c/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd",
+            ),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             # User workflow: Check if there's a problem
             env_info = detector.detect()
 
@@ -601,17 +683,21 @@ class TestEndToEndWorkflows:
                     assert env_info.cli_type == CLIType.WINDOWS
                 else:
                     # Linux CLI already available, just need to use it
-                    assert False, "If Linux CLI exists, should not have problem"
+                    raise AssertionError("If Linux CLI exists, should not have problem")
 
     def test_e2e_healthy_wsl2_system(self):
         """E2E: Verify healthy WSL2 + Linux CLI system."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default), \
-             patch("shutil.which", return_value="/usr/bin/az"), \
-             patch("pathlib.Path.exists", return_value=False):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "os.environ.get",
+                side_effect=lambda k, default=None: "Ubuntu" if k == "WSL_DISTRO_NAME" else default,
+            ),
+            patch("shutil.which", return_value="/usr/bin/az"),
+            patch("pathlib.Path.exists", return_value=False),
+        ):
             env_info = detector.detect()
 
             # Verify system is healthy
@@ -627,12 +713,13 @@ class TestEndToEndWorkflows:
         """E2E: Verify native Linux system works correctly."""
         detector = CLIDetector()
 
-        with patch("platform.system", return_value="Linux"), \
-             patch("os.environ.get", return_value=None), \
-             patch("shutil.which", return_value="/usr/bin/az"), \
-             patch("pathlib.Path.exists", return_value=False), \
-             patch("pathlib.Path.read_text", return_value="Linux version 5.10.0-generic"):
-
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch("os.environ.get", return_value=None),
+            patch("shutil.which", return_value="/usr/bin/az"),
+            patch("pathlib.Path.exists", return_value=False),
+            patch("pathlib.Path.read_text", return_value="Linux version 5.10.0-generic"),
+        ):
             env_info = detector.detect()
 
             # Native Linux should work fine

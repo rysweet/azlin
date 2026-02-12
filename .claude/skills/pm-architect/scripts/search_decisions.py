@@ -14,6 +14,7 @@ Examples:
 """
 
 import argparse
+import contextlib
 import json
 import re
 import sys
@@ -81,10 +82,8 @@ def extract_session_context(session_dir: Path) -> dict:
     }
 
     # Get session creation time
-    try:
+    with contextlib.suppress(Exception):
         context["created"] = datetime.fromtimestamp(session_dir.stat().st_ctime).isoformat()
-    except Exception:
-        pass
 
     # Extract decisions
     decisions_file = session_dir / "DECISIONS.md"
@@ -100,7 +99,10 @@ def extract_session_context(session_dir: Path) -> dict:
 
 
 def search_sessions(
-    logs_dir: Path, query: str = None, session_id: str = None, limit: int = None
+    logs_dir: Path,
+    query: str | None = None,
+    session_id: str | None = None,
+    limit: int | None = None,
 ) -> list[dict]:
     """Search PM decisions across all sessions.
 

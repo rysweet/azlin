@@ -19,7 +19,6 @@ import shutil
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 
 class Environment(Enum):
@@ -45,9 +44,9 @@ class EnvironmentInfo:
 
     environment: Environment
     cli_type: CLIType
-    cli_path: Optional[Path]
+    cli_path: Path | None
     has_problem: bool
-    problem_description: Optional[str]
+    problem_description: str | None
 
 
 class CLIDetector:
@@ -98,7 +97,7 @@ class CLIDetector:
             problem_description=problem_description,
         )
 
-    def get_linux_cli_path(self) -> Optional[Path]:
+    def get_linux_cli_path(self) -> Path | None:
         """
         Get explicit path to Linux Azure CLI if installed.
 
@@ -143,8 +142,7 @@ class CLIDetector:
             # Check for WSL2 indicators
             if self._is_wsl2():
                 return Environment.WSL2
-            else:
-                return Environment.LINUX_NATIVE
+            return Environment.LINUX_NATIVE
 
         # Darwin (macOS), FreeBSD, etc.
         return Environment.UNKNOWN
@@ -176,7 +174,7 @@ class CLIDetector:
 
         return False
 
-    def _detect_cli(self) -> tuple[CLIType, Optional[Path]]:
+    def _detect_cli(self) -> tuple[CLIType, Path | None]:
         """Detect Azure CLI type and path."""
         az_path = shutil.which("az")
 
@@ -209,4 +207,4 @@ class CLIDetector:
         return False
 
 
-__all__ = ["Environment", "CLIType", "EnvironmentInfo", "CLIDetector"]
+__all__ = ["CLIDetector", "CLIType", "Environment", "EnvironmentInfo"]

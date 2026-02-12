@@ -78,10 +78,9 @@ def pack_document(input_dir, output_file, validate=False):
                     zf.write(f, f.relative_to(temp_content_dir))
 
         # Validate if requested
-        if validate:
-            if not validate_document(output_file):
-                output_file.unlink()  # Delete the corrupt file
-                return False
+        if validate and not validate_document(output_file):
+            output_file.unlink()  # Delete the corrupt file
+            return False
 
     return True
 

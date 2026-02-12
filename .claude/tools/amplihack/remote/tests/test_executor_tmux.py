@@ -4,6 +4,8 @@ import os
 import unittest
 from unittest.mock import Mock, patch
 
+import pytest
+
 from ..errors import ExecutionError
 from ..executor import Executor
 from ..orchestrator import VM
@@ -32,20 +34,20 @@ class TestExecutorTmux(unittest.TestCase):
             session_id=self.test_session_id, command=self.test_command, prompt=self.test_prompt
         )
 
-        self.assertTrue(result)
+        assert result
         mock_run.assert_called_once()
         call_args = mock_run.call_args[0][0]
-        self.assertEqual(call_args[0], "azlin")
-        self.assertEqual(call_args[1], "connect")
-        self.assertEqual(call_args[2], "test-vm")
+        assert call_args[0] == "azlin"
+        assert call_args[1] == "connect"
+        assert call_args[2] == "test-vm"
 
         # Verify tmux commands in script
         script = call_args[3]
-        self.assertIn("tmux new-session -d -s test-session-123", script)
-        self.assertIn("tmux send-keys -t test-session-123", script)
-        self.assertIn("amplihack claude --auto --max-turns 10", script)
+        assert "tmux new-session -d -s test-session-123" in script
+        assert "tmux send-keys -t test-session-123" in script
+        assert "amplihack claude --auto --max-turns 10" in script
         # Prompt is base64 encoded for security
-        self.assertIn("Rml4IHRoZSBidWcgaW4gbWFpbi5weQ==", script)
+        assert "Rml4IHRoZSBidWcgaW4gbWFpbi5weQ==" in script
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key-123"})
     @patch("subprocess.run")
@@ -61,7 +63,7 @@ class TestExecutorTmux(unittest.TestCase):
         )
 
         script = mock_run.call_args[0][0][3]
-        self.assertIn("--ultrathink --max-turns 20", script)
+        assert "--ultrathink --max-turns 20" in script
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key-123"})
     @patch("subprocess.run")
@@ -78,17 +80,17 @@ class TestExecutorTmux(unittest.TestCase):
 
         script = mock_run.call_args[0][0][3]
         # API key is base64 encoded for security
-        self.assertIn("Y3VzdG9tLWtleQ==", script)
+        assert "Y3VzdG9tLWtleQ==" in script
 
     @patch.dict(os.environ, {}, clear=True)
     def test_execute_remote_tmux_no_api_key(self):
         """Test error when API key not provided."""
-        with self.assertRaises(ExecutionError) as ctx:
+        with pytest.raises(ExecutionError) as ctx:
             self.executor.execute_remote_tmux(
                 session_id=self.test_session_id, command=self.test_command, prompt=self.test_prompt
             )
 
-        self.assertIn("ANTHROPIC_API_KEY not found", str(ctx.exception))
+        assert "ANTHROPIC_API_KEY not found" in str(ctx.value)
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})  # pragma: allowlist secret
     def test_execute_remote_tmux_invalid_session_id(self):
@@ -102,11 +104,11 @@ class TestExecutorTmux(unittest.TestCase):
         ]
 
         for invalid_id in invalid_ids:
-            with self.assertRaises(ExecutionError) as ctx:
+            with pytest.raises(ExecutionError) as ctx:
                 self.executor.execute_remote_tmux(
                     session_id=invalid_id, command=self.test_command, prompt=self.test_prompt
                 )
-            self.assertIn("Invalid session_id", str(ctx.exception))
+            assert "Invalid session_id" in str(ctx.value)
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
     def test_execute_remote_tmux_valid_session_ids(self):
@@ -126,7 +128,7 @@ class TestExecutorTmux(unittest.TestCase):
                 result = self.executor.execute_remote_tmux(
                     session_id=valid_id, command=self.test_command, prompt=self.test_prompt
                 )
-                self.assertTrue(result)
+                assert result
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
     @patch("subprocess.run")
@@ -134,13 +136,13 @@ class TestExecutorTmux(unittest.TestCase):
         """Test error when tmux setup fails."""
         mock_run.return_value = Mock(returncode=1, stdout="", stderr="tmux: command not found\n")
 
-        with self.assertRaises(ExecutionError) as ctx:
+        with pytest.raises(ExecutionError) as ctx:
             self.executor.execute_remote_tmux(
                 session_id=self.test_session_id, command=self.test_command, prompt=self.test_prompt
             )
 
-        self.assertIn("Failed to start tmux session", str(ctx.exception))
-        self.assertIn("tmux: command not found", str(ctx.exception))
+        assert "Failed to start tmux session" in str(ctx.value)
+        assert "tmux: command not found" in str(ctx.value)
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
     @patch("subprocess.run")
@@ -150,12 +152,12 @@ class TestExecutorTmux(unittest.TestCase):
 
         mock_run.side_effect = subprocess.TimeoutExpired("azlin connect", 600)
 
-        with self.assertRaises(ExecutionError) as ctx:
+        with pytest.raises(ExecutionError) as ctx:
             self.executor.execute_remote_tmux(
                 session_id=self.test_session_id, command=self.test_command, prompt=self.test_prompt
             )
 
-        self.assertIn("Tmux session setup timed out", str(ctx.exception))
+        assert "Tmux session setup timed out" in str(ctx.value)
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
     @patch("subprocess.run")
@@ -171,8 +173,8 @@ class TestExecutorTmux(unittest.TestCase):
         script = mock_run.call_args[0][0][3]
         # Prompt is base64 encoded, so special characters don't need escaping
         # Base64 encoding of: Fix the 'bug' with `command` and $variable
-        self.assertIn(
-            "Rml4IHRoZSAnYnVnJyB3aXRoIGBjb21tYW5kYCBhbmQgJHZhcmlhYmxl", script
+        assert (
+            "Rml4IHRoZSAnYnVnJyB3aXRoIGBjb21tYW5kYCBhbmQgJHZhcmlhYmxl" in script
         )  # pragma: allowlist secret
 
     @patch("subprocess.run")
@@ -182,10 +184,10 @@ class TestExecutorTmux(unittest.TestCase):
 
         status = self.executor.check_tmux_status(self.test_session_id)
 
-        self.assertEqual(status, "running")
+        assert status == "running"
         mock_run.assert_called_once()
         call_args = mock_run.call_args[0][0]
-        self.assertIn("tmux has-session -t test-session-123", call_args[3])
+        assert "tmux has-session -t test-session-123" in call_args[3]
 
     @patch("subprocess.run")
     def test_check_tmux_status_completed(self, mock_run):
@@ -194,7 +196,7 @@ class TestExecutorTmux(unittest.TestCase):
 
         status = self.executor.check_tmux_status(self.test_session_id)
 
-        self.assertEqual(status, "completed")
+        assert status == "completed"
 
     @patch("subprocess.run")
     def test_check_tmux_status_unexpected_output(self, mock_run):
@@ -204,16 +206,16 @@ class TestExecutorTmux(unittest.TestCase):
         status = self.executor.check_tmux_status(self.test_session_id)
 
         # Unexpected output should be treated as completed
-        self.assertEqual(status, "completed")
+        assert status == "completed"
 
     def test_check_tmux_status_invalid_session_id(self):
         """Test error with invalid session ID in status check."""
         invalid_ids = ["", "session with spaces", "session/path", "session;cmd"]
 
         for invalid_id in invalid_ids:
-            with self.assertRaises(ExecutionError) as ctx:
+            with pytest.raises(ExecutionError) as ctx:
                 self.executor.check_tmux_status(invalid_id)
-            self.assertIn("Invalid session_id", str(ctx.exception))
+            assert "Invalid session_id" in str(ctx.value)
 
     @patch("subprocess.run")
     def test_check_tmux_status_timeout(self, mock_run):
@@ -222,21 +224,21 @@ class TestExecutorTmux(unittest.TestCase):
 
         mock_run.side_effect = subprocess.TimeoutExpired("azlin connect", 30)
 
-        with self.assertRaises(ExecutionError) as ctx:
+        with pytest.raises(ExecutionError) as ctx:
             self.executor.check_tmux_status(self.test_session_id)
 
-        self.assertIn("Tmux status check timed out", str(ctx.exception))
+        assert "Tmux status check timed out" in str(ctx.value)
 
     @patch("subprocess.run")
     def test_check_tmux_status_connection_error(self, mock_run):
         """Test error during status check connection."""
         mock_run.side_effect = Exception("Connection failed")
 
-        with self.assertRaises(ExecutionError) as ctx:
+        with pytest.raises(ExecutionError) as ctx:
             self.executor.check_tmux_status(self.test_session_id)
 
-        self.assertIn("Failed to check tmux status", str(ctx.exception))
-        self.assertIn("Connection failed", str(ctx.exception))
+        assert "Failed to check tmux status" in str(ctx.value)
+        assert "Connection failed" in str(ctx.value)
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
     @patch("subprocess.run")
@@ -249,8 +251,8 @@ class TestExecutorTmux(unittest.TestCase):
         )
 
         script = mock_run.call_args[0][0][3]
-        self.assertIn("if ! command -v tmux", script)
-        self.assertIn("sudo apt-get install -y -qq tmux", script)
+        assert "if ! command -v tmux" in script
+        assert "sudo apt-get install -y -qq tmux" in script
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
     @patch("subprocess.run")
@@ -264,12 +266,12 @@ class TestExecutorTmux(unittest.TestCase):
 
         script = mock_run.call_args[0][0][3]
         # Verify workspace setup
-        self.assertIn("mkdir -p ~/workspace", script)
-        self.assertIn("git clone ~/repo.bundle", script)
-        self.assertIn("cp -r ~/.claude .", script)
+        assert "mkdir -p ~/workspace" in script
+        assert "git clone ~/repo.bundle" in script
+        assert "cp -r ~/.claude ." in script
         # Verify venv setup
-        self.assertIn("python3.11 -m venv ~/.amplihack-venv", script)
-        self.assertIn("pip install . --quiet", script)
+        assert "python3.11 -m venv ~/.amplihack-venv" in script
+        assert "pip install . --quiet" in script
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
     @patch("subprocess.run")
@@ -283,9 +285,9 @@ class TestExecutorTmux(unittest.TestCase):
 
         script = mock_run.call_args[0][0][3]
         # Verify tmux sends environment variables
-        self.assertIn("tmux send-keys -t test-session-123", script)
-        self.assertIn("source ~/.amplihack-venv/bin/activate", script)
-        self.assertIn("export ANTHROPIC_API_KEY=", script)
+        assert "tmux send-keys -t test-session-123" in script
+        assert "source ~/.amplihack-venv/bin/activate" in script
+        assert "export ANTHROPIC_API_KEY=" in script
 
 
 class TestExecutorTmuxIntegration(unittest.TestCase):
@@ -307,20 +309,20 @@ class TestExecutorTmuxIntegration(unittest.TestCase):
         started = self.executor.execute_remote_tmux(
             session_id=session_id, command="auto", prompt="Test task"
         )
-        self.assertTrue(started)
+        assert started
 
         # Second call: check status (running)
         mock_run.return_value = Mock(returncode=0, stdout="running\n", stderr="")
         status = self.executor.check_tmux_status(session_id)
-        self.assertEqual(status, "running")
+        assert status == "running"
 
         # Third call: check status (completed)
         mock_run.return_value = Mock(returncode=0, stdout="completed\n", stderr="")
         status = self.executor.check_tmux_status(session_id)
-        self.assertEqual(status, "completed")
+        assert status == "completed"
 
         # Verify all calls were made
-        self.assertEqual(mock_run.call_count, 3)
+        assert mock_run.call_count == 3
 
 
 if __name__ == "__main__":
