@@ -84,20 +84,19 @@ class BastionDetector:
         return "Azure operation failed"
 
     @staticmethod
-    def _check_azure_cli_responsive(timeout: int = 30) -> bool:
+    def _check_azure_cli_responsive(timeout: int = 60) -> bool:
         """Check if Azure CLI is responsive before making actual calls.
 
         Pre-flight check to avoid hanging on slow Azure CLI responses.
         Uses a fast command (az account show) to test responsiveness.
 
-        Timeout increased to 30s based on empirical evidence:
-        - WSL/Windows environments measure 8.3s for Azure CLI operations
-        - 3x safety margin accounts for slower environments
-        - Historical pattern: PR #575 used same timeout for similar operations
-        - Aligns with PR #557 pattern (other Azure CLI timeouts set to 30s)
+        Timeout increased to 60s for WSL2 + Linux CLI (Issue #608):
+        - WSL2 with Linux CLI can be slower than Windows CLI
+        - Linux CLI startup in WSL2 measured up to 40s in some cases
+        - 60s provides adequate margin for slow environments
 
         Args:
-            timeout: Maximum seconds to wait for response (default: 30s for WSL compatibility)
+            timeout: Maximum seconds to wait for response (default: 60s for WSL2 compatibility)
 
         Returns:
             True if Azure CLI responds within timeout, False otherwise
@@ -265,8 +264,9 @@ class BastionDetector:
             return cached
 
         # Pre-flight check: verify Azure CLI is responsive
-        # Timeout increased to 30s for WSL compatibility (measured 8.3s actual execution time)
-        if not cls._check_azure_cli_responsive(timeout=30):
+        # Timeout increased to 60s for WSL2 + Linux CLI (Issue #608)
+        # WSL2 with Linux CLI can be slower than Windows CLI
+        if not cls._check_azure_cli_responsive(timeout=60):
             logger.warning("Azure CLI not responsive, skipping Bastion detection")
             return []
 
@@ -276,14 +276,15 @@ class BastionDetector:
             if resource_group:
                 cmd.extend(["--resource-group", resource_group])
 
-            # Timeout set to 30s for WSL compatibility (measured 8.3s execution time)
-            # Increased from 10s per Issue #576 - WSL environments need longer timeouts
+            # Timeout set to 60s for WSL2 + Linux CLI (Issue #608)
+            # WSL2 with Linux CLI needs more time than Windows CLI
+            # Increased from 30s to accommodate slower Linux CLI startup
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=30,
+                timeout=60,
             )
 
             bastions = json.loads(result.stdout)
@@ -296,7 +297,7 @@ class BastionDetector:
 
         except subprocess.TimeoutExpired:
             # Graceful degradation: return empty list instead of raising
-            logger.warning("Bastion detection timed out after 30 seconds, skipping auto-detection")
+            logger.warning("Bastion detection timed out after 60 seconds, skipping auto-detection")
             return []
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr)
