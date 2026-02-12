@@ -210,6 +210,10 @@ class CLIInstaller:
 
             if linux_cli:
                 print("✓ Installation successful!")
+
+                # Auto-login using tenant from Windows CLI if available
+                self._auto_login_with_tenant(linux_cli)
+
                 return InstallResult(
                     status=InstallStatus.SUCCESS,
                     cli_path=linux_cli,
@@ -226,6 +230,42 @@ class CLIInstaller:
                 cli_path=None,
                 error_message=f"Error verifying installation: {e!s}",
             )
+
+
+    def _auto_login_with_tenant(self, linux_cli_path: Path) -> None:
+        """Auto-login to Linux CLI using tenant from Windows CLI.
+
+        If Windows CLI is authenticated, extracts tenant ID and uses it
+        to streamline Linux CLI authentication.
+
+        Args:
+            linux_cli_path: Path to newly installed Linux CLI
+        """
+        print("\nChecking for existing Azure authentication...")
+
+        try:
+            # Try to get tenant from Windows CLI
+            result = subprocess.run(
+                ["az", "account", "show", "--query", "tenantId", "-o", "tsv"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                tenant_id = result.stdout.strip()
+                print(f"✓ Found tenant ID from Windows CLI: {tenant_id}")
+                print(f"\nTo authenticate Linux CLI with same tenant, run:")
+                print(f"  {linux_cli_path} login --tenant {tenant_id}")
+                print(f"\nOr run: {linux_cli_path} login (for interactive login)")
+            else:
+                print(f"\nTo authenticate Linux CLI, run:")
+                print(f"  {linux_cli_path} login")
+
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            # Windows CLI not available or not authenticated - just show basic login command
+            print(f"\nTo authenticate Linux CLI, run:")
+            print(f"  {linux_cli_path} login")
 
 
 __all__ = ["CLIInstaller", "InstallResult", "InstallStatus"]
