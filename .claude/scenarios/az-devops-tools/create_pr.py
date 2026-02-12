@@ -123,10 +123,10 @@ def create_pull_request(
         cmd.extend(["--description", description])
 
     if reviewers:
-        cmd.extend(["--reviewers"] + reviewers)
+        cmd.extend(["--reviewers", *reviewers])
 
     if work_items:
-        cmd.extend(["--work-items"] + work_items)
+        cmd.extend(["--work-items", *work_items])
 
     if draft:
         cmd.append("--draft")

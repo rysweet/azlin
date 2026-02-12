@@ -161,9 +161,9 @@ class TranscriptManager:
             try:
                 content = transcript_file.read_text()
                 if "**Messages**:" in content:
-                    line = [
+                    line = next(
                         msg_line for msg_line in content.split("\n") if "**Messages**:" in msg_line
-                    ][0]
+                    )
                     summary.message_count = int(line.split(":")[-1].strip())
             except (ValueError, IndexError, OSError):
                 pass

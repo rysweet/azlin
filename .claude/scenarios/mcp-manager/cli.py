@@ -66,7 +66,7 @@ def format_table(headers: list[str], rows: list[list[str]]) -> str:
         data_lines.append("|" + "|".join(cells) + "|")
 
     # Assemble table
-    return "\n".join([separator, header_line, separator] + data_lines + [separator])
+    return "\n".join([separator, header_line, separator, *data_lines, separator])
 
 
 def cmd_list(args: argparse.Namespace) -> int:

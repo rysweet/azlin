@@ -197,7 +197,7 @@ class ContextExtractor:
                 # Tool name might be in parent context
                 pass
 
-        return sorted(list(tools))
+        return sorted(tools)
 
     def create_snapshot(self, context: dict[str, Any], name: str | None = None) -> Path:
         """Create a named context snapshot.

@@ -228,7 +228,7 @@ class TestDebuggerMapping:
     """Test debugger recommendations for detected languages."""
 
     @pytest.mark.parametrize(
-        "language,expected_debugger",
+        ("language", "expected_debugger"),
         [
             ("python", "debugpy"),
             ("javascript", "node"),

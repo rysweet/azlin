@@ -70,10 +70,10 @@ class TestPowerSteeringChecker(unittest.TestCase):
         """Test PowerSteeringChecker initialization."""
         checker = PowerSteeringChecker(self.project_root)
 
-        self.assertEqual(checker.project_root, self.project_root)
-        self.assertTrue(checker.runtime_dir.exists())
-        self.assertIsInstance(checker.config, dict)
-        self.assertTrue(checker.config.get("enabled"))
+        assert checker.project_root == self.project_root
+        assert checker.runtime_dir.exists()
+        assert isinstance(checker.config, dict)
+        assert checker.config.get("enabled")
 
     def test_config_loading_with_defaults(self):
         """Test config loading with missing file uses defaults."""
@@ -86,8 +86,8 @@ class TestPowerSteeringChecker(unittest.TestCase):
         checker = PowerSteeringChecker(self.project_root)
 
         # Should use defaults (enabled by default per user requirement)
-        self.assertTrue(checker.config.get("enabled"))  # Default is enabled
-        self.assertEqual(checker.config.get("phase"), 1)
+        assert checker.config.get("enabled")  # Default is enabled
+        assert checker.config.get("phase") == 1
 
     def test_is_disabled_by_config(self):
         """Test _is_disabled checks config file."""
@@ -100,7 +100,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
         config_path.write_text(json.dumps(config))
 
         checker = PowerSteeringChecker(self.project_root)
-        self.assertTrue(checker._is_disabled())
+        assert checker._is_disabled()
 
     def test_is_disabled_by_semaphore(self):
         """Test _is_disabled checks semaphore file."""
@@ -110,7 +110,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
         disabled_file = checker.runtime_dir / ".disabled"
         disabled_file.touch()
 
-        self.assertTrue(checker._is_disabled())
+        assert checker._is_disabled()
 
     def test_is_disabled_by_env_var(self):
         """Test _is_disabled checks environment variable."""
@@ -120,7 +120,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
 
         try:
             checker = PowerSteeringChecker(self.project_root)
-            self.assertTrue(checker._is_disabled())
+            assert checker._is_disabled()
         finally:
             del os.environ["AMPLIHACK_SKIP_POWER_STEERING"]
 
@@ -130,13 +130,13 @@ class TestPowerSteeringChecker(unittest.TestCase):
         session_id = "test_session_123"
 
         # Initially not marked complete
-        self.assertFalse(checker._already_ran(session_id))
+        assert not checker._already_ran(session_id)
 
         # Mark complete
         checker._mark_complete(session_id)
 
         # Now should be marked complete
-        self.assertTrue(checker._already_ran(session_id))
+        assert checker._already_ran(session_id)
 
     def test_qa_session_detection_no_tools(self):
         """Test Q&A session detection with no tool uses."""
@@ -152,7 +152,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
             {"type": "assistant", "message": {"content": [{"type": "text", "text": "You can..."}]}},
         ]
 
-        self.assertTrue(checker._is_qa_session(transcript))
+        assert checker._is_qa_session(transcript)
 
     def test_qa_session_detection_with_tools(self):
         """Test Q&A session detection with multiple tool uses."""
@@ -180,7 +180,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
             },
         ]
 
-        self.assertFalse(checker._is_qa_session(transcript))
+        assert not checker._is_qa_session(transcript)
 
     def test_check_todos_complete_no_todos(self):
         """Test _check_todos_complete with no TodoWrite calls."""
@@ -192,7 +192,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
         ]
 
         result = checker._check_todos_complete(transcript, "test_session")
-        self.assertTrue(result)  # No todos = satisfied
+        assert result  # No todos = satisfied
 
     def test_check_todos_complete_all_completed(self):
         """Test _check_todos_complete with all todos completed."""
@@ -227,7 +227,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
         ]
 
         result = checker._check_todos_complete(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
     def test_check_todos_complete_pending(self):
         """Test _check_todos_complete with pending todos."""
@@ -262,7 +262,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
         ]
 
         result = checker._check_todos_complete(transcript, "test_session")
-        self.assertFalse(result)  # Has pending todo
+        assert not result  # Has pending todo
 
     def test_check_philosophy_compliance_clean_code(self):
         """Test _check_philosophy_compliance with clean code."""
@@ -287,7 +287,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
         ]
 
         result = checker._check_philosophy_compliance(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
     def test_check_philosophy_compliance_with_todo(self):
         """Test _check_philosophy_compliance with TODO in code."""
@@ -312,7 +312,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
         ]
 
         result = checker._check_philosophy_compliance(transcript, "test_session")
-        self.assertFalse(result)  # Has TODO
+        assert not result  # Has TODO
 
     def test_check_local_testing_no_tests(self):
         """Test _check_local_testing with no test execution."""
@@ -324,7 +324,7 @@ class TestPowerSteeringChecker(unittest.TestCase):
         ]
 
         result = checker._check_local_testing(transcript, "test_session")
-        self.assertFalse(result)  # No tests run
+        assert not result  # No tests run
 
     def test_continuation_prompt_generation(self):
         """Test _generate_continuation_prompt with transcript containing incomplete todos."""
@@ -371,9 +371,9 @@ class TestPowerSteeringChecker(unittest.TestCase):
 
         prompt = checker._generate_continuation_prompt(analysis, transcript)
 
-        self.assertIn("incomplete", prompt.lower())
-        self.assertIn("TODO", prompt)
-        self.assertIn("Fix the bug", prompt)  # Should show specific incomplete item
+        assert "incomplete" in prompt.lower()
+        assert "TODO" in prompt
+        assert "Fix the bug" in prompt  # Should show specific incomplete item
 
     def test_summary_generation(self):
         """Test _generate_summary."""
@@ -385,8 +385,8 @@ class TestPowerSteeringChecker(unittest.TestCase):
 
         summary = checker._generate_summary(transcript, analysis, session_id)
 
-        self.assertIn(session_id, summary)
-        self.assertIn("complete", summary.lower())
+        assert session_id in summary
+        assert "complete" in summary.lower()
 
     def test_check_with_disabled(self):
         """Test check() when power-steering is disabled."""
@@ -406,8 +406,8 @@ class TestPowerSteeringChecker(unittest.TestCase):
 
         result = checker.check(transcript_path, "test_session")
 
-        self.assertEqual(result.decision, "approve")
-        self.assertIn("disabled", result.reasons)
+        assert result.decision == "approve"
+        assert "disabled" in result.reasons
 
     def test_check_with_already_ran(self):
         """Test check() when already ran for session."""
@@ -423,8 +423,8 @@ class TestPowerSteeringChecker(unittest.TestCase):
 
         result = checker.check(transcript_path, session_id)
 
-        self.assertEqual(result.decision, "approve")
-        self.assertIn("already_ran", result.reasons)
+        assert result.decision == "approve"
+        assert "already_ran" in result.reasons
 
     def test_fail_open_on_error(self):
         """Test that errors result in fail-open approval."""
@@ -436,8 +436,8 @@ class TestPowerSteeringChecker(unittest.TestCase):
         result = checker.check(transcript_path, "test_session")
 
         # Should approve on error (fail-open)
-        self.assertEqual(result.decision, "approve")
-        self.assertIn("error", result.reasons[0].lower())
+        assert result.decision == "approve"
+        assert "error" in result.reasons[0].lower()
 
     def test_format_results_text_all_checks_skipped(self):
         """Test Issue #1744 Fix #1: Message when all checks skipped.
@@ -457,22 +457,14 @@ class TestPowerSteeringChecker(unittest.TestCase):
         results_text = checker._format_results_text(analysis, "INFORMATIONAL")
 
         # Verify correct message
-        self.assertIn(
-            "NO CHECKS APPLICABLE",
-            results_text,
-            'Should say "NO CHECKS APPLICABLE" not "ALL CHECKS PASSED"',
+        assert "NO CHECKS APPLICABLE" in results_text, (
+            'Should say "NO CHECKS APPLICABLE" not "ALL CHECKS PASSED"'
         )
-        self.assertNotIn(
-            "ALL CHECKS PASSED",
-            results_text,
-            'Should NOT say "ALL CHECKS PASSED" when all skipped',
+        assert "ALL CHECKS PASSED" not in results_text, (
+            'Should NOT say "ALL CHECKS PASSED" when all skipped'
         )
         # Should show "22 skipped"
-        self.assertIn(
-            "22 skipped",
-            results_text,
-            "Should show count of skipped checks",
-        )
+        assert "22 skipped" in results_text, "Should show count of skipped checks"
 
     def test_format_results_text_some_checks_passed(self):
         """Test Issue #1744 Fix #1: Message when some checks passed.
@@ -511,22 +503,12 @@ class TestPowerSteeringChecker(unittest.TestCase):
         results_text = checker._format_results_text(analysis, "DEVELOPMENT")
 
         # Verify correct message
-        self.assertIn(
-            "ALL CHECKS PASSED",
-            results_text,
-            'Should say "ALL CHECKS PASSED" when some checks passed and none failed',
+        assert "ALL CHECKS PASSED" in results_text, (
+            'Should say "ALL CHECKS PASSED" when some checks passed and none failed'
         )
         # Should show "2 passed, 1 skipped"
-        self.assertIn(
-            "2 passed",
-            results_text,
-            "Should show count of passed checks",
-        )
-        self.assertIn(
-            "1 skipped",
-            results_text,
-            "Should show count of skipped checks",
-        )
+        assert "2 passed" in results_text, "Should show count of passed checks"
+        assert "1 skipped" in results_text, "Should show count of skipped checks"
 
     def test_check_integration_no_applicable_checks(self):
         """Integration test for Issue #1744 Fix #2: Complete check() behavior with no applicable checks.
@@ -556,7 +538,7 @@ class TestConsiderationAnalysis(unittest.TestCase):
     def test_has_blockers_empty(self):
         """Test has_blockers with no results."""
         analysis = ConsiderationAnalysis()
-        self.assertFalse(analysis.has_blockers)
+        assert not analysis.has_blockers
 
     def test_has_blockers_with_blocker(self):
         """Test has_blockers with blocker result."""
@@ -566,8 +548,8 @@ class TestConsiderationAnalysis(unittest.TestCase):
         )
         analysis.add_result(result)
 
-        self.assertTrue(analysis.has_blockers)
-        self.assertEqual(len(analysis.failed_blockers), 1)
+        assert analysis.has_blockers
+        assert len(analysis.failed_blockers) == 1
 
     def test_has_blockers_warning_only(self):
         """Test has_blockers with only warnings."""
@@ -577,8 +559,8 @@ class TestConsiderationAnalysis(unittest.TestCase):
         )
         analysis.add_result(result)
 
-        self.assertFalse(analysis.has_blockers)
-        self.assertEqual(len(analysis.failed_warnings), 1)
+        assert not analysis.has_blockers
+        assert len(analysis.failed_warnings) == 1
 
     def test_group_by_category(self):
         """Test group_by_category."""
@@ -600,7 +582,7 @@ class TestConsiderationAnalysis(unittest.TestCase):
         grouped = analysis.group_by_category()
 
         # Should have categories
-        self.assertGreater(len(grouped), 0)
+        assert len(grouped) > 0
 
 
 if __name__ == "__main__":

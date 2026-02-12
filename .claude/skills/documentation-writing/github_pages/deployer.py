@@ -9,6 +9,7 @@ Philosophy:
 - Clear error messages for common issues
 """
 
+import contextlib
 import shutil
 import subprocess
 import tempfile
@@ -188,10 +189,8 @@ def deploy_site(config: DeploymentConfig) -> DeploymentResult:
             errors.append(f"Git operation failed: {error_msg}")
 
             # Try to rollback to original branch
-            try:
+            with contextlib.suppress(Exception):
                 _switch_branch(repo_path, original_branch)
-            except Exception:
-                pass
 
             return DeploymentResult(
                 success=False,
@@ -297,7 +296,7 @@ def _run_git_command(
     Returns:
         CompletedProcess result
     """
-    cmd = ["git"] + args
+    cmd = ["git", *args]
 
     result = subprocess.run(
         cmd,

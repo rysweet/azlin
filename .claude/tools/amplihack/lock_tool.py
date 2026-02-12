@@ -34,7 +34,7 @@ LOCK_FILE = LOCK_DIR / ".lock_active"
 MESSAGE_FILE = LOCK_DIR / ".lock_message"
 
 
-def create_lock(message: str = None) -> int:
+def create_lock(message: str | None = None) -> int:
     """Create lock to enable continuous work mode."""
     try:
         # Create locks directory

@@ -95,7 +95,7 @@ def recalc(filename, timeout=30):
                 pass
 
         if timeout_cmd:
-            cmd = [timeout_cmd, str(timeout)] + cmd
+            cmd = [timeout_cmd, str(timeout), *cmd]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
 

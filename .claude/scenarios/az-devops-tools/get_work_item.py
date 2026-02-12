@@ -202,10 +202,7 @@ def format_detailed(work_item: dict[str, Any]) -> str:
 
     for key, value in sorted(fields.items()):
         # Handle complex values
-        if isinstance(value, dict):
-            value_str = value.get("displayName", str(value))
-        else:
-            value_str = str(value)
+        value_str = value.get("displayName", str(value)) if isinstance(value, dict) else str(value)
 
         # Truncate very long values
         if len(value_str) > 100:

@@ -66,8 +66,8 @@ class TestYAMLLoading(unittest.TestCase):
         checker = PowerSteeringChecker(self.project_root)
 
         # Should load YAML successfully
-        self.assertEqual(len(checker.considerations), 1)
-        self.assertEqual(checker.considerations[0]["id"], "test_consideration")
+        assert len(checker.considerations) == 1
+        assert checker.considerations[0]["id"] == "test_consideration"
 
     def test_yaml_loading_missing_file(self):
         """Test YAML loading falls back to package default when file missing.
@@ -81,8 +81,8 @@ class TestYAMLLoading(unittest.TestCase):
 
         # Should fall back to package default YAML (22 considerations)
         # The fallback mechanism loads considerations.yaml from the package directory
-        self.assertGreaterEqual(len(checker.considerations), 5)  # At least Phase 1
-        self.assertEqual(checker.considerations[0]["id"], "todos_complete")
+        assert len(checker.considerations) >= 5  # At least Phase 1
+        assert checker.considerations[0]["id"] == "todos_complete"
 
     def test_yaml_loading_invalid_format(self):
         """Test YAML loading with invalid format."""
@@ -96,7 +96,7 @@ invalid_format: not_a_list
         checker = PowerSteeringChecker(self.project_root)
 
         # Should fall back to Phase 1
-        self.assertEqual(len(checker.considerations), 5)
+        assert len(checker.considerations) == 5
 
     def test_yaml_loading_malformed(self):
         """Test YAML loading with malformed syntax."""
@@ -112,7 +112,7 @@ invalid_format: not_a_list
         checker = PowerSteeringChecker(self.project_root)
 
         # Should fall back to Phase 1 on parse error
-        self.assertEqual(len(checker.considerations), 5)
+        assert len(checker.considerations) == 5
 
     def test_yaml_loading_partial_valid(self):
         """Test YAML loading with mix of valid and invalid considerations."""
@@ -136,8 +136,8 @@ invalid_format: not_a_list
         checker = PowerSteeringChecker(self.project_root)
 
         # Should load only valid consideration
-        self.assertEqual(len(checker.considerations), 1)
-        self.assertEqual(checker.considerations[0]["id"], "valid_consideration")
+        assert len(checker.considerations) == 1
+        assert checker.considerations[0]["id"] == "valid_consideration"
 
 
 class TestYAMLValidation(unittest.TestCase):
@@ -177,7 +177,7 @@ class TestYAMLValidation(unittest.TestCase):
         }
 
         result = self.checker._validate_consideration_schema(consideration)
-        self.assertTrue(result)
+        assert result
 
     def test_validate_consideration_missing_fields(self):
         """Test validation with missing required fields."""
@@ -187,7 +187,7 @@ class TestYAMLValidation(unittest.TestCase):
         }
 
         result = self.checker._validate_consideration_schema(consideration)
-        self.assertFalse(result)
+        assert not result
 
     def test_validate_consideration_invalid_severity(self):
         """Test validation with invalid severity."""
@@ -202,7 +202,7 @@ class TestYAMLValidation(unittest.TestCase):
         }
 
         result = self.checker._validate_consideration_schema(consideration)
-        self.assertFalse(result)
+        assert not result
 
     def test_validate_consideration_invalid_enabled(self):
         """Test validation with invalid enabled type."""
@@ -217,12 +217,12 @@ class TestYAMLValidation(unittest.TestCase):
         }
 
         result = self.checker._validate_consideration_schema(consideration)
-        self.assertFalse(result)
+        assert not result
 
     def test_validate_consideration_not_dict(self):
         """Test validation with non-dictionary input."""
         result = self.checker._validate_consideration_schema("not a dict")
-        self.assertFalse(result)
+        assert not result
 
 
 class TestGenericAnalyzer(unittest.TestCase):
@@ -265,7 +265,7 @@ class TestGenericAnalyzer(unittest.TestCase):
 
         # Generic analyzer should default to satisfied (fail-open)
         result = self.checker._generic_analyzer(transcript, "test_session", consideration)
-        self.assertTrue(result)
+        assert result
 
     def test_generic_analyzer_with_keywords(self):
         """Test generic analyzer extracts keywords from question."""
@@ -286,7 +286,7 @@ class TestGenericAnalyzer(unittest.TestCase):
         # Should extract "security" and "scan" as keywords
         result = self.checker._generic_analyzer(transcript, "test_session", consideration)
         # Phase 2: Always satisfied (fail-open)
-        self.assertTrue(result)
+        assert result
 
     def test_generic_analyzer_empty_question(self):
         """Test generic analyzer with empty question."""
@@ -294,7 +294,7 @@ class TestGenericAnalyzer(unittest.TestCase):
         consideration = {"id": "empty", "question": "", "category": "Test", "severity": "warning"}
 
         result = self.checker._generic_analyzer(transcript, "test_session", consideration)
-        self.assertTrue(result)  # Should default to satisfied
+        assert result  # Should default to satisfied
 
 
 class TestNewCheckers(unittest.TestCase):
@@ -336,7 +336,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_agent_unnecessary_questions(transcript, "test_session")
-        self.assertFalse(result)  # Too many questions
+        assert not result  # Too many questions
 
         # Transcript with few questions
         transcript_good = [
@@ -344,7 +344,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_agent_unnecessary_questions(transcript_good, "test_session")
-        self.assertTrue(result)
+        assert result
 
     def test_check_objective_completion(self):
         """Test _check_objective_completion."""
@@ -358,7 +358,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_objective_completion(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # Transcript without completion
         transcript_incomplete = [
@@ -370,7 +370,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_objective_completion(transcript_incomplete, "test_session")
-        self.assertFalse(result)
+        assert not result
 
     def test_check_documentation_updates(self):
         """Test _check_documentation_updates."""
@@ -396,7 +396,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_documentation_updates(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # Code changes without doc updates
         transcript_no_docs = [
@@ -415,7 +415,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_documentation_updates(transcript_no_docs, "test_session")
-        self.assertFalse(result)
+        assert not result
 
     def test_check_tutorial_needed(self):
         """Test _check_tutorial_needed."""
@@ -437,7 +437,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_tutorial_needed(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # New feature without tutorial
         transcript_no_tutorial = [
@@ -457,14 +457,14 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_tutorial_needed(transcript_no_tutorial, "test_session")
-        self.assertFalse(result)
+        assert not result
 
     def test_check_presentation_needed(self):
         """Test _check_presentation_needed."""
         # Always returns True (low priority check)
         transcript = []
         result = self.checker._check_presentation_needed(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
     def test_check_next_steps(self):
         """Test _check_next_steps.
@@ -484,7 +484,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_next_steps(transcript, "test_session")
-        self.assertFalse(result)  # FALSE = work incomplete, has next steps
+        assert not result  # FALSE = work incomplete, has next steps
 
         # Transcript without next steps - should return TRUE (complete)
         transcript_no_steps = [
@@ -492,7 +492,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_next_steps(transcript_no_steps, "test_session")
-        self.assertTrue(result)  # TRUE = work complete, no next steps
+        assert result  # TRUE = work complete, no next steps
 
     def test_check_docs_organization(self):
         """Test _check_docs_organization."""
@@ -516,7 +516,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_docs_organization(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # Docs in wrong location
         transcript_wrong = [
@@ -538,7 +538,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_docs_organization(transcript_wrong, "test_session")
-        self.assertFalse(result)
+        assert not result
 
     def test_check_investigation_docs(self):
         """Test _check_investigation_docs."""
@@ -560,7 +560,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_investigation_docs(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # Investigation without documentation
         transcript_no_docs = [
@@ -572,7 +572,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_investigation_docs(transcript_no_docs, "test_session")
-        self.assertFalse(result)
+        assert not result
 
     def test_check_shortcuts(self):
         """Test _check_shortcuts."""
@@ -596,7 +596,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_shortcuts(transcript, "test_session")
-        self.assertFalse(result)
+        assert not result
 
         # Clean code
         transcript_clean = [
@@ -618,7 +618,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_shortcuts(transcript_clean, "test_session")
-        self.assertTrue(result)
+        assert result
 
     def test_check_interactive_testing(self):
         """Test _check_interactive_testing."""
@@ -631,7 +631,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_interactive_testing(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # Only automated tests
         transcript_automated = [
@@ -642,7 +642,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_interactive_testing(transcript_automated, "test_session")
-        self.assertFalse(result)  # Not enough tests
+        assert not result  # Not enough tests
 
     def test_check_unrelated_changes(self):
         """Test _check_unrelated_changes."""
@@ -664,7 +664,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_unrelated_changes(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # Many files modified (scope creep)
         transcript_many = [
@@ -688,7 +688,7 @@ class TestNewCheckers(unittest.TestCase):
             )
 
         result = self.checker._check_unrelated_changes(transcript_many, "test_session")
-        self.assertFalse(result)
+        assert not result
 
     def test_check_root_pollution(self):
         """Test _check_root_pollution."""
@@ -709,7 +709,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_root_pollution(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # Unacceptable root file
         transcript_pollution = [
@@ -728,7 +728,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_root_pollution(transcript_pollution, "test_session")
-        self.assertFalse(result)
+        assert not result
 
     def test_check_pr_description(self):
         """Test _check_pr_description."""
@@ -751,7 +751,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_pr_description(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # PR with poor description
         transcript_bad = [
@@ -770,7 +770,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_pr_description(transcript_bad, "test_session")
-        self.assertFalse(result)
+        assert not result
 
     def test_check_review_responses(self):
         """Test _check_review_responses."""
@@ -784,7 +784,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_review_responses(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # Review feedback not addressed
         transcript_not_addressed = [
@@ -796,7 +796,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_review_responses(transcript_not_addressed, "test_session")
-        self.assertFalse(result)
+        assert not result
 
     def test_check_branch_rebase(self):
         """Test _check_branch_rebase."""
@@ -806,7 +806,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_branch_rebase(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # Branch behind
         transcript_behind = [
@@ -817,7 +817,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_branch_rebase(transcript_behind, "test_session")
-        self.assertFalse(result)
+        assert not result
 
     def test_check_ci_precommit_mismatch(self):
         """Test _check_ci_precommit_mismatch."""
@@ -828,7 +828,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_ci_precommit_mismatch(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
         # Mismatch detected
         transcript_mismatch = [
@@ -837,7 +837,7 @@ class TestNewCheckers(unittest.TestCase):
         ]
 
         result = self.checker._check_ci_precommit_mismatch(transcript_mismatch, "test_session")
-        self.assertFalse(result)
+        assert not result
 
 
 class TestUserCustomization(unittest.TestCase):
@@ -880,8 +880,8 @@ class TestUserCustomization(unittest.TestCase):
         checker = PowerSteeringChecker(self.project_root)
 
         # Should load custom consideration
-        self.assertEqual(len(checker.considerations), 1)
-        self.assertEqual(checker.considerations[0]["id"], "custom_security_check")
+        assert len(checker.considerations) == 1
+        assert checker.considerations[0]["id"] == "custom_security_check"
 
     def test_consideration_disabled(self):
         """Test disabled considerations are not checked."""
@@ -933,8 +933,8 @@ class TestUserCustomization(unittest.TestCase):
         analysis = checker._analyze_considerations(transcript, "test_session")
 
         # Only enabled consideration should be in results
-        self.assertIn("enabled_check", analysis.results)
-        self.assertNotIn("disabled_check", analysis.results)
+        assert "enabled_check" in analysis.results
+        assert "disabled_check" not in analysis.results
 
     def test_custom_consideration_with_generic_checker(self):
         """Test custom considerations work with generic checker.
@@ -986,9 +986,9 @@ class TestUserCustomization(unittest.TestCase):
             analysis = checker._analyze_considerations(transcript, "test_session")
 
         # Should have result for custom check
-        self.assertIn("custom_check", analysis.results)
+        assert "custom_check" in analysis.results
         # Generic analyzer defaults to satisfied (fail-open) when SDK unavailable
-        self.assertTrue(analysis.results["custom_check"].satisfied)
+        assert analysis.results["custom_check"].satisfied
 
 
 class TestBackwardCompatibility(unittest.TestCase):
@@ -1035,7 +1035,7 @@ class TestBackwardCompatibility(unittest.TestCase):
         checker = PowerSteeringChecker(self.project_root)
 
         # Should have at least Phase 1 considerations (could be more from package YAML)
-        self.assertGreaterEqual(len(checker.considerations), 5)
+        assert len(checker.considerations) >= 5
 
         # Test a Phase 1 checker still works
         transcript = [
@@ -1063,7 +1063,7 @@ class TestBackwardCompatibility(unittest.TestCase):
         ]
 
         result = checker._check_todos_complete(transcript, "test_session")
-        self.assertTrue(result)
+        assert result
 
     def test_config_checkers_enabled_respected(self):
         """Test Phase 1 config checkers_enabled still works."""
@@ -1081,7 +1081,7 @@ class TestBackwardCompatibility(unittest.TestCase):
         analysis = checker._analyze_considerations(transcript, "test_session")
 
         # todos_complete should not be in results (disabled in config)
-        self.assertNotIn("todos_complete", analysis.results)
+        assert "todos_complete" not in analysis.results
 
 
 class TestSDKFirstRefactoring(unittest.TestCase):
@@ -1153,7 +1153,7 @@ class TestSDKFirstRefactoring(unittest.TestCase):
 
             # SDK MUST be called even for "generic" checker
             mock_sdk.assert_called_once()
-            self.assertTrue(result.satisfied)
+            assert result.satisfied
 
     def test_sdk_used_for_generic_checkers(self):
         """Test that SDK is used even when checker='generic'.
@@ -1237,7 +1237,7 @@ class TestSDKFirstRefactoring(unittest.TestCase):
 
                 # Heuristic should be called when SDK unavailable
                 mock_heuristic.assert_called_once()
-                self.assertTrue(result.satisfied)
+                assert result.satisfied
 
     def test_fallback_to_heuristics_when_sdk_fails(self):
         """Test that heuristics are used when SDK call raises exception.
@@ -1283,7 +1283,7 @@ class TestSDKFirstRefactoring(unittest.TestCase):
 
                 # Heuristic should be called as fallback after SDK failure
                 mock_heuristic.assert_called_once()
-                self.assertTrue(result.satisfied)
+                assert result.satisfied
 
     def test_fail_open_on_complete_failure(self):
         """Test that system fails open when both SDK and heuristics fail.
@@ -1329,8 +1329,8 @@ class TestSDKFirstRefactoring(unittest.TestCase):
                 )
 
                 # Must fail-open: satisfied=True even though everything failed
-                self.assertTrue(result.satisfied)
-                self.assertIn("fail-open", result.reason.lower())
+                assert result.satisfied
+                assert "fail-open" in result.reason.lower()
 
     def test_sdk_first_for_specific_checkers(self):
         """Test that SDK is used first for specific _check_* methods.
@@ -1379,7 +1379,7 @@ class TestSDKFirstRefactoring(unittest.TestCase):
                 mock_heuristic.assert_not_called()
 
                 # Result should use SDK result, not heuristic
-                self.assertTrue(result.satisfied)
+                assert result.satisfied
 
 
 if __name__ == "__main__":

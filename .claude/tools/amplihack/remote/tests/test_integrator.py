@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 from ..errors import IntegrationError
 from ..integrator import BranchInfo, IntegrationSummary, Integrator
 
@@ -51,17 +53,17 @@ class TestIntegrator(unittest.TestCase):
     def test_integrator_initialization(self):
         """Test Integrator initialization."""
         integrator = Integrator(self.repo_path)
-        self.assertEqual(integrator.repo_path, self.repo_path)
+        assert integrator.repo_path == self.repo_path
 
     def test_initialization_non_git_repo_fails(self):
         """Test that initialization fails for non-git directory."""
         non_git_dir = self.temp_dir / "not_git"
         non_git_dir.mkdir()
 
-        with self.assertRaises(IntegrationError) as ctx:
+        with pytest.raises(IntegrationError) as ctx:
             Integrator(non_git_dir)
 
-        self.assertIn("not a git repository", str(ctx.exception).lower())
+        assert "not a git repository" in str(ctx.value).lower()
 
     def test_import_branches(self):
         """Test importing branches from bundle."""
@@ -100,9 +102,9 @@ class TestIntegrator(unittest.TestCase):
         integrator = Integrator(self.repo_path)
         branches = integrator._import_branches(bundle_dir)
 
-        self.assertGreater(len(branches), 0)
+        assert len(branches) > 0
         branch_names = [b.name for b in branches]
-        self.assertIn("feature", branch_names)
+        assert "feature" in branch_names
 
     def test_copy_logs(self):
         """Test copying logs from results."""
@@ -118,12 +120,12 @@ class TestIntegrator(unittest.TestCase):
         integrator = Integrator(self.repo_path)
         success = integrator._copy_logs(results_dir)
 
-        self.assertTrue(success)
+        assert success
 
         # Verify logs were copied
         dest_log = self.repo_path / ".claude" / "runtime" / "logs" / "remote" / "test.log"
-        self.assertTrue(dest_log.exists())
-        self.assertEqual(dest_log.read_text(), "test log content")
+        assert dest_log.exists()
+        assert dest_log.read_text() == "test log content"
 
     def test_copy_logs_no_logs_directory(self):
         """Test copying logs when no logs exist."""
@@ -133,7 +135,7 @@ class TestIntegrator(unittest.TestCase):
         integrator = Integrator(self.repo_path)
         success = integrator._copy_logs(results_dir)
 
-        self.assertFalse(success)
+        assert not success
 
     def test_detect_conflicts_none(self):
         """Test conflict detection when no conflicts."""
@@ -142,14 +144,14 @@ class TestIntegrator(unittest.TestCase):
         integrator = Integrator(self.repo_path)
         conflicts = integrator._detect_conflicts(branches)
 
-        self.assertEqual(len(conflicts), 0)
+        assert len(conflicts) == 0
 
     def test_list_local_branches(self):
         """Test listing local branches."""
         integrator = Integrator(self.repo_path)
         branches = integrator._list_local_branches()
 
-        self.assertIn("main", branches)
+        assert "main" in branches
 
     def test_create_summary_report(self):
         """Test creating summary report."""
@@ -164,10 +166,10 @@ class TestIntegrator(unittest.TestCase):
         integrator = Integrator(self.repo_path)
         report = integrator.create_summary_report(summary)
 
-        self.assertIn("Remote Execution Results", report)
-        self.assertIn("feature", report)
-        self.assertIn("5", report)
-        self.assertIn("10", report)
+        assert "Remote Execution Results" in report
+        assert "feature" in report
+        assert "5" in report
+        assert "10" in report
 
     def test_create_summary_report_with_conflicts(self):
         """Test summary report with conflicts."""
@@ -183,9 +185,9 @@ class TestIntegrator(unittest.TestCase):
         integrator = Integrator(self.repo_path)
         report = integrator.create_summary_report(summary)
 
-        self.assertIn("WARNING", report)
-        self.assertIn("Conflicts detected", report)
-        self.assertIn("diverged", report)
+        assert "WARNING" in report
+        assert "Conflicts detected" in report
+        assert "diverged" in report
 
     def test_count_files_changed(self):
         """Test counting files changed."""
@@ -227,7 +229,7 @@ class TestIntegrator(unittest.TestCase):
         files_changed = integrator._count_files_changed(branches)
 
         # Should count the 2 new files
-        self.assertGreaterEqual(files_changed, 0)  # May vary based on git state
+        assert files_changed >= 0  # May vary based on git state
 
 
 class TestBranchInfo(unittest.TestCase):
@@ -237,9 +239,9 @@ class TestBranchInfo(unittest.TestCase):
         """Test creating BranchInfo."""
         branch = BranchInfo(name="feature", commit="abc123", is_new=True)
 
-        self.assertEqual(branch.name, "feature")
-        self.assertEqual(branch.commit, "abc123")
-        self.assertTrue(branch.is_new)
+        assert branch.name == "feature"
+        assert branch.commit == "abc123"
+        assert branch.is_new
 
 
 class TestIntegrationSummary(unittest.TestCase):
@@ -251,9 +253,9 @@ class TestIntegrationSummary(unittest.TestCase):
             branches=[], commits_count=0, files_changed=0, logs_copied=False, has_conflicts=False
         )
 
-        self.assertEqual(len(summary.branches), 0)
-        self.assertEqual(summary.commits_count, 0)
-        self.assertFalse(summary.has_conflicts)
+        assert len(summary.branches) == 0
+        assert summary.commits_count == 0
+        assert not summary.has_conflicts
 
 
 if __name__ == "__main__":

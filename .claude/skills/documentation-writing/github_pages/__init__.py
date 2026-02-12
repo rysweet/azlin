@@ -152,17 +152,17 @@ from .generator import generate_site, preview_locally  # noqa: E402
 from .validator import validate_site  # noqa: E402
 
 __all__ = [
-    # Configuration classes
-    "SiteConfig",
     "DeploymentConfig",
+    "DeploymentResult",
     # Result classes
     "GenerationResult",
-    "ValidationResult",
+    # Configuration classes
+    "SiteConfig",
     "ValidationIssue",
-    "DeploymentResult",
+    "ValidationResult",
+    "deploy_site",
     # Main functions
     "generate_site",
-    "validate_site",
-    "deploy_site",
     "preview_locally",
+    "validate_site",
 ]

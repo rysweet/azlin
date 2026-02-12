@@ -23,7 +23,7 @@ WORKFLOW_LOG_FILE = Path(".claude/runtime/logs/workflow_adherence/workflow_execu
 DEFAULT_OUTPUT = Path(".claude/runtime/logs/workflow_adherence/WORKFLOW_ADHERENCE_REPORT.md")
 
 
-def read_log_entries(limit: int = None) -> list[dict[str, Any]]:
+def read_log_entries(limit: int | None = None) -> list[dict[str, Any]]:
     """Read and parse JSONL log file."""
     if not WORKFLOW_LOG_FILE.exists():
         return []

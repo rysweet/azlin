@@ -112,7 +112,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "DEVELOPMENT")
+        assert session_type == "DEVELOPMENT"
 
     def test_detect_informational_session_qa_only(self):
         """INFORMATIONAL: Q&A with no tool usage."""
@@ -150,7 +150,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INFORMATIONAL")
+        assert session_type == "INFORMATIONAL"
 
     def test_detect_maintenance_session_docs_and_config(self):
         """MAINTENANCE: Documentation and configuration updates only."""
@@ -182,7 +182,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "MAINTENANCE")
+        assert session_type == "MAINTENANCE"
 
     def test_detect_investigation_session_read_only(self):
         """INVESTIGATION: Read-only exploration with analysis."""
@@ -233,7 +233,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_detect_development_session_without_pr(self):
         """DEVELOPMENT: Code changes and tests but no PR yet."""
@@ -269,7 +269,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "DEVELOPMENT")
+        assert session_type == "DEVELOPMENT"
 
     def test_detect_informational_session_with_read_tools(self):
         """INFORMATIONAL: Q&A with Read tools but no modifications."""
@@ -300,7 +300,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INFORMATIONAL")
+        assert session_type == "INFORMATIONAL"
 
     # ========================================================================
     # Selective Consideration Application Tests
@@ -332,7 +332,7 @@ class TestSessionClassification(unittest.TestCase):
         result = self.checker.check(transcript_path, "test_session")
 
         # Should approve without checking PR considerations
-        self.assertEqual(result.decision, "approve")
+        assert result.decision == "approve"
 
         # Verify PR checks were not applied
         analysis = self.checker._analyze_considerations(transcript, "test_session")
@@ -346,7 +346,7 @@ class TestSessionClassification(unittest.TestCase):
         for check_id in pr_checks:
             if check_id in analysis.results:
                 # If checked, should be satisfied (not blocking)
-                self.assertTrue(analysis.results[check_id].satisfied)
+                assert analysis.results[check_id].satisfied
 
     def test_informational_session_skips_ci_checks(self):
         """INFORMATIONAL: Should skip CI/CD considerations."""
@@ -373,14 +373,14 @@ class TestSessionClassification(unittest.TestCase):
         result = self.checker.check(transcript_path, "test_session")
 
         # Should approve without CI checks
-        self.assertEqual(result.decision, "approve")
+        assert result.decision == "approve"
 
         analysis = self.checker._analyze_considerations(transcript, "test_session")
         ci_checks = ["ci_status", "branch_rebase", "ci_precommit_mismatch"]
 
         for check_id in ci_checks:
             if check_id in analysis.results:
-                self.assertTrue(analysis.results[check_id].satisfied)
+                assert analysis.results[check_id].satisfied
 
     def test_informational_session_skips_testing_checks(self):
         """INFORMATIONAL: Should skip testing considerations."""
@@ -405,14 +405,14 @@ class TestSessionClassification(unittest.TestCase):
                 f.write(json.dumps(msg) + "\n")
 
         result = self.checker.check(transcript_path, "test_session")
-        self.assertEqual(result.decision, "approve")
+        assert result.decision == "approve"
 
         analysis = self.checker._analyze_considerations(transcript, "test_session")
         test_checks = ["local_testing", "interactive_testing"]
 
         for check_id in test_checks:
             if check_id in analysis.results:
-                self.assertTrue(analysis.results[check_id].satisfied)
+                assert analysis.results[check_id].satisfied
 
     def test_development_session_applies_all_checks(self):
         """DEVELOPMENT: Should apply full workflow checks."""
@@ -459,8 +459,8 @@ class TestSessionClassification(unittest.TestCase):
         result = self.checker.check(transcript_path, "test_session")
 
         # Should block because TODOs incomplete and tests missing
-        self.assertEqual(result.decision, "block")
-        self.assertIn("todos_complete", result.reasons)
+        assert result.decision == "block"
+        assert "todos_complete" in result.reasons
 
     def test_maintenance_session_applies_minimal_checks(self):
         """MAINTENANCE: Should apply documentation and organization checks only."""
@@ -487,7 +487,7 @@ class TestSessionClassification(unittest.TestCase):
         result = self.checker.check(transcript_path, "test_session")
 
         # Should approve (documentation updated, minimal checks)
-        self.assertEqual(result.decision, "approve")
+        assert result.decision == "approve"
 
     def test_investigation_session_applies_documentation_checks(self):
         """INVESTIGATION: Should require investigation docs but skip workflow."""
@@ -528,7 +528,7 @@ class TestSessionClassification(unittest.TestCase):
         analysis = self.checker._analyze_considerations(transcript, "test_session")
         if "investigation_docs" in analysis.results:
             # This check should be applied for INVESTIGATION sessions
-            self.assertIsNotNone(analysis.results["investigation_docs"])
+            assert analysis.results["investigation_docs"] is not None
 
     # ========================================================================
     # Edge Cases and Boundary Tests
@@ -564,14 +564,14 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "DEVELOPMENT")
+        assert session_type == "DEVELOPMENT"
 
     def test_empty_transcript_defaults_to_informational(self):
         """Empty transcript should default to INFORMATIONAL (fail-open)."""
         transcript = []
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INFORMATIONAL")
+        assert session_type == "INFORMATIONAL"
 
     def test_single_read_tool_is_informational(self):
         """Single Read tool with no follow-up is INFORMATIONAL."""
@@ -591,7 +591,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INFORMATIONAL")
+        assert session_type == "INFORMATIONAL"
 
     def test_multiple_reads_with_analysis_is_investigation(self):
         """Multiple Read/Grep tools with analysis is INVESTIGATION."""
@@ -627,7 +627,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_git_commit_cleanup_is_maintenance(self):
         """Git commits for cleanup without code changes is MAINTENANCE."""
@@ -651,7 +651,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "MAINTENANCE")
+        assert session_type == "MAINTENANCE"
 
     # ========================================================================
     # Environment Override Tests
@@ -681,7 +681,7 @@ class TestSessionClassification(unittest.TestCase):
 
         try:
             session_type = self.checker.detect_session_type(transcript)
-            self.assertEqual(session_type, "INFORMATIONAL")
+            assert session_type == "INFORMATIONAL"
         finally:
             del os.environ["AMPLIHACK_SESSION_TYPE"]
 
@@ -701,7 +701,7 @@ class TestSessionClassification(unittest.TestCase):
         try:
             session_type = self.checker.detect_session_type(transcript)
             # Should fall back to detection
-            self.assertEqual(session_type, "INFORMATIONAL")
+            assert session_type == "INFORMATIONAL"
         finally:
             del os.environ["AMPLIHACK_SESSION_TYPE"]
 
@@ -725,7 +725,7 @@ class TestSessionClassification(unittest.TestCase):
 
         # Should not crash if detect_session_type doesn't exist
         result = self.checker.check(transcript_path, "test_session")
-        self.assertIn(result.decision, ["approve", "block"])
+        assert result.decision in ["approve", "block"]
 
     def test_existing_qa_detection_still_works(self):
         """Existing _is_qa_session method should still function."""
@@ -745,7 +745,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         is_qa = self.checker._is_qa_session(transcript)
-        self.assertTrue(is_qa)
+        assert is_qa
 
     # ========================================================================
     # Session Type Heuristics Tests
@@ -769,7 +769,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "DEVELOPMENT")
+        assert session_type == "DEVELOPMENT"
 
     def test_maintenance_indicators_doc_files_only(self):
         """Only .md and .txt modifications indicate MAINTENANCE."""
@@ -789,7 +789,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "MAINTENANCE")
+        assert session_type == "MAINTENANCE"
 
     def test_investigation_indicators_grep_patterns(self):
         """Multiple Grep/search operations indicate INVESTIGATION."""
@@ -813,7 +813,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_informational_indicators_question_marks(self):
         """High question density indicates INFORMATIONAL.
@@ -844,7 +844,7 @@ class TestSessionClassification(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INFORMATIONAL")
+        assert session_type == "INFORMATIONAL"
 
 
 class TestConsiderationMapping(unittest.TestCase):
@@ -880,10 +880,10 @@ class TestConsiderationMapping(unittest.TestCase):
 
         # Should include all categories
         consideration_ids = {c["id"] for c in applicable}
-        self.assertIn("todos_complete", consideration_ids)
-        self.assertIn("ci_status", consideration_ids)
-        self.assertIn("local_testing", consideration_ids)
-        self.assertIn("pr_description", consideration_ids)
+        assert "todos_complete" in consideration_ids
+        assert "ci_status" in consideration_ids
+        assert "local_testing" in consideration_ids
+        assert "pr_description" in consideration_ids
 
     def test_get_applicable_considerations_for_informational(self):
         """INFORMATIONAL sessions should get minimal considerations."""
@@ -891,12 +891,12 @@ class TestConsiderationMapping(unittest.TestCase):
 
         # Should NOT include PR/CI/testing checks
         consideration_ids = {c["id"] for c in applicable}
-        self.assertNotIn("ci_status", consideration_ids)
-        self.assertNotIn("local_testing", consideration_ids)
-        self.assertNotIn("pr_description", consideration_ids)
+        assert "ci_status" not in consideration_ids
+        assert "local_testing" not in consideration_ids
+        assert "pr_description" not in consideration_ids
 
         # Should include completion checks
-        self.assertIn("objective_completion", consideration_ids)
+        assert "objective_completion" in consideration_ids
 
     def test_get_applicable_considerations_for_maintenance(self):
         """MAINTENANCE sessions should get doc and organization checks."""
@@ -905,12 +905,12 @@ class TestConsiderationMapping(unittest.TestCase):
         consideration_ids = {c["id"] for c in applicable}
 
         # Should include doc checks
-        self.assertIn("documentation_updates", consideration_ids)
-        self.assertIn("docs_organization", consideration_ids)
+        assert "documentation_updates" in consideration_ids
+        assert "docs_organization" in consideration_ids
 
         # Should NOT include testing/CI
-        self.assertNotIn("local_testing", consideration_ids)
-        self.assertNotIn("ci_status", consideration_ids)
+        assert "local_testing" not in consideration_ids
+        assert "ci_status" not in consideration_ids
 
     def test_get_applicable_considerations_for_investigation(self):
         """INVESTIGATION sessions should get investigation docs check."""
@@ -919,11 +919,11 @@ class TestConsiderationMapping(unittest.TestCase):
         consideration_ids = {c["id"] for c in applicable}
 
         # Should require investigation docs
-        self.assertIn("investigation_docs", consideration_ids)
+        assert "investigation_docs" in consideration_ids
 
         # Should NOT include workflow checks
-        self.assertNotIn("dev_workflow_complete", consideration_ids)
-        self.assertNotIn("ci_status", consideration_ids)
+        assert "dev_workflow_complete" not in consideration_ids
+        assert "ci_status" not in consideration_ids
 
 
 class TestPerformance(unittest.TestCase):
@@ -1007,12 +1007,10 @@ class TestPerformance(unittest.TestCase):
         elapsed_ms = (time.time() - start_time) * 1000
 
         # Verify it completed in under 500ms
-        self.assertLess(
-            elapsed_ms, 500, f"Classification took {elapsed_ms:.2f}ms, should be < 500ms"
-        )
+        assert elapsed_ms < 500, f"Classification took {elapsed_ms:.2f}ms, should be < 500ms"
 
         # Verify correct classification
-        self.assertEqual(session_type, "DEVELOPMENT")
+        assert session_type == "DEVELOPMENT"
 
     def test_classification_performance_large_transcript(self):
         """Classification should handle large transcripts efficiently."""
@@ -1050,10 +1048,8 @@ class TestPerformance(unittest.TestCase):
         elapsed_ms = (time.time() - start_time) * 1000
 
         # Should still complete in reasonable time (under 1 second for large transcript)
-        self.assertLess(
-            elapsed_ms,
-            1000,
-            f"Large transcript classification took {elapsed_ms:.2f}ms, should be < 1000ms",
+        assert elapsed_ms < 1000, (
+            f"Large transcript classification took {elapsed_ms:.2f}ms, should be < 1000ms"
         )
 
 
@@ -1111,7 +1107,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_troubleshoot_keyword_triggers_investigation(self):
         """'Troubleshoot' keyword should classify as INVESTIGATION."""
@@ -1135,7 +1131,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_diagnose_keyword_triggers_investigation(self):
         """'Diagnose' keyword should classify as INVESTIGATION."""
@@ -1159,7 +1155,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_debug_keyword_triggers_investigation(self):
         """'Debug' keyword should classify as INVESTIGATION."""
@@ -1183,7 +1179,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_figure_out_phrase_triggers_investigation(self):
         """'Figure out' phrase should classify as INVESTIGATION."""
@@ -1195,7 +1191,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_why_does_phrase_triggers_investigation(self):
         """'Why does' phrase should classify as INVESTIGATION."""
@@ -1207,7 +1203,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_root_cause_phrase_triggers_investigation(self):
         """'Root cause' phrase should classify as INVESTIGATION."""
@@ -1219,7 +1215,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_keyword_takes_priority_over_doc_updates(self):
         """Investigation keyword should take priority even with doc updates.
@@ -1259,10 +1255,8 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(
-            session_type,
-            "INVESTIGATION",
-            "Troubleshooting session with doc updates should still be INVESTIGATION",
+        assert session_type == "INVESTIGATION", (
+            "Troubleshooting session with doc updates should still be INVESTIGATION"
         )
 
     def test_keyword_takes_priority_over_git_operations(self):
@@ -1299,10 +1293,8 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(
-            session_type,
-            "INVESTIGATION",
-            "Investigation session with git commit should still be INVESTIGATION",
+        assert session_type == "INVESTIGATION", (
+            "Investigation session with git commit should still be INVESTIGATION"
         )
 
     def test_keyword_detection_case_insensitive(self):
@@ -1315,7 +1307,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_has_investigation_keywords_helper(self):
         """Test the _has_investigation_keywords helper method directly."""
@@ -1326,7 +1318,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
                 "message": {"content": "Investigate the issue"},
             },
         ]
-        self.assertTrue(self.checker._has_investigation_keywords(transcript_with_keyword))
+        assert self.checker._has_investigation_keywords(transcript_with_keyword)
 
         # Without keyword
         transcript_without_keyword = [
@@ -1335,7 +1327,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
                 "message": {"content": "Add a new feature"},
             },
         ]
-        self.assertFalse(self.checker._has_investigation_keywords(transcript_without_keyword))
+        assert not self.checker._has_investigation_keywords(transcript_without_keyword)
 
     def test_keyword_detection_checks_first_5_messages(self):
         """Keyword detection should only check first 5 user messages."""
@@ -1353,7 +1345,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         transcript[5]["message"]["content"] = "Investigate the issue"
 
         # Should NOT detect as investigation because keyword is in 6th message
-        self.assertFalse(self.checker._has_investigation_keywords(transcript))
+        assert not self.checker._has_investigation_keywords(transcript)
 
     def test_analyze_keyword_triggers_investigation(self):
         """'Analyze' keyword should classify as INVESTIGATION."""
@@ -1365,7 +1357,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_research_keyword_triggers_investigation(self):
         """'Research' keyword should classify as INVESTIGATION."""
@@ -1377,7 +1369,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_explore_keyword_triggers_investigation(self):
         """'Explore' keyword should classify as INVESTIGATION."""
@@ -1389,7 +1381,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_understand_keyword_triggers_investigation(self):
         """'Understand' keyword should classify as INVESTIGATION."""
@@ -1401,7 +1393,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_explain_keyword_triggers_investigation(self):
         """'Explain' keyword should classify as INVESTIGATION."""
@@ -1413,7 +1405,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_how_does_phrase_triggers_investigation(self):
         """'How does X work?' phrase should classify as INVESTIGATION.
@@ -1429,7 +1421,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "INVESTIGATION")
+        assert session_type == "INVESTIGATION"
 
     def test_no_false_positive_for_development_task(self):
         """Development tasks without keywords should still be DEVELOPMENT."""
@@ -1465,7 +1457,7 @@ class TestInvestigationKeywordDetection(unittest.TestCase):
         ]
 
         session_type = self.checker.detect_session_type(transcript)
-        self.assertEqual(session_type, "DEVELOPMENT")
+        assert session_type == "DEVELOPMENT"
 
 
 if __name__ == "__main__":

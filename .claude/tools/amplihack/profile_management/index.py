@@ -16,7 +16,7 @@ class SkillIndexBuilder:
     than recursive filesystem scanning.
     """
 
-    def __init__(self, skills_dir: Path = None):
+    def __init__(self, skills_dir: Path | None = None):
         """Initialize with skills directory.
 
         Args:

@@ -1339,11 +1339,10 @@ class PowerSteeringChecker:
             True if informational indicators present
         """
         # No tool usage or only Read tools with high question density
-        if write_edit_operations == 0:
-            if read_grep_operations <= 1 and question_count > 0:
-                # High question density indicates INFORMATIONAL
-                if user_messages and question_count / len(user_messages) > 0.5:
-                    return True
+        if write_edit_operations == 0 and read_grep_operations <= 1 and question_count > 0:
+            # High question density indicates INFORMATIONAL
+            if user_messages and question_count / len(user_messages) > 0.5:
+                return True
         return False
 
     def _has_maintenance_indicators(
@@ -1870,16 +1869,15 @@ class PowerSteeringChecker:
         """
         texts = []
         for block in blocks:
-            if isinstance(block, dict):
-                if block.get("type") == "text":
-                    texts.append(str(block.get("text", "")))
+            if isinstance(block, dict) and block.get("type") == "text":
+                texts.append(str(block.get("text", "")))
         return " ".join(texts)
 
     def _analyze_considerations(
         self,
         transcript: list[dict],
         session_id: str,
-        session_type: str = None,
+        session_type: str | None = None,
         progress_callback: Callable | None = None,
     ) -> ConsiderationAnalysis:
         """Analyze transcript against all enabled considerations IN PARALLEL.
@@ -1922,7 +1920,7 @@ class PowerSteeringChecker:
             enabled_considerations.append(consideration)
 
         # Emit progress for all categories upfront
-        categories = set(c.get("category", "Unknown") for c in enabled_considerations)
+        categories = {c.get("category", "Unknown") for c in enabled_considerations}
         for category in categories:
             self._emit_progress(
                 progress_callback,

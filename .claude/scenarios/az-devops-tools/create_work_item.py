@@ -140,7 +140,7 @@ def create_work_item(
 
     # Execute creation
     result = wrapper.devops_command(
-        ["work-item", "create"] + command_args,
+        ["work-item", "create", *command_args],
         timeout=30,
     )
 

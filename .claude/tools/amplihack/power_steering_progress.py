@@ -162,11 +162,10 @@ class ProgressTracker:
             # Update counters
             if event_type == "consideration":
                 self.checked_considerations += 1
-            elif event_type == "category":
-                if details and "category" in details:
-                    cat = details["category"]
-                    if cat not in self.categories_processed:
-                        self.categories_processed.append(cat)
+            elif event_type == "category" and details and "category" in details:
+                cat = details["category"]
+                if cat not in self.categories_processed:
+                    self.categories_processed.append(cat)
 
             # Display based on verbosity
             if self.verbosity == VerbosityMode.OFF:

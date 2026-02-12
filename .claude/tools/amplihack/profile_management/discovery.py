@@ -35,7 +35,7 @@ class ComponentDiscovery:
     context files, agents, and skills for profile-based filtering.
     """
 
-    def __init__(self, root_dir: Path = None):
+    def __init__(self, root_dir: Path | None = None):
         """Initialize with amplihack root directory.
 
         Args:

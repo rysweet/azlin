@@ -97,7 +97,7 @@ class BatchProcessor:
             f["id"] for f in self.state["failed"]
         ]
 
-    def mark_processed(self, item_id: str, result: dict = None):
+    def mark_processed(self, item_id: str, result: dict | None = None):
         """Mark item as successfully processed."""
         if item_id not in self.state["processed"]:
             self.state["processed"].append(item_id)

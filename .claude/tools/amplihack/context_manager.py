@@ -391,7 +391,7 @@ class ContextManager:
             tool_name = message.get("tool_name")
             if tool_name:
                 tools.add(tool_name)
-        return sorted(list(tools))
+        return sorted(tools)
 
     def _estimate_tokens(self, context: dict[str, Any]) -> int:
         """Rough token estimation (1 token ≈ 4 characters)."""

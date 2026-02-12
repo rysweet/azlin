@@ -24,7 +24,7 @@ class CodebaseAnalyzer:
         self.skip_patterns = [".git", "__pycache__", "node_modules", ".venv", ".pytest_cache"]
         self.max_file_size = 1024 * 1024  # 1MB
 
-    def analyze(self, target_path: str, options: dict = None) -> dict[str, Any]:
+    def analyze(self, target_path: str, options: dict | None = None) -> dict[str, Any]:
         """
         Perform analysis of target codebase.
 

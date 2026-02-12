@@ -345,9 +345,8 @@ class DeltaAnalyzer:
         """Extract text from content blocks."""
         texts = []
         for block in blocks:
-            if isinstance(block, dict):
-                if block.get("type") == "text":
-                    texts.append(str(block.get("text", "")))
+            if isinstance(block, dict) and block.get("type") == "text":
+                texts.append(str(block.get("text", "")))
         return " ".join(texts)
 
     def _detect_claims(self, text: str) -> list[str]:
@@ -589,20 +588,19 @@ class TurnStateManager:
             previous_state: Previous state for monotonicity check (optional)
         """
         # Phase 2: Monotonicity validation (WARN only, don't block - fail-open)
-        if previous_state is not None:
-            if state.turn_count < previous_state.turn_count:
-                error_msg = (
-                    f"Monotonicity violation: turn_count decreased from "
-                    f"{previous_state.turn_count} to {state.turn_count}"
-                )
-                self.log(f"WARNING: {error_msg} (continuing with fail-open)")
+        if previous_state is not None and state.turn_count < previous_state.turn_count:
+            error_msg = (
+                f"Monotonicity violation: turn_count decreased from "
+                f"{previous_state.turn_count} to {state.turn_count}"
+            )
+            self.log(f"WARNING: {error_msg} (continuing with fail-open)")
 
-                # Log diagnostic event
-                if self._diagnostic_logger:
-                    self._diagnostic_logger.log_monotonicity_violation(
-                        previous_state.turn_count,
-                        state.turn_count,
-                    )
+            # Log diagnostic event
+            if self._diagnostic_logger:
+                self._diagnostic_logger.log_monotonicity_violation(
+                    previous_state.turn_count,
+                    state.turn_count,
+                )
 
                 # CHANGED: Warn but don't raise (fail-open principle)
                 # Continue with save operation

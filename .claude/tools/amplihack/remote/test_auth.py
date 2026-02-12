@@ -33,7 +33,7 @@ def test_credentials_validation():
             client_secret="test",
             subscription_id="test",
         )
-        assert False, "Should have raised ValueError for missing tenant_id"
+        raise AssertionError("Should have raised ValueError for missing tenant_id")
     except ValueError as e:
         assert "tenant_id" in str(e)
 

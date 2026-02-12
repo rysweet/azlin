@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 from ..context_packager import SECRET_PATTERNS, ContextPackager
 from ..errors import PackagingError
 
@@ -65,8 +67,8 @@ class TestContextPackager(unittest.TestCase):
         packager = ContextPackager(self.repo_path)
         secrets = packager.scan_secrets()
 
-        self.assertGreater(len(secrets), 0)
-        self.assertIn("config.py", secrets[0].file_path)
+        assert len(secrets) > 0
+        assert "config.py" in secrets[0].file_path
 
     def test_secret_detection_openai_key(self):
         """Test detection of OpenAI API key."""
@@ -81,7 +83,7 @@ class TestContextPackager(unittest.TestCase):
         packager = ContextPackager(self.repo_path)
         secrets = packager.scan_secrets()
 
-        self.assertGreater(len(secrets), 0)
+        assert len(secrets) > 0
 
     def test_secret_detection_password(self):
         """Test detection of password."""
@@ -96,31 +98,31 @@ class TestContextPackager(unittest.TestCase):
         packager = ContextPackager(self.repo_path)
         secrets = packager.scan_secrets()
 
-        self.assertGreater(len(secrets), 0)
+        assert len(secrets) > 0
 
     def test_no_secrets_clean_repo(self):
         """Test that clean repo has no secrets."""
         packager = ContextPackager(self.repo_path)
         secrets = packager.scan_secrets()
 
-        self.assertEqual(len(secrets), 0)
+        assert len(secrets) == 0
 
     def test_create_bundle(self):
         """Test git bundle creation."""
         with ContextPackager(self.repo_path) as packager:
             bundle_path = packager.create_bundle()
 
-            self.assertTrue(bundle_path.exists())
-            self.assertGreater(bundle_path.stat().st_size, 0)
+            assert bundle_path.exists()
+            assert bundle_path.stat().st_size > 0
 
     def test_package_clean_repo(self):
         """Test packaging clean repository."""
         with ContextPackager(self.repo_path) as packager:
             archive_path = packager.package()
 
-            self.assertTrue(archive_path.exists())
-            self.assertGreater(archive_path.stat().st_size, 0)
-            self.assertTrue(str(archive_path).endswith(".tar.gz"))
+            assert archive_path.exists()
+            assert archive_path.stat().st_size > 0
+            assert str(archive_path).endswith(".tar.gz")
 
     def test_package_with_secrets_fails(self):
         """Test that packaging fails when secrets detected."""
@@ -140,10 +142,10 @@ class TestContextPackager(unittest.TestCase):
         )
 
         with ContextPackager(self.repo_path) as packager:
-            with self.assertRaises(PackagingError) as ctx:
+            with pytest.raises(PackagingError) as ctx:
                 packager.package()
 
-            self.assertIn("secret", str(ctx.exception).lower())
+            assert "secret" in str(ctx.value).lower()
 
     def test_exclusion_patterns(self):
         """Test that excluded files are not scanned."""
@@ -152,7 +154,7 @@ class TestContextPackager(unittest.TestCase):
         env_file.write_text('SECRET_KEY="should-be-excluded"')  # pragma: allowlist secret
 
         packager = ContextPackager(self.repo_path)
-        self.assertTrue(packager._is_excluded(".env"))
+        assert packager._is_excluded(".env")
 
     def test_context_manager_cleanup(self):
         """Test that context manager cleans up temp files."""
@@ -161,10 +163,10 @@ class TestContextPackager(unittest.TestCase):
         with packager:
             _archive_path = packager.package()
             temp_dir = packager.temp_dir
-            self.assertTrue(temp_dir.exists())
+            assert temp_dir.exists()
 
         # After context exit, temp dir should be cleaned up
-        self.assertFalse(temp_dir.exists())
+        assert not temp_dir.exists()
 
     def test_missing_claude_directory_fails(self):
         """Test that packaging fails if .claude directory missing."""
@@ -172,10 +174,10 @@ class TestContextPackager(unittest.TestCase):
         shutil.rmtree(self.repo_path / ".claude")
 
         with ContextPackager(self.repo_path) as packager:
-            with self.assertRaises(PackagingError) as ctx:
+            with pytest.raises(PackagingError) as ctx:
                 packager.package()
 
-            self.assertIn(".claude", str(ctx.exception))
+            assert ".claude" in str(ctx.value)
 
     def test_archive_size_limit(self):
         """Test that oversized archives are rejected."""
@@ -198,11 +200,11 @@ class TestContextPackager(unittest.TestCase):
         # Create packager with tiny size limit (500 bytes)
         packager = ContextPackager(self.repo_path, max_size_mb=0.0005)  # 500 bytes
 
-        with self.assertRaises(PackagingError) as ctx:
+        with pytest.raises(PackagingError) as ctx:
             with packager:
                 packager.package()
 
-        self.assertIn("size", str(ctx.exception).lower())
+        assert "size" in str(ctx.value).lower()
 
 
 class TestSecretPatterns(unittest.TestCase):
@@ -215,12 +217,12 @@ class TestSecretPatterns(unittest.TestCase):
         pattern = SECRET_PATTERNS["anthropic_key"]
 
         # Should match
-        self.assertIsNotNone(
-            re.search(pattern, 'ANTHROPIC_API_KEY = "sk-ant-abc123"')
+        assert (
+            re.search(pattern, 'ANTHROPIC_API_KEY = "sk-ant-abc123"') is not None
         )  # pragma: allowlist secret
 
         # Should not match
-        self.assertIsNone(re.search(pattern, 'SOME_OTHER_KEY = "value"'))
+        assert re.search(pattern, 'SOME_OTHER_KEY = "value"') is None
 
     def test_github_pat_pattern(self):
         """Test GitHub PAT pattern matching."""
@@ -229,10 +231,10 @@ class TestSecretPatterns(unittest.TestCase):
         pattern = SECRET_PATTERNS["github_pat"]
 
         # Should match
-        self.assertIsNotNone(re.search(pattern, 'token = "ghp_' + "a" * 36 + '"'))
+        assert re.search(pattern, 'token = "ghp_' + "a" * 36 + '"') is not None
 
         # Should not match short strings
-        self.assertIsNone(re.search(pattern, "ghp_short"))
+        assert re.search(pattern, "ghp_short") is None
 
 
 if __name__ == "__main__":
