@@ -54,6 +54,13 @@ try:
 except ImportError as e:
     raise ImportError("tomlkit library not available. Install with: pip install tomlkit") from e
 
+# Import CLI detector for Linux CLI path resolution
+try:
+    from azlin.modules.cli_detector import CLIDetector
+except ImportError:
+    # Fallback if cli_detector not available (shouldn't happen but defensive)
+    CLIDetector = None  # type: ignore[misc, assignment]
+
 logger = logging.getLogger(__name__)
 
 # Thread lock for subscription switching to prevent race conditions
@@ -377,6 +384,31 @@ class ContextManager:
     DEFAULT_CONFIG_DIR = Path.home() / ".azlin"
     DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.toml"
 
+    @staticmethod
+    def _get_az_command() -> str:
+        """Get Azure CLI command, preferring Linux version in WSL2.
+
+        Returns:
+            Command to use for Azure CLI operations
+        """
+        if CLIDetector is None:
+            return "az"  # Fallback if detector not available
+
+        try:
+            detector = CLIDetector()
+            env_info = detector.detect()
+
+            # In WSL2, prefer Linux CLI if available
+            if env_info.environment.value == "wsl2":
+                linux_cli = detector.get_linux_cli_path()
+                if linux_cli:
+                    return str(linux_cli)
+
+            return "az"
+        except Exception:
+            # If detection fails, fall back to 'az'
+            return "az"
+
     @classmethod
     def _validate_config_path(cls, path: Path) -> Path:
         """Validate configuration file path for security.
@@ -593,8 +625,10 @@ class ContextManager:
 
                 # Switch Azure CLI subscription to match context
                 # Use capture_output to suppress stderr/stdout
+                # Use explicit Linux CLI path in WSL2 (Issue #608)
+                az_cmd = cls._get_az_command()
                 subprocess.run(
-                    ["az", "account", "set", "--subscription", current_ctx.subscription_id],
+                    [az_cmd, "account", "set", "--subscription", current_ctx.subscription_id],
                     check=True,
                     capture_output=True,
                     timeout=30,  # Increased for WSL compatibility (Issue #580)
