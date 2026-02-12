@@ -128,6 +128,9 @@ class AzlinConfig:
     resource_group_query_timeout: int = 30  # Azure query timeout (seconds)
     resource_group_fallback_to_default: bool = True  # Use default RG on failure
 
+    # Bastion detection settings (Issue #608)
+    bastion_detection_timeout: int = 60  # Timeout for Bastion detection in seconds (WSL2 needs 60s)
+
     def __post_init__(self):
         """Set platform-appropriate default for notification_command if None."""
         if self.notification_command is None:

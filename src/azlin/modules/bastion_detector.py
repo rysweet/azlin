@@ -24,6 +24,13 @@ import subprocess
 import time
 from typing import Any, TypedDict
 
+# Import CLI detector for Linux CLI path resolution (Issue #608)
+try:
+    from azlin.modules.cli_detector import CLIDetector
+except ImportError:
+    # Fallback if cli_detector not available
+    CLIDetector = None  # type: ignore[misc, assignment]
+
 logger = logging.getLogger(__name__)
 
 # Module-level cache for Bastion listings to avoid repeated slow Azure CLI calls
@@ -59,6 +66,31 @@ class BastionDetector:
     """
 
     @staticmethod
+    def _get_az_command() -> str:
+        """Get Azure CLI command, preferring Linux version in WSL2.
+
+        Returns:
+            Command to use for Azure CLI operations
+        """
+        if CLIDetector is None:
+            return "az"  # Fallback if detector not available
+
+        try:
+            detector = CLIDetector()
+            env_info = detector.detect()
+
+            # In WSL2, prefer Linux CLI if available
+            if env_info.environment.value == "wsl2":
+                linux_cli = detector.get_linux_cli_path()
+                if linux_cli:
+                    return str(linux_cli)
+
+            return "az"
+        except Exception:
+            # If detection fails, fall back to 'az'
+            return "az"
+
+    @staticmethod
     def _sanitize_azure_error(stderr: str) -> str:
         """Sanitize Azure CLI error output to prevent information leakage.
 
@@ -83,8 +115,8 @@ class BastionDetector:
         logger.debug(f"Azure CLI error details: {stderr}")
         return "Azure operation failed"
 
-    @staticmethod
-    def _check_azure_cli_responsive(timeout: int = 60) -> bool:
+    @classmethod
+    def _check_azure_cli_responsive(cls, timeout: int = 60) -> bool:
         """Check if Azure CLI is responsive before making actual calls.
 
         Pre-flight check to avoid hanging on slow Azure CLI responses.
@@ -102,8 +134,10 @@ class BastionDetector:
             True if Azure CLI responds within timeout, False otherwise
         """
         try:
+            # Use explicit Linux CLI path in WSL2 (Issue #608)
+            az_cmd = cls._get_az_command()
             result = subprocess.run(
-                ["az", "account", "show", "--output", "json"],
+                [az_cmd, "account", "show", "--output", "json"],
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -241,7 +275,7 @@ class BastionDetector:
             return None
 
     @classmethod
-    def list_bastions(cls, resource_group: str | None = None) -> list[dict[str, Any]]:
+    def list_bastions(cls, resource_group: str | None = None, config_path: str | None = None) -> list[dict[str, Any]]:
         """List Bastion hosts with caching and timeout protection.
 
         First checks cache for recent results (5 min TTL). If cache miss,
@@ -251,6 +285,7 @@ class BastionDetector:
 
         Args:
             resource_group: Resource group to filter (None for all)
+            config_path: Path to config file (for timeout configuration)
 
         Returns:
             List of Bastion host dictionaries (empty list on timeout)
@@ -263,28 +298,38 @@ class BastionDetector:
         if cached is not None:
             return cached
 
+        # Get timeout from config (default: 60s for WSL2 + Linux CLI compatibility)
+        timeout = 60  # Default
+        if config_path:
+            try:
+                from azlin.config_manager import ConfigManager
+                config = ConfigManager.load_config(config_path)
+                timeout = config.bastion_detection_timeout
+            except Exception:
+                # Fallback to default if config load fails
+                pass
+
         # Pre-flight check: verify Azure CLI is responsive
-        # Timeout increased to 60s for WSL2 + Linux CLI (Issue #608)
-        # WSL2 with Linux CLI can be slower than Windows CLI
-        if not cls._check_azure_cli_responsive(timeout=60):
+        # Timeout configurable via config.toml (Issue #608)
+        if not cls._check_azure_cli_responsive(timeout=timeout):
             logger.warning("Azure CLI not responsive, skipping Bastion detection")
             return []
 
         try:
-            cmd = ["az", "network", "bastion", "list", "--output", "json"]
+            # Use explicit Linux CLI path in WSL2 (Issue #608)
+            az_cmd = cls._get_az_command()
+            cmd = [az_cmd, "network", "bastion", "list", "--output", "json"]
 
             if resource_group:
                 cmd.extend(["--resource-group", resource_group])
 
-            # Timeout set to 60s for WSL2 + Linux CLI (Issue #608)
-            # WSL2 with Linux CLI needs more time than Windows CLI
-            # Increased from 30s to accommodate slower Linux CLI startup
+            # Use configured timeout (default 60s for WSL2 + Linux CLI, Issue #608)
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=60,
+                timeout=timeout,
             )
 
             bastions = json.loads(result.stdout)
@@ -297,7 +342,7 @@ class BastionDetector:
 
         except subprocess.TimeoutExpired:
             # Graceful degradation: return empty list instead of raising
-            logger.warning("Bastion detection timed out after 60 seconds, skipping auto-detection")
+            logger.warning(f"Bastion detection timed out after {timeout} seconds, skipping auto-detection")
             return []
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr)
