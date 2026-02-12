@@ -409,7 +409,11 @@ class TestGetLinuxCLIPath:
         """Test get_linux_cli_path returns None when only Windows CLI present."""
         detector = CLIDetector()
 
-        with patch("shutil.which", return_value="/mnt/c/Program Files/Azure/CLI/az.cmd"):
+        with (
+            patch("azlin.modules.cli_detector.shutil.which", return_value="/mnt/c/Program Files/Azure/CLI/az.cmd"),
+            patch("pathlib.Path.exists", return_value=False),
+            patch("pathlib.Path.is_file", return_value=False),
+        ):
             path = detector.get_linux_cli_path()
 
             assert path is None
@@ -418,7 +422,11 @@ class TestGetLinuxCLIPath:
         """Test get_linux_cli_path returns None when CLI not installed."""
         detector = CLIDetector()
 
-        with patch("shutil.which", return_value=None):
+        with (
+            patch("azlin.modules.cli_detector.shutil.which", return_value=None),
+            patch("pathlib.Path.exists", return_value=False),
+            patch("pathlib.Path.is_file", return_value=False),
+        ):
             path = detector.get_linux_cli_path()
 
             assert path is None

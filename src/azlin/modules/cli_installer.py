@@ -231,7 +231,6 @@ class CLIInstaller:
                 error_message=f"Error verifying installation: {e!s}",
             )
 
-
     def _auto_login_with_tenant(self, linux_cli_path: Path) -> None:
         """Auto-login to Linux CLI using tenant from Windows CLI.
 
@@ -255,16 +254,16 @@ class CLIInstaller:
             if result.returncode == 0 and result.stdout.strip():
                 tenant_id = result.stdout.strip()
                 print(f"✓ Found tenant ID from Windows CLI: {tenant_id}")
-                print(f"\nTo authenticate Linux CLI with same tenant, run:")
+                print("\nTo authenticate Linux CLI with same tenant, run:")
                 print(f"  {linux_cli_path} login --tenant {tenant_id}")
                 print(f"\nOr run: {linux_cli_path} login (for interactive login)")
             else:
-                print(f"\nTo authenticate Linux CLI, run:")
+                print("\nTo authenticate Linux CLI, run:")
                 print(f"  {linux_cli_path} login")
 
         except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
             # Windows CLI not available or not authenticated - just show basic login command
-            print(f"\nTo authenticate Linux CLI, run:")
+            print("\nTo authenticate Linux CLI, run:")
             print(f"  {linux_cli_path} login")
 
 

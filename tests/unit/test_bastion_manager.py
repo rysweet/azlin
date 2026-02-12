@@ -116,7 +116,7 @@ class TestBastionManager:
         # Verify az command was called
         mock_subprocess.assert_called_once()
         call_args = mock_subprocess.call_args[0][0]
-        assert "az" in call_args
+        assert call_args[0] == "az" or call_args[0].endswith("/az")
         assert "network" in call_args
         assert "bastion" in call_args
         assert "tunnel" in call_args
