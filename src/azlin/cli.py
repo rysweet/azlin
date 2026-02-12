@@ -135,6 +135,8 @@ from azlin.key_rotator import KeyRotationError, SSHKeyRotator
 from azlin.modules.bastion_detector import BastionDetector, BastionInfo
 from azlin.modules.bastion_manager import BastionManager, BastionManagerError
 from azlin.modules.bastion_provisioner import BastionProvisioner
+from azlin.modules.cli_detector import CLIDetector
+from azlin.modules.cli_installer import CLIInstaller, InstallStatus
 from azlin.modules.cost_estimator import CostEstimator
 from azlin.modules.file_transfer import FileTransfer  # noqa: F401
 from azlin.modules.file_transfer.path_parser import PathParser  # noqa: F401
@@ -2297,6 +2299,37 @@ def select_vm_for_command(vms: list[VMInfo], command: str) -> VMInfo | None:
         return None
 
 
+def _perform_startup_checks() -> None:
+    """Perform Azure CLI environment checks at startup.
+
+    Detects WSL2 + Windows Azure CLI and offers Linux CLI installation.
+    Non-fatal - failures are logged but don't prevent CLI operation.
+    """
+    try:
+        detector = CLIDetector()
+        env_info = detector.detect()
+
+        # If there's a problem, offer installation
+        if env_info.has_problem:
+            logger.info("Azure CLI environment check: %s", env_info.problem_description)
+
+            installer = CLIInstaller()
+            result = installer.install()
+
+            if result.status == InstallStatus.SUCCESS:
+                logger.info("Azure CLI installation successful")
+            elif result.status == InstallStatus.ALREADY_INSTALLED:
+                logger.debug("Linux Azure CLI already installed")
+            elif result.status == InstallStatus.CANCELLED:
+                logger.info("Azure CLI installation skipped")
+            elif result.status == InstallStatus.FAILED and result.error_message:
+                logger.warning("Azure CLI installation failed: %s", result.error_message)
+
+    except Exception as e:
+        # Non-fatal - log and continue
+        logger.debug("Azure CLI environment check failed: %s", e)
+
+
 @click.group(
     cls=AzlinGroup,
     invoke_without_command=True,
@@ -2496,6 +2529,13 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
     """
     # Set up logging
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    # Check Azure CLI environment (WSL2 compatibility)
+    try:
+        _perform_startup_checks()
+    except Exception as e:
+        # Non-fatal - log but continue
+        logger.debug(f"Azure CLI environment check skipped: {e}")
 
     # Check if first-run wizard is needed
     try:

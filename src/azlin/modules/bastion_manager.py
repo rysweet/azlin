@@ -24,7 +24,10 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional
+
+from .cli_detector import CLIDetector
 
 logger = logging.getLogger(__name__)
 
@@ -108,11 +111,35 @@ class BastionManager:
         """Initialize BastionManager.
 
         Sets up active tunnels tracking and cleanup handler.
+        Detects Linux Azure CLI path for WSL2 compatibility.
         """
         self.active_tunnels: list[BastionTunnel] = []
 
+        # Detect Linux CLI path for WSL2 compatibility
+        self._linux_cli_path: Optional[Path] = None
+        try:
+            detector = CLIDetector()
+            self._linux_cli_path = detector.get_linux_cli_path()
+            if self._linux_cli_path:
+                logger.debug(f"Using Linux Azure CLI: {self._linux_cli_path}")
+        except Exception as e:
+            logger.debug(f"CLI detection failed: {e}")
+
         # Register cleanup handler for process exit
         atexit.register(self.close_all_tunnels)
+
+    def _get_cli_command(self) -> str:
+        """Get the Azure CLI command to use.
+
+        Returns explicit Linux CLI path if available (for WSL2 compatibility),
+        otherwise returns "az".
+
+        Returns:
+            CLI command string (path or "az")
+        """
+        if self._linux_cli_path:
+            return str(self._linux_cli_path)
+        return "az"
 
     def __enter__(self) -> "BastionManager":
         """Context manager entry."""
@@ -311,9 +338,10 @@ class BastionManager:
             f"(127.0.0.1:{local_port} -> :{remote_port})"
         )
 
-        # Build az command
+        # Build az command (use explicit Linux CLI if available)
+        az_cmd = self._get_cli_command()
         cmd = [
-            "az",
+            az_cmd,
             "network",
             "bastion",
             "tunnel",
