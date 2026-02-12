@@ -1,1 +1,1 @@
-"""Unit tests for modules package."""
+"""Tests for Azure CLI WSL2 detection modules."""
