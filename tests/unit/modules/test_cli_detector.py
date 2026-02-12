@@ -410,7 +410,10 @@ class TestGetLinuxCLIPath:
         detector = CLIDetector()
 
         with (
-            patch("azlin.modules.cli_detector.shutil.which", return_value="/mnt/c/Program Files/Azure/CLI/az.cmd"),
+            patch(
+                "azlin.modules.cli_detector.shutil.which",
+                return_value="/mnt/c/Program Files/Azure/CLI/az.cmd",
+            ),
             patch("pathlib.Path.exists", return_value=False),
             patch("pathlib.Path.is_file", return_value=False),
         ):
