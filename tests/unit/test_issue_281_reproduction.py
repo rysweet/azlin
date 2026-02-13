@@ -23,12 +23,12 @@ class TestIssue281BugReproduction:
     @patch("azlin.remote_exec.WCommandExecutor.execute_w_on_routes")
     @patch("azlin.remote_exec.WCommandExecutor.format_w_output")
     @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.TagManager")
     @patch("azlin.commands.monitoring.ConfigManager")
     def test_issue_281_w_command_filters_out_bastion_only_vms(
         self,
         mock_config_mgr,
-        mock_vm_mgr,
+        mock_tag_mgr,
         mock_ssh_key_mgr,
         mock_format_w_output,
         mock_execute_w_on_routes,
@@ -74,8 +74,7 @@ class TestIssue281BugReproduction:
                 private_ip="10.0.0.2",
             ),
         ]
-        mock_vm_mgr.list_vms.return_value = vms
-        mock_vm_mgr.filter_by_prefix.return_value = vms
+        mock_tag_mgr.list_managed_vms.return_value = (vms, False)
 
         # Mock routing resolver to return configs for both VMs
         from azlin.modules.ssh_connector import SSHConfig
@@ -144,12 +143,12 @@ class TestIssue281BugReproduction:
     @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
     @patch("azlin.commands.monitoring.DistributedTopExecutor")
     @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.TagManager")
     @patch("azlin.commands.monitoring.ConfigManager")
     def test_issue_281_top_command_filters_out_bastion_only_vms(
         self,
         mock_config_mgr,
-        mock_vm_mgr,
+        mock_tag_mgr,
         mock_ssh_key_mgr,
         mock_top_executor,
         mock_resolve_routes,
@@ -180,8 +179,7 @@ class TestIssue281BugReproduction:
                 private_ip="10.0.0.2",
             ),
         ]
-        mock_vm_mgr.list_vms.return_value = vms
-        mock_vm_mgr.filter_by_prefix.return_value = vms
+        mock_tag_mgr.list_managed_vms.return_value = (vms, False)
 
         # Mock routing resolver to return configs for both VMs
         from azlin.modules.ssh_connector import SSHConfig
@@ -245,12 +243,12 @@ class TestIssue281BugReproduction:
     @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
     @patch("azlin.commands.monitoring.PSCommandExecutor")
     @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.VMManager")
+    @patch("azlin.commands.monitoring.TagManager")
     @patch("azlin.commands.monitoring.ConfigManager")
     def test_issue_281_ps_command_filters_out_bastion_only_vms(
         self,
         mock_config_mgr,
-        mock_vm_mgr,
+        mock_tag_mgr,
         mock_ssh_key_mgr,
         mock_ps_executor,
         mock_resolve_routes,
@@ -281,8 +279,7 @@ class TestIssue281BugReproduction:
                 private_ip="10.0.0.2",
             ),
         ]
-        mock_vm_mgr.list_vms.return_value = vms
-        mock_vm_mgr.filter_by_prefix.return_value = vms
+        mock_tag_mgr.list_managed_vms.return_value = (vms, False)
 
         # Mock routing resolver to return configs for both VMs
         from azlin.modules.ssh_connector import SSHConfig
