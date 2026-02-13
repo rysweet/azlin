@@ -49,8 +49,8 @@ logger = logging.getLogger(__name__)
 __all__ = ["list_command", "ps", "session_command", "status", "top", "w"]
 
 # SSH timeout configuration for tmux session detection
-# These values be based on empirical observation and conservative estimates:
-# - Direct SSH: 95th percentile ~3s, buffer to 5s fer network variability
+# These values are based on empirical observation and conservative estimates:
+# - Direct SSH: 95th percentile ~3s, buffer to 5s for network variability
 # - Bastion: Routing through Azure Bastion adds ~5-7s latency, plus VM SSH startup ~3-5s, buffer to 15s
 DIRECT_SSH_TMUX_TIMEOUT = 5  # Seconds - Direct SSH connections (public IP)
 BASTION_TUNNEL_TMUX_TIMEOUT = 15  # Seconds - Bastion tunnels (routing latency + VM SSH startup)
