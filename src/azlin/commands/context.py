@@ -16,8 +16,6 @@ Security:
 """
 
 import logging
-
-from azlin.modules.azure_cli_helper import get_az_command
 import subprocess
 import sys
 
@@ -27,6 +25,7 @@ from rich.table import Table
 
 from azlin.click_group import AzlinGroup
 from azlin.context_manager import Context, ContextError, ContextManager
+from azlin.modules.azure_cli_helper import get_az_command
 
 logger = logging.getLogger(__name__)
 console = Console()

@@ -275,7 +275,9 @@ class BastionDetector:
             return None
 
     @classmethod
-    def list_bastions(cls, resource_group: str | None = None, config_path: str | None = None) -> list[dict[str, Any]]:
+    def list_bastions(
+        cls, resource_group: str | None = None, config_path: str | None = None
+    ) -> list[dict[str, Any]]:
         """List Bastion hosts with caching and timeout protection.
 
         First checks cache for recent results (5 min TTL). If cache miss,
@@ -303,6 +305,7 @@ class BastionDetector:
         if config_path:
             try:
                 from azlin.config_manager import ConfigManager
+
                 config = ConfigManager.load_config(config_path)
                 timeout = config.bastion_detection_timeout
             except Exception:
@@ -342,7 +345,9 @@ class BastionDetector:
 
         except subprocess.TimeoutExpired:
             # Graceful degradation: return empty list instead of raising
-            logger.warning(f"Bastion detection timed out after {timeout} seconds, skipping auto-detection")
+            logger.warning(
+                f"Bastion detection timed out after {timeout} seconds, skipping auto-detection"
+            )
             return []
         except subprocess.CalledProcessError as e:
             safe_error = cls._sanitize_azure_error(e.stderr)

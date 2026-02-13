@@ -1213,10 +1213,10 @@ prefer_bastion = false  # Prefer direct connection when both available
 
 ### `azlin top` - Distributed real-time monitoring
 
-Monitor CPU, memory, and processes across all VMs in a unified dashboard.
+Monitor CPU, memory, and processes across all VMs in a unified dashboard. Automatically discovers all azlin VMs using tag-based discovery, including VMs with custom names.
 
 ```bash
-# Default: 10 second refresh
+# Default: 10 second refresh (discovers all azlin VMs including custom-named)
 azlin top
 
 # Custom refresh rate (5 second refresh)
@@ -1238,16 +1238,16 @@ azlin top -i 15 -t 10
 - `--interval, -i SECONDS` - Refresh rate (default: 10 seconds)
 - `--timeout, -t SECONDS` - SSH timeout per VM (default: 5 seconds)
 
-**Output:** Real-time dashboard showing:
+**Output:** Real-time dashboard showing all VMs (including custom-named):
 - CPU usage per VM
 - Memory utilization
 - System load averages
 - Top processes
 
 **Use cases:**
-- Monitor distributed workloads
+- Monitor distributed workloads across custom-named VMs
 - Identify resource bottlenecks
-- Track performance across fleet
+- Track performance across fleet (regardless of naming convention)
 - Real-time capacity planning
 
 Press Ctrl+C to exit.
@@ -1256,17 +1256,19 @@ Press Ctrl+C to exit.
 
 Run the `w` command on all VMs to see active users and their processes.
 
+**All monitoring commands (`azlin w`, `azlin ps`, `azlin top`) automatically discover VMs using tag-based discovery, supporting custom VM names including compound formats like "hostname:session".**
+
 ```bash
-# Run 'w' on all VMs
+# Run 'w' on all VMs (discovers all azlin VMs including custom-named)
 azlin w
 
 # Run on specific resource group
 azlin w --resource-group my-rg
 ```
 
-**Output**:
+**Output** (showing custom-named VMs):
 ```
-=== VM: my-vm (20.12.34.56) ===
+=== VM: myhost:dev (20.12.34.56) ===
  12:34:56 up  2:15,  1 user,  load average: 0.52, 0.58, 0.59
 USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT
 azureuser pts/0   192.168.1.1      10:30    0.00s  0.04s  0.00s w
@@ -1274,15 +1276,15 @@ azureuser pts/0   192.168.1.1      10:30    0.00s  0.04s  0.00s w
 
 **Use cases**:
 - Check if anyone is using a VM
-- Monitor system load
+- Monitor system load across all VMs (including custom-named)
 - See active sessions
 
 ### `azlin ps` - Show running processes
 
-Run `ps aux` on all VMs to see all processes.
+Run `ps aux` on all VMs to see all processes. Automatically discovers all azlin VMs using tag-based discovery.
 
 ```bash
-# Show all processes on all VMs
+# Show all processes on all VMs (discovers all azlin VMs including custom-named)
 azlin ps
 
 # Show on specific resource group
@@ -1290,8 +1292,8 @@ azlin ps --resource-group my-rg
 ```
 
 **Use cases**:
-- Find runaway processes
-- Monitor resource usage
+- Find runaway processes across fleet
+- Monitor resource usage (including custom-named VMs)
 - Debug performance issues
 
 ---

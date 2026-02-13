@@ -49,8 +49,8 @@ logger = logging.getLogger(__name__)
 __all__ = ["list_command", "ps", "session_command", "status", "top", "w"]
 
 # SSH timeout configuration for tmux session detection
-# These values be based on empirical observation and conservative estimates:
-# - Direct SSH: 95th percentile ~3s, buffer to 5s fer network variability
+# These values are based on empirical observation and conservative estimates:
+# - Direct SSH: 95th percentile ~3s, buffer to 5s for network variability
 # - Bastion: Routing through Azure Bastion adds ~5-7s latency, plus VM SSH startup ~3-5s, buffer to 15s
 DIRECT_SSH_TMUX_TIMEOUT = 5  # Seconds - Direct SSH connections (public IP)
 BASTION_TUNNEL_TMUX_TIMEOUT = 15  # Seconds - Bastion tunnels (routing latency + VM SSH startup)
@@ -80,9 +80,10 @@ def w(resource_group: str | None, config: str | None):
         # Get SSH key
         ssh_key_pair = SSHKeyManager.ensure_key_exists()
 
-        # List running VMs
-        vms = VMManager.list_vms(rg, include_stopped=False)
-        vms = VMManager.filter_by_prefix(vms, "azlin")
+        # List running VMs - use tag-based discovery (consistent with list command)
+        # This ensures azlin w detects same VMs as azlin list, including custom-named VMs
+        vms, _was_cached = TagManager.list_managed_vms(resource_group=rg, use_cache=False)
+        vms = [vm for vm in vms if vm.is_running()]  # Filter to running VMs
 
         # Populate session names from tags (same logic as list command)
         for vm in vms:
@@ -97,17 +98,11 @@ def w(resource_group: str | None, config: str | None):
             click.echo("No running VMs found.")
             return
 
-        running_vms = [vm for vm in vms if vm.is_running()]
-
-        if not running_vms:
-            click.echo("No running VMs found.")
-            return
-
         # Get SSH configs with bastion support (Issue #281 fix)
         from azlin.cli_helpers import get_ssh_configs_for_vms
 
         ssh_configs, routes = get_ssh_configs_for_vms(
-            vms=running_vms,
+            vms=vms,
             ssh_key_path=ssh_key_pair.private_path,
             skip_interactive=True,  # Batch operation
             show_summary=True,
@@ -161,17 +156,12 @@ def ps(resource_group: str | None, config: str | None, grouped: bool):
         # Get SSH key
         ssh_key_pair = SSHKeyManager.ensure_key_exists()
 
-        # List running VMs
-        vms = VMManager.list_vms(rg, include_stopped=False)
-        vms = VMManager.filter_by_prefix(vms, "azlin")
+        # List running VMs - use tag-based discovery (consistent with list command)
+        # This ensures azlin ps detects same VMs as azlin list, including custom-named VMs
+        vms, _was_cached = TagManager.list_managed_vms(resource_group=rg, use_cache=False)
+        vms = [vm for vm in vms if vm.is_running()]  # Filter to running VMs
 
         if not vms:
-            click.echo("No running VMs found.")
-            return
-
-        running_vms = [vm for vm in vms if vm.is_running()]
-
-        if not running_vms:
             click.echo("No running VMs found.")
             return
 
@@ -179,7 +169,7 @@ def ps(resource_group: str | None, config: str | None, grouped: bool):
         from azlin.cli_helpers import get_ssh_configs_for_vms
 
         ssh_configs, _routes = get_ssh_configs_for_vms(
-            vms=running_vms,
+            vms=vms,
             ssh_key_path=ssh_key_pair.private_path,
             skip_interactive=True,  # Batch operation
             show_summary=True,
@@ -260,17 +250,12 @@ def top(
         # Get SSH key
         ssh_key_pair = SSHKeyManager.ensure_key_exists()
 
-        # List running VMs
-        vms = VMManager.list_vms(rg, include_stopped=False)
-        vms = VMManager.filter_by_prefix(vms, "azlin")
+        # List running VMs - use tag-based discovery (consistent with list command)
+        # This ensures azlin top detects same VMs as azlin list, including custom-named VMs
+        vms, _was_cached = TagManager.list_managed_vms(resource_group=rg, use_cache=False)
+        vms = [vm for vm in vms if vm.is_running()]  # Filter to running VMs
 
         if not vms:
-            click.echo("No running VMs found.")
-            return
-
-        running_vms = [vm for vm in vms if vm.is_running()]
-
-        if not running_vms:
             click.echo("No running VMs found.")
             return
 
@@ -278,7 +263,7 @@ def top(
         from azlin.cli_helpers import get_ssh_configs_for_vms
 
         ssh_configs, _routes = get_ssh_configs_for_vms(
-            vms=running_vms,
+            vms=vms,
             ssh_key_path=ssh_key_pair.private_path,
             skip_interactive=True,  # Batch operation
             show_summary=True,

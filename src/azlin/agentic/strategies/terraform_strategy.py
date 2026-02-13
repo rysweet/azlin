@@ -13,7 +13,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from azlin.modules.azure_cli_helper import get_az_command
 from azlin.agentic.strategies.base_strategy import ExecutionStrategy
 from azlin.agentic.types import (
     ExecutionContext,
@@ -21,6 +20,7 @@ from azlin.agentic.types import (
     FailureType,
     Strategy,
 )
+from azlin.modules.azure_cli_helper import get_az_command
 
 
 class TerraformStrategy(ExecutionStrategy):

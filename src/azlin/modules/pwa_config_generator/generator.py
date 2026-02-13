@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from azlin.modules.azure_cli_helper import get_az_command
+
 
 class ConfigSource(Enum):
     """Source of configuration values for tracking provenance."""

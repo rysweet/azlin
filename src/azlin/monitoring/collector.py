@@ -19,6 +19,8 @@ from datetime import datetime
 
 import requests
 
+from azlin.modules.azure_cli_helper import get_az_command
+
 # Re-export VMMetric from storage to avoid circular imports
 from azlin.monitoring.storage import VMMetric
 
@@ -71,7 +73,13 @@ class MetricsCollector:
         """
         try:
             result = subprocess.run(
-                [get_az_command(), "account", "get-access-token", "--resource", self.AZURE_MONITOR_API],
+                [
+                    get_az_command(),
+                    "account",
+                    "get-access-token",
+                    "--resource",
+                    self.AZURE_MONITOR_API,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,

@@ -14,13 +14,13 @@ Security:
 """
 
 import logging
-
-from azlin.modules.azure_cli_helper import get_az_command
 import os
 import sys
 from pathlib import Path
 
 import click
+
+from azlin.modules.azure_cli_helper import get_az_command
 
 # TOML library imports (Python 3.11+ compatibility)
 try:
