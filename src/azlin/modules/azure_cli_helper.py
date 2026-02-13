@@ -12,8 +12,6 @@ Public API:
     get_az_command: Get correct Azure CLI command for current environment
 """
 
-from pathlib import Path
-
 # Cache the detection result for performance
 _cached_az_command: str | None = None
 
@@ -76,4 +74,4 @@ def clear_cache() -> None:
     _cached_az_command = None
 
 
-__all__ = ["get_az_command", "clear_cache"]
+__all__ = ["clear_cache", "get_az_command"]

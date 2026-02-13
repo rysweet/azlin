@@ -12,6 +12,7 @@ from azlin.agentic.types import (
     Strategy,
     StrategyPlan,
 )
+from azlin.modules.azure_cli_helper import get_az_command
 
 
 class StrategySelector:

@@ -4,6 +4,8 @@ import subprocess
 from datetime import datetime
 from typing import TypedDict
 
+from azlin.modules.azure_cli_helper import get_az_command
+
 
 class DoItTags(TypedDict):
     """Tags applied to doit-created resources."""

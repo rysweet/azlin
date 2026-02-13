@@ -27,13 +27,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
-from azure.core.credentials import TokenCredential
-from azure.core.exceptions import (
+from azure.core.credentials import TokenCredential  # type: ignore[import-untyped]
+from azure.core.exceptions import (  # type: ignore[import-untyped]
     ClientAuthenticationError,
     HttpResponseError,
     ResourceNotFoundError,
 )
-from azure.keyvault.secrets import SecretClient
+from azure.keyvault.secrets import SecretClient  # type: ignore[import-untyped]
 
 from azlin.auth_models import AuthConfig
 from azlin.authentication_chain import AuthenticationChain, AuthenticationChainError
@@ -92,7 +92,18 @@ def get_current_user_principal_id() -> str:
             if sp_name:
                 # Get SP object ID
                 result = subprocess.run(
-                    [get_az_command(), "ad", "sp", "show", "--id", sp_name, "--query", "id", "-o", "tsv"],
+                    [
+                        get_az_command(),
+                        "ad",
+                        "sp",
+                        "show",
+                        "--id",
+                        sp_name,
+                        "--query",
+                        "id",
+                        "-o",
+                        "tsv",
+                    ],
                     capture_output=True,
                     text=True,
                     check=True,
@@ -508,7 +519,7 @@ class SSHKeyVaultManager:
 
         if isinstance(e, HttpResponseError):
             safe_error = LogSanitizer.create_safe_error_message(e, f"HTTP error {operation} key")
-            if e.status_code == 403:
+            if getattr(e, "status_code", None) == 403:
                 role = (
                     "Key Vault Secrets Officer"
                     if operation in ["storing", "deleting"]

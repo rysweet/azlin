@@ -12,8 +12,6 @@ Security:
 
 import json
 import logging
-
-from azlin.modules.azure_cli_helper import get_az_command
 import re
 import subprocess
 import threading
@@ -23,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from azlin.azure_cli_visibility import AzureCLIExecutor
+from azlin.modules.azure_cli_helper import get_az_command
 from azlin.quota_error_handler import QuotaErrorHandler
 from azlin.resource_conflict_error_handler import (
     format_conflict_error,
@@ -708,7 +707,9 @@ class VMProvisioner:
             executor = AzureCLIExecutor(
                 show_progress=True, timeout=30
             )  # Increased for WSL compatibility (Issue #580)
-            result = executor.execute([get_az_command(), "group", "exists", "--name", resource_group])
+            result = executor.execute(
+                [get_az_command(), "group", "exists", "--name", resource_group]
+            )
 
             if result["stdout"].strip().lower() == "true":
                 logger.info(f"Resource group {resource_group} already exists")
