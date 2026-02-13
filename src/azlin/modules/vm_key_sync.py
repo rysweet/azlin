@@ -21,6 +21,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from azlin.modules.azure_cli_helper import get_az_command
+
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -200,7 +202,7 @@ class VMKeySync:
         try:
             result = subprocess.run(
                 [
-                    "az",
+                    get_az_command(),
                     "vm",
                     "run-command",
                     "invoke",
@@ -291,7 +293,7 @@ class VMKeySync:
 
         result = subprocess.run(
             [
-                "az",
+                get_az_command(),
                 "vm",
                 "run-command",
                 "invoke",
