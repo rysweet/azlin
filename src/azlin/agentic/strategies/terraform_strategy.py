@@ -699,8 +699,6 @@ resource "azurerm_storage_account" "{storage_name}" {{
             # Log but don't fail - resource extraction is best-effort
             import logging
 
-from azlin.modules.azure_cli_helper import get_az_command
-
             logging.debug(f"Resource extraction failed (non-critical): {e}")
 
         return resources
