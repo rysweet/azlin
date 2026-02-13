@@ -256,7 +256,7 @@ class AzureCLIStrategy(ExecutionStrategy):
         # Check if az CLI is installed
         try:
             result = subprocess.run(
-                ["az", "--version"],
+                [get_az_command(), "--version"],
                 capture_output=True,
                 timeout=30,  # Increased for WSL compatibility (Issue #580)
                 check=False,
@@ -269,7 +269,7 @@ class AzureCLIStrategy(ExecutionStrategy):
         # Check authentication
         try:
             result = subprocess.run(
-                ["az", "account", "show"],
+                [get_az_command(), "account", "show"],
                 capture_output=True,
                 timeout=30,  # Increased for WSL compatibility (Issue #580)
                 check=False,
@@ -360,7 +360,7 @@ class AzureCLIStrategy(ExecutionStrategy):
         for resource_id in partial_resources:
             # Best effort cleanup, ignore errors
             with contextlib.suppress(subprocess.TimeoutExpired, Exception):
-                cmd = ["az", "resource", "delete", "--ids", resource_id]
+                cmd = [get_az_command(), "resource", "delete", "--ids", resource_id]
                 subprocess.run(cmd, capture_output=True, timeout=30, check=False)
 
     def _generate_commands(self, context: ExecutionContext) -> list[str]:

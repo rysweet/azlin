@@ -23,7 +23,7 @@ def get_azure_username() -> str:
     """
     try:
         result = subprocess.run(
-            ["az", "account", "show", "--query", "user.name", "-o", "tsv"],
+            [get_az_command(), "account", "show", "--query", "user.name", "-o", "tsv"],
             shell=False,
             capture_output=True,
             text=True,

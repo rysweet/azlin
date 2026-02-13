@@ -19,6 +19,8 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
+from azlin.modules.azure_cli_helper import get_az_command
+
 logger = logging.getLogger(__name__)
 
 
@@ -197,7 +199,7 @@ class AzureAuthenticator:
         if self.check_az_cli_available():
             try:
                 result = subprocess.run(
-                    ["az", "account", "get-access-token"],
+                    [get_az_command(), "account", "get-access-token"],
                     capture_output=True,
                     text=True,
                     timeout=30,  # Increased for WSL compatibility (Issue #580)
@@ -361,7 +363,7 @@ class AzureAuthenticator:
         # Priority 3: Azure CLI
         try:
             result = subprocess.run(
-                ["az", "account", "show"],
+                [get_az_command(), "account", "show"],
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -399,7 +401,7 @@ class AzureAuthenticator:
         # Priority 3: Azure CLI
         try:
             result = subprocess.run(
-                ["az", "account", "show"],
+                [get_az_command(), "account", "show"],
                 capture_output=True,
                 text=True,
                 timeout=30,

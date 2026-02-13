@@ -14,6 +14,8 @@ Security:
 """
 
 import logging
+
+from azlin.modules.azure_cli_helper import get_az_command
 import os
 import sys
 from pathlib import Path
@@ -335,7 +337,7 @@ def test(profile: str, subscription_id: str | None):
         # Try to get account info
         try:
             result = subprocess.run(
-                ["az", "account", "show"],
+                [get_az_command(), "account", "show"],
                 capture_output=True,
                 text=True,
                 timeout=30,

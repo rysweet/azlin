@@ -226,7 +226,7 @@ class TerraformStrategy(ExecutionStrategy):
         # Check Azure authentication (needed for Terraform Azure provider)
         try:
             result = subprocess.run(
-                ["az", "account", "show"],
+                [get_az_command(), "account", "show"],
                 capture_output=True,
                 timeout=30,  # Increased for WSL compatibility (Issue #580)
                 check=False,
@@ -697,6 +697,8 @@ resource "azurerm_storage_account" "{storage_name}" {{
         except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
             # Log but don't fail - resource extraction is best-effort
             import logging
+
+from azlin.modules.azure_cli_helper import get_az_command
 
             logging.debug(f"Resource extraction failed (non-critical): {e}")
 

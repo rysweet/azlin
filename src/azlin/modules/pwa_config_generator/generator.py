@@ -80,7 +80,7 @@ class PWAConfigGenerator:
 
         try:
             result = subprocess.run(
-                ["az", "account", "show", "--output", "json"],
+                [get_az_command(), "account", "show", "--output", "json"],
                 capture_output=True,
                 text=True,
                 timeout=30,

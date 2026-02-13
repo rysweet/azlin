@@ -12,6 +12,8 @@ Security:
 
 import json
 import logging
+
+from azlin.modules.azure_cli_helper import get_az_command
 import re
 import subprocess
 import threading
@@ -706,7 +708,7 @@ class VMProvisioner:
             executor = AzureCLIExecutor(
                 show_progress=True, timeout=30
             )  # Increased for WSL compatibility (Issue #580)
-            result = executor.execute(["az", "group", "exists", "--name", resource_group])
+            result = executor.execute([get_az_command(), "group", "exists", "--name", resource_group])
 
             if result["stdout"].strip().lower() == "true":
                 logger.info(f"Resource group {resource_group} already exists")
@@ -732,7 +734,7 @@ class VMProvisioner:
             if not create_result["success"]:
                 raise subprocess.CalledProcessError(
                     create_result["returncode"],
-                    ["az", "group", "create"],
+                    [get_az_command(), "group", "create"],
                     create_result["stdout"],
                     create_result["stderr"],
                 )
@@ -747,7 +749,7 @@ class VMProvisioner:
         """Execute Azure CLI command and return structured result.
 
         Args:
-            cmd: Command list (e.g., ["az", "disk", "create", ...])
+            cmd: Command list (e.g., [get_az_command(), "disk", "create", ...])
             timeout: Timeout in seconds
 
         Returns:

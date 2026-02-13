@@ -38,6 +38,7 @@ from azure.keyvault.secrets import SecretClient
 from azlin.auth_models import AuthConfig
 from azlin.authentication_chain import AuthenticationChain, AuthenticationChainError
 from azlin.log_sanitizer import LogSanitizer
+from azlin.modules.azure_cli_helper import get_az_command
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def get_current_user_principal_id() -> str:
     """
     try:
         result = subprocess.run(
-            ["az", "ad", "signed-in-user", "show", "--query", "id", "-o", "tsv"],
+            [get_az_command(), "ad", "signed-in-user", "show", "--query", "id", "-o", "tsv"],
             capture_output=True,
             text=True,
             check=True,
@@ -81,7 +82,7 @@ def get_current_user_principal_id() -> str:
         try:
             # Try getting service principal info
             result = subprocess.run(
-                ["az", "account", "show", "--query", "user.name", "-o", "tsv"],
+                [get_az_command(), "account", "show", "--query", "user.name", "-o", "tsv"],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -91,7 +92,7 @@ def get_current_user_principal_id() -> str:
             if sp_name:
                 # Get SP object ID
                 result = subprocess.run(
-                    ["az", "ad", "sp", "show", "--id", sp_name, "--query", "id", "-o", "tsv"],
+                    [get_az_command(), "ad", "sp", "show", "--id", sp_name, "--query", "id", "-o", "tsv"],
                     capture_output=True,
                     text=True,
                     check=True,

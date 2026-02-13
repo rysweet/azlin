@@ -134,7 +134,7 @@ class StrategySelector:
         # Check authentication (quick check)
         try:
             result = subprocess.run(
-                ["az", "account", "show"],
+                [get_az_command(), "account", "show"],
                 capture_output=True,
                 timeout=5,
                 check=False,

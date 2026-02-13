@@ -20,6 +20,8 @@ from typing import Any
 
 import click
 
+from azlin.modules.azure_cli_helper import get_az_command
+
 try:
     import tomli  # type: ignore[import]
 except ImportError:
@@ -1528,7 +1530,7 @@ class ConfigManager:
         available_groups: list[str] = []
         try:
             result = subprocess.run(
-                ["az", "group", "list", "--query", "[].name", "-o", "tsv"],
+                [get_az_command(), "group", "list", "--query", "[].name", "-o", "tsv"],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -1675,7 +1677,7 @@ class ConfigManager:
             try:
                 # Try to list existing resource groups
                 result = subprocess.run(
-                    ["az", "group", "list", "--query", "[].name", "-o", "tsv"],
+                    [get_az_command(), "group", "list", "--query", "[].name", "-o", "tsv"],
                     capture_output=True,
                     text=True,
                     check=True,

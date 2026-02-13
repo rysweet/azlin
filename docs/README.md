@@ -16,10 +16,14 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 - **[tutorials/platform-setup-restore.md](tutorials/platform-setup-restore.md)** - Platform-specific setup guide for session restore
 - **[reference/configuration-reference.md](reference/configuration-reference.md)** - Complete configuration reference for terminal and restore settings
 - **[UV_USAGE.md](UV_USAGE.md)** - Using azlin with uv package manager
+- **[how-to/azure-cli-wsl2-setup.md](how-to/azure-cli-wsl2-setup.md)** - Azure CLI detection and auto-fix for WSL2
 - **[how-to/troubleshoot-connection-issues.md](how-to/troubleshoot-connection-issues.md)** - Comprehensive troubleshooting guide
+- **[tutorials/wsl2-setup-walkthrough.md](tutorials/wsl2-setup-walkthrough.md)** - Step-by-step Azure CLI setup in WSL2
 - **[troubleshooting/timeout-issues.md](troubleshooting/timeout-issues.md)** - Timeout troubleshooting for azlin list command
 - **[troubleshooting/restore-issues.md](troubleshooting/restore-issues.md)** - Troubleshooting session restore issues
+- **[troubleshooting/azure-cli-wsl2-issues.md](troubleshooting/azure-cli-wsl2-issues.md)** - Azure CLI WSL2 troubleshooting
 - **[backup-disaster-recovery.md](backup-disaster-recovery.md)** - Automated backup scheduling, cross-region replication, and DR testing
+- **[features/azure-cli-wsl2-detection.md](features/azure-cli-wsl2-detection.md)** - Azure CLI WSL2 detection feature overview
 - **[features/tmux-session-status.md](features/tmux-session-status.md)** - Visual tmux session connection status in VM listings
 - **[features/memory-latency.md](features/memory-latency.md)** - Memory allocation and network latency monitoring
 - **[features/session-restore.md](features/session-restore.md)** - Automatic session restore feature overview and architecture
@@ -28,6 +32,7 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 
 - **[AI_AGENT_GUIDE.md](AI_AGENT_GUIDE.md)** - **START HERE for AI agents** - Comprehensive guide to azlin development
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete architecture specification
+- **[reference/azure-cli-detection.md](reference/azure-cli-detection.md)** - Azure CLI detection technical reference
 - **[testing/test_strategy.md](testing/test_strategy.md)** - Testing approach and strategy
 - **[technical/audit-error-handling.md](technical/audit-error-handling.md)** - Audit logging and error handling improvements
 

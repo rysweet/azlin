@@ -71,7 +71,7 @@ class MetricsCollector:
         """
         try:
             result = subprocess.run(
-                ["az", "account", "get-access-token", "--resource", self.AZURE_MONITOR_API],
+                [get_az_command(), "account", "get-access-token", "--resource", self.AZURE_MONITOR_API],
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,

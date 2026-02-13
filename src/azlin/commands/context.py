@@ -16,6 +16,8 @@ Security:
 """
 
 import logging
+
+from azlin.modules.azure_cli_helper import get_az_command
 import subprocess
 import sys
 
@@ -212,7 +214,7 @@ def use_context(name: str, config: str | None):
         # This ensures all subsequent Azure commands use the correct subscription
         try:
             subprocess.run(
-                ["az", "account", "set", "--subscription", ctx.subscription_id],
+                [get_az_command(), "account", "set", "--subscription", ctx.subscription_id],
                 check=True,
                 capture_output=True,
                 text=True,
