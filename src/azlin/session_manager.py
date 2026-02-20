@@ -136,6 +136,11 @@ class SessionConfig:
         for field_name in ["name", "saved_at", "resource_group"]:
             if field_name not in session:
                 raise SessionManagerError(f"Missing required field: session.{field_name}")
+            if not isinstance(session[field_name], str):
+                raise SessionManagerError(
+                    f"Field session.{field_name} must be a string, "
+                    f"got {type(session[field_name]).__name__}"
+                )
 
         # Parse and validate VMs
         vms = data.get("vms", [])
@@ -248,12 +253,8 @@ class SessionManager:
             if tmux_sessions:
                 vm_dict["tmux_sessions"] = [s.to_dict() for s in tmux_sessions]
 
-            # Verify all keys are in allowlist (defensive programming)
-            for key in vm_dict:
-                if key not in cls.ALLOWED_VM_FIELDS:
-                    logger.warning(
-                        f"Field '{key}' not in ALLOWED_VM_FIELDS - potential security risk"
-                    )
+            # Enforce allowlist — strip any non-allowed keys
+            vm_dict = {k: v for k, v in vm_dict.items() if k in cls.ALLOWED_VM_FIELDS}
 
             vms_data.append(vm_dict)
 

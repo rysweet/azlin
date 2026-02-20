@@ -299,16 +299,6 @@ class TmuxSession:
         )
 
 
-@dataclass
-class TmuxSessionInfo:
-    """Tmux session information for a VM."""
-
-    vm_name: str
-    sessions: list[TmuxSession]
-    reachable: bool
-    error: str | None = None
-
-
 class TmuxSessionExecutor:
     """Query tmux sessions on remote VMs.
 
@@ -753,7 +743,7 @@ class PSCommandExecutor:
         return "\n".join(lines)
 
     # System processes to exclude from user process listing
-    _SYSTEM_PROCESS_NAMES = frozenset({"systemd", "(sd-pam)", "ps"})
+    _SYSTEM_PROCESS_NAMES = frozenset({"systemd", "(sd-pam)", "ps", "sshd", "ssh"})
 
     # Valid azureuser prefixes in ps output (USER column truncated to 8 chars + '+')
     _AZUREUSER_PATTERNS = ("azureuser", "azureus+")
@@ -841,6 +831,12 @@ class PSCommandExecutor:
 
         return process_names
 
+    # SSH-related indicators in ps output (checked against full line)
+    _SSH_INDICATORS = (
+        "sshd:",  # SSH daemon connections (e.g., "sshd: azureuser@notty")
+        "/usr/sbin/sshd",  # SSH daemon path
+    )
+
     @classmethod
     def _is_ssh_process(cls, line: str) -> bool:
         """Check if a ps output line is an SSH-related process.
@@ -855,16 +851,8 @@ class PSCommandExecutor:
         if line.startswith("USER") or line.startswith("PID"):
             return False
 
-        # Check for SSH-related processes
-        ssh_indicators = [
-            "sshd:",  # SSH daemon connections
-            "ssh ",  # SSH client processes
-            "/usr/sbin/sshd",  # SSH daemon path
-            "ps aux",  # The ps command itself
-        ]
-
         line_lower = line.lower()
-        return any(indicator.lower() in line_lower for indicator in ssh_indicators)
+        return any(indicator in line_lower for indicator in cls._SSH_INDICATORS)
 
 
 class OSUpdateExecutor:
@@ -941,6 +929,5 @@ __all__ = [
     "RemoteResult",
     "TmuxSession",
     "TmuxSessionExecutor",
-    "TmuxSessionInfo",
     "WCommandExecutor",
 ]
