@@ -137,10 +137,22 @@ class SessionConfig:
             if field_name not in session:
                 raise SessionManagerError(f"Missing required field: session.{field_name}")
 
-        # Parse VMs
+        # Parse and validate VMs
         vms = data.get("vms", [])
         if not vms:
             raise SessionManagerError("Session has no VMs")
+
+        required_vm_fields = ("name", "resource_group", "location")
+        for i, vm in enumerate(vms):
+            if not isinstance(vm, dict):
+                raise SessionManagerError(f"VM entry {i} is not a table")
+            for req in required_vm_fields:
+                if req not in vm:
+                    raise SessionManagerError(f"VM entry {i} missing required field: {req}")
+                if not isinstance(vm[req], str):
+                    raise SessionManagerError(
+                        f"VM entry {i} field '{req}' must be a string, got {type(vm[req]).__name__}"
+                    )
 
         return cls(
             name=session["name"],
@@ -172,6 +184,8 @@ class SessionManager:
     def _ensure_sessions_dir(cls) -> None:
         """Ensure sessions directory exists with correct permissions."""
         cls.SESSIONS_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # Enforce 0700 even on existing dirs (mkdir mode is masked by umask)
+        os.chmod(cls.SESSIONS_DIR, 0o700)
 
     @classmethod
     def _validate_session_name(cls, name: str) -> None:
@@ -256,8 +270,10 @@ class SessionManager:
 
         try:
             toml_content = session_config.to_toml()
-            session_file.write_text(toml_content)
-            os.chmod(session_file, 0o600)  # Owner read/write only
+            # Write with 0600 permissions atomically (no TOCTOU race)
+            fd = os.open(str(session_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(toml_content)
             logger.info(f"Saved session to {session_file}")
             return session_file
 
@@ -416,13 +432,14 @@ class SessionManager:
                     result.failed_vms.append((failure.config.name, failure.error))
                     logger.error(f"Failed to provision {failure.config.name}: {failure.error}")
 
-                # Process RG failures
+                # Process RG failures (avoid duplicating already-failed VMs)
+                already_failed = {name for name, _ in result.failed_vms}
                 for rg_failure in pool_result.rg_failures:
-                    # Find all VMs that depend on this RG
                     for vm_config in vms_to_create:
                         if (
                             vm_config.resource_group == rg_failure.rg_name
                             and vm_config.name not in result.created_vms
+                            and vm_config.name not in already_failed
                         ):
                             result.failed_vms.append(
                                 (
