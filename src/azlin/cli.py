@@ -90,6 +90,7 @@ from azlin.commands import (
     ps,
     restore_command,
     session_command,
+    session_group,
     # Snapshot Commands
     snapshot,
     # Lifecycle Commands
@@ -6302,6 +6303,7 @@ main.add_command(cp)
 # Register monitoring commands (Issue #423 refactor)
 main.add_command(list_command, name="list")
 main.add_command(session_command, name="session")
+main.add_command(session_group)  # Session save/load/list commands
 main.add_command(w)
 main.add_command(ps)
 main.add_command(top)

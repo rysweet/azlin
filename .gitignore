@@ -655,3 +655,14 @@ template.yaml
 
 # Claude Code backup directories
 .claude.backup.*/
+
+# Amplihack runtime directories (auto-generated)
+.claude/logs/
+.claude/runtime/
+
+# Code intelligence indexes (Sourcegraph SCIP format)
+*.scip
+index.scip
+
+# Kuzu database (amplihack runtime)
+.amplihack/

@@ -1087,6 +1087,13 @@ def _handle_multi_context_list(
     default=False,
     help="After listing, restore all tmux sessions in Windows Terminal tabs",
 )
+@click.option(
+    "--show-procs",
+    "show_procs",
+    is_flag=True,
+    default=False,
+    help="Show active user processes on each VM (top 5)",
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -1103,6 +1110,7 @@ def list_command(
     no_cache: bool = False,
     verbose: bool = False,
     run_restore: bool = False,
+    show_procs: bool = False,
 ):
     """List VMs in a resource group.
 
@@ -1397,6 +1405,49 @@ def list_command(
             except Exception as e:
                 click.echo(f"Warning: Failed to measure latencies: {e}", err=True)
 
+        # Collect active user processes if enabled (skip if cached)
+        active_procs_by_vm: dict[str, list[str]] = {}
+        if show_procs and not was_cached:
+            try:
+                # Ensure SSH key is available
+                ssh_key_pair = SSHKeyManager.ensure_key_exists()
+                ssh_key_path = ssh_key_pair.private_path
+
+                # Build SSH configs for running VMs with public IPs (direct SSH only for now)
+                # Note: Bastion support can be added later if needed
+                running_vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
+
+                if running_vms:
+                    ssh_configs = []
+                    vm_name_map = {}  # Map IP to VM name
+
+                    for vm in running_vms:
+                        assert vm.public_ip is not None
+                        ssh_config = SSHConfig(
+                            host=vm.public_ip, user="azureuser", key_path=ssh_key_path
+                        )
+                        ssh_configs.append(ssh_config)
+                        vm_name_map[vm.public_ip] = vm.name
+
+                    # Execute ps aux on all VMs in parallel
+                    if ssh_configs:
+                        ps_results = PSCommandExecutor.execute_ps_on_vms(
+                            ssh_configs, timeout=30, use_forest=False
+                        )
+
+                        # Filter to user processes only
+                        for result in ps_results:
+                            if result.success:
+                                procs = PSCommandExecutor.filter_user_processes(result.stdout)
+                                if procs and result.vm_name in vm_name_map:
+                                    # Map from IP back to VM name
+                                    vm_name = vm_name_map[result.vm_name]
+                                    active_procs_by_vm[vm_name] = procs[:5]
+            except SSHKeyError as e:
+                logger.warning(f"Cannot collect processes: SSH key validation failed: {e}")
+            except Exception as e:
+                click.echo(f"Warning: Failed to collect active processes: {e}", err=True)
+
         # Display quota summary header if enabled
         if show_quota and quota_by_region:
             console = Console()
@@ -1511,6 +1562,10 @@ def list_command(
         # Memory column (narrower)
         table.add_column("Mem", justify="right", width=6)
 
+        # Active Processes column (if requested)
+        if show_procs:
+            table.add_column("Active Processes", style="green", width=30)
+
         if with_latency:
             table.add_column("Latency", justify="right", width=8)
 
@@ -1584,6 +1639,17 @@ def list_command(
 
             # vCPUs and Memory
             row_data.extend([vcpu_display, memory_display])
+
+            # Active Processes (if enabled)
+            if show_procs:
+                if vm.name in active_procs_by_vm:
+                    procs = active_procs_by_vm[vm.name]
+                    proc_display = ", ".join(procs) if procs else "-"
+                    row_data.append(proc_display)
+                elif vm.is_running():
+                    row_data.append("-")
+                else:
+                    row_data.append("-")
 
             # Latency (if enabled)
             if with_latency:

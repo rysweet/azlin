@@ -44,6 +44,7 @@ from .nlp import azdoit_main
 # Provisioning
 from .provisioning import clone, create, new, vm
 from .restore import restore_command
+from .sessions import session_group
 
 # Snapshots
 from .snapshots import snapshot
@@ -98,6 +99,7 @@ __all__ = [
     "ps",
     "restore_command",
     "session_command",
+    "session_group",
     # Snapshots
     "snapshot",
     "start",

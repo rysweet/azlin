@@ -753,6 +753,91 @@ class PSCommandExecutor:
         return "\n".join(lines)
 
     @classmethod
+    def filter_user_processes(cls, ps_output: str) -> list[str]:
+        """Filter ps aux output to user-launched processes only.
+
+        Criteria:
+        - USER = 'azureuser' (UID 1000)
+        - Not SSH processes (_is_ssh_process)
+        - Not kernel threads ([...] in CMD)
+
+        Args:
+            ps_output: Raw output from 'ps aux' command
+
+        Returns:
+            List of process names (top 5 unique)
+
+        Example:
+            >>> ps_output = '''USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+            ... azureuser  1234  0.0  0.1  12345  6789 pts/0   S+   12:00   0:00 python3 script.py
+            ... azureuser  5678  0.0  0.2  23456  7890 pts/1   S+   12:01   0:00 node server.js
+            ... root       9012  0.0  0.0   1234   567 ?       Ss   11:00   0:00 [kworker/0:0]'''
+            >>> filter_user_processes(ps_output)
+            ['python3', 'node']
+        """
+        process_names: list[str] = []
+        seen_processes: set[str] = set()
+
+        for line in ps_output.splitlines():
+            if not line or not line.strip():
+                continue
+
+            # Skip header line
+            if line.startswith("USER") or line.startswith("PID"):
+                continue
+
+            # Parse ps aux format first
+            # USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+            parts = line.split(None, 10)  # Split on whitespace, max 11 fields
+
+            if len(parts) < 11:
+                continue  # Invalid line
+
+            user = parts[0]
+            command = parts[10]
+
+            # Filter to azureuser only (handles truncation: "azureus+" in ps output)
+            if not user.startswith("azureus"):
+                continue
+
+            # Skip SSH processes (check full line)
+            if cls._is_ssh_process(line):
+                continue
+
+            # Skip system processes
+            system_processes = ["systemd", "(sd-pam)", "ps"]
+            process_cmd_lower = command.lower()
+            if any(sys_proc in process_cmd_lower for sys_proc in system_processes):
+                continue
+
+            # Skip kernel threads (enclosed in brackets)
+            if command.startswith("[") and command.endswith("]"):
+                continue
+
+            # Extract process name (first word of COMMAND)
+            # Handle paths like /usr/bin/python3 -> python3
+            process_name = command.split()[0] if command.split() else ""
+
+            # Get basename if it's a path
+            if "/" in process_name:
+                process_name = process_name.split("/")[-1]
+
+            # Skip empty process names or parenthesized names
+            if not process_name or process_name.startswith("("):
+                continue
+
+            # Add to list if not seen before (unique processes only)
+            if process_name not in seen_processes:
+                process_names.append(process_name)
+                seen_processes.add(process_name)
+
+                # Limit to top 5
+                if len(process_names) >= 5:
+                    break
+
+        return process_names
+
+    @classmethod
     def _is_ssh_process(cls, line: str) -> bool:
         """Check if a ps output line is an SSH-related process.
 
