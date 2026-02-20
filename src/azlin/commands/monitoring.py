@@ -653,11 +653,28 @@ def get_vm_session_pairs(
 ) -> list[tuple[VMInfo, list[TmuxSession]]]:
     """Get canonical VM/session pairs - SINGLE SOURCE OF TRUTH.
 
-    Used by both 'azlin list --show-tmux' and 'azlin restore'.
+    Uses tag-based discovery (TagManager) to match the behavior of 'azlin list',
+    ensuring only azlin-managed VMs are included.
+
+    Used by 'azlin list --show-tmux', 'azlin restore', and 'azlin sessions save'.
     """
-    vms = VMManager.list_vms(resource_group, include_stopped=include_stopped)
+    vms, _was_cached = TagManager.list_managed_vms(resource_group=resource_group, use_cache=False)
     if not vms:
         return []
+
+    # Filter stopped VMs if requested (list_managed_vms always includes stopped)
+    if not include_stopped:
+        vms = [vm for vm in vms if vm.is_running()]
+
+    if not vms:
+        return []
+
+    # Populate session names from tags (same as list_command)
+    for vm in vms:
+        if vm.tags and TagManager.TAG_SESSION in vm.tags:
+            vm.session_name = vm.tags[TagManager.TAG_SESSION]
+        else:
+            vm.session_name = ConfigManager.get_session_name(vm.name, config_path)
 
     tmux_by_vm = _collect_tmux_sessions(vms)
 
@@ -1413,8 +1430,8 @@ def list_command(
                 ssh_key_pair = SSHKeyManager.ensure_key_exists()
                 ssh_key_path = ssh_key_pair.private_path
 
-                # Build SSH configs for running VMs with public IPs (direct SSH only for now)
-                # Note: Bastion support can be added later if needed
+                # Build SSH configs for running VMs with public IPs
+                # Bastion VMs show "-" since process collection requires direct SSH
                 running_vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
 
                 if running_vms:
