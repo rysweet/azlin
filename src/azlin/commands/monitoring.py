@@ -682,6 +682,25 @@ def get_vm_session_pairs(
     return [(vm, tmux_by_vm.get(vm.name, [])) for vm in vms]
 
 
+def _cache_tmux_sessions(
+    tmux_by_vm: dict[str, list[TmuxSession]],
+    rg: str,
+    cache: object,
+) -> None:
+    """Cache tmux sessions with corrected vm_name (IP → VM name).
+
+    The tmux session objects contain the SSH host (IP address) as vm_name.
+    Before caching, we replace that with the actual VM name.
+    """
+    for vm_name, sessions in tmux_by_vm.items():
+        corrected_sessions = []
+        for s in sessions:
+            session_dict = s.to_dict()
+            session_dict["vm_name"] = vm_name  # Replace IP with actual VM name
+            corrected_sessions.append(session_dict)
+        cache.set_tmux(vm_name, rg, corrected_sessions)  # type: ignore[attr-defined]
+
+
 def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
     """Collect tmux sessions from running VMs.
 
@@ -1088,7 +1107,7 @@ def _handle_multi_context_list(
     "show_procs",
     is_flag=True,
     default=False,
-    help="Show active user processes on each VM (top 5)",
+    help="Show active user processes on each VM (top 5, public IP VMs only)",
 )
 def list_command(
     resource_group: str | None,
@@ -1343,18 +1362,8 @@ def list_command(
                     if verbose:
                         click.echo(f"Collecting tmux sessions from {len(vms)} VMs...")
                     tmux_by_vm = _collect_tmux_sessions(vms)
-                    # Update cache with fresh tmux data
-                    # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
-                    if rg:  # Only cache if resource group is known
-                        for vm_name, sessions in tmux_by_vm.items():
-                            # Create corrected copies - don't mutate originals!
-                            corrected_sessions = []
-                            for s in sessions:
-                                # Create dict with corrected vm_name
-                                session_dict = s.to_dict()
-                                session_dict["vm_name"] = vm_name  # Replace IP with actual VM name
-                                corrected_sessions.append(session_dict)
-                            cache.set_tmux(vm_name, rg, corrected_sessions)
+                    if rg:
+                        _cache_tmux_sessions(tmux_by_vm, rg, cache)
             else:
                 # Cache miss - collect and cache tmux sessions
                 running_count = len([vm for vm in vms if vm.is_running()])
@@ -1369,16 +1378,8 @@ def list_command(
                     tmux_by_vm = _collect_tmux_sessions(vms)
 
                 # Cache the collected sessions
-                # IMPORTANT: Correct vm_name in sessions before caching (they contain IPs!)
-                if rg:  # Only cache if resource group is known
-                    for vm_name, sessions in tmux_by_vm.items():
-                        # Create corrected copies - don't mutate originals!
-                        corrected_sessions = []
-                        for s in sessions:
-                            session_dict = s.to_dict()
-                            session_dict["vm_name"] = vm_name  # Replace IP with actual VM name
-                            corrected_sessions.append(session_dict)
-                        cache.set_tmux(vm_name, rg, corrected_sessions)
+                if rg:
+                    _cache_tmux_sessions(tmux_by_vm, rg, cache)
 
         # Measure SSH latency if enabled (skip if cached)
         latency_by_vm: dict[str, LatencyResult] = {}
@@ -1446,7 +1447,6 @@ def list_command(
 
         # Display quota summary header if enabled
         if show_quota and quota_by_region:
-            console = Console()
             quota_table = Table(
                 title="Azure vCPU Quota Summary", show_header=True, header_style="bold"
             )
@@ -1504,7 +1504,6 @@ def list_command(
                 logger.debug(f"Bastion listing skipped: {e}")
 
         # Create Rich table for VMs
-        console = Console()
         table = Table(title="Azure VMs", show_header=True, header_style="bold")
 
         # Add columns based on mode
@@ -1627,7 +1626,7 @@ def list_command(
                 row_data.append(vm.name)
 
             # Status, IP, Region
-            row_data.extend([status_display, ip, vm.location])
+            row_data.extend([status_display, ip, vm.location or "N/A"])
 
             # SKU (only in wide mode)
             if wide_mode:

@@ -11,6 +11,7 @@ Philosophy:
 - Minimal fields (no ephemeral data like IPs)
 """
 
+import contextlib
 import logging
 import os
 import tomllib  # Python 3.11+ (requires-python >= 3.11)
@@ -191,6 +192,10 @@ class SessionManager:
         cls.SESSIONS_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
         # Enforce 0700 even on existing dirs (mkdir mode is masked by umask)
         os.chmod(cls.SESSIONS_DIR, 0o700)
+        # Also enforce on parent ~/.azlin
+        azlin_dir = cls.SESSIONS_DIR.parent
+        if azlin_dir.exists():
+            os.chmod(azlin_dir, 0o700)
 
     @classmethod
     def _validate_session_name(cls, name: str) -> None:
@@ -273,8 +278,14 @@ class SessionManager:
             toml_content = session_config.to_toml()
             # Write with 0600 permissions atomically (no TOCTOU race)
             fd = os.open(str(session_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w") as f:
-                f.write(toml_content)
+            try:
+                with os.fdopen(fd, "w") as f:
+                    f.write(toml_content)
+            except BaseException:
+                # Close fd if os.fdopen didn't take ownership
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+                raise
             logger.info(f"Saved session to {session_file}")
             return session_file
 
@@ -315,7 +326,17 @@ class SessionManager:
 
         try:
             toml_content = session_file.read_text()
-            return SessionConfig.from_toml(toml_content)
+            config = SessionConfig.from_toml(toml_content)
+
+            # Cross-validate: TOML internal name should match the filename
+            if config.name != session_name:
+                logger.warning(
+                    f"Session file name mismatch: file is '{session_name}' "
+                    f"but contains name='{config.name}'. Using '{session_name}'."
+                )
+                config.name = session_name
+
+            return config
         except SessionManagerError:
             raise  # Don't double-wrap our own errors
         except OSError as e:
