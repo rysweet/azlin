@@ -752,6 +752,12 @@ class PSCommandExecutor:
 
         return "\n".join(lines)
 
+    # System processes to exclude from user process listing
+    _SYSTEM_PROCESS_NAMES = frozenset({"systemd", "(sd-pam)", "ps"})
+
+    # Valid azureuser prefixes in ps output (USER column truncated to 8 chars + '+')
+    _AZUREUSER_PATTERNS = ("azureuser", "azureus+")
+
     @classmethod
     def filter_user_processes(cls, ps_output: str) -> list[str]:
         """Filter ps aux output to user-launched processes only.
@@ -796,18 +802,12 @@ class PSCommandExecutor:
             user = parts[0]
             command = parts[10]
 
-            # Filter to azureuser only (handles truncation: "azureus+" in ps output)
-            if not user.startswith("azureus"):
+            # Filter to azureuser only (ps truncates to "azureus+" for 8-char column)
+            if not user.startswith(cls._AZUREUSER_PATTERNS):
                 continue
 
             # Skip SSH processes (check full line)
             if cls._is_ssh_process(line):
-                continue
-
-            # Skip system processes
-            system_processes = ["systemd", "(sd-pam)", "ps"]
-            process_cmd_lower = command.lower()
-            if any(sys_proc in process_cmd_lower for sys_proc in system_processes):
                 continue
 
             # Skip kernel threads (enclosed in brackets)
@@ -815,15 +815,19 @@ class PSCommandExecutor:
                 continue
 
             # Extract process name (first word of COMMAND)
-            # Handle paths like /usr/bin/python3 -> python3
-            process_name = command.split()[0] if command.split() else ""
+            cmd_parts = command.split()
+            if not cmd_parts:
+                continue
+            process_name = cmd_parts[0]
 
-            # Get basename if it's a path
+            # Get basename if it's a path (/usr/bin/python3 -> python3)
             if "/" in process_name:
-                process_name = process_name.split("/")[-1]
+                process_name = process_name.rsplit("/", 1)[-1]
 
-            # Skip empty process names or parenthesized names
+            # Skip empty, parenthesized, or system process names
             if not process_name or process_name.startswith("("):
+                continue
+            if process_name in cls._SYSTEM_PROCESS_NAMES:
                 continue
 
             # Add to list if not seen before (unique processes only)

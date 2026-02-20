@@ -1405,9 +1405,9 @@ def list_command(
             except Exception as e:
                 click.echo(f"Warning: Failed to measure latencies: {e}", err=True)
 
-        # Collect active user processes if enabled (skip if cached)
+        # Collect active user processes if enabled (always fresh — processes are ephemeral)
         active_procs_by_vm: dict[str, list[str]] = {}
-        if show_procs and not was_cached:
+        if show_procs:
             try:
                 # Ensure SSH key is available
                 ssh_key_pair = SSHKeyManager.ensure_key_exists()
@@ -1643,11 +1643,7 @@ def list_command(
             # Active Processes (if enabled)
             if show_procs:
                 if vm.name in active_procs_by_vm:
-                    procs = active_procs_by_vm[vm.name]
-                    proc_display = ", ".join(procs) if procs else "-"
-                    row_data.append(proc_display)
-                elif vm.is_running():
-                    row_data.append("-")
+                    row_data.append(", ".join(active_procs_by_vm[vm.name]))
                 else:
                     row_data.append("-")
 

@@ -13,16 +13,12 @@ Philosophy:
 
 import logging
 import os
+import tomllib  # Python 3.11+ (requires-python >= 3.11)
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
-try:
-    import tomli  # For reading TOML (Python < 3.11)  # type: ignore[import-not-found]
-except ImportError:
-    import tomllib as tomli  # Python 3.11+
 
 import tomlkit  # For writing TOML (preserves formatting)
 
@@ -128,8 +124,8 @@ class SessionConfig:
             SessionConfig object
         """
         try:
-            data = tomli.loads(toml_str)
-        except (tomli.TOMLDecodeError, ValueError) as e:
+            data = tomllib.loads(toml_str)
+        except (tomllib.TOMLDecodeError, ValueError) as e:
             raise SessionManagerError(f"Invalid TOML format: {e}") from e
 
         # Validate required fields
@@ -303,9 +299,10 @@ class SessionManager:
         try:
             toml_content = session_file.read_text()
             return SessionConfig.from_toml(toml_content)
-
-        except Exception as e:
-            raise SessionManagerError(f"Failed to load session: {e}") from e
+        except SessionManagerError:
+            raise  # Don't double-wrap our own errors
+        except OSError as e:
+            raise SessionManagerError(f"Failed to read session file {session_file}: {e}") from e
 
     @classmethod
     def list_sessions(cls) -> list[str]:

@@ -47,12 +47,12 @@ def save_command(session_name: str, resource_group: str | None, config: str | No
     """Save current VM/session state to file.
 
     Saves VM configurations and tmux sessions to ~/.azlin/sessions/<session-name>.toml.
-    The saved session can be restored later with 'azlin session load'.
+    The saved session can be restored later with 'azlin sessions load'.
 
     \b
     Examples:
-        azlin session save my-dev-env
-        azlin session save project-x --rg my-resource-group
+        azlin sessions save my-dev-env
+        azlin sessions save project-x --rg my-resource-group
     """
     console = Console()
 
@@ -113,7 +113,7 @@ def load_command(session_name: str) -> None:
 
     \b
     Examples:
-        azlin session load my-dev-env
+        azlin sessions load my-dev-env
     """
     console = Console()
 
@@ -133,7 +133,7 @@ def load_command(session_name: str) -> None:
         # Restore VMs
         console.print("[dim]Restoring VMs...[/dim]")
 
-        def progress_callback(msg: str):
+        def progress_callback(msg: str) -> None:
             console.print(f"[dim]  {msg}[/dim]")
 
         result = SessionManager.restore_session(session_config, progress_callback=progress_callback)
@@ -193,7 +193,7 @@ def list_sessions_command() -> None:
 
     \b
     Examples:
-        azlin session list
+        azlin sessions list
     """
     console = Console()
 
