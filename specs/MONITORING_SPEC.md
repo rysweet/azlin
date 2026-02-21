@@ -345,7 +345,7 @@ notification_config:
     to_addresses: [admin@example.com]
   slack:
     enabled: false
-    webhook_url: https://hooks.slack.com/services/XXX
+    webhook_url: https://hooks.slack.com/services/YOUR/WEBHOOK/URL
   webhook:
     enabled: false
     url: https://example.com/alerts
