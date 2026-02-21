@@ -25,12 +25,16 @@ class TestCpMultiSourceSyntax:
     def test_cp_single_source_backward_compatible(self):
         """Test single source still works (backward compatibility)."""
         runner = CliRunner()
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
-            with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
+        with patch(
+            "azlin.commands.file_transfer.ConfigManager.get_resource_group", return_value="test-rg"
+        ):
+            with patch("azlin.commands.file_transfer.SSHKeyManager.ensure_key_exists"):
                 with patch(
                     "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
                 ) as mock_session:
-                    with patch("azlin.cli.FileTransfer.transfer") as mock_transfer:
+                    with patch(
+                        "azlin.commands.file_transfer.FileTransfer.transfer"
+                    ) as mock_transfer:
                         # Setup mocks
                         mock_vm_session = Mock(spec=VMSession)
                         mock_vm_session.name = "test-vm"
@@ -60,12 +64,16 @@ class TestCpMultiSourceSyntax:
     def test_cp_multiple_sources_accepted(self):
         """Test multiple sources are accepted."""
         runner = CliRunner()
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
-            with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
+        with patch(
+            "azlin.commands.file_transfer.ConfigManager.get_resource_group", return_value="test-rg"
+        ):
+            with patch("azlin.commands.file_transfer.SSHKeyManager.ensure_key_exists"):
                 with patch(
                     "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
                 ) as mock_session:
-                    with patch("azlin.cli.FileTransfer.transfer") as mock_transfer:
+                    with patch(
+                        "azlin.commands.file_transfer.FileTransfer.transfer"
+                    ) as mock_transfer:
                         # Setup mocks
                         mock_vm_session = Mock(spec=VMSession)
                         mock_vm_session.name = "test-vm"
@@ -130,14 +138,18 @@ class TestCpMultiSourceTransfer:
         file3.write_text("content3")
 
         runner = CliRunner()
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
-            with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
+        with patch(
+            "azlin.commands.file_transfer.ConfigManager.get_resource_group", return_value="test-rg"
+        ):
+            with patch("azlin.commands.file_transfer.SSHKeyManager.ensure_key_exists"):
                 with patch(
                     "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
                 ) as mock_session:
-                    with patch("azlin.cli.FileTransfer.transfer") as mock_transfer:
+                    with patch(
+                        "azlin.commands.file_transfer.FileTransfer.transfer"
+                    ) as mock_transfer:
                         with patch(
-                            "azlin.cli.PathParser.parse_and_validate",
+                            "azlin.commands.file_transfer.PathParser.parse_and_validate",
                             side_effect=lambda p, **kwargs: Path(p),
                         ):
                             # Setup mocks
@@ -183,14 +195,18 @@ class TestCpMultiSourceTransfer:
         file2.write_text("content2")
 
         runner = CliRunner()
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
-            with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
+        with patch(
+            "azlin.commands.file_transfer.ConfigManager.get_resource_group", return_value="test-rg"
+        ):
+            with patch("azlin.commands.file_transfer.SSHKeyManager.ensure_key_exists"):
                 with patch(
                     "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
                 ) as mock_session:
-                    with patch("azlin.cli.FileTransfer.transfer") as mock_transfer:
+                    with patch(
+                        "azlin.commands.file_transfer.FileTransfer.transfer"
+                    ) as mock_transfer:
                         with patch(
-                            "azlin.cli.PathParser.parse_and_validate",
+                            "azlin.commands.file_transfer.PathParser.parse_and_validate",
                             side_effect=lambda p, **kwargs: Path(p),
                         ):
                             # Setup mocks
@@ -232,13 +248,15 @@ class TestCpMultiSourceTransfer:
         file2.write_text("content2")
 
         runner = CliRunner()
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
-            with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
+        with patch(
+            "azlin.commands.file_transfer.ConfigManager.get_resource_group", return_value="test-rg"
+        ):
+            with patch("azlin.commands.file_transfer.SSHKeyManager.ensure_key_exists"):
                 with patch(
                     "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
                 ) as mock_session:
                     with patch(
-                        "azlin.cli.PathParser.parse_and_validate",
+                        "azlin.commands.file_transfer.PathParser.parse_and_validate",
                         side_effect=lambda p, **kwargs: Path(p),
                     ):
                         # Setup mocks
@@ -269,13 +287,15 @@ class TestCpMultiSourceValidation:
     def test_mixed_local_remote_sources_rejected(self):
         """Test error when mixing local and remote sources."""
         runner = CliRunner()
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
-            with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
+        with patch(
+            "azlin.commands.file_transfer.ConfigManager.get_resource_group", return_value="test-rg"
+        ):
+            with patch("azlin.commands.file_transfer.SSHKeyManager.ensure_key_exists"):
                 with patch(
                     "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
                 ) as mock_session:
                     with patch(
-                        "azlin.cli.PathParser.parse_and_validate",
+                        "azlin.commands.file_transfer.PathParser.parse_and_validate",
                         side_effect=lambda p, **kwargs: Path(p),
                     ):
                         # Setup mocks
@@ -304,13 +324,15 @@ class TestCpMultiSourceValidation:
     def test_multiple_remote_sources_different_vms_rejected(self):
         """Test error when sources are from different VMs."""
         runner = CliRunner()
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
-            with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
+        with patch(
+            "azlin.commands.file_transfer.ConfigManager.get_resource_group", return_value="test-rg"
+        ):
+            with patch("azlin.commands.file_transfer.SSHKeyManager.ensure_key_exists"):
                 with patch(
                     "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
                 ) as mock_session:
                     with patch(
-                        "azlin.cli.PathParser.parse_and_validate",
+                        "azlin.commands.file_transfer.PathParser.parse_and_validate",
                         side_effect=lambda p, **kwargs: Path(p),
                     ):
                         # Setup mocks - return different VMs
@@ -350,14 +372,18 @@ class TestCpMultiSourceErrorHandling:
         file2.write_text("content2")
 
         runner = CliRunner()
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
-            with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
+        with patch(
+            "azlin.commands.file_transfer.ConfigManager.get_resource_group", return_value="test-rg"
+        ):
+            with patch("azlin.commands.file_transfer.SSHKeyManager.ensure_key_exists"):
                 with patch(
                     "azlin.modules.file_transfer.session_manager.SessionManager.get_vm_session"
                 ) as mock_session:
-                    with patch("azlin.cli.FileTransfer.transfer") as mock_transfer:
+                    with patch(
+                        "azlin.commands.file_transfer.FileTransfer.transfer"
+                    ) as mock_transfer:
                         with patch(
-                            "azlin.cli.PathParser.parse_and_validate",
+                            "azlin.commands.file_transfer.PathParser.parse_and_validate",
                             side_effect=lambda p, **kwargs: Path(p),
                         ):
                             # Setup mocks
@@ -401,8 +427,10 @@ class TestCpMultiSourceErrorHandling:
     def test_all_sources_must_exist(self):
         """Test error when source file doesn't exist."""
         runner = CliRunner()
-        with patch("azlin.cli.ConfigManager.get_resource_group", return_value="test-rg"):
-            with patch("azlin.cli.SSHKeyManager.ensure_key_exists"):
+        with patch(
+            "azlin.commands.file_transfer.ConfigManager.get_resource_group", return_value="test-rg"
+        ):
+            with patch("azlin.commands.file_transfer.SSHKeyManager.ensure_key_exists"):
                 # Act - non-existent files
                 result = runner.invoke(
                     main,

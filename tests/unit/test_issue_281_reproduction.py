@@ -22,9 +22,9 @@ class TestIssue281BugReproduction:
     @patch("azlin.cli_helpers.get_ssh_configs_for_vms")
     @patch("azlin.remote_exec.WCommandExecutor.execute_w_on_routes")
     @patch("azlin.remote_exec.WCommandExecutor.format_w_output")
-    @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.commands.monitoring_w.SSHKeyManager")
+    @patch("azlin.commands.monitoring_w.TagManager")
+    @patch("azlin.commands.monitoring_w.ConfigManager")
     def test_issue_281_w_command_filters_out_bastion_only_vms(
         self,
         mock_config_mgr,
@@ -141,10 +141,10 @@ class TestIssue281BugReproduction:
         )
 
     @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
-    @patch("azlin.commands.monitoring.DistributedTopExecutor")
-    @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.commands.monitoring_top.DistributedTopExecutor")
+    @patch("azlin.commands.monitoring_top.SSHKeyManager")
+    @patch("azlin.commands.monitoring_top.TagManager")
+    @patch("azlin.commands.monitoring_top.ConfigManager")
     def test_issue_281_top_command_filters_out_bastion_only_vms(
         self,
         mock_config_mgr,
@@ -241,10 +241,10 @@ class TestIssue281BugReproduction:
             pytest.fail("DistributedTopExecutor was not called")
 
     @patch("azlin.modules.ssh_routing_resolver.SSHRoutingResolver.resolve_routes_batch")
-    @patch("azlin.commands.monitoring.PSCommandExecutor")
-    @patch("azlin.commands.monitoring.SSHKeyManager")
-    @patch("azlin.commands.monitoring.TagManager")
-    @patch("azlin.commands.monitoring.ConfigManager")
+    @patch("azlin.commands.monitoring_ps.PSCommandExecutor")
+    @patch("azlin.commands.monitoring_ps.SSHKeyManager")
+    @patch("azlin.commands.monitoring_ps.TagManager")
+    @patch("azlin.commands.monitoring_ps.ConfigManager")
     def test_issue_281_ps_command_filters_out_bastion_only_vms(
         self,
         mock_config_mgr,
