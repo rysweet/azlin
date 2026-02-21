@@ -779,27 +779,11 @@ class StorageManager:
                 temp_path = Path(temp_file.name)
 
             try:
-                # Get storage account key for authentication
-                key_cmd = [
-                    "az",
-                    "storage",
-                    "account",
-                    "keys",
-                    "list",
-                    "--account-name",
-                    storage_account,
-                    "--resource-group",
-                    resource_group,
-                    "--query",
-                    "[0].value",
-                    "--output",
-                    "tsv",
-                ]
-
-                key_result = subprocess.run(
-                    key_cmd, capture_output=True, text=True, check=True, timeout=30
-                )
-                account_key = key_result.stdout.strip()
+                # SECURITY: Use Azure AD authentication instead of account keys
+                # This prevents credential exposure in command-line arguments,
+                # process listings, shell history, and logs.
+                # Requires user to be logged in with 'az login' and have
+                # appropriate RBAC permissions (Storage File Data SMB Share Contributor)
 
                 # Create .ssh directory in share
                 mkdir_cmd = [
@@ -813,8 +797,8 @@ class StorageManager:
                     share_name,
                     "--account-name",
                     storage_account,
-                    "--account-key",
-                    account_key,
+                    "--auth-mode",
+                    "login",  # Use Azure AD auth (no keys exposed)
                     "--output",
                     "none",
                 ]
@@ -835,8 +819,8 @@ class StorageManager:
                     ".ssh/authorized_keys",
                     "--account-name",
                     storage_account,
-                    "--account-key",
-                    account_key,
+                    "--auth-mode",
+                    "login",  # Use Azure AD auth (no keys exposed)
                     "--output",
                     "none",
                 ]
