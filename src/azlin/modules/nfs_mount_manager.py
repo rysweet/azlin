@@ -23,10 +23,16 @@ Public API:
 """
 
 import logging
-import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from azlin.modules.validation import (
+    ValidationError,
+    validate_mount_point,
+    validate_nfs_endpoint,
+    validate_storage_account_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,225 +70,20 @@ class MountInfo:
     mount_options: str
 
 
-# Security Validation Helpers
-class ValidationError(ValueError):
-    """Raised when input validation fails."""
-
-    pass
-
-
+# Wrapper functions maintain compatibility while using shared validation
 def _validate_mount_point(mount_point: str) -> str:
-    """Validate mount point path for safe use in shell commands.
-
-    Args:
-        mount_point: Mount point path to validate
-
-    Returns:
-        Validated mount point
-
-    Raises:
-        ValidationError: If mount point contains unsafe characters
-    """
-    # Allow alphanumeric, forward slashes, dots, underscores, and hyphens
-    # Must start with / and not contain shell metacharacters
-    if not mount_point:
-        raise ValidationError("Mount point cannot be empty")
-
-    if not mount_point.startswith("/"):
-        raise ValidationError(f"Mount point must be absolute path: {mount_point}")
-
-    # Check for shell metacharacters and dangerous patterns
-    dangerous_patterns = [
-        ";",
-        "&",
-        "|",
-        "$",
-        "`",
-        "(",
-        ")",
-        "<",
-        ">",
-        "\\",
-        "'",
-        '"',
-        "\n",
-        "\r",
-        "\t",
-        "*",
-        "?",
-        "[",
-        "]",
-        "{",
-        "}",
-        "!",
-        "~",
-    ]
-
-    for pattern in dangerous_patterns:
-        if pattern in mount_point:
-            raise ValidationError(
-                f"Mount point contains unsafe character '{pattern}': {mount_point}"
-            )
-
-    # Additional check: must match safe path pattern
-    if not re.match(r"^/[a-zA-Z0-9/_.-]+$", mount_point):
-        raise ValidationError(f"Mount point contains invalid characters: {mount_point}")
-
-    # Prevent directory traversal
-    if ".." in mount_point:
-        raise ValidationError(f"Mount point cannot contain '..': {mount_point}")
-
-    return mount_point
+    """Validate mount point using shared validation utilities."""
+    return validate_mount_point(mount_point)
 
 
 def _validate_nfs_endpoint(nfs_endpoint: str) -> str:
-    """Validate NFS endpoint for safe use in shell commands.
-
-    Expected format: server.domain:/path/to/share
-    Examples:
-        - storageacct.file.core.windows.net:/share
-        - 10.0.0.4:/exports/data
-
-    Args:
-        nfs_endpoint: NFS endpoint to validate
-
-    Returns:
-        Validated endpoint
-
-    Raises:
-        ValidationError: If endpoint contains unsafe characters
-    """
-    if not nfs_endpoint:
-        raise ValidationError("NFS endpoint cannot be empty")
-
-    # Must contain colon separator
-    if ":" not in nfs_endpoint:
-        raise ValidationError(f"NFS endpoint must contain ':' separator: {nfs_endpoint}")
-
-    server, share_path = nfs_endpoint.split(":", 1)
-
-    # Validate server part (hostname or IP)
-    if not server:
-        raise ValidationError(f"NFS server cannot be empty: {nfs_endpoint}")
-
-    # Check for shell metacharacters
-    dangerous_chars = [
-        ";",
-        "&",
-        "|",
-        "$",
-        "`",
-        "(",
-        ")",
-        "<",
-        ">",
-        "\\",
-        "'",
-        '"',
-        "\n",
-        "\r",
-        "\t",
-        "!",
-        "~",
-    ]
-
-    for char in dangerous_chars:
-        if char in nfs_endpoint:
-            raise ValidationError(
-                f"NFS endpoint contains unsafe character '{char}': {nfs_endpoint}"
-            )
-
-    # Validate server part: alphanumeric, dots, hyphens only
-    if not re.match(r"^[a-zA-Z0-9.-]+$", server):
-        raise ValidationError(f"NFS server contains invalid characters: {server}")
-
-    # Validate share path: must start with /
-    if not share_path.startswith("/"):
-        raise ValidationError(f"NFS share path must start with '/': {share_path}")
-
-    # Validate share path characters
-    if not re.match(r"^/[a-zA-Z0-9/_.-]*$", share_path):
-        raise ValidationError(f"NFS share path contains invalid characters: {share_path}")
-
-    # Prevent directory traversal
-    if ".." in share_path:
-        raise ValidationError(f"NFS share path cannot contain '..': {share_path}")
-
-    return nfs_endpoint
-
-
-def _validate_mount_options(options: str) -> str:
-    """Validate mount options for safe use in shell commands.
-
-    Args:
-        options: Mount options string (e.g., "sec=sys,rw,relatime")
-
-    Returns:
-        Validated options
-
-    Raises:
-        ValidationError: If options contain unsafe characters
-    """
-    if not options:
-        return options
-
-    # Allow alphanumeric, commas, equals, underscores, and hyphens
-    if not re.match(r"^[a-zA-Z0-9,=_-]+$", options):
-        raise ValidationError(f"Mount options contain invalid characters: {options}")
-
-    # Check for shell metacharacters
-    dangerous_chars = [
-        ";",
-        "&",
-        "|",
-        "$",
-        "`",
-        "(",
-        ")",
-        "<",
-        ">",
-        "\\",
-        "'",
-        '"',
-        "\n",
-        "\r",
-        "\t",
-        "!",
-        "~",
-        " ",
-    ]
-
-    for char in dangerous_chars:
-        if char in options:
-            raise ValidationError(f"Mount options contain unsafe character '{char}': {options}")
-
-    return options
+    """Validate NFS endpoint using shared validation utilities."""
+    return validate_nfs_endpoint(nfs_endpoint)
 
 
 def _validate_storage_name(name: str) -> str:
-    """Validate storage account name for safe use.
-
-    Azure storage account names are 3-24 characters, lowercase alphanumeric only.
-
-    Args:
-        name: Storage account name
-
-    Returns:
-        Validated name
-
-    Raises:
-        ValidationError: If name is invalid
-    """
-    if not name:
-        raise ValidationError("Storage name cannot be empty")
-
-    if len(name) < 3 or len(name) > 24:
-        raise ValidationError(f"Storage name must be 3-24 characters: {name} ({len(name)} chars)")
-
-    if not re.match(r"^[a-z0-9]+$", name):
-        raise ValidationError(f"Storage name must be lowercase alphanumeric only: {name}")
-
-    return name
+    """Validate storage name using shared validation utilities."""
+    return validate_storage_account_name(name)
 
 
 class NFSMountManager:

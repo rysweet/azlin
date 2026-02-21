@@ -26,6 +26,11 @@ from typing import Any
 
 from azlin.azure_cli_visibility import AzureCLIExecutor
 from azlin.modules.bastion_detector import BastionDetector, BastionDetectorError
+from azlin.modules.validation import (
+    ValidationError,
+    sanitize_azure_error,
+    validate_azure_resource_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,33 +150,8 @@ class BastionProvisioner:
 
     @staticmethod
     def _sanitize_azure_error(stderr: str) -> str:
-        """Sanitize Azure CLI error output to prevent information leakage.
-
-        Args:
-            stderr: Raw stderr from Azure CLI
-
-        Returns:
-            Sanitized error message safe for user display
-        """
-        if "ResourceNotFound" in stderr:
-            return "Resource not found"
-        if "InvalidAuthenticationToken" in stderr or "AuthenticationFailed" in stderr:
-            return "Authentication failed"
-        if "AuthorizationFailed" in stderr or "Forbidden" in stderr:
-            return "Insufficient permissions"
-        if "QuotaExceeded" in stderr or "quota" in stderr.lower():
-            return "Quota exceeded"
-        if "InvalidParameter" in stderr or "invalid" in stderr.lower():
-            return "Invalid parameter"
-        if "AlreadyExists" in stderr or "already exists" in stderr.lower():
-            return "Resource already exists"
-        if "NetworkNotFound" in stderr:
-            return "Network resource not found"
-        if "timeout" in stderr.lower():
-            return "Operation timed out"
-        # Generic message for unknown errors - log full details for debugging
-        logger.debug(f"Azure CLI error details: {stderr}")
-        return "Azure operation failed"
+        """Sanitize Azure CLI error using shared validation utilities."""
+        return sanitize_azure_error(stderr)
 
     @staticmethod
     def _validate_inputs(
@@ -191,27 +171,14 @@ class BastionProvisioner:
         Raises:
             BastionProvisionerError: If validation fails
         """
-        if not bastion_name:
-            raise BastionProvisionerError("Bastion name cannot be empty")
-        if not resource_group:
-            raise BastionProvisionerError("Resource group cannot be empty")
-        if not location:
-            raise BastionProvisionerError("Location cannot be empty")
-
-        # Validate name format (Azure naming rules)
-        import re
-
-        name_pattern = re.compile(r"^[a-zA-Z0-9_.\-]{1,80}$")
-        if not name_pattern.match(bastion_name):
-            raise BastionProvisionerError(
-                f"Invalid Bastion name: {bastion_name}. "
-                "Must be 1-80 characters, alphanumeric, hyphen, underscore, or period"
-            )
-        if vnet_name and not name_pattern.match(vnet_name):
-            raise BastionProvisionerError(
-                f"Invalid VNet name: {vnet_name}. "
-                "Must be 1-80 characters, alphanumeric, hyphen, underscore, or period"
-            )
+        try:
+            validate_azure_resource_name(bastion_name, "Bastion")
+            validate_azure_resource_name(resource_group, "Resource group")
+            validate_azure_resource_name(location, "Location")
+            if vnet_name:
+                validate_azure_resource_name(vnet_name, "VNet")
+        except ValidationError as e:
+            raise BastionProvisionerError(str(e)) from e
 
     @classmethod
     def check_prerequisites(
