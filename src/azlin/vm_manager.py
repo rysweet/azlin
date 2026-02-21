@@ -980,7 +980,11 @@ class VMManager:
                 logger.warning(f"Failed to refresh VM {vm_name}: {e}")
             return None
 
-        # Refresh VMs in parallel (max 10 workers to avoid Azure API throttling)
+        # Refresh VMs in parallel
+        # max_workers=10: Conservative limit to avoid Azure API throttling
+        # Azure API rate limits vary by subscription/region, but 10 concurrent
+        # requests is generally safe and provides good parallelism without
+        # triggering "TooManyRequests" errors (HTTP 429)
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(refresh_single_vm, vm_name) for vm_name in expired_vm_names]
 
