@@ -993,7 +993,7 @@ class CLIOrchestrator:
                 f"Creating Bastion tunnel via {bastion_info['name']} (localhost:{local_port})..."
             )
 
-            from azlin.commands.monitoring import _get_config_int
+            from azlin.commands.monitoring_list import _get_config_int
 
             retry_attempts = _get_config_int("AZLIN_BASTION_RETRY_ATTEMPTS", 3)
             last_error: Exception | None = None

@@ -15,7 +15,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from azlin.commands.monitoring import get_vm_session_pairs
+from azlin.commands.monitoring_list import get_vm_session_pairs
 from azlin.config_manager import ConfigManager
 from azlin.session_manager import SessionManager, SessionManagerError
 
