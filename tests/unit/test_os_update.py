@@ -148,12 +148,8 @@ class TestOSUpdateExecutor:
 class TestOSUpdateCLI:
     """Test CLI integration for os-update command."""
 
-    @patch("azlin.cli.OSUpdateExecutor")
-    @patch("azlin.cli._get_ssh_config_for_vm")
-    @patch("azlin.cli.click.echo")
-    def test_os_update_command_exists(self, mock_echo, mock_get_config, mock_executor):
+    def test_os_update_command_exists(self):
         """Test that os-update command is registered."""
-        # This test will pass once we add the command to cli.py
         from azlin.cli import main
 
         # Check command is registered
@@ -161,10 +157,9 @@ class TestOSUpdateCLI:
             cmd.name for cmd in main.commands.values()
         ]
 
-    @patch("azlin.cli.OSUpdateExecutor")
-    @patch("azlin.cli._get_ssh_config_for_vm")
-    @patch("azlin.cli.click.echo")
-    def test_os_update_with_session_name(self, mock_echo, mock_get_config, mock_executor):
+    @patch("azlin.commands.system.OSUpdateExecutor")
+    @patch("azlin.commands.system._get_ssh_config_for_vm")
+    def test_os_update_with_session_name(self, mock_get_config, mock_executor):
         """Test os-update with session name."""
         mock_config = SSHConfig(
             host="20.1.2.3", user="azureuser", key_path=Path("/home/user/.ssh/azlin_key")
@@ -177,7 +172,6 @@ class TestOSUpdateCLI:
         mock_executor.execute_os_update.return_value = mock_result
         mock_executor.format_output.return_value = "Update successful"
 
-        # This will be implemented in cli.py
         from click.testing import CliRunner
 
         from azlin.cli import main
@@ -189,10 +183,9 @@ class TestOSUpdateCLI:
         mock_get_config.assert_called_once()
         mock_executor.execute_os_update.assert_called_once()
 
-    @patch("azlin.cli.OSUpdateExecutor")
-    @patch("azlin.cli._get_ssh_config_for_vm")
-    @patch("azlin.cli.click.echo")
-    def test_os_update_handles_errors(self, mock_echo, mock_get_config, mock_executor):
+    @patch("azlin.commands.system.OSUpdateExecutor")
+    @patch("azlin.commands.system._get_ssh_config_for_vm")
+    def test_os_update_handles_errors(self, mock_get_config, mock_executor):
         """Test os-update handles errors gracefully."""
         mock_config = SSHConfig(
             host="20.1.2.3", user="azureuser", key_path=Path("/home/user/.ssh/azlin_key")
@@ -203,6 +196,7 @@ class TestOSUpdateCLI:
             vm_name="20.1.2.3", success=False, stdout="", stderr="Connection refused", exit_code=255
         )
         mock_executor.execute_os_update.return_value = mock_result
+        mock_executor.format_output.return_value = "Error: Connection refused"
 
         from click.testing import CliRunner
 

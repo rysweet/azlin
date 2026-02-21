@@ -143,7 +143,7 @@ def validate_mount_point(mount_point: str) -> str:
     Security Checks:
         - Must be absolute path
         - No path traversal sequences
-        - No special characters that could enable injection
+        - No special characters that could enable shell injection
 
     Example:
         >>> validate_mount_point("/mnt/storage")
@@ -153,6 +153,37 @@ def validate_mount_point(mount_point: str) -> str:
     """
     if not mount_point:
         raise ValidationError("Mount point cannot be empty")
+
+    # Security: Check for shell-unsafe characters that enable command injection
+    # These characters are dangerous when mount points are used in shell commands
+    unsafe_chars = [
+        ";",
+        "|",
+        "&",
+        "$",
+        "`",
+        "(",
+        ")",
+        "<",
+        ">",
+        "'",
+        '"',
+        "*",
+        "?",
+        "[",
+        "]",
+        "\n",
+        "\r",
+        "\t",
+        " ",
+    ]
+    for char in unsafe_chars:
+        if char in mount_point:
+            raise ValidationError(
+                f"Mount point contains unsafe character '{char}': "
+                f"only alphanumeric characters, forward slashes, hyphens, underscores, "
+                f"and periods are allowed."
+            )
 
     mount_path = Path(mount_point)
 
@@ -165,10 +196,10 @@ def validate_mount_point(mount_point: str) -> str:
 
     # Check for path traversal
     if ".." in mount_point:
-        raise ValidationError(f"Mount point contains path traversal '..': '{mount_point}'")
+        raise ValidationError(f"Mount point cannot contain '..': '{mount_point}'")
 
     # Ensure it's under safe mount directories
-    safe_prefixes = ["/mnt/", "/media/", "/home/"]
+    safe_prefixes = ["/mnt/", "/media/", "/home/", "/var/"]
     is_safe = any(mount_point.startswith(prefix) for prefix in safe_prefixes)
 
     # Warn but don't fail for unusual mount points (user might have custom setup)
@@ -204,8 +235,15 @@ def validate_nfs_endpoint(endpoint: str) -> str:
     if not endpoint:
         raise ValidationError("NFS endpoint cannot be empty")
 
-    # Basic format check: must contain : and /
-    if ":" not in endpoint or "/" not in endpoint:
+    # Basic format check: must contain : separator
+    if ":" not in endpoint:
+        raise ValidationError(
+            f"NFS endpoint must contain ':' separator: '{endpoint}'. "
+            f"Expected: {{account}}.file.core.windows.net:/{{account}}/{{share}}"
+        )
+
+    # Must contain / for path
+    if "/" not in endpoint:
         raise ValidationError(
             f"Invalid NFS endpoint format: '{endpoint}'. "
             f"Expected: {{account}}.file.core.windows.net:/{{account}}/{{share}}"
@@ -228,11 +266,17 @@ def validate_nfs_endpoint(endpoint: str) -> str:
 
     # Validate path part (should start with /)
     if not path.startswith("/"):
-        raise ValidationError(f"Invalid NFS endpoint path: '{path}'. Path must start with /")
+        raise ValidationError("NFS endpoint path: share path must start with '/'")
+
+    # Security: Check for shell-unsafe characters in path
+    unsafe_chars = [";", "|", "&", "$", "`", "(", ")", "<", ">", "'", '"', "\n", "\r"]
+    for char in unsafe_chars:
+        if char in path:
+            raise ValidationError(f"NFS endpoint path contains unsafe character '{char}'")
 
     # Check for path traversal in path component
     if ".." in path:
-        raise ValidationError(f"NFS endpoint path contains traversal '..': '{path}'")
+        raise ValidationError(f"NFS endpoint path cannot contain '..': '{path}'")
 
     return endpoint
 
