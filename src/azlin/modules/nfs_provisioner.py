@@ -30,12 +30,13 @@ Public API:
 
 import json
 import logging
-import re
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
+
+from azlin.modules.validation import ValidationError, validate_azure_resource_name
 
 if TYPE_CHECKING:
     from azlin.modules.storage_manager import StorageManager
@@ -142,9 +143,9 @@ class ReplicationResult:
     errors: list[str] = field(default_factory=list)
 
 
-# Security Validation Helpers
+# Helper wrapper for validation
 def _validate_resource_name(name: str, resource_type: str) -> str:
-    """Validate Azure resource name for safe use.
+    """Validate Azure resource name using shared validation utilities.
 
     Args:
         name: Resource name to validate
@@ -156,54 +157,10 @@ def _validate_resource_name(name: str, resource_type: str) -> str:
     Raises:
         NFSProvisionerError: If name contains unsafe characters
     """
-    if not name or not isinstance(name, str):
-        raise NFSProvisionerError(f"{resource_type} name must be a non-empty string")
-
-    # Security: Check for command injection patterns
-    dangerous_patterns = [";", "&", "|", "$", "`", "(", ")", "<", ">", "\n", "\r", "\t"]
-    for pattern in dangerous_patterns:
-        if pattern in name:
-            raise NFSProvisionerError(f"{resource_type} name contains unsafe character '{pattern}'")
-
-    # Check for path traversal
-    if ".." in name or "/" in name or "\\" in name:
-        raise NFSProvisionerError(f"{resource_type} name contains path traversal sequences")
-
-    # Basic alphanumeric validation (with hyphens and underscores)
-    if not re.match(r"^[a-zA-Z0-9_-]+$", name):
-        raise NFSProvisionerError(
-            f"{resource_type} name must be alphanumeric with hyphens/underscores only"
-        )
-
-    return name
-
-
-def _validate_resource_id(resource_id: str) -> str:
-    """Validate Azure resource ID format.
-
-    Args:
-        resource_id: Azure resource ID to validate
-
-    Returns:
-        Validated resource ID
-
-    Raises:
-        NFSProvisionerError: If resource ID is invalid
-    """
-    if not resource_id or not isinstance(resource_id, str):
-        raise NFSProvisionerError("Resource ID must be a non-empty string")
-
-    # Azure resource ID format: /subscriptions/{sub}/resourceGroups/{rg}/providers/{provider}/...
-    if not resource_id.startswith("/subscriptions/"):
-        raise NFSProvisionerError(f"Invalid Azure resource ID format: {resource_id}")
-
-    # Security: Check for command injection patterns
-    dangerous_patterns = [";", "&", "|", "$", "`", "\n", "\r", "\t"]
-    for pattern in dangerous_patterns:
-        if pattern in resource_id:
-            raise NFSProvisionerError(f"Resource ID contains unsafe character '{pattern}'")
-
-    return resource_id
+    try:
+        return validate_azure_resource_name(name, resource_type)
+    except ValidationError as e:
+        raise NFSProvisionerError(str(e)) from e
 
 
 class NFSProvisioner:
