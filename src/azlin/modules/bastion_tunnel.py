@@ -9,14 +9,12 @@ Public API:
     create_tunnel_with_retry: Create Bastion tunnel with retry logic
     check_bastion_routing: Check if Bastion routing should be used for VM
     create_bastion_tunnel: Create Bastion tunnel for VM connection
-    offer_sshfs_mount: Offer to mount VM's NFS storage locally via sshfs
 """
 
 import logging
 import os
 import random
 import time
-from pathlib import Path
 
 import click
 
@@ -242,61 +240,9 @@ def create_bastion_tunnel(
         raise VMConnectorError(f"Unexpected error creating Bastion tunnel: {e}") from e
 
 
-def offer_sshfs_mount(
-    vm_name: str,
-    resource_group: str,
-    tunnel_port: int,
-    ssh_key: Path,
-) -> None:
-    """Offer to mount VM's NFS storage locally via sshfs.
-
-    Args:
-        vm_name: VM name
-        resource_group: Resource group
-        tunnel_port: Bastion tunnel local port
-        ssh_key: SSH private key path
-    """
-    try:
-        # Check if VM uses NFS storage
-        # Try importing NFSQuotaManager (may not exist in all versions)
-        try:
-            from azlin.modules.nfs_quota_manager import NFSQuotaManager
-
-            nfs_info = NFSQuotaManager.check_vm_nfs_storage(vm_name, resource_group)
-        except ImportError:
-            # NFSQuotaManager not available, skip NFS detection
-            logger.debug("NFSQuotaManager not available, skipping NFS mount offer")
-            return
-        except Exception as e:
-            logger.debug(f"NFS detection failed: {e}")
-            return
-
-        if not nfs_info:
-            # VM doesn't use NFS storage
-            return
-
-        storage_account, share_name, _ = nfs_info
-
-        # Offer sshfs mount
-        from azlin.modules.sshfs_manager import SSHFSManager
-
-        SSHFSManager.prompt_and_mount(
-            vm_name=vm_name,
-            storage_name=storage_account,
-            tunnel_host="localhost",
-            tunnel_port=tunnel_port,
-            ssh_key=ssh_key,
-        )
-
-    except Exception as e:
-        # Don't block connection if sshfs mount fails
-        logger.debug(f"SSHFS mount offer failed: {e}")
-
-
 __all__ = [
     "check_bastion_routing",
     "create_bastion_tunnel",
     "create_tunnel_with_retry",
     "get_config_int",
-    "offer_sshfs_mount",
 ]
