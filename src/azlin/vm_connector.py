@@ -12,117 +12,27 @@ Security:
 - Bastion tunnels bound to localhost only
 """
 
-import ipaddress
 import logging
-import os
-import random
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import click
-
-from azlin.auth_models import AuthConfig, AuthMethod
 from azlin.config_manager import ConfigError, ConfigManager
 from azlin.connection_tracker import ConnectionTracker
-from azlin.context_manager import ContextManager
-from azlin.modules.bastion_config import BastionConfig
-from azlin.modules.bastion_detector import BastionDetector, BastionInfo
-from azlin.modules.bastion_manager import BastionManager, BastionManagerError
+from azlin.modules.bastion_detector import BastionInfo
+from azlin.modules.bastion_manager import BastionManager, BastionTunnel
+from azlin.modules.bastion_tunnel import (
+    check_bastion_routing,
+    create_bastion_tunnel,
+)
+from azlin.modules.connection_sanitizer import is_valid_ip, sanitize_for_logging
 from azlin.modules.ssh_connector import SSHConfig, SSHConnector
-from azlin.modules.ssh_key_vault import KeyVaultError, create_key_vault_manager
+from azlin.modules.ssh_key_fetch import auto_sync_key_to_vm, try_fetch_key_from_vault
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.modules.ssh_reconnect import SSHReconnectHandler
 from azlin.terminal_launcher import TerminalConfig, TerminalLauncher, TerminalLauncherError
 from azlin.vm_manager import VMManager, VMManagerError
 
 logger = logging.getLogger(__name__)
-
-
-# ============================================================================
-# BASTION TUNNEL RETRY HELPERS (Issue #588)
-# ============================================================================
-
-
-def _get_config_int(env_var: str, default: int) -> int:
-    """Get integer config from environment with safe fallback."""
-    try:
-        return int(os.getenv(env_var, default))
-    except (ValueError, TypeError):
-        return default
-
-
-def _create_tunnel_with_retry(
-    bastion_manager: BastionManager,
-    bastion_name: str,
-    bastion_resource_group: str,
-    vm_resource_id: str,
-    local_port: int,
-    max_attempts: int = 3,
-):
-    """Create Bastion tunnel with retry logic.
-
-    Args:
-        bastion_manager: BastionManager instance
-        bastion_name: Bastion host name
-        bastion_resource_group: Bastion resource group
-        vm_resource_id: Full Azure VM resource ID
-        local_port: Local port to bind tunnel to
-        max_attempts: Maximum retry attempts (default: 3)
-
-    Returns:
-        BastionTunnel ready for use
-
-    Raises:
-        BastionManagerError: If tunnel creation fails after all retries
-    """
-    last_error: Exception | None = None
-    initial_delay = 1.0
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            logger.debug(f"Attempting tunnel creation (attempt {attempt}/{max_attempts})")
-            tunnel = bastion_manager.create_tunnel(
-                bastion_name=bastion_name,
-                resource_group=bastion_resource_group,
-                target_vm_id=vm_resource_id,
-                local_port=local_port,
-                remote_port=22,
-            )
-            if attempt > 1:
-                logger.info(f"Tunnel created successfully (attempt {attempt}/{max_attempts})")
-            return tunnel
-
-        except (BastionManagerError, TimeoutError, ConnectionError) as e:
-            last_error = e
-            if attempt < max_attempts:
-                delay = initial_delay * (2 ** (attempt - 1))
-                delay *= 1 + random.uniform(-0.2, 0.2)  # noqa: S311
-                logger.warning(
-                    f"Tunnel creation failed (attempt {attempt}/{max_attempts}), "
-                    f"retrying in {delay:.1f}s: {e}"
-                )
-                time.sleep(delay)
-            else:
-                logger.error(f"Tunnel creation failed after {max_attempts} attempts: {e}")
-
-    raise BastionManagerError(
-        f"Failed to create Bastion tunnel after {max_attempts} attempts"
-    ) from last_error
-
-
-def _sanitize_for_logging(value: str) -> str:
-    """Sanitize string for safe logging.
-
-    Prevents log injection by removing control characters and newlines.
-
-    Args:
-        value: String to sanitize
-
-    Returns:
-        Sanitized string safe for logging
-    """
-    return value.encode("ascii", "replace").decode("ascii").replace("\n", " ").replace("\r", " ")
 
 
 class VMConnectorError(Exception):
@@ -159,85 +69,12 @@ class VMConnector:
         try:
             ConnectionTracker.record_connection(vm_name)
         except Exception as e:
-            logger.warning(f"Failed to record connection for {_sanitize_for_logging(vm_name)}: {e}")
+            logger.warning(f"Failed to record connection for {sanitize_for_logging(vm_name)}: {e}")
 
     @staticmethod
-    def _try_fetch_key_from_vault(vm_name: str, key_path: Path, resource_group: str) -> bool:
-        """Try to fetch SSH key from Key Vault.
-
-        Always queries Key Vault for the VM-specific key, regardless of local key existence.
-        This ensures correct key retrieval when connecting to different VMs.
-
-        Args:
-            vm_name: VM name (used to construct Key Vault secret name)
-            key_path: Path where key should be stored
-            resource_group: Resource group containing the VM
-
-        Returns:
-            True if key was fetched successfully, False otherwise
-
-        Note:
-            - Key Vault is the source of truth for VM-specific keys
-            - Local key is overwritten with Key Vault key if found
-            - Returns False on any error (doesn't raise)
-
-        Issue #417: Previously skipped Key Vault when local key existed,
-        breaking multi-VM connection scenarios.
-        """
-        try:
-            logger.info(f"Checking Key Vault for SSH key: {_sanitize_for_logging(vm_name)}")
-
-            # Load context to get subscription/tenant info
-            try:
-                context_config = ContextManager.load()
-                current_context = context_config.get_current_context()
-                if not current_context:
-                    logger.info("No current context set, skipping Key Vault fetch")
-                    return False
-            except Exception as e:
-                logger.info(f"Failed to load context: {e}")
-                return False
-
-            # Build auth config
-            auth_config = AuthConfig(method=AuthMethod.AZURE_CLI)
-
-            # Try to find Key Vault in resource group
-            from azlin.modules.ssh_key_vault import SSHKeyVaultManager
-
-            vault_name = SSHKeyVaultManager.find_key_vault_in_resource_group(
-                resource_group=resource_group,
-                subscription_id=current_context.subscription_id,
-            )
-
-            if not vault_name:
-                logger.info(f"No Key Vault found in resource group: {resource_group}")
-                return False
-
-            # Create manager and try to retrieve key
-            manager = create_key_vault_manager(
-                vault_name=vault_name,
-                subscription_id=current_context.subscription_id,
-                tenant_id=current_context.tenant_id,
-                auth_config=auth_config,
-            )
-
-            manager.retrieve_key(vm_name=vm_name, target_path=key_path)
-            logger.info(f"SSH key retrieved from Key Vault: {vault_name}")
-            return True
-
-        except KeyVaultError as e:
-            # Check if it's a "not found" vs auth error
-            error_str = str(e).lower()
-            if "not found" in error_str or "does not exist" in error_str:
-                logger.info(
-                    f"SSH key not found in Key Vault for VM: {_sanitize_for_logging(vm_name)}"
-                )
-            else:
-                logger.warning(f"Could not access Key Vault: {e}")
-            return False
-        except Exception as e:
-            logger.warning(f"Unexpected error fetching from Key Vault: {e}")
-            return False
+    def is_valid_ip(identifier: str) -> bool:
+        """Check if string is a valid IPv4 or IPv6 address."""
+        return is_valid_ip(identifier)
 
     @classmethod
     def connect(
@@ -279,35 +116,16 @@ class VMConnector:
         Raises:
             VMConnectorError: If connection fails
 
-        Example:
-            >>> # Connect by VM name
-            >>> VMConnector.connect("my-vm", resource_group="my-rg")
-
-            >>> # Force Bastion connection
-            >>> VMConnector.connect("my-vm", resource_group="my-rg", use_bastion=True)
-
-            >>> # Connect by IP
-            >>> VMConnector.connect("20.1.2.3")
-
-            >>> # Connect without tmux
-            >>> VMConnector.connect("my-vm", resource_group="my-rg", use_tmux=False)
-
-            >>> # Run command
-            >>> VMConnector.connect("my-vm", resource_group="my-rg", remote_command="ls -la")
-
-            >>> # Disable auto-reconnect
-            >>> VMConnector.connect("my-vm", resource_group="my-rg", enable_reconnect=False)
         """
         # Get connection info
         conn_info = cls._resolve_connection_info(
             vm_identifier, resource_group, ssh_user, ssh_key_path
         )
 
-        # Try to fetch SSH key from Key Vault if not present locally
-        # (only if ssh_key_path is specified)
+        # Try to fetch SSH key from Key Vault
         vault_fetched = False
         if conn_info.ssh_key_path:
-            vault_fetched = cls._try_fetch_key_from_vault(
+            vault_fetched = try_fetch_key_from_vault(
                 vm_name=conn_info.vm_name,
                 key_path=conn_info.ssh_key_path,
                 resource_group=conn_info.resource_group,
@@ -315,91 +133,14 @@ class VMConnector:
 
         # Auto-sync SSH key to VM if enabled and key was fetched from vault
         if vault_fetched:
-            try:
-                config = ConfigManager.load_config()
-
-                # Only attempt auto-sync if enabled in config
-                if config.ssh_auto_sync_keys:
-                    # Check if we should skip auto-sync for new VMs
-                    should_skip = False
-                    if config.ssh_auto_sync_skip_new_vms:
-                        from azlin.modules.vm_age_checker import VMAgeChecker
-
-                        try:
-                            is_ready = VMAgeChecker.is_vm_ready_for_auto_sync(
-                                vm_name=conn_info.vm_name,
-                                resource_group=conn_info.resource_group,
-                                threshold_seconds=config.ssh_auto_sync_age_threshold,
-                            )
-                            should_skip = not is_ready
-                        except Exception as e:
-                            # Log warning but don't block connection on age check failure
-                            logger.warning(
-                                f"Failed to check VM age for {_sanitize_for_logging(conn_info.vm_name)}: {e}. "
-                                f"Proceeding with auto-sync (fail-safe behavior)."
-                            )
-                            should_skip = False  # Fail-safe: proceed with auto-sync
-
-                        if should_skip:
-                            safe_vm_name = _sanitize_for_logging(conn_info.vm_name)
-                            logger.info(
-                                f"Skipping auto-sync for new VM {safe_vm_name} "
-                                f"(younger than {config.ssh_auto_sync_age_threshold}s threshold). "
-                                f"SSH key will be used directly for connection. "
-                                f"Use 'azlin sync-keys {safe_vm_name}' to manually sync after VM initialization completes."
-                            )
-
-                    # Proceed with auto-sync if not skipped
-                    if not should_skip:
-                        from azlin.modules.vm_key_sync import DEFAULT_TIMEOUT, VMKeySync
-
-                        logger.info(
-                            f"Auto-syncing SSH key to VM authorized_keys: {_sanitize_for_logging(conn_info.vm_name)}"
-                        )
-
-                        # Derive public key from private key
-                        public_key = SSHKeyManager.get_public_key(conn_info.ssh_key_path)
-
-                        # Instantiate VMKeySync with config dict
-                        sync_manager = VMKeySync(config.to_dict())
-
-                        # Use DEFAULT_TIMEOUT (60s) for WSL compatibility (Issue #578)
-                        # Previous 5s timeout was insufficient for Azure Run Command API in WSL
-                        result = sync_manager.ensure_key_authorized(
-                            vm_name=conn_info.vm_name,
-                            resource_group=conn_info.resource_group,
-                            public_key=public_key,
-                            timeout=DEFAULT_TIMEOUT,
-                        )
-
-                        # Log accurate status based on actual result (Issue #578)
-                        if result.synced:
-                            print(
-                                f"✅ SSH key synced to VM authorized_keys in {result.duration_ms}ms"
-                            )
-                            logger.info(
-                                f"SSH key synced to VM authorized_keys in {result.duration_ms}ms"
-                            )
-                        elif result.already_present:
-                            print("✅ SSH key already present in VM authorized_keys")
-                            logger.debug("SSH key already present in VM authorized_keys")
-                        elif result.error:
-                            print(f"⚠️  SSH key auto-sync failed: {result.error}")
-                            logger.warning(
-                                f"SSH key auto-sync failed: {result.error}. "
-                                f"Connection may fail if key not already on VM. "
-                                f"Use 'azlin sync-keys {_sanitize_for_logging(conn_info.vm_name)}' to manually sync."
-                            )
-            except Exception as e:
-                # Log warning but don't block connection
-                print(f"⚠️  Auto-sync exception: {e}")
-                logger.warning(f"Auto-sync SSH key failed: {e}, attempting connection anyway")
-
-        # Track if key existed before ensure_key_exists() for accurate logging
-        key_existed_before = conn_info.ssh_key_path and conn_info.ssh_key_path.exists()
+            auto_sync_key_to_vm(
+                conn_info_vm_name=conn_info.vm_name,
+                conn_info_resource_group=conn_info.resource_group,
+                conn_info_ssh_key_path=conn_info.ssh_key_path,
+            )
 
         # Ensure SSH key exists (handles validation, permissions, and generation)
-        # If ssh_key_path is None, SSHKeyManager will use default (~/.ssh/azlin_key)
+        key_existed_before = conn_info.ssh_key_path and conn_info.ssh_key_path.exists()
         try:
             ssh_keys = SSHKeyManager.ensure_key_exists(conn_info.ssh_key_path)
         except SSHKeyError as e:
@@ -411,7 +152,7 @@ class VMConnector:
         elif key_existed_before:
             logger.info("Using existing local SSH key")
         else:
-            logger.info(f"Generated new SSH key for VM: {_sanitize_for_logging(conn_info.vm_name)}")
+            logger.info(f"Generated new SSH key for VM: {sanitize_for_logging(conn_info.vm_name)}")
 
         conn_info.ssh_key_path = ssh_keys.private_path
 
@@ -427,12 +168,11 @@ class VMConnector:
             bastion_info = None
 
             if not should_use_bastion and not cls.is_valid_ip(vm_identifier):
-                # Auto-detect Bastion if not connecting by IP
-                bastion_info = cls._check_bastion_routing(
+                bastion_info = check_bastion_routing(
                     conn_info.vm_name,
                     conn_info.resource_group,
                     use_bastion,
-                    conn_info.location,  # Pass VM location for region filtering
+                    conn_info.location,
                     skip_prompts,
                 )
                 should_use_bastion = bastion_info is not None
@@ -450,7 +190,7 @@ class VMConnector:
                         location=None,
                     )
 
-                bastion_manager, bastion_tunnel = cls._create_bastion_tunnel(
+                bastion_manager, bastion_tunnel = create_bastion_tunnel(
                     vm_name=conn_info.vm_name,
                     resource_group=conn_info.resource_group,
                     bastion_name=bastion_info["name"],
@@ -466,120 +206,175 @@ class VMConnector:
                     f"(127.0.0.1:{ssh_port})"
                 )
 
-                # DISABLED: sshfs auto-mount feature (not working reliably on macOS)
-                # TODO: Re-enable when sshfs-mac installation is more reliable
-                # if not skip_prompts and not remote_command:
-                #     cls._offer_sshfs_mount(
-                #         vm_name=conn_info.vm_name,
-                #         resource_group=conn_info.resource_group,
-                #         tunnel_port=ssh_port,
-                #         ssh_key=conn_info.ssh_key_path,
-                #     )
-
-            # Route connection: remote command -> SSHConnector, interactive+reconnect -> SSHReconnectHandler, interactive -> TerminalLauncher
-            if remote_command is not None:
-                ssh_config = SSHConfig(
-                    host=conn_info.ip_address,
-                    user=conn_info.ssh_user,
-                    key_path=conn_info.ssh_key_path,
-                    port=ssh_port,
-                    strict_host_key_checking=False,
-                )
-
-                try:
-                    logger.info(
-                        f"Executing command on {_sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
-                    )
-                    exit_code = SSHConnector.connect(
-                        config=ssh_config,
-                        remote_command=remote_command,
-                        auto_tmux=False,
-                    )
-
-                    if exit_code == 0:
-                        cls._record_connection(conn_info.vm_name)
-
-                    return exit_code == 0
-                except Exception as e:
-                    raise VMConnectorError(f"Remote command execution failed: {e}") from e
-
-            elif enable_reconnect:
-                ssh_config = SSHConfig(
-                    host=conn_info.ip_address,
-                    user=conn_info.ssh_user,
-                    key_path=conn_info.ssh_key_path,
-                    port=ssh_port,
-                    strict_host_key_checking=False,
-                )
-
-                try:
-                    logger.info(
-                        f"Connecting to {_sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
-                    )
-
-                    # Create cleanup callback for Bastion tunnel if using Bastion
-                    cleanup_callback = None
-                    if bastion_manager is not None and bastion_tunnel is not None:
-                        # Capture bastion_tunnel and bastion_manager in closure
-                        def cleanup_bastion_tunnel():
-                            bastion_manager.close_tunnel(bastion_tunnel)
-
-                        cleanup_callback = cleanup_bastion_tunnel
-
-                    handler = SSHReconnectHandler(
-                        max_retries=max_reconnect_retries, cleanup_callback=cleanup_callback
-                    )
-                    exit_code = handler.connect_with_reconnect(
-                        config=ssh_config,
-                        vm_name=conn_info.vm_name,
-                        tmux_session=tmux_session or conn_info.vm_name if use_tmux else "azlin",
-                        auto_tmux=use_tmux,
-                    )
-
-                    if exit_code == 0:
-                        cls._record_connection(conn_info.vm_name)
-
-                    return exit_code == 0
-                except Exception as e:
-                    raise VMConnectorError(f"SSH connection failed: {e}") from e
-
-            else:
-                terminal_config = TerminalConfig(
-                    ssh_host=conn_info.ip_address,
-                    ssh_user=conn_info.ssh_user,
-                    ssh_key_path=conn_info.ssh_key_path,
-                    ssh_port=ssh_port,
-                    title=f"azlin - {conn_info.vm_name}",
-                    tmux_session=tmux_session or conn_info.vm_name if use_tmux else None,
-                )
-
-                try:
-                    logger.info(
-                        f"Connecting to {_sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
-                    )
-                    success = TerminalLauncher.launch(terminal_config)
-
-                    if success:
-                        cls._record_connection(conn_info.vm_name)
-
-                    return success
-                except TerminalLauncherError as e:
-                    raise VMConnectorError(f"Failed to launch terminal: {e}") from e
+            # Route connection based on mode
+            return cls._execute_connection(
+                conn_info=conn_info,
+                original_ip=original_ip,
+                ssh_port=ssh_port,
+                use_tmux=use_tmux,
+                tmux_session=tmux_session,
+                remote_command=remote_command,
+                enable_reconnect=enable_reconnect,
+                max_reconnect_retries=max_reconnect_retries,
+                bastion_manager=bastion_manager,
+                bastion_tunnel=bastion_tunnel,
+            )
 
         finally:
             # Cleanup Bastion tunnel if it was created
-            # SECURITY/RELIABILITY: Explicit cleanup prevents resource leaks
-            # and port exhaustion on repeated connection failures
             if bastion_tunnel is not None and bastion_manager is not None:
                 try:
                     bastion_manager.close_tunnel(bastion_tunnel)
                     logger.debug(f"Closed Bastion tunnel on port {bastion_tunnel.local_port}")
                 except Exception as e:
-                    # Log but don't raise - cleanup should never mask original exception
                     logger.warning(
                         f"Failed to close Bastion tunnel: {e}. "
                         f"Tunnel will be cleaned up on process exit."
                     )
+
+    @classmethod
+    def _execute_connection(
+        cls,
+        conn_info: ConnectionInfo,
+        original_ip: str,
+        ssh_port: int,
+        use_tmux: bool,
+        tmux_session: str | None,
+        remote_command: str | None,
+        enable_reconnect: bool,
+        max_reconnect_retries: int,
+        bastion_manager: BastionManager | None,
+        bastion_tunnel: BastionTunnel | None,
+    ) -> bool:
+        """Execute the SSH connection in the appropriate mode.
+
+        Routes to: remote command, reconnect handler, or terminal launcher.
+        """
+        if remote_command is not None:
+            return cls._connect_remote_command(conn_info, original_ip, ssh_port, remote_command)
+        if enable_reconnect:
+            return cls._connect_with_reconnect(
+                conn_info,
+                original_ip,
+                ssh_port,
+                use_tmux,
+                tmux_session,
+                max_reconnect_retries,
+                bastion_manager,
+                bastion_tunnel,
+            )
+        return cls._connect_terminal(conn_info, original_ip, ssh_port, use_tmux, tmux_session)
+
+    @classmethod
+    def _connect_remote_command(
+        cls,
+        conn_info: ConnectionInfo,
+        original_ip: str,
+        ssh_port: int,
+        remote_command: str,
+    ) -> bool:
+        """Execute a remote command via SSH."""
+        assert conn_info.ssh_key_path is not None  # Set by connect() before calling
+        ssh_config = SSHConfig(
+            host=conn_info.ip_address,
+            user=conn_info.ssh_user,
+            key_path=conn_info.ssh_key_path,
+            port=ssh_port,
+            strict_host_key_checking=False,
+        )
+        try:
+            logger.info(
+                f"Executing command on {sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
+            )
+            exit_code = SSHConnector.connect(
+                config=ssh_config,
+                remote_command=remote_command,
+                auto_tmux=False,
+            )
+            if exit_code == 0:
+                cls._record_connection(conn_info.vm_name)
+            return exit_code == 0
+        except Exception as e:
+            raise VMConnectorError(f"Remote command execution failed: {e}") from e
+
+    @classmethod
+    def _connect_with_reconnect(
+        cls,
+        conn_info: ConnectionInfo,
+        original_ip: str,
+        ssh_port: int,
+        use_tmux: bool,
+        tmux_session: str | None,
+        max_reconnect_retries: int,
+        bastion_manager,
+        bastion_tunnel,
+    ) -> bool:
+        """Connect via SSH with auto-reconnect support."""
+        assert conn_info.ssh_key_path is not None  # Set by connect() before calling
+        ssh_config = SSHConfig(
+            host=conn_info.ip_address,
+            user=conn_info.ssh_user,
+            key_path=conn_info.ssh_key_path,
+            port=ssh_port,
+            strict_host_key_checking=False,
+        )
+        try:
+            logger.info(
+                f"Connecting to {sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
+            )
+            # Create cleanup callback for Bastion tunnel
+            cleanup_callback = None
+            if bastion_manager is not None and bastion_tunnel is not None:
+
+                def cleanup_bastion_tunnel():
+                    bastion_manager.close_tunnel(bastion_tunnel)
+
+                cleanup_callback = cleanup_bastion_tunnel
+
+            handler = SSHReconnectHandler(
+                max_retries=max_reconnect_retries, cleanup_callback=cleanup_callback
+            )
+            exit_code = handler.connect_with_reconnect(
+                config=ssh_config,
+                vm_name=conn_info.vm_name,
+                tmux_session=tmux_session or conn_info.vm_name if use_tmux else "azlin",
+                auto_tmux=use_tmux,
+            )
+            if exit_code == 0:
+                cls._record_connection(conn_info.vm_name)
+            return exit_code == 0
+        except Exception as e:
+            raise VMConnectorError(f"SSH connection failed: {e}") from e
+
+    @classmethod
+    def _connect_terminal(
+        cls,
+        conn_info: ConnectionInfo,
+        original_ip: str,
+        ssh_port: int,
+        use_tmux: bool,
+        tmux_session: str | None,
+    ) -> bool:
+        """Connect via terminal launcher (no reconnect)."""
+        assert conn_info.ssh_key_path is not None  # Set by connect() before calling
+        terminal_config = TerminalConfig(
+            ssh_host=conn_info.ip_address,
+            ssh_user=conn_info.ssh_user,
+            ssh_key_path=conn_info.ssh_key_path,
+            ssh_port=ssh_port,
+            title=f"azlin - {conn_info.vm_name}",
+            tmux_session=tmux_session or conn_info.vm_name if use_tmux else None,
+        )
+        try:
+            logger.info(
+                f"Connecting to {sanitize_for_logging(conn_info.vm_name)} ({original_ip})..."
+            )
+            success = TerminalLauncher.launch(terminal_config)
+            if success:
+                cls._record_connection(conn_info.vm_name)
+            return success
+        except TerminalLauncherError as e:
+            raise VMConnectorError(f"Failed to launch terminal: {e}") from e
 
     @classmethod
     def connect_by_name(
@@ -592,23 +387,7 @@ class VMConnector:
         ssh_user: str = "azureuser",
         ssh_key_path: Path | None = None,
     ) -> bool:
-        """Connect to a VM by name.
-
-        Args:
-            vm_name: VM name
-            resource_group: Resource group (uses config default if not specified)
-            use_tmux: Launch tmux session (default: True)
-            tmux_session: Tmux session name (default: vm_name)
-            remote_command: Command to run on VM (optional)
-            ssh_user: SSH username (default: azureuser)
-            ssh_key_path: Path to SSH private key (default: ~/.ssh/azlin_key)
-
-        Returns:
-            True if connection successful
-
-        Raises:
-            VMConnectorError: If VM not found or connection fails
-        """
+        """Connect to a VM by name. Delegates to connect()."""
         return cls.connect(
             vm_identifier=vm_name,
             resource_group=resource_group,
@@ -629,23 +408,7 @@ class VMConnector:
         ssh_user: str = "azureuser",
         ssh_key_path: Path | None = None,
     ) -> bool:
-        """Connect to a VM by IP address.
-
-        Args:
-            ip_address: VM public IP address
-            use_tmux: Launch tmux session (default: True)
-            tmux_session: Tmux session name (default: IP address)
-            remote_command: Command to run on VM (optional)
-            ssh_user: SSH username (default: azureuser)
-            ssh_key_path: Path to SSH private key (default: ~/.ssh/azlin_key)
-
-        Returns:
-            True if connection successful
-
-        Raises:
-            VMConnectorError: If connection fails
-        """
-        # Validate IP address
+        """Connect to a VM by IP address. Delegates to connect()."""
         if not cls.is_valid_ip(ip_address):
             raise VMConnectorError(f"Invalid IP address: {ip_address}")
 
@@ -667,21 +430,7 @@ class VMConnector:
         ssh_user: str,
         ssh_key_path: Path | None,
     ) -> ConnectionInfo:
-        """Resolve VM connection information.
-
-        Args:
-            vm_identifier: VM name or IP address
-            resource_group: Resource group (optional)
-            ssh_user: SSH username
-            ssh_key_path: SSH private key path
-
-        Returns:
-            ConnectionInfo object
-
-        Raises:
-            VMConnectorError: If VM not found or info cannot be resolved
-        """
-        # Check if identifier is an IP address
+        """Resolve VM identifier (name or IP) to ConnectionInfo."""
         if cls.is_valid_ip(vm_identifier):
             return ConnectionInfo(
                 vm_name=vm_identifier,
@@ -691,10 +440,8 @@ class VMConnector:
                 ssh_key_path=ssh_key_path,
             )
 
-        # Otherwise, treat as VM name - need to resolve IP
         vm_name = vm_identifier
 
-        # Get resource group
         if not resource_group:
             try:
                 config = ConfigManager.load_config()
@@ -708,7 +455,6 @@ class VMConnector:
             except ConfigError as e:
                 raise VMConnectorError(f"Config error: {e}") from e
 
-        # Query VM details
         try:
             vm_info = VMManager.get_vm(vm_name, resource_group)
             if not vm_info:
@@ -716,19 +462,15 @@ class VMConnector:
                     f"VM not found: {vm_name} in resource group {resource_group}"
                 )
 
-            # Check if VM is running
             if not vm_info.is_running():
                 logger.warning(
                     f"VM is not running (state: {vm_info.power_state}). Connection may fail."
                 )
 
-            # Get IP address (public or private - Bastion routing will handle both)
             ip_address = vm_info.public_ip or vm_info.private_ip
-
             if not ip_address:
                 raise VMConnectorError(f"VM {vm_name} has neither public nor private IP address.")
 
-            # Log when VM is private-only (helps with debugging bastion connections)
             if not vm_info.public_ip and vm_info.private_ip:
                 logger.info(
                     f"VM {vm_name} is private-only (no public IP), will use Bastion if available"
@@ -740,237 +482,11 @@ class VMConnector:
                 resource_group=resource_group,
                 ssh_user=ssh_user,
                 ssh_key_path=ssh_key_path,
-                location=vm_info.location,  # Capture VM region for Bastion matching
+                location=vm_info.location,
             )
 
         except VMManagerError as e:
             raise VMConnectorError(f"Failed to get VM info: {e}") from e
-
-    @classmethod
-    def _check_bastion_routing(
-        cls,
-        vm_name: str,
-        resource_group: str,
-        force_bastion: bool,
-        vm_location: str | None = None,
-        skip_prompts: bool = False,
-    ) -> BastionInfo | None:
-        """Check if Bastion routing should be used for VM.
-
-        Checks configuration and auto-detects Bastion hosts.
-
-        Args:
-            vm_name: VM name
-            resource_group: Resource group
-            force_bastion: Force use of Bastion
-            vm_location: VM region for Bastion region filtering (optional)
-            skip_prompts: Skip confirmation prompts (default: False)
-
-        Returns:
-            BastionInfo with bastion name, resource_group, and location if should use Bastion, None otherwise
-        """
-        # If forcing Bastion, skip checks
-        if force_bastion:
-            return None  # Caller will provide bastion_name
-
-        # Load Bastion config
-        try:
-            config_path = ConfigManager.DEFAULT_CONFIG_DIR / "bastion_config.toml"
-            bastion_config = BastionConfig.load(config_path)
-
-            # Check if auto-detection is disabled
-            if not bastion_config.auto_detect:
-                logger.debug("Bastion auto-detection disabled in config")
-                return None
-
-            # Check for explicit mapping
-            mapping = bastion_config.get_mapping(vm_name)
-            if mapping:
-                logger.info(
-                    f"Using configured Bastion mapping for {_sanitize_for_logging(vm_name)}"
-                )
-                return BastionInfo(
-                    name=mapping.bastion_name,
-                    resource_group=mapping.bastion_resource_group,
-                    location=None,
-                )
-
-        except Exception as e:
-            logger.debug(f"Could not load Bastion config: {e}")
-
-        # Auto-detect Bastion
-        try:
-            bastion_info: BastionInfo | None = BastionDetector.detect_bastion_for_vm(
-                vm_name, resource_group, vm_location
-            )
-
-            if bastion_info:
-                # Prompt user or auto-accept if skip_prompts (default changed to True for security by default)
-                if skip_prompts:
-                    logger.info("Skipping prompts, using Bastion (default)")
-                    return bastion_info
-
-                try:
-                    if click.confirm(
-                        f"Found Bastion host '{bastion_info['name']}'. Use it for connection?",
-                        default=True,
-                    ):
-                        return bastion_info
-                    logger.info("User declined Bastion connection, using direct connection")
-                except click.exceptions.Abort:
-                    # Non-interactive mode - use default (True)
-                    logger.info("Non-interactive mode, using Bastion (default)")
-                    return bastion_info
-
-                logger.info("User declined Bastion connection, using direct connection")
-
-        except Exception as e:
-            logger.debug(f"Bastion detection failed: {e}")
-
-        return None
-
-    @classmethod
-    def _create_bastion_tunnel(
-        cls,
-        vm_name: str,
-        resource_group: str,
-        bastion_name: str,
-        bastion_resource_group: str,
-    ) -> tuple:
-        """Create Bastion tunnel for VM connection.
-
-        Args:
-            vm_name: VM name
-            resource_group: VM resource group
-            bastion_name: Bastion host name
-            bastion_resource_group: Bastion resource group
-
-        Returns:
-            Tuple of (BastionManager, BastionTunnel)
-
-        Raises:
-            VMConnectorError: If tunnel creation fails
-        """
-        try:
-            # Get VM resource ID
-            vm_resource_id = VMManager.get_vm_resource_id(vm_name, resource_group)
-            if not vm_resource_id:
-                raise VMConnectorError(
-                    f"Could not determine resource ID for VM: {vm_name}. "
-                    f"Ensure Azure CLI is authenticated."
-                )
-
-            # DEBUG: Log tunnel creation
-            logger.info(f"DEBUG BASTION: Creating tunnel for VM {vm_name}")
-            logger.info(f"DEBUG BASTION: Resource ID: {vm_resource_id}")
-            logger.info(f"DEBUG BASTION: Bastion: {bastion_name} in {bastion_resource_group}")
-
-            # Create bastion manager
-            bastion_manager = BastionManager()
-
-            # Find available port
-            local_port = bastion_manager.get_available_port()
-
-            # Get retry attempts from environment
-            retry_attempts = _get_config_int("AZLIN_BASTION_RETRY_ATTEMPTS", 3)
-
-            # Create tunnel with retry logic (Issue #588)
-            tunnel = _create_tunnel_with_retry(
-                bastion_manager=bastion_manager,
-                bastion_name=bastion_name,
-                bastion_resource_group=bastion_resource_group,
-                vm_resource_id=vm_resource_id,
-                local_port=local_port,
-                max_attempts=retry_attempts,
-            )
-
-            return (bastion_manager, tunnel)
-
-        except BastionManagerError as e:
-            raise VMConnectorError(f"Failed to create Bastion tunnel: {e}") from e
-        except Exception as e:
-            raise VMConnectorError(f"Unexpected error creating Bastion tunnel: {e}") from e
-
-    @classmethod
-    def _offer_sshfs_mount(
-        cls,
-        vm_name: str,
-        resource_group: str,
-        tunnel_port: int,
-        ssh_key: Path,
-    ) -> None:
-        """Offer to mount VM's NFS storage locally via sshfs.
-
-        Args:
-            vm_name: VM name
-            resource_group: Resource group
-            tunnel_port: Bastion tunnel local port
-            ssh_key: SSH private key path
-        """
-        try:
-            # Check if VM uses NFS storage
-            # Try importing NFSQuotaManager (may not exist in all versions)
-            try:
-                from azlin.modules.nfs_quota_manager import NFSQuotaManager
-
-                nfs_info = NFSQuotaManager.check_vm_nfs_storage(vm_name, resource_group)
-            except ImportError:
-                # NFSQuotaManager not available, skip NFS detection
-                logger.debug("NFSQuotaManager not available, skipping NFS mount offer")
-                return
-            except Exception as e:
-                logger.debug(f"NFS detection failed: {e}")
-                return
-
-            if not nfs_info:
-                # VM doesn't use NFS storage
-                return
-
-            storage_account, share_name, _ = nfs_info
-
-            # Offer sshfs mount
-            from azlin.modules.sshfs_manager import SSHFSManager
-
-            SSHFSManager.prompt_and_mount(
-                vm_name=vm_name,
-                storage_name=storage_account,
-                tunnel_host="localhost",
-                tunnel_port=tunnel_port,
-                ssh_key=ssh_key,
-            )
-
-        except Exception as e:
-            # Don't block connection if sshfs mount fails
-            logger.debug(f"SSHFS mount offer failed: {e}")
-
-    @classmethod
-    def is_valid_ip(cls, identifier: str) -> bool:
-        """Check if string is a valid IP address.
-
-        Uses Python's ipaddress module for proper validation.
-        Supports both IPv4 and IPv6 addresses.
-
-        Args:
-            identifier: String to check
-
-        Returns:
-            True if valid IPv4 or IPv6 address
-
-        Example:
-            >>> VMConnector.is_valid_ip("192.168.1.1")
-            True
-            >>> VMConnector.is_valid_ip("2001:db8::1")
-            True
-            >>> VMConnector.is_valid_ip("my-vm-name")
-            False
-            >>> VMConnector.is_valid_ip("256.1.1.1")
-            False
-        """
-        try:
-            ipaddress.ip_address(identifier)
-            return True
-        except ValueError:
-            return False
 
 
 __all__ = ["ConnectionInfo", "VMConnector", "VMConnectorError"]

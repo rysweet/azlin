@@ -32,7 +32,13 @@ from . import (
     ssh_keys,
 )
 
+# bastion_tunnel, connection_sanitizer, ssh_key_fetch are imported lazily
+# to avoid circular imports (they depend on azlin.config_manager which
+# imports azlin.modules).
+
 __all__ = [
+    "bastion_tunnel",
+    "connection_sanitizer",
     "cross_region_sync",
     "github_setup",
     "interaction_handler",
@@ -45,5 +51,6 @@ __all__ = [
     "region_context",
     "region_failover",
     "ssh_connector",
+    "ssh_key_fetch",
     "ssh_keys",
 ]
