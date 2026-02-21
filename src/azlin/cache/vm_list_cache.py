@@ -594,5 +594,49 @@ class VMListCache:
             logger.warning(f"Failed to get resource group entries: {e}")
             return []
 
+    def get_expired_entries(self, resource_group: str) -> list[tuple[str, str]]:
+        """Get list of expired VM cache entries in a resource group.
+
+        Returns VMs that need refresh (either immutable or mutable layer expired).
+        This enables selective refresh instead of refetching all VMs when only
+        some entries are stale.
+
+        Args:
+            resource_group: Resource group name
+
+        Returns:
+            List of (vm_name, resource_group) tuples for expired VMs
+
+        Example:
+            >>> cache = VMListCache()
+            >>> expired = cache.get_expired_entries("my-rg")
+            >>> # Returns [("vm1", "my-rg"), ("vm2", "my-rg")] if those VMs expired
+            >>> # Use with VMManager.refresh_expired_vms() for selective refresh
+        """
+        try:
+            entries = self._load_cache()
+            expired_vms = []
+
+            for entry in entries.values():
+                # Filter by resource group
+                if entry.resource_group != resource_group:
+                    continue
+
+                # Check if either layer is expired
+                immutable_expired = entry.is_immutable_expired(self.immutable_ttl)
+                mutable_expired = entry.is_mutable_expired(self.mutable_ttl)
+
+                if immutable_expired or mutable_expired:
+                    expired_vms.append((entry.vm_name, entry.resource_group))
+
+            logger.debug(
+                f"Found {len(expired_vms)} expired VMs in resource group: {resource_group}"
+            )
+            return expired_vms
+
+        except Exception as e:
+            logger.warning(f"Failed to get expired entries for {resource_group}: {e}")
+            return []
+
 
 __all__ = ["CacheLayer", "VMCacheEntry", "VMListCache", "VMListCacheError", "make_cache_key"]
