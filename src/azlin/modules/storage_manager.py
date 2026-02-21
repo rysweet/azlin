@@ -297,7 +297,12 @@ class StorageManager:
     def _create_nfs_file_share(
         cls, storage_account: str, resource_group: str, share_name: str, quota_gb: int
     ) -> None:
-        """Create NFS file share in storage account."""
+        """Create NFS file share in storage account.
+
+        Security: Uses RootSquash to prevent privilege escalation.
+        Root on client VMs is mapped to nobody/nogroup on NFS server,
+        preventing compromised VMs from accessing all data.
+        """
         try:
             cmd = [
                 "az",
@@ -315,7 +320,7 @@ class StorageManager:
                 "--enabled-protocols",
                 "NFS",
                 "--root-squash",
-                "NoRootSquash",
+                "RootSquash",  # SECURITY: Prevents privilege escalation
                 "--output",
                 "json",
             ]
