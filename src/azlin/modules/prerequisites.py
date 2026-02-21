@@ -15,7 +15,6 @@ import logging
 import platform
 import shutil
 from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -113,7 +112,7 @@ class PrerequisiteChecker:
                     else:
                         logger.debug(f"Tool not found: {tool}")
                         missing.append(tool)
-                except (FuturesTimeoutError, Exception) as e:
+                except Exception as e:
                     logger.warning(f"Tool check timed out or failed for {tool}: {e}")
                     if tool not in optional_set:
                         missing.append(tool)
