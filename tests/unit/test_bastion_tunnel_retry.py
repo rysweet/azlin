@@ -191,13 +191,13 @@ class TestCreateTunnelWithRetry:
 class TestCollectTmuxSessionsRateLimiting:
     """Test rate limiting in _collect_tmux_sessions."""
 
-    @patch("azlin.commands.monitoring.BastionDetector")
-    @patch("azlin.commands.monitoring.BastionManager")
-    @patch("azlin.commands.monitoring.BastionConnectionPool")
-    @patch("azlin.commands.monitoring._create_tunnel_with_retry")
-    @patch("azlin.commands.monitoring.TmuxSessionExecutor")
-    @patch("azlin.commands.monitoring.AzureAuthenticator")
-    @patch("azlin.commands.monitoring.SSHKeyManager")
+    @patch("azlin.commands.monitoring_list.BastionDetector")
+    @patch("azlin.commands.monitoring_list.BastionManager")
+    @patch("azlin.commands.monitoring_list.BastionConnectionPool")
+    @patch("azlin.commands.monitoring_list._create_tunnel_with_retry")
+    @patch("azlin.commands.monitoring_list.TmuxSessionExecutor")
+    @patch("azlin.commands.monitoring_list.AzureAuthenticator")
+    @patch("azlin.commands.monitoring_list.SSHKeyManager")
     def test_rate_limiting_delay_between_tunnels(
         self,
         mock_ssh_key_mgr,
