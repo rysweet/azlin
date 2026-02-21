@@ -30,6 +30,7 @@ class SSHConfig:
     key_path: Path
     port: int = 22
     strict_host_key_checking: bool = False  # Disabled for new VMs
+    forward_agent: bool = False  # SSH agent forwarding (SECURITY RISK if enabled)
 
 
 class SSHConnectionError(Exception):
@@ -356,8 +357,13 @@ class SSHConnector:
         if not config.strict_host_key_checking:
             args.extend(["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"])
 
-        # Forward agent (for git operations on remote)
-        args.extend(["-A"])  # ForwardAgent=yes
+        # Forward agent (SECURITY: Only enabled if explicitly requested)
+        if config.forward_agent:
+            logger.warning(
+                "SSH agent forwarding enabled - local SSH keys accessible on remote VM. "
+                "Use only on trusted systems."
+            )
+            args.extend(["-A"])  # ForwardAgent=yes
 
         # TTY allocation (for interactive sessions)
         if remote_command:
