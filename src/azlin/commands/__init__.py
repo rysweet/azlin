@@ -15,16 +15,18 @@ from .bastion import bastion_group
 from .batch import batch
 from .compose import compose_group
 
-# Connectivity
-from .connectivity import code_command, connect, cp, sync, sync_keys
+# Connectivity (split modules - Issue #1799)
+from .connect import connect
 from .context import context_group
 from .costs import cost, costs_group
 from .doit import do, doit_group
 
 # Environment
 from .env import _get_ssh_config_for_vm, env
+from .file_transfer import cp, sync, sync_keys
 from .fleet import fleet_group
 from .github_runner import github_runner_group
+from .ide import code_command
 
 # IP Commands
 from .ip_commands import ip

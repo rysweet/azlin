@@ -10,12 +10,9 @@ import sys
 
 import click
 
-from azlin.config_manager import ConfigManager
 from azlin.env_manager import EnvManager, EnvManagerError
-from azlin.modules.ssh_connector import SSHConfig
-from azlin.modules.ssh_keys import SSHKeyManager
-from azlin.vm_connector import VMConnector
-from azlin.vm_manager import VMManager
+
+from .connectivity_common import get_ssh_config_for_vm as _get_ssh_config_for_vm
 
 __all__ = ["_get_ssh_config_for_vm", "env"]
 
@@ -298,59 +295,3 @@ def env_clear(vm_identifier: str, resource_group: str | None, config: str | None
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
-
-
-def _get_ssh_config_for_vm(
-    vm_identifier: str, resource_group: str | None, config: str | None
-) -> SSHConfig:
-    """Helper to get SSH config for VM identifier.
-
-    Args:
-        vm_identifier: VM name, session name, or IP address
-        resource_group: Resource group (required for VM name)
-        config: Config file path
-
-    Returns:
-        SSHConfig object
-
-    Raises:
-        SystemExit on error
-    """
-    # Get SSH key
-    ssh_key_pair = SSHKeyManager.ensure_key_exists()
-
-    # Check if VM identifier is IP address
-    if VMConnector.is_valid_ip(vm_identifier):
-        # Direct IP connection
-        return SSHConfig(host=vm_identifier, user="azureuser", key_path=ssh_key_pair.private_path)
-
-    # Resolve session name to VM name if applicable
-    resolved_vm_name = ConfigManager.get_vm_name_by_session(vm_identifier, config)
-    if resolved_vm_name:
-        vm_identifier = resolved_vm_name
-
-    # VM name - need resource group
-    rg = ConfigManager.get_resource_group(resource_group, config)
-    if not rg:
-        click.echo(
-            "Error: Resource group required for VM name.\n"
-            "Use --resource-group or set default in ~/.azlin/config.toml",
-            err=True,
-        )
-        sys.exit(1)
-
-    # Get VM
-    vm = VMManager.get_vm(vm_identifier, rg)
-    if not vm:
-        click.echo(f"Error: VM '{vm_identifier}' not found in resource group '{rg}'.", err=True)
-        sys.exit(1)
-
-    if not vm.is_running():
-        click.echo(f"Error: VM '{vm_identifier}' is not running.", err=True)
-        sys.exit(1)
-
-    if not vm.public_ip:
-        click.echo(f"Error: VM '{vm_identifier}' has no public IP.", err=True)
-        sys.exit(1)
-
-    return SSHConfig(host=vm.public_ip, user="azureuser", key_path=ssh_key_pair.private_path)
