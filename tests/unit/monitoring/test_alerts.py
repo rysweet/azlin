@@ -55,7 +55,7 @@ notification_config:
     to_addresses: [admin@example.com]
   slack:
     enabled: false
-    webhook_url: https://hooks.slack.com/services/XXX
+    webhook_url: https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 """
         )
         config_path = Path(f.name)

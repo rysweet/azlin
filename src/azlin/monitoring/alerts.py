@@ -156,7 +156,7 @@ class AlertEngine:
                 },
                 "slack": {
                     "enabled": False,
-                    "webhook_url": "https://hooks.slack.com/services/XXX",
+                    "webhook_url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
                 },
             },
         }

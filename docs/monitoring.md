@@ -238,7 +238,7 @@ azlin monitor alert config-email
 #    https://api.slack.com/messaging/webhooks
 
 # 2. Add webhook to config
-azlin monitor alert config-slack --webhook-url https://hooks.slack.com/services/XXX
+azlin monitor alert config-slack --webhook-url https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 
 # 3. Test notification
 azlin monitor alert test-slack
