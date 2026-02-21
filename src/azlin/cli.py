@@ -108,7 +108,7 @@ from azlin.commands import (
 )
 
 # Backward compatibility exports for tests that patch azlin.cli.*
-from azlin.commands.monitoring import (  # noqa: F401
+from azlin.commands.monitoring_list import (  # noqa: F401
     _collect_tmux_sessions,
     _create_tunnel_with_retry,
     _handle_multi_context_list,

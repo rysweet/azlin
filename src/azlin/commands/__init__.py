@@ -35,8 +35,13 @@ from .keys import keys_group
 # Lifecycle
 from .lifecycle import destroy, kill, killall, prune, start, stop
 
-# Monitoring
-from .monitoring import list_command, ps, session_command, status, top, w
+# Monitoring (split into focused modules - Issue #423)
+from .monitoring_list import get_vm_session_pairs, list_command
+from .monitoring_ps import ps
+from .monitoring_session import session_command
+from .monitoring_status import status
+from .monitoring_top import top
+from .monitoring_w import w
 
 # NLP
 from .nlp import azdoit_main
@@ -87,6 +92,7 @@ __all__ = [
     "doit_group",
     "env",
     "fleet_group",
+    "get_vm_session_pairs",
     "github_runner_group",
     # System
     "help_command",
