@@ -567,10 +567,19 @@ class VMConnector:
                     raise VMConnectorError(f"Failed to launch terminal: {e}") from e
 
         finally:
-            # Cleanup: Note that bastion_manager handles cleanup via atexit
-            # So we don't need to explicitly close tunnels here unless
-            # we want immediate cleanup
-            pass
+            # Cleanup Bastion tunnel if it was created
+            # SECURITY/RELIABILITY: Explicit cleanup prevents resource leaks
+            # and port exhaustion on repeated connection failures
+            if bastion_tunnel is not None and bastion_manager is not None:
+                try:
+                    bastion_manager.close_tunnel(bastion_tunnel)
+                    logger.debug(f"Closed Bastion tunnel on port {bastion_tunnel.local_port}")
+                except Exception as e:
+                    # Log but don't raise - cleanup should never mask original exception
+                    logger.warning(
+                        f"Failed to close Bastion tunnel: {e}. "
+                        f"Tunnel will be cleaned up on process exit."
+                    )
 
     @classmethod
     def connect_by_name(
