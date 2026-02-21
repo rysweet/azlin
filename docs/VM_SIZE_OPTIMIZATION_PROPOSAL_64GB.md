@@ -65,7 +65,7 @@ azlin connect <your-vm>
 
 # Check memory usage
 free -h
-# Look for: Swap: XXX used
+# Look for: Swap: <amount> used (e.g., "Swap: 2.1Gi used")
 
 # Check swap activity (this will likely be HUGE)
 vmstat 1 10
@@ -582,7 +582,7 @@ azlin connect <your-vm>
 
 # Check memory usage
 free -h
-# Look at: Swap: XXX used
+# Look at: Swap: <amount> used (e.g., "Swap: 2.1Gi used")
 
 # Check swap activity
 vmstat 1 10
