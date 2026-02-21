@@ -18,7 +18,6 @@ from azlin.modules.nfs_provisioner import (
     PrivateEndpointInfo,
     ReplicationResult,
     VNetPeeringInfo,
-    _validate_resource_id,
     _validate_resource_name,
 )
 
@@ -66,30 +65,6 @@ class TestResourceNameValidation:
         """Forward slash should be rejected."""
         with pytest.raises(NFSProvisionerError, match="path traversal"):
             _validate_resource_name("path/to/resource", "test")
-
-
-class TestResourceIDValidation:
-    """Test Azure resource ID validation."""
-
-    def test_valid_resource_id(self):
-        """Valid Azure resource ID should pass."""
-        resource_id = "/subscriptions/sub-123/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet"
-        assert _validate_resource_id(resource_id) == resource_id
-
-    def test_empty_resource_id_raises_error(self):
-        """Empty resource ID should raise error."""
-        with pytest.raises(NFSProvisionerError, match="non-empty string"):
-            _validate_resource_id("")
-
-    def test_invalid_format_raises_error(self):
-        """Invalid format should raise error."""
-        with pytest.raises(NFSProvisionerError, match="Invalid Azure resource ID"):
-            _validate_resource_id("not-a-resource-id")
-
-    def test_command_injection_in_resource_id_raises_error(self):
-        """Command injection in resource ID should be rejected."""
-        with pytest.raises(NFSProvisionerError, match="unsafe character"):
-            _validate_resource_id("/subscriptions/sub;whoami/resourceGroups/rg")
 
 
 class TestAccessStrategy:
