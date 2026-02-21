@@ -50,7 +50,9 @@ class TestMountStorage:
         """Mount should create mount point directory."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
 
-        NFSMountManager.mount_storage("1.2.3.4", Path("/fake/key"), "endpoint:/share")
+        NFSMountManager.mount_storage(
+            "1.2.3.4", Path("/fake/key"), "teststorage.file.core.windows.net:/teststorage/share"
+        )
 
         ssh_commands = [call[0][0] for call in mock_run.call_args_list]
         assert any("mkdir -p /home/azureuser" in str(cmd) for cmd in ssh_commands)
@@ -75,7 +77,9 @@ class TestMountStorage:
         """Mount should add entry to /etc/fstab for persistence."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
 
-        NFSMountManager.mount_storage("1.2.3.4", Path("/fake/key"), "endpoint:/share")
+        NFSMountManager.mount_storage(
+            "1.2.3.4", Path("/fake/key"), "teststorage.file.core.windows.net:/teststorage/share"
+        )
 
         ssh_commands = [call[0][0] for call in mock_run.call_args_list]
         assert any("/etc/fstab" in str(cmd) for cmd in ssh_commands)
@@ -97,7 +101,9 @@ class TestMountStorage:
         """Mount should return MountResult with status."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
 
-        result = NFSMountManager.mount_storage("1.2.3.4", Path("/fake/key"), "endpoint:/share")
+        result = NFSMountManager.mount_storage(
+            "1.2.3.4", Path("/fake/key"), "teststorage.file.core.windows.net:/teststorage/share"
+        )
 
         assert isinstance(result, MountResult)
         assert result.success is True

@@ -436,8 +436,9 @@ class TestStorageQuotaManagerUsageCalculation:
 class TestStorageQuotaManagerListQuotas:
     """Test StorageQuotaManager.list_quotas() method."""
 
-    @patch("azlin.modules.storage_quota_manager.Path")
-    def test_list_quotas_all_scopes(self, mock_path):
+    @patch.object(StorageQuotaManager, "_load_quotas")
+    @patch.object(StorageQuotaManager, "get_quota")
+    def test_list_quotas_all_scopes(self, mock_get_quota, mock_load_quotas):
         """Test listing quotas across all scopes."""
         quotas = {
             "vm": {
@@ -468,10 +469,8 @@ class TestStorageQuotaManagerListQuotas:
             },
         }
 
-        mock_file = MagicMock()
-        mock_path.return_value = mock_file
-        mock_file.exists.return_value = True
-        mock_file.read_text.return_value = json.dumps(quotas)
+        mock_load_quotas.return_value = quotas
+        mock_get_quota.return_value = MagicMock()
 
         result = StorageQuotaManager.list_quotas()
 

@@ -12,17 +12,17 @@ from unittest.mock import patch
 
 import pytest
 
-from azlin.cli import CLIOrchestrator
 from azlin.config_manager import AzlinConfig
 from azlin.modules.storage_manager import StorageInfo
+from azlin.orchestrator import CLIOrchestrator
 
 
 @pytest.fixture
 def orchestrator():
     """Create orchestrator with mocked dependencies."""
-    with patch("azlin.cli.AzureAuthenticator"):
-        with patch("azlin.cli.VMProvisioner"):
-            with patch("azlin.cli.ProgressDisplay"):
+    with patch("azlin.orchestrator.AzureAuthenticator"):
+        with patch("azlin.orchestrator.VMProvisioner"):
+            with patch("azlin.orchestrator.ProgressDisplay"):
                 orch = CLIOrchestrator(
                     resource_group="test-rg",
                     region="westus2",
