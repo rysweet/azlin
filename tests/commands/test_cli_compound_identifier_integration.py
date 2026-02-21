@@ -77,7 +77,7 @@ class TestConnectCommandCompoundIdentifierIntegration:
     @pytest.fixture
     def mock_vm_manager(self, sample_vms):
         """Mock VMManager to return sample VMs."""
-        with patch("azlin.commands.connectivity.VMManager") as mock:
+        with patch("azlin.commands.connect.VMManager") as mock:
             mock.list_vms.return_value = sample_vms
             mock.get_vm.side_effect = lambda name, rg: next(
                 (vm for vm in sample_vms if vm.name == name), None
@@ -87,7 +87,7 @@ class TestConnectCommandCompoundIdentifierIntegration:
     @pytest.fixture
     def mock_config_manager(self):
         """Mock ConfigManager for resource group and session mapping."""
-        with patch("azlin.commands.connectivity.ConfigManager") as mock:
+        with patch("azlin.commands.connect.ConfigManager") as mock:
             mock.get_resource_group.return_value = "test-rg"
             # By default, no session mapping
             mock.get_vm_name_by_session.return_value = None
@@ -96,7 +96,7 @@ class TestConnectCommandCompoundIdentifierIntegration:
     @pytest.fixture
     def mock_vm_connector(self):
         """Mock VMConnector.connect to prevent actual SSH."""
-        with patch("azlin.commands.connectivity.VMConnector") as mock:
+        with patch("azlin.commands.connect.VMConnector") as mock:
             mock.is_valid_ip.return_value = False
             mock.connect.return_value = True
             yield mock
@@ -104,7 +104,7 @@ class TestConnectCommandCompoundIdentifierIntegration:
     @pytest.fixture
     def mock_ssh_key_manager(self, tmp_path):
         """Mock SSHKeyManager to provide fake SSH key."""
-        with patch("azlin.commands.connectivity.SSHKeyManager") as mock:
+        with patch("azlin.commands.connect.SSHKeyManager") as mock:
             key_path = tmp_path / "fake_key"
             key_path.touch()
             mock.ensure_key_exists.return_value = Mock(private_path=key_path)
@@ -114,7 +114,7 @@ class TestConnectCommandCompoundIdentifierIntegration:
     @pytest.fixture
     def mock_context_manager(self):
         """Mock ContextManager to skip subscription check."""
-        with patch("azlin.commands.connectivity.ContextManager") as mock:
+        with patch("azlin.commands.connect.ContextManager") as mock:
             mock.ensure_subscription_active.return_value = None
             yield mock
 
@@ -522,7 +522,7 @@ class TestCompoundIdentifierErrorHandling:
         """
         from azlin.commands.connectivity import connect
 
-        with patch("azlin.commands.connectivity.VMManager") as mock_vm_manager:
+        with patch("azlin.commands.connect.VMManager") as mock_vm_manager:
             # Simulate resolution error
             mock_vm_manager.list_vms.return_value = []
 
@@ -559,9 +559,9 @@ class TestCompoundIdentifierErrorHandling:
             ),
         ]
 
-        with patch("azlin.commands.connectivity.VMManager") as mock_vm_manager:
+        with patch("azlin.commands.connect.VMManager") as mock_vm_manager:
             mock_vm_manager.list_vms.return_value = vms
-            with patch("azlin.commands.connectivity.ConfigManager") as mock_config:
+            with patch("azlin.commands.connect.ConfigManager") as mock_config:
                 mock_config.get_resource_group.return_value = "rg"
 
                 result = cli_runner.invoke(connect, [":dev"])
