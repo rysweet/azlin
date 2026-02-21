@@ -346,8 +346,8 @@ class TestIssue281WorkingReference:
     """Verify that 'azlin connect' already handles bastion correctly."""
 
     @patch("azlin.modules.ssh_connector.SSHConnector.wait_for_ssh_ready")
-    @patch("azlin.vm_connector.BastionDetector")
-    @patch("azlin.vm_connector.BastionConfig")
+    @patch("azlin.modules.bastion_tunnel.BastionDetector")
+    @patch("azlin.modules.bastion_tunnel.BastionConfig")
     @patch("azlin.vm_connector.SSHReconnectHandler")
     @patch("azlin.vm_connector.SSHKeyManager")
     @patch("azlin.vm_connector.VMManager")
