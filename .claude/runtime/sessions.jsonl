@@ -31,3 +31,9 @@
 {"session_id": "session-86bda070", "status": "completed", "end_time": 1771555722.3607025}
 {"session_id": "session-86bda070", "status": "completed", "end_time": 1771555722.3608499}
 {"pid": 1110672, "session_id": "session-555a5a9b", "launch_dir": "/home/azureuser/src/azlin", "argv": ["/home/azureuser/.cache/uv/archive-v0/MFNHN0njkYOOmAesBFnDI/bin/amplihack", "launch"], "start_time": 1771556069.9403286, "is_auto_mode": false, "is_nested": false, "parent_session_id": null, "status": "active", "end_time": null}
+{"session_id": "session-555a5a9b", "status": "completed", "end_time": 1771632847.3184607}
+{"session_id": "session-555a5a9b", "status": "completed", "end_time": 1771632847.3185978}
+{"pid": 1291789, "session_id": "session-53ecaaba", "launch_dir": "/home/azureuser/src/azlin", "argv": ["/home/azureuser/.cache/uv/archive-v0/gD3a2IYS3yUEdQnAiu0Oy/bin/amplihack", "launch"], "start_time": 1771632867.531369, "is_auto_mode": false, "is_nested": false, "parent_session_id": null, "status": "active", "end_time": null}
+{"session_id": "session-53ecaaba", "status": "completed", "end_time": 1771633045.4525976}
+{"session_id": "session-53ecaaba", "status": "completed", "end_time": 1771633045.4527137}
+{"pid": 1292745, "session_id": "session-b035a1c3", "launch_dir": "/home/azureuser/src/azlin", "argv": ["/home/azureuser/.cache/uv/archive-v0/gD3a2IYS3yUEdQnAiu0Oy/bin/amplihack", "launch"], "start_time": 1771633071.180977, "is_auto_mode": false, "is_nested": false, "parent_session_id": null, "status": "active", "end_time": null}
