@@ -18,7 +18,7 @@ from .compose import compose_group
 # Connectivity
 from .connectivity import code_command, connect, cp, sync, sync_keys
 from .context import context_group
-from .costs import costs_group
+from .costs import cost, costs_group
 from .doit import do, doit_group
 
 # Environment
@@ -49,6 +49,7 @@ from .sessions import session_group
 # Snapshots
 from .snapshots import snapshot
 from .storage import storage_group
+from .system import help_command, os_update, update
 from .tag import tag_group
 
 # Templates
@@ -77,6 +78,7 @@ __all__ = [
     "compose_group",
     "connect",
     "context_group",
+    "cost",
     "costs_group",
     "cp",
     "create",
@@ -86,6 +88,8 @@ __all__ = [
     "env",
     "fleet_group",
     "github_runner_group",
+    # System
+    "help_command",
     # IP Commands
     "ip",
     # Keys
@@ -95,6 +99,8 @@ __all__ = [
     # Monitoring
     "list_command",
     "new",
+    # System
+    "os_update",
     "prune",
     "ps",
     "restore_command",
@@ -112,6 +118,8 @@ __all__ = [
     # Templates
     "template",
     "top",
+    # System
+    "update",
     "vm",
     "w",
     # Web
