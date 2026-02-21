@@ -23,7 +23,7 @@ from typing import Any
 
 import tomlkit  # For writing TOML (preserves formatting)
 
-from azlin.remote_exec import TmuxSession
+from azlin.models.session_models import TmuxSession
 from azlin.vm_lifecycle_control import VMLifecycleController
 from azlin.vm_manager import VMInfo, VMManager, VMManagerError
 from azlin.vm_provisioning import VMConfig, VMProvisioner
