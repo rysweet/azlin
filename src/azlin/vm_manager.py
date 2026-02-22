@@ -671,12 +671,15 @@ class VMManager:
         # Step 2: Refresh strategy decision
         fresh_vms: list[VMInfo] = []
 
-        # Use selective refresh if we have some cached VMs (partial cache)
-        # Use full refresh if cache is empty (cold start)
-        if cached_entries and vms_to_refresh:
+        # Use selective refresh only when SOME entries are fresh (partial cache)
+        # Use full refresh when cache is empty OR all entries are expired
+        # Full refresh discovers new VMs and removes deleted ones
+        total_vms = len(cached_entries) if cached_entries else 0
+        expired_count = len(vms_to_refresh)
+        all_expired = cached_entries and expired_count == total_vms
+
+        if cached_entries and vms_to_refresh and not all_expired:
             # Selective refresh: Only query expired VMs (80-95% API call reduction)
-            total_vms = len(cached_entries)
-            expired_count = len(vms_to_refresh)
             reduction_pct = ((total_vms - expired_count) / total_vms * 100) if total_vms > 0 else 0
 
             print(
