@@ -17,7 +17,7 @@ Public API:
 
 import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -107,6 +107,26 @@ class QuotaCheckResult:
     requested_gb: int
     remaining_after_gb: float
     message: str
+
+
+@dataclass
+class _BatchStorageCache:
+    """Pre-fetched storage data to avoid N+1 Azure CLI queries.
+
+    Used internally by list_quotas() to batch disk, snapshot, and storage
+    account queries instead of issuing separate CLI calls per quota entry.
+
+    Attributes:
+        all_disks: All disks keyed by resource group. Each value is a list of
+            dicts with 'name' and 'diskSizeGb' keys.
+        all_snapshots: All snapshots keyed by resource group. Same structure.
+        all_storage_accounts: Storage account info keyed by resource group.
+            Each value is a list of objects with .name and .size_gb attributes.
+    """
+
+    all_disks: dict[str, list[dict]] = field(default_factory=dict)
+    all_snapshots: dict[str, list[dict]] = field(default_factory=dict)
+    all_storage_accounts: dict[str, list] = field(default_factory=dict)
 
 
 class StorageQuotaManager:
@@ -283,6 +303,11 @@ class StorageQuotaManager:
     def list_quotas(cls, resource_group: str | None = None) -> list[QuotaStatus]:
         """List all configured quotas.
 
+        Batches Azure CLI queries to avoid N+1 calls. Instead of calling
+        get_quota() per entry (which spawns separate az CLI processes for
+        each), this fetches all disks and snapshots once per resource group
+        and computes status from the cached data.
+
         Args:
             resource_group: Filter to specific resource group (optional)
 
@@ -291,27 +316,206 @@ class StorageQuotaManager:
         """
         quotas = cls._load_quotas()
 
-        result = []
+        # Collect entries to process and determine which resource groups need data
+        entries: list[tuple[str, str]] = []
+        rg_set: set[str] = set()
+
         for scope in quotas:
             for name in quotas[scope]:
-                # Filter by resource group if specified
-                # For team scope, filter by name matching resource group
-                # For VM and project scopes, skip (would need Azure query to know which RG)
                 if resource_group and (
                     (scope == "team" and name != resource_group) or scope in ("vm", "project")
                 ):
                     continue
+                entries.append((scope, name))
+                # Determine the resource group for data fetching
+                if scope == "team":
+                    rg_set.add(name)
+                elif resource_group:
+                    rg_set.add(resource_group)
 
-                try:
-                    status = cls.get_quota(scope=scope, name=name, resource_group=resource_group)
-                    result.append(status)
-                except Exception:  # noqa: S112
-                    # Skip quotas that can't be queried (expected for missing configs)
-                    continue
+        # Batch-fetch all storage info upfront (one CLI call per resource type per RG)
+        cache = cls._batch_fetch_storage_info(rg_set)
+
+        # Build QuotaStatus for each entry using cached data
+        result = []
+        for scope, name in entries:
+            try:
+                quota_data = quotas[scope][name]
+                config = QuotaConfig(
+                    scope=scope,
+                    name=name,
+                    quota_gb=quota_data["quota_gb"],
+                    created=datetime.fromisoformat(quota_data["created"]),
+                    last_updated=datetime.fromisoformat(quota_data["last_updated"]),
+                )
+
+                used_gb, storage_accounts, disk_names, snapshot_names = (
+                    cls._calculate_usage_from_cache(
+                        scope=scope, name=name, resource_group=resource_group, cache=cache
+                    )
+                )
+
+                available_gb = max(0, config.quota_gb - used_gb)
+                utilization_percent = (
+                    (used_gb / config.quota_gb * 100) if config.quota_gb > 0 else 0
+                )
+
+                result.append(
+                    QuotaStatus(
+                        config=config,
+                        used_gb=used_gb,
+                        available_gb=available_gb,
+                        utilization_percent=utilization_percent,
+                        storage_accounts=storage_accounts,
+                        disks=disk_names,
+                        snapshots=snapshot_names,
+                    )
+                )
+            except Exception:  # noqa: S112
+                # Skip quotas that can't be computed (expected for missing configs)
+                continue
 
         return result
 
     # Private helper methods
+
+    @classmethod
+    def _batch_fetch_storage_info(cls, resource_groups: set[str]) -> _BatchStorageCache:
+        """Batch-fetch disks, snapshots, and storage accounts for all resource groups.
+
+        Issues at most one CLI call per resource type per resource group,
+        instead of one per quota entry. This eliminates N+1 queries when
+        listing quotas for multiple VMs/RGs.
+
+        Args:
+            resource_groups: Set of resource group names to query.
+
+        Returns:
+            _BatchStorageCache with pre-fetched data for all resource groups.
+        """
+        cache = _BatchStorageCache()
+
+        for rg in resource_groups:
+            # Fetch all disks in RG (single CLI call)
+            try:
+                cmd = [
+                    "az",
+                    "disk",
+                    "list",
+                    "--resource-group",
+                    rg,
+                    "--output",
+                    "json",
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    cache.all_disks[rg] = json.loads(result.stdout)
+                else:
+                    cache.all_disks[rg] = []
+            except Exception:
+                cache.all_disks[rg] = []
+
+            # Fetch all snapshots in RG (single CLI call)
+            try:
+                cmd = [
+                    "az",
+                    "snapshot",
+                    "list",
+                    "--resource-group",
+                    rg,
+                    "--output",
+                    "json",
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    cache.all_snapshots[rg] = json.loads(result.stdout)
+                else:
+                    cache.all_snapshots[rg] = []
+            except Exception:
+                cache.all_snapshots[rg] = []
+
+            # Fetch storage accounts via StorageManager (single call per RG)
+            if StorageManager:
+                try:
+                    cache.all_storage_accounts[rg] = StorageManager.list_storage(resource_group=rg)
+                except Exception:
+                    cache.all_storage_accounts[rg] = []
+            else:
+                cache.all_storage_accounts[rg] = []
+
+        return cache
+
+    @classmethod
+    def _calculate_usage_from_cache(
+        cls,
+        scope: str,
+        name: str,
+        resource_group: str | None,
+        cache: _BatchStorageCache,
+    ) -> tuple[float, list[str], list[str], list[str]]:
+        """Calculate storage usage from pre-fetched cache data.
+
+        Same logic as _calculate_usage but reads from the batch cache
+        instead of issuing individual Azure CLI calls.
+
+        Args:
+            scope: "vm", "team", or "project"
+            name: VM name, RG name, or subscription ID
+            resource_group: Resource group for queries
+            cache: Pre-fetched storage data
+
+        Returns:
+            Tuple of (total_gb, storage_accounts, disks, snapshots)
+        """
+        total_gb = 0.0
+        storage_accounts: list[str] = []
+        disks: list[str] = []
+        snapshots: list[str] = []
+
+        if scope == "vm":
+            # Storage accounts
+            if resource_group and resource_group in cache.all_storage_accounts:
+                for storage in cache.all_storage_accounts[resource_group]:
+                    storage_accounts.append(storage.name)
+                    total_gb += storage.size_gb
+
+            # Disks attached to this VM (filter from cached RG disks)
+            rg = resource_group or ""
+            for disk in cache.all_disks.get(rg, []):
+                if name in disk.get("name", ""):
+                    total_gb += disk.get("diskSizeGb", 0)
+                    disks.append(disk["name"])
+
+            # Snapshots for this VM (filter from cached RG snapshots)
+            for snap in cache.all_snapshots.get(rg, []):
+                if name in snap.get("name", ""):
+                    total_gb += snap.get("diskSizeGb", 0)
+                    snapshots.append(snap["name"])
+
+        elif scope == "team":
+            rg = name  # Team scope uses RG name
+
+            # All storage in RG
+            for storage in cache.all_storage_accounts.get(rg, []):
+                storage_accounts.append(storage.name)
+                total_gb += storage.size_gb
+
+            # All disks in RG
+            for disk in cache.all_disks.get(rg, []):
+                total_gb += disk.get("diskSizeGb", 0)
+                disks.append(disk["name"])
+
+            # All snapshots in RG
+            for snap in cache.all_snapshots.get(rg, []):
+                total_gb += snap.get("diskSizeGb", 0)
+                snapshots.append(snap["name"])
+
+        elif scope == "project":
+            # Project scope: would query all resources in subscription
+            # Unchanged from original - no batch optimization needed for single entry
+            pass
+
+        return total_gb, storage_accounts, disks, snapshots
 
     @classmethod
     def _load_quotas(cls) -> dict:

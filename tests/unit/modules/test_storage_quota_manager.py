@@ -437,9 +437,9 @@ class TestStorageQuotaManagerListQuotas:
     """Test StorageQuotaManager.list_quotas() method."""
 
     @patch.object(StorageQuotaManager, "_load_quotas")
-    @patch.object(StorageQuotaManager, "get_quota")
-    def test_list_quotas_all_scopes(self, mock_get_quota, mock_load_quotas):
-        """Test listing quotas across all scopes."""
+    @patch.object(StorageQuotaManager, "_batch_fetch_storage_info")
+    def test_list_quotas_all_scopes(self, mock_batch_fetch, mock_load_quotas):
+        """Test listing quotas across all scopes uses batch fetch."""
         quotas = {
             "vm": {
                 "vm1": {
@@ -470,12 +470,17 @@ class TestStorageQuotaManagerListQuotas:
         }
 
         mock_load_quotas.return_value = quotas
-        mock_get_quota.return_value = MagicMock()
+        # Return an empty cache -- no Azure resources exist
+        from azlin.modules.storage_quota_manager import _BatchStorageCache
+
+        mock_batch_fetch.return_value = _BatchStorageCache()
 
         result = StorageQuotaManager.list_quotas()
 
         # Should return list of QuotaStatus for all quotas
         assert len(result) == 4  # 2 VMs + 1 team + 1 project
+        # Batch fetch should be called exactly once (not N times)
+        mock_batch_fetch.assert_called_once()
 
     def test_list_quotas_empty(self):
         """Test list_quotas with no configured quotas."""
@@ -486,8 +491,8 @@ class TestStorageQuotaManagerListQuotas:
 
             assert result == []
 
-    @patch("azlin.modules.storage_quota_manager.subprocess.run")
-    def test_list_quotas_filtered_by_resource_group(self, mock_subprocess):
+    @patch.object(StorageQuotaManager, "_batch_fetch_storage_info")
+    def test_list_quotas_filtered_by_resource_group(self, mock_batch_fetch):
         """Test list_quotas filtered to specific resource group."""
         quotas = {
             "vm": {
@@ -511,17 +516,20 @@ class TestStorageQuotaManagerListQuotas:
             },
         }
 
+        from azlin.modules.storage_quota_manager import _BatchStorageCache
+
+        mock_batch_fetch.return_value = _BatchStorageCache()
+
         with patch.object(StorageQuotaManager, "QUOTA_FILE") as mock_file:
             mock_file.exists.return_value = True
             mock_file.read_text.return_value = json.dumps(quotas)
-
-            # Mock Azure CLI calls to return empty results
-            mock_subprocess.return_value = Mock(returncode=0, stdout="[]")
 
             result = StorageQuotaManager.list_quotas(resource_group="azlin-dev-rg")
 
             # Should only return quotas for azlin-dev-rg
             assert len(result) == 1
+            # Batch fetch should only query the filtered RG
+            mock_batch_fetch.assert_called_once_with({"azlin-dev-rg"})
 
 
 class TestStorageQuotaManagerEdgeCases:
