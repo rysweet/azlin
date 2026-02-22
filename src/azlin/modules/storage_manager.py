@@ -28,6 +28,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import ClassVar
 
+from azlin.azure_cli_executor import run_az_command
+
 logger = logging.getLogger(__name__)
 
 
@@ -232,7 +234,7 @@ class StorageManager:
 
             logger.info(f"Running command: {' '.join(cmd)}")
 
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
+            result = run_az_command(cmd, timeout=300)
 
             storage_data = json.loads(result.stdout)
 
@@ -362,7 +364,7 @@ class StorageManager:
                 "json",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
+            result = run_az_command(cmd, timeout=60)
 
             accounts = json.loads(result.stdout)
 

@@ -36,6 +36,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from azlin.azure_cli_executor import run_az_command
 from azlin.modules.validation import ValidationError, validate_azure_resource_name
 
 if TYPE_CHECKING:
@@ -409,9 +410,7 @@ class NFSProvisioner:
                 "tsv",
             ]
 
-            result = subprocess.run(
-                storage_id_cmd, capture_output=True, text=True, check=True, timeout=30
-            )
+            result = run_az_command(storage_id_cmd, timeout=30)
             storage_resource_id = result.stdout.strip()
 
             # Get subnet resource ID
@@ -433,9 +432,7 @@ class NFSProvisioner:
                 "tsv",
             ]
 
-            result = subprocess.run(
-                subnet_id_cmd, capture_output=True, text=True, check=True, timeout=30
-            )
+            result = run_az_command(subnet_id_cmd, timeout=30)
             subnet_id = result.stdout.strip()
 
             # Create private endpoint
@@ -466,9 +463,7 @@ class NFSProvisioner:
 
             logger.info(f"Running: az network private-endpoint create --name {name}")
 
-            result = subprocess.run(
-                create_cmd, capture_output=True, text=True, check=True, timeout=300
-            )
+            result = run_az_command(create_cmd, timeout=300)
 
             endpoint_data = json.loads(result.stdout)
 
