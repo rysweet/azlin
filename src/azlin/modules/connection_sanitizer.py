@@ -13,6 +13,7 @@ Public API:
 """
 
 import ipaddress
+import re
 
 
 def sanitize_for_logging(value: str) -> str:
@@ -26,6 +27,10 @@ def sanitize_for_logging(value: str) -> str:
     Returns:
         Sanitized string safe for logging
     """
+    # Strip ANSI escape sequences
+    value = re.sub(r"\x1b\[[\d;]*[a-zA-Z]", "", value)
+    # Strip other control characters (except space)
+    value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
     return value.encode("ascii", "replace").decode("ascii").replace("\n", " ").replace("\r", " ")
 
 

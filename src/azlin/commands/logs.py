@@ -94,8 +94,17 @@ def _stream_ssh_output(ssh_config: SSHConfig, command: str) -> int:
         text=True,
     )
     try:
-        process.wait()
+        process.wait(timeout=3600)
         return process.returncode
+    except subprocess.TimeoutExpired:
+        logger.warning("SSH process timed out after 3600 seconds, terminating")
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        return 124
     except KeyboardInterrupt:
         process.terminate()
         process.wait()

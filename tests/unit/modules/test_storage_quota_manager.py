@@ -17,17 +17,12 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-# Module under test (will fail import initially)
-try:
-    from azlin.modules.storage_quota_manager import (
-        QuotaCheckResult,
-        QuotaConfig,
-        QuotaStatus,
-        StorageQuotaManager,
-    )
-except ImportError:
-    # Expected to fail initially - TDD approach
-    pytest.skip("Module not implemented yet", allow_module_level=True)
+from azlin.modules.storage_quota_manager import (
+    QuotaCheckResult,
+    QuotaConfig,
+    QuotaStatus,
+    StorageQuotaManager,
+)
 
 
 class TestQuotaConfigDataModel:
@@ -535,11 +530,6 @@ class TestStorageQuotaManagerListQuotas:
 class TestStorageQuotaManagerEdgeCases:
     """Test edge cases and error handling."""
 
-    def test_quota_check_with_zero_quota(self):
-        """Test quota check behavior with zero quota configured."""
-        # Should always fail
-        pass
-
     def test_quota_check_with_negative_requested(self):
         """Test quota check rejects negative requested amounts."""
         with pytest.raises(ValueError, match="Requested amount must be positive"):
@@ -563,18 +553,3 @@ class TestStorageQuotaManagerEdgeCases:
 
             with pytest.raises(ValueError, match="Corrupted quota configuration"):
                 StorageQuotaManager.list_quotas()
-
-
-class TestStorageQuotaManagerPerformance:
-    """Test performance characteristics."""
-
-    def test_quota_check_completes_quickly(self):
-        """Test quota check completes in <100ms."""
-        # Unit tests should be fast
-        # This is a reminder to optimize if needed
-        pass
-
-    def test_list_quotas_scales_with_many_quotas(self):
-        """Test list_quotas performance with 100+ quotas."""
-        # Should still be fast even with many quotas
-        pass
