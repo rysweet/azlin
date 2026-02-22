@@ -37,6 +37,9 @@ from .keys import keys_group
 # Lifecycle
 from .lifecycle import destroy, kill, killall, prune, start, stop
 
+# Logs
+from .logs import logs
+
 # Monitoring (split into focused modules - Issue #423)
 from .monitoring_list import get_vm_session_pairs, list_command
 from .monitoring_ps import ps
@@ -106,6 +109,8 @@ __all__ = [
     "killall",
     # Monitoring
     "list_command",
+    # Logs
+    "logs",
     "new",
     # System
     "os_update",
