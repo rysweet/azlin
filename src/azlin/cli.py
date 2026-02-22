@@ -64,6 +64,8 @@ from azlin.commands import (
     env,
     fleet_group,
     github_runner_group,
+    # Health Commands
+    health,
     # System Commands
     help_command,
     # IP Commands
@@ -220,6 +222,7 @@ def main(ctx: click.Context, auth_profile: str | None) -> None:
 
     \b
     MONITORING COMMANDS:
+        health        VM health dashboard (Four Golden Signals)
         w             Run 'w' command on all VMs
         ps            Run 'ps aux' on all VMs
         cost          Show cost estimates for VMs
@@ -423,6 +426,9 @@ main.add_command(fleet_group)
 
 # Register GitHub runner commands
 main.add_command(github_runner_group)
+
+# Register health dashboard (Issue #566 - Four Golden Signals)
+main.add_command(health)
 
 # Register monitoring commands (Issue #423 - cli.py decomposition POC)
 main.add_command(status)
