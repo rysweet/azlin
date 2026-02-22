@@ -73,6 +73,8 @@ from azlin.commands import (
     kill,
     killall,
     list_command,
+    # Logs Commands
+    logs,
     # Provisioning Commands
     new,
     # System Commands
@@ -465,6 +467,9 @@ main.add_command(session_group)  # Session save/load/list commands
 main.add_command(w)
 main.add_command(ps)
 main.add_command(top)
+
+# Register logs command (Issue #153)
+main.add_command(logs)
 
 # Register batch commands (Issue #423 refactor)
 main.add_command(batch)
