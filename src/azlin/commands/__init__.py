@@ -26,6 +26,9 @@ from .env import _get_ssh_config_for_vm, env
 from .file_transfer import cp, sync, sync_keys
 from .fleet import fleet_group
 from .github_runner import github_runner_group
+
+# Health
+from .health import health
 from .ide import code_command
 
 # IP Commands
@@ -99,6 +102,8 @@ __all__ = [
     "fleet_group",
     "get_vm_session_pairs",
     "github_runner_group",
+    # Health
+    "health",
     # System
     "help_command",
     # IP Commands
