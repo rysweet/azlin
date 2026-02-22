@@ -156,6 +156,14 @@ class VMLifecycleManager:
             except Exception as e:
                 logger.warning(f"Failed to clean up session name for {vm_name}: {e}")
 
+            # Invalidate cache so deleted VM disappears from next `azlin list`
+            try:
+                from azlin.vm_manager import VMManager
+
+                VMManager.invalidate_cache(vm_name, resource_group)
+            except Exception as e:
+                logger.warning(f"Failed to invalidate cache for {vm_name}: {e}")
+
             return DeletionResult(
                 vm_name=vm_name,
                 success=True,

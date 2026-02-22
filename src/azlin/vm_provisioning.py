@@ -686,6 +686,14 @@ class VMProvisioner:
             logger.warning(f"Failed to set management tags: {e}")
             report_progress(f"Warning: Failed to set management tags: {e}")
 
+        # Invalidate resource group cache so next `azlin list` discovers the new VM
+        try:
+            from azlin.vm_manager import VMManager
+
+            VMManager.invalidate_resource_group_cache(config.resource_group)
+        except Exception as e:
+            logger.warning(f"Failed to invalidate cache after provisioning: {e}")
+
         report_progress(f"VM provisioned successfully: {vm_details.public_ip}")
         return vm_details
 
