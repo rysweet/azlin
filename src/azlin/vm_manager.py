@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from azlin.azure_cli_executor import run_az_command
+
 logger = logging.getLogger(__name__)
 
 
@@ -250,9 +252,7 @@ class VMManager:
                 "json",
             ]
 
-            result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True
-            )
+            result = run_az_command(cmd, timeout=30)
 
             # Handle empty stdout (e.g., resource group not found but didn't raise error)
             if not result.stdout or result.stdout.strip() == "":
@@ -366,13 +366,7 @@ class VMManager:
                 "json",
             ]
 
-            result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True,  # Increased for WSL compatibility (Issue #580)
-            )
+            result = run_az_command(cmd, timeout=30)
 
             vm_data: dict[str, Any] = json.loads(result.stdout)
             return cls._parse_vm_data(vm_data)

@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from azlin.azure_cli_executor import run_az_command
+
 logger = logging.getLogger(__name__)
 
 
@@ -470,13 +472,7 @@ class SnapshotManager:
                 "json",
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300,
-                check=True,
-            )
+            result = run_az_command(cmd, timeout=300)
 
             snapshot_data = json.loads(result.stdout)
             logger.debug(f"Created snapshot: {snapshot_data['id']}")
@@ -519,13 +515,7 @@ class SnapshotManager:
                 "tsv",
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True,
-            )
+            result = run_az_command(cmd, timeout=30)
 
             disk_id = result.stdout.strip()
             if not disk_id:

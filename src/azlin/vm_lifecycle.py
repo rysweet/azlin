@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
+from azlin.azure_cli_executor import run_az_command
 from azlin.config_manager import ConfigManager
 from azlin.connection_tracker import ConnectionTracker
 
@@ -270,9 +271,7 @@ class VMLifecycleManager:
                 "json",
             ]
 
-            result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True
-            )
+            result = run_az_command(cmd, timeout=30)
 
             vm_details: dict[str, Any] = json.loads(result.stdout)
             return vm_details
@@ -309,9 +308,7 @@ class VMLifecycleManager:
                 "json",
             ]
 
-            result: subprocess.CompletedProcess[str] = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=True
-            )
+            result = run_az_command(cmd, timeout=30)
 
             vm_names: list[str] = json.loads(result.stdout)
             return vm_names
