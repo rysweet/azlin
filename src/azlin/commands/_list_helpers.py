@@ -257,8 +257,8 @@ def enrich_vm_data(
     latency_by_vm: dict[str, LatencyResult] = {}
     active_procs_by_vm: dict[str, list[str]] = {}
 
-    # Collect quota information if enabled (skip if cached)
-    if show_quota and not was_cached:
+    # Collect quota information if enabled
+    if show_quota:
         try:
             # Get unique regions from VMs
             regions = list({vm.location for vm in vms if vm.location})
