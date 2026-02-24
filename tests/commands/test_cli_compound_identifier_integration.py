@@ -76,30 +76,47 @@ class TestConnectCommandCompoundIdentifierIntegration:
 
     @pytest.fixture
     def mock_vm_manager(self, sample_vms):
-        """Mock VMManager to return sample VMs."""
-        with patch("azlin.commands.connect.VMManager") as mock:
-            mock.list_vms.return_value = sample_vms
-            mock.get_vm.side_effect = lambda name, rg: next(
-                (vm for vm in sample_vms if vm.name == name), None
-            )
-            yield mock
+        """Mock VMManager in both connect and connectivity_common modules.
+
+        connect.py imports VMManager directly and also calls helpers in
+        connectivity_common.py which has its own import of VMManager.
+        A single Mock is shared across both patch targets so that test-level
+        overrides (e.g. changing list_vms.return_value) apply everywhere.
+        """
+        shared = Mock()
+        shared.list_vms.return_value = sample_vms
+        shared.get_vm.side_effect = lambda name, rg: next(
+            (vm for vm in sample_vms if vm.name == name), None
+        )
+        with (
+            patch("azlin.commands.connect.VMManager", shared),
+            patch("azlin.commands.connectivity_common.VMManager", shared),
+        ):
+            yield shared
 
     @pytest.fixture
     def mock_config_manager(self):
-        """Mock ConfigManager for resource group and session mapping."""
-        with patch("azlin.commands.connect.ConfigManager") as mock:
-            mock.get_resource_group.return_value = "test-rg"
-            # By default, no session mapping
-            mock.get_vm_name_by_session.return_value = None
-            yield mock
+        """Mock ConfigManager in both connect and connectivity_common modules."""
+        shared = Mock()
+        shared.get_resource_group.return_value = "test-rg"
+        shared.get_vm_name_by_session.return_value = None
+        with (
+            patch("azlin.commands.connect.ConfigManager", shared),
+            patch("azlin.commands.connectivity_common.ConfigManager", shared),
+        ):
+            yield shared
 
     @pytest.fixture
     def mock_vm_connector(self):
-        """Mock VMConnector.connect to prevent actual SSH."""
-        with patch("azlin.commands.connect.VMConnector") as mock:
-            mock.is_valid_ip.return_value = False
-            mock.connect.return_value = True
-            yield mock
+        """Mock VMConnector in both connect and connectivity_common modules."""
+        shared = Mock()
+        shared.is_valid_ip.return_value = False
+        shared.connect.return_value = True
+        with (
+            patch("azlin.commands.connect.VMConnector", shared),
+            patch("azlin.commands.connectivity_common.VMConnector", shared),
+        ):
+            yield shared
 
     @pytest.fixture
     def mock_ssh_key_manager(self, tmp_path):
@@ -113,10 +130,14 @@ class TestConnectCommandCompoundIdentifierIntegration:
 
     @pytest.fixture
     def mock_context_manager(self):
-        """Mock ContextManager to skip subscription check."""
-        with patch("azlin.commands.connect.ContextManager") as mock:
-            mock.ensure_subscription_active.return_value = None
-            yield mock
+        """Mock ContextManager in both connect and connectivity_common modules."""
+        shared = Mock()
+        shared.ensure_subscription_active.return_value = None
+        with (
+            patch("azlin.commands.connect.ContextManager", shared),
+            patch("azlin.commands.connectivity_common.ContextManager", shared),
+        ):
+            yield shared
 
     def test_connect_with_simple_vm_name(
         self,
@@ -292,8 +313,8 @@ class TestConnectCommandCompoundIdentifierIntegration:
         """
         from azlin.commands.connectivity import connect
 
-        # Mock config to NOT have session mapping (so uses VM list resolution)
-        mock_config_manager.get_vm_name_by_session.return_value = None
+        # For simple names (no colon), resolution uses ConfigManager session mapping
+        mock_config_manager.get_vm_name_by_session.return_value = "azlin-dev"
 
         result = cli_runner.invoke(connect, ["dev"])
 
@@ -522,9 +543,27 @@ class TestCompoundIdentifierErrorHandling:
         """
         from azlin.commands.connectivity import connect
 
-        with patch("azlin.commands.connect.VMManager") as mock_vm_manager:
-            # Simulate resolution error
-            mock_vm_manager.list_vms.return_value = []
+        with (
+            patch("azlin.commands.connect.VMManager") as mock_vm_mgr,
+            patch("azlin.commands.connectivity_common.VMManager") as mock_vm_mgr_common,
+            patch("azlin.commands.connect.ConfigManager") as mock_cfg,
+            patch("azlin.commands.connectivity_common.ConfigManager") as mock_cfg_common,
+            patch("azlin.commands.connect.VMConnector") as mock_conn,
+            patch("azlin.commands.connectivity_common.VMConnector") as mock_conn_common,
+            patch("azlin.commands.connect.ContextManager") as mock_ctx,
+            patch("azlin.commands.connectivity_common.ContextManager") as mock_ctx_common,
+            patch("azlin.commands.connect.SSHKeyManager") as mock_ssh,
+        ):
+            for m in (mock_vm_mgr, mock_vm_mgr_common):
+                m.list_vms.return_value = []
+                m.get_vm.return_value = None
+            for m in (mock_cfg, mock_cfg_common):
+                m.get_resource_group.return_value = "rg"
+                m.get_vm_name_by_session.return_value = None
+            for m in (mock_conn, mock_conn_common):
+                m.is_valid_ip.return_value = False
+            for m in (mock_ctx, mock_ctx_common):
+                m.ensure_subscription_active.return_value = None
 
             result = cli_runner.invoke(connect, ["nonexistent:session"])
 
@@ -559,14 +598,33 @@ class TestCompoundIdentifierErrorHandling:
             ),
         ]
 
-        with patch("azlin.commands.connect.VMManager") as mock_vm_manager:
-            mock_vm_manager.list_vms.return_value = vms
-            with patch("azlin.commands.connect.ConfigManager") as mock_config:
-                mock_config.get_resource_group.return_value = "rg"
+        with (
+            patch("azlin.commands.connect.VMManager") as mock_vm_mgr,
+            patch("azlin.commands.connectivity_common.VMManager") as mock_vm_mgr_common,
+            patch("azlin.commands.connect.ConfigManager") as mock_cfg,
+            patch("azlin.commands.connectivity_common.ConfigManager") as mock_cfg_common,
+            patch("azlin.commands.connect.VMConnector") as mock_conn,
+            patch("azlin.commands.connectivity_common.VMConnector") as mock_conn_common,
+            patch("azlin.commands.connect.ContextManager") as mock_ctx,
+            patch("azlin.commands.connectivity_common.ContextManager") as mock_ctx_common,
+            patch("azlin.commands.connect.SSHKeyManager") as mock_ssh,
+        ):
+            for m in (mock_vm_mgr, mock_vm_mgr_common):
+                m.list_vms.return_value = vms
+                m.get_vm.side_effect = lambda name, rg: next(
+                    (vm for vm in vms if vm.name == name), None
+                )
+            for m in (mock_cfg, mock_cfg_common):
+                m.get_resource_group.return_value = "rg"
+                m.get_vm_name_by_session.return_value = None
+            for m in (mock_conn, mock_conn_common):
+                m.is_valid_ip.return_value = False
+            for m in (mock_ctx, mock_ctx_common):
+                m.ensure_subscription_active.return_value = None
 
-                result = cli_runner.invoke(connect, [":dev"])
+            result = cli_runner.invoke(connect, [":dev"])
 
-                # Should show both VMs and suggest using vm1:dev or vm2:dev
-                assert (
-                    "vm1" in result.output and "vm2" in result.output
-                ) or "multiple" in result.output.lower()
+            # Should show both VMs and suggest using vm1:dev or vm2:dev
+            assert (
+                "vm1" in result.output and "vm2" in result.output
+            ) or "multiple" in result.output.lower()
