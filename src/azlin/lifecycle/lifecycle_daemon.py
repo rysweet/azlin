@@ -17,7 +17,7 @@ import signal
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -271,7 +271,7 @@ class LifecycleDaemon:
         import os
 
         self._pid = os.getpid()
-        self._start_time = datetime.utcnow()
+        self._start_time = datetime.now(UTC)
         self._running = True
 
         self._write_pid_file()
@@ -308,7 +308,7 @@ class LifecycleDaemon:
         """
         uptime = None
         if self._running and self._start_time:
-            uptime = datetime.utcnow() - self._start_time
+            uptime = datetime.now(UTC) - self._start_time
 
         monitored_vms = []
         try:

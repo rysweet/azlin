@@ -17,7 +17,7 @@ import logging
 import os
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from subprocess import TimeoutExpired
@@ -117,7 +117,7 @@ class HookExecutor:
         env = os.environ.copy()
         env["AZLIN_VM_NAME"] = vm_name
         env["AZLIN_EVENT_TYPE"] = hook_type.value
-        env["AZLIN_TIMESTAMP"] = datetime.utcnow().isoformat()
+        env["AZLIN_TIMESTAMP"] = datetime.now(UTC).isoformat()
 
         # Add context variables
         for key, value in context.items():
@@ -203,7 +203,7 @@ class HookExecutor:
                 exit_code=result.returncode,
                 stdout=result.stdout,
                 stderr=result.stderr,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 error_message=None if success else f"Exit code {result.returncode}",
             )
 
@@ -216,7 +216,7 @@ class HookExecutor:
                 exit_code=-1,
                 stdout="",
                 stderr="",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 error_message=f"Execution timeout after {timeout} seconds",
             )
 
@@ -229,7 +229,7 @@ class HookExecutor:
                 exit_code=-1,
                 stdout="",
                 stderr="",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 error_message=str(e),
             )
 
@@ -299,7 +299,7 @@ class HookExecutor:
                 exit_code=0,
                 stdout="",
                 stderr="",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 pid=process.pid,
             )
 
@@ -312,7 +312,7 @@ class HookExecutor:
                 exit_code=-1,
                 stdout="",
                 stderr="",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 error_message=str(e),
             )
 

@@ -14,7 +14,7 @@ Public API (Studs):
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ class SelfHealer:
             return RestartResult(
                 success=True,
                 vm_name=vm_name,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
             )
 
         except Exception as e:
@@ -135,7 +135,7 @@ class SelfHealer:
             return RestartResult(
                 success=False,
                 vm_name=vm_name,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 error_message=error_msg,
             )
 
