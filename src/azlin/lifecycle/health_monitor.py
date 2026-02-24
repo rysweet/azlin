@@ -17,7 +17,7 @@ Public API (Studs):
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ class HealthFailure:
     vm_name: str
     failure_count: int
     reason: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -201,7 +201,7 @@ class HealthMonitor:
             state=state,
             ssh_reachable=ssh_reachable,
             ssh_failures=self._ssh_failure_counts.get(vm_name, 0),
-            last_check=datetime.utcnow(),
+            last_check=datetime.now(UTC),
             metrics=metrics,
         )
 

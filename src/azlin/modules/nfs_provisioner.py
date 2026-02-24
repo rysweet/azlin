@@ -32,7 +32,7 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -1040,7 +1040,7 @@ class NFSProvisioner:
             from datetime import datetime, timedelta
 
             # Create SAS token for target (write permissions only, short expiry)
-            sas_start = datetime.utcnow()
+            sas_start = datetime.now(UTC)
             sas_expiry = sas_start + timedelta(hours=2)
 
             target_sas_cmd = [

@@ -10,7 +10,7 @@ Security:
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from azlin.config_manager import ConfigManager
 from azlin.connection_tracker import ConnectionTracker
@@ -39,7 +39,7 @@ class PruneManager:
         dt = PruneManager._parse_iso_datetime(timestamp_str)
         if not dt:
             return None
-        return (datetime.utcnow() - dt.replace(tzinfo=None)).days
+        return (datetime.now(UTC) - dt.replace(tzinfo=UTC)).days
 
     @classmethod
     def filter_by_age(cls, vms: list[VMInfo], age_days: int) -> list[VMInfo]:

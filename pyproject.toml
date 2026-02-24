@@ -77,6 +77,8 @@ markers = [
     "command_list: Tests for 'azlin list' command",
     "command_connect: Tests for 'azlin connect' command",
     "asyncio: Async tests",
+    "slow: marks tests as slow running",
+    "destructive: marks tests that perform destructive operations",
 ]
 asyncio_mode = "auto"
 addopts = "-ra -q"

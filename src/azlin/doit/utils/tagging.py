@@ -1,7 +1,7 @@
 """Resource tagging utilities for doit."""
 
 import subprocess
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TypedDict
 
 from azlin.modules.azure_cli_helper import get_az_command
@@ -60,7 +60,7 @@ def generate_doit_tags(username: str | None = None) -> DoItTags:
     if username is None:
         username = get_azure_username()
 
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = datetime.now(UTC).isoformat() + "Z"
 
     return DoItTags(
         azlin_doit_owner=username,
