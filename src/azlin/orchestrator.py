@@ -111,6 +111,7 @@ class CLIOrchestrator:
         auto_approve: bool = False,
         home_disk_size: int | None = None,
         no_home_disk: bool = False,
+        tmp_disk_size: int | None = None,
     ):
         """Initialize CLI orchestrator.
 
@@ -129,6 +130,7 @@ class CLIOrchestrator:
             auto_approve: Accept all defaults and confirmations (non-interactive mode)
             home_disk_size: Size of separate /home disk in GB (optional, default: 100)
             no_home_disk: Disable separate /home disk (use OS disk only)
+            tmp_disk_size: Size of separate /tmp disk in GB (optional, enables tmp disk)
 
         Note:
             SSH keys are automatically stored in Azure Key Vault (transparent operation)
@@ -147,6 +149,7 @@ class CLIOrchestrator:
         self.auto_approve = auto_approve
         self.home_disk_size = home_disk_size
         self.no_home_disk = no_home_disk
+        self.tmp_disk_size = tmp_disk_size
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -773,6 +776,11 @@ class CLIOrchestrator:
         home_disk_enabled = not self.no_home_disk and not has_nfs_storage
         home_disk_size = self.home_disk_size or 100
 
+        # Determine tmp disk configuration
+        # Tmp disk is enabled only when user specifies --tmp-disk-size
+        tmp_disk_enabled = self.tmp_disk_size is not None
+        tmp_disk_size = self.tmp_disk_size or 64
+
         # Create VM config
         config = self.provisioner.create_vm_config(
             name=vm_name,
@@ -785,6 +793,9 @@ class CLIOrchestrator:
             home_disk_enabled=home_disk_enabled,
             home_disk_size_gb=home_disk_size,
             home_disk_sku="Standard_LRS",
+            tmp_disk_enabled=tmp_disk_enabled,
+            tmp_disk_size_gb=tmp_disk_size,
+            tmp_disk_sku="Standard_LRS",
         )
 
         # Progress callback

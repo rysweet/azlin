@@ -55,6 +55,9 @@ class VMConfig:
     home_disk_enabled: bool = True  # Whether to create separate /home disk
     home_disk_size_gb: int = 100  # Size of separate /home disk in GB
     home_disk_sku: str = "Standard_LRS"  # Storage SKU for /home disk
+    tmp_disk_enabled: bool = False  # Whether to create separate /tmp disk (opt-in)
+    tmp_disk_size_gb: int = 64  # Size of separate /tmp disk in GB
+    tmp_disk_sku: str = "Standard_LRS"  # Storage SKU for /tmp disk
 
 
 @dataclass
@@ -379,6 +382,9 @@ class VMProvisioner:
         home_disk_enabled: bool = True,
         home_disk_size_gb: int = 100,
         home_disk_sku: str = "Standard_LRS",
+        tmp_disk_enabled: bool = False,
+        tmp_disk_size_gb: int = 64,
+        tmp_disk_sku: str = "Standard_LRS",
     ) -> VMConfig:
         """Create VM configuration with validation.
 
@@ -393,6 +399,9 @@ class VMProvisioner:
             home_disk_enabled: Whether to create separate /home disk (default: True)
             home_disk_size_gb: Size of separate /home disk in GB (default: 100)
             home_disk_sku: Storage SKU for /home disk (default: Standard_LRS)
+            tmp_disk_enabled: Whether to create separate /tmp disk (default: False)
+            tmp_disk_size_gb: Size of separate /tmp disk in GB (default: 64)
+            tmp_disk_sku: Storage SKU for /tmp disk (default: Standard_LRS)
 
         Returns:
             VMConfig object
@@ -419,6 +428,15 @@ class VMProvisioner:
                     f"Home disk size {home_disk_size_gb}GB exceeds Azure maximum (32767GB / 32TB)"
                 )
 
+        # Validate tmp disk size
+        if tmp_disk_enabled:
+            if tmp_disk_size_gb < 1:
+                raise ValueError("Tmp disk size must be at least 1GB")
+            if tmp_disk_size_gb > 32767:  # Azure max: 32TB = 32767GB
+                raise ValueError(
+                    f"Tmp disk size {tmp_disk_size_gb}GB exceeds Azure maximum (32767GB / 32TB)"
+                )
+
         return VMConfig(
             name=name,
             resource_group=resource_group,
@@ -433,6 +451,9 @@ class VMProvisioner:
             home_disk_enabled=home_disk_enabled,
             home_disk_size_gb=home_disk_size_gb,
             home_disk_sku=home_disk_sku,
+            tmp_disk_enabled=tmp_disk_enabled,
+            tmp_disk_size_gb=tmp_disk_size_gb,
+            tmp_disk_sku=tmp_disk_sku,
         )
 
     def validate_vm_size(self, size: str) -> bool:
@@ -561,7 +582,8 @@ class VMProvisioner:
         config: VMConfig,
         progress_callback: Callable[[str], None] | None = None,
         has_home_disk: bool = False,
-        disk_id: str | None = None,
+        has_tmp_disk: bool = False,
+        disk_ids: list[str] | None = None,
     ) -> VMDetails:
         """Attempt to provision VM (internal method).
 
@@ -569,7 +591,8 @@ class VMProvisioner:
             config: VM configuration
             progress_callback: Optional callback for progress updates
             has_home_disk: Whether VM will have separate /home disk attached
-            disk_id: Optional disk resource ID to attach during VM creation
+            has_tmp_disk: Whether VM will have separate /tmp disk attached
+            disk_ids: Optional list of disk resource IDs to attach during VM creation
 
         Returns:
             VMDetails with provisioning results
@@ -585,7 +608,9 @@ class VMProvisioner:
 
         # Resource group already created in provision_vm()
         # Generate cloud-init with SSH key and disk setup flag
-        cloud_init = self._generate_cloud_init(config.ssh_public_key, has_home_disk=has_home_disk)
+        cloud_init = self._generate_cloud_init(
+            config.ssh_public_key, has_home_disk=has_home_disk, has_tmp_disk=has_tmp_disk
+        )
 
         # Build VM create command
         cmd = [
@@ -630,10 +655,11 @@ class VMProvisioner:
             vnet_name = f"azlin-bastion-{config.location}-vnet"
             cmd.extend(["--subnet", "default", "--vnet-name", vnet_name])
 
-        # Attach home disk during VM creation (not after!) so cloud-init can find it
-        # CRITICAL: Disk must be present when cloud-init runs disk_setup during boot
-        if disk_id:
-            cmd.extend(["--attach-data-disks", disk_id])
+        # Attach data disks during VM creation (not after!) so cloud-init can find them
+        # CRITICAL: Disks must be present when cloud-init runs disk_setup during boot
+        # Order matters: first disk = lun0, second = lun1, etc.
+        if disk_ids:
+            cmd.extend(["--attach-data-disks", *disk_ids])
 
         cmd.append("--output")
         cmd.append("json")
@@ -833,6 +859,58 @@ class VMProvisioner:
         logger.info(f"Disk created successfully: {disk_id}")
         return disk_id
 
+    def _create_tmp_disk(
+        self, vm_name: str, resource_group: str, location: str, size_gb: int, sku: str
+    ) -> str:
+        """Create an Azure Managed Disk for /tmp directory.
+
+        Args:
+            vm_name: Name of the VM (used to name the disk)
+            resource_group: Resource group name
+            location: Azure region
+            size_gb: Disk size in GB
+            sku: Storage SKU (Standard_LRS, Premium_LRS, etc.)
+
+        Returns:
+            str: Disk resource ID
+
+        Raises:
+            ProvisioningError: If disk creation fails
+        """
+        safe_location = location.replace(" ", "-").lower()
+        disk_name = f"{vm_name}-tmp-{safe_location}"
+
+        cmd = [
+            "az",
+            "disk",
+            "create",
+            "--name",
+            disk_name,
+            "--resource-group",
+            resource_group,
+            "--location",
+            location,
+            "--size-gb",
+            str(size_gb),
+            "--sku",
+            sku,
+            "--output",
+            "json",
+        ]
+
+        logger.info(f"Creating tmp managed disk: {disk_name} ({size_gb}GB, {sku})")
+
+        result = self._execute_azure_command(cmd, timeout=120)
+
+        if not result["success"]:
+            raise ProvisioningError(f"Failed to create tmp disk {disk_name}: {result['stderr']}")
+
+        disk_info = json.loads(result["stdout"])
+        disk_id = disk_info["id"]
+
+        logger.info(f"Tmp disk created successfully: {disk_id}")
+        return disk_id
+
     def _attach_home_disk(self, vm_name: str, resource_group: str, disk_id: str) -> str:
         """Attach managed disk to VM.
 
@@ -878,13 +956,17 @@ class VMProvisioner:
         return lun
 
     def _generate_cloud_init(
-        self, ssh_public_key: str | None = None, has_home_disk: bool = False
+        self,
+        ssh_public_key: str | None = None,
+        has_home_disk: bool = False,
+        has_tmp_disk: bool = False,
     ) -> str:
         """Generate cloud-init script for tool installation.
 
         Args:
             ssh_public_key: SSH public key to add to authorized_keys (required to override waagent)
             has_home_disk: Whether to include disk setup for separate /home disk
+            has_tmp_disk: Whether to include disk setup for separate /tmp disk
 
         Returns:
             Cloud-init YAML content
@@ -926,26 +1008,65 @@ cloud_final_modules:
 
 """
 
-        # Add disk setup sections for separate /home disk
+        # Add disk setup sections for separate /home and /tmp disks
+        # LUN assignment: home disk gets lun0, tmp disk gets next available
         disk_setup_section = ""
-        if has_home_disk:
-            disk_setup_section = """
-disk_setup:
-  /dev/disk/azure/scsi1/lun0:
-    table_type: gpt
-    layout: true
-    overwrite: false
+        if has_home_disk or has_tmp_disk:
+            # Determine LUN assignments
+            tmp_lun = 1 if has_home_disk else 0
 
-fs_setup:
-  - label: home_disk
-    filesystem: ext4
-    device: /dev/disk/azure/scsi1/lun0-part1
-    partition: auto
+            disk_setup_entries = []
+            fs_setup_entries = []
+            mount_entries = []
 
-mounts:
-  - [ /dev/disk/azure/scsi1/lun0-part1, /home, ext4, "defaults,nofail", "0", "2" ]
+            if has_home_disk:
+                disk_setup_entries.append(
+                    "  /dev/disk/azure/scsi1/lun0:\n"
+                    "    table_type: gpt\n"
+                    "    layout: true\n"
+                    "    overwrite: false"
+                )
+                fs_setup_entries.append(
+                    "  - label: home_disk\n"
+                    "    filesystem: ext4\n"
+                    "    device: /dev/disk/azure/scsi1/lun0-part1\n"
+                    "    partition: auto"
+                )
+                mount_entries.append(
+                    '  - [ /dev/disk/azure/scsi1/lun0-part1, /home, ext4, "defaults,nofail", "0", "2" ]'
+                )
 
-"""
+            if has_tmp_disk:
+                disk_setup_entries.append(
+                    f"  /dev/disk/azure/scsi1/lun{tmp_lun}:\n"
+                    "    table_type: gpt\n"
+                    "    layout: true\n"
+                    "    overwrite: false"
+                )
+                fs_setup_entries.append(
+                    "  - label: tmp_disk\n"
+                    "    filesystem: ext4\n"
+                    f"    device: /dev/disk/azure/scsi1/lun{tmp_lun}-part1\n"
+                    "    partition: auto"
+                )
+                mount_entries.append(
+                    f'  - [ /dev/disk/azure/scsi1/lun{tmp_lun}-part1, /tmp, ext4, "defaults,nofail", "0", "2" ]'
+                )
+
+            disk_setup_section = (
+                "\ndisk_setup:\n"
+                + "\n".join(disk_setup_entries)
+                + "\n\nfs_setup:\n"
+                + "\n".join(fs_setup_entries)
+                + "\n\nmounts:\n"
+                + "\n".join(mount_entries)
+                + "\n\n"
+            )
+
+        # Set /tmp permissions after mount (cloud-init mounts run before runcmd)
+        tmp_disk_runcmd = ""
+        if has_tmp_disk:
+            tmp_disk_runcmd = "  # Set /tmp permissions (sticky bit) after separate disk mount\n  - chmod 1777 /tmp\n\n"
 
         return f"""#cloud-config
 {ssh_keys_section}{disk_setup_section}package_update: true
@@ -964,7 +1085,7 @@ packages:
   - pipx
 
 runcmd:
-  # Python 3.13+ from deadsnakes PPA
+{tmp_disk_runcmd}  # Python 3.13+ from deadsnakes PPA
   - add-apt-repository -y ppa:deadsnakes/ppa
 
   # GitHub CLI repository setup
@@ -1085,6 +1206,12 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
             ssh_public_key=original.ssh_public_key,
             admin_username=original.admin_username,
             disable_password_auth=original.disable_password_auth,
+            home_disk_enabled=original.home_disk_enabled,
+            home_disk_size_gb=original.home_disk_size_gb,
+            home_disk_sku=original.home_disk_sku,
+            tmp_disk_enabled=original.tmp_disk_enabled,
+            tmp_disk_size_gb=original.tmp_disk_size_gb,
+            tmp_disk_sku=original.tmp_disk_sku,
         )
 
     def provision_vm(
@@ -1118,18 +1245,36 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
         report_progress(f"Creating resource group: {config.resource_group}")
         self.create_resource_group(config.resource_group, config.location)
 
-        # Create separate home disk if enabled
-        disk_id = None
+        # Create data disks (order matters: home first, then tmp for LUN assignment)
+        disk_ids: list[str] = []
+        home_disk_created = False
+        tmp_disk_created = False
+
         if config.home_disk_enabled:
             report_progress(f"Creating separate /home disk ({config.home_disk_size_gb}GB)...")
-            disk_id = self._create_home_disk(
+            home_disk_id = self._create_home_disk(
                 vm_name=config.name,
                 resource_group=config.resource_group,
                 location=config.location,
                 size_gb=config.home_disk_size_gb,
                 sku=config.home_disk_sku,
             )
+            disk_ids.append(home_disk_id)
+            home_disk_created = True
             report_progress("Home disk created successfully")
+
+        if config.tmp_disk_enabled:
+            report_progress(f"Creating separate /tmp disk ({config.tmp_disk_size_gb}GB)...")
+            tmp_disk_id = self._create_tmp_disk(
+                vm_name=config.name,
+                resource_group=config.resource_group,
+                location=config.location,
+                size_gb=config.tmp_disk_size_gb,
+                sku=config.tmp_disk_sku,
+            )
+            disk_ids.append(tmp_disk_id)
+            tmp_disk_created = True
+            report_progress("Tmp disk created successfully")
 
         # Build list of regions to try (preferred region first, then fallbacks)
         regions_to_try: list[str] = [config.location]
@@ -1152,18 +1297,21 @@ final_message: "azlin VM provisioning complete. All dev tools installed."
                     retry_config = config
 
                 # Attempt provisioning with retry config
-                # Pass disk_id to attach during VM creation (before cloud-init runs)
+                # Pass disk_ids to attach during VM creation (before cloud-init runs)
                 vm_details = self._try_provision_vm(
                     retry_config,
                     progress_callback,
-                    has_home_disk=disk_id is not None,
-                    disk_id=disk_id,
+                    has_home_disk=home_disk_created,
+                    has_tmp_disk=tmp_disk_created,
+                    disk_ids=disk_ids if disk_ids else None,
                 )
 
-                # Disk is attached during VM creation via --attach-data-disks
-                # This ensures cloud-init's disk_setup can find the disk during boot
-                if disk_id is not None:
+                # Disks are attached during VM creation via --attach-data-disks
+                # This ensures cloud-init's disk_setup can find disks during boot
+                if home_disk_created:
                     report_progress("Home disk attached and configured via cloud-init")
+                if tmp_disk_created:
+                    report_progress("Tmp disk attached and configured via cloud-init")
 
                 return vm_details
 

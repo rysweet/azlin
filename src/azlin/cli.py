@@ -57,6 +57,8 @@ from azlin.commands import (
     cp,
     create,
     destroy,
+    # Disk Commands
+    disk_group,
     # NLP Commands
     do,
     doit_group,
@@ -408,6 +410,9 @@ main.add_command(compose_group)
 # Register storage commands
 main.add_command(storage_group)
 main.add_command(tag_group)
+
+# Register disk commands (Issue #685)
+main.add_command(disk_group)
 
 # Register costs commands
 main.add_command(costs_group)
