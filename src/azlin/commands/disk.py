@@ -60,14 +60,15 @@ def add_disk(
 
     \b
     EXAMPLES:
-        # Add a 64GB /tmp disk
-        $ azlin disk add my-vm --size 64
-
-        # Add a 128GB disk mounted at /tmp with Premium storage
-        $ azlin disk add my-vm --size 128 --sku Premium_LRS
-
-        # Add a disk with custom mount point
-        $ azlin disk add my-vm --size 256 --mount /data
+    \b
+    # Add a 64GB /tmp disk
+    $ azlin disk add my-vm --size 64
+    \b
+    # Add a 128GB /tmp disk explicitly
+    $ azlin disk add my-vm --size 128 --mount /tmp
+    \b
+    # Add a disk with custom mount point
+    $ azlin disk add my-vm --size 256 --mount /data
     """
     try:
         # Resolve session name to VM name if applicable
