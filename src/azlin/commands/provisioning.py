@@ -758,6 +758,11 @@ def _set_clone_session_names(
     is_flag=True,
     help="Disable separate /home disk (use OS disk)",
 )
+@click.option(
+    "--tmp-disk-size",
+    type=int,
+    help="Size of separate /tmp disk in GB (enables /tmp on dedicated disk)",
+)
 def new(
     ctx: click.Context,
     repo: str | None,
@@ -777,6 +782,7 @@ def new(
     yes: bool,
     home_disk_size: int | None,
     no_home_disk: bool,
+    tmp_disk_size: int | None,
 ) -> None:
     """Provision a new Azure VM with development tools.
 
@@ -882,6 +888,7 @@ def new(
         auto_approve=yes,
         home_disk_size=home_disk_size,
         no_home_disk=no_home_disk,
+        tmp_disk_size=tmp_disk_size,
     )
 
     # Update config state (resource group only, session name saved after VM creation)

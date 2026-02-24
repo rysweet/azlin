@@ -575,10 +575,10 @@ class TestProvisionVMWithHomeDisk:
                 sku="Standard_LRS",
             )
 
-            # Verify VM was provisioned with disk_id parameter
+            # Verify VM was provisioned with disk_ids parameter
             mock_provision.assert_called_once()
             call_kwargs = mock_provision.call_args[1]
-            assert call_kwargs.get("disk_id") == disk_id
+            assert disk_id in call_kwargs.get("disk_ids", [])
             assert call_kwargs.get("has_home_disk") is True
 
             assert result.name == "test-vm"
@@ -695,11 +695,11 @@ class TestProvisionVMWithHomeDisk:
 
             assert result.name == "test-vm"
 
-            # Verify _try_provision_vm was called with disk_id parameter
+            # Verify _try_provision_vm was called with disk_ids parameter
             mock_provision.assert_called_once()
             call_kwargs = mock_provision.call_args[1]
-            assert "disk_id" in call_kwargs
-            assert call_kwargs["disk_id"] == disk_id
+            assert "disk_ids" in call_kwargs
+            assert disk_id in call_kwargs["disk_ids"]
 
 
 class TestCLIHomeDiskFlags:

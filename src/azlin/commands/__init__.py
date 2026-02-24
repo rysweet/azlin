@@ -19,6 +19,9 @@ from .compose import compose_group
 from .connect import connect
 from .context import context_group
 from .costs import cost, costs_group
+
+# Disk management
+from .disk import disk_group
 from .doit import do, doit_group
 
 # Environment
@@ -96,6 +99,8 @@ __all__ = [
     "cp",
     "create",
     "destroy",
+    # Disk management
+    "disk_group",
     "do",
     "doit_group",
     "env",
