@@ -35,8 +35,13 @@ def mock_vms():
 def mock_quota_info():
     """Create mock quota information."""
     return [
-        QuotaInfo(quota_name="cores", current_usage=10, limit=100),
-        QuotaInfo(quota_name="Standard DSv2 Family vCPUs", current_usage=5, limit=50),
+        QuotaInfo(region="eastus", quota_name="cores", current_usage=10, limit=100),
+        QuotaInfo(
+            region="eastus",
+            quota_name="Standard DSv2 Family vCPUs",
+            current_usage=5,
+            limit=50,
+        ),
     ]
 
 
