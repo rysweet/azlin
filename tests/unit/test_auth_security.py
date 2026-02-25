@@ -411,7 +411,6 @@ certificate_path = "{cert_file}"
                         "****" in record.message
                     )
 
-    @pytest.mark.skip(reason="Requires _authenticate_with_secret method - future implementation")
     def test_log_sanitization_in_error_messages(self, tmp_path, monkeypatch):
         """Test that error messages don't leak secrets."""
         config_file = tmp_path / "config.toml"
@@ -698,7 +697,6 @@ auth_method = "client_secret"  # noqa: S105, S106
                 assert secret not in str(e)  # noqa: PT017
                 assert "****" in str(e) or "[REDACTED]" in str(e)  # noqa: PT017
 
-    @pytest.mark.skip(reason="Requires path masking in error messages - future implementation")
     def test_file_not_found_error_masks_sensitive_paths(self):
         """Test that file not found errors don't leak sensitive paths."""
         sensitive_path = "/home/user/.azlin/production-secrets/super-secret-key.pem"
@@ -726,9 +724,6 @@ auth_method = "client_secret"  # noqa: S105, S106
             # Error should not contain the secret
             assert "my-secret-password" not in str(e)  # noqa: PT017
 
-    @pytest.mark.skip(
-        reason="Requires custom __repr__ in ServicePrincipalError - future implementation"
-    )
     def test_exception_repr_masks_secrets(self):
         """Test that exception __repr__ masks secrets."""
         error = ServicePrincipalError("Authentication failed with secret: super-secret-123")
