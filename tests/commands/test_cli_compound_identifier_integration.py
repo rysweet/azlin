@@ -401,12 +401,36 @@ class TestNewCommandCompoundIdentifierIntegration:
         with patch("azlin.commands.provisioning.VMManager") as mock:
             yield mock
 
+    @pytest.fixture
+    def mock_cli_orchestrator(self):
+        """Mock CLIOrchestrator to prevent actual VM provisioning.
+
+        The ``new`` command lazily imports CLIOrchestrator from azlin.cli and
+        calls orchestrator.run(), which triggers the full Azure provisioning
+        pipeline.  Without this mock the test hits real Azure code-paths
+        (bastion detection, SSH keys, etc.) and fails.
+        """
+        with patch("azlin.cli.CLIOrchestrator") as mock_cls:
+            mock_instance = Mock()
+            mock_instance.run.return_value = 0
+            mock_instance.vm_details = Mock(
+                name="test-vm",
+                resource_group="test-rg",
+                location="eastus",
+                public_ip="20.1.2.3",
+                size="Standard_B2s",
+            )
+            mock_instance.ssh_keys = None
+            mock_cls.return_value = mock_instance
+            yield mock_cls
+
     def test_new_with_simple_name(
         self,
         cli_runner,
         mock_vm_provisioner,
         mock_config_manager,
         mock_vm_manager,
+        mock_cli_orchestrator,
     ):
         """Test: azlin new --name myvm
 
@@ -417,9 +441,8 @@ class TestNewCommandCompoundIdentifierIntegration:
 
         result = cli_runner.invoke(new, ["--name", "myvm"])
 
-        # Note: This will fail until we mock all dependencies, but structure is correct
-        # We're testing the integration point, not full command execution
-        assert "--name" in str(result) or mock_vm_provisioner.called
+        # Verify the command reached the provisioning stage via CLIOrchestrator
+        assert result.exit_code == 0 or mock_cli_orchestrator.called
 
     def test_new_with_compound_name(
         self,
@@ -427,6 +450,7 @@ class TestNewCommandCompoundIdentifierIntegration:
         mock_vm_provisioner,
         mock_config_manager,
         mock_vm_manager,
+        mock_cli_orchestrator,
     ):
         """Test: azlin new --name myvm:dev
 
@@ -437,9 +461,8 @@ class TestNewCommandCompoundIdentifierIntegration:
 
         result = cli_runner.invoke(new, ["--name", "myvm:dev"])
 
-        # Verify generate_vm_name() was called with compound name
-        # and parsed correctly to set both vm_name and session_name
-        assert "--name" in str(result) or mock_vm_provisioner.called
+        # Verify the command reached the provisioning stage via CLIOrchestrator
+        assert result.exit_code == 0 or mock_cli_orchestrator.called
 
     def test_new_without_name_generates_timestamp(
         self,
@@ -447,6 +470,7 @@ class TestNewCommandCompoundIdentifierIntegration:
         mock_vm_provisioner,
         mock_config_manager,
         mock_vm_manager,
+        mock_cli_orchestrator,
     ):
         """Test: azlin new (no --name)
 
@@ -457,8 +481,8 @@ class TestNewCommandCompoundIdentifierIntegration:
 
         result = cli_runner.invoke(new, [])
 
-        # Verify auto-generated name format (no session)
-        assert "--name" in str(result) or mock_vm_provisioner.called
+        # Verify the command reached the provisioning stage via CLIOrchestrator
+        assert result.exit_code == 0 or mock_cli_orchestrator.called
 
     def test_new_with_invalid_compound_format(
         self,
@@ -504,6 +528,7 @@ class TestNewCommandCompoundIdentifierIntegration:
         mock_vm_provisioner,
         mock_config_manager,
         mock_vm_manager,
+        mock_cli_orchestrator,
     ):
         """Test: azlin new --name myvm:
 
@@ -515,7 +540,7 @@ class TestNewCommandCompoundIdentifierIntegration:
         result = cli_runner.invoke(new, ["--name", "myvm:"])
 
         # Should succeed - empty session part is allowed
-        assert "--name" in str(result) or mock_vm_provisioner.called
+        assert result.exit_code == 0 or mock_cli_orchestrator.called
 
 
 # =============================================================================
