@@ -26,9 +26,66 @@ from azlin.certificate_validator import CertificateValidator
 
 
 class ServicePrincipalError(Exception):
-    """Raised when service principal operations fail."""
+    """Raised when service principal operations fail.
 
-    pass
+    Security: Masks secrets and sensitive paths in error messages and repr.
+    """
+
+    # Patterns that look like secrets (8+ chars of non-whitespace after common prefixes)
+    _SECRET_PATTERNS = [
+        "secret",
+        "password",
+        "token",
+        "key",
+        "credential",
+    ]
+
+    def __init__(self, message: str) -> None:
+        self._original_message = message
+        sanitized = self._mask_secrets(message)
+        sanitized = self._mask_sensitive_paths(sanitized)
+        super().__init__(sanitized)
+
+    @staticmethod
+    def _mask_secrets(message: str) -> str:
+        """Mask secret-like values in error messages."""
+        import re
+
+        # Mask patterns like "secret: <value>" or "secret=<value>"
+        for keyword in ServicePrincipalError._SECRET_PATTERNS:
+            # Match keyword followed by separator and a value
+            pattern = rf"({keyword})\s*[:=]\s*(\S+)"
+            message = re.sub(pattern, r"\1: ****", message, flags=re.IGNORECASE)
+        return message
+
+    @staticmethod
+    def _mask_sensitive_paths(message: str) -> str:
+        """Mask sensitive components in file paths."""
+        import re
+
+        # Replace home directory paths with ~/
+        home = str(Path.home())
+        if home in message:
+            message = message.replace(home, "~")
+
+        # Mask path components that contain sensitive keywords
+        for keyword in ("secret", "password", "token", "credential", "private"):
+            # Replace directory segments containing sensitive keywords (bounded by /)
+            pattern = rf"(/)([^/]*{keyword}[^/]*)(/)"
+            message = re.sub(pattern, r"\1****\3", message, flags=re.IGNORECASE)
+            # Replace filename at end of path containing sensitive keywords
+            pattern = rf"(/)([^/]*{keyword}[^/]*)$"
+            message = re.sub(pattern, r"\1****", message, flags=re.IGNORECASE)
+            # Replace filename after a space (e.g., "not found: /path/file")
+            pattern = rf"(/)([^/\s]*{keyword}[^/\s]*)"
+            message = re.sub(pattern, r"\1****", message, flags=re.IGNORECASE)
+
+        return message
+
+    def __repr__(self) -> str:
+        """Return repr with secrets masked."""
+        masked_msg = str(self)
+        return f"ServicePrincipalError('{masked_msg}')"
 
 
 @dataclass
@@ -451,16 +508,17 @@ class ServicePrincipalManager:
         }
 
         if config.auth_method == "client_secret":
-            # Get client secret from environment
-            client_secret = os.getenv("AZLIN_SP_CLIENT_SECRET") or os.getenv("AZURE_CLIENT_SECRET")
-
-            if not client_secret:
-                raise ServicePrincipalError(
-                    "AZLIN_SP_CLIENT_SECRET environment variable not set. "
-                    "Set it with: export AZLIN_SP_CLIENT_SECRET='your-secret'"
-                )
-
-            credentials["AZURE_CLIENT_SECRET"] = client_secret
+            # Delegate to _authenticate_with_secret for secret retrieval and error sanitization
+            try:
+                secret_creds = ServicePrincipalManager._authenticate_with_secret(config)
+            except ServicePrincipalError:
+                raise  # Already sanitized
+            except Exception as e:
+                # Wrap raw exceptions to sanitize any leaked secrets
+                raise ServicePrincipalError(f"Authentication failed: {e}") from e
+            # Only take the AZURE_CLIENT_SECRET from the result
+            if "AZURE_CLIENT_SECRET" in secret_creds:
+                credentials["AZURE_CLIENT_SECRET"] = secret_creds["AZURE_CLIENT_SECRET"]
 
         elif config.auth_method == "certificate":
             if not config.certificate_path:
@@ -480,6 +538,45 @@ class ServicePrincipalManager:
             )
 
         return credentials
+
+    @staticmethod
+    def _authenticate_with_secret(config: "ServicePrincipalConfig") -> dict:
+        """Authenticate using client secret with error sanitization.
+
+        Retrieves client secret from environment and returns credential dict.
+        Any exceptions are wrapped in ServicePrincipalError which masks secrets.
+
+        Args:
+            config: Service principal configuration
+
+        Returns:
+            Dictionary with AZURE_CLIENT_SECRET and base credential env vars
+
+        Raises:
+            ServicePrincipalError: With sanitized error message if auth fails
+        """
+        try:
+            credentials = {
+                "AZURE_CLIENT_ID": config.client_id,
+                "AZURE_TENANT_ID": config.tenant_id,
+                "AZURE_SUBSCRIPTION_ID": config.subscription_id,
+            }
+
+            client_secret = os.getenv("AZLIN_SP_CLIENT_SECRET") or os.getenv("AZURE_CLIENT_SECRET")
+
+            if not client_secret:
+                raise ServicePrincipalError(
+                    "AZLIN_SP_CLIENT_SECRET environment variable not set. "
+                    "Set it with: export AZLIN_SP_CLIENT_SECRET='your-secret'"
+                )
+
+            credentials["AZURE_CLIENT_SECRET"] = client_secret
+            return credentials
+        except ServicePrincipalError:
+            raise  # Already sanitized by ServicePrincipalError.__init__
+        except Exception as e:
+            # Sanitize any raw exception that might contain secrets
+            raise ServicePrincipalError(f"Authentication failed: {e}") from e
 
     @staticmethod
     def validate_uuid(uuid_str: str) -> bool:

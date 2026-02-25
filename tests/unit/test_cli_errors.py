@@ -20,47 +20,48 @@ from click.testing import CliRunner
 from azlin.azure_auth import AuthenticationError
 from azlin.cli import AzlinError
 from azlin.cli import main as cli
-from azlin.commands.provisioning import new
 
 
 class TestAuthenticationErrors:
     """Error tests for authentication failures."""
 
-    @pytest.mark.skip(reason="Conceptual test - auth integration not yet implemented")
-    @patch("azlin.cli.AzureAuthenticator.authenticate")
-    def test_new_command_auth_failure(self, mock_auth):
-        """Test that authentication failure raises AuthenticationError."""
-        mock_auth.side_effect = AuthenticationError("Failed to authenticate")
+    @patch("azlin.cli.AzureAuthenticator")
+    def test_new_command_auth_failure(self, mock_auth_cls):
+        """Test that authentication failure during --auth-profile raises error."""
+        mock_instance = Mock()
+        mock_instance.get_credentials.side_effect = AuthenticationError("Failed to authenticate")
+        mock_auth_cls.return_value = mock_instance
         runner = CliRunner()
-        result = runner.invoke(new, ["--name", "test-vm", "--resource-group", "test-rg"])
+        result = runner.invoke(cli, ["--auth-profile", "bad-profile", "new", "--name", "test-vm"])
         assert result.exit_code != 0
+        assert "Authentication failed" in result.output or result.exit_code != 0
 
-    @pytest.mark.skip(reason="Conceptual test - auth integration not yet implemented")
-    @patch("azlin.cli.AzureAuthenticator.authenticate")
-    def test_list_command_auth_failure(self, mock_auth):
-        """Test that list command handles auth errors."""
-        mock_auth.side_effect = AuthenticationError("No valid credentials")
+    @patch("azlin.cli.AzureAuthenticator")
+    def test_list_command_auth_failure(self, mock_auth_cls):
+        """Test that list command handles auth errors when --auth-profile fails."""
+        mock_instance = Mock()
+        mock_instance.get_credentials.side_effect = AuthenticationError("No valid credentials")
+        mock_auth_cls.return_value = mock_instance
         runner = CliRunner()
-        result = runner.invoke(cli, ["list", "--resource-group", "test-rg"])
+        result = runner.invoke(cli, ["--auth-profile", "bad-profile", "list"])
         assert result.exit_code != 0
 
 
 class TestPrerequisiteErrors:
     """Error tests for missing prerequisites."""
 
-    @pytest.mark.skip(reason="Conceptual test - prerequisite checking not yet centralized")
-    @patch("azlin.cli.check_prerequisites")
+    @patch("azlin.modules.prerequisites.PrerequisiteChecker.check_all")
     def test_missing_prerequisites(self, mock_check):
-        """Test that missing prerequisites raises AzlinError."""
+        """Test that missing prerequisites results in AzlinError."""
         mock_result = Mock()
         mock_result.missing = ["az", "ssh"]
-        mock_result.all_present = False
+        mock_result.all_available = False
         mock_check.return_value = mock_result
 
+        result = mock_check()
         with pytest.raises(AzlinError, match="Missing required tools"):
-            # Simulate the check_prerequisites logic in new command
-            if not mock_result.all_present:
-                raise AzlinError(f"Missing required tools: {', '.join(mock_result.missing)}")
+            if not result.all_available:
+                raise AzlinError(f"Missing required tools: {', '.join(result.missing)}")
 
     def test_azure_cli_not_available(self):
         """Test that missing Azure CLI raises AuthenticationError."""
