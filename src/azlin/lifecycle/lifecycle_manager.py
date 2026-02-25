@@ -15,7 +15,7 @@ Public API (Studs):
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
@@ -81,7 +81,7 @@ class MonitoringStatus:
     vm_name: str
     enabled: bool
     config: MonitoringConfig
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class LifecycleManager:
