@@ -1096,8 +1096,24 @@ runcmd:
 {tmp_disk_runcmd}  # Full system upgrade to latest packages
   - apt update && apt full-upgrade -y && apt autoremove -y && apt autoclean -y
 
-  # Python 3.13+ from deadsnakes PPA
-  - add-apt-repository -y ppa:deadsnakes/ppa
+  # Re-install ripgrep after full-upgrade (autoremove may drop it on some releases)
+  - apt install -y ripgrep
+
+  # Python 3.13+ - use deadsnakes PPA only on LTS releases that need it.
+  # Non-LTS Ubuntu (25.04, 25.10, etc.) ships Python 3.13+ already and
+  # deadsnakes does not publish packages for those releases, so adding the
+  # PPA would leave a broken repo entry that makes every subsequent apt call fail.
+  - |
+    if python3 --version 2>&1 | grep -qE "3\\.1[3-9]|3\\.[2-9][0-9]"; then
+      echo "Python 3.13+ already available, skipping deadsnakes PPA"
+    else
+      add-apt-repository -y ppa:deadsnakes/ppa && apt update && apt install -y python3.13 python3.13-venv python3.13-dev
+      if [ -x /usr/bin/python3.13 ]; then
+        update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1
+        update-alternatives --set python3 /usr/bin/python3.13
+      fi
+    fi
+  - curl -sS https://bootstrap.pypa.io/get-pip.py | python3
 
   # GitHub CLI - official install method (https://github.com/cli/cli/blob/trunk/docs/install_linux.md)
   - mkdir -p -m 755 /etc/apt/keyrings
@@ -1107,18 +1123,11 @@ runcmd:
   - mkdir -p -m 755 /etc/apt/sources.list.d
   - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
-  # Single apt update for deadsnakes + GitHub CLI repos
+  # apt update for GitHub CLI repo
   - apt update
-
-  # Install Python 3.13 packages
-  - apt install -y python3.13 python3.13-venv python3.13-dev python3.13-distutils
 
   # Install GitHub CLI
   - apt install -y gh
-
-  - update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1
-  - update-alternatives --set python3 /usr/bin/python3.13
-  - curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13
 
   # Azure CLI
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
@@ -1126,8 +1135,8 @@ runcmd:
   # astral-uv (uv package manager)
   - snap install astral-uv --classic
 
-  # Node.js (via NodeSource)
-  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  # Node.js 22 LTS (via NodeSource)
+  - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   - apt install -y nodejs
 
   # npm user-local configuration (avoid sudo for global installs)

@@ -117,18 +117,54 @@ class TestGenerateCloudInit:
         assert "pipx" in cloud_init
 
     def test_cloud_init_includes_python_setup(self):
-        """Test that cloud-init includes Python 3.13+ setup.
+        """Test that cloud-init includes conditional Python 3.13+ setup.
 
         Given: A VMProvisioner instance
         When: _generate_cloud_init is called
-        Then: Returns cloud-init containing Python 3.13 installation
+        Then: Returns cloud-init with conditional deadsnakes PPA (skipped on 25.10+)
         """
         provisioner = VMProvisioner()
         cloud_init = provisioner._generate_cloud_init()
 
         assert "python3.13" in cloud_init
         assert "deadsnakes/ppa" in cloud_init
-        assert "update-alternatives" in cloud_init
+        # Deadsnakes is conditional: only added when Python 3.13+ not already present
+        assert "python3 --version" in cloud_init
+        assert "skipping deadsnakes PPA" in cloud_init
+
+    def test_cloud_init_uses_node22_lts(self):
+        """Test that cloud-init uses Node.js 22 LTS (not 20).
+
+        Given: A VMProvisioner instance
+        When: _generate_cloud_init is called
+        Then: Uses NodeSource setup_22.x for Node.js 22 LTS
+        """
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+
+        assert "setup_22.x" in cloud_init
+        assert "setup_20.x" not in cloud_init
+
+    def test_cloud_init_reinstalls_ripgrep_after_upgrade(self):
+        """Test that ripgrep is re-installed after apt full-upgrade.
+
+        Given: A VMProvisioner instance
+        When: _generate_cloud_init is called
+        Then: ripgrep appears both in packages and after full-upgrade in runcmd
+        """
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+
+        # ripgrep in packages section
+        packages_pos = cloud_init.find("packages:")
+        runcmd_pos = cloud_init.find("runcmd:")
+        ripgrep_pkg_pos = cloud_init.find("  - ripgrep")
+        assert packages_pos < ripgrep_pkg_pos < runcmd_pos
+
+        # ripgrep reinstalled in runcmd after full-upgrade
+        full_upgrade_pos = cloud_init.find("apt full-upgrade")
+        ripgrep_reinstall_pos = cloud_init.find("apt install -y ripgrep")
+        assert ripgrep_reinstall_pos > full_upgrade_pos
 
     def test_cloud_init_includes_docker_setup(self):
         """Test that cloud-init includes Docker setup.
