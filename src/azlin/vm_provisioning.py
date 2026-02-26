@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from azlin.azure_cli_visibility import AzureCLIExecutor
+from azlin.image_mapper import get_default_image
 from azlin.modules.azure_cli_helper import get_az_command
 from azlin.quota_error_handler import QuotaErrorHandler
 from azlin.resource_conflict_error_handler import (
@@ -46,7 +47,7 @@ class VMConfig:
     resource_group: str
     location: str = "westus2"  # Better capacity than eastus
     size: str = "Standard_E16as_v5"  # Memory-optimized: 128GB RAM, 16 vCPU, 12.5 Gbps network
-    image: str = "Canonical:ubuntu-24_04-lts:server:latest"
+    image: str = get_default_image()  # Ubuntu 25.10 by default
     ssh_public_key: str | None = None
     admin_username: str = "azureuser"
     disable_password_auth: bool = True
@@ -385,6 +386,7 @@ class VMProvisioner:
         tmp_disk_enabled: bool = False,
         tmp_disk_size_gb: int = 64,
         tmp_disk_sku: str = "Standard_LRS",
+        image: str | None = None,
     ) -> VMConfig:
         """Create VM configuration with validation.
 
@@ -402,6 +404,7 @@ class VMProvisioner:
             tmp_disk_enabled: Whether to create separate /tmp disk (default: False)
             tmp_disk_size_gb: Size of separate /tmp disk in GB (default: 64)
             tmp_disk_sku: Storage SKU for /tmp disk (default: Standard_LRS)
+            image: OS image identifier (shorthand, alias, or URN; default: Ubuntu 25.10)
 
         Returns:
             VMConfig object
@@ -437,12 +440,17 @@ class VMProvisioner:
                     f"Tmp disk size {tmp_disk_size_gb}GB exceeds Azure maximum (32767GB / 32TB)"
                 )
 
+        # Resolve OS image
+        from azlin.image_mapper import resolve_image
+
+        resolved_image = resolve_image(image) if image else get_default_image()
+
         return VMConfig(
             name=name,
             resource_group=resource_group,
             location=location,
             size=size,
-            image="Ubuntu2204",
+            image=resolved_image,
             ssh_public_key=ssh_public_key,
             admin_username="azureuser",
             disable_password_auth=True,

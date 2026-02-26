@@ -1603,12 +1603,12 @@ def _generate_clone_configs(
 
     for i in range(1, num_replicas + 1):
         vm_name = f"azlin-vm-{timestamp}-{i}"
+        # Use VMConfig dataclass defaults (will use Ubuntu 25.10)
         config = VMConfig(
             name=vm_name,
             resource_group=source_vm.resource_group,
             location=clone_region,
             size=clone_size,
-            image="Ubuntu2204",
             ssh_public_key=None,  # Will use default SSH keys
             admin_username="azureuser",
             disable_password_auth=True,

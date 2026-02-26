@@ -21,6 +21,8 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from azlin.image_mapper import get_default_image
+
 if TYPE_CHECKING:
     from azlin.config_manager import ConfigManager  # type: ignore[import]
     from azlin.models import VMConfig  # type: ignore[import]
@@ -254,7 +256,7 @@ class ParallelDeployer:
                     "--location",
                     region,
                     "--image",
-                    getattr(vm_config, "image", "Ubuntu2204"),
+                    getattr(vm_config, "image", get_default_image()),
                     "--size",
                     getattr(vm_config, "size", "Standard_D2s_v3"),
                     "--admin-username",

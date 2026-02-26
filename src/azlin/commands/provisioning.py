@@ -271,6 +271,7 @@ def _provision_pool(
     final_vm_size: str,
     session_name: str | None = None,
     config: str | None = None,
+    os_image: str | None = None,
 ) -> None:
     """Provision pool of VMs in parallel."""
     click.echo(f"\nProvisioning pool of {pool} VMs in parallel...")
@@ -300,6 +301,7 @@ def _provision_pool(
             ssh_public_key=ssh_key_pair.public_key_content,
             session_name=f"{session_name}-{i + 1:02d}" if session_name else None,
             public_ip_enabled=public_ip_enabled,
+            image=os_image,
         )
         configs.append(config_item)
 
@@ -565,12 +567,12 @@ def _generate_clone_configs(
 
     for i in range(1, num_replicas + 1):
         vm_name = f"azlin-vm-{timestamp}-{i}"
+        # Use VMConfig dataclass defaults (will use Ubuntu 25.10)
         config = VMConfig(
             name=vm_name,
             resource_group=source_vm.resource_group,
             location=clone_region,
             size=clone_size,
-            image="Ubuntu2204",
             ssh_public_key=None,  # Will use default SSH keys
             admin_username="azureuser",
             disable_password_auth=True,
@@ -763,6 +765,11 @@ def _set_clone_session_names(
     type=int,
     help="Size of separate /tmp disk in GB (enables /tmp on dedicated disk)",
 )
+@click.option(
+    "--os",
+    help="OS image (e.g., 25.10, 24.04-lts, Ubuntu2510, or full URN; default: Ubuntu 25.10)",
+    type=str,
+)
 def new(
     ctx: click.Context,
     repo: str | None,
@@ -783,6 +790,7 @@ def new(
     home_disk_size: int | None,
     no_home_disk: bool,
     tmp_disk_size: int | None,
+    os: str | None,
 ) -> None:
     """Provision a new Azure VM with development tools.
 
@@ -872,6 +880,16 @@ def new(
     # Validate inputs
     _validate_inputs(pool, repo)
 
+    # Validate OS image if provided
+    if os:
+        try:
+            from azlin.image_mapper import resolve_image
+
+            # Validate the image identifier early to provide clear error messages
+            _validated_image = resolve_image(os)
+        except ValueError as e:
+            raise click.ClickException(str(e)) from e
+
     # Create orchestrator
     orchestrator = CLIOrchestrator(
         repo=repo,
@@ -889,6 +907,7 @@ def new(
         home_disk_size=home_disk_size,
         no_home_disk=no_home_disk,
         tmp_disk_size=tmp_disk_size,
+        os_image=os,
     )
 
     # Update config state (resource group only, session name saved after VM creation)
@@ -905,7 +924,7 @@ def new(
     # Handle pool provisioning
     if pool and pool > 1:
         _provision_pool(
-            orchestrator, pool, vm_name, final_rg, final_region, final_vm_size, name, config
+            orchestrator, pool, vm_name, final_rg, final_region, final_vm_size, name, config, os
         )
 
     # Standard single VM provisioning

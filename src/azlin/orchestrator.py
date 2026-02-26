@@ -112,6 +112,7 @@ class CLIOrchestrator:
         home_disk_size: int | None = None,
         no_home_disk: bool = False,
         tmp_disk_size: int | None = None,
+        os_image: str | None = None,
     ):
         """Initialize CLI orchestrator.
 
@@ -131,6 +132,7 @@ class CLIOrchestrator:
             home_disk_size: Size of separate /home disk in GB (optional, default: 100)
             no_home_disk: Disable separate /home disk (use OS disk only)
             tmp_disk_size: Size of separate /tmp disk in GB (optional, enables tmp disk)
+            os_image: OS image identifier (shorthand, alias, or URN; optional, defaults to Ubuntu 25.10)
 
         Note:
             SSH keys are automatically stored in Azure Key Vault (transparent operation)
@@ -150,6 +152,7 @@ class CLIOrchestrator:
         self.home_disk_size = home_disk_size
         self.no_home_disk = no_home_disk
         self.tmp_disk_size = tmp_disk_size
+        self.os_image = os_image
 
         # Initialize modules
         self.auth = AzureAuthenticator()
@@ -796,6 +799,7 @@ class CLIOrchestrator:
             tmp_disk_enabled=tmp_disk_enabled,
             tmp_disk_size_gb=tmp_disk_size,
             tmp_disk_sku="Standard_LRS",
+            image=self.os_image,
         )
 
         # Progress callback
