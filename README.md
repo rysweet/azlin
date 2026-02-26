@@ -134,6 +134,7 @@ azlin storage mount local --mount-point ~/azure/
 ### Python 3.13 & Ripgrep
 - All new VMs get Python 3.13+
 - ripgrep (rg) pre-installed for fast search
+- Tool versions logged to cloud-init output for verification
 
 ## Development Tools Installed
 
@@ -169,6 +170,23 @@ Node.js is configured for user-local global package installations, which means:
 - Packages are installed to `~/.npm-packages`
 - Automatic PATH and MANPATH configuration
 - Clean separation from system Node.js packages
+
+### Verifying Installed Tool Versions
+
+All VMs automatically log installed versions of npm and ripgrep during provisioning:
+
+```bash
+# View all tool versions logged during provisioning
+grep '[AZLIN_VERSION]' /var/log/cloud-init-output.log
+
+# Example output (actual versions may vary):
+# [AZLIN_VERSION] npm: 10.2.4
+# [AZLIN_VERSION] rg: 14.1.0
+```
+
+**Note**: The versions shown are examples. Actual versions depend on Ubuntu repository state at provision time. npm is bundled with Node.js 20.x LTS (installed via apt), not installed separately.
+
+This provides an audit trail of exactly which tool versions were installed, useful for troubleshooting and compliance.
 
 ## Prerequisites
 
