@@ -221,3 +221,26 @@ class TestCloudInitPackageOrder:
         assert "  - pipx" in cloud_init
         assert "  - ripgrep" in cloud_init
         assert "  - docker.io" in cloud_init
+
+
+class TestVersionLogging:
+    """Test version logging commands in cloud-init."""
+
+    def test_version_logging_commands_present(self):
+        """Test that npm and rg version logging exists in runcmd section with correct format."""
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+
+        # Verify both version commands exist in runcmd section with correct format
+        assert "runcmd:" in cloud_init, "runcmd section not found"
+        runcmd_pos = cloud_init.find("runcmd:")
+
+        # Check npm version logging
+        npm_pos = cloud_init.find("[AZLIN_VERSION] npm:")
+        assert npm_pos > runcmd_pos, "npm version logging not in runcmd section"
+        assert "npm --version" in cloud_init, "npm --version command not found"
+
+        # Check rg version logging
+        rg_pos = cloud_init.find("[AZLIN_VERSION] rg:")
+        assert rg_pos > runcmd_pos, "rg version logging not in runcmd section"
+        assert "rg --version" in cloud_init, "rg --version command not found"
