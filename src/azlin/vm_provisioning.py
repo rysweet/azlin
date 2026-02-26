@@ -1166,6 +1166,14 @@ runcmd:
     EOF
   - chown azureuser:azureuser /home/azureuser/.tmux.conf
 
+  # Fix tmux socket directory permissions for Ubuntu 25.10+
+  # Ubuntu 25.10 changed /tmp permissions/security policy, causing "Permission denied"
+  # when tmux tries to create /tmp/tmux-1000 directory for socket files
+  - chmod 1777 /tmp
+  - mkdir -p /tmp/tmux-1000
+  - chmod 700 /tmp/tmux-1000
+  - chown azureuser:azureuser /tmp/tmux-1000
+
   # Claude Code AI Assistant
   - su - azureuser -c "curl -fsSL https://claude.ai/install.sh | bash"
   - |
