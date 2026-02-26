@@ -268,11 +268,27 @@ class TestVersionLogging:
         runcmd_pos = cloud_init.find("runcmd:")
 
         # Check npm version logging
-        npm_pos = cloud_init.find("[AZLIN_VERSION] npm:")
+        npm_pos = cloud_init.find("[AZLIN_VERSION] npm=")
         assert npm_pos > runcmd_pos, "npm version logging not in runcmd section"
         assert "npm --version" in cloud_init, "npm --version command not found"
 
         # Check rg version logging
-        rg_pos = cloud_init.find("[AZLIN_VERSION] rg:")
+        rg_pos = cloud_init.find("[AZLIN_VERSION] rg=")
         assert rg_pos > runcmd_pos, "rg version logging not in runcmd section"
         assert "rg --version" in cloud_init, "rg --version command not found"
+
+    def test_cloud_init_runcmd_entries_are_valid_yaml_strings(self):
+        """Ensure runcmd entries are strings or lists, never dicts (YAML mapping bug guard)."""
+        import yaml
+
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init(
+            ssh_public_key="ssh-rsa TESTKEY", has_home_disk=False, has_tmp_disk=False
+        )
+        data = yaml.safe_load(cloud_init)
+        runcmd = data.get("runcmd", [])
+        assert len(runcmd) > 0, "runcmd should not be empty"
+        for i, entry in enumerate(runcmd):
+            assert not isinstance(entry, dict), (
+                f"runcmd[{i}] is a dict (YAML colon-space in unquoted string?): {entry}"
+            )
