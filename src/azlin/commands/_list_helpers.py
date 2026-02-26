@@ -329,8 +329,8 @@ def enrich_vm_data(
             if resource_group:
                 _cache_tmux_sessions_fn(tmux_by_vm, resource_group, cache)
 
-    # Measure SSH latency if enabled (skip if cached)
-    if with_latency and not was_cached:
+    # Measure SSH latency if enabled (always fresh — latency is ephemeral)
+    if with_latency:
         try:
             # Use default SSH key path
             ssh_key_path = "~/.ssh/id_rsa"
