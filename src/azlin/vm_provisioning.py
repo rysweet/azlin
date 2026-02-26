@@ -1147,10 +1147,11 @@ runcmd:
   - chown azureuser:azureuser /home/azureuser/.npmrc /home/azureuser/.npm-packages
 
   # Version verification logging
-  - echo "[AZLIN_VERSION_CHECK] Starting version verification"
-  - echo "[AZLIN_VERSION] npm: $(npm --version)"
-  - echo "[AZLIN_VERSION] rg: $(rg --version | head -1 | awk '{{print $2}}')"
-  - echo "[AZLIN_VERSION_CHECK] Version verification complete"
+  - |
+    echo "[AZLIN_VERSION_CHECK] Starting version verification"
+    echo "[AZLIN_VERSION] npm=$(npm --version)"
+    echo "[AZLIN_VERSION] rg=$(rg --version | head -1 | awk '{{print $2}}')"
+    echo "[AZLIN_VERSION_CHECK] Version verification complete"
 
   # Tmux configuration for session name display
   - |
