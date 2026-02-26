@@ -13,6 +13,7 @@ Security:
 """
 
 import logging
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,6 +40,59 @@ class VMConnectorError(Exception):
     """Raised when VM connection operations fail."""
 
     pass
+
+
+def _ensure_tmux_socket_dir(
+    host: str,
+    port: int,
+    user: str,
+    key_path: Path | None,
+) -> None:
+    """Ensure tmux socket directory exists on VM via SSH.
+
+    Ubuntu 25.10+ changed /tmp permissions, preventing tmux from creating
+    /tmp/tmux-1000. This runs a quick idempotent fix over the existing SSH
+    connection (or Bastion tunnel). Only creates the dir if it doesn't exist.
+    """
+    if not key_path:
+        return
+
+    script = (
+        "[ -d /tmp/tmux-1000 ] && exit 0; "
+        "sudo chmod 1777 /tmp && "
+        "mkdir -p /tmp/tmux-1000 && "
+        "chmod 700 /tmp/tmux-1000"
+    )
+
+    try:
+        result = subprocess.run(
+            [
+                "ssh",
+                "-i",
+                str(key_path),
+                "-p",
+                str(port),
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "ConnectTimeout=5",
+                "-o",
+                "BatchMode=yes",
+                f"{user}@{host}",
+                script,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            logger.debug("tmux socket directory verified")
+        else:
+            logger.debug(f"tmux socket dir fix returned {result.returncode}: {result.stderr[:200]}")
+    except subprocess.TimeoutExpired:
+        logger.debug("tmux socket dir check timed out (non-fatal)")
+    except Exception as e:
+        logger.debug(f"tmux socket dir check failed (non-fatal): {e}")
 
 
 @dataclass
@@ -204,6 +258,15 @@ class VMConnector:
                 logger.info(
                     f"Connecting through Bastion tunnel: {bastion_info['name']} "
                     f"(127.0.0.1:{ssh_port})"
+                )
+
+            # Ensure tmux socket directory exists (Ubuntu 25.10+ fix)
+            if use_tmux and remote_command is None:
+                _ensure_tmux_socket_dir(
+                    host=conn_info.ip_address,
+                    port=ssh_port,
+                    user=conn_info.ssh_user,
+                    key_path=conn_info.ssh_key_path,
                 )
 
             # Route connection based on mode
