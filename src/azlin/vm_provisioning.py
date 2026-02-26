@@ -1093,27 +1093,28 @@ packages:
   - pipx
 
 runcmd:
-{tmp_disk_runcmd}  # Python 3.13+ from deadsnakes PPA
+{tmp_disk_runcmd}  # Full system upgrade to latest packages
+  - apt update && apt full-upgrade -y && apt autoremove -y && apt autoclean -y
+
+  # Python 3.13+ from deadsnakes PPA
   - add-apt-repository -y ppa:deadsnakes/ppa
 
-  # GitHub CLI repository setup
-  - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-  - chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+  # GitHub CLI - official install method (https://github.com/cli/cli/blob/trunk/docs/install_linux.md)
+  - mkdir -p -m 755 /etc/apt/keyrings
+  - wget -nv -O /tmp/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
+  - tee /etc/apt/keyrings/githubcli-archive-keyring.gpg < /tmp/githubcli-archive-keyring.gpg > /dev/null
+  - chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+  - mkdir -p -m 755 /etc/apt/sources.list.d
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
-  # OPTIMIZATION: Single apt update for both deadsnakes and GitHub CLI
+  # Single apt update for deadsnakes + GitHub CLI repos
   - apt update
 
   # Install Python 3.13 packages
   - apt install -y python3.13 python3.13-venv python3.13-dev python3.13-distutils
 
-  # Install GitHub CLI (separate command for explicit error handling)
-  - |
-    if apt install -y gh; then
-      echo "GitHub CLI (gh) installed successfully"
-    else
-      echo "WARNING: GitHub CLI (gh) installation failed - check repository setup"
-    fi
+  # Install GitHub CLI
+  - apt install -y gh
 
   - update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1
   - update-alternatives --set python3 /usr/bin/python3.13

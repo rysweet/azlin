@@ -223,6 +223,38 @@ class TestCloudInitPackageOrder:
         assert "  - docker.io" in cloud_init
 
 
+class TestSystemUpgrade:
+    """Test full system upgrade in cloud-init."""
+
+    def test_full_upgrade_present(self):
+        """Test that cloud-init includes full system upgrade.
+
+        Given: A VMProvisioner instance
+        When: _generate_cloud_init is called
+        Then: Returns cloud-init containing apt full-upgrade commands
+        """
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+
+        assert "apt full-upgrade -y" in cloud_init
+        assert "apt autoremove -y" in cloud_init
+        assert "apt autoclean -y" in cloud_init
+
+    def test_full_upgrade_runs_early(self):
+        """Test that full system upgrade runs before package installs.
+
+        Given: A VMProvisioner instance
+        When: _generate_cloud_init is called
+        Then: full-upgrade appears before Python/gh install commands
+        """
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+
+        upgrade_pos = cloud_init.find("apt full-upgrade")
+        python_pos = cloud_init.find("python3.13")
+        assert upgrade_pos < python_pos, "full-upgrade should run before Python install"
+
+
 class TestVersionLogging:
     """Test version logging commands in cloud-init."""
 
