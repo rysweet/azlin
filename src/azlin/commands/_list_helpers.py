@@ -9,6 +9,7 @@ Part of Issue #423 - monitoring.py decomposition.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from typing import TYPE_CHECKING
 
@@ -461,9 +462,6 @@ def display_quota_and_bastions(
                 console.print()  # Spacing before VM table
         except Exception as e:
             logger.debug(f"Bastion listing skipped: {e}")
-
-
-import re
 
 
 def get_os_display_info(os_offer: str | None, os_type: str | None) -> tuple[str, str]:
