@@ -15,6 +15,7 @@ Public API (Studs):
     HealthCheckError - Health check errors
 """
 
+import contextlib
 import json
 import logging
 import subprocess
@@ -132,9 +133,7 @@ class HealthMonitor:
                 check=False,
             )
             if result.returncode != 0:
-                raise HealthCheckError(
-                    f"Azure CLI failed: {result.stderr.strip()}"
-                )
+                raise HealthCheckError(f"Azure CLI failed: {result.stderr.strip()}")
             if not result.stdout.strip():
                 return {}
             return json.loads(result.stdout)
@@ -158,10 +157,15 @@ class HealthMonitor:
         try:
             rg = self._get_resource_group()
             command = [
-                "az", "vm", "get-instance-view",
-                "--name", vm_name,
-                "--resource-group", rg,
-                "--output", "json",
+                "az",
+                "vm",
+                "get-instance-view",
+                "--name",
+                vm_name,
+                "--resource-group",
+                rg,
+                "--output",
+                "json",
             ]
             instance_view = self._run_az_command(command)
 
@@ -228,10 +232,15 @@ class HealthMonitor:
         try:
             rg = self._get_resource_group()
             command = [
-                "az", "vm", "list-ip-addresses",
-                "--name", vm_name,
-                "--resource-group", rg,
-                "--output", "json",
+                "az",
+                "vm",
+                "list-ip-addresses",
+                "--name",
+                vm_name,
+                "--resource-group",
+                rg,
+                "--output",
+                "json",
             ]
             result = self._run_az_command(command)
 
@@ -299,9 +308,7 @@ class HealthMonitor:
             )
 
             try:
-                output = SSHConnector.execute_remote_command(
-                    config, metrics_cmd, timeout=15
-                )
+                output = SSHConnector.execute_remote_command(config, metrics_cmd, timeout=15)
             except Exception as e:
                 logger.debug(f"SSH metrics command failed for {vm_name}: {e}")
                 return None
@@ -314,20 +321,14 @@ class HealthMonitor:
             for line in output.strip().split("\n"):
                 line = line.strip()
                 if line.startswith("CPU="):
-                    try:
+                    with contextlib.suppress(ValueError, IndexError):
                         cpu = float(line.split("=", 1)[1])
-                    except (ValueError, IndexError):
-                        pass
                 elif line.startswith("MEM="):
-                    try:
+                    with contextlib.suppress(ValueError, IndexError):
                         mem = float(line.split("=", 1)[1])
-                    except (ValueError, IndexError):
-                        pass
                 elif line.startswith("DISK="):
-                    try:
+                    with contextlib.suppress(ValueError, IndexError):
                         disk = float(line.split("=", 1)[1])
-                    except (ValueError, IndexError):
-                        pass
 
             return VMMetrics(cpu_percent=cpu, memory_percent=mem, disk_percent=disk)
         except Exception as e:

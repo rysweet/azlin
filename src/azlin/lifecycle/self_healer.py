@@ -12,7 +12,6 @@ Public API (Studs):
     SelfHealingError - Self-healing errors
 """
 
-import json
 import logging
 import subprocess
 from dataclasses import dataclass
@@ -133,18 +132,24 @@ class SelfHealer:
             logger.info(f"Restarting VM: {vm_name}")
             rg = self._get_resource_group()
             cmd = [
-                "az", "vm", "restart",
-                "--name", vm_name,
-                "--resource-group", rg,
+                "az",
+                "vm",
+                "restart",
+                "--name",
+                vm_name,
+                "--resource-group",
+                rg,
                 "--no-wait",
             ]
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=30, check=False,
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
             )
             if result.returncode != 0:
-                raise SelfHealingError(
-                    f"Azure CLI restart failed: {result.stderr.strip()}"
-                )
+                raise SelfHealingError(f"Azure CLI restart failed: {result.stderr.strip()}")
 
             return RestartResult(
                 success=True,
