@@ -257,7 +257,7 @@ class VSCodeLauncher:
             print(f"Warning: Failed to sync SSH config to Windows: {e}")
             print(
                 "VS Code may not connect. You can manually copy your SSH config:\n"
-                f"  cp ~/.ssh/config /mnt/c/Users/<your-user>/.ssh/config"
+                "  cp ~/.ssh/config /mnt/c/Users/<your-user>/.ssh/config"
             )
             logger.warning(f"WSL SSH config sync failed: {e}")
 
