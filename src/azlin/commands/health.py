@@ -182,7 +182,7 @@ def health(
         click.echo(f"Checking health for {len(vms)} VM(s) in {rg}...")
 
         # Run health checks
-        monitor = HealthMonitor()
+        monitor = HealthMonitor(resource_group=rg)
         results: list[tuple[str, HealthStatus | None, str | None]] = []
 
         for v in vms:

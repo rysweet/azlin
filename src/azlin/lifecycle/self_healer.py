@@ -3,7 +3,7 @@
 Philosophy:
 - Ruthless simplicity: Policy-based restart decisions
 - Single responsibility: Recovery logic only
-- Standard library: Minimal external deps
+- Uses Azure CLI directly (proven pattern)
 - Self-contained: Complete restart workflow
 
 Public API (Studs):
@@ -12,7 +12,9 @@ Public API (Studs):
     SelfHealingError - Self-healing errors
 """
 
+import json
 import logging
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -47,11 +49,28 @@ class SelfHealer:
         ...     print(f"Restart: {result.success}")
     """
 
-    def __init__(self):
-        """Initialize self-healer."""
+    def __init__(self, resource_group: str | None = None):
+        """Initialize self-healer.
+
+        Args:
+            resource_group: Azure resource group. If None, resolved from config.
+        """
         self._lifecycle_manager = None
-        self._azure_client = None
         self._hook_executor = None
+        self._resource_group = resource_group
+
+    def _get_resource_group(self) -> str:
+        """Get resource group, resolving from config if needed."""
+        if self._resource_group:
+            return self._resource_group
+
+        from azlin.config_manager import ConfigManager
+
+        rg = ConfigManager.get_resource_group(None, None)
+        if not rg:
+            raise SelfHealingError("No resource group configured")
+        self._resource_group = rg
+        return rg
 
     def _get_lifecycle_manager(self):
         """Lazy-load LifecycleManager."""
@@ -60,14 +79,6 @@ class SelfHealer:
 
             self._lifecycle_manager = LifecycleManager()
         return self._lifecycle_manager
-
-    def _get_azure_client(self):
-        """Lazy-load Azure client."""
-        if self._azure_client is None:
-            from azlin.azure_client import AzureClient  # type: ignore[import-not-found]
-
-            self._azure_client = AzureClient()
-        return self._azure_client
 
     def _get_hook_executor(self):
         """Lazy-load HookExecutor."""
@@ -110,7 +121,7 @@ class SelfHealer:
             return False
 
     def restart_vm(self, vm_name: str) -> RestartResult:
-        """Restart a VM via Azure API.
+        """Restart a VM via Azure CLI.
 
         Args:
             vm_name: VM name
@@ -120,8 +131,20 @@ class SelfHealer:
         """
         try:
             logger.info(f"Restarting VM: {vm_name}")
-            client = self._get_azure_client()
-            client.restart_vm(vm_name)
+            rg = self._get_resource_group()
+            cmd = [
+                "az", "vm", "restart",
+                "--name", vm_name,
+                "--resource-group", rg,
+                "--no-wait",
+            ]
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=False,
+            )
+            if result.returncode != 0:
+                raise SelfHealingError(
+                    f"Azure CLI restart failed: {result.stderr.strip()}"
+                )
 
             return RestartResult(
                 success=True,
@@ -129,6 +152,8 @@ class SelfHealer:
                 timestamp=datetime.now(UTC),
             )
 
+        except SelfHealingError:
+            raise
         except Exception as e:
             error_msg = f"Failed to restart VM: {e}"
             logger.error(error_msg)
