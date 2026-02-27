@@ -9,6 +9,7 @@ Part of Issue #423 - monitoring.py decomposition.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from typing import TYPE_CHECKING
 
@@ -463,6 +464,90 @@ def display_quota_and_bastions(
             logger.debug(f"Bastion listing skipped: {e}")
 
 
+def get_os_display_info(os_offer: str | None, os_type: str | None) -> tuple[str, str]:
+    """Map Azure image offer to OS icon and friendly name.
+
+    Args:
+        os_offer: Azure image reference offer (e.g., "ubuntu-25_10")
+        os_type: Azure OS type (e.g., "Linux", "Windows")
+
+    Returns:
+        Tuple of (icon, friendly_name) e.g., ("\U0001f7e0", "Ubuntu 25.10")
+    """
+    if not os_offer:
+        # Fallback to os_type
+        if os_type == "Windows":
+            return ("\U0001fa9f", "Windows")
+        if os_type == "Linux":
+            return ("\U0001f427", "Linux")
+        return ("", "")
+
+    offer_lower = os_offer.lower()
+
+    # Ubuntu: newer format "ubuntu-25_10", "ubuntu-24_04-lts"
+    m = re.match(r"ubuntu-(\d+)_(\d+)(?:-lts)?$", offer_lower)
+    if m:
+        ver = f"{m.group(1)}.{m.group(2)}"
+        suffix = " LTS" if "-lts" in offer_lower else ""
+        return ("\U0001f7e0", f"Ubuntu {ver}{suffix}")
+
+    # Ubuntu: older format "0001-com-ubuntu-server-jammy", "0001-com-ubuntu-server-focal"
+    codename_map = {
+        "plucky": "25.04",
+        "oracular": "24.10",
+        "noble": "24.04 LTS",
+        "jammy": "22.04 LTS",
+        "focal": "20.04 LTS",
+        "bionic": "18.04 LTS",
+    }
+    for codename, version in codename_map.items():
+        if codename in offer_lower:
+            return ("\U0001f7e0", f"Ubuntu {version}")
+
+    # Generic ubuntu match
+    if "ubuntu" in offer_lower:
+        return ("\U0001f7e0", "Ubuntu")
+
+    # Debian
+    m = re.match(r"debian-(\d+)", offer_lower)
+    if m:
+        return ("\U0001f534", f"Debian {m.group(1)}")
+    if "debian" in offer_lower:
+        return ("\U0001f534", "Debian")
+
+    # Windows Server
+    if "windowsserver" in offer_lower or "windows" in offer_lower:
+        return ("\U0001fa9f", "Windows Server")
+
+    # RHEL
+    m = re.match(r"rhel[-_]?(\d+)", offer_lower)
+    if m:
+        return ("\U0001f3a9", f"RHEL {m.group(1)}")
+    if "rhel" in offer_lower:
+        return ("\U0001f3a9", "RHEL")
+
+    # CentOS
+    if "centos" in offer_lower:
+        return ("\U0001f3a9", "CentOS")
+
+    # SUSE
+    if "sles" in offer_lower or "suse" in offer_lower:
+        return ("\U0001f99e", "SUSE")
+
+    # AlmaLinux
+    if "alma" in offer_lower:
+        return ("\U0001f535", "AlmaLinux")
+
+    # Rocky Linux
+    if "rocky" in offer_lower:
+        return ("\U0001f7e2", "Rocky Linux")
+
+    # Fallback
+    if os_type == "Windows":
+        return ("\U0001fa9f", os_offer)
+    return ("\U0001f427", os_offer)
+
+
 def build_vm_table(
     vms: list[VMInfo],
     wide_mode: bool,
@@ -511,6 +596,14 @@ def build_vm_table(
     if wide_mode:
         table.add_column("VM Name", style="white", no_wrap=True)
 
+    # OS column (before Status)
+    if wide_mode:
+        table.add_column("OS", no_wrap=True)
+    elif compact_mode:
+        table.add_column("OS", width=12)
+    else:
+        table.add_column("OS", width=18)
+
     # Status column
     if compact_mode:
         table.add_column("Status", width=6)
@@ -548,7 +641,13 @@ def build_vm_table(
 
     # Add rows
     for vm in vms:
-        session_display = escape(vm.session_name) if vm.session_name else "-"
+        # Get OS info for icon and name
+        os_icon, os_name = get_os_display_info(vm.os_offer, vm.os_type)
+
+        # Prepend OS icon to session name
+        session_text = escape(vm.session_name) if vm.session_name else "-"
+        session_display = f"{os_icon} {session_text}" if os_icon else session_text
+
         status = vm.get_status_display()
 
         # Color code status
@@ -606,6 +705,9 @@ def build_vm_table(
         # VM Name (only in wide mode)
         if wide_mode:
             row_data.append(vm.name)
+
+        # OS name
+        row_data.append(os_name or "-")
 
         # Status, IP, Region
         row_data.extend([status_display, ip, vm.location or "N/A"])

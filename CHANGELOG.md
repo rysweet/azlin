@@ -5,6 +5,15 @@ All notable changes to azlin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Features
+- `azlin list` now shows OS icon in Session column and OS name/version column before Status
+  - Detects distro from Azure image reference (Ubuntu, Debian, Windows, RHEL, SUSE, etc.)
+  - OS icons: 🟠 Ubuntu, 🪟 Windows, 🐧 Linux, 🔴 Debian, 🎩 RHEL, 🦎 SUSE
+  - OS name includes version (e.g., "Ubuntu 25.10", "Ubuntu 22.04 LTS")
+  - Cached as immutable data (24h TTL) for fast subsequent lookups
+
 ## [2.2.1] - 2026-02-10
 
 ### Documentation

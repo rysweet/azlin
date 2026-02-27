@@ -39,6 +39,7 @@ class VMInfo:
     private_ip: str | None = None
     vm_size: str | None = None
     os_type: str | None = None
+    os_offer: str | None = None  # Azure image offer (e.g., "ubuntu-25_10")
     provisioning_state: str | None = None
     created_time: str | None = None
     tags: dict[str, str] | None = None
@@ -115,6 +116,7 @@ class VMInfo:
             "private_ip": self.private_ip,
             "vm_size": self.vm_size,
             "os_type": self.os_type,
+            "os_offer": self.os_offer,
             "provisioning_state": self.provisioning_state,
             "created_time": self.created_time,
             "tags": self.tags,
@@ -140,6 +142,7 @@ class VMInfo:
             private_ip=data.get("private_ip"),
             vm_size=data.get("vm_size"),
             os_type=data.get("os_type"),
+            os_offer=data.get("os_offer"),
             provisioning_state=data.get("provisioning_state"),
             created_time=data.get("created_time"),
             tags=data.get("tags"),
@@ -160,6 +163,7 @@ class VMInfo:
             "location": self.location,
             "vm_size": self.vm_size,
             "os_type": self.os_type,
+            "os_offer": self.os_offer,
             "created_time": self.created_time,
             "tags": self.tags,
         }
@@ -199,6 +203,7 @@ class VMInfo:
             location=immutable_data["location"],
             vm_size=immutable_data.get("vm_size"),
             os_type=immutable_data.get("os_type"),
+            os_offer=immutable_data.get("os_offer"),
             created_time=immutable_data.get("created_time"),
             tags=immutable_data.get("tags"),
             power_state=mutable_data["power_state"],
@@ -584,6 +589,10 @@ class VMManager:
         elif tags and "created" in tags:
             created_time = tags["created"]
 
+        # Extract image reference offer for OS identification
+        image_ref = data.get("storageProfile", {}).get("imageReference", {})
+        os_offer = image_ref.get("offer") if image_ref else None
+
         return VMInfo(
             name=data["name"],
             resource_group=data["resourceGroup"],
@@ -593,6 +602,7 @@ class VMManager:
             private_ip=data.get("privateIps"),
             vm_size=data.get("hardwareProfile", {}).get("vmSize"),
             os_type=data.get("storageProfile", {}).get("osDisk", {}).get("osType"),
+            os_offer=os_offer,
             provisioning_state=data.get("provisioningState"),
             created_time=created_time,
             tags=tags,
