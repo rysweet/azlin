@@ -6,6 +6,7 @@ This file documents non-obvious problems, solutions, and patterns discovered dur
 
 ## February 2026
 
+- [Azure Image Reference Provides OS Distro Info Without SSH](#azure-image-reference-os-detection-2026-02-27)
 - [SSH Key Sync Timeout and Silent Failure](#ssh-key-sync-timeout-and-silent-failure-2026-02-04)
 
 ## January 2026
@@ -39,6 +40,28 @@ This file documents non-obvious problems, solutions, and patterns discovered dur
 - [Pattern Applicability Framework](#pattern-applicability-analysis-framework-2025-10-20)
 - [Socratic Questioning Pattern](#socratic-questioning-pattern-2025-10-18)
 - [Expert Agent Creation Pattern](#expert-agent-creation-pattern-2025-10-18)
+
+---
+
+## Azure Image Reference Provides OS Distro Info Without SSH (2026-02-27)
+
+### Problem
+`azlin list` showed no OS distro information. The existing `os_type` field from `storageProfile.osDisk.osType` only provides "Linux" or "Windows" - not the specific distro or version.
+
+### Discovery
+Azure's `az vm list --show-details` response includes `storageProfile.imageReference.offer` which contains the distro-specific image name. This field is already available in the API response - no extra calls or SSH needed.
+
+### Key Details
+- **Newer Ubuntu format**: `ubuntu-25_10`, `ubuntu-24_04-lts` (version in name)
+- **Older Ubuntu format**: `0001-com-ubuntu-server-jammy`, `0001-com-ubuntu-server-focal` (codename in name)
+- Both formats need handling via regex + codename lookup
+- The field is immutable (VM recreation required to change), so 24h cache TTL is appropriate
+
+### Solution
+Added `os_offer` field to `VMInfo` dataclass, extracted from `storageProfile.imageReference.offer`, with a mapper function to convert Azure offer strings to friendly names (e.g., "Ubuntu 22.04 LTS") and emoji icons.
+
+### Impact
+`azlin list` now shows OS icon in Session column and OS name/version in a dedicated column before Status.
 
 ---
 

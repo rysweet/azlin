@@ -238,11 +238,16 @@ class AsyncVMManager:
         cache_entry = self.cache.get(vm_name, self.resource_group)
 
         # Prepare immutable data (always available from list call)
+        # Extract image reference offer for OS identification
+        image_ref = vm_data.get("storageProfile", {}).get("imageReference", {})
+        os_offer = image_ref.get("offer") if image_ref else None
+
         immutable_data = {
             "name": vm_data["name"],
             "location": vm_data["location"],
             "vm_size": vm_data.get("hardwareProfile", {}).get("vmSize"),
             "os_type": vm_data.get("storageProfile", {}).get("osDisk", {}).get("osType"),
+            "os_offer": os_offer,
             "tags": vm_data.get("tags", {}),
             "created_time": vm_data.get("timeCreated"),
         }
@@ -307,6 +312,7 @@ class AsyncVMManager:
             private_ip=mutable_data.get("private_ip"),
             vm_size=immutable_data.get("vm_size"),
             os_type=immutable_data.get("os_type"),
+            os_offer=immutable_data.get("os_offer"),
             provisioning_state=mutable_data.get("provisioning_state"),
             created_time=immutable_data.get("created_time"),
             tags=immutable_data.get("tags", {}),

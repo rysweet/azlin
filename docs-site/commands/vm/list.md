@@ -139,14 +139,16 @@ The `azlin list` command displays a table with the following columns:
 
 | Column | Description |
 |--------|-------------|
-| **VM Name** | VM identifier (truncated unless `--wide` used) |
-| **Session** | Named session (set via `azlin session`) or empty |
+| **Session** | Named session with OS icon prefix (e.g., 🟠 for Ubuntu, 🐧 for Linux, 🪟 for Windows) |
+| **Tmux Sessions** | Active tmux sessions (if `--show-tmux`) |
+| **VM Name** | VM identifier (only in `--wide` mode) |
+| **OS** | Operating system name and version (e.g., Ubuntu 25.10, Ubuntu 22.04 LTS) |
 | **Status** | Running, Stopped, Deallocated, etc. |
-| **IP Address** | Public IP (or private IP if bastion-only) |
+| **IP** | Public IP (or private IP with "Bast" for bastion-only) |
 | **Region** | Azure region (e.g., eastus, westus2) |
-| **Size** | Azure VM SKU (e.g., Standard_E32as_v5) |
-| **vCPUs** | Number of virtual CPUs |
-| **Tmux** | Active tmux session count (if `--show-tmux`) |
+| **SKU** | Azure VM SKU (only in `--wide` mode) |
+| **CPU** | Number of virtual CPUs |
+| **Mem** | Memory in GB |
 
 **Additional footer information:**
 - Total vCPU usage across running VMs
@@ -155,14 +157,14 @@ The `azlin list` command displays a table with the following columns:
 ### Example Output
 
 ```
-┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┓
-┃ VM Name           ┃ Session  ┃ Status   ┃ IP Address     ┃ Region  ┃ Size                 ┃ vCPUs  ┃ Tmux  ┃
-┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━┩
-│ myproject         │ ml-train │ Running  │ 20.123.45.67   │ eastus  │ Standard_E32as_v5    │ 32     │ 2     │
-│ backend-dev       │          │ Running  │ 20.123.45.68   │ westus2 │ Standard_E16as_v5    │ 16     │ 1     │
-│ frontend-dev      │ webapp   │ Running  │ 20.123.45.69   │ eastus  │ Standard_D2s_v5      │ 2      │ 0     │
-│ test-vm           │          │ Stopped  │ -              │ eastus  │ Standard_D2s_v5      │ 2      │ -     │
-└───────────────────┴──────────┴──────────┴────────────────┴─────────┴──────────────────────┴────────┴───────┘
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━┳━━━━━━┓
+┃ Session        ┃ OS               ┃ Status  ┃ IP               ┃ Region  ┃ CPU ┃  Mem ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━╇━━━━━━┩
+│ 🟠 ml-train    │ Ubuntu 25.10     │ Running │ 20.123.45.67     │ eastus  │  32 │ 64GB │
+│ 🟠 backend-dev │ Ubuntu 22.04 LTS │ Running │ 20.123.45.68     │ westus2 │  16 │ 32GB │
+│ 🪟 webapp      │ Windows Server   │ Running │ 20.123.45.69     │ eastus  │   2 │  4GB │
+│ 🟠 -           │ Ubuntu 24.04 LTS │ Stopped │ -                │ eastus  │   2 │  4GB │
+└────────────────┴──────────────────┴─────────┴──────────────────┴─────────┴─────┴──────┘
 
 Total: 50 vCPUs used | Quota: 100 vCPUs available (50 remaining)
 ```
