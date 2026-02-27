@@ -12,17 +12,17 @@
 # Run directly from GitHub (no installation needed)
 uvx --from git+https://github.com/rysweet/azlin azlin new
 
-# Create VM with custom name (NEW in v0.3.2!)
+# Create VM with custom name
 azlin new --name myproject
 
-# Fully automated provisioning (NEW in v0.3.2!)
+# Fully automated provisioning
 azlin new --name myvm --yes  # Zero prompts!
 
 # Create VM and clone GitHub repo
 azlin new --repo https://github.com/owner/repo
 
-# Mount Azure Files locally on macOS (NEW in v0.3.2!)
-azlin storage mount local --mount-point ~/azure/
+# Check health of all VMs
+azlin health
 ```
 
 ## What is azlin?
@@ -39,7 +39,7 @@ azlin automates the tedious process of setting up Azure Ubuntu VMs for developme
 
 **Total time**: 4-7 minutes from command to working development environment.
 
-##  Azlin Mobile PWA (NEW!)
+## Azlin Mobile PWA
 
 **Manage your Azure VMs from your iPhone!**
 
@@ -53,88 +53,41 @@ The Azlin Mobile PWA brings full VM management to your mobile device. Install it
 
 **[PWA Documentation](docs/pwa/README.md)** | **[Getting Started](docs/pwa/getting-started.md)** | **[Architecture](docs/pwa/architecture.md)**
 
-## What's New in v2.2.1
+## What's New in v2.3.0
 
-### azlin restore - Automatic Session Restoration
-Restore all your development sessions with one command:
+### VM Health Dashboard
+Monitor all your VMs with Four Golden Signals:
 ```bash
-azlin restore  # Launches terminals for all active VMs
-azlin restore --dry-run  # Preview what would be restored
+azlin health                 # All VMs in default resource group
+azlin health --vm my-vm      # Single VM check
+```
+Displays latency (SSH), traffic (state), errors, and saturation (CPU/Mem/Disk).
+
+### VM Log Viewer
+View cloud-init, syslog, and custom logs from any VM:
+```bash
+azlin logs my-vm             # View logs
+azlin logs my-vm --follow    # Stream in real-time
 ```
 
-**Features:**
-- Works on macOS, Windows Terminal, WSL, and Linux
-- Multi-tab support for Windows Terminal
-- Configurable terminal preferences in ~/.azlin/config.toml
-- Smart session-to-VM mapping
-
-See [azlin restore documentation](https://rysweet.github.io/azlin/commands/restore/) for details.
-
-### Faster Performance
-**azlin list is now 10x faster** with intelligent caching:
-- First run: ~3 seconds
-- Cached results: <100ms
-- Auto-refreshes in background
-- 90% fewer Azure API calls
-
-### Private IP VM Support
-**azlin code now works with Bastion-only VMs:**
+### Ubuntu Version Selection
+Specify Ubuntu version when creating VMs:
 ```bash
-azlin code my-private-vm  # Automatically creates Bastion tunnel
-```
-- VS Code launcher supports Bastion tunnels
-- Automatic retry logic for reliability
-- No public IP required
-
-See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.1) for complete feature list including iOS PWA, separate /home disk support, and more.
-
----
-
-## What's New in v0.4.0
-
-### Separate Home Disk (NEW)
-VMs now automatically get a dedicated 100GB disk for `/home`:
-```bash
-azlin new                      # 100GB home disk (default)
-azlin new --home-disk-size 200  # Custom size
-azlin new --no-home-disk        # Disable (use OS disk)
+azlin new --os 25.10         # Ubuntu 25.10
 ```
 
-**Benefits:**
-- Persistent storage isolated from OS disk
-- No NFS setup required
-- Cost-effective ($4.80/month for 100GB)
-- Automatic formatting and mounting
+### Separate /tmp Disk Support
+Add dedicated /tmp disks to new or existing VMs.
 
-See [Separate Home Disk Guide](docs/how-to/separate-home-disk.md) for details.
+### Compound VM:Session Naming
+Address VMs with `hostname:session_name` syntax across all commands.
 
-##  What's New in v0.3.2
+### Performance Improvements
+- CLI tool detection parallelized (15s to 5s startup)
+- Batch storage quota queries eliminate N+1 Azure CLI calls
+- Per-VM incremental cache refresh
 
-### Custom VM Names
-Give your VMs meaningful names instead of timestamps:
-```bash
-azlin new --name myproject   # VM named "myproject"
-azlin connect myproject      # Connect by name
-azlin list                   # See custom names
-```
-
-### Complete --yes Automation
-Full CI/CD automation - ALL prompts now respect `--yes`:
-```bash
-azlin new --name ci-vm --yes  # Zero interaction required!
-```
-
-### Mount Local for macOS
-Access Azure Files from your Mac via Finder:
-```bash
-azlin storage mount local --mount-point ~/azure/
-# Your Azure Files now accessible locally!
-```
-
-### Python 3.13 & Ripgrep
-- All new VMs get Python 3.13+
-- ripgrep (rg) pre-installed for fast search
-- Tool versions logged to cloud-init output for verification
+See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.3.0) and [Changelog](CHANGELOG.md) for the complete list.
 
 ## Development Tools Installed
 
