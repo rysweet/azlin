@@ -14,7 +14,7 @@ Replace the sections below with information about your project.
 
 ## Overview
 
-**[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)** **Version:** 2.2.1
+**[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)** **Version:** 2.3.0
 
 ## Architecture
 

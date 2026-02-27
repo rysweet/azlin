@@ -2,9 +2,9 @@
 
 **[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)**
 
-**Version:** 2.2.1
-**Last Updated:** 2026-02-10
-**[Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.1)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/tag/v2.2.1)**
+**Version:** 2.3.0
+**Last Updated:** 2026-02-27
+**[Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.3.0)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/tag/v2.3.0)**
 
 **One command to create a fully-equipped development VM on Azure**
 
