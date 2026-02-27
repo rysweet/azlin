@@ -474,12 +474,15 @@ def get_os_display_info(os_offer: str | None, os_type: str | None) -> tuple[str,
     Returns:
         Tuple of (icon, friendly_name) e.g., ("\U0001f7e0", "Ubuntu 25.10")
     """
+    # Icons: 🐧 Linux/all distros (Tux), 🪟 Windows
+    penguin = "\U0001f427"
+    window = "\U0001fa9f"
+
     if not os_offer:
-        # Fallback to os_type
         if os_type == "Windows":
-            return ("\U0001fa9f", "Windows")
+            return (window, "Windows")
         if os_type == "Linux":
-            return ("\U0001f427", "Linux")
+            return (penguin, "Linux")
         return ("", "")
 
     offer_lower = os_offer.lower()
@@ -489,7 +492,7 @@ def get_os_display_info(os_offer: str | None, os_type: str | None) -> tuple[str,
     if m:
         ver = f"{m.group(1)}.{m.group(2)}"
         suffix = " LTS" if "-lts" in offer_lower else ""
-        return ("\U0001f7e0", f"Ubuntu {ver}{suffix}")
+        return (penguin, f"Ubuntu {ver}{suffix}")
 
     # Ubuntu: older format "0001-com-ubuntu-server-jammy", "0001-com-ubuntu-server-focal"
     codename_map = {
@@ -502,50 +505,47 @@ def get_os_display_info(os_offer: str | None, os_type: str | None) -> tuple[str,
     }
     for codename, version in codename_map.items():
         if codename in offer_lower:
-            return ("\U0001f7e0", f"Ubuntu {version}")
+            return (penguin, f"Ubuntu {version}")
 
-    # Generic ubuntu match
     if "ubuntu" in offer_lower:
-        return ("\U0001f7e0", "Ubuntu")
+        return (penguin, "Ubuntu")
 
     # Debian
     m = re.match(r"debian-(\d+)", offer_lower)
     if m:
-        return ("\U0001f534", f"Debian {m.group(1)}")
+        return (penguin, f"Debian {m.group(1)}")
     if "debian" in offer_lower:
-        return ("\U0001f534", "Debian")
+        return (penguin, "Debian")
 
     # Windows Server
     if "windowsserver" in offer_lower or "windows" in offer_lower:
-        return ("\U0001fa9f", "Windows Server")
+        return (window, "Windows Server")
 
     # RHEL
     m = re.match(r"rhel[-_]?(\d+)", offer_lower)
     if m:
-        return ("\U0001f3a9", f"RHEL {m.group(1)}")
+        return (penguin, f"RHEL {m.group(1)}")
     if "rhel" in offer_lower:
-        return ("\U0001f3a9", "RHEL")
+        return (penguin, "RHEL")
 
     # CentOS
     if "centos" in offer_lower:
-        return ("\U0001f3a9", "CentOS")
+        return (penguin, "CentOS")
 
     # SUSE
     if "sles" in offer_lower or "suse" in offer_lower:
-        return ("\U0001f99e", "SUSE")
+        return (penguin, "SUSE")
 
-    # AlmaLinux
+    # AlmaLinux / Rocky
     if "alma" in offer_lower:
-        return ("\U0001f535", "AlmaLinux")
-
-    # Rocky Linux
+        return (penguin, "AlmaLinux")
     if "rocky" in offer_lower:
-        return ("\U0001f7e2", "Rocky Linux")
+        return (penguin, "Rocky Linux")
 
     # Fallback
     if os_type == "Windows":
-        return ("\U0001fa9f", os_offer)
-    return ("\U0001f427", os_offer)
+        return (window, os_offer)
+    return (penguin, os_offer)
 
 
 def build_vm_table(
@@ -588,9 +588,11 @@ def build_vm_table(
     # Tmux Sessions column (moved to 2nd position)
     if show_tmux:
         if compact_mode:
-            table.add_column("Tmux", style="magenta", width=30)
+            table.add_column("Tmux", style="magenta", width=20)
+        elif wide_mode:
+            table.add_column("Tmux Sessions", style="magenta", width=30)
         else:
-            table.add_column("Tmux Sessions", style="magenta", width=40)
+            table.add_column("Tmux Sessions", style="magenta", width=25)
 
     # VM Name column (only in wide mode)
     if wide_mode:
@@ -610,27 +612,27 @@ def build_vm_table(
     else:
         table.add_column("Status", width=8)
 
-    # IP column
+    # IP column (dim to reduce visual weight)
     if compact_mode:
-        table.add_column("IP", style="yellow", width=15)
+        table.add_column("IP", style="dim yellow", width=15)
     else:
-        table.add_column("IP", style="yellow", width=18)
+        table.add_column("IP", style="dim yellow", width=18)
 
-    # Region column
+    # Region column (dim)
     if compact_mode:
-        table.add_column("Rgn", width=6)
+        table.add_column("Rgn", style="dim", width=6)
     else:
-        table.add_column("Region", width=8)
+        table.add_column("Region", style="dim", width=8)
 
-    # SKU column (only in wide mode)
+    # SKU column (only in wide mode, dim)
     if wide_mode:
-        table.add_column("SKU", width=15)
+        table.add_column("SKU", style="dim", width=15)
 
-    # vCPUs column (narrower)
-    table.add_column("CPU", justify="right", width=4)
+    # vCPUs column (dim)
+    table.add_column("CPU", style="dim", justify="right", width=3)
 
-    # Memory column (narrower)
-    table.add_column("Mem", justify="right", width=6)
+    # Memory column (dim)
+    table.add_column("Mem", style="dim", justify="right", width=5)
 
     # Active Processes column (if requested)
     if show_procs:
