@@ -643,12 +643,10 @@ def build_vm_table(
 
     # Add rows
     for vm in vms:
-        # Get OS info for icon and name
-        os_icon, os_name = get_os_display_info(vm.os_offer, vm.os_type)
+        # Get OS name for the OS column
+        _os_icon, os_name = get_os_display_info(vm.os_offer, vm.os_type)
 
-        # Prepend OS icon to session name
-        session_text = escape(vm.session_name) if vm.session_name else "-"
-        session_display = f"{os_icon} {session_text}" if os_icon else session_text
+        session_display = escape(vm.session_name) if vm.session_name else "-"
 
         status = vm.get_status_display()
 
