@@ -38,29 +38,37 @@ def _get_windows_username() -> str | None:
     """Get Windows username from WSL environment.
 
     Tries multiple methods to determine the Windows username:
-    1. WSLENV / Windows environment variables
-    2. /mnt/c/Users directory (find current user's home)
-    3. Fallback to WSL username (may not match)
+    1. cmd.exe query (most reliable - asks Windows directly)
+    2. /mnt/c/Users directory scan (fallback)
     """
     try:
-        # Method 1: Check /mnt/c/Users for the current user
-        # The directory that contains the WSL distribution is usually the Windows user
+        # Method 1: Ask Windows directly via cmd.exe (most reliable)
+        try:
+            result = subprocess.run(
+                ["cmd.exe", "/c", "echo", "%USERNAME%"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                username = result.stdout.strip().strip("\r\n")
+                if username and username != "%USERNAME%":
+                    logger.debug(f"Detected Windows username via cmd.exe: {username}")
+                    return username
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            logger.debug("cmd.exe not available for Windows username detection")
+
+        # Method 2: Scan /mnt/c/Users for user directories
         users_dir = Path("/mnt/c/Users")
         if users_dir.exists():
-            # Look for a user directory that isn't Public, Default, etc.
             for user_dir in users_dir.iterdir():
                 if (
                     user_dir.is_dir()
                     and user_dir.name not in ["Public", "Default", "Default User", "All Users"]
                     and ((user_dir / ".ssh").exists() or (user_dir / "AppData").exists())
                 ):
-                    logger.debug(f"Detected Windows username: {user_dir.name}")
+                    logger.debug(f"Detected Windows username via dir scan: {user_dir.name}")
                     return user_dir.name
-
-        # Method 2: Try environment variable (set by Windows in WSL2)
-        win_user = os.environ.get("LOGNAME") or os.environ.get("USER")
-        if win_user:
-            return win_user
 
         return None
     except Exception as e:
@@ -177,9 +185,23 @@ class VSCodeLauncher:
         SSH config and keys to Windows location with corrected paths.
         """
         try:
-            # Get Windows username (assume same as WSL username)
-            username = _get_windows_username() or os.environ.get("USER", "user")
+            # Get Windows username
+            username = _get_windows_username()
+            if not username:
+                print(
+                    "Warning: Could not detect Windows username for SSH config sync.\n"
+                    "VS Code may not find the SSH config. You can manually copy\n"
+                    "~/.ssh/config to C:\\Users\\<your-user>\\.ssh\\config"
+                )
+                return
+
             windows_ssh_dir = Path(f"/mnt/c/Users/{username}/.ssh")
+
+            # Verify the Windows user directory exists
+            windows_home = Path(f"/mnt/c/Users/{username}")
+            if not windows_home.exists():
+                print(f"Warning: Windows home directory not found: C:\\Users\\{username}")
+                return
 
             # Create Windows .ssh directory
             windows_ssh_dir.mkdir(parents=True, exist_ok=True)
@@ -187,17 +209,22 @@ class VSCodeLauncher:
             # Copy SSH keys to Windows
             wsl_key_path = Path(config.key_path).expanduser()
             windows_key_path = windows_ssh_dir / wsl_key_path.name
-            windows_pub_path = windows_ssh_dir / f"{wsl_key_path.name}.pub"
 
-            shutil.copy2(wsl_key_path, windows_key_path)
-            if wsl_key_path.with_suffix(".pub").exists():
-                shutil.copy2(wsl_key_path.with_suffix(".pub"), windows_pub_path)
+            if wsl_key_path.exists():
+                shutil.copy2(wsl_key_path, windows_key_path)
+                logger.info(f"Copied SSH key to Windows: {windows_key_path}")
+            else:
+                print(f"Warning: SSH key not found: {wsl_key_path}")
+
+            pub_key = wsl_key_path.with_suffix(".pub")
+            if pub_key.exists():
+                shutil.copy2(pub_key, windows_ssh_dir / pub_key.name)
 
             # Generate Windows SSH config with Windows paths
             ssh_host = f"azlin-{config.vm_name}"
             windows_key_path_str = f"C:\\Users\\{username}\\.ssh\\{wsl_key_path.name}"
 
-            windows_config = [
+            config_entry = "\n".join([
                 f"Host {ssh_host}",
                 f"    HostName {config.host}",
                 f"    Port {config.port}",
@@ -207,21 +234,32 @@ class VSCodeLauncher:
                 "    UserKnownHostsFile NUL",
                 "    ServerAliveInterval 60",
                 "    ServerAliveCountMax 3",
-            ]
+            ])
 
-            # Write to Windows SSH config
+            # Append to Windows SSH config (don't overwrite existing entries)
             windows_config_path = windows_ssh_dir / "config"
-            windows_config_path.write_text(
-                "\n# Added by azlin\n" + "\n".join(windows_config) + "\n"
-            )
-
-            logger.info(f"Synced SSH config to Windows: {windows_config_path}")
+            if windows_config_path.exists():
+                existing = windows_config_path.read_text()
+                if f"Host {ssh_host}" in existing:
+                    logger.info(f"Windows SSH config entry for {ssh_host} already exists")
+                else:
+                    with windows_config_path.open("a") as f:
+                        f.write(f"\n\n# Added by azlin\n{config_entry}\n")
+                    logger.info(f"Appended SSH config to Windows: {windows_config_path}")
+            else:
+                windows_config_path.write_text(f"# Added by azlin\n{config_entry}\n")
+                logger.info(f"Created Windows SSH config: {windows_config_path}")
 
             # Also configure VS Code settings for remote platform
             cls._configure_vscode_remote_platform(ssh_host, windows_ssh_dir.parent)
 
         except Exception as e:
-            logger.warning(f"Failed to sync SSH config to Windows (non-critical): {e}")
+            print(f"Warning: Failed to sync SSH config to Windows: {e}")
+            print(
+                "VS Code may not connect. You can manually copy your SSH config:\n"
+                f"  cp ~/.ssh/config /mnt/c/Users/<your-user>/.ssh/config"
+            )
+            logger.warning(f"WSL SSH config sync failed: {e}")
 
     @classmethod
     def _configure_vscode_remote_platform(cls, ssh_host: str, windows_home: Path) -> None:
