@@ -224,17 +224,19 @@ class VSCodeLauncher:
             ssh_host = f"azlin-{config.vm_name}"
             windows_key_path_str = f"C:\\Users\\{username}\\.ssh\\{wsl_key_path.name}"
 
-            config_entry = "\n".join([
-                f"Host {ssh_host}",
-                f"    HostName {config.host}",
-                f"    Port {config.port}",
-                f"    User {config.user}",
-                f"    IdentityFile {windows_key_path_str}",
-                "    StrictHostKeyChecking no",
-                "    UserKnownHostsFile NUL",
-                "    ServerAliveInterval 60",
-                "    ServerAliveCountMax 3",
-            ])
+            config_entry = "\n".join(
+                [
+                    f"Host {ssh_host}",
+                    f"    HostName {config.host}",
+                    f"    Port {config.port}",
+                    f"    User {config.user}",
+                    f"    IdentityFile {windows_key_path_str}",
+                    "    StrictHostKeyChecking no",
+                    "    UserKnownHostsFile NUL",
+                    "    ServerAliveInterval 60",
+                    "    ServerAliveCountMax 3",
+                ]
+            )
 
             # Append to Windows SSH config (don't overwrite existing entries)
             windows_config_path = windows_ssh_dir / "config"
