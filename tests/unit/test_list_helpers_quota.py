@@ -59,7 +59,7 @@ def test_quota_collected_when_cached_true(mock_quota_manager, mock_vms, mock_quo
     }
 
     # Act
-    quota_by_region, _, _, _ = enrich_vm_data(
+    quota_by_region, _, _, _, _ = enrich_vm_data(
         vms=mock_vms,
         was_cached=True,  # VM data from cache
         show_quota=True,  # User requested quota with -q flag
@@ -93,7 +93,7 @@ def test_quota_collected_when_cached_false(mock_quota_manager, mock_vms, mock_qu
     }
 
     # Act
-    quota_by_region, _, _, _ = enrich_vm_data(
+    quota_by_region, _, _, _, _ = enrich_vm_data(
         vms=mock_vms,
         was_cached=False,  # VM data is fresh
         show_quota=True,  # User requested quota with -q flag
@@ -117,7 +117,7 @@ def test_quota_collected_when_cached_false(mock_quota_manager, mock_vms, mock_qu
 def test_quota_not_collected_when_flag_false(mock_quota_manager, mock_vms):
     """NEGATIVE TEST: Verify quota NOT collected when -q flag is not used."""
     # Act
-    quota_by_region, _, _, _ = enrich_vm_data(
+    quota_by_region, _, _, _, _ = enrich_vm_data(
         vms=mock_vms,
         was_cached=True,
         show_quota=False,  # User did NOT request quota

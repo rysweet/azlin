@@ -20,6 +20,7 @@ from rich.table import Table
 
 from azlin.config_manager import ConfigManager
 from azlin.context_manager import ContextManager
+from azlin.lifecycle.health_monitor import HealthMonitor, HealthStatus
 from azlin.modules.ssh_connector import SSHConfig
 from azlin.modules.ssh_keys import SSHKeyError, SSHKeyManager
 from azlin.quota_manager import QuotaInfo, QuotaManager
@@ -42,6 +43,26 @@ __all__ = [
     "resolve_vms_to_list",
     "validate_list_options",
 ]
+
+
+def _metric_rich(value: float | None, warn: float = 70.0, crit: float = 90.0) -> str:
+    """Format a metric percentage with Rich color markup.
+
+    Args:
+        value: Percentage value (0-100) or None
+        warn: Yellow threshold (default 70%)
+        crit: Red threshold (default 90%)
+
+    Returns:
+        Rich-markup formatted string
+    """
+    if value is None:
+        return "[dim]-[/dim]"
+    if value >= crit:
+        return f"[red]{value:.0f}%[/red]"
+    if value >= warn:
+        return f"[yellow]{value:.0f}%[/yellow]"
+    return f"[green]{value:.0f}%[/green]"
 
 
 def validate_list_options(
@@ -229,13 +250,15 @@ def enrich_vm_data(
     console: Console,
     _collect_tmux_sessions_fn,  # type: ignore[no-untyped-def]
     _cache_tmux_sessions_fn,  # type: ignore[no-untyped-def]
+    with_health: bool = False,
 ) -> tuple[
     dict[str, list[QuotaInfo]],
     dict[str, list[TmuxSession]],
     dict[str, LatencyResult],
     dict[str, list[str]],
+    dict[str, HealthStatus],
 ]:
-    """Enrich VM data with quota, tmux sessions, latency, and process information.
+    """Enrich VM data with quota, tmux sessions, latency, processes, and health signals.
 
     Args:
         vms: List of VMs to enrich
@@ -244,19 +267,21 @@ def enrich_vm_data(
         show_tmux: Show tmux sessions
         with_latency: Measure SSH latency
         show_procs: Show active processes
-        resource_group: Resource group (for tmux caching)
+        resource_group: Resource group (for tmux caching and health checks)
         verbose: Verbose output
         console: Rich console for status display
         _collect_tmux_sessions_fn: Function to collect tmux sessions
         _cache_tmux_sessions_fn: Function to cache tmux sessions
+        with_health: Collect VM health signals (agent status, CPU/mem/disk)
 
     Returns:
-        Tuple of (quota_by_region, tmux_by_vm, latency_by_vm, active_procs_by_vm)
+        Tuple of (quota_by_region, tmux_by_vm, latency_by_vm, active_procs_by_vm, health_by_vm)
     """
     quota_by_region: dict[str, list[QuotaInfo]] = {}
     tmux_by_vm: dict[str, list[TmuxSession]] = {}
     latency_by_vm: dict[str, LatencyResult] = {}
     active_procs_by_vm: dict[str, list[str]] = {}
+    health_by_vm: dict[str, HealthStatus] = {}
 
     # Collect quota information if enabled
     if show_quota:
@@ -388,7 +413,24 @@ def enrich_vm_data(
         except Exception as e:
             click.echo(f"Warning: Failed to collect active processes: {e}", err=True)
 
-    return quota_by_region, tmux_by_vm, latency_by_vm, active_procs_by_vm
+    # Collect VM health signals if enabled (uses Azure management plane - works for all VM types)
+    if with_health and resource_group:
+        try:
+            console.print("[dim]Checking VM health signals...[/dim]")
+            monitor = HealthMonitor(resource_group=resource_group)
+            vm_names = [vm.name for vm in vms]
+            health_results = monitor.check_all_vms_health(vm_names)
+            health_by_vm.update(
+                {
+                    vm_name: status
+                    for vm_name, status, _error in health_results
+                    if status is not None
+                }
+            )
+        except Exception as e:
+            click.echo(f"Warning: Failed to collect health data: {e}", err=True)
+
+    return quota_by_region, tmux_by_vm, latency_by_vm, active_procs_by_vm, health_by_vm
 
 
 def display_quota_and_bastions(
@@ -558,6 +600,8 @@ def build_vm_table(
     tmux_by_vm: dict[str, list[TmuxSession]],
     active_procs_by_vm: dict[str, list[str]],
     latency_by_vm: dict[str, LatencyResult],
+    with_health: bool = False,
+    health_by_vm: dict[str, HealthStatus] | None = None,
 ) -> Table:
     """Build Rich table for VM display.
 
@@ -571,10 +615,14 @@ def build_vm_table(
         tmux_by_vm: Tmux sessions by VM name
         active_procs_by_vm: Active processes by VM name
         latency_by_vm: Latency results by VM name
+        with_health: Show health signals (agent, CPU, mem, disk)
+        health_by_vm: Health status by VM name
 
     Returns:
         Configured Rich table with VM data
     """
+    if health_by_vm is None:
+        health_by_vm = {}
     table = Table(title="Azure VMs", show_header=True, header_style="bold")
 
     # Session Name column
@@ -640,6 +688,12 @@ def build_vm_table(
 
     if with_latency:
         table.add_column("Latency", justify="right", width=8)
+
+    if with_health:
+        table.add_column("Agent", width=6)
+        table.add_column("CPU", justify="right", width=6)
+        table.add_column("Mem", justify="right", width=6)
+        table.add_column("Disk", justify="right", width=6)
 
     # Add rows
     for vm in vms:
@@ -733,6 +787,25 @@ def build_vm_table(
                 row_data.append(result.display_value())
             else:
                 row_data.append("-")
+
+        # Health signals (if enabled)
+        if with_health:
+            if vm.name in health_by_vm:
+                h = health_by_vm[vm.name]
+                # Agent health
+                if not vm.is_running():
+                    row_data.append("[dim]-[/dim]")
+                elif h.ssh_reachable:
+                    row_data.append("[green]OK[/green]")
+                else:
+                    row_data.append("[red]FAIL[/red]")
+                # Resource metrics
+                cpu = h.metrics.cpu_percent if h.metrics else None
+                mem = h.metrics.memory_percent if h.metrics else None
+                disk = h.metrics.disk_percent if h.metrics else None
+                row_data.extend([_metric_rich(cpu), _metric_rich(mem), _metric_rich(disk)])
+            else:
+                row_data.extend(["[dim]-[/dim]", "[dim]-[/dim]", "[dim]-[/dim]", "[dim]-[/dim]"])
 
         table.add_row(*row_data)
 

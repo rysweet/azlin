@@ -47,6 +47,7 @@ class LatencyResult:
             - "45ms" for successful measurements
             - "timeout" for timeouts
             - "error" for connection errors
+            - "bastion" for Bastion-only VMs (no public IP)
             - "-" for unknown or N/A
         """
         if self.success and self.latency_ms is not None:
@@ -55,6 +56,8 @@ class LatencyResult:
             return "timeout"
         if self.error_type == "connection":
             return "error"
+        if self.error_type == "bastion":
+            return "bastion"
         return "-"
 
 
@@ -129,16 +132,15 @@ class SSHLatencyMeasurer:
                 error_message="VM is not running",
             )
 
-        # Use private_ip for direct SSH connection
-        host = vm.private_ip
-
-        # Check if IP is valid
-        if not host or host == "N/A":
+        # Use public_ip for direct SSH; Bastion-only VMs cannot be measured without a tunnel
+        if vm.public_ip:
+            host = vm.public_ip
+        else:
             return LatencyResult(
                 vm_name=vm.name,
                 success=False,
-                error_type="connection",
-                error_message="VM has no IP address",
+                error_type="bastion",
+                error_message="Bastion-only VM - SSH latency requires direct connection",
             )
 
         # Validate inputs at boundary to prevent injection
