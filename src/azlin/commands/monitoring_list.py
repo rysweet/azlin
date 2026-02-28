@@ -636,6 +636,13 @@ def _handle_multi_context_list(
     default=False,
     help="Show active user processes on each VM (top 5, public IP VMs only)",
 )
+@click.option(
+    "--with-health",
+    "with_health",
+    is_flag=True,
+    default=False,
+    help="Show VM health signals (agent status, CPU/mem/disk) - slower, uses Azure management plane",
+)
 def list_command(
     resource_group: str | None,
     config: str | None,
@@ -653,6 +660,7 @@ def list_command(
     verbose: bool = False,
     run_restore: bool = False,
     show_procs: bool = False,
+    with_health: bool = False,
 ):
     """List VMs in a resource group.
 
@@ -667,7 +675,8 @@ def list_command(
         azlin list --rg my-rg         # VMs in specific RG
         azlin list --all              # Include stopped VMs
         azlin list --tag env=dev      # Filter by tag
-        azlin list --with-latency     # Include SSH latency measurements
+        azlin list --with-latency     # Include SSH latency measurements (public IP VMs)
+        azlin list --with-health      # Include health signals (agent, CPU, mem, disk)
         azlin list --show-all-vms     # All VMs across all RGs (expensive)
         azlin list -a                 # Same as --show-all-vms
         azlin list --no-quota         # Skip quota information
@@ -723,8 +732,8 @@ def list_command(
             click.echo("No VMs found.")
             return
 
-        # Step 6: Enrich VMs with quota, tmux, latency, processes
-        quota_by_region, tmux_by_vm, latency_by_vm, active_procs_by_vm = enrich_vm_data(
+        # Step 6: Enrich VMs with quota, tmux, latency, processes, health
+        quota_by_region, tmux_by_vm, latency_by_vm, active_procs_by_vm, health_by_vm = enrich_vm_data(
             vms=vms,
             was_cached=was_cached,
             show_quota=show_quota,
@@ -736,6 +745,7 @@ def list_command(
             console=console,
             _collect_tmux_sessions_fn=_collect_tmux_sessions,
             _cache_tmux_sessions_fn=_cache_tmux_sessions,
+            with_health=with_health,
         )
 
         # Step 7: Display quota summary and bastion hosts
@@ -757,6 +767,8 @@ def list_command(
             tmux_by_vm=tmux_by_vm,
             active_procs_by_vm=active_procs_by_vm,
             latency_by_vm=latency_by_vm,
+            with_health=with_health,
+            health_by_vm=health_by_vm,
         )
         console.print(table)
 

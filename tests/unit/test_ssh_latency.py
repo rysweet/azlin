@@ -26,10 +26,12 @@ from azlin.ssh.latency import LatencyResult, SSHLatencyMeasurer
 class MockVMInfo:
     """Mock VM object for testing."""
 
-    def __init__(self, name, status="Running", ip="10.0.1.5", location="eastus"):
+    def __init__(self, name, status="Running", ip="10.0.1.5", location="eastus", public_ip=None):
         self.name = name
         self.status = status
         self.private_ip = ip
+        # Default public_ip to ip so existing tests work; pass public_ip=None to simulate bastion-only
+        self.public_ip = public_ip if public_ip is not None else ip
         self.location = location
 
     def is_running(self):
@@ -148,6 +150,17 @@ class TestLatencyResult:
         result = LatencyResult(vm_name="test-vm", success=False, error_type=None)
 
         assert result.display_value() == "-"
+
+    def test_latency_result_display_value_bastion(self):
+        """Test display_value() returns 'bastion' for Bastion-only VMs."""
+        result = LatencyResult(
+            vm_name="test-vm",
+            success=False,
+            error_type="bastion",
+            error_message="Bastion-only VM",
+        )
+
+        assert result.display_value() == "bastion"
 
 
 # ============================================================================
@@ -325,16 +338,29 @@ class TestSSHLatencyMeasurerSingle:
 
     @patch("subprocess.run")
     def test_measure_single_stopped_vm_skipped(self, mock_subprocess):
-        """Test that stopped VMs are not measured (should be filtered by caller)."""
-        # This test documents behavior - stopped VMs should be filtered before measurement
-        # But if called, measurement should handle gracefully
-
-        vm = MockVMInfo(name="test-vm", status="Stopped", ip="N/A")
+        """Test that stopped VMs are handled gracefully."""
+        vm = MockVMInfo(name="test-vm", status="Stopped", ip="10.0.1.5")
         measurer = SSHLatencyMeasurer(timeout=5.0)
 
-        # Attempting to measure stopped VM should fail gracefully
-        # (Implementation should check VM status or handle missing IP)
-        # This will fail until implementation adds proper stopped VM handling
+        result = measurer.measure_single(vm, ssh_user="azureuser", ssh_key_path="/tmp/key")
+
+        assert result.success is False
+        assert result.error_type == "vm_stopped"
+        mock_subprocess.assert_not_called()
+
+    def test_measure_single_bastion_only_vm(self):
+        """Test that Bastion-only VMs (no public IP) return bastion error without SSH attempt."""
+        # Bastion-only: has private_ip but no public_ip
+        vm = MockVMInfo(name="test-vm", ip="10.0.0.5", public_ip="")
+        vm.public_ip = ""  # Explicitly no public IP
+        measurer = SSHLatencyMeasurer(timeout=5.0)
+
+        with patch("subprocess.run") as mock_subprocess:
+            result = measurer.measure_single(vm, ssh_user="azureuser", ssh_key_path="/tmp/key")
+
+            assert result.success is False
+            assert result.error_type == "bastion"
+            mock_subprocess.assert_not_called()
 
 
 # ============================================================================
