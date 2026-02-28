@@ -69,7 +69,7 @@ def test_quota_collected_when_cached_true(mock_quota_manager, mock_vms, mock_quo
         resource_group="test-rg",
         verbose=False,
         console=MagicMock(),
-        _collect_tmux_sessions_fn=lambda vms: {},
+        _collect_tmux_sessions_fn=lambda vms, with_latency=False: ({}, {}),
         _cache_tmux_sessions_fn=lambda *args: None,
     )
 
@@ -103,7 +103,7 @@ def test_quota_collected_when_cached_false(mock_quota_manager, mock_vms, mock_qu
         resource_group="test-rg",
         verbose=False,
         console=MagicMock(),
-        _collect_tmux_sessions_fn=lambda vms: {},
+        _collect_tmux_sessions_fn=lambda vms, with_latency=False: ({}, {}),
         _cache_tmux_sessions_fn=lambda *args: None,
     )
 
@@ -127,7 +127,7 @@ def test_quota_not_collected_when_flag_false(mock_quota_manager, mock_vms):
         resource_group="test-rg",
         verbose=False,
         console=MagicMock(),
-        _collect_tmux_sessions_fn=lambda vms: {},
+        _collect_tmux_sessions_fn=lambda vms, with_latency=False: ({}, {}),
         _cache_tmux_sessions_fn=lambda *args: None,
     )
 

@@ -40,6 +40,7 @@ from azlin.network_security.bastion_connection_pool import (
     SecurityError,
 )
 from azlin.remote_exec import TmuxSession, TmuxSessionExecutor
+from azlin.ssh.latency import LatencyResult, SSHLatencyMeasurer
 from azlin.tag_manager import TagManager
 from azlin.vm_manager import VMInfo, VMManagerError
 
@@ -203,7 +204,7 @@ def get_vm_session_pairs(
         else:
             vm.session_name = ConfigManager.get_session_name(vm.name, config_path)
 
-    tmux_by_vm = _collect_tmux_sessions(vms)
+    tmux_by_vm, _ = _collect_tmux_sessions(vms)
 
     # Return (VM, sessions) pairs
     return [(vm, tmux_by_vm.get(vm.name, [])) for vm in vms]
@@ -228,19 +229,27 @@ def _cache_tmux_sessions(
         cache.set_tmux(vm_name, rg, corrected_sessions)  # type: ignore[attr-defined]
 
 
-def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
+def _collect_tmux_sessions(
+    vms: list[VMInfo], with_latency: bool = False
+) -> tuple[dict[str, list[TmuxSession]], dict[str, LatencyResult]]:
     """Collect tmux sessions from running VMs.
 
     Supports both direct SSH (VMs with public IPs) and Bastion tunneling
     (VMs with only private IPs).
 
+    When with_latency=True, opportunistically measures SSH latency through
+    Bastion tunnels while they are already open for tmux collection.
+    No extra tunnel creation cost.
+
     Args:
         vms: List of VMInfo objects
+        with_latency: If True, measure SSH latency through Bastion tunnels
 
     Returns:
-        Dictionary mapping VM name to list of tmux sessions
+        Tuple of (tmux_by_vm, bastion_latency_by_vm)
     """
     tmux_by_vm: dict[str, list[TmuxSession]] = {}
+    bastion_latency_by_vm: dict[str, LatencyResult] = {}
 
     # Ensure SSH key is available for connecting to VMs
     try:
@@ -253,7 +262,7 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
             "To fix this, ensure your SSH key is available or run 'azlin' commands "
             "to set up SSH access."
         )
-        return tmux_by_vm
+        return tmux_by_vm, bastion_latency_by_vm
 
     # Classify VMs into direct SSH (public IP) and Bastion (private IP only)
     direct_ssh_vms = [vm for vm in vms if vm.is_running() and vm.public_ip]
@@ -387,6 +396,21 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
                                 tmux_by_vm[vm.name] = []
                             tmux_by_vm[vm.name].extend(tmux_sessions)
 
+                            # Measure SSH latency through tunnel while it's open (no extra cost)
+                            if with_latency:
+                                measurer = SSHLatencyMeasurer(timeout=5.0)
+                                bastion_latency_by_vm[vm.name] = measurer.measure_at_port(
+                                    vm_name=vm.name,
+                                    host="127.0.0.1",
+                                    port=pooled_tunnel.tunnel.local_port,
+                                    ssh_user="azureuser",
+                                    ssh_key_path=str(ssh_key_path),
+                                )
+                                logger.debug(
+                                    f"Bastion latency for {vm.name}: "
+                                    f"{bastion_latency_by_vm[vm.name].display_value()}"
+                                )
+
                         except BastionManagerError as e:
                             logger.warning(f"Failed to create Bastion tunnel for VM {vm.name}: {e}")
                         except Exception as e:
@@ -401,7 +425,7 @@ def _collect_tmux_sessions(vms: list[VMInfo]) -> dict[str, list[TmuxSession]]:
         except Exception as e:
             logger.warning(f"Failed to initialize Bastion support: {e}")
 
-    return tmux_by_vm
+    return tmux_by_vm, bastion_latency_by_vm
 
 
 def _handle_multi_context_list(

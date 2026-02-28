@@ -627,6 +627,76 @@ class TestSSHLatencyMeasurerEdgeCases:
 
 
 # ============================================================================
+# MEASURE_AT_PORT TESTS (Bastion tunnel latency)
+# ============================================================================
+
+
+class TestSSHLatencyMeasurerAtPort:
+    """Test measure_at_port() for Bastion tunnel SSH latency."""
+
+    @patch("subprocess.run")
+    @patch("time.time")
+    def test_measure_at_port_success(self, mock_time, mock_subprocess):
+        """Test successful latency measurement through a tunnel port."""
+        mock_time.side_effect = [0.0, 0.045]
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_subprocess.return_value = mock_result
+
+        measurer = SSHLatencyMeasurer(timeout=5.0)
+        result = measurer.measure_at_port(
+            vm_name="bastion-vm",
+            host="127.0.0.1",
+            port=12345,
+            ssh_user="azureuser",
+            ssh_key_path="/tmp/key",
+        )
+
+        assert result.vm_name == "bastion-vm"
+        assert result.success is True
+        assert result.latency_ms == 45.0
+
+        # Verify -p port flag is in the SSH command
+        cmd = mock_subprocess.call_args[0][0]
+        assert "-p" in cmd
+        assert "12345" in cmd
+        assert "azureuser@127.0.0.1" in cmd
+
+    @patch("subprocess.run")
+    def test_measure_at_port_timeout(self, mock_subprocess):
+        """Test timeout through tunnel."""
+        mock_subprocess.side_effect = subprocess.TimeoutExpired(cmd=["ssh"], timeout=5.0)
+
+        measurer = SSHLatencyMeasurer(timeout=5.0)
+        result = measurer.measure_at_port("bastion-vm", "127.0.0.1", 12345)
+
+        assert result.success is False
+        assert result.error_type == "timeout"
+
+    @patch("subprocess.run")
+    def test_measure_at_port_connection_failed(self, mock_subprocess):
+        """Test connection failure through tunnel."""
+        mock_result = Mock()
+        mock_result.returncode = 255
+        mock_result.stderr = "Connection refused"
+        mock_subprocess.return_value = mock_result
+
+        measurer = SSHLatencyMeasurer(timeout=5.0)
+        result = measurer.measure_at_port("bastion-vm", "127.0.0.1", 12345)
+
+        assert result.success is False
+        assert result.error_type == "connection"
+
+    def test_measure_at_port_invalid_host(self):
+        """Test that invalid host raises connection error."""
+        measurer = SSHLatencyMeasurer(timeout=5.0)
+        result = measurer.measure_at_port("bastion-vm", "not-an-ip", 12345)
+
+        assert result.success is False
+        assert result.error_type == "connection"
+
+
+# ============================================================================
 # INTEGRATION-STYLE TESTS (Unit tests that test multiple components)
 # ============================================================================
 

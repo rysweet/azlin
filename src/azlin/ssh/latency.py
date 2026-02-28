@@ -205,6 +205,82 @@ class SSHLatencyMeasurer:
                 vm_name=vm.name, success=False, error_type="unknown", error_message=str(e)
             )
 
+    def measure_at_port(
+        self,
+        vm_name: str,
+        host: str,
+        port: int,
+        ssh_user: str = "azureuser",
+        ssh_key_path: str | None = None,
+    ) -> LatencyResult:
+        """Measure SSH latency at an explicit host:port.
+
+        Used for Bastion tunnel connections where the tunnel is already
+        established at 127.0.0.1:local_port. Skips VM object lookup —
+        caller supplies host/port directly.
+
+        Args:
+            vm_name: VM name (for result identification)
+            host: Host to connect to (typically "127.0.0.1" for tunnels)
+            port: Port to connect on (tunnel local port)
+            ssh_user: SSH username
+            ssh_key_path: Path to SSH private key
+
+        Returns:
+            LatencyResult with measurement or error
+        """
+        try:
+            self._validate_ssh_params(ssh_user, host)
+        except ValueError as e:
+            return LatencyResult(
+                vm_name=vm_name, success=False, error_type="connection", error_message=str(e)
+            )
+
+        try:
+            start_time = time.time()
+            cmd = [
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-o",
+                f"ConnectTimeout={int(self.timeout)}",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "PasswordAuthentication=no",
+                "-p",
+                str(port),
+            ]
+            if ssh_key_path:
+                cmd.extend(["-i", ssh_key_path])
+            cmd.append(f"{ssh_user}@{host}")
+            cmd.append("true")
+
+            result = subprocess.run(cmd, capture_output=True, timeout=self.timeout, text=True)
+            elapsed_ms = (time.time() - start_time) * 1000
+
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() if result.stderr else "SSH connection failed"
+                return LatencyResult(
+                    vm_name=vm_name, success=False, error_type="connection", error_message=error_msg
+                )
+
+            return LatencyResult(vm_name=vm_name, success=True, latency_ms=elapsed_ms)
+
+        except subprocess.TimeoutExpired:
+            return LatencyResult(
+                vm_name=vm_name,
+                success=False,
+                error_type="timeout",
+                error_message=f"Connection timeout after {self.timeout} seconds",
+            )
+        except Exception as e:
+            return LatencyResult(
+                vm_name=vm_name, success=False, error_type="unknown", error_message=str(e)
+            )
+
     def measure_batch(
         self, vms: list, ssh_user: str = "azureuser", ssh_key_path: str | None = None
     ) -> dict[str, LatencyResult]:
