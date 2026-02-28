@@ -1,7 +1,7 @@
-"""Health Monitor - VM health checking via Azure CLI and SSH.
+"""Health Monitor - VM health checking via Azure CLI.
 
 Philosophy:
-- Ruthless simplicity: Direct Azure CLI + SSH checks
+- Ruthless simplicity: All data from Azure CLI, no SSH needed
 - Single responsibility: Health checking only
 - Uses proven patterns: Azure CLI (like status_dashboard.py)
 - Self-contained: Complete with failure tracking
@@ -19,10 +19,10 @@ import contextlib
 import json
 import logging
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class HealthCheckError(Exception):
 
 @dataclass
 class VMMetrics:
-    """VM resource metrics from SSH."""
+    """VM resource metrics."""
 
     cpu_percent: float
     memory_percent: float
@@ -74,18 +74,19 @@ class HealthStatus:
 
 
 class HealthMonitor:
-    """Monitors VM health via Azure CLI and SSH.
+    """Monitors VM health via Azure CLI.
 
-    Uses Azure CLI directly to get VM state (proven pattern from
-    status_dashboard.py and vm_lifecycle_control.py) and SSH to
-    check connectivity and gather metrics.
+    Uses Azure CLI to get VM state and VM Agent health from the instance
+    view (single API call), then gathers metrics via az vm run-command
+    for running VMs in parallel.
 
-    Tracks SSH failure counts per VM and provides health status.
+    Works with all VM types including Bastion-only VMs (no public IP)
+    since it goes through Azure's management plane, not SSH.
 
     Example:
-        >>> monitor = HealthMonitor()
+        >>> monitor = HealthMonitor(resource_group="my-rg")
         >>> health = monitor.check_vm_health("my-vm")
-        >>> print(f"VM state: {health.state}, SSH: {health.ssh_reachable}")
+        >>> print(f"VM state: {health.state}, Agent: {health.ssh_reachable}")
     """
 
     def __init__(self, resource_group: str | None = None):
@@ -142,6 +143,86 @@ class HealthMonitor:
         except json.JSONDecodeError as e:
             raise HealthCheckError(f"Failed to parse Azure CLI output: {e}") from e
 
+    def _get_instance_view(self, vm_name: str) -> dict:
+        """Get VM instance view from Azure CLI.
+
+        Returns the full instance view which contains both power state
+        and VM Agent health status in a single API call.
+
+        Args:
+            vm_name: VM name
+
+        Returns:
+            Instance view dictionary
+
+        Raises:
+            HealthCheckError: If Azure CLI call fails
+        """
+        rg = self._get_resource_group()
+        command = [
+            "az",
+            "vm",
+            "get-instance-view",
+            "--name",
+            vm_name,
+            "--resource-group",
+            rg,
+            "--output",
+            "json",
+        ]
+        return self._run_az_command(command)
+
+    def _extract_power_state(self, instance_view: dict) -> VMState:
+        """Extract VM power state from instance view.
+
+        Args:
+            instance_view: Instance view from Azure CLI
+
+        Returns:
+            VMState enum value
+        """
+        # Check nested instanceView first, then root-level statuses
+        statuses = instance_view.get("instanceView", {}).get("statuses", [])
+        if not statuses:
+            statuses = instance_view.get("statuses", [])
+
+        for status in statuses:
+            code = status.get("code", "")
+            if code.startswith("PowerState/"):
+                state_str = code.replace("PowerState/", "").lower()
+                state_map = {
+                    "running": VMState.RUNNING,
+                    "stopped": VMState.STOPPED,
+                    "deallocated": VMState.DEALLOCATED,
+                }
+                return state_map.get(state_str, VMState.UNKNOWN)
+
+        return VMState.UNKNOWN
+
+    def _extract_agent_healthy(self, instance_view: dict) -> bool:
+        """Extract VM Agent health from instance view.
+
+        The VM Agent status is the best indicator of OS health for
+        Bastion-only VMs where direct SSH port checks don't work.
+
+        Args:
+            instance_view: Instance view from Azure CLI
+
+        Returns:
+            True if VM Agent reports "Ready", False otherwise
+        """
+        vm_agent = instance_view.get("instanceView", {}).get("vmAgent", {})
+        if not vm_agent:
+            vm_agent = instance_view.get("vmAgent", {})
+
+        agent_statuses = vm_agent.get("statuses", [])
+        for status in agent_statuses:
+            display = status.get("displayStatus", "")
+            if display == "Ready":
+                return True
+
+        return False
+
     def get_vm_state(self, vm_name: str) -> VMState:
         """Get VM power state from Azure CLI.
 
@@ -155,170 +236,90 @@ class HealthMonitor:
             HealthCheckError: If Azure CLI call fails
         """
         try:
-            rg = self._get_resource_group()
-            command = [
-                "az",
-                "vm",
-                "get-instance-view",
-                "--name",
-                vm_name,
-                "--resource-group",
-                rg,
-                "--output",
-                "json",
-            ]
-            instance_view = self._run_az_command(command)
-
-            # Extract power state from instance view statuses
-            statuses = instance_view.get("instanceView", {}).get("statuses", [])
-            # Also check root-level statuses (get-instance-view format varies)
-            if not statuses:
-                statuses = instance_view.get("statuses", [])
-
-            for status in statuses:
-                code = status.get("code", "")
-                if code.startswith("PowerState/"):
-                    state_str = code.replace("PowerState/", "")
-                    state_map = {
-                        "running": VMState.RUNNING,
-                        "stopped": VMState.STOPPED,
-                        "deallocated": VMState.DEALLOCATED,
-                    }
-                    return state_map.get(state_str.lower(), VMState.UNKNOWN)
-
-            return VMState.UNKNOWN
+            instance_view = self._get_instance_view(vm_name)
+            return self._extract_power_state(instance_view)
         except HealthCheckError:
             raise
         except Exception as e:
             raise HealthCheckError(f"Failed to get VM state: {e}") from e
 
     def check_ssh_connectivity(self, vm_name: str, timeout: int = 10) -> bool:
-        """Check if SSH is reachable by testing TCP port 22.
+        """Check if VM is healthy using VM Agent status.
 
-        Uses a lightweight SSH connection test rather than requiring
-        full SSH client setup.
+        Uses VM Agent health from Azure instance view instead of direct
+        SSH port checks. This works for all VM types including
+        Bastion-only VMs with no public IP.
 
         Args:
             vm_name: VM name
-            timeout: Connection timeout in seconds
+            timeout: Unused (kept for API compatibility)
 
         Returns:
-            True if SSH is reachable, False otherwise
+            True if VM Agent is healthy, False otherwise
         """
         try:
-            # Get VM's IP address
-            ip = self._get_vm_ip(vm_name)
-            if not ip:
-                logger.debug(f"No IP found for {vm_name}")
-                return False
-
-            # Test SSH connectivity with a quick connection attempt
-            from azlin.modules.ssh_connector import SSHConnector
-
-            return SSHConnector._check_port_open(ip, 22, timeout=float(timeout))
+            instance_view = self._get_instance_view(vm_name)
+            return self._extract_agent_healthy(instance_view)
         except Exception as e:
-            logger.debug(f"SSH check failed for {vm_name}: {e}")
+            logger.debug(f"Agent health check failed for {vm_name}: {e}")
             return False
 
-    def _get_vm_ip(self, vm_name: str) -> str | None:
-        """Get VM IP address (public or private) for SSH checks.
+    def get_metrics(self, vm_name: str) -> VMMetrics | None:
+        """Get VM resource metrics via az vm run-command.
+
+        Uses Azure's management plane to execute commands on the VM,
+        which works regardless of SSH/Bastion configuration.
 
         Args:
             vm_name: VM name
 
         Returns:
-            IP address string or None
+            VMMetrics if successful, None on failure
         """
         try:
             rg = self._get_resource_group()
-            command = [
-                "az",
-                "vm",
-                "list-ip-addresses",
-                "--name",
-                vm_name,
-                "--resource-group",
-                rg,
-                "--output",
-                "json",
-            ]
-            result = self._run_az_command(command)
-
-            if not result or not isinstance(result, list) or len(result) == 0:
-                return None
-
-            vm_info = result[0]
-            network = vm_info.get("virtualMachine", {}).get("network", {})
-
-            # Try public IP first
-            public_ips = network.get("publicIpAddresses", [])
-            if public_ips:
-                ip = public_ips[0].get("ipAddress")
-                if ip:
-                    return ip
-
-            # Fall back to private IP
-            private_ips = network.get("privateIpAddresses", [])
-            if private_ips:
-                ip = private_ips[0].get("ipAddress")
-                if ip:
-                    return ip
-
-            return None
-        except Exception as e:
-            logger.debug(f"Failed to get IP for {vm_name}: {e}")
-            return None
-
-    def get_metrics(self, vm_name: str) -> VMMetrics | None:
-        """Get VM resource metrics via SSH.
-
-        Runs lightweight commands over SSH to gather CPU, memory, and
-        disk usage percentages.
-
-        Args:
-            vm_name: VM name
-
-        Returns:
-            VMMetrics if successful, None if SSH fails
-        """
-        try:
-            ip = self._get_vm_ip(vm_name)
-            if not ip:
-                return None
-
-            # Find SSH key
-            key_path = self._find_ssh_key()
-            if not key_path:
-                logger.debug("No SSH key found for metrics collection")
-                return None
-
-            from azlin.modules.ssh_connector import SSHConfig, SSHConnector
-
-            config = SSHConfig(
-                host=ip,
-                user="azureuser",
-                key_path=key_path,
-            )
-
-            # Single SSH command to get all metrics at once
-            metrics_cmd = (
+            metrics_script = (
                 "echo CPU=$(top -bn1 | grep 'Cpu(s)' | awk '{print $2}') && "
                 "echo MEM=$(free | awk '/Mem:/{printf \"%.1f\", $3/$2*100}') && "
                 "echo DISK=$(df / | awk 'NR==2{print $5}' | tr -d '%')"
             )
+            command = [
+                "az",
+                "vm",
+                "run-command",
+                "invoke",
+                "--name",
+                vm_name,
+                "--resource-group",
+                rg,
+                "--command-id",
+                "RunShellScript",
+                "--scripts",
+                metrics_script,
+                "--output",
+                "json",
+            ]
 
-            try:
-                output = SSHConnector.execute_remote_command(config, metrics_cmd, timeout=15)
-            except Exception as e:
-                logger.debug(f"SSH metrics command failed for {vm_name}: {e}")
+            result = self._run_az_command(command, timeout=60)
+
+            # Parse the run-command output
+            values = result.get("value", [])
+            if not values:
                 return None
 
-            # Parse output
+            message = values[0].get("message", "")
+            # Extract stdout section from message
+            stdout = ""
+            if "[stdout]" in message:
+                stdout = message.split("[stdout]")[1]
+                if "[stderr]" in stdout:
+                    stdout = stdout.split("[stderr]")[0]
+
             cpu = 0.0
             mem = 0.0
             disk = 0.0
 
-            for line in output.strip().split("\n"):
+            for line in stdout.strip().split("\n"):
                 line = line.strip()
                 if line.startswith("CPU="):
                     with contextlib.suppress(ValueError, IndexError):
@@ -335,25 +336,11 @@ class HealthMonitor:
             logger.debug(f"Failed to get metrics for {vm_name}: {e}")
             return None
 
-    def _find_ssh_key(self) -> Path | None:
-        """Find the SSH key for connecting to VMs.
-
-        Returns:
-            Path to SSH key or None
-        """
-        # Check common azlin key locations
-        candidates = [
-            Path.home() / ".ssh" / "azlin_key",
-            Path.home() / ".ssh" / "id_rsa",
-            Path.home() / ".ssh" / "id_ed25519",
-        ]
-        for key_path in candidates:
-            if key_path.exists():
-                return key_path
-        return None
-
     def check_vm_health(self, vm_name: str) -> HealthStatus:
         """Perform comprehensive health check on VM.
+
+        Gets state and agent health from a single instance view call,
+        then gathers metrics via run-command for running VMs.
 
         Args:
             vm_name: VM name
@@ -361,38 +348,70 @@ class HealthMonitor:
         Returns:
             HealthStatus with current health state
         """
-        # Get VM power state
-        state = self.get_vm_state(vm_name)
+        try:
+            instance_view = self._get_instance_view(vm_name)
+        except HealthCheckError:
+            raise
+        except Exception as e:
+            raise HealthCheckError(f"Failed to get instance view: {e}") from e
 
-        # Initialize values
-        ssh_reachable = False
+        # Extract state and agent health from the same instance view
+        state = self._extract_power_state(instance_view)
+        agent_healthy = (
+            self._extract_agent_healthy(instance_view) if state == VMState.RUNNING else False
+        )
+
         metrics = None
 
-        # Only check SSH if VM is running
-        if state == VMState.RUNNING:
-            ssh_reachable = self.check_ssh_connectivity(vm_name)
-
-            if ssh_reachable:
-                # Reset failure counter on success
-                self._ssh_failure_counts[vm_name] = 0
-                # Try to get metrics
-                metrics = self.get_metrics(vm_name)
-            else:
-                # Increment failure counter
-                current_failures = self._ssh_failure_counts.get(vm_name, 0)
-                self._ssh_failure_counts[vm_name] = current_failures + 1
-        else:
-            # Not running, SSH not reachable
-            ssh_reachable = False
+        if state == VMState.RUNNING and agent_healthy:
+            self._ssh_failure_counts[vm_name] = 0
+            metrics = self.get_metrics(vm_name)
+        elif state == VMState.RUNNING:
+            current_failures = self._ssh_failure_counts.get(vm_name, 0)
+            self._ssh_failure_counts[vm_name] = current_failures + 1
 
         return HealthStatus(
             vm_name=vm_name,
             state=state,
-            ssh_reachable=ssh_reachable,
+            ssh_reachable=agent_healthy,
             ssh_failures=self._ssh_failure_counts.get(vm_name, 0),
             last_check=datetime.now(UTC),
             metrics=metrics,
         )
+
+    def check_all_vms_health(
+        self, vm_names: list[str], max_workers: int = 5
+    ) -> list[tuple[str, HealthStatus | None, str | None]]:
+        """Check health for multiple VMs in parallel.
+
+        Args:
+            vm_names: List of VM names to check
+            max_workers: Max parallel workers
+
+        Returns:
+            List of (vm_name, health_status_or_none, error_or_none)
+        """
+        results: list[tuple[str, HealthStatus | None, str | None]] = []
+        num_workers = min(max_workers, len(vm_names))
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            future_to_vm = {executor.submit(self.check_vm_health, name): name for name in vm_names}
+
+            for future in as_completed(future_to_vm):
+                vm_name = future_to_vm[future]
+                try:
+                    status = future.result()
+                    results.append((vm_name, status, None))
+                except HealthCheckError as e:
+                    results.append((vm_name, None, str(e)))
+                except Exception as e:
+                    results.append((vm_name, None, f"Unexpected: {e}"))
+
+        # Sort by original order
+        name_order = {name: i for i, name in enumerate(vm_names)}
+        results.sort(key=lambda r: name_order.get(r[0], 999))
+
+        return results
 
 
 __all__ = [

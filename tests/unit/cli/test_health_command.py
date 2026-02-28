@@ -94,9 +94,9 @@ class TestHealthCommandExecution:
 
         mock_monitor = MagicMock()
         mock_monitor_cls.return_value = mock_monitor
-        mock_monitor.check_vm_health.side_effect = [
-            _make_health_status("vm-1", cpu=30.0, memory=50.0, disk=40.0),
-            _make_health_status("vm-2", cpu=80.0, memory=90.0, disk=70.0),
+        mock_monitor.check_all_vms_health.return_value = [
+            ("vm-1", _make_health_status("vm-1", cpu=30.0, memory=50.0, disk=40.0), None),
+            ("vm-2", _make_health_status("vm-2", cpu=80.0, memory=90.0, disk=70.0), None),
         ]
 
         runner = CliRunner()
@@ -132,15 +132,17 @@ class TestHealthCommandExecution:
 
         mock_monitor = MagicMock()
         mock_monitor_cls.return_value = mock_monitor
-        mock_monitor.check_vm_health.return_value = _make_health_status("target-vm")
+        mock_monitor.check_all_vms_health.return_value = [
+            ("target-vm", _make_health_status("target-vm"), None),
+        ]
 
         runner = CliRunner()
         result = runner.invoke(main, ["health", "--rg", "test-rg", "--vm", "target-vm"])
 
         assert result.exit_code == 0
         assert "target-vm" in result.output
-        # Should only have checked one VM
-        mock_monitor.check_vm_health.assert_called_once_with("target-vm")
+        # Should only check the filtered VM
+        mock_monitor.check_all_vms_health.assert_called_once_with(["target-vm"])
 
     @patch("azlin.commands.health.HealthMonitor")
     @patch("azlin.commands.health.TagManager")
@@ -154,9 +156,11 @@ class TestHealthCommandExecution:
 
         mock_monitor = MagicMock()
         mock_monitor_cls.return_value = mock_monitor
-        mock_monitor.check_vm_health.return_value = _make_health_status(
-            "stopped-vm", state=VMState.DEALLOCATED, ssh_reachable=False
-        )
+        mock_monitor.check_all_vms_health.return_value = [
+            ("stopped-vm", _make_health_status(
+                "stopped-vm", state=VMState.DEALLOCATED, ssh_reachable=False
+            ), None),
+        ]
 
         runner = CliRunner()
         result = runner.invoke(main, ["health", "--rg", "test-rg"])
@@ -179,15 +183,15 @@ class TestHealthCommandExecution:
     @patch("azlin.commands.health.ConfigManager")
     def test_health_check_failure_handled(self, mock_config_cls, mock_tag_cls, mock_monitor_cls):
         """HealthCheckError for a VM is handled gracefully."""
-        from azlin.lifecycle.health_monitor import HealthCheckError
-
         mock_config_cls.get_resource_group.return_value = "test-rg"
         vm1 = _make_vm_info("flaky-vm")
         mock_tag_cls.list_managed_vms.return_value = ([vm1], False)
 
         mock_monitor = MagicMock()
         mock_monitor_cls.return_value = mock_monitor
-        mock_monitor.check_vm_health.side_effect = HealthCheckError("Azure API down")
+        mock_monitor.check_all_vms_health.return_value = [
+            ("flaky-vm", None, "Azure API down"),
+        ]
 
         runner = CliRunner()
         result = runner.invoke(main, ["health", "--rg", "test-rg"])

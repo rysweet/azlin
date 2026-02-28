@@ -2,9 +2,9 @@
 
 Displays a Rich table showing health status for all managed VMs using
 the Four Golden Signals framework:
-    - Latency: SSH reachability
-    - Traffic: Active tmux sessions (via power state proxy)
-    - Errors: SSH failure count
+    - Latency: VM Agent health (OS responsiveness)
+    - Traffic: VM power state (running/stopped)
+    - Errors: Agent failure count
     - Saturation: CPU / Memory / Disk usage percentages
 
 Command:
@@ -23,7 +23,6 @@ import click
 
 from azlin.config_manager import ConfigManager
 from azlin.lifecycle.health_monitor import (
-    HealthCheckError,
     HealthMonitor,
     HealthStatus,
     VMState,
@@ -46,8 +45,8 @@ def _state_display(state: VMState) -> str:
     return state_map.get(state, str(state))
 
 
-def _ssh_display(status: HealthStatus) -> str:
-    """Format SSH reachability."""
+def _agent_display(status: HealthStatus) -> str:
+    """Format VM Agent health status."""
     if status.state != VMState.RUNNING:
         return click.style("-", fg="white")
     if status.ssh_reachable:
@@ -82,7 +81,9 @@ def _render_health_table(results: list[tuple[str, HealthStatus | None, str | Non
         results: List of (vm_name, health_status_or_none, error_message_or_none)
     """
     # Header
-    header = f"{'VM':<25} {'State':<15} {'SSH':<8} {'Errors':<8} {'CPU':<8} {'Mem':<8} {'Disk':<8}"
+    header = (
+        f"{'VM':<25} {'State':<15} {'Agent':<8} {'Errors':<8} {'CPU':<8} {'Mem':<8} {'Disk':<8}"
+    )
     click.echo()
     click.echo(click.style("VM Health Dashboard (Four Golden Signals)", bold=True))
     click.echo(click.style("-" * 70, fg="white"))
@@ -106,7 +107,7 @@ def _render_health_table(results: list[tuple[str, HealthStatus | None, str | Non
         click.echo(
             f"{vm_name:<25} "
             f"{_state_display(status.state):<24} "  # Extra width for ANSI codes
-            f"{_ssh_display(status):<17} "
+            f"{_agent_display(status):<17} "
             f"{_errors_display(status.ssh_failures):<17} "
             f"{_metric_display(cpu):<17} "
             f"{_metric_display(mem):<17} "
@@ -119,7 +120,7 @@ def _render_health_table(results: list[tuple[str, HealthStatus | None, str | Non
     # Legend
     click.echo(
         click.style("Signals: ", bold=True)
-        + "Latency=SSH | Traffic=State | Errors=SSH fails | Saturation=CPU/Mem/Disk"
+        + "Latency=Agent | Traffic=State | Errors=Agent fails | Saturation=CPU/Mem/Disk"
     )
     click.echo(
         click.style("Thresholds: ", bold=True)
@@ -141,14 +142,14 @@ def health(
     """Show VM health dashboard with Four Golden Signals.
 
     Displays health status for all managed VMs including:
-    power state, SSH reachability, error counts, and
+    power state, VM Agent health, error counts, and
     resource saturation (CPU, memory, disk).
 
     \b
     Four Golden Signals:
-        Latency:    SSH connection reachability
+        Latency:    VM Agent health (OS responsiveness)
         Traffic:    VM power state (running/stopped)
-        Errors:     SSH connection failure count
+        Errors:     Agent health failure count
         Saturation: CPU / Memory / Disk usage
 
     \b
@@ -181,20 +182,10 @@ def health(
 
         click.echo(f"Checking health for {len(vms)} VM(s) in {rg}...")
 
-        # Run health checks
+        # Run health checks in parallel
         monitor = HealthMonitor(resource_group=rg)
-        results: list[tuple[str, HealthStatus | None, str | None]] = []
-
-        for v in vms:
-            try:
-                status = monitor.check_vm_health(v.name)
-                results.append((v.name, status, None))
-            except HealthCheckError as e:
-                logger.debug(f"Health check failed for {v.name}: {e}")
-                results.append((v.name, None, str(e)))
-            except Exception as e:
-                logger.debug(f"Unexpected error checking {v.name}: {e}", exc_info=True)
-                results.append((v.name, None, f"Unexpected: {e}"))
+        vm_names = [v.name for v in vms]
+        results = monitor.check_all_vms_health(vm_names)
 
         # Display results
         _render_health_table(results)
