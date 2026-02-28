@@ -157,9 +157,11 @@ class TestHealthCommandExecution:
         mock_monitor = MagicMock()
         mock_monitor_cls.return_value = mock_monitor
         mock_monitor.check_all_vms_health.return_value = [
-            ("stopped-vm", _make_health_status(
-                "stopped-vm", state=VMState.DEALLOCATED, ssh_reachable=False
-            ), None),
+            (
+                "stopped-vm",
+                _make_health_status("stopped-vm", state=VMState.DEALLOCATED, ssh_reachable=False),
+                None,
+            ),
         ]
 
         runner = CliRunner()
