@@ -265,9 +265,7 @@ def _sync_key_if_auth_failed(
     if "permission denied" not in stderr_lower and "publickey" not in stderr_lower:
         return False
 
-    logger.info(
-        f"SSH auth failed for {vm.name} - syncing key via Azure Run Command API"
-    )
+    logger.info(f"SSH auth failed for {vm.name} - syncing key via Azure Run Command API")
 
     try:
         public_key = _SSHKeyManager.get_public_key(ssh_key_path)
@@ -282,10 +280,10 @@ def _sync_key_if_auth_failed(
         if sync_result.synced:
             logger.info(f"SSH key synced to {vm.name} in {sync_result.duration_ms}ms")
             return True
-        elif sync_result.already_present:
+        if sync_result.already_present:
             logger.debug(f"SSH key already present on {vm.name} (auth issue may be elsewhere)")
             return False
-        elif sync_result.error:
+        if sync_result.error:
             logger.warning(f"Key sync failed for {vm.name}: {sync_result.error}")
             return False
     except Exception as e:
@@ -432,13 +430,9 @@ def _collect_tmux_sessions(
                             # Auto-sync SSH key if auth fails (Issue #740)
                             # Tests SSH first; if "Permission denied", syncs key
                             # via Azure Run Command API and signals caller to retry.
-                            key_was_synced = _sync_key_if_auth_failed(
-                                ssh_config, vm, ssh_key_path
-                            )
+                            key_was_synced = _sync_key_if_auth_failed(ssh_config, vm, ssh_key_path)
                             if key_was_synced:
-                                logger.info(
-                                    f"Key synced for {vm.name}, retrying tmux query"
-                                )
+                                logger.info(f"Key synced for {vm.name}, retrying tmux query")
 
                             logger.debug(
                                 f"Querying VM {vm.name} via tunnel port {pooled_tunnel.tunnel.local_port}"
