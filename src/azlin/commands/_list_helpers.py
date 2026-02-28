@@ -420,9 +420,13 @@ def enrich_vm_data(
             monitor = HealthMonitor(resource_group=resource_group)
             vm_names = [vm.name for vm in vms]
             health_results = monitor.check_all_vms_health(vm_names)
-            for vm_name, status, _error in health_results:
-                if status is not None:
-                    health_by_vm[vm_name] = status
+            health_by_vm.update(
+                {
+                    vm_name: status
+                    for vm_name, status, _error in health_results
+                    if status is not None
+                }
+            )
         except Exception as e:
             click.echo(f"Warning: Failed to collect health data: {e}", err=True)
 

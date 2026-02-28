@@ -733,19 +733,21 @@ def list_command(
             return
 
         # Step 6: Enrich VMs with quota, tmux, latency, processes, health
-        quota_by_region, tmux_by_vm, latency_by_vm, active_procs_by_vm, health_by_vm = enrich_vm_data(
-            vms=vms,
-            was_cached=was_cached,
-            show_quota=show_quota,
-            show_tmux=show_tmux,
-            with_latency=with_latency,
-            show_procs=show_procs,
-            resource_group=ConfigManager.get_resource_group(resource_group, config),
-            verbose=verbose,
-            console=console,
-            _collect_tmux_sessions_fn=_collect_tmux_sessions,
-            _cache_tmux_sessions_fn=_cache_tmux_sessions,
-            with_health=with_health,
+        quota_by_region, tmux_by_vm, latency_by_vm, active_procs_by_vm, health_by_vm = (
+            enrich_vm_data(
+                vms=vms,
+                was_cached=was_cached,
+                show_quota=show_quota,
+                show_tmux=show_tmux,
+                with_latency=with_latency,
+                show_procs=show_procs,
+                resource_group=ConfigManager.get_resource_group(resource_group, config),
+                verbose=verbose,
+                console=console,
+                _collect_tmux_sessions_fn=_collect_tmux_sessions,
+                _cache_tmux_sessions_fn=_cache_tmux_sessions,
+                with_health=with_health,
+            )
         )
 
         # Step 7: Display quota summary and bastion hosts
