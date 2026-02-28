@@ -14,6 +14,7 @@ import os
 import random
 import sys
 import time
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -39,7 +40,7 @@ from azlin.network_security.bastion_connection_pool import (
     PooledTunnel,
     SecurityError,
 )
-from azlin.remote_exec import TmuxSession, TmuxSessionExecutor
+from azlin.remote_exec import RemoteExecutor, TmuxSession, TmuxSessionExecutor
 from azlin.ssh.latency import LatencyResult, SSHLatencyMeasurer
 from azlin.tag_manager import TagManager
 from azlin.vm_manager import VMInfo, VMManagerError
@@ -229,6 +230,70 @@ def _cache_tmux_sessions(
         cache.set_tmux(vm_name, rg, corrected_sessions)  # type: ignore[attr-defined]
 
 
+def _sync_key_if_auth_failed(
+    ssh_config: SSHConfig,
+    vm: VMInfo,
+    ssh_key_path: Path,
+) -> bool:
+    """Test SSH connectivity and sync key if authentication fails.
+
+    When azlin list detects SSH "Permission denied" (exit code 255), this
+    function syncs the local SSH public key to the VM via Azure Run Command
+    API (which doesn't require SSH) and returns True so the caller can retry.
+
+    Args:
+        ssh_config: SSH config for the tunnel connection
+        vm: VM info (name, resource_group)
+        ssh_key_path: Path to private key
+
+    Returns:
+        True if key was synced (caller should retry SSH), False otherwise
+    """
+    from azlin.modules.ssh_keys import SSHKeyManager as _SSHKeyManager
+    from azlin.modules.vm_key_sync import DEFAULT_TIMEOUT, VMKeySync
+
+    # Quick SSH test: run 'true' to check auth
+    result = RemoteExecutor.execute_command(ssh_config, "true", timeout=10)
+    if result.success:
+        return False  # SSH works fine, no sync needed
+
+    # Only sync on auth failures (exit code 255 = SSH protocol/auth error)
+    if result.exit_code != 255:
+        return False
+
+    stderr_lower = result.stderr.lower()
+    if "permission denied" not in stderr_lower and "publickey" not in stderr_lower:
+        return False
+
+    logger.info(
+        f"SSH auth failed for {vm.name} - syncing key via Azure Run Command API"
+    )
+
+    try:
+        public_key = _SSHKeyManager.get_public_key(ssh_key_path)
+        config = ConfigManager.load_config()
+        sync_manager = VMKeySync(config.to_dict())
+        sync_result = sync_manager.ensure_key_authorized(
+            vm_name=vm.name,
+            resource_group=vm.resource_group,
+            public_key=public_key,
+            timeout=DEFAULT_TIMEOUT,
+        )
+        if sync_result.synced:
+            logger.info(f"SSH key synced to {vm.name} in {sync_result.duration_ms}ms")
+            return True
+        elif sync_result.already_present:
+            logger.debug(f"SSH key already present on {vm.name} (auth issue may be elsewhere)")
+            return False
+        elif sync_result.error:
+            logger.warning(f"Key sync failed for {vm.name}: {sync_result.error}")
+            return False
+    except Exception as e:
+        logger.warning(f"Key sync attempt failed for {vm.name}: {e}")
+
+    return False
+
+
 def _collect_tmux_sessions(
     vms: list[VMInfo], with_latency: bool = False
 ) -> tuple[dict[str, list[TmuxSession]], dict[str, LatencyResult]]:
@@ -364,15 +429,17 @@ def _collect_tmux_sessions(
                                 key_path=ssh_key_path,
                             )
 
-                            # Debug: Log which VM this tunnel targets
-                            logger.debug(
-                                f"Querying tmux on tunnel port {pooled_tunnel.tunnel.local_port} "
-                                f"for VM {vm.name} (resource_id={vm_resource_id})"
+                            # Auto-sync SSH key if auth fails (Issue #740)
+                            # Tests SSH first; if "Permission denied", syncs key
+                            # via Azure Run Command API and signals caller to retry.
+                            key_was_synced = _sync_key_if_auth_failed(
+                                ssh_config, vm, ssh_key_path
                             )
+                            if key_was_synced:
+                                logger.info(
+                                    f"Key synced for {vm.name}, retrying tmux query"
+                                )
 
-                            # Get sessions for this VM with EXPLICIT vm_name (not from ssh_config!)
-                            # This ensures sessions have correct vm_name from the start
-                            # DEBUG: Log tunnel mapping
                             logger.debug(
                                 f"Querying VM {vm.name} via tunnel port {pooled_tunnel.tunnel.local_port}"
                             )
