@@ -305,6 +305,8 @@ def enrich_vm_data(
             click.echo(f"Warning: Failed to fetch quota information: {e}", err=True)
 
     # Collect tmux session information if enabled
+    # bastion_latency_by_vm: populated opportunistically when with_latency=True and tunnels exist
+    bastion_latency_by_vm: dict[str, LatencyResult] = {}
     if show_tmux:
         from azlin.cache.vm_list_cache import VMListCache
 
@@ -327,15 +329,15 @@ def enrich_vm_data(
                     break
 
             if all_fresh and tmux_from_cache:
-                # All tmux data is fresh - use cache
+                # All tmux data is fresh - use cache (no tunnels available for latency)
                 tmux_by_vm = tmux_from_cache
                 if verbose:
                     click.echo("[TMUX CACHE HIT] Using cached tmux sessions")
             else:
-                # Some stale - collect fresh
+                # Some stale - collect fresh (tunnels created, latency measured opportunistically)
                 if verbose:
                     click.echo(f"Collecting tmux sessions from {len(vms)} VMs...")
-                tmux_by_vm = _collect_tmux_sessions_fn(vms)
+                tmux_by_vm, bastion_latency_by_vm = _collect_tmux_sessions_fn(vms, with_latency)
                 if resource_group:
                     _cache_tmux_sessions_fn(tmux_by_vm, resource_group, cache)
         else:
@@ -345,11 +347,11 @@ def enrich_vm_data(
                 with console.status(
                     f"[dim]Collecting tmux sessions from {running_count} VMs...[/dim]"
                 ):
-                    tmux_by_vm = _collect_tmux_sessions_fn(vms)
+                    tmux_by_vm, bastion_latency_by_vm = _collect_tmux_sessions_fn(vms, with_latency)
             else:
                 if verbose:
                     click.echo(f"Collecting tmux sessions from {running_count} VMs...")
-                tmux_by_vm = _collect_tmux_sessions_fn(vms)
+                tmux_by_vm, bastion_latency_by_vm = _collect_tmux_sessions_fn(vms, with_latency)
 
             # Cache the collected sessions
             if resource_group:
@@ -361,14 +363,14 @@ def enrich_vm_data(
             # Use default SSH key path
             ssh_key_path = "~/.ssh/id_rsa"
 
-            # Measure latencies in parallel
-            console_temp = Console()
-            console_temp.print("[dim]Measuring SSH latency for running VMs...[/dim]")
+            console.print("[dim]Measuring SSH latency for running VMs...[/dim]")
 
             measurer = SSHLatencyMeasurer(timeout=5.0, max_workers=10)
             latency_by_vm = measurer.measure_batch(
                 vms=vms, ssh_user="azureuser", ssh_key_path=ssh_key_path
             )
+            # Merge in Bastion tunnel measurements (overrides the "bastion" placeholder)
+            latency_by_vm.update(bastion_latency_by_vm)
         except Exception as e:
             click.echo(f"Warning: Failed to measure latencies: {e}", err=True)
 
