@@ -195,6 +195,91 @@ mod tests {
     }
 
     #[test]
+    fn test_csv_escape_newline() {
+        assert_eq!(csv_escape("has\nnewline"), "\"has\nnewline\"");
+    }
+
+    #[test]
+    fn test_csv_escape_empty() {
+        assert_eq!(csv_escape(""), "");
+    }
+
+    #[test]
+    fn test_csv_escape_no_special_chars() {
+        assert_eq!(csv_escape("plain text"), "plain text");
+        assert_eq!(csv_escape("12345"), "12345");
+    }
+
+    #[test]
+    fn test_csv_escape_multiple_commas() {
+        assert_eq!(csv_escape("a,b,c"), "\"a,b,c\"");
+    }
+
+    #[test]
+    fn test_csv_escape_multiple_quotes() {
+        assert_eq!(csv_escape(r#"a"b"c"#), r#""a""b""c""#);
+    }
+
+    #[test]
+    fn test_csv_escape_comma_and_quote() {
+        assert_eq!(csv_escape(r#"a,"b""#), r#""a,""b""""#);
+    }
+
+    #[test]
+    fn test_render_tags_table_empty() {
+        let tags = HashMap::new();
+        // Should not panic
+        render_tags_table("test-vm", &tags);
+    }
+
+    #[test]
+    fn test_render_tags_table_with_tags() {
+        let mut tags = HashMap::new();
+        tags.insert("env".to_string(), "prod".to_string());
+        tags.insert("team".to_string(), "backend".to_string());
+        // Should not panic
+        render_tags_table("test-vm", &tags);
+    }
+
+    #[test]
+    fn test_render_all_power_states() {
+        let states = vec![
+            PowerState::Running,
+            PowerState::Stopped,
+            PowerState::Deallocated,
+            PowerState::Starting,
+            PowerState::Stopping,
+            PowerState::Unknown,
+        ];
+        for state in states {
+            let vms = vec![mock_vm("vm", state, Some("1.2.3.4"), None)];
+            render_vm_table(&vms, &OutputFormat::Table);
+        }
+    }
+
+    #[test]
+    fn test_render_json_empty() {
+        render_vm_table(&[], &OutputFormat::Json);
+    }
+
+    #[test]
+    fn test_render_csv_empty() {
+        render_vm_table(&[], &OutputFormat::Csv);
+    }
+
+    #[test]
+    fn test_render_vm_no_ips() {
+        let mut vm = mock_vm("vm-1", PowerState::Running, None, None);
+        vm.private_ip = None;
+        let ip = vm
+            .public_ip
+            .as_deref()
+            .or(vm.private_ip.as_deref())
+            .unwrap_or("-");
+        assert_eq!(ip, "-");
+    }
+
+    #[test]
     fn test_render_uses_public_ip_over_private() {
         let vm = mock_vm("vm-1", PowerState::Running, Some("1.2.3.4"), None);
         // The public IP should be preferred; we test via CSV output

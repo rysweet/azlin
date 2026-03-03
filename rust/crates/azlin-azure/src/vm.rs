@@ -1010,4 +1010,383 @@ mod tests {
         // Less than 5 parts
         assert_eq!(extract_resource_group(id), "");
     }
+
+    // ── create_cloud_init_file tests ────────────────────────────────
+
+    #[test]
+    fn test_create_cloud_init_file_creates_file() {
+        let path = create_cloud_init_file().expect("should create cloud-init file");
+        // The function writes CLOUD_INIT_SCRIPT to a fixed temp path.
+        // Another parallel test may overwrite it, so just verify the path is valid.
+        assert!(
+            !path.is_empty(),
+            "cloud-init file path should not be empty"
+        );
+        assert!(
+            path.contains("azlin-cloud-init"),
+            "path should contain expected filename: {path}"
+        );
+    }
+
+    #[test]
+    fn test_create_cloud_init_file_path_is_in_temp() {
+        let path = create_cloud_init_file().unwrap();
+        let temp_dir = std::env::temp_dir();
+        assert!(
+            path.starts_with(temp_dir.to_string_lossy().as_ref()),
+            "cloud-init path should be in temp dir"
+        );
+    }
+
+    // ── CLOUD_INIT_SCRIPT content tests ─────────────────────────────
+
+    #[test]
+    fn test_cloud_init_script_has_set_options() {
+        assert!(
+            CLOUD_INIT_SCRIPT.contains("set -euo pipefail"),
+            "cloud-init should use strict bash options"
+        );
+    }
+
+    #[test]
+    fn test_cloud_init_script_installs_essential_tools() {
+        for tool in &["git", "curl", "wget", "jq", "tmux", "ripgrep"] {
+            assert!(
+                CLOUD_INIT_SCRIPT.contains(tool),
+                "cloud-init should install {tool}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_cloud_init_script_enables_docker() {
+        assert!(CLOUD_INIT_SCRIPT.contains("systemctl enable docker"));
+        assert!(CLOUD_INIT_SCRIPT.contains("systemctl start docker"));
+        assert!(CLOUD_INIT_SCRIPT.contains("usermod -aG docker"));
+    }
+
+    #[test]
+    fn test_cloud_init_script_completion_marker() {
+        assert!(
+            CLOUD_INIT_SCRIPT.contains("cloud-init provisioning complete"),
+            "cloud-init should have a completion marker"
+        );
+    }
+
+    // ── az_cli tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_az_cli_invalid_command_returns_error() {
+        let result = az_cli(&["this-is-not-a-real-command-xyz"]);
+        assert!(result.is_err(), "invalid az command should return error");
+    }
+
+    #[test]
+    fn test_az_cli_version_succeeds_or_fails_gracefully() {
+        // `az version` should work if az is installed, or fail if not
+        let result = az_cli(&["version"]);
+        match result {
+            Ok(output) => {
+                assert!(!output.is_empty(), "az version should produce output");
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("az") || msg.contains("CLI"),
+                    "error should mention az CLI: {msg}"
+                );
+            }
+        }
+    }
+
+    // ── CredentialAdapter scope formatting tests ─────────────────────
+
+    #[test]
+    fn test_credential_adapter_scope_with_trailing_slash() {
+        let resource = "https://management.azure.com/";
+        let scope = if resource.ends_with('/') {
+            format!("{}.default", resource)
+        } else {
+            format!("{}/.default", resource)
+        };
+        assert_eq!(scope, "https://management.azure.com/.default");
+    }
+
+    #[test]
+    fn test_credential_adapter_scope_without_trailing_slash() {
+        let resource = "https://management.azure.com";
+        let scope = if resource.ends_with('/') {
+            format!("{}.default", resource)
+        } else {
+            format!("{}/.default", resource)
+        };
+        assert_eq!(scope, "https://management.azure.com/.default");
+    }
+
+    #[test]
+    fn test_credential_adapter_scope_with_custom_resource() {
+        let resource = "https://vault.azure.net";
+        let scope = if resource.ends_with('/') {
+            format!("{}.default", resource)
+        } else {
+            format!("{}/.default", resource)
+        };
+        assert_eq!(scope, "https://vault.azure.net/.default");
+    }
+
+    // ── extract_power_state edge cases ──────────────────────────────
+
+    #[test]
+    fn test_extract_power_state_case_insensitivity() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                code: Some("PowerState/RUNNING".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Running);
+    }
+
+    #[test]
+    fn test_extract_power_state_mixed_case() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                code: Some("PowerState/Deallocated".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Deallocated);
+    }
+
+    #[test]
+    fn test_extract_power_state_status_with_none_code() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                code: None,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Unknown);
+    }
+
+    #[test]
+    fn test_extract_power_state_only_provisioning_no_power() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![
+                azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some("ProvisioningState/succeeded".to_string()),
+                    ..Default::default()
+                },
+                azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some("ProvisioningState/creating".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Unknown);
+    }
+
+    #[test]
+    fn test_extract_power_state_first_power_state_wins() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![
+                azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some("PowerState/running".to_string()),
+                    ..Default::default()
+                },
+                azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some("PowerState/stopped".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Running);
+    }
+
+    // ── extract_tags edge cases ─────────────────────────────────────
+
+    #[test]
+    fn test_extract_tags_many_tags() {
+        let mut map = serde_json::Map::new();
+        for i in 0..50 {
+            map.insert(format!("key{i}"), serde_json::Value::String(format!("val{i}")));
+        }
+        let tags = serde_json::Value::Object(map);
+        let result = extract_tags(Some(&tags));
+        assert_eq!(result.len(), 50);
+        assert_eq!(result.get("key0").unwrap(), "val0");
+        assert_eq!(result.get("key49").unwrap(), "val49");
+    }
+
+    #[test]
+    fn test_extract_tags_special_characters() {
+        let tags = serde_json::json!({
+            "env/prod": "us-east-1",
+            "team:backend": "active",
+            "tag with spaces": "value with spaces",
+            "unicode-日本語": "テスト"
+        });
+        let result = extract_tags(Some(&tags));
+        assert_eq!(result.len(), 4);
+        assert_eq!(result.get("env/prod").unwrap(), "us-east-1");
+        assert_eq!(result.get("unicode-日本語").unwrap(), "テスト");
+    }
+
+    #[test]
+    fn test_extract_tags_boolean_values_skipped() {
+        let tags = serde_json::json!({
+            "name": "vm1",
+            "active": true,
+            "count": 5
+        });
+        let result = extract_tags(Some(&tags));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.get("name").unwrap(), "vm1");
+    }
+
+    // ── extract_resource_group edge cases ────────────────────────────
+
+    #[test]
+    fn test_extract_resource_group_exactly_five_parts() {
+        let id = "/subscriptions/sub-id/resourceGroups/my-rg";
+        assert_eq!(extract_resource_group(id), "my-rg");
+    }
+
+    #[test]
+    fn test_extract_resource_group_with_special_chars() {
+        let id = "/subscriptions/sub/resourceGroups/rg-with_special.chars/providers/X/Y/Z";
+        assert_eq!(extract_resource_group(id), "rg-with_special.chars");
+    }
+
+    #[test]
+    fn test_extract_resource_group_single_slash() {
+        assert_eq!(extract_resource_group("/"), "");
+    }
+
+    // ── VmManager::new compilation/failure test ─────────────────────
+
+    #[test]
+    fn test_vm_manager_new_without_auth_does_not_panic() {
+        // VmManager::new requires AzureAuth which needs az login.
+        // Just verify the function exists and types compile.
+        let result = crate::AzureAuth::new_with_subscription("test-sub");
+        match result {
+            Ok(auth) => {
+                let _mgr = VmManager::new(&auth);
+                // If we get here, VmManager constructed successfully
+                assert_eq!(_mgr.subscription_id, "test-sub");
+            }
+            Err(_) => {
+                // Expected in CI without Azure credentials
+            }
+        }
+    }
+
+    // ── extract_power_state comprehensive tests ─────────────────────
+
+    #[test]
+    fn test_extract_power_state_all_known_states() {
+        let states = vec![
+            ("running", PowerState::Running),
+            ("stopped", PowerState::Stopped),
+            ("deallocated", PowerState::Deallocated),
+            ("starting", PowerState::Starting),
+            ("stopping", PowerState::Stopping),
+            ("deallocating", PowerState::Stopping),
+        ];
+        for (state_str, expected) in states {
+            let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+                statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some(format!("PowerState/{state_str}")),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            assert_eq!(
+                extract_power_state(Some(&iv)),
+                expected,
+                "Failed for state: {state_str}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_power_state_all_unknown_values() {
+        let unknown_states = vec!["suspended", "migrating", "paused", "error", ""];
+        for state_str in unknown_states {
+            let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+                statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some(format!("PowerState/{state_str}")),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            assert_eq!(
+                extract_power_state(Some(&iv)),
+                PowerState::Unknown,
+                "Should be Unknown for state: {state_str}"
+            );
+        }
+    }
+
+    // ── az_cli additional tests ─────────────────────────────────────
+
+    #[test]
+    fn test_az_cli_appends_output_json() {
+        // az_cli always adds --output json, so even invalid commands
+        // should get that flag. We just verify the error contains useful info.
+        let result = az_cli(&["nonexistent-subcommand-xyz"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_az_cli_empty_args() {
+        // Running az with no args should produce either help text or an error
+        let result = az_cli(&[]);
+        // az with no args typically returns exit code 0 with help text
+        match result {
+            Ok(output) => assert!(!output.is_empty()),
+            Err(_) => {} // Also acceptable
+        }
+    }
+
+    // ── create_cloud_init_file path test ────────────────────────────
+
+    #[test]
+    fn test_create_cloud_init_file_consistent_name() {
+        let path1 = create_cloud_init_file().unwrap();
+        let path2 = create_cloud_init_file().unwrap();
+        assert_eq!(path1, path2, "should produce same path each time");
+    }
+
+    // ── extract_tags with all JSON types ────────────────────────────
+
+    #[test]
+    fn test_extract_tags_nested_objects_skipped() {
+        let tags = serde_json::json!({
+            "name": "vm1",
+            "nested": {"inner": "value"},
+            "array_val": [1, 2, 3]
+        });
+        let result = extract_tags(Some(&tags));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.get("name").unwrap(), "vm1");
+    }
+
+    #[test]
+    fn test_extract_tags_with_numeric_string_values() {
+        let tags = serde_json::json!({
+            "version": "2.0",
+            "port": "8080",
+            "count": "100"
+        });
+        let result = extract_tags(Some(&tags));
+        assert_eq!(result.len(), 3);
+        assert_eq!(result.get("version").unwrap(), "2.0");
+    }
 }

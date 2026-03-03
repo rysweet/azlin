@@ -1258,6 +1258,28 @@ pub enum StorageAction {
         #[arg(long)]
         force: bool,
     },
+    /// Mount Azure Files share to local machine
+    #[command(name = "mount-file")]
+    MountFile {
+        /// Storage account name
+        #[arg(long)]
+        account: String,
+        /// File share name
+        #[arg(long, default_value = "home")]
+        share: String,
+        /// Local mount point
+        #[arg(long)]
+        mount_point: Option<PathBuf>,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Unmount Azure Files share from local machine
+    #[command(name = "unmount-file")]
+    UnmountFile {
+        /// Local mount point to unmount
+        #[arg(long)]
+        mount_point: Option<PathBuf>,
+    },
 }
 
 // ── Keys subcommands ──────────────────────────────────────────────────────
@@ -1784,6 +1806,12 @@ pub enum ContextAction {
         /// Force migration even if contexts exist
         #[arg(short, long)]
         force: bool,
+    },
+    /// Alias for show — display current active context
+    #[command(hide = true)]
+    Current {
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
 }
 

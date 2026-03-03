@@ -498,4 +498,174 @@ mod tests {
         assert!(debug.contains("host"));
         assert!(debug.contains("user"));
     }
+
+    // ── Additional SshConfig tests ──────────────────────────────────
+
+    #[test]
+    fn test_ssh_config_new_with_string_types() {
+        let cfg = SshConfig::new(String::from("myhost"), String::from("myuser"), PathBuf::from("/key"));
+        assert_eq!(cfg.host, "myhost");
+        assert_eq!(cfg.username, "myuser");
+    }
+
+    #[test]
+    fn test_ssh_config_pool_key_uniqueness() {
+        let cfg1 = SshConfig::new("host1", "user", PathBuf::from("/key"));
+        let cfg2 = SshConfig::new("host2", "user", PathBuf::from("/key"));
+        let cfg3 = SshConfig::new("host1", "admin", PathBuf::from("/key"));
+        assert_ne!(cfg1.pool_key(), cfg2.pool_key());
+        assert_ne!(cfg1.pool_key(), cfg3.pool_key());
+        assert_ne!(cfg2.pool_key(), cfg3.pool_key());
+    }
+
+    #[test]
+    fn test_ssh_config_pool_key_same_for_clones() {
+        let cfg = SshConfig::new("host", "user", PathBuf::from("/key"));
+        let cfg2 = cfg.clone();
+        assert_eq!(cfg.pool_key(), cfg2.pool_key());
+    }
+
+    #[test]
+    fn test_ssh_config_with_ipv6() {
+        let cfg = SshConfig::new("::1", "user", PathBuf::from("/key"));
+        assert_eq!(cfg.pool_key(), "user@::1:22");
+    }
+
+    #[test]
+    fn test_ssh_config_with_fqdn() {
+        let cfg = SshConfig::new("vm.internal.cloudapp.azure.com", "azureuser", PathBuf::from("/key"));
+        assert_eq!(cfg.host, "vm.internal.cloudapp.azure.com");
+        assert_eq!(cfg.pool_key(), "azureuser@vm.internal.cloudapp.azure.com:22");
+    }
+
+    #[test]
+    fn test_ssh_config_key_path_preserved() {
+        let path = PathBuf::from("/home/user/.ssh/id_ed25519");
+        let cfg = SshConfig::new("host", "user", path.clone());
+        assert_eq!(cfg.key_path, path);
+    }
+
+    #[test]
+    fn test_ssh_config_timeout_modification() {
+        let mut cfg = SshConfig::new("host", "user", PathBuf::from("/key"));
+        assert_eq!(cfg.timeout, Duration::from_secs(30));
+        cfg.timeout = Duration::from_secs(5);
+        assert_eq!(cfg.timeout, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_ssh_config_all_fields_in_debug() {
+        let cfg = SshConfig {
+            host: "10.0.0.1".into(),
+            port: 2222,
+            username: "admin".into(),
+            key_path: PathBuf::from("/tmp/key"),
+            timeout: Duration::from_secs(10),
+        };
+        let debug = format!("{:?}", cfg);
+        assert!(debug.contains("10.0.0.1"));
+        assert!(debug.contains("2222"));
+        assert!(debug.contains("admin"));
+        assert!(debug.contains("/tmp/key"));
+    }
+
+    // ── Additional SshPool tests ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_pool_default_impl() {
+        let pool = SshPool::default();
+        assert_eq!(pool.max_connections, 20);
+        assert_eq!(pool.idle_timeout, Duration::from_secs(300));
+        assert_eq!(pool.pool_size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_pool_small_capacity() {
+        let pool = SshPool::new(1, Duration::from_secs(10));
+        assert_eq!(pool.max_connections, 1);
+        assert_eq!(pool.idle_timeout, Duration::from_secs(10));
+    }
+
+    #[tokio::test]
+    async fn test_pool_large_capacity() {
+        let pool = SshPool::new(1000, Duration::from_secs(3600));
+        assert_eq!(pool.max_connections, 1000);
+        assert_eq!(pool.idle_timeout, Duration::from_secs(3600));
+    }
+
+    #[tokio::test]
+    async fn test_pool_close_all_idempotent() {
+        let pool = SshPool::new(5, Duration::from_secs(60));
+        pool.close_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_pool_get_or_connect_different_keys_fail() {
+        let pool = SshPool::new(5, Duration::from_secs(120));
+        let cfg1 = SshConfig::new("127.0.0.1", "user1", PathBuf::from("/nonexistent/key1"));
+        let cfg2 = SshConfig::new("127.0.0.2", "user2", PathBuf::from("/nonexistent/key2"));
+        assert!(pool.get_or_connect(&cfg1).await.is_err());
+        assert!(pool.get_or_connect(&cfg2).await.is_err());
+        assert_eq!(pool.pool_size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_pool_zero_capacity() {
+        let pool = SshPool::new(0, Duration::from_secs(60));
+        assert_eq!(pool.max_connections, 0);
+        let cfg = SshConfig::new("127.0.0.1", "user", PathBuf::from("/nonexistent/key"));
+        // Should fail at key loading, not at capacity
+        assert!(pool.get_or_connect(&cfg).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pool_zero_idle_timeout() {
+        let pool = SshPool::new(5, Duration::from_secs(0));
+        assert_eq!(pool.idle_timeout, Duration::from_secs(0));
+    }
+
+    // ── SshClient connect failure path tests ────────────────────────
+
+    #[tokio::test]
+    async fn test_connect_with_empty_key_file() {
+        let keyfile = NamedTempFile::new().unwrap();
+        let cfg = SshConfig::new("127.0.0.1", "user", keyfile.path().to_path_buf());
+        let result = SshClient::connect(&cfg).await;
+        assert!(result.is_err());
+        let err = result.err().unwrap().to_string();
+        assert!(
+            err.contains("key") || err.contains("Key"),
+            "error should mention key: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_connect_with_invalid_key_content() {
+        let keyfile = NamedTempFile::new().unwrap();
+        std::fs::write(keyfile.path(), "not a valid ssh key").unwrap();
+        let cfg = SshConfig::new("127.0.0.1", "user", keyfile.path().to_path_buf());
+        let result = SshClient::connect(&cfg).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pool_get_or_connect_with_empty_key() {
+        let pool = SshPool::new(5, Duration::from_secs(120));
+        let keyfile = NamedTempFile::new().unwrap();
+        let cfg = SshConfig::new("127.0.0.1", "user", keyfile.path().to_path_buf());
+        let result = pool.get_or_connect(&cfg).await;
+        assert!(result.is_err());
+        assert_eq!(pool.pool_size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_pool_get_or_connect_with_invalid_key_content() {
+        let pool = SshPool::new(5, Duration::from_secs(120));
+        let keyfile = NamedTempFile::new().unwrap();
+        std::fs::write(keyfile.path(), "invalid-key-data").unwrap();
+        let cfg = SshConfig::new("10.255.255.1", "user", keyfile.path().to_path_buf());
+        let result = pool.get_or_connect(&cfg).await;
+        assert!(result.is_err());
+        assert_eq!(pool.pool_size().await, 0);
+    }
 }

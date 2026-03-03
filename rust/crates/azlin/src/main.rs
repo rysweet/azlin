@@ -1452,6 +1452,73 @@ async fn main() -> Result<()> {
                     std::process::exit(1);
                 }
             }
+            azlin_cli::StorageAction::MountFile {
+                account,
+                share,
+                mount_point,
+                resource_group,
+            } => {
+                let rg = resolve_resource_group(resource_group)?;
+                let mount_dir = mount_point
+                    .unwrap_or_else(|| std::path::PathBuf::from(format!("/mnt/{}", account)));
+
+                // Get storage account key
+                let key_output = std::process::Command::new("az")
+                    .args([
+                        "storage", "account", "keys", "list",
+                        "--account-name", &account,
+                        "--resource-group", &rg,
+                        "--query", "[0].value",
+                        "-o", "tsv",
+                    ])
+                    .output()?;
+
+                if !key_output.status.success() {
+                    let stderr = String::from_utf8_lossy(&key_output.stderr);
+                    eprintln!("Failed to get storage account key: {}", stderr.trim());
+                    std::process::exit(1);
+                }
+
+                let key = String::from_utf8_lossy(&key_output.stdout).trim().to_string();
+                let unc = format!("//{}.file.core.windows.net/{}", account, share);
+                let mount_str = mount_dir.display().to_string();
+
+                // Create mount point and mount
+                let _ = std::process::Command::new("sudo")
+                    .args(["mkdir", "-p", &mount_str])
+                    .status();
+
+                let status = std::process::Command::new("sudo")
+                    .args([
+                        "mount", "-t", "cifs",
+                        &unc, &mount_str,
+                        "-o", &format!("vers=3.0,username={},password={},serverino,nosharesock,actimeo=30", account, key),
+                    ])
+                    .status()?;
+
+                if status.success() {
+                    println!("Mounted '{}' at {}", share, mount_str);
+                } else {
+                    eprintln!("Failed to mount Azure Files share.");
+                    std::process::exit(1);
+                }
+            }
+            azlin_cli::StorageAction::UnmountFile { mount_point } => {
+                let mount_str = mount_point
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "/mnt".to_string());
+
+                let status = std::process::Command::new("sudo")
+                    .args(["umount", &mount_str])
+                    .status()?;
+
+                if status.success() {
+                    println!("Unmounted '{}'", mount_str);
+                } else {
+                    eprintln!("Failed to unmount '{}'.", mount_str);
+                    std::process::exit(1);
+                }
+            }
         },
         azlin_cli::Commands::Keys { action } => match action {
             azlin_cli::KeysAction::List { .. } => {
@@ -3192,6 +3259,13 @@ async fn main() -> Result<()> {
                 }
                 azlin_cli::ContextAction::Migrate { .. } => {
                     println!("Context migration: no legacy configuration found.");
+                }
+                azlin_cli::ContextAction::Current { .. } => {
+                    let current_path = azlin_dir.join("current");
+                    match std::fs::read_to_string(&current_path) {
+                        Ok(name) => println!("Current context: {}", name.trim()),
+                        Err(_) => println!("No context selected."),
+                    }
                 }
             }
         }
