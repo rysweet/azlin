@@ -2050,6 +2050,9 @@ pub enum SessionsAction {
         vms: Vec<String>,
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Session description
+        #[arg(long)]
+        description: Option<String>,
     },
     /// Load a saved session
     Load {
@@ -2060,6 +2063,9 @@ pub enum SessionsAction {
     Delete {
         /// Session name
         session_name: String,
+        /// Skip confirmation prompt
+        #[arg(long, short)]
+        force: bool,
     },
     /// List saved sessions
     List,
@@ -3425,10 +3431,11 @@ mod tests {
     fn test_sessions_delete() {
         let cli = Cli::parse_from(["azlin", "sessions", "delete", "old-session"]);
         if let Commands::Sessions {
-            action: SessionsAction::Delete { session_name },
+            action: SessionsAction::Delete { session_name, force },
         } = cli.command
         {
             assert_eq!(session_name, "old-session");
+            assert!(!force);
         } else {
             panic!("Expected Sessions Delete");
         }

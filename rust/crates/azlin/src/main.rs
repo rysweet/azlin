@@ -3693,7 +3693,10 @@ async fn async_main() -> Result<()> {
                 }
                 println!("  Created:        {}", created);
             }
-            azlin_cli::SessionsAction::Delete { session_name } => {
+            azlin_cli::SessionsAction::Delete {
+                session_name,
+                force,
+            } => {
                 let path = dirs::home_dir()
                     .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
                     .join(".azlin")
@@ -3702,6 +3705,16 @@ async fn async_main() -> Result<()> {
                 if !path.exists() {
                     eprintln!("Session '{}' not found.", session_name);
                     std::process::exit(1);
+                }
+                if !force {
+                    let confirmed = Confirm::new()
+                        .with_prompt(format!("Delete session '{}'?", session_name))
+                        .default(false)
+                        .interact()?;
+                    if !confirmed {
+                        println!("Cancelled.");
+                        return Ok(());
+                    }
                 }
                 std::fs::remove_file(&path)?;
                 println!("Deleted session '{}'.", session_name);
@@ -7141,7 +7154,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
         let output = assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
-            .args(["sessions", "delete", "delete-me"])
+            .args(["sessions", "delete", "delete-me", "--force"])
             .env("HOME", dir.path())
             .output()
             .unwrap();
