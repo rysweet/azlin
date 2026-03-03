@@ -824,7 +824,7 @@ async fn async_main() -> Result<()> {
 
             // Show quota summary if requested
             if quota {
-                let rg = resource_group
+                let _rg = resource_group
                     .or_else(|| {
                         azlin_core::AzlinConfig::load()
                             .ok()
@@ -4431,7 +4431,7 @@ async fn async_main() -> Result<()> {
                         let sub = cfg
                             .default_resource_group
                             .as_ref()
-                            .map(|_| {
+                            .and_then(|_| {
                                 // Try to read subscription from az account
                                 let out = std::process::Command::new("az")
                                     .args(["account", "show", "--query", "id", "-o", "tsv"])
@@ -4448,8 +4448,7 @@ async fn async_main() -> Result<()> {
                                         None
                                     }
                                 })
-                            })
-                            .flatten();
+                            });
                         let tenant = std::process::Command::new("az")
                             .args(["account", "show", "--query", "tenantId", "-o", "tsv"])
                             .output()
