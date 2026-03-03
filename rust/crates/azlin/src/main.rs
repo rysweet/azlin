@@ -1074,87 +1074,7 @@ async fn async_main() -> Result<()> {
             let summary = azlin_azure::get_cost_summary(&auth, &rg).await?;
             pb.finish_and_clear();
 
-            match &cli.output {
-                azlin_cli::OutputFormat::Json => {
-                    match serde_json::to_string_pretty(&summary) {
-                        Ok(json) => println!("{json}"),
-                        Err(e) => eprintln!("Failed to serialize cost data: {e}"),
-                    }
-                }
-                azlin_cli::OutputFormat::Csv | azlin_cli::OutputFormat::Table => {
-                    let is_csv = matches!(cli.output, azlin_cli::OutputFormat::Csv);
-
-                    if is_csv {
-                        println!("Total Cost,Currency,Period Start,Period End");
-                        println!(
-                            "{:.2},{},{},{}",
-                            summary.total_cost,
-                            summary.currency,
-                            summary.period_start.format("%Y-%m-%d"),
-                            summary.period_end.format("%Y-%m-%d")
-                        );
-                    } else {
-                        let key_style = Style::new().cyan().bold();
-                        let val_style = Style::new().white();
-
-                        println!(
-                            "{}: ${:.2} {}",
-                            key_style.apply_to("Total Cost"),
-                            summary.total_cost,
-                            val_style.apply_to(&summary.currency)
-                        );
-                        println!(
-                            "{}: {} to {}",
-                            key_style.apply_to("Period"),
-                            summary.period_start.format("%Y-%m-%d"),
-                            summary.period_end.format("%Y-%m-%d")
-                        );
-
-                        if let Some(ref f) = from {
-                            println!("{}: {}", key_style.apply_to("From filter"), f);
-                        }
-                        if let Some(ref t) = to {
-                            println!("{}: {}", key_style.apply_to("To filter"), t);
-                        }
-                        if estimate {
-                            println!(
-                                "{}: ${:.2}/month (projected)",
-                                key_style.apply_to("Estimate"),
-                                summary.total_cost
-                            );
-                        }
-                    }
-
-                    if by_vm && !summary.by_vm.is_empty() {
-                        let rows: Vec<Vec<String>> = summary
-                            .by_vm
-                            .iter()
-                            .map(|vc| {
-                                vec![
-                                    vc.vm_name.clone(),
-                                    format!("{:.2}", vc.cost),
-                                    vc.currency.clone(),
-                                ]
-                            })
-                            .collect();
-                        if is_csv {
-                            println!("VM Name,Cost,Currency");
-                            for r in &rows {
-                                println!("{},{},{}", r[0], r[1], r[2]);
-                            }
-                        } else {
-                            println!();
-                            azlin_cli::table::render_rows(
-                                &["VM Name", "Cost", "Currency"],
-                                &rows,
-                                &cli.output,
-                            );
-                        }
-                    } else if by_vm {
-                        println!("\nNo per-VM cost data available.");
-                    }
-                }
-            }
+            println!("{}", format_cost_summary(&summary, &cli.output, &from, &to, estimate, by_vm));
         }
         azlin_cli::Commands::Snapshot { action } => {
             let rg = match &action {
@@ -3304,67 +3224,18 @@ async fn async_main() -> Result<()> {
                     region,
                     cloud_init,
                 } => {
-                    let mut tbl = toml::map::Map::new();
-                    tbl.insert("name".into(), toml::Value::String(name.clone()));
-                    tbl.insert(
-                        "description".into(),
-                        toml::Value::String(description.unwrap_or_default()),
+                    let tpl = templates::build_template_toml(
+                        &name,
+                        description.as_deref(),
+                        vm_size.as_deref(),
+                        region.as_deref(),
+                        cloud_init.as_ref().map(|p| p.display().to_string()).as_deref(),
                     );
-                    tbl.insert(
-                        "vm_size".into(),
-                        toml::Value::String(
-                            vm_size.unwrap_or_else(|| "Standard_D4s_v3".to_string()),
-                        ),
-                    );
-                    tbl.insert(
-                        "region".into(),
-                        toml::Value::String(region.unwrap_or_else(|| "westus2".to_string())),
-                    );
-                    if let Some(ci) = cloud_init {
-                        tbl.insert(
-                            "cloud_init".into(),
-                            toml::Value::String(ci.display().to_string()),
-                        );
-                    }
-                    let tpl = toml::Value::Table(tbl);
-                    let path = azlin_dir.join(format!("{}.toml", name));
-                    std::fs::write(
-                        &path,
-                        toml::to_string_pretty(&tpl)
-                            .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?,
-                    )?;
+                    let path = templates::save_template(&azlin_dir, &name, &tpl)?;
                     println!("Saved template '{}' at {}", name, path.display());
                 }
                 azlin_cli::TemplateAction::List => {
-                    if !azlin_dir.exists() {
-                        println!("No templates found.");
-                        return Ok(());
-                    }
-                    let mut rows: Vec<Vec<String>> = Vec::new();
-                    for entry in std::fs::read_dir(&azlin_dir)? {
-                        let entry = entry?;
-                        let fname = entry.file_name().to_string_lossy().to_string();
-                        if fname.ends_with(".toml") {
-                            let content = std::fs::read_to_string(entry.path())?;
-                            let tpl: toml::Value = content
-                                .parse()
-                                .unwrap_or(toml::Value::Table(Default::default()));
-                            rows.push(vec![
-                                tpl.get("name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("-")
-                                    .to_string(),
-                                tpl.get("vm_size")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("-")
-                                    .to_string(),
-                                tpl.get("region")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("-")
-                                    .to_string(),
-                            ]);
-                        }
-                    }
+                    let rows = templates::list_templates(&azlin_dir)?;
                     if rows.is_empty() {
                         println!("No templates found.");
                     } else {
@@ -3376,38 +3247,38 @@ async fn async_main() -> Result<()> {
                     }
                 }
                 azlin_cli::TemplateAction::Show { name } => {
-                    let path = azlin_dir.join(format!("{}.toml", name));
-                    if !path.exists() {
-                        eprintln!("Template '{}' not found.", name);
-                        std::process::exit(1);
+                    match templates::load_template(&azlin_dir, &name) {
+                        Ok(tpl) => println!("{}", toml::to_string_pretty(&tpl).unwrap_or_default()),
+                        Err(_) => {
+                            eprintln!("Template '{}' not found.", name);
+                            std::process::exit(1);
+                        }
                     }
-                    let content = std::fs::read_to_string(&path)?;
-                    println!("{content}");
                 }
                 azlin_cli::TemplateAction::Apply { name } => {
-                    let path = azlin_dir.join(format!("{}.toml", name));
-                    if !path.exists() {
-                        eprintln!("Template '{}' not found.", name);
-                        std::process::exit(1);
+                    match templates::load_template(&azlin_dir, &name) {
+                        Ok(tpl) => {
+                            let vm_size = tpl
+                                .get("vm_size")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Standard_D4s_v3");
+                            let region = tpl
+                                .get("region")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("westus2");
+                            println!(
+                                "To create a VM with template '{}', run:\n  azlin new my-vm --size {} --region {}",
+                                name, vm_size, region
+                            );
+                        }
+                        Err(_) => {
+                            eprintln!("Template '{}' not found.", name);
+                            std::process::exit(1);
+                        }
                     }
-                    let content = std::fs::read_to_string(&path)?;
-                    let tpl: toml::Value = content.parse()?;
-                    let vm_size = tpl
-                        .get("vm_size")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Standard_D4s_v3");
-                    let region = tpl
-                        .get("region")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("westus2");
-                    println!(
-                        "To create a VM with template '{}', run:\n  azlin new my-vm --size {} --region {}",
-                        name, vm_size, region
-                    );
                 }
                 azlin_cli::TemplateAction::Delete { name, force } => {
-                    let path = azlin_dir.join(format!("{}.toml", name));
-                    if !path.exists() {
+                    if templates::load_template(&azlin_dir, &name).is_err() {
                         eprintln!("Template '{}' not found.", name);
                         std::process::exit(1);
                     }
@@ -3421,7 +3292,7 @@ async fn async_main() -> Result<()> {
                             return Ok(());
                         }
                     }
-                    std::fs::remove_file(&path)?;
+                    templates::delete_template(&azlin_dir, &name)?;
                     println!("Deleted template '{}'", name);
                 }
                 azlin_cli::TemplateAction::Export { name, output_file } => {
@@ -3435,17 +3306,7 @@ async fn async_main() -> Result<()> {
                 }
                 azlin_cli::TemplateAction::Import { input_file } => {
                     let content = std::fs::read_to_string(&input_file)?;
-                    let tpl: toml::Value = content.parse()?;
-                    let name = tpl
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| anyhow::anyhow!("Template missing 'name' field"))?;
-                    let path = azlin_dir.join(format!("{}.toml", name));
-                    std::fs::write(
-                        &path,
-                        toml::to_string_pretty(&tpl)
-                            .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?,
-                    )?;
+                    let name = templates::import_template(&azlin_dir, &content)?;
                     println!("Imported template '{}' from {}", name, input_file.display());
                 }
             }
@@ -3508,33 +3369,26 @@ async fn async_main() -> Result<()> {
                     let active = std::fs::read_to_string(&active_ctx_path)
                         .map(|s| s.trim().to_string())
                         .unwrap_or_default();
-                    let mut entries: Vec<_> = std::fs::read_dir(&ctx_dir)?
-                        .filter_map(|e| e.ok())
-                        .collect();
-                    entries.sort_by_key(|e| e.file_name());
-                    let mut rows: Vec<Vec<String>> = Vec::new();
-                    for entry in entries {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        if name.ends_with(".toml") {
-                            let ctx_name = name.trim_end_matches(".toml").to_string();
-                            let is_active = if ctx_name == active {
-                                "true".to_string()
-                            } else {
-                                "false".to_string()
-                            };
-                            rows.push(vec![ctx_name, is_active]);
-                        }
-                    }
-                    if rows.is_empty() {
+                    let ctx_list = contexts::list_contexts(&ctx_dir, &active)?;
+                    if ctx_list.is_empty() {
                         println!("No contexts found. Create one with: azlin context create <name>");
                     } else {
+                        let rows: Vec<Vec<String>> = ctx_list
+                            .iter()
+                            .map(|(name, is_active)| {
+                                vec![
+                                    name.clone(),
+                                    if *is_active { "true" } else { "false" }.to_string(),
+                                ]
+                            })
+                            .collect();
                         match &cli.output {
                             azlin_cli::OutputFormat::Table => {
-                                for row in &rows {
-                                    if row[1] == "true" {
-                                        println!("* {}", row[0]);
+                                for (name, is_active) in &ctx_list {
+                                    if *is_active {
+                                        println!("* {}", name);
                                     } else {
-                                        println!("  {}", row[0]);
+                                        println!("  {}", name);
                                     }
                                 }
                             }
@@ -3581,24 +3435,14 @@ async fn async_main() -> Result<()> {
                     key_vault_name,
                     ..
                 } => {
-                    let mut ctx = toml::map::Map::new();
-                    ctx.insert("name".to_string(), toml::Value::String(name.clone()));
-                    if let Some(v) = subscription_id {
-                        ctx.insert("subscription_id".to_string(), toml::Value::String(v));
-                    }
-                    if let Some(v) = tenant_id {
-                        ctx.insert("tenant_id".to_string(), toml::Value::String(v));
-                    }
-                    if let Some(v) = resource_group {
-                        ctx.insert("resource_group".to_string(), toml::Value::String(v));
-                    }
-                    if let Some(v) = region {
-                        ctx.insert("region".to_string(), toml::Value::String(v));
-                    }
-                    if let Some(v) = key_vault_name {
-                        ctx.insert("key_vault_name".to_string(), toml::Value::String(v));
-                    }
-                    let toml_str = toml::to_string_pretty(&toml::Value::Table(ctx))?;
+                    let toml_str = contexts::build_context_toml(
+                        &name,
+                        subscription_id.as_deref(),
+                        tenant_id.as_deref(),
+                        resource_group.as_deref(),
+                        region.as_deref(),
+                        key_vault_name.as_deref(),
+                    )?;
                     let path = ctx_dir.join(format!("{}.toml", name));
                     std::fs::write(&path, &toml_str)?;
                     println!("Created context '{}'", name);
@@ -3631,20 +3475,7 @@ async fn async_main() -> Result<()> {
                 azlin_cli::ContextAction::Rename {
                     old_name, new_name, ..
                 } => {
-                    let old_path = ctx_dir.join(format!("{}.toml", old_name));
-                    let new_path = ctx_dir.join(format!("{}.toml", new_name));
-                    if !old_path.exists() {
-                        eprintln!("Context '{}' not found.", old_name);
-                        std::process::exit(1);
-                    }
-                    // Update name field inside the TOML file
-                    let content = std::fs::read_to_string(&old_path)?;
-                    let mut table: toml::Value = toml::from_str(&content)?;
-                    if let Some(t) = table.as_table_mut() {
-                        t.insert("name".to_string(), toml::Value::String(new_name.clone()));
-                    }
-                    std::fs::write(&new_path, toml::to_string_pretty(&table)?)?;
-                    std::fs::remove_file(&old_path)?;
+                    contexts::rename_context_file(&ctx_dir, &old_name, &new_name)?;
                     // Update active context if it was the renamed one
                     if let Ok(active) = std::fs::read_to_string(&active_ctx_path) {
                         if active.trim() == old_name {
@@ -3831,22 +3662,9 @@ async fn async_main() -> Result<()> {
                     .join("sessions");
                 std::fs::create_dir_all(&sessions_dir)?;
 
-                let mut session = toml::map::Map::new();
-                session.insert(
-                    "name".to_string(),
-                    toml::Value::String(session_name.clone()),
-                );
-                session.insert("resource_group".to_string(), toml::Value::String(rg));
-                let vm_array: Vec<toml::Value> =
-                    vms.iter().map(|v| toml::Value::String(v.clone())).collect();
-                session.insert("vms".to_string(), toml::Value::Array(vm_array));
-                session.insert(
-                    "created".to_string(),
-                    toml::Value::String(chrono::Utc::now().to_rfc3339()),
-                );
-
+                let session_val = sessions::build_session_toml(&session_name, &rg, &vms);
                 let path = sessions_dir.join(format!("{}.toml", session_name));
-                std::fs::write(&path, toml::to_string_pretty(&toml::Value::Table(session))?)?;
+                std::fs::write(&path, toml::to_string_pretty(&session_val)?)?;
                 println!("Saved session '{}' to {}", session_name, path.display());
             }
             azlin_cli::SessionsAction::Load { session_name } => {
@@ -3860,24 +3678,13 @@ async fn async_main() -> Result<()> {
                     std::process::exit(1);
                 }
                 let content = std::fs::read_to_string(&path)?;
-                let session: toml::Value = content.parse()?;
-                let default_tbl = toml::map::Map::new();
-                let tbl = session.as_table().unwrap_or(&default_tbl);
+                let (rg, vms, created) = sessions::parse_session_toml(&content)?;
                 println!("Loaded session '{}':", session_name);
-                println!(
-                    "  Resource group: {}",
-                    tbl.get("resource_group")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("-")
-                );
-                if let Some(vms) = tbl.get("vms").and_then(|v| v.as_array()) {
-                    let names: Vec<&str> = vms.iter().filter_map(|v| v.as_str()).collect();
-                    println!("  VMs:            {}", names.join(", "));
+                println!("  Resource group: {}", rg);
+                if !vms.is_empty() {
+                    println!("  VMs:            {}", vms.join(", "));
                 }
-                println!(
-                    "  Created:        {}",
-                    tbl.get("created").and_then(|v| v.as_str()).unwrap_or("-")
-                );
+                println!("  Created:        {}", created);
             }
             azlin_cli::SessionsAction::Delete { session_name } => {
                 let path = dirs::home_dir()
@@ -3897,23 +3704,11 @@ async fn async_main() -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
                     .join(".azlin")
                     .join("sessions");
-                if !dir.exists() {
-                    println!("No saved sessions.");
-                    return Ok(());
-                }
-                let mut rows: Vec<Vec<String>> = Vec::new();
-                for entry in std::fs::read_dir(&dir)? {
-                    let entry = entry?;
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.ends_with(".toml") {
-                        rows.push(vec![
-                            name.trim_end_matches(".toml").to_string(),
-                        ]);
-                    }
-                }
-                if rows.is_empty() {
+                let names = sessions::list_session_names(&dir)?;
+                if names.is_empty() {
                     println!("No saved sessions.");
                 } else {
+                    let rows: Vec<Vec<String>> = names.into_iter().map(|n| vec![n]).collect();
                     match &cli.output {
                         azlin_cli::OutputFormat::Table => {
                             for row in &rows {
@@ -4248,29 +4043,8 @@ async fn async_main() -> Result<()> {
                                         Cell::new("Cost (USD)").add_attribute(Attribute::Bold),
                                     ]);
 
-                                if let Some(rows) = data.get("rows").and_then(|r| r.as_array()) {
-                                    for row in rows {
-                                        if let Some(arr) = row.as_array() {
-                                            let cost = arr
-                                                .first()
-                                                .and_then(|v| v.as_f64())
-                                                .map(|v| format!("${:.2}", v))
-                                                .unwrap_or_else(|| "-".to_string());
-                                            let date = arr
-                                                .get(1)
-                                                .and_then(|v| {
-                                                    v.as_str().or_else(|| v.as_i64().map(|_| ""))
-                                                })
-                                                .map(|s| s.to_string())
-                                                .or_else(|| {
-                                                    arr.get(1)
-                                                        .and_then(|v| v.as_i64())
-                                                        .map(|v| v.to_string())
-                                                })
-                                                .unwrap_or_else(|| "-".to_string());
-                                            table.add_row(vec![Cell::new(&date), Cell::new(&cost)]);
-                                        }
-                                    }
+                                for (date, cost) in parse_cost_history_rows(&data) {
+                                    table.add_row(vec![Cell::new(&date), Cell::new(&cost)]);
                                 }
                                 println!(
                                     "Cost history for '{}' (last {} days):",
@@ -4341,24 +4115,11 @@ async fn async_main() -> Result<()> {
                                                 Cell::new("Impact").add_attribute(Attribute::Bold),
                                                 Cell::new("Problem").add_attribute(Attribute::Bold),
                                             ]);
-                                        for rec in recs {
-                                            let category = rec
-                                                .get("category")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("-");
-                                            let impact = rec
-                                                .get("impact")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("-");
-                                            let problem = rec
-                                                .get("shortDescription")
-                                                .and_then(|v| v.get("problem"))
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("-");
+                                        for (category, impact, problem) in parse_recommendation_rows(&data) {
                                             table.add_row(vec![
-                                                Cell::new(category),
-                                                Cell::new(impact),
-                                                Cell::new(problem),
+                                                Cell::new(&category),
+                                                Cell::new(&impact),
+                                                Cell::new(&problem),
                                             ]);
                                         }
                                         println!("Cost recommendations for '{}':", resource_group);
@@ -4413,24 +4174,11 @@ async fn async_main() -> Result<()> {
                                                 Cell::new("Recommendation")
                                                     .add_attribute(Attribute::Bold),
                                             ]);
-                                        for rec in recs {
-                                            let resource = rec
-                                                .get("impactedField")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("-");
-                                            let impact = rec
-                                                .get("impact")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("-");
-                                            let problem = rec
-                                                .get("shortDescription")
-                                                .and_then(|v| v.get("problem"))
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("-");
+                                        for (resource, impact, problem) in parse_cost_action_rows(&data) {
                                             table.add_row(vec![
-                                                Cell::new(resource),
-                                                Cell::new(impact),
-                                                Cell::new(problem),
+                                                Cell::new(&resource),
+                                                Cell::new(&impact),
+                                                Cell::new(&problem),
                                             ]);
                                         }
                                         if dry_run {
@@ -4861,6 +4609,439 @@ async fn resolve_vm_targets(
         anyhow::bail!("No running VMs found. Use --vm or --ip to target a specific VM.");
     }
     Ok(targets)
+}
+
+// ── Extracted helpers for testability ────────────────────────────────
+
+/// Format a cost summary for display. Returns the formatted string.
+fn format_cost_summary(
+    summary: &azlin_core::models::CostSummary,
+    output: &azlin_cli::OutputFormat,
+    from: &Option<String>,
+    to: &Option<String>,
+    estimate: bool,
+    by_vm: bool,
+) -> String {
+    let mut out = String::new();
+    match output {
+        azlin_cli::OutputFormat::Json => {
+            match serde_json::to_string_pretty(summary) {
+                Ok(json) => out.push_str(&json),
+                Err(e) => out.push_str(&format!("Failed to serialize cost data: {e}")),
+            }
+            return out;
+        }
+        _ => {}
+    }
+
+    let is_csv = matches!(output, azlin_cli::OutputFormat::Csv);
+
+    if is_csv {
+        out.push_str("Total Cost,Currency,Period Start,Period End\n");
+        out.push_str(&format!(
+            "{:.2},{},{},{}",
+            summary.total_cost,
+            summary.currency,
+            summary.period_start.format("%Y-%m-%d"),
+            summary.period_end.format("%Y-%m-%d")
+        ));
+    } else {
+        out.push_str(&format!(
+            "Total Cost: ${:.2} {}",
+            summary.total_cost, summary.currency
+        ));
+        out.push_str(&format!(
+            "\nPeriod: {} to {}",
+            summary.period_start.format("%Y-%m-%d"),
+            summary.period_end.format("%Y-%m-%d")
+        ));
+
+        if let Some(ref f) = from {
+            out.push_str(&format!("\nFrom filter: {}", f));
+        }
+        if let Some(ref t) = to {
+            out.push_str(&format!("\nTo filter: {}", t));
+        }
+        if estimate {
+            out.push_str(&format!(
+                "\nEstimate: ${:.2}/month (projected)",
+                summary.total_cost
+            ));
+        }
+    }
+
+    if by_vm && !summary.by_vm.is_empty() {
+        if is_csv {
+            out.push_str("\nVM Name,Cost,Currency");
+            for vc in &summary.by_vm {
+                out.push_str(&format!("\n{},{:.2},{}", vc.vm_name, vc.cost, vc.currency));
+            }
+        } else {
+            out.push_str("\n");
+            for vc in &summary.by_vm {
+                out.push_str(&format!("\n{:<20} ${:.2} {}", vc.vm_name, vc.cost, vc.currency));
+            }
+        }
+    } else if by_vm {
+        out.push_str("\n\nNo per-VM cost data available.");
+    }
+
+    out
+}
+
+/// Parse cost history rows from JSON data into (date, cost) pairs.
+fn parse_cost_history_rows(data: &serde_json::Value) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    if let Some(rows) = data.get("rows").and_then(|r| r.as_array()) {
+        for row in rows {
+            if let Some(arr) = row.as_array() {
+                let cost = arr
+                    .first()
+                    .and_then(|v| v.as_f64())
+                    .map(|v| format!("${:.2}", v))
+                    .unwrap_or_else(|| "-".to_string());
+                let date = arr
+                    .get(1)
+                    .and_then(|v| v.as_str().or_else(|| v.as_i64().map(|_| "")))
+                    .map(|s| s.to_string())
+                    .or_else(|| arr.get(1).and_then(|v| v.as_i64()).map(|v| v.to_string()))
+                    .unwrap_or_else(|| "-".to_string());
+                result.push((date, cost));
+            }
+        }
+    }
+    result
+}
+
+/// Parse recommendation entries from JSON array into (category, impact, problem) triples.
+fn parse_recommendation_rows(data: &serde_json::Value) -> Vec<(String, String, String)> {
+    let mut result = Vec::new();
+    if let Some(recs) = data.as_array() {
+        for rec in recs {
+            let category = rec
+                .get("category")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            let impact = rec
+                .get("impact")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            let problem = rec
+                .get("shortDescription")
+                .and_then(|v| v.get("problem"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            result.push((category, impact, problem));
+        }
+    }
+    result
+}
+
+/// Parse cost action entries from JSON array into (resource, impact, recommendation) triples.
+fn parse_cost_action_rows(data: &serde_json::Value) -> Vec<(String, String, String)> {
+    let mut result = Vec::new();
+    if let Some(recs) = data.as_array() {
+        for rec in recs {
+            let resource = rec
+                .get("impactedField")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            let impact = rec
+                .get("impact")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            let problem = rec
+                .get("shortDescription")
+                .and_then(|v| v.get("problem"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            result.push((resource, impact, problem));
+        }
+    }
+    result
+}
+
+/// Template TOML helpers for reading, writing, and listing templates.
+mod templates {
+    use std::path::{Path, PathBuf};
+
+    /// Build template TOML content from fields.
+    pub fn build_template_toml(
+        name: &str,
+        description: Option<&str>,
+        vm_size: Option<&str>,
+        region: Option<&str>,
+        cloud_init: Option<&str>,
+    ) -> toml::Value {
+        let mut tbl = toml::map::Map::new();
+        tbl.insert("name".into(), toml::Value::String(name.to_string()));
+        tbl.insert(
+            "description".into(),
+            toml::Value::String(description.unwrap_or("").to_string()),
+        );
+        tbl.insert(
+            "vm_size".into(),
+            toml::Value::String(
+                vm_size
+                    .unwrap_or("Standard_D4s_v3")
+                    .to_string(),
+            ),
+        );
+        tbl.insert(
+            "region".into(),
+            toml::Value::String(region.unwrap_or("westus2").to_string()),
+        );
+        if let Some(ci) = cloud_init {
+            tbl.insert("cloud_init".into(), toml::Value::String(ci.to_string()));
+        }
+        toml::Value::Table(tbl)
+    }
+
+    /// Save a template TOML value to the given directory.
+    pub fn save_template(
+        dir: &Path,
+        name: &str,
+        tpl: &toml::Value,
+    ) -> Result<PathBuf, anyhow::Error> {
+        std::fs::create_dir_all(dir)?;
+        let path = dir.join(format!("{}.toml", name));
+        std::fs::write(
+            &path,
+            toml::to_string_pretty(tpl)
+                .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?,
+        )?;
+        Ok(path)
+    }
+
+    /// Load a template TOML from the given directory.
+    pub fn load_template(dir: &Path, name: &str) -> Result<toml::Value, anyhow::Error> {
+        let path = dir.join(format!("{}.toml", name));
+        if !path.exists() {
+            anyhow::bail!("Template '{}' not found.", name);
+        }
+        let content = std::fs::read_to_string(&path)?;
+        Ok(content.parse()?)
+    }
+
+    /// List templates in the directory. Returns Vec of (name, vm_size, region).
+    pub fn list_templates(dir: &Path) -> Result<Vec<Vec<String>>, anyhow::Error> {
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if fname.ends_with(".toml") {
+                let content = std::fs::read_to_string(entry.path())?;
+                let tpl: toml::Value = content
+                    .parse()
+                    .unwrap_or(toml::Value::Table(Default::default()));
+                rows.push(vec![
+                    tpl.get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-")
+                        .to_string(),
+                    tpl.get("vm_size")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-")
+                        .to_string(),
+                    tpl.get("region")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-")
+                        .to_string(),
+                ]);
+            }
+        }
+        Ok(rows)
+    }
+
+    /// Delete a template by name. Returns error if not found.
+    pub fn delete_template(dir: &Path, name: &str) -> Result<(), anyhow::Error> {
+        let path = dir.join(format!("{}.toml", name));
+        if !path.exists() {
+            anyhow::bail!("Template '{}' not found.", name);
+        }
+        std::fs::remove_file(&path)?;
+        Ok(())
+    }
+
+    /// Import a template from a file, returning the template name.
+    pub fn import_template(dir: &Path, content: &str) -> Result<String, anyhow::Error> {
+        let tpl: toml::Value = content.parse()?;
+        let name = tpl
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Template missing 'name' field"))?
+            .to_string();
+        save_template(dir, &name, &tpl)?;
+        Ok(name)
+    }
+}
+
+/// Session TOML helpers for reading, writing, and listing sessions.
+mod sessions {
+    use std::path::Path;
+
+    /// Build a session TOML value.
+    pub fn build_session_toml(
+        name: &str,
+        resource_group: &str,
+        vms: &[String],
+    ) -> toml::Value {
+        let mut session = toml::map::Map::new();
+        session.insert("name".to_string(), toml::Value::String(name.to_string()));
+        session.insert(
+            "resource_group".to_string(),
+            toml::Value::String(resource_group.to_string()),
+        );
+        let vm_array: Vec<toml::Value> = vms
+            .iter()
+            .map(|v| toml::Value::String(v.clone()))
+            .collect();
+        session.insert("vms".to_string(), toml::Value::Array(vm_array));
+        session.insert(
+            "created".to_string(),
+            toml::Value::String(chrono::Utc::now().to_rfc3339()),
+        );
+        toml::Value::Table(session)
+    }
+
+    /// Parse a session TOML and return (resource_group, vms, created).
+    pub fn parse_session_toml(
+        content: &str,
+    ) -> Result<(String, Vec<String>, String), anyhow::Error> {
+        let session: toml::Value = content.parse()?;
+        let default_tbl = toml::map::Map::new();
+        let tbl = session.as_table().unwrap_or(&default_tbl);
+        let rg = tbl
+            .get("resource_group")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-")
+            .to_string();
+        let vms = tbl
+            .get("vms")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let created = tbl
+            .get("created")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-")
+            .to_string();
+        Ok((rg, vms, created))
+    }
+
+    /// List session names from a directory.
+    pub fn list_session_names(dir: &Path) -> Result<Vec<String>, anyhow::Error> {
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if fname.ends_with(".toml") {
+                names.push(fname.trim_end_matches(".toml").to_string());
+            }
+        }
+        Ok(names)
+    }
+}
+
+/// Context TOML helpers for reading, writing, and listing contexts.
+mod contexts {
+    use std::path::Path;
+
+    /// Build a context TOML string from fields.
+    pub fn build_context_toml(
+        name: &str,
+        subscription_id: Option<&str>,
+        tenant_id: Option<&str>,
+        resource_group: Option<&str>,
+        region: Option<&str>,
+        key_vault_name: Option<&str>,
+    ) -> Result<String, anyhow::Error> {
+        let mut ctx = toml::map::Map::new();
+        ctx.insert("name".to_string(), toml::Value::String(name.to_string()));
+        if let Some(v) = subscription_id {
+            ctx.insert(
+                "subscription_id".to_string(),
+                toml::Value::String(v.to_string()),
+            );
+        }
+        if let Some(v) = tenant_id {
+            ctx.insert("tenant_id".to_string(), toml::Value::String(v.to_string()));
+        }
+        if let Some(v) = resource_group {
+            ctx.insert(
+                "resource_group".to_string(),
+                toml::Value::String(v.to_string()),
+            );
+        }
+        if let Some(v) = region {
+            ctx.insert("region".to_string(), toml::Value::String(v.to_string()));
+        }
+        if let Some(v) = key_vault_name {
+            ctx.insert(
+                "key_vault_name".to_string(),
+                toml::Value::String(v.to_string()),
+            );
+        }
+        Ok(toml::to_string_pretty(&toml::Value::Table(ctx))?)
+    }
+
+    /// List contexts in a directory. Returns Vec of (name, is_active).
+    pub fn list_contexts(
+        ctx_dir: &Path,
+        active: &str,
+    ) -> Result<Vec<(String, bool)>, anyhow::Error> {
+        let mut entries: Vec<_> = std::fs::read_dir(ctx_dir)?
+            .filter_map(|e| e.ok())
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        let mut result = Vec::new();
+        for entry in entries {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".toml") {
+                let ctx_name = name.trim_end_matches(".toml").to_string();
+                let is_active = ctx_name == active;
+                result.push((ctx_name, is_active));
+            }
+        }
+        Ok(result)
+    }
+
+    /// Rename a context: update the name field in the TOML, rename the file,
+    /// and return whether the active context was renamed.
+    pub fn rename_context_file(
+        ctx_dir: &Path,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<(), anyhow::Error> {
+        let old_path = ctx_dir.join(format!("{}.toml", old_name));
+        let new_path = ctx_dir.join(format!("{}.toml", new_name));
+        if !old_path.exists() {
+            anyhow::bail!("Context '{}' not found.", old_name);
+        }
+        let content = std::fs::read_to_string(&old_path)?;
+        let mut table: toml::Value = toml::from_str(&content)?;
+        if let Some(t) = table.as_table_mut() {
+            t.insert(
+                "name".to_string(),
+                toml::Value::String(new_name.to_string()),
+            );
+        }
+        std::fs::write(&new_path, toml::to_string_pretty(&table)?)?;
+        std::fs::remove_file(&old_path)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -7828,5 +8009,536 @@ created = \"2024-01-01T00:00:00Z\"\n";
             .output().unwrap();
         assert!(out.status.success());
         assert!(out.stdout.len() > 10);
+    }
+
+    // ── Tests for extracted helper functions ─────────────────────────
+
+    #[test]
+    fn test_format_cost_summary_json() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 123.45,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc::now(),
+            period_end: chrono::Utc::now(),
+            by_vm: vec![],
+        };
+        let result = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Json,
+            &None,
+            &None,
+            false,
+            false,
+        );
+        assert!(result.contains("123.45"));
+        assert!(result.contains("USD"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_csv() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 99.99,
+            currency: "EUR".to_string(),
+            period_start: chrono::Utc::now(),
+            period_end: chrono::Utc::now(),
+            by_vm: vec![],
+        };
+        let result = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Csv,
+            &None,
+            &None,
+            false,
+            false,
+        );
+        assert!(result.contains("Total Cost,Currency,Period Start,Period End"));
+        assert!(result.contains("99.99"));
+        assert!(result.contains("EUR"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_table() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 50.0,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc::now(),
+            period_end: chrono::Utc::now(),
+            by_vm: vec![],
+        };
+        let result = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &None,
+            &None,
+            false,
+            false,
+        );
+        assert!(result.contains("Total Cost: $50.00 USD"));
+        assert!(result.contains("Period:"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_with_estimate() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 200.0,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc::now(),
+            period_end: chrono::Utc::now(),
+            by_vm: vec![],
+        };
+        let result = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &Some("2024-01-01".to_string()),
+            &Some("2024-01-31".to_string()),
+            true,
+            false,
+        );
+        assert!(result.contains("Estimate: $200.00/month (projected)"));
+        assert!(result.contains("From filter: 2024-01-01"));
+        assert!(result.contains("To filter: 2024-01-31"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_by_vm_table() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 300.0,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc::now(),
+            period_end: chrono::Utc::now(),
+            by_vm: vec![
+                azlin_core::models::VmCost {
+                    vm_name: "vm-1".to_string(),
+                    cost: 100.0,
+                    currency: "USD".to_string(),
+                },
+                azlin_core::models::VmCost {
+                    vm_name: "vm-2".to_string(),
+                    cost: 200.0,
+                    currency: "USD".to_string(),
+                },
+            ],
+        };
+        let result = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &None,
+            &None,
+            false,
+            true,
+        );
+        assert!(result.contains("vm-1"));
+        assert!(result.contains("vm-2"));
+        assert!(result.contains("$100.00"));
+        assert!(result.contains("$200.00"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_by_vm_csv() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 150.0,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc::now(),
+            period_end: chrono::Utc::now(),
+            by_vm: vec![azlin_core::models::VmCost {
+                vm_name: "test-vm".to_string(),
+                cost: 150.0,
+                currency: "USD".to_string(),
+            }],
+        };
+        let result = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Csv,
+            &None,
+            &None,
+            false,
+            true,
+        );
+        assert!(result.contains("VM Name,Cost,Currency"));
+        assert!(result.contains("test-vm,150.00,USD"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_by_vm_empty() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 0.0,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc::now(),
+            period_end: chrono::Utc::now(),
+            by_vm: vec![],
+        };
+        let result = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &None,
+            &None,
+            false,
+            true,
+        );
+        assert!(result.contains("No per-VM cost data available."));
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_empty() {
+        let data = serde_json::json!({});
+        let rows = super::parse_cost_history_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_with_data() {
+        let data = serde_json::json!({
+            "rows": [
+                [12.34, "2024-01-01"],
+                [56.78, "2024-01-02"]
+            ]
+        });
+        let rows = super::parse_cost_history_rows(&data);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], ("2024-01-01".to_string(), "$12.34".to_string()));
+        assert_eq!(rows[1], ("2024-01-02".to_string(), "$56.78".to_string()));
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_with_int_date() {
+        let data = serde_json::json!({
+            "rows": [
+                [10.0, 20240101]
+            ]
+        });
+        let rows = super::parse_cost_history_rows(&data);
+        assert_eq!(rows.len(), 1);
+        // Integer dates hit the as_i64().map(|_| "") branch, producing empty string
+        assert_eq!(rows[0].0, "");
+        assert_eq!(rows[0].1, "$10.00");
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_missing_values() {
+        let data = serde_json::json!({
+            "rows": [
+                [null, null]
+            ]
+        });
+        let rows = super::parse_cost_history_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "-");
+        assert_eq!(rows[0].1, "-");
+    }
+
+    #[test]
+    fn test_parse_recommendation_rows_empty() {
+        let data = serde_json::json!([]);
+        let rows = super::parse_recommendation_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_recommendation_rows_with_data() {
+        let data = serde_json::json!([
+            {
+                "category": "Cost",
+                "impact": "High",
+                "shortDescription": {"problem": "Underutilized VM"}
+            },
+            {
+                "category": "Security",
+                "impact": "Medium",
+                "shortDescription": {"problem": "Open port"}
+            }
+        ]);
+        let rows = super::parse_recommendation_rows(&data);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], ("Cost".to_string(), "High".to_string(), "Underutilized VM".to_string()));
+        assert_eq!(rows[1], ("Security".to_string(), "Medium".to_string(), "Open port".to_string()));
+    }
+
+    #[test]
+    fn test_parse_recommendation_rows_missing_fields() {
+        let data = serde_json::json!([{"other_field": "value"}]);
+        let rows = super::parse_recommendation_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0], ("-".to_string(), "-".to_string(), "-".to_string()));
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_empty() {
+        let data = serde_json::json!([]);
+        let rows = super::parse_cost_action_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_with_data() {
+        let data = serde_json::json!([
+            {
+                "impactedField": "Microsoft.Compute/virtualMachines",
+                "impact": "High",
+                "shortDescription": {"problem": "Resize VM"}
+            }
+        ]);
+        let rows = super::parse_cost_action_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "Microsoft.Compute/virtualMachines");
+        assert_eq!(rows[0].1, "High");
+        assert_eq!(rows[0].2, "Resize VM");
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_not_array() {
+        let data = serde_json::json!({"not": "array"});
+        let rows = super::parse_cost_action_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_templates_build_toml_defaults() {
+        let tpl = super::templates::build_template_toml("test", None, None, None, None);
+        let tbl = tpl.as_table().unwrap();
+        assert_eq!(tbl["name"].as_str().unwrap(), "test");
+        assert_eq!(tbl["vm_size"].as_str().unwrap(), "Standard_D4s_v3");
+        assert_eq!(tbl["region"].as_str().unwrap(), "westus2");
+        assert_eq!(tbl["description"].as_str().unwrap(), "");
+        assert!(tbl.get("cloud_init").is_none());
+    }
+
+    #[test]
+    fn test_templates_build_toml_custom() {
+        let tpl = super::templates::build_template_toml(
+            "myvm",
+            Some("A dev VM"),
+            Some("Standard_D8s_v3"),
+            Some("eastus"),
+            Some("/path/to/init.sh"),
+        );
+        let tbl = tpl.as_table().unwrap();
+        assert_eq!(tbl["name"].as_str().unwrap(), "myvm");
+        assert_eq!(tbl["description"].as_str().unwrap(), "A dev VM");
+        assert_eq!(tbl["vm_size"].as_str().unwrap(), "Standard_D8s_v3");
+        assert_eq!(tbl["region"].as_str().unwrap(), "eastus");
+        assert_eq!(tbl["cloud_init"].as_str().unwrap(), "/path/to/init.sh");
+    }
+
+    #[test]
+    fn test_templates_save_and_load() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("templates");
+        let tpl = super::templates::build_template_toml("test-tpl", Some("desc"), None, None, None);
+        let path = super::templates::save_template(&dir, "test-tpl", &tpl).unwrap();
+        assert!(path.exists());
+
+        let loaded = super::templates::load_template(&dir, "test-tpl").unwrap();
+        assert_eq!(loaded.get("name").unwrap().as_str().unwrap(), "test-tpl");
+        assert_eq!(loaded.get("description").unwrap().as_str().unwrap(), "desc");
+    }
+
+    #[test]
+    fn test_templates_load_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+        let result = super::templates::load_template(tmp.path(), "nope");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_templates_list_empty() {
+        let tmp = TempDir::new().unwrap();
+        let rows = super::templates::list_templates(tmp.path()).unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_templates_list_with_entries() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        let tpl1 = super::templates::build_template_toml("a", None, Some("small"), Some("west"), None);
+        let tpl2 = super::templates::build_template_toml("b", None, Some("large"), Some("east"), None);
+        super::templates::save_template(dir, "a", &tpl1).unwrap();
+        super::templates::save_template(dir, "b", &tpl2).unwrap();
+
+        let rows = super::templates::list_templates(dir).unwrap();
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn test_templates_delete() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        let tpl = super::templates::build_template_toml("del-me", None, None, None, None);
+        super::templates::save_template(dir, "del-me", &tpl).unwrap();
+        assert!(dir.join("del-me.toml").exists());
+
+        super::templates::delete_template(dir, "del-me").unwrap();
+        assert!(!dir.join("del-me.toml").exists());
+    }
+
+    #[test]
+    fn test_templates_delete_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+        let result = super::templates::delete_template(tmp.path(), "nope");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_templates_import() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        let content = "name = \"imported\"\nvm_size = \"Standard_D2s_v3\"\nregion = \"westus\"\n";
+        let name = super::templates::import_template(dir, content).unwrap();
+        assert_eq!(name, "imported");
+        assert!(dir.join("imported.toml").exists());
+    }
+
+    #[test]
+    fn test_templates_import_missing_name() {
+        let tmp = TempDir::new().unwrap();
+        let content = "vm_size = \"Standard_D2s_v3\"\nregion = \"westus\"\n";
+        let result = super::templates::import_template(tmp.path(), content);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sessions_build_toml() {
+        let val = super::sessions::build_session_toml("s1", "rg1", &["vm1".to_string(), "vm2".to_string()]);
+        let tbl = val.as_table().unwrap();
+        assert_eq!(tbl["name"].as_str().unwrap(), "s1");
+        assert_eq!(tbl["resource_group"].as_str().unwrap(), "rg1");
+        let vms = tbl["vms"].as_array().unwrap();
+        assert_eq!(vms.len(), 2);
+        assert_eq!(vms[0].as_str().unwrap(), "vm1");
+        assert!(tbl.contains_key("created"));
+    }
+
+    #[test]
+    fn test_sessions_parse_toml() {
+        let content = "name = \"test-sess\"\nresource_group = \"my-rg\"\nvms = [\"vm-a\", \"vm-b\"]\ncreated = \"2024-01-01T00:00:00Z\"\n";
+        let (rg, vms, created) = super::sessions::parse_session_toml(content).unwrap();
+        assert_eq!(rg, "my-rg");
+        assert_eq!(vms, vec!["vm-a", "vm-b"]);
+        assert_eq!(created, "2024-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_sessions_parse_toml_empty_vms() {
+        let content = "name = \"empty\"\nresource_group = \"rg\"\nvms = []\ncreated = \"2024-01-01T00:00:00Z\"\n";
+        let (rg, vms, _) = super::sessions::parse_session_toml(content).unwrap();
+        assert_eq!(rg, "rg");
+        assert!(vms.is_empty());
+    }
+
+    #[test]
+    fn test_sessions_parse_toml_missing_fields() {
+        let content = "name = \"minimal\"\n";
+        let (rg, vms, created) = super::sessions::parse_session_toml(content).unwrap();
+        assert_eq!(rg, "-");
+        assert!(vms.is_empty());
+        assert_eq!(created, "-");
+    }
+
+    #[test]
+    fn test_sessions_list_names_empty() {
+        let tmp = TempDir::new().unwrap();
+        let names = super::sessions::list_session_names(tmp.path()).unwrap();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_sessions_list_names_nonexistent_dir() {
+        let tmp = TempDir::new().unwrap();
+        let names = super::sessions::list_session_names(&tmp.path().join("nope")).unwrap();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_sessions_list_names_with_entries() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        fs::write(dir.join("s1.toml"), "name = \"s1\"").unwrap();
+        fs::write(dir.join("s2.toml"), "name = \"s2\"").unwrap();
+        fs::write(dir.join("not-toml.txt"), "ignore").unwrap();
+
+        let names = super::sessions::list_session_names(dir).unwrap();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"s1".to_string()));
+        assert!(names.contains(&"s2".to_string()));
+    }
+
+    #[test]
+    fn test_contexts_build_toml_minimal() {
+        let result = super::contexts::build_context_toml("ctx1", None, None, None, None, None).unwrap();
+        assert!(result.contains("name = \"ctx1\""));
+    }
+
+    #[test]
+    fn test_contexts_build_toml_full() {
+        let result = super::contexts::build_context_toml(
+            "prod",
+            Some("sub-123"),
+            Some("tenant-456"),
+            Some("rg-prod"),
+            Some("westus2"),
+            Some("my-vault"),
+        )
+        .unwrap();
+        assert!(result.contains("name = \"prod\""));
+        assert!(result.contains("subscription_id = \"sub-123\""));
+        assert!(result.contains("tenant_id = \"tenant-456\""));
+        assert!(result.contains("resource_group = \"rg-prod\""));
+        assert!(result.contains("region = \"westus2\""));
+        assert!(result.contains("key_vault_name = \"my-vault\""));
+    }
+
+    #[test]
+    fn test_contexts_list_empty() {
+        let tmp = TempDir::new().unwrap();
+        let result = super::contexts::list_contexts(tmp.path(), "").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_contexts_list_with_active() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        fs::write(dir.join("dev.toml"), "name = \"dev\"").unwrap();
+        fs::write(dir.join("prod.toml"), "name = \"prod\"").unwrap();
+
+        let result = super::contexts::list_contexts(dir, "dev").unwrap();
+        assert_eq!(result.len(), 2);
+        let dev = result.iter().find(|(n, _)| n == "dev").unwrap();
+        assert!(dev.1);
+        let prod = result.iter().find(|(n, _)| n == "prod").unwrap();
+        assert!(!prod.1);
+    }
+
+    #[test]
+    fn test_contexts_list_no_active() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        fs::write(dir.join("ctx.toml"), "name = \"ctx\"").unwrap();
+
+        let result = super::contexts::list_contexts(dir, "nonexistent").unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(!result[0].1);
+    }
+
+    #[test]
+    fn test_contexts_rename_file() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        let toml_content = super::contexts::build_context_toml("old", None, None, None, None, None).unwrap();
+        fs::write(dir.join("old.toml"), &toml_content).unwrap();
+
+        super::contexts::rename_context_file(dir, "old", "new").unwrap();
+        assert!(!dir.join("old.toml").exists());
+        assert!(dir.join("new.toml").exists());
+
+        let content = fs::read_to_string(dir.join("new.toml")).unwrap();
+        assert!(content.contains("name = \"new\""));
+    }
+
+    #[test]
+    fn test_contexts_rename_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+        let result = super::contexts::rename_context_file(tmp.path(), "nope", "also-nope");
+        assert!(result.is_err());
     }
 }
