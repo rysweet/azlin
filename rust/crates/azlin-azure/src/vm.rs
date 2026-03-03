@@ -156,21 +156,15 @@ impl VmManager {
             .to_string();
 
         // Detect OS type from OS profile
-        let os_type = if props
+        let has_linux = props
             .and_then(|p| p.os_profile.as_ref())
             .and_then(|o| o.linux_configuration.as_ref())
-            .is_some()
-        {
-            OsType::Linux
-        } else if props
+            .is_some();
+        let has_windows = props
             .and_then(|p| p.os_profile.as_ref())
             .and_then(|o| o.windows_configuration.as_ref())
-            .is_some()
-        {
-            OsType::Windows
-        } else {
-            OsType::Linux // Default assumption
-        };
+            .is_some();
+        let os_type = detect_os_type(has_linux, has_windows);
 
         let admin_username = props
             .and_then(|p| p.os_profile.as_ref())
@@ -186,10 +180,7 @@ impl VmManager {
             .unwrap_or((None, None));
 
         // Extract created time
-        let created_time = props
-            .and_then(|p| p.time_created.as_deref())
-            .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc));
+        let created_time = parse_created_time(props.and_then(|p| p.time_created.as_deref()));
 
         Ok(VmInfo {
             name,
@@ -347,6 +338,7 @@ impl VmManager {
         let rg = &params.resource_group;
         let location = &params.region;
         let vm_name = &params.name;
+        let names = build_vm_resource_names(vm_name);
 
         // Read SSH public key
         let ssh_pub_key = std::fs::read_to_string(&params.ssh_key_path).context(format!(
@@ -360,8 +352,7 @@ impl VmManager {
             .context(format!("Failed to create resource group '{rg}'"))?;
 
         // 2. Create NSG with SSH + HTTPS rules
-        let nsg_name = format!("{vm_name}-nsg");
-        debug!(%nsg_name, "Creating NSG");
+        debug!(nsg_name = %names.nsg, "Creating NSG");
         az_cli(&[
             "network",
             "nsg",
@@ -369,11 +360,11 @@ impl VmManager {
             "--resource-group",
             rg,
             "--name",
-            &nsg_name,
+            &names.nsg,
             "--location",
             location,
         ])
-        .context(format!("Failed to create NSG '{nsg_name}'"))?;
+        .context(format!("Failed to create NSG '{}'", names.nsg))?;
 
         az_cli(&[
             "network",
@@ -383,7 +374,7 @@ impl VmManager {
             "--resource-group",
             rg,
             "--nsg-name",
-            &nsg_name,
+            &names.nsg,
             "--name",
             "AllowSSH",
             "--priority",
@@ -407,7 +398,7 @@ impl VmManager {
             "--resource-group",
             rg,
             "--nsg-name",
-            &nsg_name,
+            &names.nsg,
             "--name",
             "AllowHTTPS",
             "--priority",
@@ -424,9 +415,7 @@ impl VmManager {
         .context("Failed to create HTTPS NSG rule")?;
 
         // 3. Create VNet + subnet
-        let vnet_name = format!("{vm_name}-vnet");
-        let subnet_name = format!("{vm_name}-subnet");
-        debug!(%vnet_name, %subnet_name, "Creating VNet and subnet");
+        debug!(vnet_name = %names.vnet, subnet_name = %names.subnet, "Creating VNet and subnet");
         az_cli(&[
             "network",
             "vnet",
@@ -434,23 +423,22 @@ impl VmManager {
             "--resource-group",
             rg,
             "--name",
-            &vnet_name,
+            &names.vnet,
             "--address-prefix",
             "10.0.0.0/16",
             "--subnet-name",
-            &subnet_name,
+            &names.subnet,
             "--subnet-prefix",
             "10.0.0.0/24",
             "--location",
             location,
             "--network-security-group",
-            &nsg_name,
+            &names.nsg,
         ])
-        .context(format!("Failed to create VNet '{vnet_name}'"))?;
+        .context(format!("Failed to create VNet '{}'", names.vnet))?;
 
         // 4. Create public IP
-        let pip_name = format!("{vm_name}-pip");
-        debug!(%pip_name, "Creating public IP");
+        debug!(pip_name = %names.pip, "Creating public IP");
         az_cli(&[
             "network",
             "public-ip",
@@ -458,7 +446,7 @@ impl VmManager {
             "--resource-group",
             rg,
             "--name",
-            &pip_name,
+            &names.pip,
             "--sku",
             "Standard",
             "--allocation-method",
@@ -466,11 +454,10 @@ impl VmManager {
             "--location",
             location,
         ])
-        .context(format!("Failed to create public IP '{pip_name}'"))?;
+        .context(format!("Failed to create public IP '{}'", names.pip))?;
 
         // 5. Create NIC
-        let nic_name = format!("{vm_name}-nic");
-        debug!(%nic_name, "Creating NIC");
+        debug!(nic_name = %names.nic, "Creating NIC");
         az_cli(&[
             "network",
             "nic",
@@ -478,26 +465,23 @@ impl VmManager {
             "--resource-group",
             rg,
             "--name",
-            &nic_name,
+            &names.nic,
             "--vnet-name",
-            &vnet_name,
+            &names.vnet,
             "--subnet",
-            &subnet_name,
+            &names.subnet,
             "--public-ip-address",
-            &pip_name,
+            &names.pip,
             "--network-security-group",
-            &nsg_name,
+            &names.nsg,
             "--location",
             location,
         ])
-        .context(format!("Failed to create NIC '{nic_name}'"))?;
+        .context(format!("Failed to create NIC '{}'", names.nic))?;
 
         // 6. Create the VM
         debug!(%vm_name, "Creating VM");
-        let image_urn = format!(
-            "{}:{}:{}:{}",
-            params.image.publisher, params.image.offer, params.image.sku, params.image.version
-        );
+        let image_urn = params.image.to_string();
 
         let cloud_init_path = create_cloud_init_file()?;
         let mut az_args = vec![
@@ -508,7 +492,7 @@ impl VmManager {
             "--name",
             vm_name,
             "--nics",
-            &nic_name,
+            &names.nic,
             "--image",
             &image_urn,
             "--size",
@@ -523,11 +507,7 @@ impl VmManager {
             &cloud_init_path,
         ];
 
-        let tag_strs: Vec<String> = params
-            .tags
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect();
+        let tag_strs = format_tag_cli_args(&params.tags);
         if !tag_strs.is_empty() {
             az_args.push("--tags");
             for t in &tag_strs {
@@ -565,7 +545,7 @@ impl VmManager {
                 None => continue,
             };
 
-            let nic_name = match nic_id.rsplit('/').next() {
+            let nic_name = match extract_nic_name_from_id(nic_id) {
                 Some(n) => n,
                 None => continue,
             };
@@ -626,13 +606,7 @@ impl VmManager {
 
     /// Fetch a public IP address by its resource ID.
     async fn fetch_public_ip(&self, resource_id: &str) -> Option<String> {
-        let parts: Vec<&str> = resource_id.split('/').collect();
-        // /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/publicIPAddresses/{name}
-        if parts.len() < 9 {
-            return None;
-        }
-        let rg = parts[4];
-        let name = parts[8];
+        let (rg, name) = parse_public_ip_resource_id(resource_id)?;
 
         match self
             .network_client
@@ -699,6 +673,66 @@ usermod -aG docker azureuser
 
 echo "cloud-init provisioning complete"
 "#;
+
+/// Struct holding derived resource names for VM provisioning.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VmResourceNames {
+    nsg: String,
+    vnet: String,
+    subnet: String,
+    pip: String,
+    nic: String,
+}
+
+/// Build the conventional resource names for a VM (NSG, VNet, subnet, PIP, NIC).
+fn build_vm_resource_names(vm_name: &str) -> VmResourceNames {
+    VmResourceNames {
+        nsg: format!("{vm_name}-nsg"),
+        vnet: format!("{vm_name}-vnet"),
+        subnet: format!("{vm_name}-subnet"),
+        pip: format!("{vm_name}-pip"),
+        nic: format!("{vm_name}-nic"),
+    }
+}
+
+/// Format a tag map into CLI args suitable for `az ... --tags key=value`.
+fn format_tag_cli_args(tags: &HashMap<String, String>) -> Vec<String> {
+    tags.iter().map(|(k, v)| format!("{k}={v}")).collect()
+}
+
+/// Parse a public IP resource ID into (resource_group, name).
+///
+/// Expects format: `/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/publicIPAddresses/{name}`
+fn parse_public_ip_resource_id(resource_id: &str) -> Option<(&str, &str)> {
+    let parts: Vec<&str> = resource_id.split('/').collect();
+    if parts.len() < 9 {
+        return None;
+    }
+    Some((parts[4], parts[8]))
+}
+
+/// Extract NIC name from a full Azure resource ID.
+fn extract_nic_name_from_id(nic_id: &str) -> Option<&str> {
+    nic_id.rsplit('/').next().filter(|s| !s.is_empty())
+}
+
+/// Detect OS type from OS profile flags.
+fn detect_os_type(has_linux_config: bool, has_windows_config: bool) -> OsType {
+    if has_linux_config {
+        OsType::Linux
+    } else if has_windows_config {
+        OsType::Windows
+    } else {
+        OsType::Linux // Default assumption
+    }
+}
+
+/// Parse an optional RFC 3339 timestamp into a `DateTime<Utc>`.
+fn parse_created_time(time_str: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
+    time_str
+        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+}
 
 /// Extract resource group name from an Azure resource ID.
 fn extract_resource_group(resource_id: &str) -> String {
@@ -1388,5 +1422,675 @@ mod tests {
         let result = extract_tags(Some(&tags));
         assert_eq!(result.len(), 3);
         assert_eq!(result.get("version").unwrap(), "2.0");
+    }
+
+    // ── build_vm_resource_names tests ───────────────────────────────
+
+    #[test]
+    fn test_build_vm_resource_names_basic() {
+        let names = build_vm_resource_names("myvm");
+        assert_eq!(names.nsg, "myvm-nsg");
+        assert_eq!(names.vnet, "myvm-vnet");
+        assert_eq!(names.subnet, "myvm-subnet");
+        assert_eq!(names.pip, "myvm-pip");
+        assert_eq!(names.nic, "myvm-nic");
+    }
+
+    #[test]
+    fn test_build_vm_resource_names_with_hyphens() {
+        let names = build_vm_resource_names("dev-vm-01");
+        assert_eq!(names.nsg, "dev-vm-01-nsg");
+        assert_eq!(names.vnet, "dev-vm-01-vnet");
+        assert_eq!(names.subnet, "dev-vm-01-subnet");
+        assert_eq!(names.pip, "dev-vm-01-pip");
+        assert_eq!(names.nic, "dev-vm-01-nic");
+    }
+
+    #[test]
+    fn test_build_vm_resource_names_with_underscores() {
+        let names = build_vm_resource_names("test_vm");
+        assert_eq!(names.nsg, "test_vm-nsg");
+        assert_eq!(names.nic, "test_vm-nic");
+    }
+
+    #[test]
+    fn test_build_vm_resource_names_long_name() {
+        let long_name = "a".repeat(64);
+        let names = build_vm_resource_names(&long_name);
+        assert!(names.nsg.ends_with("-nsg"));
+        assert!(names.nsg.starts_with(&long_name));
+    }
+
+    #[test]
+    fn test_build_vm_resource_names_equality() {
+        let names1 = build_vm_resource_names("vm1");
+        let names2 = build_vm_resource_names("vm1");
+        assert_eq!(names1, names2);
+    }
+
+    #[test]
+    fn test_build_vm_resource_names_inequality() {
+        let names1 = build_vm_resource_names("vm1");
+        let names2 = build_vm_resource_names("vm2");
+        assert_ne!(names1, names2);
+    }
+
+    #[test]
+    fn test_build_vm_resource_names_debug() {
+        let names = build_vm_resource_names("vm");
+        let debug = format!("{:?}", names);
+        assert!(debug.contains("vm-nsg"));
+    }
+
+    // ── format_tag_cli_args tests ───────────────────────────────────
+
+    #[test]
+    fn test_format_tag_cli_args_empty() {
+        let tags = HashMap::new();
+        let args = format_tag_cli_args(&tags);
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn test_format_tag_cli_args_single() {
+        let mut tags = HashMap::new();
+        tags.insert("env".to_string(), "dev".to_string());
+        let args = format_tag_cli_args(&tags);
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0], "env=dev");
+    }
+
+    #[test]
+    fn test_format_tag_cli_args_multiple() {
+        let mut tags = HashMap::new();
+        tags.insert("env".to_string(), "prod".to_string());
+        tags.insert("team".to_string(), "backend".to_string());
+        let args = format_tag_cli_args(&tags);
+        assert_eq!(args.len(), 2);
+        assert!(args.iter().any(|a| a == "env=prod"));
+        assert!(args.iter().any(|a| a == "team=backend"));
+    }
+
+    #[test]
+    fn test_format_tag_cli_args_special_values() {
+        let mut tags = HashMap::new();
+        tags.insert("key".to_string(), "value with spaces".to_string());
+        let args = format_tag_cli_args(&tags);
+        assert_eq!(args[0], "key=value with spaces");
+    }
+
+    #[test]
+    fn test_format_tag_cli_args_empty_value() {
+        let mut tags = HashMap::new();
+        tags.insert("key".to_string(), String::new());
+        let args = format_tag_cli_args(&tags);
+        assert_eq!(args[0], "key=");
+    }
+
+    // ── parse_public_ip_resource_id tests ───────────────────────────
+
+    #[test]
+    fn test_parse_public_ip_resource_id_valid() {
+        let id = "/subscriptions/sub-123/resourceGroups/my-rg/providers/Microsoft.Network/publicIPAddresses/my-pip";
+        let result = parse_public_ip_resource_id(id);
+        assert!(result.is_some());
+        let (rg, name) = result.unwrap();
+        assert_eq!(rg, "my-rg");
+        assert_eq!(name, "my-pip");
+    }
+
+    #[test]
+    fn test_parse_public_ip_resource_id_too_short() {
+        assert!(parse_public_ip_resource_id("").is_none());
+        assert!(parse_public_ip_resource_id("/short").is_none());
+        assert!(parse_public_ip_resource_id("/a/b/c").is_none());
+        assert!(parse_public_ip_resource_id("/subscriptions/sub/resourceGroups/rg").is_none());
+    }
+
+    #[test]
+    fn test_parse_public_ip_resource_id_exact_9_parts() {
+        // 9 parts: ["", "subscriptions", "sub", "resourceGroups", "rg", "providers", "Msft", "pub", "name"]
+        let id = "/subscriptions/sub/resourceGroups/rg/providers/Msft/pub/name";
+        let result = parse_public_ip_resource_id(id);
+        assert!(result.is_some());
+        let (rg, name) = result.unwrap();
+        assert_eq!(rg, "rg");
+        assert_eq!(name, "name");
+    }
+
+    #[test]
+    fn test_parse_public_ip_resource_id_with_extra_segments() {
+        let id = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/pip/extra/segments";
+        let result = parse_public_ip_resource_id(id);
+        assert!(result.is_some());
+        let (rg, name) = result.unwrap();
+        assert_eq!(rg, "rg");
+        assert_eq!(name, "pip");
+    }
+
+    // ── extract_nic_name_from_id tests ──────────────────────────────
+
+    #[test]
+    fn test_extract_nic_name_from_id_valid() {
+        let id = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/my-nic";
+        assert_eq!(extract_nic_name_from_id(id), Some("my-nic"));
+    }
+
+    #[test]
+    fn test_extract_nic_name_from_id_simple() {
+        assert_eq!(extract_nic_name_from_id("my-nic"), Some("my-nic"));
+    }
+
+    #[test]
+    fn test_extract_nic_name_from_id_trailing_slash() {
+        // Trailing slash results in empty last segment, filtered out
+        assert_eq!(extract_nic_name_from_id("foo/"), None);
+    }
+
+    #[test]
+    fn test_extract_nic_name_from_id_empty() {
+        assert_eq!(extract_nic_name_from_id(""), None);
+    }
+
+    #[test]
+    fn test_extract_nic_name_from_id_just_slashes() {
+        assert_eq!(extract_nic_name_from_id("///"), None);
+    }
+
+    // ── detect_os_type tests ────────────────────────────────────────
+
+    #[test]
+    fn test_detect_os_type_linux() {
+        assert_eq!(detect_os_type(true, false), OsType::Linux);
+    }
+
+    #[test]
+    fn test_detect_os_type_windows() {
+        assert_eq!(detect_os_type(false, true), OsType::Windows);
+    }
+
+    #[test]
+    fn test_detect_os_type_neither() {
+        assert_eq!(detect_os_type(false, false), OsType::Linux);
+    }
+
+    #[test]
+    fn test_detect_os_type_both() {
+        // Linux takes precedence
+        assert_eq!(detect_os_type(true, true), OsType::Linux);
+    }
+
+    // ── parse_created_time tests ────────────────────────────────────
+
+    #[test]
+    fn test_parse_created_time_valid_rfc3339() {
+        let result = parse_created_time(Some("2024-06-15T10:30:00Z"));
+        assert!(result.is_some());
+        let dt = result.unwrap();
+        assert_eq!(dt.year(), 2024);
+        assert_eq!(dt.month(), 6);
+        assert_eq!(dt.day(), 15);
+    }
+
+    #[test]
+    fn test_parse_created_time_with_timezone_offset() {
+        let result = parse_created_time(Some("2024-01-01T00:00:00+05:30"));
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_parse_created_time_invalid_format() {
+        assert!(parse_created_time(Some("not-a-date")).is_none());
+        assert!(parse_created_time(Some("2024/01/01")).is_none());
+        assert!(parse_created_time(Some("")).is_none());
+    }
+
+    #[test]
+    fn test_parse_created_time_none() {
+        assert!(parse_created_time(None).is_none());
+    }
+
+    #[test]
+    fn test_parse_created_time_iso_variants() {
+        // With fractional seconds
+        let result = parse_created_time(Some("2024-06-15T10:30:00.123456Z"));
+        assert!(result.is_some());
+        // With negative offset
+        let result = parse_created_time(Some("2024-06-15T10:30:00-07:00"));
+        assert!(result.is_some());
+    }
+
+    // ── VmManager convert_vm tests (mock credential) ────────────────
+
+    use chrono::Datelike;
+
+    struct DummyCred;
+
+    #[async_trait::async_trait]
+    impl azure_core_old::auth::TokenCredential for DummyCred {
+        async fn get_token(
+            &self,
+            _resource: &str,
+        ) -> std::result::Result<azure_core_old::auth::TokenResponse, azure_core_old::Error> {
+            Ok(azure_core_old::auth::TokenResponse::new(
+                oauth2::AccessToken::new("test-token".to_string()),
+                chrono::Utc::now() + chrono::Duration::hours(1),
+            ))
+        }
+    }
+
+    fn create_test_vm_manager() -> VmManager {
+        let cred = Arc::new(DummyCred) as Arc<dyn azure_core_old::auth::TokenCredential>;
+        VmManager {
+            compute_client: azure_mgmt_compute::ClientBuilder::new(cred.clone()).build(),
+            network_client: azure_mgmt_network::ClientBuilder::new(cred).build(),
+            subscription_id: "test-subscription-id".to_string(),
+        }
+    }
+
+    fn make_test_vm(
+        name: Option<&str>,
+        location: &str,
+        props: Option<azure_mgmt_compute::models::VirtualMachineProperties>,
+        tags: Option<serde_json::Value>,
+    ) -> azure_mgmt_compute::models::VirtualMachine {
+        let mut resource = azure_mgmt_compute::models::Resource::new(location.to_string());
+        resource.name = name.map(|n| n.to_string());
+        resource.tags = tags;
+        let mut vm = azure_mgmt_compute::models::VirtualMachine::new(resource);
+        vm.properties = props;
+        vm
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_minimal() {
+        let mgr = create_test_vm_manager();
+        let vm = make_test_vm(None, "westus2", None, None);
+        let info = mgr.convert_vm(&vm, "test-rg").await.unwrap();
+        assert_eq!(info.name, "");
+        assert_eq!(info.location, "westus2");
+        assert_eq!(info.resource_group, "test-rg");
+        assert_eq!(info.vm_size, "unknown");
+        assert_eq!(info.power_state, PowerState::Unknown);
+        assert_eq!(info.provisioning_state, "Unknown");
+        assert_eq!(info.os_type, OsType::Linux);
+        assert!(info.public_ip.is_none());
+        assert!(info.private_ip.is_none());
+        assert!(info.admin_username.is_none());
+        assert!(info.tags.is_empty());
+        assert!(info.created_time.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_with_name_and_location() {
+        let mgr = create_test_vm_manager();
+        let vm = make_test_vm(Some("dev-vm-01"), "eastus", None, None);
+        let info = mgr.convert_vm(&vm, "prod-rg").await.unwrap();
+        assert_eq!(info.name, "dev-vm-01");
+        assert_eq!(info.location, "eastus");
+        assert_eq!(info.resource_group, "prod-rg");
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_with_linux_os() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            os_profile: Some(azure_mgmt_compute::models::OsProfile {
+                admin_username: Some("azureuser".to_string()),
+                linux_configuration: Some(azure_mgmt_compute::models::LinuxConfiguration::default()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let vm = make_test_vm(Some("linux-vm"), "westus2", Some(props), None);
+        let info = mgr.convert_vm(&vm, "rg").await.unwrap();
+        assert_eq!(info.os_type, OsType::Linux);
+        assert_eq!(info.admin_username, Some("azureuser".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_with_windows_os() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            os_profile: Some(azure_mgmt_compute::models::OsProfile {
+                admin_username: Some("adminuser".to_string()),
+                windows_configuration: Some(azure_mgmt_compute::models::WindowsConfiguration::default()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let vm = make_test_vm(Some("win-vm"), "eastus", Some(props), None);
+        let info = mgr.convert_vm(&vm, "rg").await.unwrap();
+        assert_eq!(info.os_type, OsType::Windows);
+        assert_eq!(info.admin_username, Some("adminuser".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_with_no_os_profile() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            provisioning_state: Some("Succeeded".to_string()),
+            ..Default::default()
+        };
+        let vm = make_test_vm(Some("no-os"), "westus", Some(props), None);
+        let info = mgr.convert_vm(&vm, "rg").await.unwrap();
+        assert_eq!(info.os_type, OsType::Linux); // default
+        assert!(info.admin_username.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_with_provisioning_state() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            provisioning_state: Some("Succeeded".to_string()),
+            ..Default::default()
+        };
+        let vm = make_test_vm(Some("vm"), "westus2", Some(props), None);
+        let info = mgr.convert_vm(&vm, "rg").await.unwrap();
+        assert_eq!(info.provisioning_state, "Succeeded");
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_provisioning_state_updating() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            provisioning_state: Some("Updating".to_string()),
+            ..Default::default()
+        };
+        let vm = make_test_vm(Some("vm"), "westus2", Some(props), None);
+        let info = mgr.convert_vm(&vm, "rg").await.unwrap();
+        assert_eq!(info.provisioning_state, "Updating");
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_with_tags() {
+        let mgr = create_test_vm_manager();
+        let tags = serde_json::json!({"env": "dev", "team": "platform"});
+        let vm = make_test_vm(Some("tagged-vm"), "westus2", None, Some(tags));
+        let info = mgr.convert_vm(&vm, "rg").await.unwrap();
+        assert_eq!(info.tags.get("env").unwrap(), "dev");
+        assert_eq!(info.tags.get("team").unwrap(), "platform");
+        assert_eq!(info.tags.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_with_created_time() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            time_created: Some("2024-06-15T10:30:00Z".to_string()),
+            ..Default::default()
+        };
+        let vm = make_test_vm(Some("vm"), "westus2", Some(props), None);
+        let info = mgr.convert_vm(&vm, "rg").await.unwrap();
+        assert!(info.created_time.is_some());
+        assert_eq!(info.created_time.unwrap().year(), 2024);
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_with_invalid_created_time() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            time_created: Some("invalid-date".to_string()),
+            ..Default::default()
+        };
+        let vm = make_test_vm(Some("vm"), "westus2", Some(props), None);
+        let info = mgr.convert_vm(&vm, "rg").await.unwrap();
+        assert!(info.created_time.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_with_instance_view_running() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            instance_view: Some(azure_mgmt_compute::models::VirtualMachineInstanceView {
+                statuses: vec![
+                    azure_mgmt_compute::models::InstanceViewStatus {
+                        code: Some("ProvisioningState/succeeded".to_string()),
+                        ..Default::default()
+                    },
+                    azure_mgmt_compute::models::InstanceViewStatus {
+                        code: Some("PowerState/running".to_string()),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let vm = make_test_vm(Some("running-vm"), "westus2", Some(props), None);
+        let info = mgr.convert_vm(&vm, "rg").await.unwrap();
+        assert_eq!(info.power_state, PowerState::Running);
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_with_instance_view_deallocated() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            instance_view: Some(azure_mgmt_compute::models::VirtualMachineInstanceView {
+                statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some("PowerState/deallocated".to_string()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let vm = make_test_vm(Some("dealloc-vm"), "westus2", Some(props), None);
+        let info = mgr.convert_vm(&vm, "rg").await.unwrap();
+        assert_eq!(info.power_state, PowerState::Deallocated);
+    }
+
+    #[tokio::test]
+    async fn test_convert_vm_full() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            provisioning_state: Some("Succeeded".to_string()),
+            os_profile: Some(azure_mgmt_compute::models::OsProfile {
+                admin_username: Some("azureuser".to_string()),
+                linux_configuration: Some(azure_mgmt_compute::models::LinuxConfiguration::default()),
+                ..Default::default()
+            }),
+            instance_view: Some(azure_mgmt_compute::models::VirtualMachineInstanceView {
+                statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some("PowerState/running".to_string()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            time_created: Some("2024-03-15T08:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let tags = serde_json::json!({"session": "dev", "owner": "tester"});
+        let vm = make_test_vm(Some("full-vm"), "westus2", Some(props), Some(tags));
+        let info = mgr.convert_vm(&vm, "my-rg").await.unwrap();
+        assert_eq!(info.name, "full-vm");
+        assert_eq!(info.location, "westus2");
+        assert_eq!(info.resource_group, "my-rg");
+        assert_eq!(info.provisioning_state, "Succeeded");
+        assert_eq!(info.os_type, OsType::Linux);
+        assert_eq!(info.admin_username, Some("azureuser".to_string()));
+        assert_eq!(info.power_state, PowerState::Running);
+        assert!(info.created_time.is_some());
+        assert_eq!(info.tags.len(), 2);
+    }
+
+    // ── VmManager get_vm_ips tests ──────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_vm_ips_no_props() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.get_vm_ips(None, "rg").await.unwrap();
+        assert_eq!(result, (None, None));
+    }
+
+    #[tokio::test]
+    async fn test_get_vm_ips_no_network_profile() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties::default();
+        let result = mgr.get_vm_ips(Some(&props), "rg").await.unwrap();
+        assert_eq!(result, (None, None));
+    }
+
+    #[tokio::test]
+    async fn test_get_vm_ips_empty_nic_list() {
+        let mgr = create_test_vm_manager();
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            network_profile: Some(azure_mgmt_compute::models::NetworkProfile {
+                network_interfaces: vec![],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let result = mgr.get_vm_ips(Some(&props), "rg").await.unwrap();
+        assert_eq!(result, (None, None));
+    }
+
+    #[tokio::test]
+    async fn test_get_vm_ips_nic_without_id() {
+        let mgr = create_test_vm_manager();
+        let mut nic_ref = azure_mgmt_compute::models::NetworkInterfaceReference::new();
+        nic_ref.sub_resource.id = None;
+        let props = azure_mgmt_compute::models::VirtualMachineProperties {
+            network_profile: Some(azure_mgmt_compute::models::NetworkProfile {
+                network_interfaces: vec![nic_ref],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let result = mgr.get_vm_ips(Some(&props), "rg").await.unwrap();
+        assert_eq!(result, (None, None));
+    }
+
+    // ── VmManager error path tests ──────────────────────────────────
+
+    #[tokio::test]
+    async fn test_list_vms_returns_error_with_dummy_cred() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.list_vms("nonexistent-rg").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Failed to list VMs") || err.contains("error"),
+            "error should be descriptive: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_all_vms_returns_error_with_dummy_cred() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.list_all_vms().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_start_vm_returns_error_with_dummy_cred() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.start_vm("rg", "nonexistent-vm").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Failed to start") || err.contains("error"),
+            "should contain descriptive error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stop_vm_deallocate_returns_error() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.stop_vm("rg", "nonexistent-vm", true).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_stop_vm_power_off_returns_error() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.stop_vm("rg", "nonexistent-vm", false).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_vm_returns_error_with_dummy_cred() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.get_vm("rg", "nonexistent-vm").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_delete_vm_returns_error_with_dummy_cred() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.delete_vm("rg", "nonexistent-vm").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_add_tag_returns_error_with_dummy_cred() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.add_tag("rg", "vm", "key", "value").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_remove_tag_returns_error_with_dummy_cred() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.remove_tag("rg", "vm", "key").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_tags_returns_error_with_dummy_cred() {
+        let mgr = create_test_vm_manager();
+        let result = mgr.list_tags("rg", "vm").await;
+        assert!(result.is_err());
+    }
+
+    // ── VmManager construction tests ────────────────────────────────
+
+    #[test]
+    fn test_create_test_vm_manager_has_subscription() {
+        let mgr = create_test_vm_manager();
+        assert_eq!(mgr.subscription_id, "test-subscription-id");
+    }
+
+    // ── VmResourceNames struct tests ────────────────────────────────
+
+    #[test]
+    fn test_vm_resource_names_clone() {
+        let names = build_vm_resource_names("vm1");
+        let cloned = names.clone();
+        assert_eq!(names, cloned);
+    }
+
+    #[test]
+    fn test_vm_resource_names_all_suffixes() {
+        let names = build_vm_resource_names("x");
+        assert_eq!(names.nsg, "x-nsg");
+        assert_eq!(names.vnet, "x-vnet");
+        assert_eq!(names.subnet, "x-subnet");
+        assert_eq!(names.pip, "x-pip");
+        assert_eq!(names.nic, "x-nic");
+    }
+
+    // ── CredentialAdapter tests ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_dummy_credential_returns_token() {
+        use azure_core_old::auth::TokenCredential;
+        let cred = DummyCred;
+        let result = cred.get_token("https://management.azure.com/").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_dummy_credential_different_resources() {
+        use azure_core_old::auth::TokenCredential;
+        let cred = DummyCred;
+        for resource in &[
+            "https://management.azure.com/",
+            "https://vault.azure.net",
+            "https://storage.azure.com/",
+        ] {
+            let result = cred.get_token(resource).await;
+            assert!(result.is_ok());
+        }
     }
 }
