@@ -1,0 +1,121 @@
+# Bastion Commands — Outside-in tests for azlin bastion subcommands
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Set AZLIN_BIN env var to switch versions.
+
+name: "Bastion Commands"
+description: "Validates bastion list/status/configure command help in both versions"
+version: "1.0.0"
+tags:
+  - "bastion"
+  - "dual-parity"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "bastion help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} bastion --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Bastion"
+        - "list"
+        - "status"
+        - "configure"
+    timeout: 10000
+
+  - name: "bastion list help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} bastion list --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "List"
+        - "Bastion"
+    timeout: 10000
+
+  - name: "bastion list help shows resource-group option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} bastion list --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "resource-group"
+    timeout: 10000
+
+  - name: "bastion status help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} bastion status --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "status"
+        - "Bastion"
+        - "NAME"
+    timeout: 10000
+
+  - name: "bastion status help shows resource-group option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} bastion status --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "resource-group"
+    timeout: 10000
+
+  - name: "bastion configure help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} bastion configure --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Configure"
+        - "Bastion"
+        - "VM_NAME"
+    timeout: 10000
+
+  - name: "bastion configure help shows bastion-name option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} bastion configure --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "bastion-name"
+    timeout: 10000
+
+  - name: "bastion configure help shows disable option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} bastion configure --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "disable"
+    timeout: 10000

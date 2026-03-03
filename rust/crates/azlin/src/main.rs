@@ -6075,4 +6075,898 @@ created = \"2024-01-01T00:00:00Z\"\n";
             .unwrap();
         assert!(output.status.success());
     }
+
+    // ── CLI integration: version ─────────────────────────────────
+
+    #[test]
+    fn test_version_command() {
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .arg("version")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("azlin"));
+        assert!(stdout.contains("2.3.0"));
+    }
+
+    #[test]
+    fn test_help_flag() {
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .arg("--help")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("azlin"));
+    }
+
+    // ── CLI integration: azlin-help ──────────────────────────────
+
+    #[test]
+    fn test_azlin_help_no_args() {
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .arg("azlin-help")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("azlin"));
+    }
+
+    #[test]
+    fn test_azlin_help_with_subcommand() {
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["azlin-help", "list"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("list"));
+    }
+
+    // ── CLI integration: template ────────────────────────────────
+
+    #[test]
+    fn test_cli_template_save_and_list() {
+        let dir = TempDir::new().unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "save", "mytemplate"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Saved template 'mytemplate'"));
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("mytemplate"));
+    }
+
+    #[test]
+    fn test_cli_template_save_with_options() {
+        let dir = TempDir::new().unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "template", "save", "custom-tpl",
+                "--description", "A test template",
+                "--vm-size", "Standard_D8s_v3",
+                "--region", "eastus",
+            ])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "show", "custom-tpl"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Standard_D8s_v3"));
+        assert!(stdout.contains("eastus"));
+        assert!(stdout.contains("A test template"));
+    }
+
+    #[test]
+    fn test_cli_template_show_nonexistent() {
+        let dir = TempDir::new().unwrap();
+        // Ensure azlin dir exists
+        fs::create_dir_all(dir.path().join(".azlin").join("templates")).unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "show", "no-such-template"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("not found"));
+    }
+
+    #[test]
+    fn test_cli_template_apply() {
+        let dir = TempDir::new().unwrap();
+        // First create a template
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "template", "save", "apply-test",
+                "--vm-size", "Standard_D2s_v3",
+                "--region", "westus2",
+            ])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "apply", "apply-test"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Standard_D2s_v3"));
+        assert!(stdout.contains("westus2"));
+    }
+
+    #[test]
+    fn test_cli_template_delete_force() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "save", "todelete"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "delete", "todelete", "--force"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Deleted template 'todelete'"));
+
+        // Verify it's gone
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "show", "todelete"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+    }
+
+    #[test]
+    fn test_cli_template_export_import() {
+        let dir = TempDir::new().unwrap();
+        // Create a template
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "template", "save", "exportme",
+                "--vm-size", "Standard_D4s_v3",
+                "--region", "northeurope",
+            ])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let export_path = dir.path().join("exported.toml");
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "export", "exportme"])
+            .arg(&export_path)
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert!(export_path.exists());
+
+        // Delete the original
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "delete", "exportme", "--force"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        // Import it back
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "import"])
+            .arg(&export_path)
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Imported template 'exportme'"));
+    }
+
+    #[test]
+    fn test_cli_template_list_empty_dir() {
+        let dir = TempDir::new().unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("No templates found"));
+    }
+
+    #[test]
+    fn test_cli_template_create_alias() {
+        let dir = TempDir::new().unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "create", "via-create"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Saved template 'via-create'"));
+    }
+
+    #[test]
+    fn test_cli_template_list_multiple() {
+        let dir = TempDir::new().unwrap();
+        for name in &["tpl-a", "tpl-b", "tpl-c"] {
+            assert_cmd::Command::cargo_bin("azlin")
+                .unwrap()
+                .args(["template", "save", name])
+                .env("HOME", dir.path())
+                .output()
+                .unwrap();
+        }
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("tpl-a"));
+        assert!(stdout.contains("tpl-b"));
+        assert!(stdout.contains("tpl-c"));
+    }
+
+    // ── CLI integration: sessions ────────────────────────────────
+
+    #[test]
+    fn test_cli_sessions_list_empty() {
+        let dir = TempDir::new().unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sessions", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("No saved sessions"));
+    }
+
+    #[test]
+    fn test_cli_sessions_save_and_list() {
+        let dir = TempDir::new().unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "sessions", "save", "my-session",
+                "--resource-group", "test-rg",
+                "--vms", "vm1", "vm2",
+            ])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Saved session 'my-session'"));
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sessions", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("my-session"));
+    }
+
+    #[test]
+    fn test_cli_sessions_save_and_load() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "sessions", "save", "load-test",
+                "--resource-group", "rg-test",
+                "--vms", "vm-alpha", "vm-beta",
+            ])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sessions", "load", "load-test"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Loaded session 'load-test'"));
+        assert!(stdout.contains("rg-test"));
+        assert!(stdout.contains("vm-alpha"));
+        assert!(stdout.contains("vm-beta"));
+    }
+
+    #[test]
+    fn test_cli_sessions_load_nonexistent() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".azlin").join("sessions")).unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sessions", "load", "nonexistent"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("not found"));
+    }
+
+    #[test]
+    fn test_cli_sessions_delete() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "sessions", "save", "delete-me",
+                "--resource-group", "rg1",
+                "--vms", "vm1",
+            ])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sessions", "delete", "delete-me"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Deleted session"));
+
+        // Verify it's gone
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sessions", "load", "delete-me"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+    }
+
+    #[test]
+    fn test_cli_sessions_list_multiple() {
+        let dir = TempDir::new().unwrap();
+        for name in &["sess-1", "sess-2", "sess-3"] {
+            assert_cmd::Command::cargo_bin("azlin")
+                .unwrap()
+                .args([
+                    "sessions", "save", name,
+                    "--resource-group", "rg",
+                    "--vms", "vm1",
+                ])
+                .env("HOME", dir.path())
+                .output()
+                .unwrap();
+        }
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sessions", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("sess-1"));
+        assert!(stdout.contains("sess-2"));
+        assert!(stdout.contains("sess-3"));
+    }
+
+    #[test]
+    fn test_cli_sessions_overwrite() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "sessions", "save", "overwrite-me",
+                "--resource-group", "rg-old",
+                "--vms", "vm-old",
+            ])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "sessions", "save", "overwrite-me",
+                "--resource-group", "rg-new",
+                "--vms", "vm-new",
+            ])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sessions", "load", "overwrite-me"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("rg-new"));
+        assert!(stdout.contains("vm-new"));
+    }
+
+    // ── CLI integration: context ─────────────────────────────────
+
+    #[test]
+    fn test_cli_context_list_empty() {
+        let dir = TempDir::new().unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("No contexts found"));
+    }
+
+    #[test]
+    fn test_cli_context_create_and_list() {
+        let dir = TempDir::new().unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "create", "dev-env"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Created context 'dev-env'"));
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("dev-env"));
+    }
+
+    #[test]
+    fn test_cli_context_create_with_options() {
+        let dir = TempDir::new().unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "context", "create", "prod-env",
+                "--subscription-id", "sub-123",
+                "--tenant-id", "tenant-456",
+                "--resource-group", "prod-rg",
+                "--region", "eastus2",
+            ])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+
+        // Verify the TOML file was written with the correct fields
+        let ctx_path = dir.path().join(".azlin").join("contexts").join("prod-env.toml");
+        assert!(ctx_path.exists());
+        let content = fs::read_to_string(&ctx_path).unwrap();
+        assert!(content.contains("sub-123"));
+        assert!(content.contains("tenant-456"));
+        assert!(content.contains("prod-rg"));
+        assert!(content.contains("eastus2"));
+    }
+
+    #[test]
+    fn test_cli_context_use_and_show() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "create", "staging"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "use", "staging"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Switched to context 'staging'"));
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "show"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("staging"));
+    }
+
+    #[test]
+    fn test_cli_context_use_nonexistent() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".azlin").join("contexts")).unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "use", "nonexistent"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("not found"));
+    }
+
+    #[test]
+    fn test_cli_context_delete_force() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "create", "deleteme"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "delete", "deleteme", "--force"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Deleted context 'deleteme'"));
+    }
+
+    #[test]
+    fn test_cli_context_delete_clears_active() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "create", "active-ctx"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "use", "active-ctx"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "delete", "active-ctx", "--force"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        // Active-context file should be removed
+        let active_path = dir.path().join(".azlin").join("active-context");
+        assert!(!active_path.exists());
+    }
+
+    #[test]
+    fn test_cli_context_rename() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "create", "old-name", "--region", "westus2"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "rename", "old-name", "new-name"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Renamed context"));
+
+        // Old file should be gone, new file should exist
+        let old_path = dir.path().join(".azlin").join("contexts").join("old-name.toml");
+        let new_path = dir.path().join(".azlin").join("contexts").join("new-name.toml");
+        assert!(!old_path.exists());
+        assert!(new_path.exists());
+
+        // Name field inside the TOML should be updated
+        let content = fs::read_to_string(&new_path).unwrap();
+        assert!(content.contains("new-name"));
+    }
+
+    #[test]
+    fn test_cli_context_rename_updates_active() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "create", "rename-active"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "use", "rename-active"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "rename", "rename-active", "renamed-active"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let active = fs::read_to_string(dir.path().join(".azlin").join("active-context")).unwrap();
+        assert_eq!(active.trim(), "renamed-active");
+    }
+
+    #[test]
+    fn test_cli_context_list_marks_active() {
+        let dir = TempDir::new().unwrap();
+        for name in &["ctx-a", "ctx-b", "ctx-c"] {
+            assert_cmd::Command::cargo_bin("azlin")
+                .unwrap()
+                .args(["context", "create", name])
+                .env("HOME", dir.path())
+                .output()
+                .unwrap();
+        }
+
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "use", "ctx-b"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("* ctx-b"));
+    }
+
+    #[test]
+    fn test_cli_context_show_no_selection() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".azlin").join("contexts")).unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "show"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("No context selected"));
+    }
+
+    #[test]
+    fn test_cli_context_switch_alias() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "create", "switch-test"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "switch", "switch-test"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Switched to context 'switch-test'"));
+    }
+
+    #[test]
+    fn test_cli_context_current_alias() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "create", "cur-test"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "use", "cur-test"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "current"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("cur-test"));
+    }
+
+    #[test]
+    fn test_cli_context_migrate() {
+        let dir = TempDir::new().unwrap();
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "migrate"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("no legacy configuration found"));
+    }
+
+    // ── CLI integration: output formats ──────────────────────────
+
+    #[test]
+    fn test_cli_template_list_json_format() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "save", "json-test", "--vm-size", "Standard_B2s"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["--output", "json", "template", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("json-test"));
+    }
+
+    #[test]
+    fn test_cli_sessions_list_json_format() {
+        let dir = TempDir::new().unwrap();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "sessions", "save", "json-sess",
+                "--resource-group", "rg",
+                "--vms", "vm1",
+            ])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["--output", "json", "sessions", "list"])
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("json-sess"));
+    }
+
+    // ── Unit tests: collect_health_metrics edge cases ─────────────
+
+    #[test]
+    fn test_health_metrics_deallocated_vm() {
+        let m = super::collect_health_metrics("vm-dealloc", "10.0.0.1", "user", "VM deallocated");
+        assert_eq!(m.vm_name, "vm-dealloc");
+        assert_eq!(m.cpu_percent, 0.0);
+        assert_eq!(m.mem_percent, 0.0);
+        assert_eq!(m.disk_percent, 0.0);
+    }
+
+    #[test]
+    fn test_health_metrics_deallocating_vm() {
+        let m = super::collect_health_metrics("vm-x", "10.0.0.1", "user", "VM deallocating");
+        assert_eq!(m.power_state, "VM deallocating");
+        assert_eq!(m.load_avg, "-");
+    }
+
+    // ── Unit tests: render_health_table edge cases ───────────────
+
+    #[test]
+    fn test_render_health_table_many_entries() {
+        let metrics: Vec<super::HealthMetrics> = (0..20)
+            .map(|i| super::HealthMetrics {
+                vm_name: format!("vm-{}", i),
+                power_state: "VM running".to_string(),
+                cpu_percent: i as f32 * 5.0,
+                mem_percent: i as f32 * 3.0,
+                disk_percent: i as f32 * 2.0,
+                load_avg: format!("{:.2}", i as f32 * 0.5),
+            })
+            .collect();
+        // Should not panic with many entries
+        super::render_health_table(&metrics);
+    }
+
+    #[test]
+    fn test_render_health_table_100_percent() {
+        let metrics = vec![super::HealthMetrics {
+            vm_name: "vm-full".to_string(),
+            power_state: "VM running".to_string(),
+            cpu_percent: 100.0,
+            mem_percent: 100.0,
+            disk_percent: 100.0,
+            load_avg: "99.99".to_string(),
+        }];
+        // Should not panic
+        super::render_health_table(&metrics);
+    }
 }

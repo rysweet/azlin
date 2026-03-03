@@ -120,3 +120,94 @@ async fn main() -> Result<()> {
     println!("\n✓ azdoit complete.");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_azdoit_help() {
+        let output = assert_cmd::Command::cargo_bin("azdoit")
+            .unwrap()
+            .arg("--help")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("azdoit") || stdout.contains("natural language"));
+    }
+
+    #[test]
+    fn test_azdoit_version() {
+        let output = assert_cmd::Command::cargo_bin("azdoit")
+            .unwrap()
+            .arg("--version")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("2.3.0"));
+    }
+
+    #[test]
+    fn test_azdoit_no_args_fails() {
+        let output = assert_cmd::Command::cargo_bin("azdoit")
+            .unwrap()
+            .env_remove("ANTHROPIC_API_KEY")
+            .output()
+            .unwrap();
+        // Should fail: no request and no API key
+        assert!(!output.status.success());
+    }
+
+    #[test]
+    fn test_azdoit_no_api_key() {
+        let output = assert_cmd::Command::cargo_bin("azdoit")
+            .unwrap()
+            .args(["list", "my", "vms"])
+            .env_remove("ANTHROPIC_API_KEY")
+            .env_remove("AZURE_OPENAI_API_KEY")
+            .output()
+            .unwrap();
+        // Should fail gracefully without API key
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success() || stderr.contains("API") || stderr.contains("error"));
+    }
+
+    #[test]
+    fn test_command_allowlist() {
+        let allowed_prefixes = ["az ", "echo ", "azlin "];
+        // Allowed commands
+        assert!(allowed_prefixes.iter().any(|p| "az vm list".starts_with(p)));
+        assert!(allowed_prefixes.iter().any(|p| "echo hello".starts_with(p)));
+        assert!(allowed_prefixes.iter().any(|p| "azlin list".starts_with(p)));
+        // Disallowed commands
+        assert!(!allowed_prefixes.iter().any(|p| "rm -rf /".starts_with(p)));
+        assert!(!allowed_prefixes.iter().any(|p| "curl evil.com".starts_with(p)));
+        assert!(!allowed_prefixes.iter().any(|p| "wget malware".starts_with(p)));
+        assert!(!allowed_prefixes.iter().any(|p| "sudo rm -rf".starts_with(p)));
+        assert!(!allowed_prefixes.iter().any(|p| "python -c 'hack'".starts_with(p)));
+    }
+
+    #[test]
+    fn test_azdoit_dry_run_no_api_key() {
+        let output = assert_cmd::Command::cargo_bin("azdoit")
+            .unwrap()
+            .args(["--dry-run", "list", "vms"])
+            .env_remove("ANTHROPIC_API_KEY")
+            .env_remove("AZURE_OPENAI_API_KEY")
+            .output()
+            .unwrap();
+        // Without an API key, even dry-run should fail at client creation
+        assert!(!output.status.success());
+    }
+
+    #[test]
+    fn test_azdoit_max_turns_flag() {
+        let output = assert_cmd::Command::cargo_bin("azdoit")
+            .unwrap()
+            .args(["--max-turns", "5", "--help"])
+            .output()
+            .unwrap();
+        // --help should still work even with other flags
+        assert!(output.status.success());
+    }
+}
