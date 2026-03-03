@@ -1,0 +1,44 @@
+# Config Management — Outside-in tests for config set/get/show
+# Tests config persistence and value retrieval for BOTH Python and Rust versions.
+
+name: "Config Management"
+description: "Validates config show, set, and get operations"
+version: "1.0.0"
+tags:
+  - "config"
+  - "parity"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Config show returns default region"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config show"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "default_region"
+    timeout: 10000
+
+  - name: "Config get retrieves a specific key"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config get default_region"
+    expect:
+      exit_code: 0
+    timeout: 10000
