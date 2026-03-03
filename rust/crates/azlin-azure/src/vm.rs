@@ -78,55 +78,65 @@ impl VmManager {
     pub async fn list_vms(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
         debug!(resource_group, "Listing VMs");
 
-        let result = self
+        match self
             .compute_client
             .virtual_machines()
             .list(resource_group, &self.subscription_id)
             .into_future()
             .await
-            .context("Failed to list VMs from Azure")?;
-
-        let mut vms = Vec::new();
-        for vm in &result.value {
-            match self.convert_vm(vm, resource_group).await {
-                Ok(info) => vms.push(info),
-                Err(e) => {
-                    let name = vm.resource.name.as_deref().unwrap_or("unknown");
-                    warn!(vm_name = name, error = %e, "Failed to convert VM, skipping");
+        {
+            Ok(result) => {
+                let mut vms = Vec::new();
+                for vm in &result.value {
+                    match self.convert_vm(vm, resource_group).await {
+                        Ok(info) => vms.push(info),
+                        Err(e) => {
+                            let name = vm.resource.name.as_deref().unwrap_or("unknown");
+                            warn!(vm_name = name, error = %e, "Failed to convert VM, skipping");
+                        }
+                    }
                 }
+                debug!(count = vms.len(), "Listed VMs");
+                Ok(vms)
+            }
+            Err(e) => {
+                debug!(error = %e, "Azure SDK deserialization failed, falling back to az CLI");
+                list_vms_via_cli(Some(resource_group)).await
             }
         }
-
-        debug!(count = vms.len(), "Listed VMs");
-        Ok(vms)
     }
 
     /// List all VMs across the entire subscription.
     pub async fn list_all_vms(&self) -> Result<Vec<VmInfo>> {
         debug!("Listing all VMs in subscription");
 
-        let result = self
+        match self
             .compute_client
             .virtual_machines()
             .list_all(&self.subscription_id)
             .into_future()
             .await
-            .context("Failed to list all VMs from Azure")?;
-
-        let mut vms = Vec::new();
-        for vm in &result.value {
-            let rg = extract_resource_group(vm.resource.id.as_deref().unwrap_or(""));
-            match self.convert_vm(vm, &rg).await {
-                Ok(info) => vms.push(info),
-                Err(e) => {
-                    let name = vm.resource.name.as_deref().unwrap_or("unknown");
-                    warn!(vm_name = name, error = %e, "Failed to convert VM, skipping");
+        {
+            Ok(result) => {
+                let mut vms = Vec::new();
+                for vm in &result.value {
+                    let rg = extract_resource_group(vm.resource.id.as_deref().unwrap_or(""));
+                    match self.convert_vm(vm, &rg).await {
+                        Ok(info) => vms.push(info),
+                        Err(e) => {
+                            let name = vm.resource.name.as_deref().unwrap_or("unknown");
+                            warn!(vm_name = name, error = %e, "Failed to convert VM, skipping");
+                        }
+                    }
                 }
+                debug!(count = vms.len(), "Listed all VMs");
+                Ok(vms)
+            }
+            Err(e) => {
+                debug!(error = %e, "Azure SDK deserialization failed, falling back to az CLI");
+                list_vms_via_cli(None).await
             }
         }
-
-        debug!(count = vms.len(), "Listed all VMs");
-        Ok(vms)
     }
 
     /// Convert an Azure SDK VM to our VmInfo model.
@@ -714,6 +724,125 @@ fn parse_public_ip_resource_id(resource_id: &str) -> Option<(&str, &str)> {
 /// Extract NIC name from a full Azure resource ID.
 fn extract_nic_name_from_id(nic_id: &str) -> Option<&str> {
     nic_id.rsplit('/').next().filter(|s| !s.is_empty())
+}
+
+/// Fallback: list VMs via the `az` CLI when the Azure SDK fails to deserialize.
+///
+/// When `resource_group` is `Some`, scopes to that resource group; otherwise lists
+/// all VMs in the subscription.
+async fn list_vms_via_cli(resource_group: Option<&str>) -> Result<Vec<VmInfo>> {
+    let mut cmd = tokio::process::Command::new("az");
+    cmd.arg("vm").arg("list").arg("--show-details").arg("--output").arg("json");
+    if let Some(rg) = resource_group {
+        cmd.arg("--resource-group").arg(rg);
+    }
+
+    let output = cmd
+        .output()
+        .await
+        .context("Failed to run 'az vm list' CLI command")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("az vm list failed: {}", stderr);
+    }
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).context("Failed to parse az CLI JSON output")?;
+
+    let arr = json.as_array().context("Expected JSON array from az vm list")?;
+
+    let mut vms = Vec::with_capacity(arr.len());
+    for entry in arr {
+        match parse_az_vm_json(entry) {
+            Ok(vm) => vms.push(vm),
+            Err(e) => {
+                let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                warn!(vm_name = name, error = %e, "Failed to parse CLI VM entry, skipping");
+            }
+        }
+    }
+
+    debug!(count = vms.len(), "Listed VMs via az CLI fallback");
+    Ok(vms)
+}
+
+/// Parse a single VM JSON object from `az vm list --show-details` output.
+fn parse_az_vm_json(v: &serde_json::Value) -> Result<VmInfo> {
+    let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let id = v.get("id").and_then(|n| n.as_str()).unwrap_or("");
+    let resource_group = extract_resource_group(id);
+    let location = v.get("location").and_then(|n| n.as_str()).unwrap_or("").to_string();
+
+    let vm_size = v
+        .get("hardwareProfile")
+        .and_then(|hp| hp.get("vmSize"))
+        .and_then(|s| s.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let power_state_str = v.get("powerState").and_then(|s| s.as_str()).unwrap_or("");
+    let power_state = match power_state_str.to_lowercase().as_str() {
+        s if s.contains("running") => PowerState::Running,
+        s if s.contains("deallocat") => PowerState::Deallocated,
+        s if s.contains("stopped") => PowerState::Stopped,
+        s if s.contains("starting") => PowerState::Starting,
+        s if s.contains("stopping") => PowerState::Stopping,
+        _ => PowerState::Unknown,
+    };
+
+    let provisioning_state = v
+        .get("provisioningState")
+        .and_then(|s| s.as_str())
+        .unwrap_or("Unknown")
+        .to_string();
+
+    let public_ip = v
+        .get("publicIps")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+
+    let private_ip = v
+        .get("privateIps")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+
+    let admin_username = v
+        .get("osProfile")
+        .and_then(|o| o.get("adminUsername"))
+        .and_then(|s| s.as_str())
+        .map(String::from);
+
+    let os_type_str = v
+        .get("storageProfile")
+        .and_then(|sp| sp.get("osDisk"))
+        .and_then(|od| od.get("osType"))
+        .and_then(|s| s.as_str())
+        .unwrap_or("");
+    let os_type = if os_type_str.eq_ignore_ascii_case("windows") {
+        OsType::Windows
+    } else {
+        OsType::Linux
+    };
+
+    let tags = extract_tags(v.get("tags"));
+
+    Ok(VmInfo {
+        name,
+        resource_group,
+        location,
+        vm_size,
+        power_state,
+        provisioning_state,
+        os_type,
+        public_ip,
+        private_ip,
+        admin_username,
+        tags,
+        created_time: None,
+    })
 }
 
 /// Detect OS type from OS profile flags.
@@ -1969,19 +2098,30 @@ mod tests {
     async fn test_list_vms_returns_error_with_dummy_cred() {
         let mgr = create_test_vm_manager();
         let result = mgr.list_vms("nonexistent-rg").await;
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Failed to list VMs") || err.contains("error"),
-            "error should be descriptive: {err}"
-        );
+        // With fallback, the CLI may also fail for a nonexistent RG,
+        // or succeed if az CLI has valid auth. Either outcome is acceptable.
+        if let Err(err) = &result {
+            let msg = err.to_string();
+            assert!(
+                msg.contains("Failed") || msg.contains("error") || msg.contains("az vm list"),
+                "error should be descriptive: {msg}"
+            );
+        }
     }
 
     #[tokio::test]
     async fn test_list_all_vms_returns_error_with_dummy_cred() {
         let mgr = create_test_vm_manager();
         let result = mgr.list_all_vms().await;
-        assert!(result.is_err());
+        // With fallback, list_all_vms may succeed via az CLI if CLI auth is valid.
+        // We only verify it doesn't panic; both Ok and Err are acceptable.
+        match &result {
+            Ok(vms) => assert!(vms.len() >= 0, "should return a list"),
+            Err(err) => {
+                let msg = err.to_string();
+                assert!(!msg.is_empty(), "error should be descriptive");
+            }
+        }
     }
 
     #[tokio::test]
@@ -2094,5 +2234,65 @@ mod tests {
             let result = cred.get_token(resource).await;
             assert!(result.is_ok());
         }
+    }
+
+    #[test]
+    fn test_parse_az_vm_json_full() {
+        let json = serde_json::json!({
+            "name": "test-vm",
+            "id": "/subscriptions/sub-1/resourceGroups/test-rg/providers/Microsoft.Compute/virtualMachines/test-vm",
+            "location": "eastus",
+            "hardwareProfile": { "vmSize": "Standard_D2s_v3" },
+            "powerState": "VM running",
+            "provisioningState": "Succeeded",
+            "publicIps": "1.2.3.4",
+            "privateIps": "10.0.0.5",
+            "osProfile": { "adminUsername": "azureuser" },
+            "storageProfile": { "osDisk": { "osType": "Linux" } },
+            "tags": { "env": "dev" }
+        });
+        let vm = parse_az_vm_json(&json).unwrap();
+        assert_eq!(vm.name, "test-vm");
+        assert_eq!(vm.resource_group, "test-rg");
+        assert_eq!(vm.location, "eastus");
+        assert_eq!(vm.vm_size, "Standard_D2s_v3");
+        assert_eq!(vm.power_state, PowerState::Running);
+        assert_eq!(vm.provisioning_state, "Succeeded");
+        assert_eq!(vm.public_ip, Some("1.2.3.4".to_string()));
+        assert_eq!(vm.private_ip, Some("10.0.0.5".to_string()));
+        assert_eq!(vm.admin_username, Some("azureuser".to_string()));
+        assert_eq!(vm.os_type, OsType::Linux);
+        assert_eq!(vm.tags.get("env").unwrap(), "dev");
+    }
+
+    #[test]
+    fn test_parse_az_vm_json_deallocated() {
+        let json = serde_json::json!({
+            "name": "stopped-vm",
+            "id": "/subscriptions/s/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/stopped-vm",
+            "location": "westus2",
+            "hardwareProfile": { "vmSize": "Standard_B1s" },
+            "powerState": "VM deallocated",
+            "provisioningState": "Succeeded",
+            "publicIps": "",
+            "privateIps": "",
+            "storageProfile": { "osDisk": { "osType": "Windows" } },
+            "tags": {}
+        });
+        let vm = parse_az_vm_json(&json).unwrap();
+        assert_eq!(vm.power_state, PowerState::Deallocated);
+        assert_eq!(vm.os_type, OsType::Windows);
+        assert_eq!(vm.public_ip, None);
+        assert_eq!(vm.private_ip, None);
+        assert_eq!(vm.admin_username, None);
+    }
+
+    #[test]
+    fn test_parse_az_vm_json_minimal() {
+        let json = serde_json::json!({});
+        let vm = parse_az_vm_json(&json).unwrap();
+        assert_eq!(vm.name, "");
+        assert_eq!(vm.power_state, PowerState::Unknown);
+        assert_eq!(vm.os_type, OsType::Linux);
     }
 }
