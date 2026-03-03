@@ -413,4 +413,94 @@ mod tests {
         // Closing an empty pool should succeed without error.
         pool.close_all().await.unwrap();
     }
+
+    // ── Additional SSH tests ────────────────────────────────────────
+
+    #[test]
+    fn test_ssh_config_default_port() {
+        let cfg = SshConfig::new("host", "user", PathBuf::from("/key"));
+        assert_eq!(cfg.port, 22);
+    }
+
+    #[test]
+    fn test_ssh_config_default_timeout() {
+        let cfg = SshConfig::new("host", "user", PathBuf::from("/key"));
+        assert_eq!(cfg.timeout, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_ssh_config_custom_port() {
+        let mut cfg = SshConfig::new("host", "user", PathBuf::from("/key"));
+        cfg.port = 2222;
+        assert_eq!(cfg.port, 2222);
+        assert_eq!(cfg.pool_key(), "user@host:2222");
+    }
+
+    #[test]
+    fn test_ssh_config_custom_key_path() {
+        let cfg = SshConfig::new("host", "user", PathBuf::from("/home/user/.ssh/custom_key"));
+        assert_eq!(cfg.key_path, PathBuf::from("/home/user/.ssh/custom_key"));
+    }
+
+    #[test]
+    fn test_ssh_config_custom_timeout() {
+        let cfg = SshConfig {
+            host: "host".into(),
+            port: 22,
+            username: "user".into(),
+            key_path: PathBuf::from("/key"),
+            timeout: Duration::from_secs(5),
+        };
+        assert_eq!(cfg.timeout, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_ssh_config_pool_key_format() {
+        let cfg = SshConfig {
+            host: "192.168.1.100".into(),
+            port: 2222,
+            username: "admin".into(),
+            key_path: PathBuf::from("/key"),
+            timeout: Duration::from_secs(30),
+        };
+        assert_eq!(cfg.pool_key(), "admin@192.168.1.100:2222");
+    }
+
+    #[test]
+    fn test_ssh_config_pool_key_with_hostname() {
+        let cfg = SshConfig::new("myvm.azure.com", "azureuser", PathBuf::from("/key"));
+        assert_eq!(cfg.pool_key(), "azureuser@myvm.azure.com:22");
+    }
+
+    #[tokio::test]
+    async fn test_pool_new_with_params() {
+        let pool = SshPool::new(10, Duration::from_secs(60));
+        assert_eq!(pool.max_connections, 10);
+        assert_eq!(pool.idle_timeout, Duration::from_secs(60));
+        assert_eq!(pool.pool_size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_pool_size_starts_empty() {
+        let pool = SshPool::new(5, Duration::from_secs(120));
+        assert_eq!(pool.pool_size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_pool_get_or_connect_bad_key() {
+        let pool = SshPool::new(5, Duration::from_secs(120));
+        let cfg = SshConfig::new("127.0.0.1", "user", PathBuf::from("/nonexistent/key"));
+        let result = pool.get_or_connect(&cfg).await;
+        assert!(result.is_err());
+        // Pool should still be empty after failed connect
+        assert_eq!(pool.pool_size().await, 0);
+    }
+
+    #[test]
+    fn test_ssh_config_debug_impl() {
+        let cfg = SshConfig::new("host", "user", PathBuf::from("/key"));
+        let debug = format!("{:?}", cfg);
+        assert!(debug.contains("host"));
+        assert!(debug.contains("user"));
+    }
 }

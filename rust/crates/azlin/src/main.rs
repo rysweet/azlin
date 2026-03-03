@@ -1,9 +1,176 @@
 use anyhow::Result;
 use clap::Parser;
-use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
+use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table, Color, Attribute, Cell};
 use console::Style;
 use dialoguer::Confirm;
 use tracing_subscriber::EnvFilter;
+
+/// Health metrics collected from a VM via SSH.
+struct HealthMetrics {
+    vm_name: String,
+    power_state: String,
+    cpu_percent: f32,
+    mem_percent: f32,
+    disk_percent: f32,
+    load_avg: String,
+}
+
+/// Run an SSH command on a remote host and return (exit_code, stdout, stderr).
+fn ssh_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
+    let output = std::process::Command::new("ssh")
+        .args([
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=10",
+            "-o", "BatchMode=yes",
+            &format!("{}@{}", user, ip),
+            cmd,
+        ])
+        .output()?;
+    Ok((
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    ))
+}
+
+/// Collect health metrics from a single VM via SSH.
+fn collect_health_metrics(vm_name: &str, ip: &str, user: &str, power_state: &str) -> HealthMetrics {
+    if power_state != "running" {
+        return HealthMetrics {
+            vm_name: vm_name.to_string(),
+            power_state: power_state.to_string(),
+            cpu_percent: 0.0,
+            mem_percent: 0.0,
+            disk_percent: 0.0,
+            load_avg: "-".to_string(),
+        };
+    }
+
+    // CPU usage from top (idle percentage -> used)
+    let cpu = ssh_exec(ip, user, "top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'")
+        .ok()
+        .and_then(|(code, out, _)| if code == 0 { out.trim().parse::<f32>().ok() } else { None })
+        .unwrap_or(0.0);
+
+    // Memory usage from free
+    let mem = ssh_exec(ip, user, "free | awk '/Mem:/{printf \"%.1f\", $3/$2 * 100}'")
+        .ok()
+        .and_then(|(code, out, _)| if code == 0 { out.trim().parse::<f32>().ok() } else { None })
+        .unwrap_or(0.0);
+
+    // Disk usage from df
+    let disk = ssh_exec(ip, user, "df / --output=pcent | tail -1 | tr -d ' %'")
+        .ok()
+        .and_then(|(code, out, _)| if code == 0 { out.trim().parse::<f32>().ok() } else { None })
+        .unwrap_or(0.0);
+
+    // Load average from uptime
+    let load = ssh_exec(ip, user, "uptime | awk -F'load average:' '{print $2}' | xargs")
+        .ok()
+        .and_then(|(code, out, _)| if code == 0 { Some(out.trim().to_string()) } else { None })
+        .unwrap_or_else(|| "-".to_string());
+
+    HealthMetrics {
+        vm_name: vm_name.to_string(),
+        power_state: power_state.to_string(),
+        cpu_percent: cpu,
+        mem_percent: mem,
+        disk_percent: disk,
+        load_avg: load,
+    }
+}
+
+/// Render a health metrics table.
+fn render_health_table(metrics: &[HealthMetrics]) {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_header(vec![
+            Cell::new("VM Name").add_attribute(Attribute::Bold),
+            Cell::new("Power State").add_attribute(Attribute::Bold),
+            Cell::new("CPU %").add_attribute(Attribute::Bold),
+            Cell::new("Memory %").add_attribute(Attribute::Bold),
+            Cell::new("Disk %").add_attribute(Attribute::Bold),
+            Cell::new("Load Average").add_attribute(Attribute::Bold),
+        ]);
+
+    for m in metrics {
+        let state_color = match m.power_state.as_str() {
+            "running" => Color::Green,
+            "stopped" | "deallocated" => Color::Red,
+            _ => Color::Yellow,
+        };
+        let cpu_color = if m.cpu_percent > 80.0 { Color::Red } else if m.cpu_percent > 50.0 { Color::Yellow } else { Color::Green };
+        let mem_color = if m.mem_percent > 80.0 { Color::Red } else if m.mem_percent > 50.0 { Color::Yellow } else { Color::Green };
+        let disk_color = if m.disk_percent > 80.0 { Color::Red } else if m.disk_percent > 50.0 { Color::Yellow } else { Color::Green };
+
+        table.add_row(vec![
+            Cell::new(&m.vm_name),
+            Cell::new(&m.power_state).fg(state_color),
+            Cell::new(format!("{:.1}", m.cpu_percent)).fg(cpu_color),
+            Cell::new(format!("{:.1}", m.mem_percent)).fg(mem_color),
+            Cell::new(format!("{:.1}", m.disk_percent)).fg(disk_color),
+            Cell::new(&m.load_avg),
+        ]);
+    }
+    println!("{table}");
+}
+
+/// Get running VMs with their IPs from Azure for SSH-based commands.
+/// Returns Vec of (vm_name, ip, admin_user).
+async fn get_running_vms_with_ips(
+    vm_manager: &azlin_azure::VmManager,
+    rg: &str,
+) -> Result<Vec<(String, String, String)>> {
+    let vms = vm_manager.list_vms(rg).await?;
+    let mut results = Vec::new();
+    for vm in &vms {
+        if vm.power_state == azlin_core::models::PowerState::Running {
+            if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
+                let user = vm.admin_username.clone().unwrap_or_else(|| "azureuser".to_string());
+                results.push((vm.name.clone(), ip.clone(), user));
+            }
+        }
+    }
+    Ok(results)
+}
+
+/// Execute a command on all running VMs and print results in a table.
+fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bool) {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_header(vec![
+            Cell::new("VM").add_attribute(Attribute::Bold),
+            Cell::new("Status").add_attribute(Attribute::Bold),
+            Cell::new("Output").add_attribute(Attribute::Bold),
+        ]);
+
+    for (name, ip, user) in vms {
+        let (code, stdout, stderr) = match ssh_exec(ip, user, command) {
+            Ok(r) => r,
+            Err(e) => (-1, String::new(), e.to_string()),
+        };
+        let status = if code == 0 { "OK" } else { "FAIL" };
+        let status_color = if code == 0 { Color::Green } else { Color::Red };
+        let output_text = if show_output {
+            let out = stdout.trim();
+            if out.is_empty() { stderr.trim().to_string() } else { out.to_string() }
+        } else if code != 0 {
+            stderr.trim().lines().next().unwrap_or("").to_string()
+        } else {
+            String::new()
+        };
+        table.add_row(vec![
+            Cell::new(name),
+            Cell::new(status).fg(status_color),
+            Cell::new(&output_text),
+        ]);
+    }
+    println!("{table}");
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -239,20 +406,120 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        azlin_cli::Commands::W { .. } => {
-            println!("Not yet connected to any VMs");
+        azlin_cli::Commands::W { resource_group, vm, ip, .. } => {
+            let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
+            for (name, addr, user) in &targets {
+                println!("── {} ──", name);
+                match ssh_exec_checked(addr, user, "w").await {
+                    Ok(output) => print!("{}", output),
+                    Err(e) => eprintln!("  Error: {}", e),
+                }
+            }
         }
-        azlin_cli::Commands::Ps { .. } => {
-            println!("Not yet connected to any VMs");
+        azlin_cli::Commands::Ps { resource_group, vm, ip, .. } => {
+            let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
+            for (name, addr, user) in &targets {
+                println!("── {} ──", name);
+                match ssh_exec_checked(addr, user, "ps aux --sort=-%mem | head -20").await {
+                    Ok(output) => print!("{}", output),
+                    Err(e) => eprintln!("  Error: {}", e),
+                }
+            }
         }
-        azlin_cli::Commands::Top { .. } => {
-            println!("Not yet connected to any VMs");
+        azlin_cli::Commands::Top { resource_group, vm, ip, .. } => {
+            let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
+            for (name, addr, user) in &targets {
+                println!("── {} ──", name);
+                match ssh_exec_checked(addr, user, "top -b -n 1 | head -30").await {
+                    Ok(output) => print!("{}", output),
+                    Err(e) => eprintln!("  Error: {}", e),
+                }
+            }
         }
-        azlin_cli::Commands::Health { .. } => {
-            println!("Health monitoring not yet implemented");
+        azlin_cli::Commands::Health {
+            vm,
+            resource_group,
+            ..
+        } => {
+            let auth = match azlin_azure::AzureAuth::new() {
+                Ok(a) => a,
+                Err(_) => {
+                    eprintln!("Azure authentication failed.");
+                    eprintln!("Hint: use 'az login' or specify --vm and --ip flags for direct SSH.");
+                    std::process::exit(1);
+                }
+            };
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+            let rg = resolve_resource_group(resource_group)?;
+
+            let pb = indicatif::ProgressBar::new_spinner();
+            pb.set_message("Collecting health metrics...");
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+
+            let metrics: Vec<HealthMetrics> = if let Some(vm_name) = vm {
+                let vm_info = vm_manager.get_vm(&rg, &vm_name).await?;
+                let ip = vm_info.public_ip.or(vm_info.private_ip)
+                    .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_name))?;
+                let user = vm_info.admin_username.unwrap_or_else(|| "azureuser".to_string());
+                let state = vm_info.power_state.to_string();
+                vec![collect_health_metrics(&vm_name, &ip, &user, &state)]
+            } else {
+                let vms = vm_manager.list_vms(&rg).await?;
+                vms.iter().filter_map(|vm_info| {
+                    let ip = vm_info.public_ip.as_ref().or(vm_info.private_ip.as_ref())?;
+                    let user = vm_info.admin_username.clone().unwrap_or_else(|| "azureuser".to_string());
+                    let state = vm_info.power_state.to_string();
+                    Some(collect_health_metrics(&vm_info.name, ip, &user, &state))
+                }).collect()
+            };
+            pb.finish_and_clear();
+
+            if metrics.is_empty() {
+                println!("No VMs found in resource group '{}'", rg);
+            } else {
+                println!("Health Dashboard — Four Golden Signals ({})", rg);
+                render_health_table(&metrics);
+            }
         }
-        azlin_cli::Commands::OsUpdate { .. } => {
-            println!("OS update not yet implemented");
+        azlin_cli::Commands::OsUpdate {
+            vm_identifier,
+            resource_group,
+            timeout: _,
+            ..
+        } => {
+            let auth = create_auth()?;
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+            let rg = resolve_resource_group(resource_group)?;
+
+            let pb = indicatif::ProgressBar::new_spinner();
+            pb.set_message(format!("Looking up {}...", vm_identifier));
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let vm = vm_manager.get_vm(&rg, &vm_identifier).await?;
+            pb.finish_and_clear();
+
+            let ip = vm.public_ip.or(vm.private_ip)
+                .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_identifier))?;
+            let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
+
+            println!("Running OS updates on '{}'...", vm_identifier);
+            let cmd = format!(
+                "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq"
+            );
+            let (code, stdout, stderr) = ssh_exec(&ip, &user, &cmd)?;
+            if code == 0 {
+                let green = Style::new().green();
+                println!("{}", green.apply_to(format!("OS update completed on '{}'", vm_identifier)));
+                if !stdout.trim().is_empty() {
+                    println!("{}", stdout.trim());
+                }
+            } else {
+                let red = Style::new().red();
+                eprintln!("{}", red.apply_to(format!("OS update failed on '{}'", vm_identifier)));
+                if !stderr.trim().is_empty() {
+                    eprintln!("{}", stderr.trim());
+                }
+                std::process::exit(1);
+            }
         }
         azlin_cli::Commands::Delete {
             vm_name,
@@ -336,6 +603,8 @@ async fn main() -> Result<()> {
             azlin_cli::EnvAction::Set {
                 vm_identifier,
                 env_var,
+                resource_group,
+                ip,
                 ..
             } => {
                 let parts: Vec<&str> = env_var.splitn(2, '=').collect();
@@ -344,54 +613,94 @@ async fn main() -> Result<()> {
                     std::process::exit(1);
                 }
                 let (key, value) = (parts[0], parts[1]);
-                println!(
-                    "Would set {}={} on VM '{}' via: echo 'export {}={}' >> ~/.bashrc",
-                    key, value, vm_identifier, key, value
+                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let escaped = shell_escape(value);
+                let cmd = format!(
+                    "grep -q '^export {}=' ~/.profile 2>/dev/null && sed -i 's/^export {}=.*/export {}={}/' ~/.profile || echo 'export {}={}' >> ~/.profile",
+                    key, key, key, escaped, key, escaped
                 );
+                ssh_exec_checked(&addr, &user, &cmd).await?;
+                println!("Set {}={} on VM '{}'", key, value, vm_identifier);
             }
             azlin_cli::EnvAction::List {
-                vm_identifier, ..
+                vm_identifier,
+                resource_group,
+                ip,
+                ..
             } => {
-                println!(
-                    "Would list environment variables on VM '{}' via: env | sort",
-                    vm_identifier
-                );
+                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let output = ssh_exec_checked(&addr, &user, "env | sort").await?;
+                let mut table = Table::new();
+                table
+                    .load_preset(UTF8_FULL)
+                    .apply_modifier(UTF8_ROUND_CORNERS)
+                    .set_header(vec!["Variable", "Value"]);
+                for line in output.lines() {
+                    if let Some((k, v)) = line.split_once('=') {
+                        table.add_row(vec![k, v]);
+                    }
+                }
+                println!("{table}");
             }
             azlin_cli::EnvAction::Delete {
                 vm_identifier,
                 key,
+                resource_group,
+                ip,
                 ..
             } => {
-                println!(
-                    "Would delete '{}' from VM '{}' via: sed -i '/^export {}=/d' ~/.bashrc",
-                    key, vm_identifier, key
-                );
+                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let cmd = format!("sed -i '/^export {}=/d' ~/.profile", key);
+                ssh_exec_checked(&addr, &user, &cmd).await?;
+                println!("Deleted '{}' from VM '{}'", key, vm_identifier);
             }
             azlin_cli::EnvAction::Export {
                 vm_identifier,
                 output_file,
+                resource_group,
+                ip,
                 ..
             } => {
-                let file = output_file.as_deref().unwrap_or("<stdout>");
-                println!(
-                    "Would export env vars from VM '{}' to '{}'",
-                    vm_identifier, file
-                );
+                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let output = ssh_exec_checked(&addr, &user, "env | sort").await?;
+                match output_file {
+                    Some(path) => {
+                        std::fs::write(&path, &output)?;
+                        println!("Exported env vars from VM '{}' to '{}'", vm_identifier, path);
+                    }
+                    None => print!("{}", output),
+                }
             }
             azlin_cli::EnvAction::Import {
                 vm_identifier,
                 env_file,
+                resource_group,
+                ip,
                 ..
             } => {
-                println!(
-                    "Would import env vars from '{}' to VM '{}'",
-                    env_file.display(),
-                    vm_identifier
-                );
+                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let content = std::fs::read_to_string(&env_file)?;
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
+                    if let Some((key, value)) = line.split_once('=') {
+                        let escaped = shell_escape(value);
+                        let cmd = format!(
+                            "grep -q '^export {}=' ~/.profile 2>/dev/null && sed -i 's/^export {}=.*/export {}={}/' ~/.profile || echo 'export {}={}' >> ~/.profile",
+                            key, key, key, escaped, key, escaped
+                        );
+                        ssh_exec_checked(&addr, &user, &cmd).await?;
+                    }
+                }
+                println!("Imported env vars from '{}' to VM '{}'", env_file.display(), vm_identifier);
             }
             azlin_cli::EnvAction::Clear {
                 vm_identifier,
                 force,
+                resource_group,
+                ip,
                 ..
             } => {
                 if !force {
@@ -407,10 +716,10 @@ async fn main() -> Result<()> {
                         return Ok(());
                     }
                 }
-                println!(
-                    "Would clear all custom environment variables on VM '{}'",
-                    vm_identifier
-                );
+                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let cmd = "sed -i '/^export /d' ~/.profile";
+                ssh_exec_checked(&addr, &user, cmd).await?;
+                println!("Cleared all custom environment variables on VM '{}'", vm_identifier);
             }
         },
         azlin_cli::Commands::Cost {
@@ -1418,20 +1727,359 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        azlin_cli::Commands::Doit { .. } | azlin_cli::Commands::AzDoit { .. } => {
-            println!("Autonomous deployment (doit) is not yet implemented in the Rust version.");
-            println!("Use the Python version: azlin doit <request>");
+        azlin_cli::Commands::Doit { action } | azlin_cli::Commands::AzDoit { action } => {
+            match action {
+                azlin_cli::DoitAction::Deploy { request, dry_run, .. } => {
+                    let client = azlin_ai::AnthropicClient::new()?;
+
+                    let system_context = "You are azlin, an Azure VM fleet management tool. \
+                        Generate a list of azlin CLI commands to accomplish the user's request.\n\
+                        Format: one command per line, each an 'az' CLI command.\n\
+                        Available operations: az vm list, az vm start, az vm stop, az vm create, \
+                        az vm delete, az group create, az network nsg create, etc.";
+
+                    let pb = indicatif::ProgressBar::new_spinner();
+                    pb.set_message("Generating deployment plan...");
+                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                    let commands = client.ask(&request, system_context).await?;
+                    pb.finish_and_clear();
+
+                    println!("Plan:\n{}\n", commands);
+
+                    if dry_run {
+                        return Ok(());
+                    }
+
+                    let confirmed = Confirm::new()
+                        .with_prompt("Execute this plan?")
+                        .default(false)
+                        .interact()?;
+                    if !confirmed {
+                        println!("Cancelled.");
+                        return Ok(());
+                    }
+
+                    for line in commands.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() || !trimmed.starts_with("az ") {
+                            continue;
+                        }
+                        let parts = match shlex::split(trimmed) {
+                            Some(p) if !p.is_empty() => p,
+                            _ => {
+                                eprintln!("Failed to parse command: {}", trimmed);
+                                continue;
+                            }
+                        };
+                        println!("→ {}", trimmed);
+                        let status = std::process::Command::new(&parts[0])
+                            .args(&parts[1..])
+                            .status()?;
+                        if !status.success() {
+                            eprintln!("Command failed with exit code: {:?}", status.code());
+                        }
+                    }
+                }
+                azlin_cli::DoitAction::Status { session } => {
+                    let session_id = session.unwrap_or_else(|| "latest".to_string());
+                    println!("Deployment status for session '{}': no active sessions tracked.", session_id);
+                }
+                azlin_cli::DoitAction::List { username } => {
+                    let auth = create_auth()?;
+                    let vm_manager = azlin_azure::VmManager::new(&auth);
+                    let rg_result = resolve_resource_group(None);
+                    if let Ok(rg) = rg_result {
+                        let pb = indicatif::ProgressBar::new_spinner();
+                        pb.set_message("Listing doit-created resources...");
+                        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                        let vms = vm_manager.list_vms(&rg).await?;
+                        pb.finish_and_clear();
+                        let filtered: Vec<_> = vms.iter()
+                            .filter(|vm| {
+                                let has_tag = vm.tags.get("created_by").map_or(false, |v| v == "azlin-doit");
+                                let user_match = username.as_ref().map_or(true, |u| {
+                                    vm.admin_username.as_deref() == Some(u.as_str())
+                                });
+                                has_tag && user_match
+                            })
+                            .collect();
+                        if filtered.is_empty() {
+                            println!("No doit-created resources found.");
+                        } else {
+                            for vm in &filtered {
+                                println!("  {} ({})", vm.name, vm.power_state);
+                            }
+                        }
+                    } else {
+                        println!("No resource group configured. Use --resource-group or set in config.");
+                    }
+                }
+                azlin_cli::DoitAction::Show { resource_id } => {
+                    let output = std::process::Command::new("az")
+                        .args(["resource", "show", "--ids", &resource_id, "-o", "json"])
+                        .output()?;
+                    if output.status.success() {
+                        print!("{}", String::from_utf8_lossy(&output.stdout));
+                    } else {
+                        eprintln!("Failed to show resource: {}", String::from_utf8_lossy(&output.stderr));
+                    }
+                }
+                azlin_cli::DoitAction::Cleanup { force, dry_run, username } => {
+                    let auth = create_auth()?;
+                    let vm_manager = azlin_azure::VmManager::new(&auth);
+                    let rg = resolve_resource_group(None)?;
+
+                    let pb = indicatif::ProgressBar::new_spinner();
+                    pb.set_message("Finding doit-created resources...");
+                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                    let vms = vm_manager.list_vms(&rg).await?;
+                    pb.finish_and_clear();
+
+                    let to_delete: Vec<_> = vms.iter()
+                        .filter(|vm| {
+                            let has_tag = vm.tags.get("created_by").map_or(false, |v| v == "azlin-doit");
+                            let user_match = username.as_ref().map_or(true, |u| {
+                                vm.admin_username.as_deref() == Some(u.as_str())
+                            });
+                            has_tag && user_match
+                        })
+                        .collect();
+
+                    if to_delete.is_empty() {
+                        println!("No doit-created resources to clean up.");
+                        return Ok(());
+                    }
+
+                    println!("Resources to delete:");
+                    for vm in &to_delete {
+                        println!("  {} ({})", vm.name, vm.power_state);
+                    }
+
+                    if dry_run {
+                        return Ok(());
+                    }
+
+                    if !force {
+                        let confirmed = Confirm::new()
+                            .with_prompt("Delete these resources?")
+                            .default(false)
+                            .interact()?;
+                        if !confirmed {
+                            println!("Cancelled.");
+                            return Ok(());
+                        }
+                    }
+
+                    for vm in &to_delete {
+                        println!("Deleting '{}'...", vm.name);
+                        vm_manager.delete_vm(&rg, &vm.name).await?;
+                    }
+                    println!("Cleanup complete.");
+                }
+                azlin_cli::DoitAction::Examples => {
+                    println!("Example doit requests:");
+                    println!("  azlin doit deploy \"Create a 2-VM cluster with Ubuntu 24.04\"");
+                    println!("  azlin doit deploy \"Set up a dev VM with 4 cores and 16GB RAM\"");
+                    println!("  azlin doit deploy \"Scale my fleet to 5 VMs in eastus2\"");
+                    println!("  azlin doit deploy --dry-run \"Delete all stopped VMs\"");
+                }
+            }
         }
 
         // ── VM Lifecycle (New/Vm/Create aliases) ─────────────────────
-        azlin_cli::Commands::New { .. }
-        | azlin_cli::Commands::Vm { .. }
-        | azlin_cli::Commands::Create { .. } => {
-            println!("VM provisioning not yet implemented in Rust. Use the Python version.");
-            println!("  python -m azlin new <repo> [--size <size>] [--region <region>]");
+        azlin_cli::Commands::New {
+            repo, vm_size, region, resource_group, name, pool,
+            no_auto_connect, template, ..
         }
-        azlin_cli::Commands::Update { .. } => {
-            println!("VM update not yet implemented in Rust. Use the Python version.");
+        | azlin_cli::Commands::Vm {
+            repo, vm_size, region, resource_group, name, pool,
+            no_auto_connect, template, ..
+        }
+        | azlin_cli::Commands::Create {
+            repo, vm_size, region, resource_group, name, pool,
+            no_auto_connect, template, ..
+        } => {
+            let auth = create_auth()?;
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+            let rg = resolve_resource_group(resource_group)?;
+
+            let vm_count = pool.unwrap_or(1);
+            let size = vm_size.unwrap_or_else(|| "Standard_DS2_v2".to_string());
+            let loc = region.unwrap_or_else(|| "eastus2".to_string());
+            let admin_user = "azureuser".to_string();
+            let ssh_key_path = dirs::home_dir()
+                .unwrap_or_default()
+                .join(".ssh")
+                .join("id_rsa.pub");
+
+            // Load template defaults if specified
+            let (tmpl_size, tmpl_region) = if let Some(ref tmpl_name) = template {
+                let templates_dir = dirs::home_dir()
+                    .unwrap_or_default()
+                    .join(".config")
+                    .join("azlin")
+                    .join("templates");
+                let tmpl_path = templates_dir.join(format!("{}.toml", tmpl_name));
+                if tmpl_path.exists() {
+                    let content = std::fs::read_to_string(&tmpl_path)?;
+                    let tmpl: toml::Value = content.parse()?;
+                    let ts = tmpl.get("vm_size").and_then(|v| v.as_str()).map(String::from);
+                    let tr = tmpl.get("region").and_then(|v| v.as_str()).map(String::from);
+                    (ts, tr)
+                } else {
+                    eprintln!("Template '{}' not found at {}", tmpl_name, tmpl_path.display());
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            };
+
+            let final_size = if size == "Standard_DS2_v2" {
+                tmpl_size.unwrap_or(size)
+            } else {
+                size
+            };
+            let final_loc = if loc == "eastus2" {
+                tmpl_region.unwrap_or(loc)
+            } else {
+                loc
+            };
+
+            for i in 0..vm_count {
+                let vm_name = if let Some(ref n) = name {
+                    if vm_count > 1 {
+                        format!("{}-{}", n, i + 1)
+                    } else {
+                        n.clone()
+                    }
+                } else {
+                    format!("azlin-vm-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"))
+                };
+
+                let params = azlin_core::models::CreateVmParams {
+                    name: vm_name.clone(),
+                    resource_group: rg.clone(),
+                    region: final_loc.clone(),
+                    vm_size: final_size.clone(),
+                    admin_username: admin_user.clone(),
+                    ssh_key_path: ssh_key_path.clone(),
+                    image: azlin_core::models::VmImage::default(),
+                    tags: std::collections::HashMap::new(),
+                };
+
+                if let Err(e) = params.validate() {
+                    anyhow::bail!("Invalid VM parameters: {}", e);
+                }
+
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_message(format!("Creating VM '{}'...", vm_name));
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                let vm = vm_manager.create_vm(&params).await?;
+                pb.finish_and_clear();
+
+                println!("VM '{}' created successfully!", vm.name);
+
+                let mut table = Table::new();
+                table.load_preset(UTF8_FULL)
+                    .apply_modifier(UTF8_ROUND_CORNERS);
+                table.set_header(vec!["Property", "Value"]);
+                table.add_row(vec!["Name", &vm.name]);
+                table.add_row(vec!["Resource Group", &rg]);
+                table.add_row(vec!["Size", &final_size]);
+                table.add_row(vec!["Region", &final_loc]);
+                table.add_row(vec!["State", &vm.power_state.to_string()]);
+                if let Some(ref ip) = vm.public_ip {
+                    table.add_row(vec!["Public IP", ip]);
+                }
+                if let Some(ref ip) = vm.private_ip {
+                    table.add_row(vec!["Private IP", ip]);
+                }
+                println!("{table}");
+
+                // Clone repo if specified
+                if let Some(ref repo_url) = repo {
+                    if let Some(ref ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
+                        println!("Cloning repository '{}'...", repo_url);
+                        let clone_cmd = format!("git clone {} ~/src/$(basename {} .git)", repo_url, repo_url);
+                        let (exit_code, stdout, stderr) = ssh_exec(ip, &admin_user, &clone_cmd)?;
+                        if exit_code == 0 {
+                            println!("Repository cloned successfully.");
+                            if !stdout.is_empty() {
+                                print!("{}", stdout);
+                            }
+                        } else {
+                            eprintln!("Failed to clone repository: {}", stderr);
+                        }
+                    }
+                }
+
+                // Auto-connect if not disabled and single VM
+                if !no_auto_connect && vm_count == 1 {
+                    if let Some(ref ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
+                        println!("Connecting to '{}'...", vm_name);
+                        let status = std::process::Command::new("ssh")
+                            .args([
+                                "-o", "StrictHostKeyChecking=no",
+                                &format!("{}@{}", admin_user, ip),
+                            ])
+                            .status()?;
+                        if !status.success() {
+                            eprintln!("SSH connection ended with exit code: {:?}", status.code());
+                        }
+                    }
+                }
+            }
+        }
+        azlin_cli::Commands::Update {
+            vm_identifier,
+            resource_group,
+            timeout: _,
+            ..
+        } => {
+            let auth = create_auth()?;
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+            let rg = resolve_resource_group(resource_group)?;
+
+            let pb = indicatif::ProgressBar::new_spinner();
+            pb.set_message(format!("Looking up {}...", vm_identifier));
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let vm = vm_manager.get_vm(&rg, &vm_identifier).await?;
+            pb.finish_and_clear();
+
+            let ip = vm.public_ip.or(vm.private_ip)
+                .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_identifier))?;
+            let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
+
+            println!("Updating development tools on '{}'...", vm_identifier);
+            let update_script = concat!(
+                "#!/bin/bash\n",
+                "set -e\n",
+                "echo 'Updating system packages...'\n",
+                "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq\n",
+                "sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq\n",
+                "echo 'Updating Rust toolchain...'\n",
+                "if command -v rustup &>/dev/null; then rustup update 2>/dev/null || true; fi\n",
+                "echo 'Updating Python packages...'\n",
+                "if command -v pip3 &>/dev/null; then pip3 install --upgrade pip 2>/dev/null || true; fi\n",
+                "echo 'Updating Node.js packages...'\n",
+                "if command -v npm &>/dev/null; then sudo npm install -g npm 2>/dev/null || true; fi\n",
+                "echo 'Development tools updated.'\n",
+            );
+            let (code, stdout, stderr) = ssh_exec(&ip, &user, update_script)?;
+            if code == 0 {
+                let green = Style::new().green();
+                println!("{}", green.apply_to(format!("Update completed on '{}'", vm_identifier)));
+                if !stdout.trim().is_empty() {
+                    println!("{}", stdout.trim());
+                }
+            } else {
+                let red = Style::new().red();
+                eprintln!("{}", red.apply_to(format!("Update failed on '{}'", vm_identifier)));
+                if !stderr.trim().is_empty() {
+                    eprintln!("{}", stderr.trim());
+                }
+                std::process::exit(1);
+            }
         }
 
         // ── Clone ────────────────────────────────────────────────────
@@ -1718,21 +2366,77 @@ async fn main() -> Result<()> {
             azlin_cli::BatchAction::Command {
                 command,
                 resource_group,
+                show_output,
                 ..
             } => {
+                let auth = create_auth()?;
+                let vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
-                println!("Would run '{}' on all VMs in resource group '{}' via SSH", command, rg);
+
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_message(format!("Running '{}' on all VMs in '{}'...", command, rg));
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+
+                let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                pb.finish_and_clear();
+
+                if vms.is_empty() {
+                    println!("No running VMs found in resource group '{}'", rg);
+                } else {
+                    println!("Running '{}' on {} VM(s)...", command, vms.len());
+                    run_on_fleet(&vms, &command, show_output);
+                }
             }
             azlin_cli::BatchAction::Sync {
                 resource_group,
                 dry_run,
                 ..
             } => {
+                let auth = create_auth()?;
+                let vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
-                if dry_run {
-                    println!("Would sync dotfiles to all VMs in '{}'", rg);
-                } else {
-                    println!("Syncing dotfiles to all VMs in '{}'...", rg);
+
+                let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                if vms.is_empty() {
+                    println!("No running VMs found in resource group '{}'", rg);
+                    return Ok(());
+                }
+
+                let home = dirs::home_dir().unwrap_or_default();
+                let dotfiles: Vec<&str> = vec![".bashrc", ".profile", ".vimrc", ".tmux.conf", ".gitconfig"];
+
+                for (name, ip, user) in &vms {
+                    for dotfile in &dotfiles {
+                        let local = home.join(dotfile);
+                        if !local.exists() {
+                            continue;
+                        }
+                        if dry_run {
+                            println!("[dry-run] Would sync {} to {}:{}", dotfile, name, dotfile);
+                        } else {
+                            let rsync_args = format!(
+                                "rsync -az -e 'ssh -o StrictHostKeyChecking=no' {} {}@{}:~/{}",
+                                local.display(), user, ip, dotfile
+                            );
+                            let output = std::process::Command::new("bash")
+                                .args(["-c", &rsync_args])
+                                .output();
+                            match output {
+                                Ok(o) if o.status.success() => {
+                                    println!("Synced {} to {}", dotfile, name);
+                                }
+                                Ok(o) => {
+                                    let stderr = String::from_utf8_lossy(&o.stderr);
+                                    eprintln!("Failed to sync {} to {}: {}", dotfile, name, stderr.trim());
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to sync {} to {}: {}", dotfile, name, e);
+                                }
+                            }
+                        }
+                    }
+                }
+                if !dry_run {
                     println!("Sync complete.");
                 }
             }
@@ -1750,8 +2454,23 @@ async fn main() -> Result<()> {
                 if dry_run {
                     println!("Would run '{}' across fleet in '{}'", command, rg);
                 } else {
-                    println!("Running '{}' across fleet in '{}'...", command, rg);
-                    println!("Fleet execution complete.");
+                    let auth = create_auth()?;
+                    let vm_manager = azlin_azure::VmManager::new(&auth);
+
+                    let pb = indicatif::ProgressBar::new_spinner();
+                    pb.set_message(format!("Gathering fleet VMs in '{}'...", rg));
+                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+
+                    let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                    pb.finish_and_clear();
+
+                    if vms.is_empty() {
+                        println!("No running VMs found in resource group '{}'", rg);
+                    } else {
+                        println!("Running '{}' across {} VM(s)...", command, vms.len());
+                        run_on_fleet(&vms, &command, true);
+                        println!("Fleet execution complete.");
+                    }
                 }
             }
             azlin_cli::FleetAction::Workflow {
@@ -1764,8 +2483,42 @@ async fn main() -> Result<()> {
                 if dry_run {
                     println!("Would execute workflow '{}' on fleet in '{}'", workflow_file.display(), rg);
                 } else {
-                    println!("Executing workflow '{}' on fleet in '{}'...", workflow_file.display(), rg);
-                    println!("Workflow execution complete.");
+                    let auth = create_auth()?;
+                    let vm_manager = azlin_azure::VmManager::new(&auth);
+
+                    let content = std::fs::read_to_string(&workflow_file)
+                        .map_err(|e| anyhow::anyhow!("Failed to read workflow file '{}': {}", workflow_file.display(), e))?;
+                    let workflow: serde_yaml::Value = serde_yaml::from_str(&content)
+                        .map_err(|e| anyhow::anyhow!("Failed to parse workflow YAML: {}", e))?;
+
+                    let steps = workflow.get("steps")
+                        .and_then(|s| s.as_sequence())
+                        .ok_or_else(|| anyhow::anyhow!("Workflow YAML must contain a 'steps' array"))?;
+
+                    let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                    if vms.is_empty() {
+                        println!("No running VMs found in resource group '{}'", rg);
+                        return Ok(());
+                    }
+
+                    println!("Executing workflow '{}' on {} VM(s)...", workflow_file.display(), vms.len());
+                    for (i, step) in steps.iter().enumerate() {
+                        let default_name = format!("step-{}", i + 1);
+                        let step_name = step.get("name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or(&default_name);
+                        let cmd = step.get("command")
+                            .or_else(|| step.get("run"))
+                            .and_then(|c| c.as_str());
+
+                        if let Some(cmd) = cmd {
+                            println!("\n── Step {}: {} ──", i + 1, step_name);
+                            run_on_fleet(&vms, cmd, true);
+                        } else {
+                            eprintln!("Step {} ('{}') has no 'command' or 'run' field, skipping", i + 1, step_name);
+                        }
+                    }
+                    println!("\nWorkflow execution complete.");
                 }
             }
         },
@@ -1773,19 +2526,52 @@ async fn main() -> Result<()> {
         // ── Compose ──────────────────────────────────────────────────
         azlin_cli::Commands::Compose { action } => match action {
             azlin_cli::ComposeAction::Up { file, resource_group } => {
+                let auth = create_auth()?;
+                let vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
                 let f = file.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "docker-compose.yml".to_string());
-                println!("Would run 'docker compose -f {} up -d' on VMs in '{}'", f, rg);
+
+                let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                if vms.is_empty() {
+                    println!("No running VMs found in resource group '{}'", rg);
+                    return Ok(());
+                }
+
+                let cmd = format!("docker compose -f {} up -d", f);
+                println!("Running 'docker compose up' on {} VM(s)...", vms.len());
+                run_on_fleet(&vms, &cmd, true);
             }
             azlin_cli::ComposeAction::Down { file, resource_group } => {
+                let auth = create_auth()?;
+                let vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
                 let f = file.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "docker-compose.yml".to_string());
-                println!("Would run 'docker compose -f {} down' on VMs in '{}'", f, rg);
+
+                let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                if vms.is_empty() {
+                    println!("No running VMs found in resource group '{}'", rg);
+                    return Ok(());
+                }
+
+                let cmd = format!("docker compose -f {} down", f);
+                println!("Running 'docker compose down' on {} VM(s)...", vms.len());
+                run_on_fleet(&vms, &cmd, true);
             }
             azlin_cli::ComposeAction::Ps { file, resource_group } => {
+                let auth = create_auth()?;
+                let vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
                 let f = file.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "docker-compose.yml".to_string());
-                println!("Would run 'docker compose -f {} ps' on VMs in '{}'", f, rg);
+
+                let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                if vms.is_empty() {
+                    println!("No running VMs found in resource group '{}'", rg);
+                    return Ok(());
+                }
+
+                let cmd = format!("docker compose -f {} ps", f);
+                println!("Docker compose status on {} VM(s):", vms.len());
+                run_on_fleet(&vms, &cmd, true);
             }
         },
 
@@ -2139,9 +2925,52 @@ async fn main() -> Result<()> {
 
         // ── Web ──────────────────────────────────────────────────────
         azlin_cli::Commands::Web { action } => match action {
-            azlin_cli::WebAction::Start { port, host } => {
-                println!("Starting web dashboard on {}:{}...", host, port);
-                println!("Web dashboard not yet implemented in Rust. Use Python version.");
+            azlin_cli::WebAction::Start { port: _, host: _ } => {
+                let auth = create_auth()?;
+                let vm_manager = azlin_azure::VmManager::new(&auth);
+
+                // Determine resource group from config
+                let rg = resolve_resource_group(None)?;
+
+                println!("Starting monitoring dashboard for '{}' (Ctrl+C to exit)...", rg);
+                println!("Full TUI dashboard coming soon. Showing real-time VM status:\n");
+
+                loop {
+                    // Clear screen
+                    print!("\x1B[2J\x1B[H");
+                    std::io::Write::flush(&mut std::io::stdout())?;
+
+                    let vms = vm_manager.list_vms(&rg).await?;
+                    let mut table = Table::new();
+                    table
+                        .load_preset(UTF8_FULL)
+                        .apply_modifier(UTF8_ROUND_CORNERS)
+                        .set_header(vec![
+                            Cell::new("Name").add_attribute(Attribute::Bold),
+                            Cell::new("State").add_attribute(Attribute::Bold),
+                            Cell::new("Size").add_attribute(Attribute::Bold),
+                            Cell::new("IP").add_attribute(Attribute::Bold),
+                            Cell::new("Location").add_attribute(Attribute::Bold),
+                        ]);
+                    for vm in &vms {
+                        let state_color = match vm.power_state {
+                            azlin_core::models::PowerState::Running => Color::Green,
+                            azlin_core::models::PowerState::Stopped
+                            | azlin_core::models::PowerState::Deallocated => Color::Red,
+                            _ => Color::Yellow,
+                        };
+                        table.add_row(vec![
+                            Cell::new(&vm.name),
+                            Cell::new(vm.power_state.to_string()).fg(state_color),
+                            Cell::new(&vm.vm_size),
+                            Cell::new(vm.public_ip.as_deref().unwrap_or("-")),
+                            Cell::new(&vm.location),
+                        ]);
+                    }
+                    println!("{table}");
+                    println!("\nRefreshing in 10s... (Ctrl+C to exit)");
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                }
             }
             azlin_cli::WebAction::Stop => {
                 println!("Web dashboard stopped.");
@@ -2236,11 +3065,56 @@ async fn main() -> Result<()> {
                 std::process::exit(1);
             }
 
-            let target = vm_name.unwrap_or_else(|| "all VMs".to_string());
+            let target_vm = vm_name;
             if dry_run {
-                println!("Would sync {} to {} in '{}'", home_dir.display(), target, rg);
+                let target_name = target_vm.as_deref().unwrap_or("all VMs");
+                println!("Would sync {} to {} in '{}'", home_dir.display(), target_name, rg);
             } else {
-                println!("Syncing {} to {} in '{}'...", home_dir.display(), target, rg);
+                let auth = create_auth()?;
+                let vm_manager = azlin_azure::VmManager::new(&auth);
+                let vms = vm_manager.list_vms(&rg).await?;
+                let running_vms: Vec<_> = vms.iter()
+                    .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
+                    .filter(|v| target_vm.as_ref().map_or(true, |t| &v.name == t))
+                    .collect();
+
+                if running_vms.is_empty() {
+                    println!("No running VMs found to sync in '{}'", rg);
+                    return Ok(());
+                }
+
+                // Collect dotfiles from ~/.azlin/home/
+                let dotfiles: Vec<String> = std::fs::read_dir(&home_dir)?
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path().display().to_string())
+                    .collect();
+
+                if dotfiles.is_empty() {
+                    println!("No files found in {}", home_dir.display());
+                    return Ok(());
+                }
+
+                for vm in &running_vms {
+                    if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
+                        let user = vm.admin_username.as_deref().unwrap_or("azureuser");
+                        println!("Syncing dotfiles to {}...", vm.name);
+                        let mut args: Vec<&str> = vec!["-avz", "--progress"];
+                        let file_refs: Vec<&str> = dotfiles.iter().map(|s| s.as_str()).collect();
+                        args.extend_from_slice(&file_refs);
+                        let dest = format!("{}@{}:~/", user, ip);
+                        args.push(&dest);
+                        let status = std::process::Command::new("rsync")
+                            .args(&args)
+                            .status()?;
+                        if status.success() {
+                            println!("  ✓ {} synced", vm.name);
+                        } else {
+                            eprintln!("  ✗ {} sync failed", vm.name);
+                        }
+                    } else {
+                        eprintln!("  ✗ {} has no IP address", vm.name);
+                    }
+                }
                 println!("Sync complete.");
             }
         }
@@ -2424,21 +3298,193 @@ async fn main() -> Result<()> {
                 );
             }
             azlin_cli::CostsAction::History { resource_group, days } => {
-                println!("Cost history for '{}' (last {} days): not yet implemented", resource_group, days);
+                let start_date = (chrono::Utc::now() - chrono::Duration::days(days as i64))
+                    .format("%Y-%m-%dT00:00:00+00:00")
+                    .to_string();
+                let end_date = chrono::Utc::now()
+                    .format("%Y-%m-%dT23:59:59+00:00")
+                    .to_string();
+
+                let output = std::process::Command::new("az")
+                    .args([
+                        "costmanagement", "query",
+                        "--type", "ActualCost",
+                        "--scope", &format!("/subscriptions/$(az account show --query id -o tsv)/resourceGroups/{}", resource_group),
+                        "--timeframe", "Custom",
+                        "--time-period", &format!("start={}&end={}", start_date, end_date),
+                        "-o", "json",
+                    ])
+                    .output()?;
+
+                if output.status.success() {
+                    let json_str = String::from_utf8_lossy(&output.stdout);
+                    match serde_json::from_str::<serde_json::Value>(&json_str) {
+                        Ok(data) => {
+                            let mut table = Table::new();
+                            table
+                                .load_preset(UTF8_FULL)
+                                .apply_modifier(UTF8_ROUND_CORNERS)
+                                .set_header(vec![
+                                    Cell::new("Date").add_attribute(Attribute::Bold),
+                                    Cell::new("Cost (USD)").add_attribute(Attribute::Bold),
+                                ]);
+
+                            if let Some(rows) = data.get("rows").and_then(|r| r.as_array()) {
+                                for row in rows {
+                                    if let Some(arr) = row.as_array() {
+                                        let cost = arr.first()
+                                            .and_then(|v| v.as_f64())
+                                            .map(|v| format!("${:.2}", v))
+                                            .unwrap_or_else(|| "-".to_string());
+                                        let date = arr.get(1)
+                                            .and_then(|v| v.as_str().or_else(|| v.as_i64().map(|_| "")))
+                                            .map(|s| s.to_string())
+                                            .or_else(|| arr.get(1).and_then(|v| v.as_i64()).map(|v| v.to_string()))
+                                            .unwrap_or_else(|| "-".to_string());
+                                        table.add_row(vec![
+                                            Cell::new(&date),
+                                            Cell::new(&cost),
+                                        ]);
+                                    }
+                                }
+                            }
+                            println!("Cost history for '{}' (last {} days):", resource_group, days);
+                            println!("{table}");
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to parse cost data: {}", e);
+                            println!("{}", json_str);
+                        }
+                    }
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Failed to query cost history: {}", stderr.trim());
+                    std::process::exit(1);
+                }
             }
             azlin_cli::CostsAction::Budget { action, resource_group, amount, threshold } => {
                 println!("Budget {}: rg={}, amount={:?}, threshold={:?}",
                     action, resource_group, amount, threshold);
             }
             azlin_cli::CostsAction::Recommend { resource_group, priority } => {
-                let pri = priority.unwrap_or_else(|| "all".to_string());
-                println!("Cost recommendations for '{}' (priority: {}): none found", resource_group, pri);
+                let mut cmd_args = vec![
+                    "advisor".to_string(),
+                    "recommendation".to_string(),
+                    "list".to_string(),
+                    "--resource-group".to_string(),
+                    resource_group.clone(),
+                    "-o".to_string(),
+                    "json".to_string(),
+                ];
+                if let Some(ref pri) = priority {
+                    cmd_args.push("--query".to_string());
+                    cmd_args.push(format!("[?impact=='{}']", pri));
+                }
+                let output = std::process::Command::new("az")
+                    .args(&cmd_args)
+                    .output()?;
+
+                if output.status.success() {
+                    let json_str = String::from_utf8_lossy(&output.stdout);
+                    match serde_json::from_str::<serde_json::Value>(&json_str) {
+                        Ok(data) => {
+                            if let Some(recs) = data.as_array() {
+                                if recs.is_empty() {
+                                    let pri = priority.unwrap_or_else(|| "all".to_string());
+                                    println!("No cost recommendations found for '{}' (priority: {})", resource_group, pri);
+                                } else {
+                                    let mut table = Table::new();
+                                    table
+                                        .load_preset(UTF8_FULL)
+                                        .apply_modifier(UTF8_ROUND_CORNERS)
+                                        .set_header(vec![
+                                            Cell::new("Category").add_attribute(Attribute::Bold),
+                                            Cell::new("Impact").add_attribute(Attribute::Bold),
+                                            Cell::new("Problem").add_attribute(Attribute::Bold),
+                                        ]);
+                                    for rec in recs {
+                                        let category = rec.get("category").and_then(|v| v.as_str()).unwrap_or("-");
+                                        let impact = rec.get("impact").and_then(|v| v.as_str()).unwrap_or("-");
+                                        let problem = rec.get("shortDescription")
+                                            .and_then(|v| v.get("problem"))
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("-");
+                                        table.add_row(vec![
+                                            Cell::new(category),
+                                            Cell::new(impact),
+                                            Cell::new(problem),
+                                        ]);
+                                    }
+                                    println!("Cost recommendations for '{}':", resource_group);
+                                    println!("{table}");
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("Failed to parse advisor data: {}", e),
+                    }
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Failed to list recommendations: {}", stderr.trim());
+                    std::process::exit(1);
+                }
             }
             azlin_cli::CostsAction::Actions { action, resource_group, dry_run, .. } => {
-                if dry_run {
-                    println!("Would {} cost actions in '{}': none pending", action, resource_group);
+                let output = std::process::Command::new("az")
+                    .args([
+                        "advisor", "recommendation", "list",
+                        "--resource-group", &resource_group,
+                        "--query", "[?category=='Cost']",
+                        "-o", "json",
+                    ])
+                    .output()?;
+
+                if output.status.success() {
+                    let json_str = String::from_utf8_lossy(&output.stdout);
+                    match serde_json::from_str::<serde_json::Value>(&json_str) {
+                        Ok(data) => {
+                            if let Some(recs) = data.as_array() {
+                                if recs.is_empty() {
+                                    println!("No pending cost actions in '{}'", resource_group);
+                                } else {
+                                    let mut table = Table::new();
+                                    table
+                                        .load_preset(UTF8_FULL)
+                                        .apply_modifier(UTF8_ROUND_CORNERS)
+                                        .set_header(vec![
+                                            Cell::new("Resource").add_attribute(Attribute::Bold),
+                                            Cell::new("Impact").add_attribute(Attribute::Bold),
+                                            Cell::new("Recommendation").add_attribute(Attribute::Bold),
+                                        ]);
+                                    for rec in recs {
+                                        let resource = rec.get("impactedField")
+                                            .and_then(|v| v.as_str()).unwrap_or("-");
+                                        let impact = rec.get("impact")
+                                            .and_then(|v| v.as_str()).unwrap_or("-");
+                                        let problem = rec.get("shortDescription")
+                                            .and_then(|v| v.get("problem"))
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("-");
+                                        table.add_row(vec![
+                                            Cell::new(resource),
+                                            Cell::new(impact),
+                                            Cell::new(problem),
+                                        ]);
+                                    }
+                                    if dry_run {
+                                        println!("Would {} the following cost actions in '{}':", action, resource_group);
+                                    } else {
+                                        println!("Cost actions ({}) in '{}':", action, resource_group);
+                                    }
+                                    println!("{table}");
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("Failed to parse advisor data: {}", e),
+                    }
                 } else {
-                    println!("Cost action '{}' in '{}': none pending", action, resource_group);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Failed to list cost actions: {}", stderr.trim());
+                    std::process::exit(1);
                 }
             }
         },
@@ -2545,6 +3591,130 @@ async fn main() -> Result<()> {
         }
 
         // ── Help ─────────────────────────────────────────────────────
+        // ── Bastion ───────────────────────────────────────────────────
+        azlin_cli::Commands::Bastion { action } => match action {
+            azlin_cli::BastionAction::List { resource_group } => {
+                println!("Listing Bastion hosts...");
+                let mut cmd = std::process::Command::new("az");
+                cmd.args(["network", "bastion", "list", "-o", "json"]);
+                if let Some(rg) = &resource_group {
+                    cmd.args(["--resource-group", rg]);
+                }
+                let output = cmd.output()?;
+                if !output.status.success() {
+                    let err = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Error listing Bastion hosts: {}", err);
+                    std::process::exit(1);
+                }
+                let bastions: Vec<serde_json::Value> =
+                    serde_json::from_slice(&output.stdout).unwrap_or_default();
+                if bastions.is_empty() {
+                    if let Some(rg) = &resource_group {
+                        println!("No Bastion hosts found in resource group: {}", rg);
+                    } else {
+                        println!("No Bastion hosts found in subscription");
+                    }
+                } else {
+                    println!("\nFound {} Bastion host(s):\n", bastions.len());
+                    for b in &bastions {
+                        let name = b["name"].as_str().unwrap_or("unknown");
+                        let rg = b["resourceGroup"].as_str().unwrap_or("unknown");
+                        let location = b["location"].as_str().unwrap_or("unknown");
+                        let sku = b["sku"]["name"].as_str().unwrap_or("Standard");
+                        let state = b["provisioningState"].as_str().unwrap_or("unknown");
+                        println!("  {}", name);
+                        println!("    Resource Group: {}", rg);
+                        println!("    Location: {}", location);
+                        println!("    SKU: {}", sku);
+                        println!("    State: {}", state);
+                        println!();
+                    }
+                }
+            }
+            azlin_cli::BastionAction::Status { name, resource_group } => {
+                println!("Checking Bastion host: {}...", name);
+                let output = std::process::Command::new("az")
+                    .args([
+                        "network", "bastion", "show",
+                        "--name", &name,
+                        "--resource-group", &resource_group,
+                        "-o", "json",
+                    ])
+                    .output()?;
+                if !output.status.success() {
+                    let err = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Bastion host not found: {} in {}: {}", name, resource_group, err);
+                    std::process::exit(1);
+                }
+                let b: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+                println!("\nBastion Host: {}", b["name"].as_str().unwrap_or("unknown"));
+                println!("Resource Group: {}", b["resourceGroup"].as_str().unwrap_or("unknown"));
+                println!("Location: {}", b["location"].as_str().unwrap_or("unknown"));
+                println!("SKU: {}", b["sku"]["name"].as_str().unwrap_or("Standard"));
+                println!("Provisioning State: {}", b["provisioningState"].as_str().unwrap_or("Unknown"));
+                println!("DNS Name: {}", b["dnsName"].as_str().unwrap_or("N/A"));
+                let ip_configs = b["ipConfigurations"].as_array();
+                if let Some(configs) = ip_configs {
+                    println!("\nIP Configurations: {}", configs.len());
+                    for (idx, config) in configs.iter().enumerate() {
+                        let subnet_id = config["subnet"]["id"].as_str().unwrap_or("N/A");
+                        let public_ip_id = config["publicIPAddress"]["id"].as_str().unwrap_or("N/A");
+                        let subnet_short = if subnet_id != "N/A" {
+                            subnet_id.rsplit('/').next().unwrap_or("N/A")
+                        } else { "N/A" };
+                        let pip_short = if public_ip_id != "N/A" {
+                            public_ip_id.rsplit('/').next().unwrap_or("N/A")
+                        } else { "N/A" };
+                        println!("  [{}] Subnet: {}", idx + 1, subnet_short);
+                        println!("      Public IP: {}", pip_short);
+                    }
+                }
+            }
+            azlin_cli::BastionAction::Configure {
+                vm_name,
+                bastion_name,
+                resource_group,
+                bastion_resource_group,
+                disable,
+            } => {
+                let vm_rg = resolve_resource_group(resource_group)?;
+                let bastion_rg = bastion_resource_group.unwrap_or_else(|| vm_rg.clone());
+
+                let config_dir = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+                    .join(".azlin");
+                std::fs::create_dir_all(&config_dir)?;
+                let config_path = config_dir.join("bastion_config.json");
+
+                let mut config: serde_json::Value = if config_path.exists() {
+                    let data = std::fs::read_to_string(&config_path)?;
+                    serde_json::from_str(&data).unwrap_or(serde_json::json!({"mappings": {}}))
+                } else {
+                    serde_json::json!({"mappings": {}})
+                };
+
+                let mappings = config["mappings"].as_object_mut()
+                    .ok_or_else(|| anyhow::anyhow!("Invalid bastion config format"))?;
+
+                if disable {
+                    mappings.remove(&vm_name);
+                    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+                    println!("✓ Disabled Bastion mapping for: {}", vm_name);
+                } else {
+                    mappings.insert(vm_name.clone(), serde_json::json!({
+                        "bastion_name": bastion_name,
+                        "vm_resource_group": vm_rg,
+                        "bastion_resource_group": bastion_rg,
+                    }));
+                    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+                    println!("✓ Configured {} to use Bastion: {}", vm_name, bastion_name);
+                    println!("  VM RG: {}", vm_rg);
+                    println!("  Bastion RG: {}", bastion_rg);
+                    println!("\nConnection will now route through Bastion automatically.");
+                }
+            }
+        },
+
         azlin_cli::Commands::AzlinHelp { command_name } => {
             match command_name.as_deref() {
                 Some(cmd) => {
@@ -2585,6 +3755,100 @@ fn resolve_resource_group(explicit: Option<String>) -> Result<String> {
             std::process::exit(1);
         }
     }
+}
+
+/// Escape a value for safe inclusion in a shell command.
+fn shell_escape(s: &str) -> String {
+    let mut escaped = String::with_capacity(s.len() + 2);
+    escaped.push('\'');
+    for c in s.chars() {
+        if c == '\'' {
+            escaped.push_str("'\\''");
+        } else {
+            escaped.push(c);
+        }
+    }
+    escaped.push('\'');
+    escaped
+}
+
+/// Execute a command on a remote host via SSH, returning stdout on success.
+async fn ssh_exec_checked(ip: &str, username: &str, command: &str) -> Result<String> {
+    let (code, stdout, stderr) = ssh_exec(ip, username, command)?;
+    if code != 0 {
+        anyhow::bail!("SSH command failed (exit {}): {}", code, stderr);
+    }
+    Ok(stdout)
+}
+
+/// Resolve a VM identifier to (ip, username) — uses --ip flag if provided, else Azure lookup.
+async fn resolve_vm_ip(vm_name: &str, resource_group: Option<String>) -> Result<(String, String)> {
+    match create_auth() {
+        Ok(auth) => {
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+            let rg = resolve_resource_group(resource_group)?;
+            let vm = vm_manager.get_vm(&rg, vm_name).await?;
+            let ip = vm.public_ip.or(vm.private_ip)
+                .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm_name))?;
+            let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
+            Ok((ip, user))
+        }
+        Err(_) => {
+            anyhow::bail!(
+                "Azure auth not available. Use --ip flag to specify VM IP directly."
+            )
+        }
+    }
+}
+
+/// Resolve VM IP: prefer --ip flag, fall back to Azure lookup.
+async fn resolve_vm_ip_or_flag(
+    vm_name: &str,
+    ip_flag: Option<&str>,
+    resource_group: Option<String>,
+) -> Result<(String, String)> {
+    if let Some(ip) = ip_flag {
+        return Ok((ip.to_string(), "azureuser".to_string()));
+    }
+    resolve_vm_ip(vm_name, resource_group).await
+}
+
+/// Resolve targets for W/Ps/Top: single VM (--vm/--ip) or all VMs via Azure.
+/// Returns Vec<(display_name, ip, username)>.
+async fn resolve_vm_targets(
+    vm_flag: Option<&str>,
+    ip_flag: Option<&str>,
+    resource_group: Option<String>,
+) -> Result<Vec<(String, String, String)>> {
+    if let Some(ip) = ip_flag {
+        let name = vm_flag.unwrap_or(ip);
+        return Ok(vec![(name.to_string(), ip.to_string(), "azureuser".to_string())]);
+    }
+    if let Some(vm_name) = vm_flag {
+        let (ip, user) = resolve_vm_ip(vm_name, resource_group).await?;
+        return Ok(vec![(vm_name.to_string(), ip, user)]);
+    }
+    // List all running VMs
+    let auth = create_auth()?;
+    let vm_manager = azlin_azure::VmManager::new(&auth);
+    let rg = resolve_resource_group(resource_group)?;
+    let vms = vm_manager.list_vms(&rg).await?;
+    let mut targets = Vec::new();
+    for vm in vms {
+        if vm.power_state != azlin_core::models::PowerState::Running {
+            continue;
+        }
+        let ip = match vm.public_ip.or(vm.private_ip) {
+            Some(ip) => ip,
+            None => continue,
+        };
+        let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
+        targets.push((vm.name, ip, user));
+    }
+    if targets.is_empty() {
+        anyhow::bail!("No running VMs found. Use --vm or --ip to target a specific VM.");
+    }
+    Ok(targets)
 }
 
 #[cfg(test)]
@@ -2824,5 +4088,90 @@ mod tests {
             "local→local"
         };
         assert_eq!(direction, "remote→local");
+    }
+
+    #[test]
+    fn test_shell_escape_simple() {
+        assert_eq!(super::shell_escape("hello"), "'hello'");
+    }
+
+    #[test]
+    fn test_shell_escape_with_single_quotes() {
+        assert_eq!(super::shell_escape("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn test_shell_escape_with_spaces_and_special_chars() {
+        let escaped = super::shell_escape("foo bar $HOME");
+        assert_eq!(escaped, "'foo bar $HOME'");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_vm_ip_or_flag_uses_ip_flag() {
+        let (ip, user) = super::resolve_vm_ip_or_flag("ignored", Some("1.2.3.4"), None)
+            .await
+            .unwrap();
+        assert_eq!(ip, "1.2.3.4");
+        assert_eq!(user, "azureuser");
+    }
+
+    #[test]
+    fn test_health_metrics_non_running_vm() {
+        let m = super::collect_health_metrics("test-vm", "10.0.0.1", "azureuser", "deallocated");
+        assert_eq!(m.vm_name, "test-vm");
+        assert_eq!(m.power_state, "deallocated");
+        assert_eq!(m.cpu_percent, 0.0);
+        assert_eq!(m.mem_percent, 0.0);
+        assert_eq!(m.disk_percent, 0.0);
+        assert_eq!(m.load_avg, "-");
+    }
+
+    #[test]
+    fn test_ssh_exec_unreachable_host() {
+        // ssh_exec to a non-routable address should either error or return non-zero
+        let result = super::ssh_exec("192.0.2.1", "user", "echo hello");
+        match result {
+            Ok((code, _, _)) => assert_ne!(code, 0, "should fail for unreachable host"),
+            Err(_) => {} // also acceptable
+        }
+    }
+
+    #[test]
+    fn test_render_health_table_does_not_panic() {
+        let metrics = vec![
+            super::HealthMetrics {
+                vm_name: "vm1".to_string(),
+                power_state: "running".to_string(),
+                cpu_percent: 25.5,
+                mem_percent: 60.0,
+                disk_percent: 45.0,
+                load_avg: "0.50, 0.30, 0.20".to_string(),
+            },
+            super::HealthMetrics {
+                vm_name: "vm2".to_string(),
+                power_state: "stopped".to_string(),
+                cpu_percent: 0.0,
+                mem_percent: 0.0,
+                disk_percent: 0.0,
+                load_avg: "-".to_string(),
+            },
+            super::HealthMetrics {
+                vm_name: "vm3".to_string(),
+                power_state: "running".to_string(),
+                cpu_percent: 95.0,
+                mem_percent: 85.0,
+                disk_percent: 92.0,
+                load_avg: "4.00, 3.50, 3.00".to_string(),
+            },
+        ];
+        // Should not panic; just renders to stdout
+        super::render_health_table(&metrics);
+    }
+
+    #[test]
+    fn test_run_on_fleet_empty_list() {
+        let vms: Vec<(String, String, String)> = vec![];
+        // Should not panic on empty list
+        super::run_on_fleet(&vms, "echo hi", true);
     }
 }

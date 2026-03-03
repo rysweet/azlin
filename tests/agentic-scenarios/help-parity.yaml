@@ -1,13 +1,15 @@
 # Help Parity — Comprehensive help text parity check
-# Ensures every major command and subcommand group has working --help output.
+# Validates that help text in BOTH Python and Rust mentions the same commands.
+# Tests 20+ commands that appear in top-level help for both versions.
 
 name: "Help Parity"
-description: "Validates all major commands and subcommand groups have --help that exits 0"
-version: "1.0.0"
+description: "Validates all major commands appear in --help output for both versions"
+version: "2.0.0"
 tags:
   - "help"
   - "parity"
   - "outside-in"
+  - "dual-version"
 
 config:
   timeout: 60000
@@ -34,7 +36,271 @@ steps:
         - "Usage"
     timeout: 10000
 
-  - name: "list --help exits 0"
+  - name: "Help includes list command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "list"
+    timeout: 10000
+
+  - name: "Help includes connect command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "connect"
+    timeout: 10000
+
+  - name: "Help includes start command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "start"
+    timeout: 10000
+
+  - name: "Help includes stop command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "stop"
+    timeout: 10000
+
+  - name: "Help includes new command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "new"
+    timeout: 10000
+
+  - name: "Help includes clone command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "clone"
+    timeout: 10000
+
+  - name: "Help includes env command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "env"
+    timeout: 10000
+
+  - name: "Help includes snapshot command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "snapshot"
+    timeout: 10000
+
+  - name: "Help includes storage command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "storage"
+    timeout: 10000
+
+  - name: "Help includes keys command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "keys"
+    timeout: 10000
+
+  - name: "Help includes auth command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "auth"
+    timeout: 10000
+
+  - name: "Help includes batch command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "batch"
+    timeout: 10000
+
+  - name: "Help includes cost command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "cost"
+    timeout: 10000
+
+  - name: "Help includes health command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "health"
+    timeout: 10000
+
+  - name: "Help includes logs command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "logs"
+    timeout: 10000
+
+  - name: "Help includes fleet command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "fleet"
+    timeout: 10000
+
+  - name: "Help includes compose command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "compose"
+    timeout: 10000
+
+  - name: "Help includes tag command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "tag"
+    timeout: 10000
+
+  - name: "Help includes destroy command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "destroy"
+    timeout: 10000
+
+  - name: "Help includes update command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "update"
+    timeout: 10000
+
+  - name: "Help includes session command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "session"
+    timeout: 10000
+
+  - name: "Help includes status command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "status"
+    timeout: 10000
+
+  - name: "Help includes template command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "template"
+    timeout: 10000
+
+  - name: "Help includes context command"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "context"
+    timeout: 10000
+
+  - name: "list --help shows resource group option"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -45,62 +311,7 @@ steps:
         - "resource"
     timeout: 10000
 
-  - name: "start --help exits 0"
-    agent: "cli-runner"
-    action: "execute_command"
-    params:
-      command: "${AZLIN_BIN:-azlin} start --help"
-    expect:
-      exit_code: 0
-      stdout_contains:
-        - "VM"
-    timeout: 10000
-
-  - name: "stop --help exits 0"
-    agent: "cli-runner"
-    action: "execute_command"
-    params:
-      command: "${AZLIN_BIN:-azlin} stop --help"
-    expect:
-      exit_code: 0
-      stdout_contains:
-        - "VM"
-    timeout: 10000
-
-  - name: "connect --help exits 0"
-    agent: "cli-runner"
-    action: "execute_command"
-    params:
-      command: "${AZLIN_BIN:-azlin} connect --help"
-    expect:
-      exit_code: 0
-      stdout_contains:
-        - "SSH"
-    timeout: 10000
-
-  - name: "show --help exits 0"
-    agent: "cli-runner"
-    action: "execute_command"
-    params:
-      command: "${AZLIN_BIN:-azlin} show --help"
-    expect:
-      exit_code: 0
-      stdout_contains:
-        - "VM"
-    timeout: 10000
-
-  - name: "config --help exits 0"
-    agent: "cli-runner"
-    action: "execute_command"
-    params:
-      command: "${AZLIN_BIN:-azlin} config --help"
-    expect:
-      exit_code: 0
-      stdout_contains:
-        - "config"
-    timeout: 10000
-
-  - name: "auth --help exits 0"
+  - name: "auth --help lists subcommands"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -112,7 +323,7 @@ steps:
         - "list"
     timeout: 10000
 
-  - name: "env --help exits 0"
+  - name: "env --help lists subcommands"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -124,7 +335,7 @@ steps:
         - "list"
     timeout: 10000
 
-  - name: "snapshot --help exits 0"
+  - name: "snapshot --help lists subcommands"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -136,7 +347,7 @@ steps:
         - "list"
     timeout: 10000
 
-  - name: "storage --help exits 0"
+  - name: "storage --help lists subcommands"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -148,7 +359,7 @@ steps:
         - "mount"
     timeout: 10000
 
-  - name: "keys --help exits 0"
+  - name: "keys --help lists subcommands"
     agent: "cli-runner"
     action: "execute_command"
     params:

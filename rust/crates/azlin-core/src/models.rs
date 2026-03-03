@@ -366,4 +366,280 @@ mod tests {
         let err = params.validate().unwrap_err();
         assert!(err.contains("SSH public key not found"));
     }
+
+    // ── Additional model tests ──────────────────────────────────────
+
+    #[test]
+    fn test_power_state_all_variants_display() {
+        assert_eq!(PowerState::Running.to_string(), "running");
+        assert_eq!(PowerState::Stopped.to_string(), "stopped");
+        assert_eq!(PowerState::Deallocated.to_string(), "deallocated");
+        assert_eq!(PowerState::Starting.to_string(), "starting");
+        assert_eq!(PowerState::Stopping.to_string(), "stopping");
+        assert_eq!(PowerState::Unknown.to_string(), "unknown");
+    }
+
+    #[test]
+    fn test_power_state_equality() {
+        assert_eq!(PowerState::Running, PowerState::Running);
+        assert_ne!(PowerState::Running, PowerState::Stopped);
+        assert_ne!(PowerState::Deallocated, PowerState::Unknown);
+    }
+
+    #[test]
+    fn test_power_state_serde_roundtrip() {
+        for state in &[
+            PowerState::Running,
+            PowerState::Stopped,
+            PowerState::Deallocated,
+            PowerState::Starting,
+            PowerState::Stopping,
+            PowerState::Unknown,
+        ] {
+            let json = serde_json::to_string(state).unwrap();
+            let deserialized: PowerState = serde_json::from_str(&json).unwrap();
+            assert_eq!(*state, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_os_type_serde_roundtrip() {
+        let json_linux = serde_json::to_string(&OsType::Linux).unwrap();
+        assert_eq!(json_linux, "\"linux\"");
+        let json_windows = serde_json::to_string(&OsType::Windows).unwrap();
+        assert_eq!(json_windows, "\"windows\"");
+
+        let from_json: OsType = serde_json::from_str("\"linux\"").unwrap();
+        assert_eq!(from_json, OsType::Linux);
+        let from_json: OsType = serde_json::from_str("\"windows\"").unwrap();
+        assert_eq!(from_json, OsType::Windows);
+    }
+
+    #[test]
+    fn test_vm_info_with_tags() {
+        let mut tags = HashMap::new();
+        tags.insert("env".to_string(), "production".to_string());
+        tags.insert("team".to_string(), "platform".to_string());
+        let vm = VmInfo {
+            name: "tagged-vm".to_string(),
+            resource_group: "rg".to_string(),
+            location: "eastus".to_string(),
+            vm_size: "Standard_D2s_v3".to_string(),
+            power_state: PowerState::Running,
+            provisioning_state: "Succeeded".to_string(),
+            os_type: OsType::Linux,
+            public_ip: None,
+            private_ip: None,
+            admin_username: None,
+            tags,
+            created_time: None,
+        };
+        assert_eq!(vm.tags.get("env").unwrap(), "production");
+        assert_eq!(vm.tags.get("team").unwrap(), "platform");
+        assert_eq!(vm.tags.len(), 2);
+    }
+
+    #[test]
+    fn test_vm_info_power_state_check() {
+        let make_vm = |state: PowerState| VmInfo {
+            name: "vm".to_string(),
+            resource_group: "rg".to_string(),
+            location: "westus2".to_string(),
+            vm_size: "Standard_D2s_v3".to_string(),
+            power_state: state,
+            provisioning_state: "Succeeded".to_string(),
+            os_type: OsType::Linux,
+            public_ip: None,
+            private_ip: None,
+            admin_username: None,
+            tags: HashMap::new(),
+            created_time: None,
+        };
+        assert_eq!(make_vm(PowerState::Running).power_state, PowerState::Running);
+        assert_eq!(make_vm(PowerState::Stopped).power_state, PowerState::Stopped);
+        assert_eq!(make_vm(PowerState::Deallocated).power_state, PowerState::Deallocated);
+    }
+
+    #[test]
+    fn test_create_vm_params_validate_empty_resource_group() {
+        let params = CreateVmParams {
+            name: "vm".into(),
+            resource_group: "".into(),
+            region: "westus2".into(),
+            vm_size: "Standard_D2s_v3".into(),
+            admin_username: "azureuser".into(),
+            ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
+            image: VmImage::default(),
+            tags: HashMap::new(),
+        };
+        let err = params.validate().unwrap_err();
+        assert!(err.contains("Resource group"));
+    }
+
+    #[test]
+    fn test_create_vm_params_validate_empty_region() {
+        let params = CreateVmParams {
+            name: "vm".into(),
+            resource_group: "rg".into(),
+            region: "".into(),
+            vm_size: "Standard_D2s_v3".into(),
+            admin_username: "azureuser".into(),
+            ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
+            image: VmImage::default(),
+            tags: HashMap::new(),
+        };
+        let err = params.validate().unwrap_err();
+        assert!(err.contains("Region"));
+    }
+
+    #[test]
+    fn test_create_vm_params_validate_empty_vm_size() {
+        let params = CreateVmParams {
+            name: "vm".into(),
+            resource_group: "rg".into(),
+            region: "westus2".into(),
+            vm_size: "".into(),
+            admin_username: "azureuser".into(),
+            ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
+            image: VmImage::default(),
+            tags: HashMap::new(),
+        };
+        let err = params.validate().unwrap_err();
+        assert!(err.contains("VM size"));
+    }
+
+    #[test]
+    fn test_create_vm_params_validate_empty_username() {
+        let params = CreateVmParams {
+            name: "vm".into(),
+            resource_group: "rg".into(),
+            region: "westus2".into(),
+            vm_size: "Standard_D2s_v3".into(),
+            admin_username: "".into(),
+            ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
+            image: VmImage::default(),
+            tags: HashMap::new(),
+        };
+        let err = params.validate().unwrap_err();
+        assert!(err.contains("username"));
+    }
+
+    #[test]
+    fn test_create_vm_params_validate_valid_with_existing_key() {
+        let keyfile = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(keyfile.path(), "ssh-rsa AAAA...").unwrap();
+        let params = CreateVmParams {
+            name: "good-vm".into(),
+            resource_group: "rg".into(),
+            region: "westus2".into(),
+            vm_size: "Standard_D2s_v3".into(),
+            admin_username: "azureuser".into(),
+            ssh_key_path: keyfile.path().to_path_buf(),
+            image: VmImage::default(),
+            tags: HashMap::new(),
+        };
+        assert!(params.validate().is_ok());
+    }
+
+    #[test]
+    fn test_create_vm_params_validate_name_exactly_64_chars() {
+        let keyfile = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(keyfile.path(), "ssh-rsa AAAA...").unwrap();
+        let params = CreateVmParams {
+            name: "a".repeat(64),
+            resource_group: "rg".into(),
+            region: "westus2".into(),
+            vm_size: "Standard_D2s_v3".into(),
+            admin_username: "azureuser".into(),
+            ssh_key_path: keyfile.path().to_path_buf(),
+            image: VmImage::default(),
+            tags: HashMap::new(),
+        };
+        assert!(params.validate().is_ok());
+    }
+
+    #[test]
+    fn test_vm_image_custom() {
+        let img = VmImage {
+            publisher: "MicrosoftWindowsServer".into(),
+            offer: "WindowsServer".into(),
+            sku: "2022-Datacenter".into(),
+            version: "latest".into(),
+        };
+        assert_eq!(img.to_string(), "MicrosoftWindowsServer:WindowsServer:2022-Datacenter:latest");
+    }
+
+    #[test]
+    fn test_vm_image_serde_roundtrip() {
+        let img = VmImage::default();
+        let json = serde_json::to_string(&img).unwrap();
+        let deserialized: VmImage = serde_json::from_str(&json).unwrap();
+        assert_eq!(img, deserialized);
+    }
+
+    #[test]
+    fn test_command_result_exit_codes() {
+        for code in [-1, 0, 1, 2, 127, 255] {
+            let result = CommandResult {
+                exit_code: code,
+                stdout: String::new(),
+                stderr: String::new(),
+                duration_ms: 0,
+            };
+            assert_eq!(result.success(), code == 0);
+        }
+    }
+
+    #[test]
+    fn test_tmux_session_serialization() {
+        let session = TmuxSession {
+            vm_name: "vm-1".to_string(),
+            session_name: "dev".to_string(),
+            windows: 5,
+            created_time: "2024-06-01T10:00:00Z".to_string(),
+            attached: true,
+        };
+        let json = serde_json::to_string(&session).unwrap();
+        let deserialized: TmuxSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.vm_name, "vm-1");
+        assert_eq!(deserialized.session_name, "dev");
+        assert_eq!(deserialized.windows, 5);
+        assert!(deserialized.attached);
+    }
+
+    #[test]
+    fn test_cost_summary_total_matches_sum() {
+        let summary = CostSummary {
+            total_cost: 100.0,
+            currency: "USD".to_string(),
+            period_start: Utc::now(),
+            period_end: Utc::now(),
+            by_vm: vec![
+                VmCost { vm_name: "a".into(), cost: 60.0, currency: "USD".into() },
+                VmCost { vm_name: "b".into(), cost: 40.0, currency: "USD".into() },
+            ],
+        };
+        let sum: f64 = summary.by_vm.iter().map(|v| v.cost).sum();
+        assert!((summary.total_cost - sum).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_vm_info_windows_type() {
+        let vm = VmInfo {
+            name: "win-vm".to_string(),
+            resource_group: "rg".to_string(),
+            location: "eastus".to_string(),
+            vm_size: "Standard_D2s_v3".to_string(),
+            power_state: PowerState::Running,
+            provisioning_state: "Succeeded".to_string(),
+            os_type: OsType::Windows,
+            public_ip: Some("1.2.3.4".to_string()),
+            private_ip: Some("10.0.0.5".to_string()),
+            admin_username: Some("adminuser".to_string()),
+            tags: HashMap::new(),
+            created_time: Some(Utc::now()),
+        };
+        assert_eq!(vm.os_type, OsType::Windows);
+        assert!(vm.created_time.is_some());
+    }
 }

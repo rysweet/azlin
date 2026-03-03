@@ -814,4 +814,121 @@ mod tests {
         let result = extract_tags(Some(&tags));
         assert!(result.is_empty());
     }
+
+    // ── Additional vm.rs tests ──────────────────────────────────────
+
+    #[test]
+    fn test_extract_resource_group_various_paths() {
+        // Standard VM path
+        let id = "/subscriptions/abc-123/resourceGroups/prod-rg/providers/Microsoft.Compute/virtualMachines/vm1";
+        assert_eq!(extract_resource_group(id), "prod-rg");
+
+        // NIC path
+        let nic_id = "/subscriptions/abc-123/resourceGroups/net-rg/providers/Microsoft.Network/networkInterfaces/vm1-nic";
+        assert_eq!(extract_resource_group(nic_id), "net-rg");
+
+        // Public IP path
+        let pip_id = "/subscriptions/abc-123/resourceGroups/ip-rg/providers/Microsoft.Network/publicIPAddresses/vm1-pip";
+        assert_eq!(extract_resource_group(pip_id), "ip-rg");
+    }
+
+    #[test]
+    fn test_extract_resource_group_case_preserved() {
+        let id = "/subscriptions/sub/resourceGroups/MyRG-Test/providers/Microsoft.Compute/virtualMachines/vm";
+        assert_eq!(extract_resource_group(id), "MyRG-Test");
+    }
+
+    #[test]
+    fn test_extract_power_state_deallocating() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                code: Some("PowerState/deallocating".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Stopping);
+    }
+
+    #[test]
+    fn test_extract_power_state_unknown_value() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                code: Some("PowerState/suspended".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Unknown);
+    }
+
+    #[test]
+    fn test_extract_power_state_empty_statuses() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Unknown);
+    }
+
+    #[test]
+    fn test_extract_power_state_multiple_statuses_picks_power() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![
+                azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some("ProvisioningState/succeeded".to_string()),
+                    ..Default::default()
+                },
+                azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some("ProvisioningState/updating".to_string()),
+                    ..Default::default()
+                },
+                azure_mgmt_compute::models::InstanceViewStatus {
+                    code: Some("PowerState/running".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Running);
+    }
+
+    #[test]
+    fn test_extract_tags_with_empty_values() {
+        let tags = serde_json::json!({
+            "key1": "",
+            "key2": "value2"
+        });
+        let result = extract_tags(Some(&tags));
+        assert_eq!(result.get("key1").unwrap(), "");
+        assert_eq!(result.get("key2").unwrap(), "value2");
+    }
+
+    #[test]
+    fn test_extract_tags_array_value() {
+        let tags = serde_json::json!([1, 2, 3]);
+        let result = extract_tags(Some(&tags));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_tags_null_value() {
+        let tags = serde_json::json!(null);
+        let result = extract_tags(Some(&tags));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_cloud_init_script_is_valid_shell() {
+        assert!(CLOUD_INIT_SCRIPT.starts_with("#!/bin/bash"));
+        assert!(CLOUD_INIT_SCRIPT.contains("apt-get"));
+        assert!(CLOUD_INIT_SCRIPT.contains("docker"));
+    }
+
+    #[test]
+    fn test_extract_resource_group_with_only_subscription() {
+        let id = "/subscriptions/abc-123";
+        // Less than 5 parts
+        assert_eq!(extract_resource_group(id), "");
+    }
 }

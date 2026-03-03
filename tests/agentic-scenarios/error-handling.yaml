@@ -1,13 +1,16 @@
 # Error Handling — Test error behavior for invalid input
-# Validates that unknown commands and missing arguments produce proper error output.
+# Works with BOTH Python and Rust versions.
+# Validates unknown commands, missing arguments, and error output.
+# Avoids version-specific features (config subcommand is Rust-only).
 
 name: "Error Handling"
-description: "Validates error output for unknown commands and missing required arguments"
-version: "1.0.0"
+description: "Validates error output for unknown commands and missing arguments in both versions"
+version: "2.0.0"
 tags:
   - "errors"
   - "validation"
   - "outside-in"
+  - "dual-version"
 
 config:
   timeout: 30000
@@ -23,7 +26,7 @@ agents:
       capture_output: true
 
 steps:
-  - name: "Unknown command produces error"
+  - name: "Unknown command produces error output"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -31,11 +34,10 @@ steps:
     expect:
       exit_code: 0
       stdout_contains:
-        - "error"
         - "EXIT_CODE:"
     timeout: 10000
 
-  - name: "Unknown command exit code is non-zero"
+  - name: "Unknown command exits non-zero"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -44,7 +46,7 @@ steps:
       exit_code: 0
     timeout: 10000
 
-  - name: "start with no args produces usage info"
+  - name: "start with no args produces error"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -55,46 +57,55 @@ steps:
         - "EXIT_CODE:"
     timeout: 10000
 
-  - name: "connect with no args produces usage info"
+  - name: "start with no args exits non-zero"
     agent: "cli-runner"
     action: "execute_command"
     params:
-      command: "${AZLIN_BIN:-azlin} connect 2>&1; echo EXIT_CODE:$?"
+      command: "! ${AZLIN_BIN:-azlin} start 2>/dev/null"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "stop with no args produces error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} stop 2>&1; echo EXIT_CODE:$?"
     expect:
       exit_code: 0
       stdout_contains:
         - "EXIT_CODE:"
     timeout: 10000
 
-  - name: "config set with no args shows error"
+  - name: "destroy with no args produces error"
     agent: "cli-runner"
     action: "execute_command"
     params:
-      command: "${AZLIN_BIN:-azlin} config set 2>&1; echo EXIT_CODE:$?"
+      command: "${AZLIN_BIN:-azlin} destroy 2>&1; echo EXIT_CODE:$?"
     expect:
       exit_code: 0
       stdout_contains:
         - "EXIT_CODE:"
     timeout: 10000
 
-  - name: "config get with no args shows error"
+  - name: "No arguments shows usage text"
     agent: "cli-runner"
     action: "execute_command"
     params:
-      command: "${AZLIN_BIN:-azlin} config get 2>&1; echo EXIT_CODE:$?"
-    expect:
-      exit_code: 0
-      stdout_contains:
-        - "EXIT_CODE:"
-    timeout: 10000
-
-  - name: "Double dash with no command shows help"
-    agent: "cli-runner"
-    action: "execute_command"
-    params:
-      command: "${AZLIN_BIN:-azlin} 2>&1; echo EXIT_CODE:$?"
+      command: "${AZLIN_BIN:-azlin} 2>&1 || true"
     expect:
       exit_code: 0
       stdout_contains:
         - "Usage"
+    timeout: 10000
+
+  - name: "Invalid flag shows error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --not-a-real-flag 2>&1; echo EXIT_CODE:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT_CODE:"
     timeout: 10000

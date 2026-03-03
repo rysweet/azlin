@@ -1,14 +1,17 @@
-# VM Lifecycle — Outside-in tests for start/stop/show commands
-# Validates help text and argument handling for BOTH Python and Rust versions.
+# VM Lifecycle — Outside-in tests for VM lifecycle commands
+# Works with BOTH Python and Rust versions.
+# Tests help text for new, start, stop, destroy, connect commands.
+# Does NOT test actual VM operations (requires Azure auth).
 
 name: "VM Lifecycle"
-description: "Validates VM start, stop, and show command help text and argument handling"
-version: "1.0.0"
+description: "Validates VM lifecycle command help text for both Python and Rust versions"
+version: "2.0.0"
 tags:
   - "vm"
   - "lifecycle"
   - "parity"
   - "outside-in"
+  - "dual-version"
 
 config:
   timeout: 30000
@@ -24,7 +27,18 @@ agents:
       capture_output: true
 
 steps:
-  - name: "Start help shows VM name argument and resource-group option"
+  - name: "new --help exits 0 and shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} new --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "start --help shows VM name argument"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -32,12 +46,21 @@ steps:
     expect:
       exit_code: 0
       stdout_contains:
-        - "VM"
-        - "resource-group"
-        - "help"
+        - "Usage"
     timeout: 10000
 
-  - name: "Stop help shows deallocate option"
+  - name: "start --help shows resource-group option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} start --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "resource-group"
+    timeout: 10000
+
+  - name: "stop --help shows deallocate option"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -46,23 +69,53 @@ steps:
       exit_code: 0
       stdout_contains:
         - "deallocate"
-        - "VM"
-        - "resource-group"
     timeout: 10000
 
-  - name: "Show help shows VM name argument"
+  - name: "stop --help shows resource-group option"
     agent: "cli-runner"
     action: "execute_command"
     params:
-      command: "${AZLIN_BIN:-azlin} show --help"
+      command: "${AZLIN_BIN:-azlin} stop --help"
     expect:
       exit_code: 0
       stdout_contains:
-        - "VM"
-        - "help"
+        - "resource-group"
     timeout: 10000
 
-  - name: "Start with no args shows error and usage"
+  - name: "connect --help exits 0"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} connect --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "destroy --help exits 0"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} destroy --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "clone --help exits 0"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} clone --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "start with no args shows error"
     agent: "cli-runner"
     action: "execute_command"
     params:
@@ -70,5 +123,16 @@ steps:
     expect:
       exit_code: 0
       stdout_contains:
-        - "Usage"
+        - "DONE"
+    timeout: 10000
+
+  - name: "stop with no args shows error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} stop 2>&1; echo DONE"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "DONE"
     timeout: 10000

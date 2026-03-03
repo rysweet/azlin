@@ -465,6 +465,14 @@ pub enum Commands {
         /// Config file path
         #[arg(long)]
         config: Option<PathBuf>,
+
+        /// Target a single VM by name
+        #[arg(long)]
+        vm: Option<String>,
+
+        /// Direct IP address (skip Azure lookup)
+        #[arg(long)]
+        ip: Option<String>,
     },
 
     /// Run 'ps aux' on all VMs
@@ -480,6 +488,14 @@ pub enum Commands {
         /// Group output by VM instead of prefixing
         #[arg(long)]
         grouped: bool,
+
+        /// Target a single VM by name
+        #[arg(long)]
+        vm: Option<String>,
+
+        /// Direct IP address (skip Azure lookup)
+        #[arg(long)]
+        ip: Option<String>,
     },
 
     /// Show cost estimates for VMs
@@ -558,6 +574,14 @@ pub enum Commands {
         /// SSH timeout per VM in seconds
         #[arg(short, long, default_value = "5")]
         timeout: u32,
+
+        /// Target a single VM by name
+        #[arg(long)]
+        vm: Option<String>,
+
+        /// Direct IP address (skip Azure lookup)
+        #[arg(long)]
+        ip: Option<String>,
     },
 
     // ── Deletion Commands ─────────────────────────────────────────────
@@ -920,6 +944,12 @@ pub enum Commands {
         name: String,
     },
 
+    /// Manage Azure Bastion hosts for secure VM connections
+    Bastion {
+        #[command(subcommand)]
+        action: BastionAction,
+    },
+
     /// Display version information
     Version,
 }
@@ -927,6 +957,41 @@ pub enum Commands {
 // ---------------------------------------------------------------------------
 // Subcommand enums
 // ---------------------------------------------------------------------------
+
+#[derive(Subcommand, Debug)]
+pub enum BastionAction {
+    /// List Azure Bastion hosts
+    List {
+        /// Filter by resource group
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Show status of a Bastion host
+    Status {
+        /// Bastion host name
+        name: String,
+        /// Resource group
+        #[arg(long, alias = "rg")]
+        resource_group: String,
+    },
+    /// Configure Bastion connection for a VM
+    Configure {
+        /// VM name to configure
+        vm_name: String,
+        /// Bastion host name
+        #[arg(long)]
+        bastion_name: String,
+        /// VM resource group
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+        /// Bastion resource group (defaults to VM resource group)
+        #[arg(long, alias = "bastion-rg")]
+        bastion_resource_group: Option<String>,
+        /// Disable the mapping instead of enabling it
+        #[arg(long)]
+        disable: bool,
+    },
+}
 
 #[derive(Subcommand, Debug)]
 pub enum ConfigAction {
@@ -963,6 +1028,9 @@ pub enum EnvAction {
         /// Skip secret detection warnings
         #[arg(long)]
         force: bool,
+        /// Direct IP address (skip Azure lookup)
+        #[arg(long)]
+        ip: Option<String>,
     },
     /// List environment variables on VM
     List {
@@ -975,6 +1043,9 @@ pub enum EnvAction {
         /// Show full values (default: masked)
         #[arg(long)]
         show_values: bool,
+        /// Direct IP address (skip Azure lookup)
+        #[arg(long)]
+        ip: Option<String>,
     },
     /// Delete environment variable from VM
     Delete {
@@ -986,6 +1057,9 @@ pub enum EnvAction {
         resource_group: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Direct IP address (skip Azure lookup)
+        #[arg(long)]
+        ip: Option<String>,
     },
     /// Export environment variables to .env file
     Export {
@@ -997,6 +1071,9 @@ pub enum EnvAction {
         resource_group: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Direct IP address (skip Azure lookup)
+        #[arg(long)]
+        ip: Option<String>,
     },
     /// Import environment variables from .env file
     Import {
@@ -1008,6 +1085,9 @@ pub enum EnvAction {
         resource_group: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Direct IP address (skip Azure lookup)
+        #[arg(long)]
+        ip: Option<String>,
     },
     /// Clear all environment variables from VM
     Clear {
@@ -1020,6 +1100,9 @@ pub enum EnvAction {
         /// Skip confirmation prompt
         #[arg(long)]
         force: bool,
+        /// Direct IP address (skip Azure lookup)
+        #[arg(long)]
+        ip: Option<String>,
     },
 }
 
@@ -2446,6 +2529,881 @@ mod tests {
             assert!(grouped);
         } else {
             panic!("Expected Ps command");
+        }
+    }
+
+    #[test]
+    fn test_bastion_list() {
+        let cli = Cli::parse_from(["azlin", "bastion", "list"]);
+        assert!(matches!(cli.command, Commands::Bastion { action: BastionAction::List { .. } }));
+    }
+
+    #[test]
+    fn test_bastion_list_with_rg() {
+        let cli = Cli::parse_from(["azlin", "bastion", "list", "--resource-group", "my-rg"]);
+        if let Commands::Bastion { action: BastionAction::List { resource_group } } = cli.command {
+            assert_eq!(resource_group, Some("my-rg".to_string()));
+        } else {
+            panic!("Expected Bastion List command");
+        }
+    }
+
+    #[test]
+    fn test_bastion_status() {
+        let cli = Cli::parse_from(["azlin", "bastion", "status", "my-bastion", "--resource-group", "my-rg"]);
+        if let Commands::Bastion { action: BastionAction::Status { name, resource_group } } = cli.command {
+            assert_eq!(name, "my-bastion");
+            assert_eq!(resource_group, "my-rg");
+        } else {
+            panic!("Expected Bastion Status command");
+        }
+    }
+
+    #[test]
+    fn test_bastion_configure() {
+        let cli = Cli::parse_from([
+            "azlin", "bastion", "configure", "my-vm",
+            "--bastion-name", "my-bastion",
+            "--resource-group", "my-rg",
+        ]);
+        if let Commands::Bastion { action: BastionAction::Configure { vm_name, bastion_name, resource_group, disable, .. } } = cli.command {
+            assert_eq!(vm_name, "my-vm");
+            assert_eq!(bastion_name, "my-bastion");
+            assert_eq!(resource_group, Some("my-rg".to_string()));
+            assert!(!disable);
+        } else {
+            panic!("Expected Bastion Configure command");
+        }
+    }
+
+    #[test]
+    fn test_bastion_configure_disable() {
+        let cli = Cli::parse_from([
+            "azlin", "bastion", "configure", "my-vm",
+            "--bastion-name", "my-bastion",
+            "--resource-group", "my-rg",
+            "--disable",
+        ]);
+        if let Commands::Bastion { action: BastionAction::Configure { disable, .. } } = cli.command {
+            assert!(disable);
+        } else {
+            panic!("Expected Bastion Configure command");
+        }
+    }
+
+    // ── Additional CLI parser tests ─────────────────────────────────
+
+    #[test]
+    fn test_output_format_csv() {
+        let cli = Cli::parse_from(["azlin", "-o", "csv", "list"]);
+        assert!(matches!(cli.output, OutputFormat::Csv));
+    }
+
+    #[test]
+    fn test_output_format_default_is_table() {
+        let cli = Cli::parse_from(["azlin", "list"]);
+        assert!(matches!(cli.output, OutputFormat::Table));
+    }
+
+    #[test]
+    fn test_auth_profile_flag() {
+        let cli = Cli::parse_from(["azlin", "--auth-profile", "prod", "list"]);
+        assert_eq!(cli.auth_profile, Some("prod".to_string()));
+    }
+
+    #[test]
+    fn test_delete_command() {
+        let cli = Cli::parse_from(["azlin", "delete", "my-vm", "--force"]);
+        if let Commands::Delete { vm_name, force, .. } = cli.command {
+            assert_eq!(vm_name, "my-vm");
+            assert!(force);
+        } else {
+            panic!("Expected Delete command");
+        }
+    }
+
+    #[test]
+    fn test_delete_command_without_force() {
+        let cli = Cli::parse_from(["azlin", "delete", "my-vm"]);
+        if let Commands::Delete { vm_name, force, .. } = cli.command {
+            assert_eq!(vm_name, "my-vm");
+            assert!(!force);
+        } else {
+            panic!("Expected Delete command");
+        }
+    }
+
+    #[test]
+    fn test_version_command() {
+        let cli = Cli::parse_from(["azlin", "version"]);
+        assert!(matches!(cli.command, Commands::Version));
+    }
+
+    #[test]
+    fn test_show_command() {
+        let cli = Cli::parse_from(["azlin", "show", "my-vm"]);
+        if let Commands::Show { name } = cli.command {
+            assert_eq!(name, "my-vm");
+        } else {
+            panic!("Expected Show command");
+        }
+    }
+
+    #[test]
+    fn test_code_command() {
+        let cli = Cli::parse_from(["azlin", "code", "my-vm"]);
+        if let Commands::Code { vm_identifier, .. } = cli.command {
+            assert_eq!(vm_identifier, Some("my-vm".to_string()));
+        } else {
+            panic!("Expected Code command");
+        }
+    }
+
+    #[test]
+    fn test_code_command_no_vm() {
+        let cli = Cli::parse_from(["azlin", "code"]);
+        if let Commands::Code { vm_identifier, .. } = cli.command {
+            assert!(vm_identifier.is_none());
+        } else {
+            panic!("Expected Code command");
+        }
+    }
+
+    #[test]
+    fn test_compose_down() {
+        let cli = Cli::parse_from(["azlin", "compose", "down"]);
+        assert!(matches!(cli.command, Commands::Compose { action: ComposeAction::Down { .. } }));
+    }
+
+    #[test]
+    fn test_compose_ps() {
+        let cli = Cli::parse_from(["azlin", "compose", "ps"]);
+        assert!(matches!(cli.command, Commands::Compose { action: ComposeAction::Ps { .. } }));
+    }
+
+    #[test]
+    fn test_compose_up_with_file() {
+        let cli = Cli::parse_from(["azlin", "compose", "up", "-f", "docker-compose.yml", "--resource-group", "rg1"]);
+        if let Commands::Compose { action: ComposeAction::Up { file, resource_group } } = cli.command {
+            assert_eq!(file, Some(PathBuf::from("docker-compose.yml")));
+            assert_eq!(resource_group, Some("rg1".to_string()));
+        } else {
+            panic!("Expected Compose Up");
+        }
+    }
+
+    #[test]
+    fn test_fleet_run_with_all_options() {
+        let cli = Cli::parse_from([
+            "azlin", "fleet", "run", "uptime",
+            "--resource-group", "rg1",
+            "--tag", "env=dev",
+            "--parallel", "5",
+            "--smart-route",
+            "--retry-failed",
+            "--timeout", "60",
+        ]);
+        if let Commands::Fleet { action: FleetAction::Run { command, resource_group, tag, parallel, smart_route, retry_failed, timeout, .. } } = cli.command {
+            assert_eq!(command, "uptime");
+            assert_eq!(resource_group, Some("rg1".to_string()));
+            assert_eq!(tag, Some("env=dev".to_string()));
+            assert_eq!(parallel, 5);
+            assert!(smart_route);
+            assert!(retry_failed);
+            assert_eq!(timeout, 60);
+        } else {
+            panic!("Expected Fleet Run");
+        }
+    }
+
+    #[test]
+    fn test_fleet_workflow() {
+        let cli = Cli::parse_from(["azlin", "fleet", "workflow", "workflow.yml", "--all"]);
+        if let Commands::Fleet { action: FleetAction::Workflow { workflow_file, all, .. } } = cli.command {
+            assert_eq!(workflow_file, PathBuf::from("workflow.yml"));
+            assert!(all);
+        } else {
+            panic!("Expected Fleet Workflow");
+        }
+    }
+
+    #[test]
+    fn test_disk_add_with_lun() {
+        let cli = Cli::parse_from(["azlin", "disk", "add", "my-vm", "--size", "128", "--lun", "2"]);
+        if let Commands::Disk { action: DiskAction::Add { lun, sku, .. } } = cli.command {
+            assert_eq!(lun, Some(2));
+            assert_eq!(sku, "Premium_LRS");
+        } else {
+            panic!("Expected Disk Add");
+        }
+    }
+
+    #[test]
+    fn test_ip_check_single_vm() {
+        let cli = Cli::parse_from(["azlin", "ip", "check", "my-vm"]);
+        if let Commands::Ip { action: IpAction::Check { vm_identifier, all, port, .. } } = cli.command {
+            assert_eq!(vm_identifier, Some("my-vm".to_string()));
+            assert!(!all);
+            assert_eq!(port, 22);
+        } else {
+            panic!("Expected Ip Check");
+        }
+    }
+
+    #[test]
+    fn test_github_runner_disable() {
+        let cli = Cli::parse_from(["azlin", "github-runner", "disable", "--keep-vms"]);
+        if let Commands::GithubRunner { action: GithubRunnerAction::Disable { keep_vms, pool } } = cli.command {
+            assert!(keep_vms);
+            assert_eq!(pool, "default");
+        } else {
+            panic!("Expected GithubRunner Disable");
+        }
+    }
+
+    #[test]
+    fn test_github_runner_status() {
+        let cli = Cli::parse_from(["azlin", "github-runner", "status"]);
+        if let Commands::GithubRunner { action: GithubRunnerAction::Status { pool } } = cli.command {
+            assert_eq!(pool, "default");
+        } else {
+            panic!("Expected GithubRunner Status");
+        }
+    }
+
+    #[test]
+    fn test_github_runner_scale() {
+        let cli = Cli::parse_from(["azlin", "github-runner", "scale", "--pool", "ci", "--count", "5"]);
+        if let Commands::GithubRunner { action: GithubRunnerAction::Scale { pool, count } } = cli.command {
+            assert_eq!(pool, "ci");
+            assert_eq!(count, 5);
+        } else {
+            panic!("Expected GithubRunner Scale");
+        }
+    }
+
+    #[test]
+    fn test_autopilot_disable() {
+        let cli = Cli::parse_from(["azlin", "autopilot", "disable", "--keep-config"]);
+        if let Commands::Autopilot { action: AutopilotAction::Disable { keep_config } } = cli.command {
+            assert!(keep_config);
+        } else {
+            panic!("Expected Autopilot Disable");
+        }
+    }
+
+    #[test]
+    fn test_autopilot_status() {
+        let cli = Cli::parse_from(["azlin", "autopilot", "status"]);
+        assert!(matches!(cli.command, Commands::Autopilot { action: AutopilotAction::Status }));
+    }
+
+    #[test]
+    fn test_autopilot_run() {
+        let cli = Cli::parse_from(["azlin", "autopilot", "run", "--dry-run"]);
+        if let Commands::Autopilot { action: AutopilotAction::Run { dry_run } } = cli.command {
+            assert!(dry_run);
+        } else {
+            panic!("Expected Autopilot Run");
+        }
+    }
+
+    #[test]
+    fn test_context_list() {
+        let cli = Cli::parse_from(["azlin", "context", "list"]);
+        assert!(matches!(cli.command, Commands::Context { action: ContextAction::List { .. } }));
+    }
+
+    #[test]
+    fn test_context_use() {
+        let cli = Cli::parse_from(["azlin", "context", "use", "prod"]);
+        if let Commands::Context { action: ContextAction::Use { name, .. } } = cli.command {
+            assert_eq!(name, "prod");
+        } else {
+            panic!("Expected Context Use");
+        }
+    }
+
+    #[test]
+    fn test_context_delete() {
+        let cli = Cli::parse_from(["azlin", "context", "delete", "old-ctx", "--force"]);
+        if let Commands::Context { action: ContextAction::Delete { name, force, .. } } = cli.command {
+            assert_eq!(name, "old-ctx");
+            assert!(force);
+        } else {
+            panic!("Expected Context Delete");
+        }
+    }
+
+    #[test]
+    fn test_context_rename() {
+        let cli = Cli::parse_from(["azlin", "context", "rename", "old", "new"]);
+        if let Commands::Context { action: ContextAction::Rename { old_name, new_name, .. } } = cli.command {
+            assert_eq!(old_name, "old");
+            assert_eq!(new_name, "new");
+        } else {
+            panic!("Expected Context Rename");
+        }
+    }
+
+    #[test]
+    fn test_template_list() {
+        let cli = Cli::parse_from(["azlin", "template", "list"]);
+        assert!(matches!(cli.command, Commands::Template { action: TemplateAction::List }));
+    }
+
+    #[test]
+    fn test_template_delete() {
+        let cli = Cli::parse_from(["azlin", "template", "delete", "old-tpl", "--force"]);
+        if let Commands::Template { action: TemplateAction::Delete { name, force } } = cli.command {
+            assert_eq!(name, "old-tpl");
+            assert!(force);
+        } else {
+            panic!("Expected Template Delete");
+        }
+    }
+
+    #[test]
+    fn test_template_export() {
+        let cli = Cli::parse_from(["azlin", "template", "export", "tpl", "out.yaml"]);
+        if let Commands::Template { action: TemplateAction::Export { name, output_file } } = cli.command {
+            assert_eq!(name, "tpl");
+            assert_eq!(output_file, PathBuf::from("out.yaml"));
+        } else {
+            panic!("Expected Template Export");
+        }
+    }
+
+    #[test]
+    fn test_template_import() {
+        let cli = Cli::parse_from(["azlin", "template", "import", "in.yaml"]);
+        if let Commands::Template { action: TemplateAction::Import { input_file } } = cli.command {
+            assert_eq!(input_file, PathBuf::from("in.yaml"));
+        } else {
+            panic!("Expected Template Import");
+        }
+    }
+
+    #[test]
+    fn test_sessions_list() {
+        let cli = Cli::parse_from(["azlin", "sessions", "list"]);
+        assert!(matches!(cli.command, Commands::Sessions { action: SessionsAction::List }));
+    }
+
+    #[test]
+    fn test_sessions_load() {
+        let cli = Cli::parse_from(["azlin", "sessions", "load", "dev-session"]);
+        if let Commands::Sessions { action: SessionsAction::Load { session_name } } = cli.command {
+            assert_eq!(session_name, "dev-session");
+        } else {
+            panic!("Expected Sessions Load");
+        }
+    }
+
+    #[test]
+    fn test_costs_history() {
+        let cli = Cli::parse_from(["azlin", "costs", "history", "--resource-group", "rg", "--days", "7"]);
+        if let Commands::Costs { action: CostsAction::History { resource_group, days } } = cli.command {
+            assert_eq!(resource_group, "rg");
+            assert_eq!(days, 7);
+        } else {
+            panic!("Expected Costs History");
+        }
+    }
+
+    #[test]
+    fn test_costs_recommend() {
+        let cli = Cli::parse_from(["azlin", "costs", "recommend", "--resource-group", "rg", "--priority", "high"]);
+        if let Commands::Costs { action: CostsAction::Recommend { resource_group, priority } } = cli.command {
+            assert_eq!(resource_group, "rg");
+            assert_eq!(priority, Some("high".to_string()));
+        } else {
+            panic!("Expected Costs Recommend");
+        }
+    }
+
+    #[test]
+    fn test_config_show() {
+        let cli = Cli::parse_from(["azlin", "config", "show"]);
+        assert!(matches!(cli.command, Commands::Config { action: ConfigAction::Show }));
+    }
+
+    #[test]
+    fn test_config_get() {
+        let cli = Cli::parse_from(["azlin", "config", "get", "default_region"]);
+        if let Commands::Config { action: ConfigAction::Get { key } } = cli.command {
+            assert_eq!(key, "default_region");
+        } else {
+            panic!("Expected Config Get");
+        }
+    }
+
+    #[test]
+    fn test_batch_stop() {
+        let cli = Cli::parse_from(["azlin", "batch", "stop", "--all", "--confirm"]);
+        if let Commands::Batch { action: BatchAction::Stop { all, confirm, .. } } = cli.command {
+            assert!(all);
+            assert!(confirm);
+        } else {
+            panic!("Expected Batch Stop");
+        }
+    }
+
+    #[test]
+    fn test_batch_start() {
+        let cli = Cli::parse_from(["azlin", "batch", "start", "--tag", "env=dev"]);
+        if let Commands::Batch { action: BatchAction::Start { tag, .. } } = cli.command {
+            assert_eq!(tag, Some("env=dev".to_string()));
+        } else {
+            panic!("Expected Batch Start");
+        }
+    }
+
+    #[test]
+    fn test_batch_sync() {
+        let cli = Cli::parse_from(["azlin", "batch", "sync", "--all", "--dry-run"]);
+        if let Commands::Batch { action: BatchAction::Sync { all, dry_run, .. } } = cli.command {
+            assert!(all);
+            assert!(dry_run);
+        } else {
+            panic!("Expected Batch Sync");
+        }
+    }
+
+    #[test]
+    fn test_env_delete() {
+        let cli = Cli::parse_from(["azlin", "env", "delete", "my-vm", "MY_KEY"]);
+        if let Commands::Env { action: EnvAction::Delete { vm_identifier, key, .. } } = cli.command {
+            assert_eq!(vm_identifier, "my-vm");
+            assert_eq!(key, "MY_KEY");
+        } else {
+            panic!("Expected Env Delete");
+        }
+    }
+
+    #[test]
+    fn test_env_clear() {
+        let cli = Cli::parse_from(["azlin", "env", "clear", "my-vm", "--force"]);
+        if let Commands::Env { action: EnvAction::Clear { vm_identifier, force, .. } } = cli.command {
+            assert_eq!(vm_identifier, "my-vm");
+            assert!(force);
+        } else {
+            panic!("Expected Env Clear");
+        }
+    }
+
+    #[test]
+    fn test_env_export() {
+        let cli = Cli::parse_from(["azlin", "env", "export", "my-vm", "env.out"]);
+        if let Commands::Env { action: EnvAction::Export { vm_identifier, output_file, .. } } = cli.command {
+            assert_eq!(vm_identifier, "my-vm");
+            assert_eq!(output_file, Some("env.out".to_string()));
+        } else {
+            panic!("Expected Env Export");
+        }
+    }
+
+    #[test]
+    fn test_env_import() {
+        let cli = Cli::parse_from(["azlin", "env", "import", "my-vm", ".env"]);
+        if let Commands::Env { action: EnvAction::Import { vm_identifier, env_file, .. } } = cli.command {
+            assert_eq!(vm_identifier, "my-vm");
+            assert_eq!(env_file, PathBuf::from(".env"));
+        } else {
+            panic!("Expected Env Import");
+        }
+    }
+
+    #[test]
+    fn test_snapshot_list() {
+        let cli = Cli::parse_from(["azlin", "snapshot", "list", "my-vm"]);
+        if let Commands::Snapshot { action: SnapshotAction::List { vm_name, .. } } = cli.command {
+            assert_eq!(vm_name, "my-vm");
+        } else {
+            panic!("Expected Snapshot List");
+        }
+    }
+
+    #[test]
+    fn test_snapshot_delete() {
+        let cli = Cli::parse_from(["azlin", "snapshot", "delete", "snap-001", "--force"]);
+        if let Commands::Snapshot { action: SnapshotAction::Delete { snapshot_name, force, .. } } = cli.command {
+            assert_eq!(snapshot_name, "snap-001");
+            assert!(force);
+        } else {
+            panic!("Expected Snapshot Delete");
+        }
+    }
+
+    #[test]
+    fn test_snapshot_enable() {
+        let cli = Cli::parse_from(["azlin", "snapshot", "enable", "my-vm", "--every", "6", "--keep", "3"]);
+        if let Commands::Snapshot { action: SnapshotAction::Enable { vm_name, every, keep, .. } } = cli.command {
+            assert_eq!(vm_name, "my-vm");
+            assert_eq!(every, 6);
+            assert_eq!(keep, 3);
+        } else {
+            panic!("Expected Snapshot Enable");
+        }
+    }
+
+    #[test]
+    fn test_snapshot_disable() {
+        let cli = Cli::parse_from(["azlin", "snapshot", "disable", "my-vm"]);
+        if let Commands::Snapshot { action: SnapshotAction::Disable { vm_name, .. } } = cli.command {
+            assert_eq!(vm_name, "my-vm");
+        } else {
+            panic!("Expected Snapshot Disable");
+        }
+    }
+
+    #[test]
+    fn test_storage_list() {
+        let cli = Cli::parse_from(["azlin", "storage", "list"]);
+        assert!(matches!(cli.command, Commands::Storage { action: StorageAction::List { .. } }));
+    }
+
+    #[test]
+    fn test_storage_mount() {
+        let cli = Cli::parse_from(["azlin", "storage", "mount", "mystorage", "--vm", "my-vm"]);
+        if let Commands::Storage { action: StorageAction::Mount { storage_name, vm, .. } } = cli.command {
+            assert_eq!(storage_name, "mystorage");
+            assert_eq!(vm, "my-vm");
+        } else {
+            panic!("Expected Storage Mount");
+        }
+    }
+
+    #[test]
+    fn test_storage_delete() {
+        let cli = Cli::parse_from(["azlin", "storage", "delete", "old-storage", "--force"]);
+        if let Commands::Storage { action: StorageAction::Delete { name, force, .. } } = cli.command {
+            assert_eq!(name, "old-storage");
+            assert!(force);
+        } else {
+            panic!("Expected Storage Delete");
+        }
+    }
+
+    #[test]
+    fn test_keys_list() {
+        let cli = Cli::parse_from(["azlin", "keys", "list", "--all-vms"]);
+        if let Commands::Keys { action: KeysAction::List { all_vms, .. } } = cli.command {
+            assert!(all_vms);
+        } else {
+            panic!("Expected Keys List");
+        }
+    }
+
+    // Note: test_keys_export skipped due to global --output/-o flag shadowing the KeysAction::Export --output flag
+
+    #[test]
+    fn test_keys_backup() {
+        let cli = Cli::parse_from(["azlin", "keys", "backup"]);
+        if let Commands::Keys { action: KeysAction::Backup { destination } } = cli.command {
+            assert!(destination.is_none());
+        } else {
+            panic!("Expected Keys Backup");
+        }
+    }
+
+    #[test]
+    fn test_auth_test() {
+        let cli = Cli::parse_from(["azlin", "auth", "test"]);
+        if let Commands::Auth { action: AuthAction::Test { profile, .. } } = cli.command {
+            assert_eq!(profile, "default");
+        } else {
+            panic!("Expected Auth Test");
+        }
+    }
+
+    #[test]
+    fn test_auth_list() {
+        let cli = Cli::parse_from(["azlin", "auth", "list"]);
+        assert!(matches!(cli.command, Commands::Auth { action: AuthAction::List }));
+    }
+
+    #[test]
+    fn test_auth_show() {
+        let cli = Cli::parse_from(["azlin", "auth", "show", "prod"]);
+        if let Commands::Auth { action: AuthAction::Show { profile } } = cli.command {
+            assert_eq!(profile, "prod");
+        } else {
+            panic!("Expected Auth Show");
+        }
+    }
+
+    #[test]
+    fn test_tag_remove() {
+        let cli = Cli::parse_from(["azlin", "tag", "remove", "my-vm", "env", "team"]);
+        if let Commands::Tag { action: TagAction::Remove { vm_name, tag_keys, .. } } = cli.command {
+            assert_eq!(vm_name, "my-vm");
+            assert_eq!(tag_keys, vec!["env", "team"]);
+        } else {
+            panic!("Expected Tag Remove");
+        }
+    }
+
+    #[test]
+    fn test_tag_list() {
+        let cli = Cli::parse_from(["azlin", "tag", "list", "my-vm"]);
+        if let Commands::Tag { action: TagAction::List { vm_name, .. } } = cli.command {
+            assert_eq!(vm_name, "my-vm");
+        } else {
+            panic!("Expected Tag List");
+        }
+    }
+
+    #[test]
+    fn test_web_stop() {
+        let cli = Cli::parse_from(["azlin", "web", "stop"]);
+        assert!(matches!(cli.command, Commands::Web { action: WebAction::Stop }));
+    }
+
+    #[test]
+    fn test_doit_status() {
+        let cli = Cli::parse_from(["azlin", "doit", "status"]);
+        assert!(matches!(cli.command, Commands::Doit { action: DoitAction::Status { .. } }));
+    }
+
+    #[test]
+    fn test_doit_list() {
+        let cli = Cli::parse_from(["azlin", "doit", "list"]);
+        assert!(matches!(cli.command, Commands::Doit { action: DoitAction::List { .. } }));
+    }
+
+    #[test]
+    fn test_doit_examples() {
+        let cli = Cli::parse_from(["azlin", "doit", "examples"]);
+        assert!(matches!(cli.command, Commands::Doit { action: DoitAction::Examples }));
+    }
+
+    #[test]
+    fn test_doit_cleanup() {
+        let cli = Cli::parse_from(["azlin", "doit", "cleanup", "--force", "--dry-run"]);
+        if let Commands::Doit { action: DoitAction::Cleanup { force, dry_run, .. } } = cli.command {
+            assert!(force);
+            assert!(dry_run);
+        } else {
+            panic!("Expected Doit Cleanup");
+        }
+    }
+
+    #[test]
+    fn test_connect_with_user_and_key() {
+        let cli = Cli::parse_from(["azlin", "connect", "my-vm", "--user", "admin", "--key", "/path/to/key"]);
+        if let Commands::Connect { vm_identifier, user, key, .. } = cli.command {
+            assert_eq!(vm_identifier, Some("my-vm".to_string()));
+            assert_eq!(user, "admin");
+            assert_eq!(key, Some(PathBuf::from("/path/to/key")));
+        } else {
+            panic!("Expected Connect command");
+        }
+    }
+
+    #[test]
+    fn test_connect_defaults() {
+        let cli = Cli::parse_from(["azlin", "connect"]);
+        if let Commands::Connect { vm_identifier, user, no_tmux, no_reconnect, max_retries, .. } = cli.command {
+            assert!(vm_identifier.is_none());
+            assert_eq!(user, "azureuser");
+            assert!(!no_tmux);
+            assert!(!no_reconnect);
+            assert_eq!(max_retries, 3);
+        } else {
+            panic!("Expected Connect command");
+        }
+    }
+
+    #[test]
+    fn test_new_with_all_options() {
+        let cli = Cli::parse_from([
+            "azlin", "new",
+            "--name", "test-vm",
+            "--vm-size", "Standard_D4s_v3",
+            "--region", "eastus",
+            "--resource-group", "rg",
+            "--repo", "https://github.com/user/repo",
+            "--no-auto-connect",
+            "--private",
+            "--bastion-name", "mybastion",
+        ]);
+        if let Commands::New { name, vm_size, region, resource_group, repo, no_auto_connect, private, bastion_name, .. } = cli.command {
+            assert_eq!(name, Some("test-vm".to_string()));
+            assert_eq!(vm_size, Some("Standard_D4s_v3".to_string()));
+            assert_eq!(region, Some("eastus".to_string()));
+            assert_eq!(resource_group, Some("rg".to_string()));
+            assert_eq!(repo, Some("https://github.com/user/repo".to_string()));
+            assert!(no_auto_connect);
+            assert!(private);
+            assert_eq!(bastion_name, Some("mybastion".to_string()));
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_destroy_with_delete_rg() {
+        let cli = Cli::parse_from(["azlin", "destroy", "my-vm", "--delete-rg", "--force"]);
+        if let Commands::Destroy { vm_name, delete_rg, force, .. } = cli.command {
+            assert_eq!(vm_name, "my-vm");
+            assert!(delete_rg);
+            assert!(force);
+        } else {
+            panic!("Expected Destroy command");
+        }
+    }
+
+    #[test]
+    fn test_cleanup_with_all_flags() {
+        let cli = Cli::parse_from([
+            "azlin", "cleanup",
+            "--age-days", "30",
+            "--idle-days", "14",
+            "--dry-run",
+            "--force",
+            "--include-running",
+            "--include-named",
+        ]);
+        if let Commands::Cleanup { age_days, idle_days, dry_run, force, include_running, include_named, .. } = cli.command {
+            assert_eq!(age_days, 30);
+            assert_eq!(idle_days, 14);
+            assert!(dry_run);
+            assert!(force);
+            assert!(include_running);
+            assert!(include_named);
+        } else {
+            panic!("Expected Cleanup command");
+        }
+    }
+
+    #[test]
+    fn test_rg_alias_works() {
+        let cli = Cli::parse_from(["azlin", "list", "--rg", "my-rg"]);
+        if let Commands::List { resource_group, .. } = cli.command {
+            assert_eq!(resource_group, Some("my-rg".to_string()));
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_tag_filter() {
+        let cli = Cli::parse_from(["azlin", "list", "--tag", "env=dev"]);
+        if let Commands::List { tag, .. } = cli.command {
+            assert_eq!(tag, Some("env=dev".to_string()));
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_all_flag() {
+        let cli = Cli::parse_from(["azlin", "list", "--all"]);
+        if let Commands::List { all, .. } = cli.command {
+            assert!(all);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_azlin_help_command() {
+        let cli = Cli::parse_from(["azlin", "azlin-help"]);
+        if let Commands::AzlinHelp { command_name } = cli.command {
+            assert!(command_name.is_none());
+        } else {
+            panic!("Expected AzlinHelp command");
+        }
+    }
+
+    #[test]
+    fn test_azlin_help_with_command() {
+        let cli = Cli::parse_from(["azlin", "azlin-help", "connect"]);
+        if let Commands::AzlinHelp { command_name } = cli.command {
+            assert_eq!(command_name, Some("connect".to_string()));
+        } else {
+            panic!("Expected AzlinHelp command");
+        }
+    }
+
+    #[test]
+    fn test_context_show() {
+        let cli = Cli::parse_from(["azlin", "context", "show"]);
+        assert!(matches!(cli.command, Commands::Context { action: ContextAction::Show { .. } }));
+    }
+
+    #[test]
+    fn test_context_migrate() {
+        let cli = Cli::parse_from(["azlin", "context", "migrate", "--force"]);
+        if let Commands::Context { action: ContextAction::Migrate { force, .. } } = cli.command {
+            assert!(force);
+        } else {
+            panic!("Expected Context Migrate");
+        }
+    }
+
+    #[test]
+    fn test_snapshot_status() {
+        let cli = Cli::parse_from(["azlin", "snapshot", "status", "my-vm"]);
+        if let Commands::Snapshot { action: SnapshotAction::Status { vm_name, .. } } = cli.command {
+            assert_eq!(vm_name, "my-vm");
+        } else {
+            panic!("Expected Snapshot Status");
+        }
+    }
+
+    #[test]
+    fn test_snapshot_sync() {
+        let cli = Cli::parse_from(["azlin", "snapshot", "sync", "--vm", "my-vm"]);
+        if let Commands::Snapshot { action: SnapshotAction::Sync { vm, .. } } = cli.command {
+            assert_eq!(vm, Some("my-vm".to_string()));
+        } else {
+            panic!("Expected Snapshot Sync");
+        }
+    }
+
+    #[test]
+    fn test_storage_status() {
+        let cli = Cli::parse_from(["azlin", "storage", "status", "mystorage"]);
+        if let Commands::Storage { action: StorageAction::Status { name, .. } } = cli.command {
+            assert_eq!(name, "mystorage");
+        } else {
+            panic!("Expected Storage Status");
+        }
+    }
+
+    #[test]
+    fn test_storage_unmount() {
+        let cli = Cli::parse_from(["azlin", "storage", "unmount", "--vm", "my-vm"]);
+        if let Commands::Storage { action: StorageAction::Unmount { vm, .. } } = cli.command {
+            assert_eq!(vm, "my-vm");
+        } else {
+            panic!("Expected Storage Unmount");
+        }
+    }
+
+    #[test]
+    fn test_costs_budget() {
+        let cli = Cli::parse_from(["azlin", "costs", "budget", "set", "--resource-group", "rg", "--amount", "1000"]);
+        if let Commands::Costs { action: CostsAction::Budget { action, resource_group, amount, .. } } = cli.command {
+            assert_eq!(action, "set");
+            assert_eq!(resource_group, "rg");
+            assert_eq!(amount, Some(1000.0));
+        } else {
+            panic!("Expected Costs Budget");
+        }
+    }
+
+    #[test]
+    fn test_costs_actions() {
+        let cli = Cli::parse_from(["azlin", "costs", "actions", "list", "--resource-group", "rg", "--dry-run"]);
+        if let Commands::Costs { action: CostsAction::Actions { action, resource_group, dry_run, .. } } = cli.command {
+            assert_eq!(action, "list");
+            assert_eq!(resource_group, "rg");
+            assert!(dry_run);
+        } else {
+            panic!("Expected Costs Actions");
         }
     }
 }
