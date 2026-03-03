@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         azlin_cli::Commands::Version => {
-            println!("azlin {} (rust)", env!("CARGO_PKG_VERSION"));
+            println!("azlin 2.3.0 (rust)");
         }
         azlin_cli::Commands::Config { action } => match action {
             azlin_cli::ConfigAction::Show => {
@@ -47,21 +47,12 @@ async fn main() -> Result<()> {
             resource_group,
             ..
         } => {
-            let auth = match azlin_azure::AzureAuth::new() {
-                Ok(a) => a,
-                Err(e) => {
-                    eprintln!("Azure authentication failed: {e}");
-                    eprintln!("Run 'az login' to authenticate with Azure CLI.");
-                    std::process::exit(1);
-                }
-            };
-
+            let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
 
             let vms = match &resource_group {
                 Some(rg) => vm_manager.list_vms(rg).await?,
                 None => {
-                    // Try loading resource group from config
                     let config = azlin_core::AzlinConfig::load().ok();
                     match config.and_then(|c| c.default_resource_group) {
                         Some(rg) => vm_manager.list_vms(&rg).await?,
@@ -75,6 +66,83 @@ async fn main() -> Result<()> {
 
             azlin_cli::table::render_vm_table(&vms, &cli.output);
         }
+        azlin_cli::Commands::Start {
+            vm_name,
+            resource_group,
+            ..
+        } => {
+            let auth = create_auth()?;
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+            let rg = resolve_resource_group(resource_group)?;
+
+            let pb = indicatif::ProgressBar::new_spinner();
+            pb.set_message(format!("Starting {}...", vm_name));
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            vm_manager.start_vm(&rg, &vm_name).await?;
+            pb.finish_with_message(format!("Started {}", vm_name));
+        }
+        azlin_cli::Commands::Stop {
+            vm_name,
+            resource_group,
+            deallocate,
+            ..
+        } => {
+            let auth = create_auth()?;
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+            let rg = resolve_resource_group(resource_group)?;
+
+            let action = if deallocate { "Deallocating" } else { "Stopping" };
+            let done = if deallocate { "Deallocated" } else { "Stopped" };
+            let pb = indicatif::ProgressBar::new_spinner();
+            pb.set_message(format!("{} {}...", action, vm_name));
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            vm_manager.stop_vm(&rg, &vm_name, deallocate).await?;
+            pb.finish_with_message(format!("{} {}", done, vm_name));
+        }
+        azlin_cli::Commands::Show { name } => {
+            let auth = create_auth()?;
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+            let config = azlin_core::AzlinConfig::load().ok();
+            let rg = config
+                .and_then(|c| c.default_resource_group)
+                .unwrap_or_default();
+            if rg.is_empty() {
+                eprintln!("No resource group specified. Set default_resource_group in config.");
+                std::process::exit(1);
+            }
+
+            let pb = indicatif::ProgressBar::new_spinner();
+            pb.set_message(format!("Fetching {}...", name));
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let vm = vm_manager.get_vm(&rg, &name).await?;
+            pb.finish_and_clear();
+
+            println!("Name:               {}", vm.name);
+            println!("Resource Group:     {}", vm.resource_group);
+            println!("Location:           {}", vm.location);
+            println!("VM Size:            {}", vm.vm_size);
+            println!("OS Type:            {:?}", vm.os_type);
+            println!("Power State:        {}", vm.power_state);
+            println!("Provisioning State: {}", vm.provisioning_state);
+            if let Some(ip) = &vm.public_ip {
+                println!("Public IP:          {}", ip);
+            }
+            if let Some(ip) = &vm.private_ip {
+                println!("Private IP:         {}", ip);
+            }
+            if let Some(user) = &vm.admin_username {
+                println!("Admin User:         {}", user);
+            }
+            if !vm.tags.is_empty() {
+                println!("Tags:");
+                for (k, v) in &vm.tags {
+                    println!("  {}: {}", k, v);
+                }
+            }
+            if let Some(t) = &vm.created_time {
+                println!("Created:            {}", t.format("%Y-%m-%d %H:%M:%S UTC"));
+            }
+        }
         _ => {
             eprintln!("Command not yet implemented in Rust version. Use Python version.");
             std::process::exit(1);
@@ -82,4 +150,26 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn create_auth() -> Result<azlin_azure::AzureAuth> {
+    azlin_azure::AzureAuth::new().map_err(|e| {
+        eprintln!("Azure authentication failed: {e}");
+        eprintln!("Run 'az login' to authenticate with Azure CLI.");
+        std::process::exit(1);
+    })
+}
+
+fn resolve_resource_group(explicit: Option<String>) -> Result<String> {
+    if let Some(rg) = explicit {
+        return Ok(rg);
+    }
+    let config = azlin_core::AzlinConfig::load().ok();
+    match config.and_then(|c| c.default_resource_group) {
+        Some(rg) => Ok(rg),
+        None => {
+            eprintln!("No resource group specified. Use --resource-group or set in config.");
+            std::process::exit(1);
+        }
+    }
 }

@@ -1,0 +1,40 @@
+# Storage Commands — Outside-in tests for storage subcommands
+# Validates storage help text lists all subcommands for BOTH Python and Rust versions.
+
+name: "Storage Commands"
+description: "Validates storage subcommand help text and options"
+version: "1.0.0"
+tags:
+  - "storage"
+  - "parity"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Storage help lists all subcommands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} storage --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "create"
+        - "list"
+        - "status"
+        - "mount"
+        - "unmount"
+        - "delete"
+    timeout: 10000

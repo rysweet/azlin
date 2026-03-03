@@ -1,0 +1,74 @@
+# VM Lifecycle — Outside-in tests for start/stop/show commands
+# Validates help text and argument handling for BOTH Python and Rust versions.
+
+name: "VM Lifecycle"
+description: "Validates VM start, stop, and show command help text and argument handling"
+version: "1.0.0"
+tags:
+  - "vm"
+  - "lifecycle"
+  - "parity"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Start help shows VM name argument and resource-group option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} start --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "VM"
+        - "resource-group"
+        - "help"
+    timeout: 10000
+
+  - name: "Stop help shows deallocate option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} stop --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "deallocate"
+        - "VM"
+        - "resource-group"
+    timeout: 10000
+
+  - name: "Show help shows VM name argument"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} show --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "VM"
+        - "help"
+    timeout: 10000
+
+  - name: "Start with no args shows error and usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} start 2>&1; echo DONE"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000

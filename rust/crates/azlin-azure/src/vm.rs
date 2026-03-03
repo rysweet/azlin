@@ -198,6 +198,57 @@ impl VmManager {
         })
     }
 
+    /// Start a VM.
+    pub async fn start_vm(&self, resource_group: &str, name: &str) -> Result<()> {
+        debug!(resource_group, name, "Starting VM");
+        self.compute_client
+            .virtual_machines()
+            .start(resource_group, name, &self.subscription_id)
+            .into_future()
+            .await
+            .context(format!("Failed to start VM '{name}'"))?;
+        debug!(name, "VM started");
+        Ok(())
+    }
+
+    /// Stop a VM. If `deallocate` is true, the VM is deallocated to save costs;
+    /// otherwise it is only powered off.
+    pub async fn stop_vm(&self, resource_group: &str, name: &str, deallocate: bool) -> Result<()> {
+        debug!(resource_group, name, deallocate, "Stopping VM");
+        if deallocate {
+            self.compute_client
+                .virtual_machines()
+                .deallocate(resource_group, name, &self.subscription_id)
+                .into_future()
+                .await
+                .context(format!("Failed to deallocate VM '{name}'"))?;
+        } else {
+            self.compute_client
+                .virtual_machines()
+                .power_off(resource_group, name, &self.subscription_id)
+                .into_future()
+                .await
+                .context(format!("Failed to power off VM '{name}'"))?;
+        }
+        debug!(name, "VM stopped");
+        Ok(())
+    }
+
+    /// Get details for a single VM (with instance view for power state).
+    pub async fn get_vm(&self, resource_group: &str, name: &str) -> Result<VmInfo> {
+        debug!(resource_group, name, "Getting VM details");
+        let vm = self
+            .compute_client
+            .virtual_machines()
+            .get(resource_group, name, &self.subscription_id)
+            .expand("instanceView")
+            .into_future()
+            .await
+            .context(format!("Failed to get VM '{name}'"))?;
+
+        self.convert_vm(&vm, resource_group).await
+    }
+
     /// Fetch public and private IPs for a VM by querying its network interfaces.
     async fn get_vm_ips(
         &self,
@@ -431,5 +482,41 @@ mod tests {
     fn test_extract_tags_none() {
         let result = extract_tags(None);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_power_state_stopped() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                code: Some("PowerState/stopped".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Stopped);
+    }
+
+    #[test]
+    fn test_extract_power_state_starting() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                code: Some("PowerState/starting".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Starting);
+    }
+
+    #[test]
+    fn test_extract_power_state_stopping() {
+        let iv = azure_mgmt_compute::models::VirtualMachineInstanceView {
+            statuses: vec![azure_mgmt_compute::models::InstanceViewStatus {
+                code: Some("PowerState/stopping".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(extract_power_state(Some(&iv)), PowerState::Stopping);
     }
 }

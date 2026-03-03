@@ -1,0 +1,40 @@
+# Env Commands — Outside-in tests for env subcommands
+# Validates env help text lists all subcommands for BOTH Python and Rust versions.
+
+name: "Env Commands"
+description: "Validates env subcommand help text and options"
+version: "1.0.0"
+tags:
+  - "env"
+  - "parity"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Env help lists all subcommands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} env --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "set"
+        - "list"
+        - "delete"
+        - "export"
+        - "import"
+        - "clear"
+    timeout: 10000

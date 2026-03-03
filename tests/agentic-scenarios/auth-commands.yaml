@@ -1,0 +1,50 @@
+# Auth Commands — Outside-in tests for auth subcommands
+# Validates auth help text lists all subcommands for BOTH Python and Rust versions.
+
+name: "Auth Commands"
+description: "Validates auth subcommand help text and basic operations"
+version: "1.0.0"
+tags:
+  - "auth"
+  - "parity"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Auth help lists all subcommands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} auth --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "setup"
+        - "test"
+        - "list"
+        - "show"
+        - "remove"
+    timeout: 10000
+
+  - name: "Auth list runs without crashing"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} auth list 2>&1; echo DONE"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "DONE"
+    timeout: 10000

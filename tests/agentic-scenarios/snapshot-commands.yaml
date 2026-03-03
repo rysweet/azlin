@@ -1,0 +1,49 @@
+# Snapshot Commands — Outside-in tests for snapshot subcommands
+# Validates snapshot help text lists all subcommands for BOTH Python and Rust versions.
+
+name: "Snapshot Commands"
+description: "Validates snapshot subcommand help text and argument handling"
+version: "1.0.0"
+tags:
+  - "snapshot"
+  - "parity"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Snapshot help lists all subcommands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} snapshot --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "create"
+        - "list"
+        - "restore"
+        - "delete"
+    timeout: 10000
+
+  - name: "Snapshot list with no args shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} snapshot list 2>&1; echo DONE"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
