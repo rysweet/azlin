@@ -1,0 +1,35 @@
+[package]
+name = "azlin"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Azure VM fleet management CLI - provision, manage, and monitor development VMs"
+
+[[bin]]
+name = "azlin"
+path = "src/main.rs"
+
+[[bin]]
+name = "azdoit"
+path = "src/azdoit.rs"
+
+[dependencies]
+azlin-core = { path = "../azlin-core" }
+azlin-azure = { path = "../azlin-azure" }
+azlin-ssh = { path = "../azlin-ssh" }
+azlin-ai = { path = "../azlin-ai" }
+azlin-cli = { path = "../azlin-cli" }
+tokio = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+tempfile = { workspace = true }

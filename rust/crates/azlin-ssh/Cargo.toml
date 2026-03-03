@@ -1,0 +1,20 @@
+[package]
+name = "azlin-ssh"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SSH connection pooling and remote execution for azlin"
+
+[dependencies]
+azlin-core = { path = "../azlin-core" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+russh = { workspace = true }
+russh-keys = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
