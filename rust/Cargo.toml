@@ -82,3 +82,17 @@ async-trait = "0.1"
 # Testing
 assert_cmd = "2"
 predicates = "3"
+
+# Profile: dev — minimal debug info to save disk (line tables only)
+[profile.dev]
+debug = "line-tables-only"
+
+# Profile: release — stripped, optimized
+[profile.release]
+strip = true
+lto = "thin"
+debug = false
+
+# Profile: test — same as dev, minimal debug info
+[profile.test]
+debug = "line-tables-only"
