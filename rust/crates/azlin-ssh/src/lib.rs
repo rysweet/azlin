@@ -1124,4 +1124,100 @@ mod tests {
         let batches = plan_rotation(0, 5);
         assert!(batches.is_empty());
     }
+
+    #[test]
+    fn test_key_needs_rotation_fresh_file() {
+        let file = NamedTempFile::new().unwrap();
+        // Brand new file should not need rotation with 30-day window
+        assert!(!key_needs_rotation(file.path(), 30));
+    }
+
+    #[test]
+    fn test_key_needs_rotation_zero_max_age() {
+        let file = NamedTempFile::new().unwrap();
+        // With max_age_days=0, a brand-new file has age_secs=0, so 0 > 0 is false
+        assert!(!key_needs_rotation(file.path(), 0));
+    }
+
+    #[test]
+    fn test_key_needs_rotation_large_max_age() {
+        let file = NamedTempFile::new().unwrap();
+        // 100 years — should never need rotation
+        assert!(!key_needs_rotation(file.path(), 36500));
+    }
+
+    #[test]
+    fn test_rotation_key_name_various_prefixes() {
+        for prefix in &["azlin", "prod-vm", "key_backup", "test123"] {
+            let name = rotation_key_name(prefix);
+            assert!(name.starts_with(&format!("{}_rotated_", prefix)));
+            // Should contain a timestamp portion (YYYYMMDD_HHMMSS = 15 chars)
+            assert!(name.len() > prefix.len() + "_rotated_".len() + 10);
+        }
+    }
+
+    #[test]
+    fn test_rotation_key_name_empty_prefix() {
+        let name = rotation_key_name("");
+        assert!(name.starts_with("_rotated_"));
+    }
+
+    #[test]
+    fn test_plan_rotation_exact_fit() {
+        let batches = plan_rotation(10, 5);
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0], (0, 5));
+        assert_eq!(batches[1], (5, 10));
+    }
+
+    #[test]
+    fn test_plan_rotation_batch_size_one() {
+        let batches = plan_rotation(4, 1);
+        assert_eq!(batches.len(), 4);
+        assert_eq!(batches[0], (0, 1));
+        assert_eq!(batches[1], (1, 2));
+        assert_eq!(batches[2], (2, 3));
+        assert_eq!(batches[3], (3, 4));
+    }
+
+    #[test]
+    fn test_plan_rotation_single_vm() {
+        let batches = plan_rotation(1, 10);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0], (0, 1));
+    }
+
+    #[test]
+    fn test_plan_rotation_large_fleet() {
+        let batches = plan_rotation(100, 10);
+        assert_eq!(batches.len(), 10);
+        assert_eq!(batches[0], (0, 10));
+        assert_eq!(batches[9], (90, 100));
+        // Verify contiguity
+        for i in 0..batches.len() - 1 {
+            assert_eq!(batches[i].1, batches[i + 1].0);
+        }
+    }
+
+    #[test]
+    fn test_plan_rotation_batch_equals_count() {
+        let batches = plan_rotation(5, 5);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0], (0, 5));
+    }
+
+    #[test]
+    fn test_plan_rotation_batch_larger_than_count() {
+        let batches = plan_rotation(3, 100);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0], (0, 3));
+    }
+
+    #[test]
+    fn test_key_needs_rotation_nonexistent_dir() {
+        assert!(key_needs_rotation(
+            std::path::Path::new("/no/such/dir/keyfile"),
+            30
+        ));
+    }
 }
