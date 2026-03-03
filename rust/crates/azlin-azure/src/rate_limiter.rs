@@ -1,7 +1,20 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// Simple token bucket rate limiter for Azure API calls
+/// Simple token bucket rate limiter for Azure API calls.
+///
+/// # Examples
+///
+/// ```
+/// use azlin_azure::rate_limiter::RateLimiter;
+///
+/// let limiter = RateLimiter::new(5.0, 1.0);
+/// assert!((limiter.available_tokens() - 5.0).abs() < 0.1);
+///
+/// // Acquiring a token succeeds (returns None = no wait needed)
+/// assert!(limiter.try_acquire().is_none());
+/// assert!((limiter.available_tokens() - 4.0).abs() < 0.1);
+/// ```
 pub struct RateLimiter {
     inner: Mutex<RateLimiterInner>,
 }
@@ -26,6 +39,18 @@ impl RateLimiter {
     }
 
     /// Try to acquire a token. Returns wait duration if rate limited.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use azlin_azure::rate_limiter::RateLimiter;
+    ///
+    /// let limiter = RateLimiter::new(1.0, 1.0);
+    /// // First request is allowed (returns None)
+    /// assert!(limiter.try_acquire().is_none());
+    /// // Second request is rate limited (returns Some(wait_duration))
+    /// assert!(limiter.try_acquire().is_some());
+    /// ```
     pub fn try_acquire(&self) -> Option<Duration> {
         let mut inner = self.inner.lock().unwrap();
         inner.refill();
@@ -38,7 +63,18 @@ impl RateLimiter {
         }
     }
 
-    /// Get current token count
+    /// Get current token count.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use azlin_azure::rate_limiter::RateLimiter;
+    ///
+    /// let limiter = RateLimiter::new(10.0, 1.0);
+    /// assert!((limiter.available_tokens() - 10.0).abs() < 0.1);
+    /// limiter.try_acquire();
+    /// assert!((limiter.available_tokens() - 9.0).abs() < 0.1);
+    /// ```
     pub fn available_tokens(&self) -> f64 {
         let mut inner = self.inner.lock().unwrap();
         inner.refill();

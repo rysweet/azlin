@@ -117,6 +117,17 @@ impl AzlinConfig {
     }
 
     /// Load config from disk, returning defaults if file doesn't exist.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use azlin_core::AzlinConfig;
+    ///
+    /// let config = AzlinConfig::load().unwrap();
+    /// // Always returns a valid config with non-empty defaults
+    /// assert!(!config.default_region.is_empty());
+    /// assert!(!config.default_vm_size.is_empty());
+    /// ```
     pub fn load() -> crate::Result<Self> {
         let path = Self::config_path()?;
         if !path.exists() {
@@ -134,6 +145,19 @@ impl AzlinConfig {
     }
 
     /// Save config to disk, creating the directory if needed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use azlin_core::AzlinConfig;
+    ///
+    /// // Demonstrates the serialization round-trip that save() performs
+    /// let config = AzlinConfig::default();
+    /// let toml_str = toml::to_string_pretty(&config).unwrap();
+    /// let loaded: AzlinConfig = toml::from_str(&toml_str).unwrap();
+    /// assert_eq!(loaded.default_region, config.default_region);
+    /// assert_eq!(loaded.default_vm_size, config.default_vm_size);
+    /// ```
     pub fn save(&self) -> crate::Result<()> {
         let dir = Self::config_dir()?;
         std::fs::create_dir_all(&dir)
@@ -176,6 +200,42 @@ impl AzlinConfig {
     /// Validate a key/value pair before setting it.
     /// Returns `Ok(serde_json::Value)` with the properly typed JSON value,
     /// or an error describing the validation failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use azlin_core::AzlinConfig;
+    ///
+    /// // Valid Azure region (case-insensitive)
+    /// let val = AzlinConfig::validate_field("default_region", "eastus").unwrap();
+    /// assert_eq!(val, serde_json::json!("eastus"));
+    ///
+    /// // Invalid region returns an error
+    /// assert!(AzlinConfig::validate_field("default_region", "mars-west1").is_err());
+    ///
+    /// // VM size must start with "Standard_"
+    /// let val = AzlinConfig::validate_field("default_vm_size", "Standard_D2s_v3").unwrap();
+    /// assert_eq!(val, serde_json::json!("Standard_D2s_v3"));
+    /// assert!(AzlinConfig::validate_field("default_vm_size", "Basic_A1").is_err());
+    ///
+    /// // Boolean fields accept "true" / "false"
+    /// assert_eq!(
+    ///     AzlinConfig::validate_field("ssh_auto_sync_keys", "true").unwrap(),
+    ///     serde_json::json!(true),
+    /// );
+    ///
+    /// // Integer fields are parsed to u64
+    /// assert_eq!(
+    ///     AzlinConfig::validate_field("ssh_sync_timeout", "60").unwrap(),
+    ///     serde_json::json!(60),
+    /// );
+    ///
+    /// // Unknown keys pass through as strings
+    /// assert_eq!(
+    ///     AzlinConfig::validate_field("custom_key", "value").unwrap(),
+    ///     serde_json::json!("value"),
+    /// );
+    /// ```
     pub fn validate_field(key: &str, value: &str) -> crate::Result<serde_json::Value> {
         if key == "default_region" {
             let lower = value.to_lowercase();

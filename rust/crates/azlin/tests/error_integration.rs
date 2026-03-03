@@ -1,11 +1,12 @@
 //! Error-handling integration tests.
 //!
 //! Verifies that the binary handles bad input gracefully (no panics).
-//! Ported from Python E2E error-path tests.
+//! Ported from Python E2E error-path tests, test_cli_errors.py,
+//! and test_config_manager_errors.py.
 
 mod integration;
 
-use integration::run_azlin;
+use integration::{run_azlin, run_azlin_with_env};
 
 // ---------------------------------------------------------------------------
 // Missing required arguments
@@ -78,4 +79,169 @@ fn test_status_without_auth_no_panic() {
 fn test_unknown_flag_rejected() {
     let (_, _, code) = run_azlin(&["list", "--nonexistent-flag"]);
     assert_ne!(code, 0, "unknown flag should be rejected");
+}
+
+// ---------------------------------------------------------------------------
+// Empty string arguments — should not panic
+// Ported from Python: TestInputValidationErrors.test_invalid_vm_name_empty
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_empty_vm_name_no_panic() {
+    let (stdout, stderr, _) = run_azlin(&["start", ""]);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        !combined.contains("panicked"),
+        "empty VM name should not panic"
+    );
+}
+
+#[test]
+fn test_empty_template_name_no_panic() {
+    let (stdout, stderr, _) = run_azlin(&["template", "show", ""]);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        !combined.contains("panicked"),
+        "empty template name should not panic"
+    );
+}
+
+#[test]
+fn test_empty_session_name_no_panic() {
+    let (stdout, stderr, _) = run_azlin(&["sessions", "load", ""]);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        !combined.contains("panicked"),
+        "empty session name should not panic"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Very long arguments — should not panic
+// Ported from Python: TestInputValidationErrors.test_invalid_vm_name_too_long
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_long_vm_name_no_panic() {
+    let long_name = "a".repeat(300);
+    let (stdout, stderr, _) = run_azlin(&["start", &long_name]);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        !combined.contains("panicked"),
+        "very long VM name should not panic"
+    );
+}
+
+#[test]
+fn test_long_config_key_no_panic() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", tmp.path().to_str().unwrap())];
+    let long_key = "k".repeat(500);
+
+    let (stdout, stderr, _) =
+        run_azlin_with_env(&["config", "get", &long_key], &env);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        !combined.contains("panicked"),
+        "very long config key should not panic"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Special characters — should not panic
+// Ported from Python: TestInputValidationErrors.test_invalid_vm_name_invalid_chars
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_special_chars_vm_name_no_panic() {
+    let (stdout, stderr, _) = run_azlin(&["start", "test@#$%^&*!"]);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        !combined.contains("panicked"),
+        "special chars in VM name should not panic"
+    );
+}
+
+#[test]
+fn test_special_chars_template_name_no_panic() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", tmp.path().to_str().unwrap())];
+
+    let (stdout, stderr, _) =
+        run_azlin_with_env(&["template", "show", "../../../etc/passwd"], &env);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        !combined.contains("panicked"),
+        "path traversal in template name should not panic"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Multiple unknown flags
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_multiple_unknown_flags_rejected() {
+    let (_, _, code) = run_azlin(&["list", "--bad1", "--bad2", "--bad3"]);
+    assert_ne!(code, 0, "multiple unknown flags should be rejected");
+}
+
+// ---------------------------------------------------------------------------
+// Double-dash handling
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_double_dash_stops_flag_parsing() {
+    // After --, arguments should be treated as positional
+    let (stdout, stderr, _) = run_azlin(&["start", "--", "--help"]);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        !combined.contains("panicked"),
+        "double-dash arg should not panic"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Missing subcommand for grouped commands
+// Ported from Python: TestPrerequisiteErrors
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_config_no_subcommand() {
+    let (_, _, code) = run_azlin(&["config"]);
+    assert_ne!(code, 0, "config without subcommand should fail");
+}
+
+#[test]
+fn test_sessions_no_subcommand() {
+    let (_, _, code) = run_azlin(&["sessions"]);
+    assert_ne!(code, 0, "sessions without subcommand should fail");
+}
+
+// ---------------------------------------------------------------------------
+// No panic on every command without Azure auth
+// Ported from Python: TestAuthenticationErrors — no-auth graceful handling
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_no_panic_on_commands_without_auth() {
+    let commands: Vec<&[&str]> = vec![
+        &["show", "test-vm"],
+        &["start", "test-vm"],
+        &["stop", "test-vm"],
+        &["connect", "test-vm"],
+        &["delete", "test-vm"],
+        &["snapshot", "create", "test-vm"],
+        &["env", "list", "test-vm"],
+    ];
+
+    for args in &commands {
+        let (stdout, stderr, _) = run_azlin(args);
+        let combined = format!("{}{}", stdout, stderr);
+        assert!(
+            !combined.contains("panicked"),
+            "panicked for: azlin {}",
+            args.join(" "),
+        );
+    }
 }

@@ -5,6 +5,32 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Represents an Azure VM with its current state.
+///
+/// # Examples
+///
+/// ```
+/// use azlin_core::models::{VmInfo, PowerState, OsType};
+/// use std::collections::HashMap;
+///
+/// let vm = VmInfo {
+///     name: "dev-vm".to_string(),
+///     resource_group: "my-rg".to_string(),
+///     location: "westus2".to_string(),
+///     vm_size: "Standard_D2s_v3".to_string(),
+///     power_state: PowerState::Running,
+///     provisioning_state: "Succeeded".to_string(),
+///     os_type: OsType::Linux,
+///     public_ip: Some("1.2.3.4".to_string()),
+///     private_ip: Some("10.0.0.4".to_string()),
+///     admin_username: Some("azureuser".to_string()),
+///     tags: HashMap::new(),
+///     created_time: None,
+/// };
+///
+/// // Check if VM is running via power_state
+/// assert_eq!(vm.power_state, PowerState::Running);
+/// assert_eq!(vm.power_state.to_string(), "running");
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VmInfo {
     pub name: String,
@@ -155,7 +181,32 @@ impl std::fmt::Display for VmImage {
     }
 }
 
-/// Validate Azure VM name according to Azure rules
+/// Validate Azure VM name according to Azure rules.
+///
+/// # Examples
+///
+/// ```
+/// use azlin_core::models::validate_vm_name;
+///
+/// // Valid names
+/// assert!(validate_vm_name("my-vm-01").is_ok());
+/// assert!(validate_vm_name("dev.server").is_ok());
+/// assert!(validate_vm_name("a").is_ok());
+///
+/// // Empty name is rejected
+/// assert!(validate_vm_name("").is_err());
+///
+/// // Names exceeding 64 characters are rejected
+/// assert!(validate_vm_name(&"a".repeat(65)).is_err());
+/// assert!(validate_vm_name(&"a".repeat(64)).is_ok());
+///
+/// // Cannot start or end with hyphen or period
+/// assert!(validate_vm_name("-bad").is_err());
+/// assert!(validate_vm_name("bad-").is_err());
+///
+/// // Only alphanumeric, hyphens, and periods allowed
+/// assert!(validate_vm_name("bad@name").is_err());
+/// ```
 pub fn validate_vm_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("VM name cannot be empty".to_string());

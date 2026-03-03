@@ -21,7 +21,27 @@ static PATTERNS: LazyLock<Vec<(Regex, &str)>> = LazyLock::new(|| {
     ]
 });
 
-/// Sanitize a string by replacing sensitive patterns with redacted versions
+/// Sanitize a string by replacing sensitive patterns with redacted versions.
+///
+/// # Examples
+///
+/// ```
+/// use azlin_core::sanitizer::sanitize;
+///
+/// // Normal text passes through unchanged
+/// let text = "VM started in eastus";
+/// assert_eq!(sanitize(text), text);
+///
+/// // Account keys are redacted
+/// let input = "AccountKey=dGhpcyBpcyBhIHRlc3Qga2V5";
+/// assert!(sanitize(input).contains("REDACTED"));
+///
+/// // Bearer tokens are redacted
+/// let input = "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig";
+/// let output = sanitize(input);
+/// assert!(output.contains("REDACTED"));
+/// assert!(!output.contains("eyJh"));
+/// ```
 pub fn sanitize(input: &str) -> String {
     let mut result = input.to_string();
     for (pattern, replacement) in PATTERNS.iter() {
@@ -30,7 +50,17 @@ pub fn sanitize(input: &str) -> String {
     result
 }
 
-/// Check if a string contains sensitive data
+/// Check if a string contains sensitive data.
+///
+/// # Examples
+///
+/// ```
+/// use azlin_core::sanitizer::contains_sensitive_data;
+///
+/// assert!(!contains_sensitive_data("just normal text"));
+/// assert!(contains_sensitive_data("AccountKey=abc123def456"));
+/// assert!(contains_sensitive_data("Bearer eyJhbGciOiJIUzI1NiJ9"));
+/// ```
 pub fn contains_sensitive_data(input: &str) -> bool {
     PATTERNS.iter().any(|(pattern, _)| pattern.is_match(input))
 }
