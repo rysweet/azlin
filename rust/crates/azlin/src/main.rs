@@ -5659,7 +5659,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
     fn test_multiprogress_bar_formatting() {
         let mp = indicatif::MultiProgress::new();
         let style = super::fleet_spinner_style();
-        let vm_names = vec!["vm-alpha", "prod-server-01", "x"];
+        let vm_names = ["vm-alpha", "prod-server-01", "x"];
         let bars: Vec<_> = vm_names
             .iter()
             .map(|name| {

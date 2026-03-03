@@ -17,9 +17,9 @@ pub fn render_rows(headers: &[&str], rows: &[Vec<String>], format: &OutputFormat
             table
                 .load_preset(UTF8_FULL)
                 .apply_modifier(UTF8_ROUND_CORNERS)
-                .set_header(headers.iter().map(|h| Cell::new(h)).collect::<Vec<_>>());
+                .set_header(headers.iter().map(Cell::new).collect::<Vec<_>>());
             for row in rows {
-                table.add_row(row.iter().map(|c| Cell::new(c)).collect::<Vec<_>>());
+                table.add_row(row.iter().map(Cell::new).collect::<Vec<_>>());
             }
             println!("{table}");
         }
