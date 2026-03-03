@@ -4210,37 +4210,88 @@ async fn async_main() -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
                     .join(".azlin")
                     .join("autopilot.toml");
-                let idle_threshold = if ap_path.exists() {
+                let (idle_threshold, cost_limit) = if ap_path.exists() {
                     let content = std::fs::read_to_string(&ap_path)?;
                     let val: toml::Value = toml::from_str(&content)?;
-                    val.as_table()
+                    let thresh = val.as_table()
                         .and_then(|t| t.get("idle_threshold_minutes"))
                         .and_then(|v| v.as_integer())
-                        .unwrap_or(30) as u32
+                        .unwrap_or(30) as u32;
+                    let limit = val.as_table()
+                        .and_then(|t| t.get("cost_limit_usd"))
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0);
+                    (thresh, limit)
                 } else {
-                    30
+                    (30, 0.0)
                 };
-                println!("Autopilot check (idle threshold: {} min):", idle_threshold);
-                let actions = 0;
+                println!("Autopilot check (idle threshold: {} min, cost limit: ${:.2}):", idle_threshold, cost_limit);
+
+                let mut actions: Vec<(String, String)> = Vec::new();
                 for vm in &vms {
-                    if vm.power_state == azlin_core::models::PowerState::Running {
-                        println!(
-                            "  {} — {} — running",
-                            vm.name, vm.vm_size
-                        );
+                    if vm.power_state != azlin_core::models::PowerState::Running {
+                        continue;
+                    }
+                    let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
+                    if let Some(ip) = ip {
+                        let user = vm.admin_username.as_deref().unwrap_or("azureuser");
+                        // Check CPU and uptime via SSH
+                        let output = std::process::Command::new("ssh")
+                            .args([
+                                "-o", "StrictHostKeyChecking=no",
+                                "-o", "ConnectTimeout=5",
+                                "-o", "BatchMode=yes",
+                                &format!("{}@{}", user, ip),
+                                "awk '{u=$2+$4; t=$2+$4+$5; if (t>0) printf \"%.1f\", u*100/t; else print \"0\"}' /proc/stat | head -1 && cat /proc/uptime | awk '{print $1}'",
+                            ])
+                            .output();
+                        if let Ok(out) = output {
+                            if out.status.success() {
+                                let text = String::from_utf8_lossy(&out.stdout);
+                                let lines: Vec<&str> = text.trim().lines().collect();
+                                let cpu_pct: f64 = lines.first()
+                                    .and_then(|s| s.parse().ok())
+                                    .unwrap_or(100.0);
+                                let uptime_secs: f64 = lines.get(1)
+                                    .and_then(|s| s.parse().ok())
+                                    .unwrap_or(0.0);
+                                let idle_mins = idle_threshold as f64;
+                                if cpu_pct < 5.0 && uptime_secs > idle_mins * 60.0 {
+                                    println!("  ⚠ {} — CPU {:.1}% for {:.0}min — IDLE (recommend deallocate)",
+                                             vm.name, cpu_pct, uptime_secs / 60.0);
+                                    actions.push((vm.name.clone(), "deallocate".to_string()));
+                                } else {
+                                    println!("  ✓ {} — CPU {:.1}% — active", vm.name, cpu_pct);
+                                }
+                            } else {
+                                println!("  ? {} — could not check (SSH failed)", vm.name);
+                            }
+                        } else {
+                            println!("  ? {} — could not check (SSH unavailable)", vm.name);
+                        }
                     }
                 }
-                if actions == 0 {
-                    println!(
-                        "{}",
-                        if dry_run {
-                            "Dry run: no actions needed"
-                        } else {
-                            "No cost-saving actions needed at this time."
+
+                if actions.is_empty() {
+                    println!("No cost-saving actions needed at this time.");
+                } else if dry_run {
+                    println!("\nDry run — {} action(s) would be taken:", actions.len());
+                    for (name, action) in &actions {
+                        println!("  {} → {}", name, action);
+                    }
+                } else {
+                    println!("\nApplying {} action(s):", actions.len());
+                    for (name, action) in &actions {
+                        if action == "deallocate" {
+                            print!("  Deallocating {}...", name);
+                            let result = vm_manager.stop_vm(&rg, name, true).await;
+                            match result {
+                                Ok(_) => println!(" ✓ done"),
+                                Err(e) => println!(" ✗ failed: {}", e),
+                            }
                         }
-                    );
+                    }
                 }
-                let _ = actions;
             }
         },
 
@@ -4537,54 +4588,60 @@ async fn async_main() -> Result<()> {
 
         // ── Web ──────────────────────────────────────────────────────
         azlin_cli::Commands::Web { action } => match action {
-            azlin_cli::WebAction::Start { port: _, host: _ } => {
-                let auth = create_auth()?;
-                let vm_manager = azlin_azure::VmManager::new(&auth);
+            azlin_cli::WebAction::Start { port, host } => {
+                // Start the PWA dev server (same as Python: npm run dev in pwa/)
+                let pwa_dir = std::env::current_dir()?.join("pwa");
+                if !pwa_dir.exists() {
+                    eprintln!("PWA directory not found at {:?}", pwa_dir);
+                    eprintln!("Make sure you're in the azlin project root.");
+                    std::process::exit(1);
+                }
 
-                // Determine resource group from config
-                let rg = resolve_resource_group(None)?;
-
-                println!(
-                    "Starting monitoring dashboard for '{}' (Ctrl+C to exit)...",
-                    rg
-                );
-                println!("Full TUI dashboard coming soon. Showing real-time VM status:\n");
-
-                loop {
-                    // Clear screen
-                    print!("\x1B[2J\x1B[H");
-                    std::io::Write::flush(&mut std::io::stdout())?;
-
-                    let vms = vm_manager.list_vms(&rg).await?;
-                    let mut table = Table::new();
-                    table
-                        .load_preset(UTF8_FULL)
-                        .apply_modifier(UTF8_ROUND_CORNERS)
-                        .set_header(vec![
-                            Cell::new("Name").add_attribute(Attribute::Bold),
-                            Cell::new("State").add_attribute(Attribute::Bold),
-                            Cell::new("Size").add_attribute(Attribute::Bold),
-                            Cell::new("IP").add_attribute(Attribute::Bold),
-                            Cell::new("Location").add_attribute(Attribute::Bold),
-                        ]);
-                    for vm in &vms {
-                        let state_color = match vm.power_state {
-                            azlin_core::models::PowerState::Running => Color::Green,
-                            azlin_core::models::PowerState::Stopped
-                            | azlin_core::models::PowerState::Deallocated => Color::Red,
-                            _ => Color::Yellow,
-                        };
-                        table.add_row(vec![
-                            Cell::new(&vm.name),
-                            Cell::new(vm.power_state.to_string()).fg(state_color),
-                            Cell::new(&vm.vm_size),
-                            Cell::new(vm.public_ip.as_deref().unwrap_or("-")),
-                            Cell::new(&vm.location),
-                        ]);
+                // Generate env config from azlin context
+                let config = azlin_core::AzlinConfig::load().ok();
+                let env_file = pwa_dir.join(".env.local");
+                if let Some(ref cfg) = config {
+                    let mut env_content = String::new();
+                    if let Some(ref rg) = cfg.default_resource_group {
+                        env_content.push_str(&format!("VITE_RESOURCE_GROUP={}\n", rg));
                     }
-                    println!("{table}");
-                    println!("\nRefreshing in 10s... (Ctrl+C to exit)");
-                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                    // Get subscription from az CLI
+                    let sub_output = std::process::Command::new("az")
+                        .args(["account", "show", "--query", "id", "-o", "tsv"])
+                        .output();
+                    if let Ok(out) = sub_output {
+                        let sub = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                        if !sub.is_empty() {
+                            env_content.push_str(&format!("VITE_SUBSCRIPTION_ID={}\n", sub));
+                        }
+                    }
+                    if !env_content.is_empty() {
+                        std::fs::write(&env_file, &env_content)?;
+                    }
+                }
+
+                let port_str = port.to_string();
+                println!("🏴‍☠️ Starting Azlin Mobile PWA on http://{}:{}", host, port);
+                println!("Press Ctrl+C to stop the server");
+
+                // Write PID file for web stop
+                let pid_path = dirs::home_dir()
+                    .unwrap_or_default()
+                    .join(".azlin")
+                    .join("web.pid");
+                std::fs::create_dir_all(pid_path.parent().unwrap())?;
+
+                let mut child = std::process::Command::new("npm")
+                    .args(["run", "dev", "--", "--port", &port_str, "--host", &host])
+                    .current_dir(&pwa_dir)
+                    .spawn()?;
+
+                std::fs::write(&pid_path, child.id().to_string())?;
+                let status = child.wait()?;
+                // Clean up PID file
+                let _ = std::fs::remove_file(&pid_path);
+                if !status.success() {
+                    std::process::exit(status.code().unwrap_or(1));
                 }
             }
             azlin_cli::WebAction::Stop => {
@@ -5063,11 +5120,22 @@ async fn async_main() -> Result<()> {
                         .format("%Y-%m-%dT23:59:59+00:00")
                         .to_string();
 
+                    // Get subscription ID first
+                    let sub_output = std::process::Command::new("az")
+                        .args(["account", "show", "--query", "id", "-o", "tsv"])
+                        .output()?;
+                    let sub_id = String::from_utf8_lossy(&sub_output.stdout).trim().to_string();
+                    if sub_id.is_empty() {
+                        eprintln!("Could not determine subscription ID. Run 'az login' first.");
+                        std::process::exit(1);
+                    }
+
+                    let scope = format!("/subscriptions/{}/resourceGroups/{}", sub_id, resource_group);
                     let output = std::process::Command::new("az")
                     .args([
                         "costmanagement", "query",
                         "--type", "ActualCost",
-                        "--scope", &format!("/subscriptions/$(az account show --query id -o tsv)/resourceGroups/{}", resource_group),
+                        "--scope", &scope,
                         "--timeframe", "Custom",
                         "--time-period", &format!("start={}&end={}", start_date, end_date),
                         "-o", "json",
