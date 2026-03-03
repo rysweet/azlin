@@ -946,6 +946,9 @@ pub enum Commands {
     Show {
         /// VM name
         name: String,
+        /// Output format
+        #[arg(short, long, default_value = "table")]
+        output: OutputFormat,
     },
 
     /// Manage Azure Bastion hosts for secure VM connections
@@ -2949,8 +2952,9 @@ mod tests {
     #[test]
     fn test_show_command() {
         let cli = Cli::parse_from(["azlin", "show", "my-vm"]);
-        if let Commands::Show { name } = cli.command {
+        if let Commands::Show { name, output } = cli.command {
             assert_eq!(name, "my-vm");
+            assert!(matches!(output, OutputFormat::Table));
         } else {
             panic!("Expected Show command");
         }

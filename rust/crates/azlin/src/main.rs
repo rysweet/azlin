@@ -560,7 +560,7 @@ async fn async_main() -> Result<()> {
             vm_manager.stop_vm(&rg, &vm_name, deallocate).await?;
             pb.finish_with_message(format!("✓ {} {}", done, vm_name));
         }
-        azlin_cli::Commands::Show { name } => {
+        azlin_cli::Commands::Show { name, output } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let config = azlin_core::AzlinConfig::load().ok();
@@ -578,30 +578,64 @@ async fn async_main() -> Result<()> {
             let vm = vm_manager.get_vm(&rg, &name).await?;
             pb.finish_and_clear();
 
-            println!("Name:               {}", vm.name);
-            println!("Resource Group:     {}", vm.resource_group);
-            println!("Location:           {}", vm.location);
-            println!("VM Size:            {}", vm.vm_size);
-            println!("OS Type:            {:?}", vm.os_type);
-            println!("Power State:        {}", vm.power_state);
-            println!("Provisioning State: {}", vm.provisioning_state);
-            if let Some(ip) = &vm.public_ip {
-                println!("Public IP:          {}", ip);
-            }
-            if let Some(ip) = &vm.private_ip {
-                println!("Private IP:         {}", ip);
-            }
-            if let Some(user) = &vm.admin_username {
-                println!("Admin User:         {}", user);
-            }
-            if !vm.tags.is_empty() {
-                println!("Tags:");
-                for (k, v) in &vm.tags {
-                    println!("  {}: {}", k, v);
+            match output {
+                azlin_cli::OutputFormat::Json => {
+                    let json = serde_json::json!({
+                        "name": vm.name,
+                        "resource_group": vm.resource_group,
+                        "location": vm.location,
+                        "vm_size": vm.vm_size,
+                        "os_type": format!("{:?}", vm.os_type),
+                        "power_state": vm.power_state.to_string(),
+                        "provisioning_state": vm.provisioning_state,
+                        "public_ip": vm.public_ip,
+                        "private_ip": vm.private_ip,
+                        "admin_username": vm.admin_username,
+                        "tags": vm.tags,
+                        "created_time": vm.created_time.map(|t| t.format("%Y-%m-%d %H:%M:%S UTC").to_string()),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&json)?);
                 }
-            }
-            if let Some(t) = &vm.created_time {
-                println!("Created:            {}", t.format("%Y-%m-%d %H:%M:%S UTC"));
+                azlin_cli::OutputFormat::Csv => {
+                    println!("Field,Value");
+                    println!("name,{}", vm.name);
+                    println!("resource_group,{}", vm.resource_group);
+                    println!("location,{}", vm.location);
+                    println!("vm_size,{}", vm.vm_size);
+                    println!("os_type,{:?}", vm.os_type);
+                    println!("power_state,{}", vm.power_state);
+                    println!("provisioning_state,{}", vm.provisioning_state);
+                    println!("public_ip,{}", vm.public_ip.as_deref().unwrap_or(""));
+                    println!("private_ip,{}", vm.private_ip.as_deref().unwrap_or(""));
+                    println!("admin_username,{}", vm.admin_username.as_deref().unwrap_or(""));
+                }
+                azlin_cli::OutputFormat::Table => {
+                    println!("Name:               {}", vm.name);
+                    println!("Resource Group:     {}", vm.resource_group);
+                    println!("Location:           {}", vm.location);
+                    println!("VM Size:            {}", vm.vm_size);
+                    println!("OS Type:            {:?}", vm.os_type);
+                    println!("Power State:        {}", vm.power_state);
+                    println!("Provisioning State: {}", vm.provisioning_state);
+                    if let Some(ip) = &vm.public_ip {
+                        println!("Public IP:          {}", ip);
+                    }
+                    if let Some(ip) = &vm.private_ip {
+                        println!("Private IP:         {}", ip);
+                    }
+                    if let Some(user) = &vm.admin_username {
+                        println!("Admin User:         {}", user);
+                    }
+                    if !vm.tags.is_empty() {
+                        println!("Tags:");
+                        for (k, v) in &vm.tags {
+                            println!("  {}: {}", k, v);
+                        }
+                    }
+                    if let Some(t) = &vm.created_time {
+                        println!("Created:            {}", t.format("%Y-%m-%d %H:%M:%S UTC"));
+                    }
+                }
             }
         }
         azlin_cli::Commands::Connect {
