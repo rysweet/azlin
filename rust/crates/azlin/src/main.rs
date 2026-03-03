@@ -16554,4 +16554,419 @@ created = \"2024-01-01T00:00:00Z\"\n";
         // CPU 1%, uptime 10 min, threshold 30 min → not idle (too new)
         assert!(!super::autopilot_parse_helpers::is_idle(1.0, 600.0, 30));
     }
+
+    // ── templates::import_template tests ────────────────────────────
+
+    #[test]
+    fn test_import_template_success() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        let content = r#"
+name = "web-server"
+vm_size = "Standard_B2s"
+region = "eastus"
+"#;
+        let name = super::templates::import_template(dir, content).unwrap();
+        assert_eq!(name, "web-server");
+        // Verify the file was created
+        assert!(dir.join("web-server.toml").exists());
+    }
+
+    #[test]
+    fn test_import_template_missing_name() {
+        let tmp = TempDir::new().unwrap();
+        let content = r#"
+vm_size = "Standard_B2s"
+region = "eastus"
+"#;
+        let result = super::templates::import_template(tmp.path(), content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("name"));
+    }
+
+    #[test]
+    fn test_import_template_invalid_toml() {
+        let tmp = TempDir::new().unwrap();
+        let result = super::templates::import_template(tmp.path(), "not valid { toml [");
+        assert!(result.is_err());
+    }
+
+    // ── templates::build_template_toml edge cases ──────────────────
+
+    #[test]
+    fn test_build_template_toml_with_cloud_init() {
+        let tpl = super::templates::build_template_toml(
+            "my-tpl",
+            Some("A dev VM"),
+            Some("Standard_E4s_v3"),
+            Some("northeurope"),
+            Some("#!/bin/bash\napt-get update"),
+        );
+        let tbl = tpl.as_table().unwrap();
+        assert_eq!(tbl["name"].as_str().unwrap(), "my-tpl");
+        assert_eq!(tbl["description"].as_str().unwrap(), "A dev VM");
+        assert_eq!(tbl["vm_size"].as_str().unwrap(), "Standard_E4s_v3");
+        assert_eq!(tbl["region"].as_str().unwrap(), "northeurope");
+        assert!(tbl["cloud_init"].as_str().unwrap().contains("apt-get"));
+    }
+
+    #[test]
+    fn test_build_template_toml_all_defaults() {
+        let tpl = super::templates::build_template_toml("minimal", None, None, None, None);
+        let tbl = tpl.as_table().unwrap();
+        assert_eq!(tbl["name"].as_str().unwrap(), "minimal");
+        assert_eq!(tbl["description"].as_str().unwrap(), "");
+        assert_eq!(tbl["vm_size"].as_str().unwrap(), "Standard_D4s_v3");
+        assert_eq!(tbl["region"].as_str().unwrap(), "westus2");
+        assert!(tbl.get("cloud_init").is_none());
+    }
+
+    // ── vm_validation tests ────────────────────────────────────────
+
+    #[test]
+    fn test_validate_vm_name_empty() {
+        let result = super::vm_validation::validate_vm_name("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_validate_vm_name_leading_hyphen() {
+        let result = super::vm_validation::validate_vm_name("-bad-name");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("start with a hyphen"));
+    }
+
+    #[test]
+    fn test_validate_vm_name_trailing_hyphen() {
+        let result = super::vm_validation::validate_vm_name("bad-name-");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("end with a hyphen"));
+    }
+
+    #[test]
+    fn test_validate_vm_name_valid() {
+        assert!(super::vm_validation::validate_vm_name("my-good-vm-01").is_ok());
+    }
+
+    #[test]
+    fn test_validate_vm_name_single_char() {
+        assert!(super::vm_validation::validate_vm_name("a").is_ok());
+    }
+
+    #[test]
+    fn test_validate_vm_name_spaces_rejected() {
+        let result = super::vm_validation::validate_vm_name("bad name");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid characters"));
+    }
+
+    // ── snapshot_helpers::SnapshotSchedule serde tests ──────────────
+
+    #[test]
+    fn test_snapshot_schedule_serialize_deserialize_roundtrip() {
+        let schedule = super::snapshot_helpers::SnapshotSchedule {
+            vm_name: "dev-vm".to_string(),
+            resource_group: "my-rg".to_string(),
+            every_hours: 6,
+            keep_count: 10,
+            enabled: true,
+            created: "2024-01-15T10:00:00Z".to_string(),
+        };
+        let toml_str = toml::to_string_pretty(&schedule).unwrap();
+        let loaded: super::snapshot_helpers::SnapshotSchedule =
+            toml::from_str(&toml_str).unwrap();
+        assert_eq!(loaded.vm_name, "dev-vm");
+        assert_eq!(loaded.resource_group, "my-rg");
+        assert_eq!(loaded.every_hours, 6);
+        assert_eq!(loaded.keep_count, 10);
+        assert!(loaded.enabled);
+        assert_eq!(loaded.created, "2024-01-15T10:00:00Z");
+    }
+
+    #[test]
+    fn test_snapshot_schedule_disabled() {
+        let schedule = super::snapshot_helpers::SnapshotSchedule {
+            vm_name: "prod-db".to_string(),
+            resource_group: "prod-rg".to_string(),
+            every_hours: 24,
+            keep_count: 3,
+            enabled: false,
+            created: "2024-06-01T00:00:00Z".to_string(),
+        };
+        let toml_str = toml::to_string_pretty(&schedule).unwrap();
+        assert!(toml_str.contains("enabled = false"));
+        let loaded: super::snapshot_helpers::SnapshotSchedule =
+            toml::from_str(&toml_str).unwrap();
+        assert!(!loaded.enabled);
+    }
+
+    #[test]
+    fn test_snapshot_schedule_write_read_file() {
+        let tmp = TempDir::new().unwrap();
+        let schedule = super::snapshot_helpers::SnapshotSchedule {
+            vm_name: "test-vm".to_string(),
+            resource_group: "test-rg".to_string(),
+            every_hours: 12,
+            keep_count: 5,
+            enabled: true,
+            created: "2024-03-01T08:00:00Z".to_string(),
+        };
+        let path = tmp.path().join("test-vm.toml");
+        let contents = toml::to_string_pretty(&schedule).unwrap();
+        fs::write(&path, &contents).unwrap();
+
+        let read_back = fs::read_to_string(&path).unwrap();
+        let loaded: super::snapshot_helpers::SnapshotSchedule =
+            toml::from_str(&read_back).unwrap();
+        assert_eq!(loaded.vm_name, "test-vm");
+        assert_eq!(loaded.every_hours, 12);
+    }
+
+    // ── sessions round-trip with list_session_names ─────────────────
+
+    #[test]
+    fn test_session_build_write_list_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        fs::create_dir_all(dir).unwrap();
+
+        let session1 = super::sessions::build_session_toml(
+            "dev-session",
+            "dev-rg",
+            &["vm-1".to_string(), "vm-2".to_string()],
+        );
+        let session2 = super::sessions::build_session_toml(
+            "staging-session",
+            "staging-rg",
+            &["vm-3".to_string()],
+        );
+
+        fs::write(
+            dir.join("dev-session.toml"),
+            toml::to_string_pretty(&session1).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("staging-session.toml"),
+            toml::to_string_pretty(&session2).unwrap(),
+        )
+        .unwrap();
+        // Add a non-toml file that should be ignored
+        fs::write(dir.join("notes.txt"), "some notes").unwrap();
+
+        let names = super::sessions::list_session_names(dir).unwrap();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"dev-session".to_string()));
+        assert!(names.contains(&"staging-session".to_string()));
+    }
+
+    #[test]
+    fn test_session_parse_toml_missing_all_fields() {
+        // Empty table should return defaults
+        let content = "[other]\nkey = \"value\"";
+        let (rg, vms, created) = super::sessions::parse_session_toml(content).unwrap();
+        assert_eq!(rg, "-");
+        assert!(vms.is_empty());
+        assert_eq!(created, "-");
+    }
+
+    // ── contexts::build_context_toml no optional fields ─────────────
+
+    #[test]
+    fn test_context_build_toml_no_optional_fields() {
+        let toml_str =
+            super::contexts::build_context_toml("bare", None, None, None, None, None).unwrap();
+        let parsed: toml::Value = toml_str.parse().unwrap();
+        let tbl = parsed.as_table().unwrap();
+        assert_eq!(tbl["name"].as_str().unwrap(), "bare");
+        // Optional fields should be absent
+        assert!(tbl.get("subscription_id").is_none());
+        assert!(tbl.get("tenant_id").is_none());
+        assert!(tbl.get("resource_group").is_none());
+        assert!(tbl.get("region").is_none());
+        assert!(tbl.get("key_vault_name").is_none());
+    }
+
+    // ── contexts::read_context_resource_group — name fallback ───────
+
+    #[test]
+    fn test_context_read_resource_group_name_fallback_to_filestem() {
+        let tmp = TempDir::new().unwrap();
+        // A context TOML without a "name" field
+        let path = tmp.path().join("fallback-ctx.toml");
+        fs::write(&path, "resource_group = \"my-rg\"\n").unwrap();
+
+        let (name, rg) = super::contexts::read_context_resource_group(&path).unwrap();
+        assert_eq!(name, "fallback-ctx");
+        assert_eq!(rg, Some("my-rg".to_string()));
+    }
+
+    // ── create_helpers::build_clone_cmd — SSH URL ──────────────────
+
+    #[test]
+    fn test_build_clone_cmd_ssh_url() {
+        let cmd = super::create_helpers::build_clone_cmd("git@github.com:user/repo.git");
+        assert!(cmd.contains("git clone"));
+        assert!(cmd.contains("git@github.com:user/repo.git"));
+        assert!(cmd.contains("repo")); // basename extraction
+    }
+
+    // ── health_helpers::format_percentage negative clamping ─────────
+
+    #[test]
+    fn test_format_percentage_negative_clamps_to_zero() {
+        assert_eq!(super::health_helpers::format_percentage(-5.0), "0.0%");
+        assert_eq!(super::health_helpers::format_percentage(-999.0), "0.0%");
+    }
+
+    // ── connect_helpers edge cases ─────────────────────────────────
+
+    #[test]
+    fn test_build_log_follow_args_format() {
+        let args =
+            super::connect_helpers::build_log_follow_args("admin", "10.0.0.5", "/var/log/syslog");
+        assert_eq!(args.len(), 6);
+        assert_eq!(args[0], "-o");
+        assert_eq!(args[1], "StrictHostKeyChecking=no");
+        assert_eq!(args[4], "admin@10.0.0.5");
+        assert!(args[5].contains("tail -f"));
+        assert!(args[5].contains("/var/log/syslog"));
+    }
+
+    #[test]
+    fn test_build_log_tail_args_line_count() {
+        let args = super::connect_helpers::build_log_tail_args(
+            "user",
+            "192.168.1.1",
+            200,
+            "/var/log/auth.log",
+        );
+        assert_eq!(args.len(), 6);
+        assert!(args[5].contains("tail -n 200"));
+        assert!(args[5].contains("/var/log/auth.log"));
+    }
+
+    // ── update_helpers::log_type_to_path default branch ────────────
+
+    #[test]
+    fn test_log_type_to_path_capital_variants() {
+        assert_eq!(
+            super::update_helpers::log_type_to_path("CloudInit"),
+            "/var/log/cloud-init-output.log"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("Syslog"),
+            "/var/log/syslog"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("Auth"),
+            "/var/log/auth.log"
+        );
+    }
+
+    // ── autopilot_helpers::build_autopilot_config no budget ────────
+
+    #[test]
+    fn test_build_autopilot_config_no_budget_field_absent() {
+        let config = super::autopilot_helpers::build_autopilot_config(
+            None,
+            "conservative",
+            60,
+            10,
+            "2024-01-01T00:00:00Z",
+        );
+        let tbl = config.as_table().unwrap();
+        assert!(tbl.get("budget").is_none());
+        assert_eq!(tbl["strategy"].as_str().unwrap(), "conservative");
+        assert_eq!(tbl["idle_threshold_minutes"].as_integer().unwrap(), 60);
+        assert_eq!(tbl["cpu_threshold_percent"].as_integer().unwrap(), 10);
+    }
+
+    // ── batch_helpers::parse_vm_ids whitespace handling ─────────────
+
+    #[test]
+    fn test_parse_vm_ids_trailing_newlines() {
+        let output = "/subscriptions/abc/vms/vm1\n/subscriptions/abc/vms/vm2\n\n\n";
+        let ids = super::batch_helpers::parse_vm_ids(output);
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], "/subscriptions/abc/vms/vm1");
+        assert_eq!(ids[1], "/subscriptions/abc/vms/vm2");
+    }
+
+    // ── runner_helpers::pool_config_filename ───────────────────────
+
+    #[test]
+    fn test_pool_config_filename_format() {
+        assert_eq!(
+            super::runner_helpers::pool_config_filename("default"),
+            "default.toml"
+        );
+        assert_eq!(
+            super::runner_helpers::pool_config_filename("ci-large"),
+            "ci-large.toml"
+        );
+    }
+
+    // ── compose_helpers edge case ──────────────────────────────────
+
+    #[test]
+    fn test_build_compose_cmd_with_services() {
+        let cmd = super::compose_helpers::build_compose_cmd("up -d", "prod-compose.yml");
+        assert_eq!(cmd, "docker compose -f prod-compose.yml up -d");
+    }
+
+    // ── templates::save + load + delete full lifecycle ──────────────
+
+    #[test]
+    fn test_template_full_lifecycle_save_load_list_delete() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+
+        // Save two templates
+        let tpl1 = super::templates::build_template_toml(
+            "web",
+            Some("Web server"),
+            Some("Standard_B2s"),
+            Some("westus2"),
+            None,
+        );
+        let tpl2 = super::templates::build_template_toml(
+            "gpu",
+            Some("GPU worker"),
+            Some("Standard_NC6"),
+            Some("eastus"),
+            Some("#!/bin/bash\nnvidia-smi"),
+        );
+        super::templates::save_template(dir, "web", &tpl1).unwrap();
+        super::templates::save_template(dir, "gpu", &tpl2).unwrap();
+
+        // List should return both
+        let list = super::templates::list_templates(dir).unwrap();
+        assert_eq!(list.len(), 2);
+
+        // Load one
+        let loaded = super::templates::load_template(dir, "gpu").unwrap();
+        assert_eq!(loaded.get("name").unwrap().as_str().unwrap(), "gpu");
+        assert!(loaded.get("cloud_init").is_some());
+
+        // Delete one
+        super::templates::delete_template(dir, "web").unwrap();
+        let list2 = super::templates::list_templates(dir).unwrap();
+        assert_eq!(list2.len(), 1);
+
+        // Load deleted template should fail
+        assert!(super::templates::load_template(dir, "web").is_err());
+    }
+
+    // ── contexts::rename_context_file on nonexistent ───────────────
+
+    #[test]
+    fn test_context_rename_nonexistent_errors() {
+        let tmp = TempDir::new().unwrap();
+        let result =
+            super::contexts::rename_context_file(tmp.path(), "no-such-ctx", "new-name");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
 }
