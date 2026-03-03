@@ -1,5 +1,7 @@
 //! azlin-cli: CLI command definitions and terminal UI rendering.
 
+pub mod table;
+
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};

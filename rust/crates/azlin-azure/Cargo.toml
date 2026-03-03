@@ -24,6 +24,10 @@ azure_security_keyvault_secrets = { workspace = true }
 azure_mgmt_costmanagement = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+# Old azure_core required by azure_mgmt_* crates (0.2.x series)
+azure_core_old = { package = "azure_core", version = "0.2" }
+async-trait = "0.1"
+oauth2 = { version = "4", default-features = false }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -4,3 +4,5 @@ pub mod auth;
 pub mod vm;
 
 pub use auth::AzureAuth;
+pub use azure_core::credentials::TokenCredential;
+pub use vm::VmManager;

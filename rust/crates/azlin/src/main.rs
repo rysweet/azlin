@@ -2,7 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -42,6 +43,38 @@ fn main() -> Result<()> {
                 }
             }
         },
+        azlin_cli::Commands::List {
+            resource_group,
+            ..
+        } => {
+            let auth = match azlin_azure::AzureAuth::new() {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("Azure authentication failed: {e}");
+                    eprintln!("Run 'az login' to authenticate with Azure CLI.");
+                    std::process::exit(1);
+                }
+            };
+
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+
+            let vms = match &resource_group {
+                Some(rg) => vm_manager.list_vms(rg).await?,
+                None => {
+                    // Try loading resource group from config
+                    let config = azlin_core::AzlinConfig::load().ok();
+                    match config.and_then(|c| c.default_resource_group) {
+                        Some(rg) => vm_manager.list_vms(&rg).await?,
+                        None => {
+                            eprintln!("No resource group specified. Use --resource-group or set in config.");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+            };
+
+            azlin_cli::table::render_vm_table(&vms, &cli.output);
+        }
         _ => {
             eprintln!("Command not yet implemented in Rust version. Use Python version.");
             std::process::exit(1);
