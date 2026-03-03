@@ -16969,4 +16969,1585 @@ region = "eastus"
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // NEW COVERAGE TESTS — Batch 2: 35+ tests for 80% target
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── Context CRUD lifecycle ──────────────────────────────────────
+
+    #[test]
+    fn test_context_full_crud_lifecycle() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_dir = tmp.path();
+
+        // Create
+        let toml_str = super::contexts::build_context_toml(
+            "myctx",
+            Some("sub-123"),
+            Some("tenant-456"),
+            Some("myrg"),
+            Some("eastus"),
+            None,
+        )
+        .unwrap();
+        fs::write(ctx_dir.join("myctx.toml"), &toml_str).unwrap();
+
+        // List
+        let contexts = super::contexts::list_contexts(ctx_dir, "myctx").unwrap();
+        assert_eq!(contexts.len(), 1);
+        assert_eq!(contexts[0].0, "myctx");
+        assert!(contexts[0].1); // is_active
+
+        // Show (read resource group)
+        let (name, rg) =
+            super::contexts::read_context_resource_group(&ctx_dir.join("myctx.toml")).unwrap();
+        assert_eq!(name, "myctx");
+        assert_eq!(rg, Some("myrg".to_string()));
+
+        // Delete
+        fs::remove_file(ctx_dir.join("myctx.toml")).unwrap();
+        let contexts = super::contexts::list_contexts(ctx_dir, "myctx").unwrap();
+        assert!(contexts.is_empty());
+    }
+
+    #[test]
+    fn test_context_list_multiple_with_active() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_dir = tmp.path();
+
+        for name in &["alpha", "beta", "gamma"] {
+            let toml_str = super::contexts::build_context_toml(
+                name,
+                None, None,
+                Some("rg-1"),
+                None, None,
+            )
+            .unwrap();
+            fs::write(ctx_dir.join(format!("{}.toml", name)), &toml_str).unwrap();
+        }
+
+        let contexts = super::contexts::list_contexts(ctx_dir, "beta").unwrap();
+        assert_eq!(contexts.len(), 3);
+        let active_count = contexts.iter().filter(|(_, a)| *a).count();
+        assert_eq!(active_count, 1);
+        let beta = contexts.iter().find(|(n, _)| n == "beta").unwrap();
+        assert!(beta.1);
+    }
+
+    #[test]
+    fn test_context_rename_success_with_verify() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_dir = tmp.path();
+
+        let toml_str = super::contexts::build_context_toml(
+            "old-ctx", None, None, Some("myrg"), None, None,
+        )
+        .unwrap();
+        fs::write(ctx_dir.join("old-ctx.toml"), &toml_str).unwrap();
+
+        super::contexts::rename_context_file(ctx_dir, "old-ctx", "new-ctx").unwrap();
+
+        assert!(!ctx_dir.join("old-ctx.toml").exists());
+        assert!(ctx_dir.join("new-ctx.toml").exists());
+
+        let (name, _) =
+            super::contexts::read_context_resource_group(&ctx_dir.join("new-ctx.toml")).unwrap();
+        assert_eq!(name, "new-ctx");
+    }
+
+    #[test]
+    fn test_context_build_all_optional_fields() {
+        let toml_str = super::contexts::build_context_toml(
+            "full-ctx",
+            Some("sub-id"),
+            Some("tenant-id"),
+            Some("my-rg"),
+            Some("westus2"),
+            Some("my-vault"),
+        )
+        .unwrap();
+        assert!(toml_str.contains("subscription_id"));
+        assert!(toml_str.contains("tenant_id"));
+        assert!(toml_str.contains("resource_group"));
+        assert!(toml_str.contains("region"));
+        assert!(toml_str.contains("key_vault_name"));
+        assert!(toml_str.contains("full-ctx"));
+    }
+
+    // ── Session management lifecycle ────────────────────────────────
+
+    #[test]
+    fn test_session_full_lifecycle_save_list_load_delete() {
+        let tmp = TempDir::new().unwrap();
+        let sessions_dir = tmp.path();
+
+        // Save
+        let session = super::sessions::build_session_toml(
+            "test-session",
+            "my-rg",
+            &["vm1".to_string(), "vm2".to_string()],
+        );
+        let content = toml::to_string_pretty(&session).unwrap();
+        fs::write(sessions_dir.join("test-session.toml"), &content).unwrap();
+
+        // List
+        let names = super::sessions::list_session_names(sessions_dir).unwrap();
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0], "test-session");
+
+        // Load — parse_session_toml returns (rg, vms, created)
+        let loaded_content = fs::read_to_string(sessions_dir.join("test-session.toml")).unwrap();
+        let (rg, vms, _created) = super::sessions::parse_session_toml(&loaded_content).unwrap();
+        assert_eq!(rg, "my-rg");
+        assert_eq!(vms, vec!["vm1".to_string(), "vm2".to_string()]);
+
+        // Delete
+        fs::remove_file(sessions_dir.join("test-session.toml")).unwrap();
+        let names = super::sessions::list_session_names(sessions_dir).unwrap();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_session_save_empty_vms_lifecycle() {
+        let session = super::sessions::build_session_toml("empty-sess", "rg", &[]);
+        let content = toml::to_string_pretty(&session).unwrap();
+        let (rg, vms, _created) = super::sessions::parse_session_toml(&content).unwrap();
+        assert_eq!(rg, "rg");
+        assert!(vms.is_empty());
+    }
+
+    #[test]
+    fn test_session_list_nonexistent_dir() {
+        let tmp = TempDir::new().unwrap();
+        let missing = tmp.path().join("no-such-dir");
+        let names = super::sessions::list_session_names(&missing).unwrap();
+        assert!(names.is_empty());
+    }
+
+    // ── Template lifecycle ──────────────────────────────────────────
+
+    #[test]
+    fn test_template_save_load_roundtrip_all_fields() {
+        let tmp = TempDir::new().unwrap();
+        let tpl = super::templates::build_template_toml(
+            "gpu-box",
+            Some("GPU development template"),
+            Some("Standard_NC6s_v3"),
+            Some("eastus2"),
+            Some("#!/bin/bash\napt-get install -y cuda"),
+        );
+        super::templates::save_template(tmp.path(), "gpu-box", &tpl).unwrap();
+
+        let loaded = super::templates::load_template(tmp.path(), "gpu-box").unwrap();
+        assert_eq!(loaded["name"].as_str(), Some("gpu-box"));
+        assert_eq!(loaded["vm_size"].as_str(), Some("Standard_NC6s_v3"));
+        assert_eq!(loaded["region"].as_str(), Some("eastus2"));
+        assert!(loaded["cloud_init"].as_str().unwrap().contains("cuda"));
+    }
+
+    #[test]
+    fn test_template_list_multiple() {
+        let tmp = TempDir::new().unwrap();
+        for name in &["dev", "prod", "test"] {
+            let tpl = super::templates::build_template_toml(
+                name, None, None, None, None,
+            );
+            super::templates::save_template(tmp.path(), name, &tpl).unwrap();
+        }
+
+        let list = super::templates::list_templates(tmp.path()).unwrap();
+        assert_eq!(list.len(), 3);
+    }
+
+    #[test]
+    fn test_template_load_nonexistent_errors() {
+        let tmp = TempDir::new().unwrap();
+        let result = super::templates::load_template(tmp.path(), "nope");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_template_delete_then_verify_gone() {
+        let tmp = TempDir::new().unwrap();
+        let tpl = super::templates::build_template_toml("deleteme", None, None, None, None);
+        super::templates::save_template(tmp.path(), "deleteme", &tpl).unwrap();
+        assert!(tmp.path().join("deleteme.toml").exists());
+
+        super::templates::delete_template(tmp.path(), "deleteme").unwrap();
+        assert!(!tmp.path().join("deleteme.toml").exists());
+    }
+
+    #[test]
+    fn test_template_import_with_extra_fields() {
+        let tmp = TempDir::new().unwrap();
+        let content = r#"
+name = "custom"
+vm_size = "Standard_B1s"
+region = "northeurope"
+custom_field = "extra"
+"#;
+        let name = super::templates::import_template(tmp.path(), content).unwrap();
+        assert_eq!(name, "custom");
+        let loaded = super::templates::load_template(tmp.path(), "custom").unwrap();
+        assert_eq!(loaded["custom_field"].as_str(), Some("extra"));
+    }
+
+    // ── Autopilot config tests ──────────────────────────────────────
+
+    #[test]
+    fn test_autopilot_config_all_fields() {
+        let config = super::autopilot_helpers::build_autopilot_config(
+            Some(500),
+            "aggressive",
+            15,
+            10,
+            "2024-01-15T10:00:00Z",
+        );
+        let table = config.as_table().unwrap();
+        assert_eq!(table["enabled"].as_bool(), Some(true));
+        assert_eq!(table["budget"].as_integer(), Some(500));
+        assert_eq!(table["strategy"].as_str(), Some("aggressive"));
+        assert_eq!(table["idle_threshold_minutes"].as_integer(), Some(15));
+        assert_eq!(table["cpu_threshold_percent"].as_integer(), Some(10));
+        assert_eq!(
+            table["updated"].as_str(),
+            Some("2024-01-15T10:00:00Z")
+        );
+    }
+
+    #[test]
+    fn test_autopilot_config_serializes_to_valid_toml() {
+        let config = super::autopilot_helpers::build_autopilot_config(
+            None, "conservative", 30, 5, "2024-06-01T00:00:00Z",
+        );
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        let parsed: toml::Value = toml_str.parse().unwrap();
+        assert_eq!(parsed["enabled"].as_bool(), Some(true));
+        assert!(parsed.get("budget").is_none());
+    }
+
+    // ── env_helpers edge cases ──────────────────────────────────────
+
+    #[test]
+    fn test_validate_env_key_empty_is_error() {
+        assert!(super::env_helpers::validate_env_key("").is_err());
+        let err = super::env_helpers::validate_env_key("").unwrap_err();
+        assert!(err.contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_env_key_starting_with_digit_is_error() {
+        let err = super::env_helpers::validate_env_key("1ABC").unwrap_err();
+        assert!(err.contains("must not start with a digit"));
+    }
+
+    #[test]
+    fn test_validate_env_key_special_chars_rejected() {
+        assert!(super::env_helpers::validate_env_key("MY-VAR").is_err());
+        assert!(super::env_helpers::validate_env_key("MY.VAR").is_err());
+        assert!(super::env_helpers::validate_env_key("MY VAR").is_err());
+        assert!(super::env_helpers::validate_env_key("MY$VAR").is_err());
+    }
+
+    #[test]
+    fn test_build_env_set_cmd_with_invalid_key_returns_noop() {
+        let cmd = super::env_helpers::build_env_set_cmd("BAD-KEY!", "'value'");
+        assert_eq!(cmd, "true");
+    }
+
+    #[test]
+    fn test_build_env_set_cmd_valid_contains_grep_and_sed() {
+        let cmd = super::env_helpers::build_env_set_cmd("MY_VAR", "'hello'");
+        assert!(cmd.contains("grep"));
+        assert!(cmd.contains("sed"));
+        assert!(cmd.contains("MY_VAR"));
+        assert!(cmd.contains("'hello'"));
+    }
+
+    #[test]
+    fn test_parse_env_file_skips_comments_and_blanks() {
+        let content = "# comment\n\nFOO=bar\n  # another comment\nBAZ=qux\n\n";
+        let result = super::env_helpers::parse_env_file(content);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], ("FOO".to_string(), "bar".to_string()));
+        assert_eq!(result[1], ("BAZ".to_string(), "qux".to_string()));
+    }
+
+    #[test]
+    fn test_build_env_file_and_parse_roundtrip() {
+        let vars = vec![
+            ("PATH".to_string(), "/usr/bin".to_string()),
+            ("HOME".to_string(), "/home/user".to_string()),
+            ("LANG".to_string(), "en_US.UTF-8".to_string()),
+        ];
+        let file_content = super::env_helpers::build_env_file(&vars);
+        let parsed = super::env_helpers::parse_env_file(&file_content);
+        assert_eq!(parsed, vars);
+    }
+
+    #[test]
+    fn test_split_env_var_normal() {
+        let result = super::env_helpers::split_env_var("KEY=VALUE");
+        assert_eq!(result, Some(("KEY", "VALUE")));
+    }
+
+    #[test]
+    fn test_split_env_var_embedded_equals_sign() {
+        let result = super::env_helpers::split_env_var("KEY=VAL=UE");
+        assert_eq!(result, Some(("KEY", "VAL=UE")));
+    }
+
+    #[test]
+    fn test_split_env_var_no_equals_returns_none() {
+        assert!(super::env_helpers::split_env_var("NOEQUALS").is_none());
+    }
+
+    // ── sync_helpers ────────────────────────────────────────────────
+
+    #[test]
+    fn test_validate_sync_source_traversal_variants() {
+        // "/../" in the middle
+        assert!(super::sync_helpers::validate_sync_source("foo/../bar").is_err());
+        // Ends with "/.."
+        assert!(super::sync_helpers::validate_sync_source("foo/..").is_err());
+        // Just ".."
+        assert!(super::sync_helpers::validate_sync_source("..").is_err());
+        // Safe relative path is OK
+        assert!(super::sync_helpers::validate_sync_source("mydir/file").is_ok());
+    }
+
+    #[test]
+    fn test_validate_sync_source_forbidden_prefixes() {
+        for prefix in &["/etc/passwd", "/var/log", "/root/.ssh", "/proc/cpuinfo", "/sys/devices"] {
+            let result = super::sync_helpers::validate_sync_source(prefix);
+            assert!(result.is_err(), "Expected error for prefix: {}", prefix);
+        }
+    }
+
+    #[test]
+    fn test_build_rsync_args_correct_format() {
+        let args = super::sync_helpers::build_rsync_args(
+            ".bashrc", "azureuser", "10.0.0.1", ".bashrc",
+        );
+        assert_eq!(args[0], "-az");
+        assert_eq!(args[1], "-e");
+        assert!(args[2].contains("StrictHostKeyChecking=no"));
+        assert_eq!(args[3], ".bashrc");
+        assert_eq!(args[4], "azureuser@10.0.0.1:~/.bashrc");
+    }
+
+    #[test]
+    fn test_default_dotfiles_contains_expected() {
+        let dotfiles = super::sync_helpers::default_dotfiles();
+        assert!(dotfiles.contains(&".bashrc"));
+        assert!(dotfiles.contains(&".profile"));
+        assert!(dotfiles.contains(&".gitconfig"));
+        assert!(dotfiles.len() >= 4);
+    }
+
+    // ── health_helpers edge cases ───────────────────────────────────
+
+    #[test]
+    fn test_status_emoji_all_values_low() {
+        assert_eq!(super::health_helpers::status_emoji(10.0, 20.0, 30.0), "🟢");
+    }
+
+    #[test]
+    fn test_status_emoji_one_high() {
+        assert_eq!(super::health_helpers::status_emoji(95.0, 20.0, 30.0), "🔴");
+        assert_eq!(super::health_helpers::status_emoji(10.0, 91.0, 30.0), "🔴");
+        assert_eq!(super::health_helpers::status_emoji(10.0, 20.0, 95.0), "🔴");
+    }
+
+    #[test]
+    fn test_status_emoji_medium() {
+        assert_eq!(super::health_helpers::status_emoji(75.0, 20.0, 30.0), "🟡");
+        assert_eq!(super::health_helpers::status_emoji(10.0, 80.0, 30.0), "🟡");
+    }
+
+    #[test]
+    fn test_metric_color_boundary_values() {
+        assert_eq!(super::health_helpers::metric_color(50.0), "green");
+        assert_eq!(super::health_helpers::metric_color(50.1), "yellow");
+        assert_eq!(super::health_helpers::metric_color(80.0), "yellow");
+        assert_eq!(super::health_helpers::metric_color(80.1), "red");
+    }
+
+    #[test]
+    fn test_state_color_all_variants() {
+        assert_eq!(super::health_helpers::state_color("running"), "green");
+        assert_eq!(super::health_helpers::state_color("stopped"), "red");
+        assert_eq!(super::health_helpers::state_color("deallocated"), "red");
+        assert_eq!(super::health_helpers::state_color("starting"), "yellow");
+        assert_eq!(super::health_helpers::state_color("random"), "yellow");
+    }
+
+    #[test]
+    fn test_format_percentage_large_value() {
+        let result = super::health_helpers::format_percentage(100.0);
+        assert_eq!(result, "100.0%");
+    }
+
+    #[test]
+    fn test_format_percentage_zero() {
+        assert_eq!(super::health_helpers::format_percentage(0.0), "0.0%");
+    }
+
+    // ── snapshot_helpers ────────────────────────────────────────────
+
+    #[test]
+    fn test_filter_snapshots_partial_name_match() {
+        let snapshots = vec![
+            serde_json::json!({"name": "dev-vm_snapshot_20240101"}),
+            serde_json::json!({"name": "prod-vm_snapshot_20240101"}),
+            serde_json::json!({"name": "dev-vm_snapshot_20240102"}),
+        ];
+        let filtered = super::snapshot_helpers::filter_snapshots(&snapshots, "dev-vm");
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_snapshot_schedule_full_lifecycle() {
+        let tmp = TempDir::new().unwrap();
+        let schedule = super::snapshot_helpers::SnapshotSchedule {
+            vm_name: "test-vm".to_string(),
+            resource_group: "test-rg".to_string(),
+            every_hours: 6,
+            keep_count: 10,
+            enabled: true,
+            created: "2024-01-15T10:00:00Z".to_string(),
+        };
+
+        // Serialize and write
+        let toml_str = toml::to_string_pretty(&schedule).unwrap();
+        let path = tmp.path().join("test-vm.toml");
+        fs::write(&path, &toml_str).unwrap();
+
+        // Read back and deserialize
+        let content = fs::read_to_string(&path).unwrap();
+        let loaded: super::snapshot_helpers::SnapshotSchedule =
+            toml::from_str(&content).unwrap();
+        assert_eq!(loaded.vm_name, "test-vm");
+        assert_eq!(loaded.every_hours, 6);
+        assert_eq!(loaded.keep_count, 10);
+        assert!(loaded.enabled);
+    }
+
+    // ── output_helpers ──────────────────────────────────────────────
+
+    #[test]
+    fn test_format_as_table_multirow() {
+        let headers = &["Name", "Size", "Status"];
+        let rows = vec![
+            vec!["vm-1".to_string(), "Standard_B2s".to_string(), "Running".to_string()],
+            vec!["vm-2-long-name".to_string(), "Standard_D4s_v3".to_string(), "Stopped".to_string()],
+        ];
+        let table = super::output_helpers::format_as_table(headers, &rows);
+        assert!(table.contains("Name"));
+        assert!(table.contains("vm-1"));
+        assert!(table.contains("vm-2-long-name"));
+        // Verify alignment: wider columns expand
+        let lines: Vec<&str> = table.lines().collect();
+        assert_eq!(lines.len(), 3); // header + 2 rows
+    }
+
+    #[test]
+    fn test_format_as_csv_with_data() {
+        let headers = &["Name", "Cost"];
+        let rows = vec![
+            vec!["vm-1".to_string(), "$10.50".to_string()],
+            vec!["vm-2".to_string(), "$20.00".to_string()],
+        ];
+        let csv = super::output_helpers::format_as_csv(headers, &rows);
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines[0], "Name,Cost");
+        assert_eq!(lines[1], "vm-1,$10.50");
+        assert_eq!(lines[2], "vm-2,$20.00");
+    }
+
+    #[test]
+    fn test_format_as_json_custom_structs() {
+        #[derive(serde::Serialize)]
+        struct Item { name: String, value: i32 }
+        let items = vec![
+            Item { name: "a".to_string(), value: 1 },
+            Item { name: "b".to_string(), value: 2 },
+        ];
+        let json = super::output_helpers::format_as_json(&items);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0]["name"], "a");
+        assert_eq!(parsed[1]["value"], 2);
+    }
+
+    // ── VM name validation edge cases ───────────────────────────────
+
+    #[test]
+    fn test_validate_vm_name_consecutive_hyphens_allowed() {
+        // Azure allows consecutive hyphens
+        assert!(super::vm_validation::validate_vm_name("vm--test").is_ok());
+    }
+
+    #[test]
+    fn test_validate_vm_name_max_64_chars_ok() {
+        let name = "a".repeat(64);
+        assert!(super::vm_validation::validate_vm_name(&name).is_ok());
+    }
+
+    #[test]
+    fn test_validate_vm_name_65_chars_rejected() {
+        let name = "a".repeat(65);
+        let err = super::vm_validation::validate_vm_name(&name).unwrap_err();
+        assert!(err.contains("exceeds 64"));
+    }
+
+    #[test]
+    fn test_validate_vm_name_special_chars_rejected() {
+        assert!(super::vm_validation::validate_vm_name("vm@test").is_err());
+        assert!(super::vm_validation::validate_vm_name("vm.test").is_err());
+        assert!(super::vm_validation::validate_vm_name("vm test").is_err());
+    }
+
+    // ── mount_helpers edge cases ────────────────────────────────────
+
+    #[test]
+    fn test_validate_mount_path_valid() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/data").is_ok());
+        assert!(super::mount_helpers::validate_mount_path("/home/user/work").is_ok());
+    }
+
+    #[test]
+    fn test_validate_mount_path_empty() {
+        let err = super::mount_helpers::validate_mount_path("").unwrap_err();
+        assert!(err.contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_mount_path_shell_metacharacters() {
+        for path in &["/mnt;rm -rf /", "/mnt|cat", "/mnt&bg", "/mnt$(cmd)", "/mnt`cmd`"] {
+            assert!(
+                super::mount_helpers::validate_mount_path(path).is_err(),
+                "Expected error for path: {}",
+                path,
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_mount_path_traversal() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/../etc").is_err());
+        assert!(super::mount_helpers::validate_mount_path("/mnt/..").is_err());
+    }
+
+    // ── cp_helpers ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_remote_path_variants() {
+        assert!(super::cp_helpers::is_remote_path("vm-name:/path"));
+        assert!(!super::cp_helpers::is_remote_path("/local/path"));
+        assert!(!super::cp_helpers::is_remote_path("C:\\windows")); // drive letter
+        assert!(!super::cp_helpers::is_remote_path("ab")); // too short
+    }
+
+    #[test]
+    fn test_classify_transfer_direction_all_cases() {
+        assert_eq!(
+            super::cp_helpers::classify_transfer_direction("vm:/path", "/local"),
+            "remote→local"
+        );
+        assert_eq!(
+            super::cp_helpers::classify_transfer_direction("/local", "vm:/path"),
+            "local→remote"
+        );
+        assert_eq!(
+            super::cp_helpers::classify_transfer_direction("/a", "/b"),
+            "local→local"
+        );
+    }
+
+    #[test]
+    fn test_resolve_scp_path_replaces_vm_name() {
+        let result = super::cp_helpers::resolve_scp_path(
+            "my-vm:/remote/path", "my-vm", "azureuser", "10.0.0.1",
+        );
+        assert_eq!(result, "azureuser@10.0.0.1:/remote/path");
+    }
+
+    // ── bastion_helpers ─────────────────────────────────────────────
+
+    #[test]
+    fn test_bastion_summary_extracts_fields() {
+        let b = serde_json::json!({
+            "name": "my-bastion",
+            "resourceGroup": "my-rg",
+            "location": "eastus",
+            "sku": {"name": "Standard"},
+            "provisioningState": "Succeeded"
+        });
+        let (name, rg, loc, sku, state) = super::bastion_helpers::bastion_summary(&b);
+        assert_eq!(name, "my-bastion");
+        assert_eq!(rg, "my-rg");
+        assert_eq!(loc, "eastus");
+        assert_eq!(sku, "Standard");
+        assert_eq!(state, "Succeeded");
+    }
+
+    #[test]
+    fn test_extract_ip_configs_multiple_entries() {
+        let b = serde_json::json!({
+            "ipConfigurations": [
+                {
+                    "subnet": {"id": "/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.Network/virtualNetworks/vnet1/subnets/AzureBastionSubnet"},
+                    "publicIPAddress": {"id": "/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.Network/publicIPAddresses/bastion-pip"}
+                },
+                {
+                    "subnet": {"id": "/subs/rg/vnet/subnets/OtherSubnet"},
+                    "publicIPAddress": {"id": "N/A"}
+                }
+            ]
+        });
+        let configs = super::bastion_helpers::extract_ip_configs(&b);
+        assert_eq!(configs.len(), 2);
+        assert_eq!(configs[0].0, "AzureBastionSubnet");
+        assert_eq!(configs[0].1, "bastion-pip");
+        assert_eq!(configs[1].1, "N/A");
+    }
+
+    #[test]
+    fn test_shorten_resource_id_long_path() {
+        assert_eq!(
+            super::bastion_helpers::shorten_resource_id(
+                "/subscriptions/abc/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/my-pip"
+            ),
+            "my-pip"
+        );
+    }
+
+    // ── fleet_helpers ───────────────────────────────────────────────
+
+    #[test]
+    fn test_classify_result_various_codes() {
+        assert_eq!(super::fleet_helpers::classify_result(0), ("OK", true));
+        assert_eq!(super::fleet_helpers::classify_result(1), ("FAIL", false));
+        assert_eq!(super::fleet_helpers::classify_result(127), ("FAIL", false));
+        assert_eq!(super::fleet_helpers::classify_result(-1), ("FAIL", false));
+    }
+
+    #[test]
+    fn test_finish_message_multiline_stdout() {
+        let msg = super::fleet_helpers::finish_message(0, "line1\nline2\nline3\n", "");
+        assert!(msg.contains("3 lines"));
+    }
+
+    #[test]
+    fn test_finish_message_error_first_line() {
+        let msg = super::fleet_helpers::finish_message(
+            1,
+            "",
+            "Error: connection refused\ndetailed trace\n",
+        );
+        assert!(msg.contains("Error: connection refused"));
+        assert!(!msg.contains("detailed trace"));
+    }
+
+    #[test]
+    fn test_format_output_text_show_stdout() {
+        let text = super::fleet_helpers::format_output_text(0, "hello world", "", true);
+        assert_eq!(text, "hello world");
+    }
+
+    #[test]
+    fn test_format_output_text_show_fallback_to_stderr() {
+        let text = super::fleet_helpers::format_output_text(1, "", "error msg", true);
+        assert_eq!(text, "error msg");
+    }
+
+    #[test]
+    fn test_format_output_text_hide_success_empty() {
+        let text = super::fleet_helpers::format_output_text(0, "output", "", false);
+        assert!(text.is_empty());
+    }
+
+    // ── list_helpers with VmInfo ────────────────────────────────────
+
+    #[test]
+    fn test_filter_running_keeps_starting() {
+        use azlin_core::models::{PowerState, VmInfo, OsType};
+        let mut vms = vec![
+            VmInfo {
+                name: "running-vm".to_string(),
+                resource_group: "rg".to_string(),
+                location: "eastus".to_string(),
+                vm_size: "B2s".to_string(),
+                power_state: PowerState::Running,
+                provisioning_state: "Succeeded".to_string(),
+                os_type: OsType::Linux,
+                public_ip: None, private_ip: None, admin_username: None,
+                tags: Default::default(), created_time: None,
+            },
+            VmInfo {
+                name: "starting-vm".to_string(),
+                resource_group: "rg".to_string(),
+                location: "eastus".to_string(),
+                vm_size: "B2s".to_string(),
+                power_state: PowerState::Starting,
+                provisioning_state: "Succeeded".to_string(),
+                os_type: OsType::Linux,
+                public_ip: None, private_ip: None, admin_username: None,
+                tags: Default::default(), created_time: None,
+            },
+            VmInfo {
+                name: "stopped-vm".to_string(),
+                resource_group: "rg".to_string(),
+                location: "eastus".to_string(),
+                vm_size: "B2s".to_string(),
+                power_state: PowerState::Stopped,
+                provisioning_state: "Succeeded".to_string(),
+                os_type: OsType::Linux,
+                public_ip: None, private_ip: None, admin_username: None,
+                tags: Default::default(), created_time: None,
+            },
+        ];
+        super::list_helpers::filter_running(&mut vms);
+        assert_eq!(vms.len(), 2);
+        assert!(vms.iter().all(|v| v.power_state == PowerState::Running || v.power_state == PowerState::Starting));
+    }
+
+    #[test]
+    fn test_filter_by_tag_key_only_match() {
+        use azlin_core::models::{PowerState, VmInfo, OsType};
+        let mut vms = vec![
+            VmInfo {
+                name: "tagged".to_string(),
+                resource_group: "rg".to_string(),
+                location: "eastus".to_string(),
+                vm_size: "B2s".to_string(),
+                power_state: PowerState::Running,
+                provisioning_state: "Succeeded".to_string(),
+                os_type: OsType::Linux,
+                public_ip: None, private_ip: None, admin_username: None,
+                tags: [("env".to_string(), "prod".to_string())].into_iter().collect(),
+                created_time: None,
+            },
+            VmInfo {
+                name: "untagged".to_string(),
+                resource_group: "rg".to_string(),
+                location: "eastus".to_string(),
+                vm_size: "B2s".to_string(),
+                power_state: PowerState::Running,
+                provisioning_state: "Succeeded".to_string(),
+                os_type: OsType::Linux,
+                public_ip: None, private_ip: None, admin_username: None,
+                tags: Default::default(),
+                created_time: None,
+            },
+        ];
+        // Key-only filter (no =value)
+        super::list_helpers::filter_by_tag(&mut vms, "env");
+        assert_eq!(vms.len(), 1);
+        assert_eq!(vms[0].name, "tagged");
+    }
+
+    #[test]
+    fn test_apply_filters_include_all_skips_running_filter() {
+        use azlin_core::models::{PowerState, VmInfo, OsType};
+        let mut vms = vec![
+            VmInfo {
+                name: "stopped-vm".to_string(),
+                resource_group: "rg".to_string(),
+                location: "eastus".to_string(),
+                vm_size: "B2s".to_string(),
+                power_state: PowerState::Stopped,
+                provisioning_state: "Succeeded".to_string(),
+                os_type: OsType::Linux,
+                public_ip: None, private_ip: None, admin_username: None,
+                tags: Default::default(),
+                created_time: None,
+            },
+        ];
+        super::list_helpers::apply_filters(&mut vms, true, None, None);
+        assert_eq!(vms.len(), 1); // stopped VM kept because include_all=true
+    }
+
+    // ── create_helpers ──────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_vm_name_pool_indexing() {
+        let name = super::create_helpers::generate_vm_name(
+            Some("worker"), 0, 3, "20240115",
+        );
+        assert_eq!(name, "worker-1");
+        let name2 = super::create_helpers::generate_vm_name(
+            Some("worker"), 2, 3, "20240115",
+        );
+        assert_eq!(name2, "worker-3");
+    }
+
+    #[test]
+    fn test_generate_vm_name_single_pool_no_index() {
+        let name = super::create_helpers::generate_vm_name(
+            Some("myvm"), 0, 1, "20240115",
+        );
+        assert_eq!(name, "myvm");
+    }
+
+    #[test]
+    fn test_generate_vm_name_auto_timestamp() {
+        let name = super::create_helpers::generate_vm_name(None, 0, 1, "20240115120000");
+        assert!(name.starts_with("azlin-vm-"));
+        assert!(name.contains("20240115120000"));
+    }
+
+    #[test]
+    fn test_resolve_with_template_sentinel_uses_template() {
+        let result = super::create_helpers::resolve_with_template_default(
+            "Standard_B2s",
+            "Standard_B2s",
+            Some("Standard_D4s_v3".to_string()),
+        );
+        assert_eq!(result, "Standard_D4s_v3");
+    }
+
+    #[test]
+    fn test_resolve_with_template_user_override() {
+        let result = super::create_helpers::resolve_with_template_default(
+            "Standard_NC6",
+            "Standard_B2s",
+            Some("Standard_D4s_v3".to_string()),
+        );
+        assert_eq!(result, "Standard_NC6");
+    }
+
+    #[test]
+    fn test_resolve_with_template_sentinel_no_template_keeps_default() {
+        let result = super::create_helpers::resolve_with_template_default(
+            "Standard_B2s",
+            "Standard_B2s",
+            None,
+        );
+        assert_eq!(result, "Standard_B2s");
+    }
+
+    // ── connect_helpers ─────────────────────────────────────────────
+
+    #[test]
+    fn test_build_ssh_args_with_key_path() {
+        let key = std::path::PathBuf::from("/home/user/.ssh/id_ed25519");
+        let args = super::connect_helpers::build_ssh_args(
+            "azureuser", "10.0.0.1", Some(key.as_path()),
+        );
+        assert!(args.contains(&"-i".to_string()));
+        assert!(args.contains(&"/home/user/.ssh/id_ed25519".to_string()));
+        assert!(args.contains(&"azureuser@10.0.0.1".to_string()));
+    }
+
+    #[test]
+    fn test_build_ssh_args_no_key_provided() {
+        let args = super::connect_helpers::build_ssh_args("user", "1.2.3.4", None);
+        assert!(!args.contains(&"-i".to_string()));
+        assert!(args.contains(&"user@1.2.3.4".to_string()));
+    }
+
+    #[test]
+    fn test_build_vscode_remote_uri_format() {
+        let uri = super::connect_helpers::build_vscode_remote_uri("azureuser", "10.0.0.5");
+        assert_eq!(uri, "ssh-remote+azureuser@10.0.0.5");
+    }
+
+    #[test]
+    fn test_build_log_follow_args_has_tail_f() {
+        let args = super::connect_helpers::build_log_follow_args(
+            "user", "10.0.0.1", "/var/log/syslog",
+        );
+        assert!(args.iter().any(|a| a.contains("tail -f")));
+        assert!(args.iter().any(|a| a.contains("/var/log/syslog")));
+    }
+
+    #[test]
+    fn test_build_log_tail_args_custom_lines() {
+        let args = super::connect_helpers::build_log_tail_args(
+            "user", "10.0.0.1", 100, "/var/log/auth.log",
+        );
+        assert!(args.iter().any(|a| a.contains("tail -n 100")));
+    }
+
+    // ── update_helpers ──────────────────────────────────────────────
+
+    #[test]
+    fn test_build_dev_update_script_all_sections() {
+        let script = super::update_helpers::build_dev_update_script();
+        assert!(script.contains("apt-get update"));
+        assert!(script.contains("rustup"));
+        assert!(script.contains("pip3"));
+        assert!(script.contains("npm"));
+    }
+
+    #[test]
+    fn test_build_os_update_cmd_format() {
+        let cmd = super::update_helpers::build_os_update_cmd();
+        assert!(cmd.contains("apt-get update"));
+        assert!(cmd.contains("apt-get upgrade"));
+        assert!(cmd.contains("DEBIAN_FRONTEND=noninteractive"));
+    }
+
+    #[test]
+    fn test_log_type_to_path_all_variants() {
+        assert_eq!(super::update_helpers::log_type_to_path("cloud-init"), "/var/log/cloud-init-output.log");
+        assert_eq!(super::update_helpers::log_type_to_path("CloudInit"), "/var/log/cloud-init-output.log");
+        assert_eq!(super::update_helpers::log_type_to_path("syslog"), "/var/log/syslog");
+        assert_eq!(super::update_helpers::log_type_to_path("Syslog"), "/var/log/syslog");
+        assert_eq!(super::update_helpers::log_type_to_path("auth"), "/var/log/auth.log");
+        assert_eq!(super::update_helpers::log_type_to_path("Auth"), "/var/log/auth.log");
+        assert_eq!(super::update_helpers::log_type_to_path("other"), "/var/log/syslog");
+    }
+
+    // ── runner_helpers ──────────────────────────────────────────────
+
+    #[test]
+    fn test_build_runner_vm_name_format() {
+        assert_eq!(
+            super::runner_helpers::build_runner_vm_name("ci", 0),
+            "azlin-runner-ci-1"
+        );
+        assert_eq!(
+            super::runner_helpers::build_runner_vm_name("deploy", 4),
+            "azlin-runner-deploy-5"
+        );
+    }
+
+    #[test]
+    fn test_build_runner_tags_format() {
+        let tags = super::runner_helpers::build_runner_tags("ci", "org/repo");
+        assert!(tags.contains("azlin-runner=true"));
+        assert!(tags.contains("pool=ci"));
+        assert!(tags.contains("repo=org/repo"));
+    }
+
+    #[test]
+    fn test_build_runner_config_all_fields() {
+        let config = super::runner_helpers::build_runner_config(
+            "ci", "org/repo", 3, "self-hosted,linux", "my-rg",
+            "Standard_D4s_v3", "2024-01-15T10:00:00Z",
+        );
+        assert!(config.iter().any(|(k, _)| k == "pool"));
+        assert!(config.iter().any(|(k, _)| k == "count"));
+        assert!(config.iter().any(|(k, _)| k == "enabled"));
+        let count = config.iter().find(|(k, _)| k == "count").unwrap();
+        assert_eq!(count.1.as_integer(), Some(3));
+    }
+
+    // ── compose_helpers ─────────────────────────────────────────────
+
+    #[test]
+    fn test_resolve_compose_file_none_default() {
+        assert_eq!(
+            super::compose_helpers::resolve_compose_file(None),
+            "docker-compose.yml"
+        );
+    }
+
+    #[test]
+    fn test_resolve_compose_file_override() {
+        assert_eq!(
+            super::compose_helpers::resolve_compose_file(Some("custom.yml")),
+            "custom.yml"
+        );
+    }
+
+    #[test]
+    fn test_build_compose_cmd_format() {
+        let cmd = super::compose_helpers::build_compose_cmd("up -d", "docker-compose.yml");
+        assert_eq!(cmd, "docker compose -f docker-compose.yml up -d");
+    }
+
+    // ── batch_helpers ───────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_vm_ids_multiple_lines() {
+        let tsv = "/subs/rg/vm1\n/subs/rg/vm2\n/subs/rg/vm3\n";
+        let ids = super::batch_helpers::parse_vm_ids(tsv);
+        assert_eq!(ids.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_vm_ids_blank_input() {
+        assert!(super::batch_helpers::parse_vm_ids("").is_empty());
+        assert!(super::batch_helpers::parse_vm_ids("\n\n").is_empty());
+    }
+
+    #[test]
+    fn test_build_batch_args_format() {
+        let ids = vec!["/id/1", "/id/2"];
+        let args = super::batch_helpers::build_batch_args("deallocate", &ids);
+        assert_eq!(args[0], "vm");
+        assert_eq!(args[1], "deallocate");
+        assert_eq!(args[2], "--ids");
+        assert_eq!(args[3], "/id/1");
+        assert_eq!(args[4], "/id/2");
+    }
+
+    #[test]
+    fn test_summarise_batch_messages() {
+        let success = super::batch_helpers::summarise_batch("start", "my-rg", true);
+        assert!(success.contains("completed"));
+        assert!(success.contains("my-rg"));
+
+        let failure = super::batch_helpers::summarise_batch("stop", "my-rg", false);
+        assert!(failure.contains("failed"));
+    }
+
+    // ── display_helpers ─────────────────────────────────────────────
+
+    #[test]
+    fn test_config_value_display_bool() {
+        let v = serde_json::json!(true);
+        assert_eq!(super::display_helpers::config_value_display(&v), "true");
+    }
+
+    #[test]
+    fn test_config_value_display_array() {
+        let v = serde_json::json!([1, 2, 3]);
+        assert_eq!(super::display_helpers::config_value_display(&v), "[1,2,3]");
+    }
+
+    #[test]
+    fn test_truncate_vm_name_max_len_3_or_less() {
+        // When max_len <= 3, no truncation should happen (avoid "...")
+        let result = super::display_helpers::truncate_vm_name("longname", 3);
+        assert_eq!(result, "longname");
+    }
+
+    #[test]
+    fn test_format_tmux_sessions_max_show_1() {
+        let sessions = vec!["s1".to_string(), "s2".to_string(), "s3".to_string()];
+        let result = super::display_helpers::format_tmux_sessions(&sessions, 1);
+        assert!(result.contains("s1"));
+        assert!(result.contains("+2 more"));
+    }
+
+    #[test]
+    fn test_reconnect_prompt_format_values() {
+        let prompt = super::display_helpers::reconnect_prompt(2, 5);
+        assert!(prompt.contains("2/5"));
+        assert!(prompt.contains("Reconnect?"));
+    }
+
+    // ── health_parse_helpers ────────────────────────────────────────
+
+    #[test]
+    fn test_parse_cpu_stdout_valid_float() {
+        assert_eq!(
+            super::health_parse_helpers::parse_cpu_stdout(0, "  45.3  "),
+            Some(45.3)
+        );
+    }
+
+    #[test]
+    fn test_parse_cpu_stdout_nonzero_exit() {
+        assert_eq!(super::health_parse_helpers::parse_cpu_stdout(1, "45.3"), None);
+    }
+
+    #[test]
+    fn test_parse_mem_stdout_decimal() {
+        assert_eq!(
+            super::health_parse_helpers::parse_mem_stdout(0, "78.9"),
+            Some(78.9)
+        );
+    }
+
+    #[test]
+    fn test_parse_disk_stdout_integer() {
+        assert_eq!(
+            super::health_parse_helpers::parse_disk_stdout(0, "42"),
+            Some(42.0)
+        );
+    }
+
+    #[test]
+    fn test_parse_load_stdout_trimmed() {
+        let result = super::health_parse_helpers::parse_load_stdout(0, " 1.2, 0.8, 0.5 ");
+        assert_eq!(result, Some("1.2, 0.8, 0.5".to_string()));
+    }
+
+    #[test]
+    fn test_parse_load_stdout_empty_returns_none() {
+        assert_eq!(super::health_parse_helpers::parse_load_stdout(0, "  "), None);
+    }
+
+    #[test]
+    fn test_default_metrics_values() {
+        let m = super::health_parse_helpers::default_metrics("vm1", "stopped");
+        assert_eq!(m.vm_name, "vm1");
+        assert_eq!(m.power_state, "stopped");
+        assert_eq!(m.cpu_percent, 0.0);
+        assert_eq!(m.mem_percent, 0.0);
+        assert_eq!(m.disk_percent, 0.0);
+        assert_eq!(m.load_avg, "-");
+    }
+
+    // ── tag_helpers edge cases ──────────────────────────────────────
+
+    #[test]
+    fn test_parse_tag_value_with_spaces() {
+        let result = super::tag_helpers::parse_tag("name=My VM Name");
+        assert_eq!(result, Some(("name", "My VM Name")));
+    }
+
+    #[test]
+    fn test_parse_tag_empty_value() {
+        let result = super::tag_helpers::parse_tag("key=");
+        assert_eq!(result, Some(("key", "")));
+    }
+
+    #[test]
+    fn test_find_invalid_tag_empty_list() {
+        let tags: Vec<String> = vec![];
+        assert!(super::tag_helpers::find_invalid_tag(&tags).is_none());
+    }
+
+    // ── disk_helpers ────────────────────────────────────────────────
+
+    #[test]
+    fn test_build_data_disk_name_format() {
+        assert_eq!(
+            super::disk_helpers::build_data_disk_name("myvm", 2),
+            "myvm_datadisk_2"
+        );
+    }
+
+    #[test]
+    fn test_build_restored_disk_name_format() {
+        assert_eq!(
+            super::disk_helpers::build_restored_disk_name("myvm"),
+            "myvm_OsDisk_restored"
+        );
+    }
+
+    // ── command_helpers ─────────────────────────────────────────────
+
+    #[test]
+    fn test_is_allowed_command_edge_cases() {
+        assert!(super::command_helpers::is_allowed_command("az vm list"));
+        assert!(super::command_helpers::is_allowed_command("  az vm list")); // leading whitespace
+        assert!(!super::command_helpers::is_allowed_command("rm -rf /"));
+        assert!(!super::command_helpers::is_allowed_command(""));
+    }
+
+    #[test]
+    fn test_skip_reason_various_inputs() {
+        assert!(super::command_helpers::skip_reason("").is_some());
+        assert!(super::command_helpers::skip_reason("rm -rf /").is_some());
+        assert!(super::command_helpers::skip_reason("az vm list").is_none());
+    }
+
+    // ── autopilot_parse_helpers ─────────────────────────────────────
+
+    #[test]
+    fn test_parse_idle_check_valid_two_lines() {
+        let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("2.5\n3600\n");
+        assert!((cpu - 2.5).abs() < 0.01);
+        assert!((uptime - 3600.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_idle_check_single_line() {
+        let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("5.0");
+        assert!((cpu - 5.0).abs() < 0.01);
+        assert_eq!(uptime, 0.0); // missing second line defaults to 0
+    }
+
+    #[test]
+    fn test_is_idle_boundary() {
+        // CPU = 4.9, uptime > threshold → idle
+        assert!(super::autopilot_parse_helpers::is_idle(4.9, 1801.0, 30));
+        // CPU = 5.0 → not idle
+        assert!(!super::autopilot_parse_helpers::is_idle(5.0, 1801.0, 30));
+        // Uptime exactly at threshold (30 min = 1800s) → not idle
+        assert!(!super::autopilot_parse_helpers::is_idle(1.0, 1800.0, 30));
+    }
+
+    // ── storage_helpers ─────────────────────────────────────────────
+
+    #[test]
+    fn test_storage_sku_from_tier_all_variants() {
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("premium"), "Premium_LRS");
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("PREMIUM"), "Premium_LRS");
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("standard"), "Standard_LRS");
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("STANDARD"), "Standard_LRS");
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("anything"), "Premium_LRS");
+    }
+
+    #[test]
+    fn test_storage_account_row_partial_data() {
+        let acct = serde_json::json!({
+            "name": "mystorage",
+            "location": "eastus"
+            // Missing kind, sku, provisioningState
+        });
+        let row = super::storage_helpers::storage_account_row(&acct);
+        assert_eq!(row[0], "mystorage");
+        assert_eq!(row[1], "eastus");
+        assert_eq!(row[2], "-"); // missing kind
+        assert_eq!(row[3], "-"); // missing sku.name
+        assert_eq!(row[4], "-"); // missing provisioningState
+    }
+
+    // ── key_helpers ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_detect_key_type_comprehensive() {
+        assert_eq!(super::key_helpers::detect_key_type("id_ed25519"), "ed25519");
+        assert_eq!(super::key_helpers::detect_key_type("id_ed25519.pub"), "ed25519");
+        assert_eq!(super::key_helpers::detect_key_type("id_ecdsa"), "ecdsa");
+        assert_eq!(super::key_helpers::detect_key_type("id_rsa"), "rsa");
+        assert_eq!(super::key_helpers::detect_key_type("id_dsa"), "dsa");
+        assert_eq!(super::key_helpers::detect_key_type("known_hosts"), "unknown");
+        assert_eq!(super::key_helpers::detect_key_type("authorized_keys"), "unknown");
+    }
+
+    #[test]
+    fn test_is_known_key_name_comprehensive() {
+        assert!(super::key_helpers::is_known_key_name("id_rsa.pub"));
+        assert!(super::key_helpers::is_known_key_name("id_ed25519.pub"));
+        assert!(super::key_helpers::is_known_key_name("id_rsa"));
+        assert!(super::key_helpers::is_known_key_name("id_ed25519"));
+        assert!(super::key_helpers::is_known_key_name("id_ecdsa"));
+        assert!(super::key_helpers::is_known_key_name("id_dsa"));
+        assert!(!super::key_helpers::is_known_key_name("known_hosts"));
+        assert!(!super::key_helpers::is_known_key_name("config"));
+    }
+
+    // ── auth_helpers ────────────────────────────────────────────────
+
+    #[test]
+    fn test_mask_profile_value_secret_variants() {
+        let secret_val = serde_json::json!("my-actual-secret");
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("client_secret", &secret_val),
+            "********"
+        );
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("db_password", &secret_val),
+            "********"
+        );
+        // Non-secret field
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("client_id", &secret_val),
+            "my-actual-secret"
+        );
+    }
+
+    #[test]
+    fn test_mask_profile_value_non_string_types() {
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("count", &serde_json::json!(42)),
+            "42"
+        );
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("enabled", &serde_json::json!(true)),
+            "true"
+        );
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("data", &serde_json::json!(null)),
+            "null"
+        );
+    }
+
+    // ── log_helpers ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_tail_start_index_various() {
+        assert_eq!(super::log_helpers::tail_start_index(100, 20), 80);
+        assert_eq!(super::log_helpers::tail_start_index(10, 20), 0); // can't go negative
+        assert_eq!(super::log_helpers::tail_start_index(0, 0), 0);
+        assert_eq!(super::log_helpers::tail_start_index(50, 50), 0);
+    }
+
+    // ── auth_test_helpers ───────────────────────────────────────────
+
+    #[test]
+    fn test_extract_account_info_full_json() {
+        let acct = serde_json::json!({
+            "name": "My Subscription",
+            "tenantId": "tenant-123",
+            "user": {"name": "user@example.com", "type": "user"}
+        });
+        let (sub, tenant, user) = super::auth_test_helpers::extract_account_info(&acct);
+        assert_eq!(sub, "My Subscription");
+        assert_eq!(tenant, "tenant-123");
+        assert_eq!(user, "user@example.com");
+    }
+
+    #[test]
+    fn test_extract_account_info_empty_json() {
+        let acct = serde_json::json!({});
+        let (sub, tenant, user) = super::auth_test_helpers::extract_account_info(&acct);
+        assert_eq!(sub, "-");
+        assert_eq!(tenant, "-");
+        assert_eq!(user, "-");
+    }
+
+    // ── cost helpers ────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_cost_history_rows_with_only_cost() {
+        let data = serde_json::json!({
+            "rows": [[42.5]]
+        });
+        let result = super::parse_cost_history_rows(&data);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].1, "$42.50");
+        assert_eq!(result[0].0, "-"); // no date column
+    }
+
+    #[test]
+    fn test_parse_recommendation_rows_with_nested_fields() {
+        let data = serde_json::json!([
+            {
+                "category": "Cost",
+                "impact": "High",
+                "shortDescription": {"problem": "VM is oversized"}
+            }
+        ]);
+        let rows = super::parse_recommendation_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "Cost");
+        assert_eq!(rows[0].1, "High");
+        assert_eq!(rows[0].2, "VM is oversized");
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_complete_entry() {
+        let data = serde_json::json!([
+            {
+                "impactedField": "Microsoft.Compute/virtualMachines",
+                "impact": "Medium",
+                "shortDescription": {"problem": "Rightsize your VM"}
+            }
+        ]);
+        let rows = super::parse_cost_action_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "Microsoft.Compute/virtualMachines");
+        assert_eq!(rows[0].1, "Medium");
+        assert_eq!(rows[0].2, "Rightsize your VM");
+    }
+
+    // ── format_cost_summary comprehensive ───────────────────────────
+
+    #[test]
+    fn test_format_cost_summary_table_with_from_and_to() {
+        use chrono::TimeZone;
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 123.45,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            period_end: chrono::Utc.with_ymd_and_hms(2024, 1, 31, 0, 0, 0).unwrap(),
+            by_vm: vec![],
+        };
+        let output = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &Some("2024-01-01".to_string()),
+            &Some("2024-01-31".to_string()),
+            false,
+            false,
+        );
+        assert!(output.contains("$123.45"));
+        assert!(output.contains("USD"));
+        assert!(output.contains("From filter: 2024-01-01"));
+        assert!(output.contains("To filter: 2024-01-31"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_csv_format() {
+        use chrono::TimeZone;
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 50.0,
+            currency: "EUR".to_string(),
+            period_start: chrono::Utc.with_ymd_and_hms(2024, 6, 1, 0, 0, 0).unwrap(),
+            period_end: chrono::Utc.with_ymd_and_hms(2024, 6, 30, 0, 0, 0).unwrap(),
+            by_vm: vec![],
+        };
+        let output = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Csv,
+            &None, &None, false, false,
+        );
+        assert!(output.contains("Total Cost,Currency,Period Start,Period End"));
+        assert!(output.contains("50.00,EUR"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_with_estimate_flag() {
+        use chrono::TimeZone;
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 200.0,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            period_end: chrono::Utc.with_ymd_and_hms(2024, 1, 31, 0, 0, 0).unwrap(),
+            by_vm: vec![],
+        };
+        let output = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &None, &None, true, false,
+        );
+        assert!(output.contains("Estimate"));
+        assert!(output.contains("$200.00/month"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_by_vm_table_output() {
+        use chrono::TimeZone;
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 300.0,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            period_end: chrono::Utc.with_ymd_and_hms(2024, 1, 31, 0, 0, 0).unwrap(),
+            by_vm: vec![
+                azlin_core::models::VmCost {
+                    vm_name: "dev-vm".to_string(),
+                    cost: 150.0,
+                    currency: "USD".to_string(),
+                },
+                azlin_core::models::VmCost {
+                    vm_name: "prod-vm".to_string(),
+                    cost: 150.0,
+                    currency: "USD".to_string(),
+                },
+            ],
+        };
+        let output = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &None, &None, false, true,
+        );
+        assert!(output.contains("dev-vm"));
+        assert!(output.contains("prod-vm"));
+        assert!(output.contains("$150.00"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_by_vm_empty_shows_message() {
+        use chrono::TimeZone;
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 100.0,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            period_end: chrono::Utc.with_ymd_and_hms(2024, 1, 31, 0, 0, 0).unwrap(),
+            by_vm: vec![],
+        };
+        let output = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &None, &None, false, true,
+        );
+        assert!(output.contains("No per-VM cost data"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_by_vm_csv_format() {
+        use chrono::TimeZone;
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 100.0,
+            currency: "USD".to_string(),
+            period_start: chrono::Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            period_end: chrono::Utc.with_ymd_and_hms(2024, 1, 31, 0, 0, 0).unwrap(),
+            by_vm: vec![azlin_core::models::VmCost {
+                vm_name: "test-vm".to_string(),
+                cost: 100.0,
+                currency: "USD".to_string(),
+            }],
+        };
+        let output = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Csv,
+            &None, &None, false, true,
+        );
+        assert!(output.contains("VM Name,Cost,Currency"));
+        assert!(output.contains("test-vm,100.00,USD"));
+    }
+
+    // ── config_path_helpers ─────────────────────────────────────────
+
+    #[test]
+    fn test_validate_config_path_safe_paths() {
+        assert!(super::config_path_helpers::validate_config_path("config.toml").is_ok());
+        assert!(super::config_path_helpers::validate_config_path("subdir/config.toml").is_ok());
+    }
+
+    #[test]
+    fn test_validate_config_path_traversal_variants() {
+        assert!(super::config_path_helpers::validate_config_path("../evil.toml").is_err());
+        assert!(super::config_path_helpers::validate_config_path("sub/../../etc/passwd").is_err());
+    }
+
+    // ── stop_helpers ────────────────────────────────────────────────
+
+    #[test]
+    fn test_stop_action_labels_both_modes() {
+        let (ing, ed) = super::stop_helpers::stop_action_labels(true);
+        assert_eq!(ing, "Deallocating");
+        assert_eq!(ed, "Deallocated");
+
+        let (ing2, ed2) = super::stop_helpers::stop_action_labels(false);
+        assert_eq!(ing2, "Stopping");
+        assert_eq!(ed2, "Stopped");
+    }
+
+    // ── snapshot_helpers snapshot_row ────────────────────────────────
+
+    #[test]
+    fn test_snapshot_row_complete_data() {
+        let snap = serde_json::json!({
+            "name": "vm1_snapshot_20240115",
+            "diskSizeGb": 128,
+            "timeCreated": "2024-01-15T10:00:00Z",
+            "provisioningState": "Succeeded"
+        });
+        let row = super::snapshot_helpers::snapshot_row(&snap);
+        assert_eq!(row[0], "vm1_snapshot_20240115");
+        assert_eq!(row[1], "128");
+        assert_eq!(row[2], "2024-01-15T10:00:00Z");
+        assert_eq!(row[3], "Succeeded");
+    }
+
+    #[test]
+    fn test_snapshot_row_empty_json_defaults() {
+        let snap = serde_json::json!({});
+        let row = super::snapshot_helpers::snapshot_row(&snap);
+        assert_eq!(row[0], "-");
+        assert_eq!(row[2], "-");
+        assert_eq!(row[3], "-");
+    }
+
+    // ── create_helpers edge cases ───────────────────────────────────
+
+    #[test]
+    fn test_build_clone_cmd_format() {
+        let cmd = super::create_helpers::build_clone_cmd("https://github.com/user/repo.git");
+        assert!(cmd.contains("git clone"));
+        assert!(cmd.contains("https://github.com/user/repo.git"));
+        assert!(cmd.contains("~/src/$(basename"));
+    }
+
+    #[test]
+    fn test_build_clone_name_format() {
+        assert_eq!(super::create_helpers::build_clone_name("myvm", 0), "myvm-clone-1");
+        assert_eq!(super::create_helpers::build_clone_name("myvm", 2), "myvm-clone-3");
+    }
+
+    #[test]
+    fn test_build_disk_name_format() {
+        assert_eq!(super::create_helpers::build_disk_name("myvm"), "myvm_OsDisk");
+    }
+
+    #[test]
+    fn test_build_ssh_connect_args_format() {
+        let args = super::create_helpers::build_ssh_connect_args("user", "10.0.0.1");
+        assert!(args.contains(&"StrictHostKeyChecking=no".to_string()));
+        assert!(args.contains(&"user@10.0.0.1".to_string()));
+    }
 }
