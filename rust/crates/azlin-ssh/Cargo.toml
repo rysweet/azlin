@@ -15,6 +15,8 @@ tracing = { workspace = true }
 russh = { workspace = true }
 russh-keys = { workspace = true }
 chrono = { workspace = true }
+shell-escape = { workspace = true }
+async-trait = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

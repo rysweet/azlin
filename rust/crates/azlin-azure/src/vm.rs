@@ -249,6 +249,19 @@ impl VmManager {
         self.convert_vm(&vm, resource_group).await
     }
 
+    /// Delete a VM.
+    pub async fn delete_vm(&self, resource_group: &str, name: &str) -> Result<()> {
+        debug!(resource_group, name, "Deleting VM");
+        self.compute_client
+            .virtual_machines()
+            .delete(resource_group, name, &self.subscription_id)
+            .into_future()
+            .await
+            .context(format!("Failed to delete VM '{name}'"))?;
+        debug!(name, "VM deleted");
+        Ok(())
+    }
+
     /// Fetch public and private IPs for a VM by querying its network interfaces.
     async fn get_vm_ips(
         &self,

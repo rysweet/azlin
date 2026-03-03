@@ -73,6 +73,8 @@ regex = "1"
 dirs = "6"
 which = "7"
 tempfile = "3"
+shell-escape = "0.1"
+async-trait = "0.1"
 
 # Testing
 assert_cmd = "2"

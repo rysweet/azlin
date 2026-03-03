@@ -561,7 +561,25 @@ pub enum Commands {
     },
 
     // ── Deletion Commands ─────────────────────────────────────────────
-    /// Delete a VM and all associated resources
+    /// Delete a single VM
+    Delete {
+        /// VM name
+        vm_name: String,
+
+        /// Resource group
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Delete a VM and all associated resources (force, no confirmation)
     Kill {
         /// VM name
         vm_name: String,
