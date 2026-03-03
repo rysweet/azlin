@@ -1490,11 +1490,18 @@ async fn async_main() -> Result<()> {
                 // Get storage account key
                 let key_output = std::process::Command::new("az")
                     .args([
-                        "storage", "account", "keys", "list",
-                        "--account-name", &account,
-                        "--resource-group", &rg,
-                        "--query", "[0].value",
-                        "-o", "tsv",
+                        "storage",
+                        "account",
+                        "keys",
+                        "list",
+                        "--account-name",
+                        &account,
+                        "--resource-group",
+                        &rg,
+                        "--query",
+                        "[0].value",
+                        "-o",
+                        "tsv",
                     ])
                     .output()?;
 
@@ -1504,7 +1511,9 @@ async fn async_main() -> Result<()> {
                     std::process::exit(1);
                 }
 
-                let key = String::from_utf8_lossy(&key_output.stdout).trim().to_string();
+                let key = String::from_utf8_lossy(&key_output.stdout)
+                    .trim()
+                    .to_string();
                 let unc = format!("//{}.file.core.windows.net/{}", account, share);
                 let mount_str = mount_dir.display().to_string();
 
@@ -1515,9 +1524,16 @@ async fn async_main() -> Result<()> {
 
                 let status = std::process::Command::new("sudo")
                     .args([
-                        "mount", "-t", "cifs",
-                        &unc, &mount_str,
-                        "-o", &format!("vers=3.0,username={},password={},serverino,nosharesock,actimeo=30", account, key),
+                        "mount",
+                        "-t",
+                        "cifs",
+                        &unc,
+                        &mount_str,
+                        "-o",
+                        &format!(
+                            "vers=3.0,username={},password={},serverino,nosharesock,actimeo=30",
+                            account, key
+                        ),
                     ])
                     .status()?;
 
@@ -5000,10 +5016,7 @@ mod tests {
     #[test]
     fn test_cp_direction_local_to_remote() {
         let is_remote = |s: &str| {
-            s.contains(':')
-                && !s.starts_with('/')
-                && s.len() > 2
-                && s.chars().nth(1) != Some(':')
+            s.contains(':') && !s.starts_with('/') && s.len() > 2 && s.chars().nth(1) != Some(':')
         };
         assert!(!is_remote("/tmp/file.txt"));
         assert!(is_remote("myvm:/home/user/file.txt"));
@@ -5012,10 +5025,7 @@ mod tests {
     #[test]
     fn test_cp_direction_remote_to_local() {
         let is_remote = |s: &str| {
-            s.contains(':')
-                && !s.starts_with('/')
-                && s.len() > 2
-                && s.chars().nth(1) != Some(':')
+            s.contains(':') && !s.starts_with('/') && s.len() > 2 && s.chars().nth(1) != Some(':')
         };
         let source = "vm1:/tmp/data.tar.gz";
         let dest = "/home/local/data.tar.gz";
@@ -5026,10 +5036,7 @@ mod tests {
     #[test]
     fn test_cp_direction_windows_path_not_remote() {
         let is_remote = |s: &str| {
-            s.contains(':')
-                && !s.starts_with('/')
-                && s.len() > 2
-                && s.chars().nth(1) != Some(':')
+            s.contains(':') && !s.starts_with('/') && s.len() > 2 && s.chars().nth(1) != Some(':')
         };
         assert!(!is_remote("C:\\Users\\file.txt"));
         assert!(!is_remote("D:\\data"));
@@ -5038,10 +5045,7 @@ mod tests {
     #[test]
     fn test_cp_direction_both_local() {
         let is_remote = |s: &str| {
-            s.contains(':')
-                && !s.starts_with('/')
-                && s.len() > 2
-                && s.chars().nth(1) != Some(':')
+            s.contains(':') && !s.starts_with('/') && s.len() > 2 && s.chars().nth(1) != Some(':')
         };
         let source = "/tmp/a.txt";
         let dest = "/tmp/b.txt";
@@ -5058,10 +5062,7 @@ mod tests {
     #[test]
     fn test_cp_direction_absolute_path_with_colon() {
         let is_remote = |s: &str| {
-            s.contains(':')
-                && !s.starts_with('/')
-                && s.len() > 2
-                && s.chars().nth(1) != Some(':')
+            s.contains(':') && !s.starts_with('/') && s.len() > 2 && s.chars().nth(1) != Some(':')
         };
         // Absolute path starting with / should not be remote
         assert!(!is_remote("/path/with:colon"));
@@ -5091,10 +5092,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_name_contains_timestamp_components() {
-        let snap = format!(
-            "vm_snapshot_{}",
-            chrono::Utc::now().format("%Y%m%d_%H%M%S")
-        );
+        let snap = format!("vm_snapshot_{}", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
         let parts: Vec<&str> = snap.split('_').collect();
         assert!(parts.len() >= 4); // vm, snapshot, date, time
     }
@@ -5181,7 +5179,11 @@ mod tests {
             .unwrap()
             .filter_map(|e| {
                 let n = e.ok()?.file_name().to_string_lossy().to_string();
-                if n.ends_with(".json") { Some(n) } else { None }
+                if n.ends_with(".json") {
+                    Some(n)
+                } else {
+                    None
+                }
             })
             .count();
         assert_eq!(count, 3);
@@ -5345,7 +5347,11 @@ mod tests {
             .unwrap()
             .filter_map(|e| {
                 let name = e.ok()?.file_name().to_string_lossy().to_string();
-                if name.starts_with("id_") { Some(name) } else { None }
+                if name.starts_with("id_") {
+                    Some(name)
+                } else {
+                    None
+                }
             })
             .collect();
         assert_eq!(keys.len(), 6); // 3 private + 3 public

@@ -232,10 +232,9 @@ mod tests {
         ];
         for id in ids {
             let result = AzureAuth::new_with_subscription(id);
-            match result {
-                Ok(auth) => assert_eq!(auth.subscription_id(), id),
-                Err(_) => {} // Azure credential may not be available
-            }
+            if let Ok(auth) = result {
+                assert_eq!(auth.subscription_id(), id);
+            } // Azure credential may not be available
         }
     }
 
@@ -297,9 +296,8 @@ mod tests {
     #[test]
     fn test_new_with_subscription_empty_string() {
         let result = AzureAuth::new_with_subscription("");
-        match result {
-            Ok(auth) => assert_eq!(auth.subscription_id(), ""),
-            Err(_) => {} // Azure credential may not be available
-        }
+        if let Ok(auth) = result {
+            assert_eq!(auth.subscription_id(), "");
+        } // Azure credential may not be available
     }
 }

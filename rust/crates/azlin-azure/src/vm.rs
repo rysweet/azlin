@@ -1052,10 +1052,7 @@ mod tests {
         let path = create_cloud_init_file().expect("should create cloud-init file");
         // The function writes CLOUD_INIT_SCRIPT to a fixed temp path.
         // Another parallel test may overwrite it, so just verify the path is valid.
-        assert!(
-            !path.is_empty(),
-            "cloud-init file path should not be empty"
-        );
+        assert!(!path.is_empty(), "cloud-init file path should not be empty");
         assert!(
             path.contains("azlin-cloud-init"),
             "path should contain expected filename: {path}"
@@ -1248,7 +1245,10 @@ mod tests {
     fn test_extract_tags_many_tags() {
         let mut map = serde_json::Map::new();
         for i in 0..50 {
-            map.insert(format!("key{i}"), serde_json::Value::String(format!("val{i}")));
+            map.insert(
+                format!("key{i}"),
+                serde_json::Value::String(format!("val{i}")),
+            );
         }
         let tags = serde_json::Value::Object(map);
         let result = extract_tags(Some(&tags));
@@ -1383,10 +1383,9 @@ mod tests {
         // Running az with no args should produce either help text or an error
         let result = az_cli(&[]);
         // az with no args typically returns exit code 0 with help text
-        match result {
-            Ok(output) => assert!(!output.is_empty()),
-            Err(_) => {} // Also acceptable
-        }
+        if let Ok(output) = result {
+            assert!(!output.is_empty());
+        } // Error also acceptable
     }
 
     // ── create_cloud_init_file path test ────────────────────────────
@@ -1671,7 +1670,8 @@ mod tests {
         async fn get_token(
             &self,
             _resource: &str,
-        ) -> std::result::Result<azure_core_old::auth::TokenResponse, azure_core_old::Error> {
+        ) -> std::result::Result<azure_core_old::auth::TokenResponse, azure_core_old::Error>
+        {
             Ok(azure_core_old::auth::TokenResponse::new(
                 oauth2::AccessToken::new("test-token".to_string()),
                 chrono::Utc::now() + chrono::Duration::hours(1),
@@ -1754,7 +1754,9 @@ mod tests {
         let props = azure_mgmt_compute::models::VirtualMachineProperties {
             os_profile: Some(azure_mgmt_compute::models::OsProfile {
                 admin_username: Some("adminuser".to_string()),
-                windows_configuration: Some(azure_mgmt_compute::models::WindowsConfiguration::default()),
+                windows_configuration: Some(
+                    azure_mgmt_compute::models::WindowsConfiguration::default(),
+                ),
                 ..Default::default()
             }),
             ..Default::default()

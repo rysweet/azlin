@@ -32,9 +32,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.verbose {
-        tracing_subscriber::fmt()
-            .with_env_filter("debug")
-            .init();
+        tracing_subscriber::fmt().with_env_filter("debug").init();
     }
 
     let request = args.request.join(" ");
@@ -99,7 +97,10 @@ async fn main() -> Result<()> {
             print!("{}", String::from_utf8_lossy(&output.stdout));
         }
         if !output.status.success() {
-            eprintln!("  ⚠ Command failed (exit {})", output.status.code().unwrap_or(-1));
+            eprintln!(
+                "  ⚠ Command failed (exit {})",
+                output.status.code().unwrap_or(-1)
+            );
             if !output.stderr.is_empty() {
                 eprintln!("{}", String::from_utf8_lossy(&output.stderr));
             }

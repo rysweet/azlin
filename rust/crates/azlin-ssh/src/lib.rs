@@ -503,7 +503,11 @@ mod tests {
 
     #[test]
     fn test_ssh_config_new_with_string_types() {
-        let cfg = SshConfig::new(String::from("myhost"), String::from("myuser"), PathBuf::from("/key"));
+        let cfg = SshConfig::new(
+            String::from("myhost"),
+            String::from("myuser"),
+            PathBuf::from("/key"),
+        );
         assert_eq!(cfg.host, "myhost");
         assert_eq!(cfg.username, "myuser");
     }
@@ -533,9 +537,16 @@ mod tests {
 
     #[test]
     fn test_ssh_config_with_fqdn() {
-        let cfg = SshConfig::new("vm.internal.cloudapp.azure.com", "azureuser", PathBuf::from("/key"));
+        let cfg = SshConfig::new(
+            "vm.internal.cloudapp.azure.com",
+            "azureuser",
+            PathBuf::from("/key"),
+        );
         assert_eq!(cfg.host, "vm.internal.cloudapp.azure.com");
-        assert_eq!(cfg.pool_key(), "azureuser@vm.internal.cloudapp.azure.com:22");
+        assert_eq!(
+            cfg.pool_key(),
+            "azureuser@vm.internal.cloudapp.azure.com:22"
+        );
     }
 
     #[test]
@@ -852,9 +863,7 @@ mod tests {
         let mut handles = vec![];
         for _ in 0..5 {
             let p = Arc::clone(&pool_arc);
-            handles.push(tokio::spawn(async move {
-                p.pool_size().await
-            }));
+            handles.push(tokio::spawn(async move { p.pool_size().await }));
         }
 
         for handle in handles {
@@ -878,7 +887,10 @@ mod tests {
             ("", "empty"),
             ("not-a-key", "plaintext"),
             // Use a truncated PEM marker to avoid pre-commit false positive
-            ("-----BEGIN RSA PRIV\ninvalid\n-----END RSA PRIV", "malformed pem"),
+            (
+                "-----BEGIN RSA PRIV\ninvalid\n-----END RSA PRIV",
+                "malformed pem",
+            ),
             ("ssh-rsa AAAA public-key-not-private", "public key"),
         ];
 
@@ -1044,7 +1056,7 @@ mod tests {
 
     #[test]
     fn test_ssh_config_from_str_ref() {
-        let cfg = SshConfig::new(&"host"[..], &"user"[..], PathBuf::from("/key"));
+        let cfg = SshConfig::new("host", "user", PathBuf::from("/key"));
         assert_eq!(cfg.host, "host");
         assert_eq!(cfg.username, "user");
     }

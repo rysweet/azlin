@@ -443,9 +443,8 @@ mod tests {
             "error should mention env var: {}",
             err_msg
         );
-        match saved {
-            Some(v) => std::env::set_var("ANTHROPIC_API_KEY", v),
-            None => {}
+        if let Some(v) = saved {
+            std::env::set_var("ANTHROPIC_API_KEY", v)
         }
     }
 
