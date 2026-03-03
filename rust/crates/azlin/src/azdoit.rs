@@ -181,10 +181,18 @@ mod tests {
         assert!(allowed_prefixes.iter().any(|p| "azlin list".starts_with(p)));
         // Disallowed commands
         assert!(!allowed_prefixes.iter().any(|p| "rm -rf /".starts_with(p)));
-        assert!(!allowed_prefixes.iter().any(|p| "curl evil.com".starts_with(p)));
-        assert!(!allowed_prefixes.iter().any(|p| "wget malware".starts_with(p)));
-        assert!(!allowed_prefixes.iter().any(|p| "sudo rm -rf".starts_with(p)));
-        assert!(!allowed_prefixes.iter().any(|p| "python -c 'hack'".starts_with(p)));
+        assert!(!allowed_prefixes
+            .iter()
+            .any(|p| "curl evil.com".starts_with(p)));
+        assert!(!allowed_prefixes
+            .iter()
+            .any(|p| "wget malware".starts_with(p)));
+        assert!(!allowed_prefixes
+            .iter()
+            .any(|p| "sudo rm -rf".starts_with(p)));
+        assert!(!allowed_prefixes
+            .iter()
+            .any(|p| "python -c 'hack'".starts_with(p)));
     }
 
     #[test]

@@ -733,7 +733,10 @@ async fn async_main() -> Result<()> {
             }
         }
         azlin_cli::Commands::Health {
-            vm, resource_group, tui, ..
+            vm,
+            resource_group,
+            tui,
+            ..
         } => {
             let auth = match azlin_azure::AzureAuth::new() {
                 Ok(a) => a,
@@ -926,19 +929,17 @@ async fn async_main() -> Result<()> {
                 ip,
                 ..
             } => {
-                let parts: Vec<&str> = env_var.splitn(2, '=').collect();
-                if parts.len() != 2 {
-                    eprintln!("Invalid format. Use KEY=VALUE");
-                    std::process::exit(1);
-                }
-                let (key, value) = (parts[0], parts[1]);
+                let (key, value) = match env_helpers::split_env_var(&env_var) {
+                    Some(kv) => kv,
+                    None => {
+                        eprintln!("Invalid format. Use KEY=VALUE");
+                        std::process::exit(1);
+                    }
+                };
                 let (addr, user) =
                     resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let escaped = shell_escape(value);
-                let cmd = format!(
-                    "grep -q '^export {}=' ~/.profile 2>/dev/null && sed -i 's/^export {}=.*/export {}={}/' ~/.profile || echo 'export {}={}' >> ~/.profile",
-                    key, key, key, escaped, key, escaped
-                );
+                let cmd = env_helpers::build_env_set_cmd(key, &escaped);
                 ssh_exec_checked(&addr, &user, &cmd).await?;
                 println!("Set {}={} on VM '{}'", key, value, vm_identifier);
             }
@@ -950,7 +951,7 @@ async fn async_main() -> Result<()> {
             } => {
                 let (addr, user) =
                     resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
-                let output = ssh_exec_checked(&addr, &user, "env | sort").await?;
+                let output = ssh_exec_checked(&addr, &user, env_helpers::env_list_cmd()).await?;
                 let mut table = Table::new();
                 table
                     .load_preset(UTF8_FULL)
@@ -972,7 +973,7 @@ async fn async_main() -> Result<()> {
             } => {
                 let (addr, user) =
                     resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
-                let cmd = format!("sed -i '/^export {}=/d' ~/.profile", key);
+                let cmd = env_helpers::build_env_delete_cmd(&key);
                 ssh_exec_checked(&addr, &user, &cmd).await?;
                 println!("Deleted '{}' from VM '{}'", key, vm_identifier);
             }
@@ -985,7 +986,7 @@ async fn async_main() -> Result<()> {
             } => {
                 let (addr, user) =
                     resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
-                let output = ssh_exec_checked(&addr, &user, "env | sort").await?;
+                let output = ssh_exec_checked(&addr, &user, env_helpers::env_list_cmd()).await?;
                 match output_file {
                     Some(path) => {
                         std::fs::write(&path, &output)?;
@@ -1007,19 +1008,10 @@ async fn async_main() -> Result<()> {
                 let (addr, user) =
                     resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let content = std::fs::read_to_string(&env_file)?;
-                for line in content.lines() {
-                    let line = line.trim();
-                    if line.is_empty() || line.starts_with('#') {
-                        continue;
-                    }
-                    if let Some((key, value)) = line.split_once('=') {
-                        let escaped = shell_escape(value);
-                        let cmd = format!(
-                            "grep -q '^export {}=' ~/.profile 2>/dev/null && sed -i 's/^export {}=.*/export {}={}/' ~/.profile || echo 'export {}={}' >> ~/.profile",
-                            key, key, key, escaped, key, escaped
-                        );
-                        ssh_exec_checked(&addr, &user, &cmd).await?;
-                    }
+                for (key, value) in env_helpers::parse_env_file(&content) {
+                    let escaped = shell_escape(&value);
+                    let cmd = env_helpers::build_env_set_cmd(&key, &escaped);
+                    ssh_exec_checked(&addr, &user, &cmd).await?;
                 }
                 println!(
                     "Imported env vars from '{}' to VM '{}'",
@@ -1049,7 +1041,7 @@ async fn async_main() -> Result<()> {
                 }
                 let (addr, user) =
                     resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
-                let cmd = "sed -i '/^export /d' ~/.profile";
+                let cmd = env_helpers::env_clear_cmd();
                 ssh_exec_checked(&addr, &user, cmd).await?;
                 println!(
                     "Cleared all custom environment variables on VM '{}'",
@@ -1074,7 +1066,10 @@ async fn async_main() -> Result<()> {
             let summary = azlin_azure::get_cost_summary(&auth, &rg).await?;
             pb.finish_and_clear();
 
-            println!("{}", format_cost_summary(&summary, &cli.output, &from, &to, estimate, by_vm));
+            println!(
+                "{}",
+                format_cost_summary(&summary, &cli.output, &from, &to, estimate, by_vm)
+            );
         }
         azlin_cli::Commands::Snapshot { action } => {
             let rg = match &action {
@@ -1092,11 +1087,8 @@ async fn async_main() -> Result<()> {
 
             match action {
                 azlin_cli::SnapshotAction::Create { vm_name, .. } => {
-                    let snapshot_name = format!(
-                        "{}_snapshot_{}",
-                        vm_name,
-                        chrono::Utc::now().format("%Y%m%d_%H%M%S")
-                    );
+                    let ts = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+                    let snapshot_name = snapshot_helpers::build_snapshot_name(&vm_name, &ts);
                     let pb = indicatif::ProgressBar::new_spinner();
                     pb.set_message(format!("Creating snapshot {}...", snapshot_name));
                     pb.enable_steady_tick(std::time::Duration::from_millis(100));
@@ -1140,15 +1132,7 @@ async fn async_main() -> Result<()> {
                     if output.status.success() {
                         let snapshots: Vec<serde_json::Value> =
                             serde_json::from_slice(&output.stdout).unwrap_or_default();
-                        let filtered: Vec<&serde_json::Value> = snapshots
-                            .iter()
-                            .filter(|s| {
-                                s["name"]
-                                    .as_str()
-                                    .map(|n| n.contains(&vm_name))
-                                    .unwrap_or(false)
-                            })
-                            .collect();
+                        let filtered = snapshot_helpers::filter_snapshots(&snapshots, &vm_name);
 
                         if filtered.is_empty() {
                             println!("No snapshots found for VM '{}'.", vm_name);
@@ -1164,12 +1148,8 @@ async fn async_main() -> Result<()> {
                                     "State",
                                 ]);
                             for snap in &filtered {
-                                table.add_row(vec![
-                                    snap["name"].as_str().unwrap_or("-"),
-                                    &snap["diskSizeGb"].to_string(),
-                                    snap["timeCreated"].as_str().unwrap_or("-"),
-                                    snap["provisioningState"].as_str().unwrap_or("-"),
-                                ]);
+                                let row = snapshot_helpers::snapshot_row(snap);
+                                table.add_row(row);
                             }
                             println!("{table}");
                         }
@@ -1941,14 +1921,8 @@ async fn async_main() -> Result<()> {
                             let profile_name = name.trim_end_matches(".json");
                             rows.push(vec![
                                 profile_name.to_string(),
-                                profile["tenant_id"]
-                                    .as_str()
-                                    .unwrap_or("-")
-                                    .to_string(),
-                                profile["client_id"]
-                                    .as_str()
-                                    .unwrap_or("-")
-                                    .to_string(),
+                                profile["tenant_id"].as_str().unwrap_or("-").to_string(),
+                                profile["client_id"].as_str().unwrap_or("-").to_string(),
                             ]);
                         }
                     }
@@ -2947,8 +2921,7 @@ async fn async_main() -> Result<()> {
                 }
 
                 let home = dirs::home_dir().unwrap_or_default();
-                let dotfiles: Vec<&str> =
-                    vec![".bashrc", ".profile", ".vimrc", ".tmux.conf", ".gitconfig"];
+                let dotfiles = sync_helpers::default_dotfiles();
 
                 for (name, ip, user) in &vms {
                     for dotfile in &dotfiles {
@@ -3229,7 +3202,10 @@ async fn async_main() -> Result<()> {
                         description.as_deref(),
                         vm_size.as_deref(),
                         region.as_deref(),
-                        cloud_init.as_ref().map(|p| p.display().to_string()).as_deref(),
+                        cloud_init
+                            .as_ref()
+                            .map(|p| p.display().to_string())
+                            .as_deref(),
                     );
                     let path = templates::save_template(&azlin_dir, &name, &tpl)?;
                     println!("Saved template '{}' at {}", name, path.display());
@@ -3716,11 +3692,7 @@ async fn async_main() -> Result<()> {
                             }
                         }
                         _ => {
-                            azlin_cli::table::render_rows(
-                                &["Session"],
-                                &rows,
-                                &cli.output,
-                            );
+                            azlin_cli::table::render_rows(&["Session"], &rows, &cli.output);
                         }
                     }
                 }
@@ -4115,7 +4087,9 @@ async fn async_main() -> Result<()> {
                                                 Cell::new("Impact").add_attribute(Attribute::Bold),
                                                 Cell::new("Problem").add_attribute(Attribute::Bold),
                                             ]);
-                                        for (category, impact, problem) in parse_recommendation_rows(&data) {
+                                        for (category, impact, problem) in
+                                            parse_recommendation_rows(&data)
+                                        {
                                             table.add_row(vec![
                                                 Cell::new(&category),
                                                 Cell::new(&impact),
@@ -4174,7 +4148,9 @@ async fn async_main() -> Result<()> {
                                                 Cell::new("Recommendation")
                                                     .add_attribute(Attribute::Bold),
                                             ]);
-                                        for (resource, impact, problem) in parse_cost_action_rows(&data) {
+                                        for (resource, impact, problem) in
+                                            parse_cost_action_rows(&data)
+                                        {
                                             table.add_row(vec![
                                                 Cell::new(&resource),
                                                 Cell::new(&impact),
@@ -4623,15 +4599,12 @@ fn format_cost_summary(
     by_vm: bool,
 ) -> String {
     let mut out = String::new();
-    match output {
-        azlin_cli::OutputFormat::Json => {
-            match serde_json::to_string_pretty(summary) {
-                Ok(json) => out.push_str(&json),
-                Err(e) => out.push_str(&format!("Failed to serialize cost data: {e}")),
-            }
-            return out;
+    if let azlin_cli::OutputFormat::Json = output {
+        match serde_json::to_string_pretty(summary) {
+            Ok(json) => out.push_str(&json),
+            Err(e) => out.push_str(&format!("Failed to serialize cost data: {e}")),
         }
-        _ => {}
+        return out;
     }
 
     let is_csv = matches!(output, azlin_cli::OutputFormat::Csv);
@@ -4677,9 +4650,12 @@ fn format_cost_summary(
                 out.push_str(&format!("\n{},{:.2},{}", vc.vm_name, vc.cost, vc.currency));
             }
         } else {
-            out.push_str("\n");
+            out.push('\n');
             for vc in &summary.by_vm {
-                out.push_str(&format!("\n{:<20} ${:.2} {}", vc.vm_name, vc.cost, vc.currency));
+                out.push_str(&format!(
+                    "\n{:<20} ${:.2} {}",
+                    vc.vm_name, vc.cost, vc.currency
+                ));
             }
         }
     } else if by_vm {
@@ -4787,11 +4763,7 @@ mod templates {
         );
         tbl.insert(
             "vm_size".into(),
-            toml::Value::String(
-                vm_size
-                    .unwrap_or("Standard_D4s_v3")
-                    .to_string(),
-            ),
+            toml::Value::String(vm_size.unwrap_or("Standard_D4s_v3").to_string()),
         );
         tbl.insert(
             "region".into(),
@@ -4890,21 +4862,15 @@ mod sessions {
     use std::path::Path;
 
     /// Build a session TOML value.
-    pub fn build_session_toml(
-        name: &str,
-        resource_group: &str,
-        vms: &[String],
-    ) -> toml::Value {
+    pub fn build_session_toml(name: &str, resource_group: &str, vms: &[String]) -> toml::Value {
         let mut session = toml::map::Map::new();
         session.insert("name".to_string(), toml::Value::String(name.to_string()));
         session.insert(
             "resource_group".to_string(),
             toml::Value::String(resource_group.to_string()),
         );
-        let vm_array: Vec<toml::Value> = vms
-            .iter()
-            .map(|v| toml::Value::String(v.clone()))
-            .collect();
+        let vm_array: Vec<toml::Value> =
+            vms.iter().map(|v| toml::Value::String(v.clone())).collect();
         session.insert("vms".to_string(), toml::Value::Array(vm_array));
         session.insert(
             "created".to_string(),
@@ -4928,7 +4894,11 @@ mod sessions {
         let vms = tbl
             .get("vms")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         let created = tbl
             .get("created")
@@ -5002,9 +4972,7 @@ mod contexts {
         ctx_dir: &Path,
         active: &str,
     ) -> Result<Vec<(String, bool)>, anyhow::Error> {
-        let mut entries: Vec<_> = std::fs::read_dir(ctx_dir)?
-            .filter_map(|e| e.ok())
-            .collect();
+        let mut entries: Vec<_> = std::fs::read_dir(ctx_dir)?.filter_map(|e| e.ok()).collect();
         entries.sort_by_key(|e| e.file_name());
         let mut result = Vec::new();
         for entry in entries {
@@ -5041,6 +5009,221 @@ mod contexts {
         std::fs::write(&new_path, toml::to_string_pretty(&table)?)?;
         std::fs::remove_file(&old_path)?;
         Ok(())
+    }
+}
+
+/// Helpers for `azlin env` subcommands — pure functions that build SSH commands
+/// and parse environment variable output. No network I/O.
+#[allow(dead_code)]
+mod env_helpers {
+    /// Validate and split a `KEY=VALUE` string. Returns `None` on bad input.
+    pub fn split_env_var(input: &str) -> Option<(&str, &str)> {
+        let parts: Vec<&str> = input.splitn(2, '=').collect();
+        if parts.len() == 2 && !parts[0].is_empty() {
+            Some((parts[0], parts[1]))
+        } else {
+            None
+        }
+    }
+
+    /// Build the shell command that upserts `KEY=VALUE` in `~/.profile`.
+    pub fn build_env_set_cmd(key: &str, escaped_value: &str) -> String {
+        format!(
+            "grep -q '^export {}=' ~/.profile 2>/dev/null && sed -i 's/^export {}=.*/export {}={}/' ~/.profile || echo 'export {}={}' >> ~/.profile",
+            key, key, key, escaped_value, key, escaped_value
+        )
+    }
+
+    /// Build the shell command that removes a key from `~/.profile`.
+    pub fn build_env_delete_cmd(key: &str) -> String {
+        format!("sed -i '/^export {}=/d' ~/.profile", key)
+    }
+
+    /// The command used to list environment variables on a remote VM.
+    pub fn env_list_cmd() -> &'static str {
+        "env | sort"
+    }
+
+    /// Parse the output of `env | sort` into `(key, value)` pairs.
+    pub fn parse_env_output(output: &str) -> Vec<(String, String)> {
+        output
+            .lines()
+            .filter_map(|line| {
+                line.split_once('=')
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+            })
+            .collect()
+    }
+
+    /// Build a file body suitable for `env export` (one `KEY=VALUE` per line).
+    pub fn build_env_file(vars: &[(String, String)]) -> String {
+        vars.iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Parse a `.env`-style file, skipping blank lines and `#` comments.
+    pub fn parse_env_file(content: &str) -> Vec<(String, String)> {
+        content
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .filter_map(|l| {
+                l.split_once('=')
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+            })
+            .collect()
+    }
+
+    /// The command used to clear all custom env vars from `~/.profile`.
+    pub fn env_clear_cmd() -> &'static str {
+        "sed -i '/^export /d' ~/.profile"
+    }
+}
+
+/// Helpers for the `azlin sync` dotfile-sync subcommand.
+#[allow(dead_code)]
+mod sync_helpers {
+    /// The default set of dotfiles synchronised to VMs.
+    pub fn default_dotfiles() -> Vec<&'static str> {
+        vec![".bashrc", ".profile", ".vimrc", ".tmux.conf", ".gitconfig"]
+    }
+
+    /// Build the argument list for an rsync invocation.
+    pub fn build_rsync_args(source: &str, user: &str, ip: &str, dest: &str) -> Vec<String> {
+        vec![
+            "-az".to_string(),
+            "-e".to_string(),
+            "ssh -o StrictHostKeyChecking=no".to_string(),
+            source.to_string(),
+            format!("{}@{}:~/{}", user, ip, dest),
+        ]
+    }
+}
+
+/// Helpers for health-metric display — pure functions over numeric data.
+#[allow(dead_code)]
+mod health_helpers {
+    /// Pick a colour name for a utilisation percentage.
+    pub fn metric_color(pct: f32) -> &'static str {
+        if pct > 80.0 {
+            "red"
+        } else if pct > 50.0 {
+            "yellow"
+        } else {
+            "green"
+        }
+    }
+
+    /// Pick a colour name for a VM power-state string.
+    pub fn state_color(state: &str) -> &'static str {
+        match state {
+            "running" => "green",
+            "stopped" | "deallocated" => "red",
+            _ => "yellow",
+        }
+    }
+
+    /// Format a metric value as `"xx.x%"`.
+    pub fn format_percentage(value: f32) -> String {
+        format!("{:.1}%", value)
+    }
+
+    /// Return a status emoji summarising overall health.
+    pub fn status_emoji(cpu: f32, mem: f32, disk: f32) -> &'static str {
+        if cpu > 90.0 || mem > 90.0 || disk > 90.0 {
+            "🔴"
+        } else if cpu > 70.0 || mem > 70.0 || disk > 70.0 {
+            "🟡"
+        } else {
+            "🟢"
+        }
+    }
+}
+
+/// Helpers for the `azlin snapshot` subcommands.
+#[allow(dead_code)]
+mod snapshot_helpers {
+    /// Generate a deterministic snapshot name from a VM name and a formatted timestamp.
+    pub fn build_snapshot_name(vm_name: &str, timestamp: &str) -> String {
+        format!("{}_snapshot_{}", vm_name, timestamp)
+    }
+
+    /// Filter a list of snapshot JSON values by VM name substring match on `"name"`.
+    pub fn filter_snapshots<'a>(
+        snapshots: &'a [serde_json::Value],
+        vm_name: &str,
+    ) -> Vec<&'a serde_json::Value> {
+        snapshots
+            .iter()
+            .filter(|s| {
+                s["name"]
+                    .as_str()
+                    .map(|n| n.contains(vm_name))
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    /// Extract display columns from a single snapshot JSON value.
+    pub fn snapshot_row(snap: &serde_json::Value) -> Vec<String> {
+        vec![
+            snap["name"].as_str().unwrap_or("-").to_string(),
+            snap["diskSizeGb"].to_string(),
+            snap["timeCreated"].as_str().unwrap_or("-").to_string(),
+            snap["provisioningState"].as_str().unwrap_or("-").to_string(),
+        ]
+    }
+}
+
+/// Generic output-format helpers (JSON / CSV / plain table).
+#[allow(dead_code)]
+mod output_helpers {
+    /// Render `rows` as CSV text with a header line.
+    pub fn format_as_csv(headers: &[&str], rows: &[Vec<String>]) -> String {
+        let mut out = headers.join(",");
+        for row in rows {
+            out.push('\n');
+            out.push_str(&row.join(","));
+        }
+        out
+    }
+
+    /// Render `rows` as a simple aligned-column table.
+    pub fn format_as_table(headers: &[&str], rows: &[Vec<String>]) -> String {
+        let ncols = headers.len();
+        let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+        for row in rows {
+            for (i, cell) in row.iter().enumerate() {
+                if i < ncols && cell.len() > widths[i] {
+                    widths[i] = cell.len();
+                }
+            }
+        }
+        let mut out = String::new();
+        for (i, h) in headers.iter().enumerate() {
+            if i > 0 {
+                out.push_str("  ");
+            }
+            out.push_str(&format!("{:<width$}", h, width = widths[i]));
+        }
+        for row in rows {
+            out.push('\n');
+            for (i, cell) in row.iter().enumerate() {
+                if i > 0 {
+                    out.push_str("  ");
+                }
+                let w = if i < ncols { widths[i] } else { cell.len() };
+                out.push_str(&format!("{:<width$}", cell, width = w));
+            }
+        }
+        out
+    }
+
+    /// Serialize a slice to pretty-printed JSON. Returns an error string on failure.
+    pub fn format_as_json<T: serde::Serialize>(items: &[T]) -> String {
+        serde_json::to_string_pretty(items).unwrap_or_else(|e| format!("JSON error: {e}"))
     }
 }
 
@@ -6342,10 +6525,15 @@ created = \"2024-01-01T00:00:00Z\"\n";
         let output = assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
             .args([
-                "template", "save", "custom-tpl",
-                "--description", "A test template",
-                "--vm-size", "Standard_D8s_v3",
-                "--region", "eastus",
+                "template",
+                "save",
+                "custom-tpl",
+                "--description",
+                "A test template",
+                "--vm-size",
+                "Standard_D8s_v3",
+                "--region",
+                "eastus",
             ])
             .env("HOME", dir.path())
             .output()
@@ -6388,9 +6576,13 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
             .args([
-                "template", "save", "apply-test",
-                "--vm-size", "Standard_D2s_v3",
-                "--region", "westus2",
+                "template",
+                "save",
+                "apply-test",
+                "--vm-size",
+                "Standard_D2s_v3",
+                "--region",
+                "westus2",
             ])
             .env("HOME", dir.path())
             .output()
@@ -6445,9 +6637,13 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
             .args([
-                "template", "save", "exportme",
-                "--vm-size", "Standard_D4s_v3",
-                "--region", "northeurope",
+                "template",
+                "save",
+                "exportme",
+                "--vm-size",
+                "Standard_D4s_v3",
+                "--region",
+                "northeurope",
             ])
             .env("HOME", dir.path())
             .output()
@@ -6559,9 +6755,14 @@ created = \"2024-01-01T00:00:00Z\"\n";
         let output = assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
             .args([
-                "sessions", "save", "my-session",
-                "--resource-group", "test-rg",
-                "--vms", "vm1", "vm2",
+                "sessions",
+                "save",
+                "my-session",
+                "--resource-group",
+                "test-rg",
+                "--vms",
+                "vm1",
+                "vm2",
             ])
             .env("HOME", dir.path())
             .output()
@@ -6587,9 +6788,14 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
             .args([
-                "sessions", "save", "load-test",
-                "--resource-group", "rg-test",
-                "--vms", "vm-alpha", "vm-beta",
+                "sessions",
+                "save",
+                "load-test",
+                "--resource-group",
+                "rg-test",
+                "--vms",
+                "vm-alpha",
+                "vm-beta",
             ])
             .env("HOME", dir.path())
             .output()
@@ -6630,9 +6836,13 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
             .args([
-                "sessions", "save", "delete-me",
-                "--resource-group", "rg1",
-                "--vms", "vm1",
+                "sessions",
+                "save",
+                "delete-me",
+                "--resource-group",
+                "rg1",
+                "--vms",
+                "vm1",
             ])
             .env("HOME", dir.path())
             .output()
@@ -6665,9 +6875,13 @@ created = \"2024-01-01T00:00:00Z\"\n";
             assert_cmd::Command::cargo_bin("azlin")
                 .unwrap()
                 .args([
-                    "sessions", "save", name,
-                    "--resource-group", "rg",
-                    "--vms", "vm1",
+                    "sessions",
+                    "save",
+                    name,
+                    "--resource-group",
+                    "rg",
+                    "--vms",
+                    "vm1",
                 ])
                 .env("HOME", dir.path())
                 .output()
@@ -6692,9 +6906,13 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
             .args([
-                "sessions", "save", "overwrite-me",
-                "--resource-group", "rg-old",
-                "--vms", "vm-old",
+                "sessions",
+                "save",
+                "overwrite-me",
+                "--resource-group",
+                "rg-old",
+                "--vms",
+                "vm-old",
             ])
             .env("HOME", dir.path())
             .output()
@@ -6703,9 +6921,13 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
             .args([
-                "sessions", "save", "overwrite-me",
-                "--resource-group", "rg-new",
-                "--vms", "vm-new",
+                "sessions",
+                "save",
+                "overwrite-me",
+                "--resource-group",
+                "rg-new",
+                "--vms",
+                "vm-new",
             ])
             .env("HOME", dir.path())
             .output()
@@ -6769,11 +6991,17 @@ created = \"2024-01-01T00:00:00Z\"\n";
         let output = assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
             .args([
-                "context", "create", "prod-env",
-                "--subscription-id", "sub-123",
-                "--tenant-id", "tenant-456",
-                "--resource-group", "prod-rg",
-                "--region", "eastus2",
+                "context",
+                "create",
+                "prod-env",
+                "--subscription-id",
+                "sub-123",
+                "--tenant-id",
+                "tenant-456",
+                "--resource-group",
+                "prod-rg",
+                "--region",
+                "eastus2",
             ])
             .env("HOME", dir.path())
             .output()
@@ -6781,7 +7009,11 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert!(output.status.success());
 
         // Verify the TOML file was written with the correct fields
-        let ctx_path = dir.path().join(".azlin").join("contexts").join("prod-env.toml");
+        let ctx_path = dir
+            .path()
+            .join(".azlin")
+            .join("contexts")
+            .join("prod-env.toml");
         assert!(ctx_path.exists());
         let content = fs::read_to_string(&ctx_path).unwrap();
         assert!(content.contains("sub-123"));
@@ -6907,8 +7139,16 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert!(stdout.contains("Renamed context"));
 
         // Old file should be gone, new file should exist
-        let old_path = dir.path().join(".azlin").join("contexts").join("old-name.toml");
-        let new_path = dir.path().join(".azlin").join("contexts").join("new-name.toml");
+        let old_path = dir
+            .path()
+            .join(".azlin")
+            .join("contexts")
+            .join("old-name.toml");
+        let new_path = dir
+            .path()
+            .join(".azlin")
+            .join("contexts")
+            .join("new-name.toml");
         assert!(!old_path.exists());
         assert!(new_path.exists());
 
@@ -7082,9 +7322,13 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_cmd::Command::cargo_bin("azlin")
             .unwrap()
             .args([
-                "sessions", "save", "json-sess",
-                "--resource-group", "rg",
-                "--vms", "vm1",
+                "sessions",
+                "save",
+                "json-sess",
+                "--resource-group",
+                "rg",
+                "--vms",
+                "vm1",
             ])
             .env("HOME", dir.path())
             .output()
@@ -7155,622 +7399,931 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_bastion_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["bastion", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["bastion", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_bastion_list_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["bastion", "list", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["bastion", "list", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_bastion_status_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["bastion", "status", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["bastion", "status", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_bastion_configure_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["bastion", "configure", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["bastion", "configure", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_snapshot_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["snapshot", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["snapshot", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_snapshot_create_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["snapshot", "create", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["snapshot", "create", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_snapshot_list_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["snapshot", "list", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["snapshot", "list", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_snapshot_restore_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["snapshot", "restore", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["snapshot", "restore", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_snapshot_delete_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["snapshot", "delete", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["snapshot", "delete", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_snapshot_enable_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["snapshot", "enable", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["snapshot", "enable", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_snapshot_disable_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["snapshot", "disable", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["snapshot", "disable", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_snapshot_sync_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["snapshot", "sync", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["snapshot", "sync", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_snapshot_status_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["snapshot", "status", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["snapshot", "status", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_storage_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["storage", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["storage", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_storage_mount_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["storage", "mount", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["storage", "mount", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_storage_create_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["storage", "create", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["storage", "create", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_storage_list_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["storage", "list", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["storage", "list", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_storage_status_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["storage", "status", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["storage", "status", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_storage_delete_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["storage", "delete", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["storage", "delete", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_tag_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["tag", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["tag", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_tag_add_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["tag", "add", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["tag", "add", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_tag_remove_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["tag", "remove", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["tag", "remove", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_tag_list_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["tag", "list", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["tag", "list", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_auth_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["auth", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["auth", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_auth_setup_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["auth", "setup", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["auth", "setup", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_auth_test_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["auth", "test", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["auth", "test", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_auth_list_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["auth", "list", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["auth", "list", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_auth_show_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["auth", "show", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["auth", "show", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_auth_remove_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["auth", "remove", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["auth", "remove", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_keys_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["keys", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["keys", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_keys_rotate_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["keys", "rotate", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["keys", "rotate", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_keys_list_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["keys", "list", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["keys", "list", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_keys_export_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["keys", "export", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["keys", "export", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_keys_backup_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["keys", "backup", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["keys", "backup", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_batch_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["batch", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["batch", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_batch_command_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["batch", "command", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["batch", "command", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_batch_stop_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["batch", "stop", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["batch", "stop", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_batch_start_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["batch", "start", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["batch", "start", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_batch_sync_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["batch", "sync", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["batch", "sync", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_fleet_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["fleet", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["fleet", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_fleet_run_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["fleet", "run", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["fleet", "run", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_fleet_workflow_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["fleet", "workflow", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["fleet", "workflow", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_costs_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["costs", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["costs", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_costs_dashboard_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["costs", "dashboard", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["costs", "dashboard", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_costs_history_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["costs", "history", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["costs", "history", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_costs_budget_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["costs", "budget", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["costs", "budget", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_costs_recommend_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["costs", "recommend", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["costs", "recommend", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_costs_actions_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["costs", "actions", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["costs", "actions", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_compose_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["compose", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["compose", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_compose_up_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["compose", "up", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["compose", "up", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_compose_down_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["compose", "down", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["compose", "down", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_compose_ps_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["compose", "ps", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["compose", "ps", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_ip_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["ip", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["ip", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_ip_check_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["ip", "check", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["ip", "check", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_disk_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["disk", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["disk", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_disk_add_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["disk", "add", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["disk", "add", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_github_runner_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["github-runner", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["github-runner", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_github_runner_enable_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["github-runner", "enable", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["github-runner", "enable", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_github_runner_disable_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["github-runner", "disable", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["github-runner", "disable", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_github_runner_status_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["github-runner", "status", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["github-runner", "status", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_github_runner_scale_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["github-runner", "scale", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["github-runner", "scale", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_autopilot_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["autopilot", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["autopilot", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_autopilot_enable_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["autopilot", "enable", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["autopilot", "enable", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_autopilot_disable_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["autopilot", "disable", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["autopilot", "disable", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_autopilot_status_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["autopilot", "status", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["autopilot", "status", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_autopilot_config_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["autopilot", "config", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["autopilot", "config", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_autopilot_run_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["autopilot", "run", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["autopilot", "run", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_web_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["web", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["web", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_web_start_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["web", "start", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["web", "start", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_web_stop_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["web", "stop", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["web", "stop", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_doit_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["doit", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["doit", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_doit_deploy_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["doit", "deploy", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["doit", "deploy", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_doit_status_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["doit", "status", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["doit", "status", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_doit_list_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["doit", "list", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["doit", "list", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_doit_show_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["doit", "show", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["doit", "show", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_doit_cleanup_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["doit", "cleanup", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["doit", "cleanup", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_doit_examples_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["doit", "examples", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["doit", "examples", "--help"])
+            .assert()
+            .success();
     }
 
     // ── CLI integration: top-level command --help ────────────────
 
     #[test]
     fn test_new_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["new", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["new", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_list_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["list", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["list", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_start_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["start", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["start", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_stop_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["stop", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["stop", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_show_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["show", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["show", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_connect_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["connect", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["connect", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_delete_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["delete", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["delete", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_health_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["health", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["health", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_env_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["env", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["env", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_cost_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["cost", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["cost", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_session_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["session", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["session", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_config_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["config", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["config", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_ask_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["ask", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["ask", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_do_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["do", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["do", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_clone_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["clone", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["clone", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_cp_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["cp", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["cp", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_sync_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["sync", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sync", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_update_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["update", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["update", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_logs_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["logs", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["logs", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_cleanup_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["cleanup", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["cleanup", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_prune_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["prune", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["prune", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_restore_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["restore", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["restore", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_status_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["status", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["status", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_code_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["code", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["code", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_os_update_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["os-update", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["os-update", "--help"])
+            .assert()
+            .success();
     }
 
     #[test]
     fn test_sync_keys_help() {
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["sync-keys", "--help"]).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sync-keys", "--help"])
+            .assert()
+            .success();
     }
 
     // ── CLI integration: config commands with temp home ──────────
@@ -7778,36 +8331,48 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_config_show_with_temp_home() {
         let dir = TempDir::new().unwrap();
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["config", "show"])
             .env("HOME", dir.path())
-            .output().unwrap();
+            .output()
+            .unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success() || stdout.contains("config") ||
-                stderr.contains("config") || stdout.contains("No"));
+        assert!(
+            out.status.success()
+                || stdout.contains("config")
+                || stderr.contains("config")
+                || stdout.contains("No")
+        );
     }
 
     #[test]
     fn test_config_set_and_show() {
         let dir = TempDir::new().unwrap();
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["config", "set", "resource_group", "test-rg"])
             .env("HOME", dir.path())
-            .output().unwrap();
-        let combined = format!("{}{}",
+            .output()
+            .unwrap();
+        let combined = format!(
+            "{}{}",
             String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr));
-        assert!(out.status.success() || combined.contains("config") ||
-                combined.contains("set"));
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(out.status.success() || combined.contains("config") || combined.contains("set"));
     }
 
     // ── CLI integration: completions content verification ────────
 
     #[test]
     fn test_completions_zsh_content() {
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["completions", "zsh"]).output().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["completions", "zsh"])
+            .output()
+            .unwrap();
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(stdout.contains("compdef") || stdout.len() > 100);
@@ -7815,16 +8380,22 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_completions_powershell() {
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["completions", "powershell"]).output().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["completions", "powershell"])
+            .output()
+            .unwrap();
         assert!(out.status.success());
         assert!(out.stdout.len() > 50);
     }
 
     #[test]
     fn test_completions_elvish() {
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["completions", "elvish"]).output().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["completions", "elvish"])
+            .output()
+            .unwrap();
         assert!(out.status.success());
         assert!(out.stdout.len() > 50);
     }
@@ -7834,59 +8405,74 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_list_no_config() {
         let dir = TempDir::new().unwrap();
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["list"])
             .env("HOME", dir.path())
             .env_remove("AZURE_SUBSCRIPTION_ID")
-            .output().unwrap();
+            .output()
+            .unwrap();
         // Should fail gracefully, not crash
         let stderr = String::from_utf8_lossy(&out.stderr);
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(!out.status.success() ||
-                stderr.contains("config") || stderr.contains("subscription") ||
-                stderr.contains("auth") || stderr.contains("az login") ||
-                stdout.contains("No VMs"));
+        assert!(
+            !out.status.success()
+                || stderr.contains("config")
+                || stderr.contains("subscription")
+                || stderr.contains("auth")
+                || stderr.contains("az login")
+                || stdout.contains("No VMs")
+        );
     }
 
     #[test]
     fn test_show_no_config() {
         let dir = TempDir::new().unwrap();
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["show", "nonexistent-vm"])
             .env("HOME", dir.path())
             .env_remove("AZURE_SUBSCRIPTION_ID")
-            .output().unwrap();
-        assert!(!out.status.success() ||
-                String::from_utf8_lossy(&out.stderr).len() > 0);
+            .output()
+            .unwrap();
+        assert!(!out.status.success() || !String::from_utf8_lossy(&out.stderr).is_empty());
     }
 
     #[test]
     fn test_health_no_config() {
         let dir = TempDir::new().unwrap();
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["health"])
             .env("HOME", dir.path())
             .env_remove("AZURE_SUBSCRIPTION_ID")
-            .output().unwrap();
+            .output()
+            .unwrap();
         // Graceful failure or empty result
-        let combined = format!("{}{}",
+        let combined = format!(
+            "{}{}",
             String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr));
-        assert!(!out.status.success() || combined.len() > 0);
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!out.status.success() || !combined.is_empty());
     }
 
     #[test]
     fn test_status_no_config() {
         let dir = TempDir::new().unwrap();
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["status"])
             .env("HOME", dir.path())
             .env_remove("AZURE_SUBSCRIPTION_ID")
-            .output().unwrap();
-        let combined = format!("{}{}",
+            .output()
+            .unwrap();
+        let combined = format!(
+            "{}{}",
             String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr));
-        assert!(!out.status.success() || combined.len() > 0);
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!out.status.success() || !combined.is_empty());
     }
 
     // ── CLI integration: context full lifecycle ──────────────────
@@ -7895,29 +8481,50 @@ created = \"2024-01-01T00:00:00Z\"\n";
     fn test_context_full_lifecycle() {
         let dir = TempDir::new().unwrap();
         // create
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
-            .args(["context", "create", "lifecycle-ctx",
-                   "--subscription-id", "sub-123",
-                   "--resource-group", "rg-test"])
-            .env("HOME", dir.path()).assert().success();
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args([
+                "context",
+                "create",
+                "lifecycle-ctx",
+                "--subscription-id",
+                "sub-123",
+                "--resource-group",
+                "rg-test",
+            ])
+            .env("HOME", dir.path())
+            .assert()
+            .success();
         // list
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["context", "list"])
-            .env("HOME", dir.path()).output().unwrap();
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
         assert!(String::from_utf8_lossy(&out.stdout).contains("lifecycle-ctx"));
         // use
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["context", "use", "lifecycle-ctx"])
-            .env("HOME", dir.path()).assert().success();
+            .env("HOME", dir.path())
+            .assert()
+            .success();
         // show
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["context", "show"])
-            .env("HOME", dir.path()).output().unwrap();
+            .env("HOME", dir.path())
+            .output()
+            .unwrap();
         assert!(String::from_utf8_lossy(&out.stdout).contains("lifecycle-ctx"));
         // delete
-        assert_cmd::Command::cargo_bin("azlin").unwrap()
+        assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["context", "delete", "lifecycle-ctx", "--force"])
-            .env("HOME", dir.path()).assert().success();
+            .env("HOME", dir.path())
+            .assert()
+            .success();
     }
 
     // ── CLI integration: auth list with temp home ────────────────
@@ -7925,13 +8532,20 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_auth_list_empty() {
         let dir = TempDir::new().unwrap();
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["auth", "list"])
             .env("HOME", dir.path())
-            .output().unwrap();
+            .output()
+            .unwrap();
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains("No") || stdout.contains("profile") || stdout.is_empty() || stdout.contains("auth"));
+        assert!(
+            stdout.contains("No")
+                || stdout.contains("profile")
+                || stdout.is_empty()
+                || stdout.contains("auth")
+        );
     }
 
     // ── CLI integration: sessions with temp home ─────────────────
@@ -7939,10 +8553,12 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_sessions_list_empty_temp() {
         let dir = TempDir::new().unwrap();
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["sessions", "list"])
             .env("HOME", dir.path())
-            .output().unwrap();
+            .output()
+            .unwrap();
         assert!(out.status.success());
     }
 
@@ -7951,10 +8567,12 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_template_list_empty_temp() {
         let dir = TempDir::new().unwrap();
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["template", "list"])
             .env("HOME", dir.path())
-            .output().unwrap();
+            .output()
+            .unwrap();
         assert!(out.status.success());
     }
 
@@ -7962,9 +8580,11 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_verbose_version() {
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["--verbose", "version"])
-            .output().unwrap();
+            .output()
+            .unwrap();
         assert!(out.status.success());
         assert!(String::from_utf8_lossy(&out.stdout).contains("2.3.0"));
     }
@@ -7973,17 +8593,21 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_json_output_version() {
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["--output", "json", "version"])
-            .output().unwrap();
+            .output()
+            .unwrap();
         assert!(out.status.success());
     }
 
     #[test]
     fn test_csv_output_version() {
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["--output", "csv", "version"])
-            .output().unwrap();
+            .output()
+            .unwrap();
         assert!(out.status.success());
     }
 
@@ -7991,22 +8615,30 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_invalid_subcommand() {
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["totally-bogus-command"])
-            .output().unwrap();
+            .output()
+            .unwrap();
         assert!(!out.status.success());
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.contains("error") || stderr.contains("unrecognized") ||
-                stderr.contains("invalid") || stderr.len() > 0);
+        assert!(
+            stderr.contains("error")
+                || stderr.contains("unrecognized")
+                || stderr.contains("invalid")
+                || !stderr.is_empty()
+        );
     }
 
     // ── CLI integration: doit examples ───────────────────────────
 
     #[test]
     fn test_doit_examples() {
-        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
             .args(["doit", "examples"])
-            .output().unwrap();
+            .output()
+            .unwrap();
         assert!(out.status.success());
         assert!(out.stdout.len() > 10);
     }
@@ -8249,8 +8881,22 @@ created = \"2024-01-01T00:00:00Z\"\n";
         ]);
         let rows = super::parse_recommendation_rows(&data);
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0], ("Cost".to_string(), "High".to_string(), "Underutilized VM".to_string()));
-        assert_eq!(rows[1], ("Security".to_string(), "Medium".to_string(), "Open port".to_string()));
+        assert_eq!(
+            rows[0],
+            (
+                "Cost".to_string(),
+                "High".to_string(),
+                "Underutilized VM".to_string()
+            )
+        );
+        assert_eq!(
+            rows[1],
+            (
+                "Security".to_string(),
+                "Medium".to_string(),
+                "Open port".to_string()
+            )
+        );
     }
 
     #[test]
@@ -8350,8 +8996,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
     fn test_templates_list_with_entries() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
-        let tpl1 = super::templates::build_template_toml("a", None, Some("small"), Some("west"), None);
-        let tpl2 = super::templates::build_template_toml("b", None, Some("large"), Some("east"), None);
+        let tpl1 =
+            super::templates::build_template_toml("a", None, Some("small"), Some("west"), None);
+        let tpl2 =
+            super::templates::build_template_toml("b", None, Some("large"), Some("east"), None);
         super::templates::save_template(dir, "a", &tpl1).unwrap();
         super::templates::save_template(dir, "b", &tpl2).unwrap();
 
@@ -8398,7 +9046,11 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_sessions_build_toml() {
-        let val = super::sessions::build_session_toml("s1", "rg1", &["vm1".to_string(), "vm2".to_string()]);
+        let val = super::sessions::build_session_toml(
+            "s1",
+            "rg1",
+            &["vm1".to_string(), "vm2".to_string()],
+        );
         let tbl = val.as_table().unwrap();
         assert_eq!(tbl["name"].as_str().unwrap(), "s1");
         assert_eq!(tbl["resource_group"].as_str().unwrap(), "rg1");
@@ -8464,7 +9116,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_contexts_build_toml_minimal() {
-        let result = super::contexts::build_context_toml("ctx1", None, None, None, None, None).unwrap();
+        let result =
+            super::contexts::build_context_toml("ctx1", None, None, None, None, None).unwrap();
         assert!(result.contains("name = \"ctx1\""));
     }
 
@@ -8524,7 +9177,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
     fn test_contexts_rename_file() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
-        let toml_content = super::contexts::build_context_toml("old", None, None, None, None, None).unwrap();
+        let toml_content =
+            super::contexts::build_context_toml("old", None, None, None, None, None).unwrap();
         fs::write(dir.join("old.toml"), &toml_content).unwrap();
 
         super::contexts::rename_context_file(dir, "old", "new").unwrap();
@@ -8540,5 +9194,411 @@ created = \"2024-01-01T00:00:00Z\"\n";
         let tmp = TempDir::new().unwrap();
         let result = super::contexts::rename_context_file(tmp.path(), "nope", "also-nope");
         assert!(result.is_err());
+    }
+
+    // ── env_helpers tests ────────────────────────────────────────
+
+    #[test]
+    fn test_split_env_var_valid() {
+        let (k, v) = super::env_helpers::split_env_var("FOO=bar").unwrap();
+        assert_eq!(k, "FOO");
+        assert_eq!(v, "bar");
+    }
+
+    #[test]
+    fn test_split_env_var_value_with_equals() {
+        let (k, v) = super::env_helpers::split_env_var("DSN=postgres://u:p@h/db?opt=1").unwrap();
+        assert_eq!(k, "DSN");
+        assert_eq!(v, "postgres://u:p@h/db?opt=1");
+    }
+
+    #[test]
+    fn test_split_env_var_empty_value() {
+        let (k, v) = super::env_helpers::split_env_var("EMPTY=").unwrap();
+        assert_eq!(k, "EMPTY");
+        assert_eq!(v, "");
+    }
+
+    #[test]
+    fn test_split_env_var_no_equals() {
+        assert!(super::env_helpers::split_env_var("NO_EQUALS").is_none());
+    }
+
+    #[test]
+    fn test_split_env_var_leading_equals() {
+        assert!(super::env_helpers::split_env_var("=value").is_none());
+    }
+
+    #[test]
+    fn test_build_env_set_cmd_contains_key_value() {
+        let cmd = super::env_helpers::build_env_set_cmd("MY_KEY", "'my_val'");
+        assert!(cmd.contains("MY_KEY"));
+        assert!(cmd.contains("'my_val'"));
+        assert!(cmd.contains("grep -q"));
+        assert!(cmd.contains("~/.profile"));
+    }
+
+    #[test]
+    fn test_build_env_delete_cmd() {
+        let cmd = super::env_helpers::build_env_delete_cmd("OLD_VAR");
+        assert!(cmd.contains("OLD_VAR"));
+        assert!(cmd.contains("sed -i"));
+        assert!(cmd.contains("~/.profile"));
+    }
+
+    #[test]
+    fn test_env_list_cmd() {
+        assert_eq!(super::env_helpers::env_list_cmd(), "env | sort");
+    }
+
+    #[test]
+    fn test_env_clear_cmd() {
+        let cmd = super::env_helpers::env_clear_cmd();
+        assert!(cmd.contains("sed -i"));
+        assert!(cmd.contains("export"));
+    }
+
+    #[test]
+    fn test_parse_env_output_basic() {
+        let output = "HOME=/root\nPATH=/usr/bin\nSHELL=/bin/bash\n";
+        let vars = super::env_helpers::parse_env_output(output);
+        assert_eq!(vars.len(), 3);
+        assert_eq!(vars[0], ("HOME".into(), "/root".into()));
+        assert_eq!(vars[1], ("PATH".into(), "/usr/bin".into()));
+    }
+
+    #[test]
+    fn test_parse_env_output_empty() {
+        assert!(super::env_helpers::parse_env_output("").is_empty());
+    }
+
+    #[test]
+    fn test_parse_env_output_value_with_equals() {
+        let output = "DSN=host=localhost dbname=test\n";
+        let vars = super::env_helpers::parse_env_output(output);
+        assert_eq!(vars.len(), 1);
+        assert_eq!(vars[0].0, "DSN");
+        assert_eq!(vars[0].1, "host=localhost dbname=test");
+    }
+
+    #[test]
+    fn test_build_env_file() {
+        let vars = vec![
+            ("A".into(), "1".into()),
+            ("B".into(), "two".into()),
+        ];
+        let file = super::env_helpers::build_env_file(&vars);
+        assert_eq!(file, "A=1\nB=two");
+    }
+
+    #[test]
+    fn test_build_env_file_empty() {
+        assert_eq!(super::env_helpers::build_env_file(&[]), "");
+    }
+
+    #[test]
+    fn test_parse_env_file_basic() {
+        let content = "FOO=bar\n# comment\n\nBAZ=qux\n";
+        let vars = super::env_helpers::parse_env_file(content);
+        assert_eq!(vars.len(), 2);
+        assert_eq!(vars[0], ("FOO".into(), "bar".into()));
+        assert_eq!(vars[1], ("BAZ".into(), "qux".into()));
+    }
+
+    #[test]
+    fn test_parse_env_file_empty_lines_only() {
+        assert!(super::env_helpers::parse_env_file("\n\n  \n").is_empty());
+    }
+
+    #[test]
+    fn test_parse_env_file_comments_only() {
+        assert!(super::env_helpers::parse_env_file("# comment\n# another").is_empty());
+    }
+
+    #[test]
+    fn test_parse_env_file_whitespace_trimming() {
+        let content = "  KEY=value  \n  OTHER=val2  \n";
+        let vars = super::env_helpers::parse_env_file(content);
+        assert_eq!(vars.len(), 2);
+        assert_eq!(vars[0].0, "KEY");
+        assert_eq!(vars[0].1, "value");  // line is trimmed, value after = is as-is
+    }
+
+    #[test]
+    fn test_parse_env_file_roundtrip() {
+        let original = vec![
+            ("X".into(), "10".into()),
+            ("Y".into(), "hello world".into()),
+        ];
+        let file = super::env_helpers::build_env_file(&original);
+        let parsed = super::env_helpers::parse_env_file(&file);
+        assert_eq!(parsed, original);
+    }
+
+    // ── sync_helpers tests ───────────────────────────────────────
+
+    #[test]
+    fn test_default_dotfiles_has_expected_entries() {
+        let files = super::sync_helpers::default_dotfiles();
+        assert!(files.contains(&".bashrc"));
+        assert!(files.contains(&".profile"));
+        assert!(files.contains(&".vimrc"));
+        assert!(files.contains(&".gitconfig"));
+        assert!(files.contains(&".tmux.conf"));
+        assert_eq!(files.len(), 5);
+    }
+
+    #[test]
+    fn test_build_rsync_args_structure() {
+        let args = super::sync_helpers::build_rsync_args(
+            "/home/me/.bashrc",
+            "azureuser",
+            "10.0.0.1",
+            ".bashrc",
+        );
+        assert_eq!(args[0], "-az");
+        assert_eq!(args[1], "-e");
+        assert_eq!(args[2], "ssh -o StrictHostKeyChecking=no");
+        assert_eq!(args[3], "/home/me/.bashrc");
+        assert_eq!(args[4], "azureuser@10.0.0.1:~/.bashrc");
+    }
+
+    #[test]
+    fn test_build_rsync_args_special_chars_in_ip() {
+        let args = super::sync_helpers::build_rsync_args(
+            "/tmp/f",
+            "user",
+            "192.168.1.100",
+            ".vimrc",
+        );
+        assert!(args[4].contains("192.168.1.100"));
+    }
+
+    // ── health_helpers tests ─────────────────────────────────────
+
+    #[test]
+    fn test_metric_color_green() {
+        assert_eq!(super::health_helpers::metric_color(0.0), "green");
+        assert_eq!(super::health_helpers::metric_color(50.0), "green");
+    }
+
+    #[test]
+    fn test_metric_color_yellow() {
+        assert_eq!(super::health_helpers::metric_color(50.1), "yellow");
+        assert_eq!(super::health_helpers::metric_color(80.0), "yellow");
+    }
+
+    #[test]
+    fn test_metric_color_red() {
+        assert_eq!(super::health_helpers::metric_color(80.1), "red");
+        assert_eq!(super::health_helpers::metric_color(100.0), "red");
+    }
+
+    #[test]
+    fn test_state_color_running() {
+        assert_eq!(super::health_helpers::state_color("running"), "green");
+    }
+
+    #[test]
+    fn test_state_color_stopped_deallocated() {
+        assert_eq!(super::health_helpers::state_color("stopped"), "red");
+        assert_eq!(super::health_helpers::state_color("deallocated"), "red");
+    }
+
+    #[test]
+    fn test_state_color_unknown() {
+        assert_eq!(super::health_helpers::state_color("starting"), "yellow");
+        assert_eq!(super::health_helpers::state_color(""), "yellow");
+    }
+
+    #[test]
+    fn test_format_percentage() {
+        assert_eq!(super::health_helpers::format_percentage(0.0), "0.0%");
+        assert_eq!(super::health_helpers::format_percentage(99.95), "99.9%");
+        assert_eq!(super::health_helpers::format_percentage(42.567), "42.6%");
+    }
+
+    #[test]
+    fn test_status_emoji_green() {
+        assert_eq!(super::health_helpers::status_emoji(10.0, 20.0, 30.0), "🟢");
+        assert_eq!(super::health_helpers::status_emoji(70.0, 70.0, 70.0), "🟢");
+    }
+
+    #[test]
+    fn test_status_emoji_yellow() {
+        assert_eq!(super::health_helpers::status_emoji(70.1, 10.0, 10.0), "🟡");
+        assert_eq!(super::health_helpers::status_emoji(10.0, 70.1, 10.0), "🟡");
+        assert_eq!(super::health_helpers::status_emoji(10.0, 10.0, 70.1), "🟡");
+    }
+
+    #[test]
+    fn test_status_emoji_red() {
+        assert_eq!(super::health_helpers::status_emoji(90.1, 10.0, 10.0), "🔴");
+        assert_eq!(super::health_helpers::status_emoji(10.0, 90.1, 10.0), "🔴");
+        assert_eq!(super::health_helpers::status_emoji(10.0, 10.0, 90.1), "🔴");
+    }
+
+    #[test]
+    fn test_status_emoji_boundary() {
+        // exactly 90.0 is yellow, not red
+        assert_eq!(super::health_helpers::status_emoji(90.0, 90.0, 90.0), "🟡");
+    }
+
+    // ── snapshot_helpers tests ───────────────────────────────────
+
+    #[test]
+    fn test_build_snapshot_name() {
+        let name = super::snapshot_helpers::build_snapshot_name("my-vm", "20250101_120000");
+        assert_eq!(name, "my-vm_snapshot_20250101_120000");
+    }
+
+    #[test]
+    fn test_build_snapshot_name_special_chars() {
+        let name = super::snapshot_helpers::build_snapshot_name("vm-with-dashes", "ts");
+        assert_eq!(name, "vm-with-dashes_snapshot_ts");
+    }
+
+    #[test]
+    fn test_filter_snapshots_matches() {
+        let snaps: Vec<serde_json::Value> = vec![
+            serde_json::json!({"name": "my-vm_snapshot_1", "diskSizeGb": 30}),
+            serde_json::json!({"name": "other-vm_snapshot_1", "diskSizeGb": 50}),
+            serde_json::json!({"name": "my-vm_snapshot_2", "diskSizeGb": 30}),
+        ];
+        let filtered = super::snapshot_helpers::filter_snapshots(&snaps, "my-vm");
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_snapshots_no_match() {
+        let snaps: Vec<serde_json::Value> = vec![
+            serde_json::json!({"name": "alpha_snapshot_1"}),
+        ];
+        let filtered = super::snapshot_helpers::filter_snapshots(&snaps, "beta");
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_filter_snapshots_missing_name_field() {
+        let snaps: Vec<serde_json::Value> = vec![
+            serde_json::json!({"id": 1}),
+            serde_json::json!({"name": "vm_snapshot_1"}),
+        ];
+        let filtered = super::snapshot_helpers::filter_snapshots(&snaps, "vm");
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_snapshots_empty_list() {
+        let snaps: Vec<serde_json::Value> = vec![];
+        assert!(super::snapshot_helpers::filter_snapshots(&snaps, "anything").is_empty());
+    }
+
+    #[test]
+    fn test_snapshot_row_full() {
+        let snap = serde_json::json!({
+            "name": "vm_snapshot_1",
+            "diskSizeGb": 128,
+            "timeCreated": "2025-01-15T10:00:00Z",
+            "provisioningState": "Succeeded"
+        });
+        let row = super::snapshot_helpers::snapshot_row(&snap);
+        assert_eq!(row[0], "vm_snapshot_1");
+        assert_eq!(row[1], "128");
+        assert_eq!(row[2], "2025-01-15T10:00:00Z");
+        assert_eq!(row[3], "Succeeded");
+    }
+
+    #[test]
+    fn test_snapshot_row_missing_fields() {
+        let snap = serde_json::json!({});
+        let row = super::snapshot_helpers::snapshot_row(&snap);
+        assert_eq!(row[0], "-");
+        assert_eq!(row[1], "null");
+        assert_eq!(row[2], "-");
+        assert_eq!(row[3], "-");
+    }
+
+    // ── output_helpers tests ─────────────────────────────────────
+
+    #[test]
+    fn test_format_as_csv_basic() {
+        let headers = &["Name", "Value"];
+        let rows = vec![
+            vec!["A".into(), "1".into()],
+            vec!["B".into(), "2".into()],
+        ];
+        let csv = super::output_helpers::format_as_csv(headers, &rows);
+        assert_eq!(csv, "Name,Value\nA,1\nB,2");
+    }
+
+    #[test]
+    fn test_format_as_csv_empty_rows() {
+        let csv = super::output_helpers::format_as_csv(&["H1", "H2"], &[]);
+        assert_eq!(csv, "H1,H2");
+    }
+
+    #[test]
+    fn test_format_as_csv_single_column() {
+        let rows = vec![vec!["only".into()]];
+        let csv = super::output_helpers::format_as_csv(&["Col"], &rows);
+        assert_eq!(csv, "Col\nonly");
+    }
+
+    #[test]
+    fn test_format_as_table_basic() {
+        let headers = &["Name", "Age"];
+        let rows = vec![
+            vec!["Alice".into(), "30".into()],
+            vec!["Bob".into(), "25".into()],
+        ];
+        let tbl = super::output_helpers::format_as_table(headers, &rows);
+        assert!(tbl.contains("Name"));
+        assert!(tbl.contains("Age"));
+        assert!(tbl.contains("Alice"));
+        assert!(tbl.contains("Bob"));
+        // columns should be aligned
+        let lines: Vec<&str> = tbl.lines().collect();
+        assert_eq!(lines.len(), 3); // header + 2 rows
+    }
+
+    #[test]
+    fn test_format_as_table_wide_values() {
+        let headers = &["K", "V"];
+        let rows = vec![vec!["short".into(), "a very long value here".into()]];
+        let tbl = super::output_helpers::format_as_table(headers, &rows);
+        let lines: Vec<&str> = tbl.lines().collect();
+        // header should be padded to match the widest cell
+        assert!(lines[0].contains("V"));
+        assert!(lines[1].contains("a very long value here"));
+    }
+
+    #[test]
+    fn test_format_as_table_empty_rows() {
+        let tbl = super::output_helpers::format_as_table(&["X"], &[]);
+        assert_eq!(tbl, "X");
+    }
+
+    #[test]
+    fn test_format_as_json_basic() {
+        let items = vec![1, 2, 3];
+        let json = super::output_helpers::format_as_json(&items);
+        let parsed: Vec<i32> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_format_as_json_strings() {
+        let items = vec!["hello", "world"];
+        let json = super::output_helpers::format_as_json(&items);
+        assert!(json.contains("hello"));
+        assert!(json.contains("world"));
+    }
+
+    #[test]
+    fn test_format_as_json_empty() {
+        let items: Vec<String> = vec![];
+        let json = super::output_helpers::format_as_json(&items);
+        assert_eq!(json.trim(), "[]");
     }
 }

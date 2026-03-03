@@ -454,6 +454,10 @@ pub enum Commands {
         /// Check a single VM by name
         #[arg(long)]
         vm: Option<String>,
+
+        /// Launch interactive TUI dashboard
+        #[arg(long)]
+        tui: bool,
     },
 
     /// Run 'w' command on all VMs (who's logged in)
