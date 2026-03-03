@@ -7455,6 +7455,151 @@ mod autopilot_helpers {
     }
 }
 
+/// Pure helpers for VM lifecycle action labelling.
+#[allow(dead_code)]
+mod stop_helpers {
+    /// Return the (in-progress, completed) label pair for a stop/deallocate action.
+    /// E.g. `("Deallocating", "Deallocated")` or `("Stopping", "Stopped")`.
+    pub fn stop_action_labels(deallocate: bool) -> (&'static str, &'static str) {
+        if deallocate {
+            ("Deallocating", "Deallocated")
+        } else {
+            ("Stopping", "Stopped")
+        }
+    }
+}
+
+/// Pure helpers for display-formatting inline values.
+#[allow(dead_code)]
+mod display_helpers {
+    /// Render a serde_json::Value as a user-friendly string for config display.
+    /// `Null` → `"null"`, `String` → the raw string, everything else → its JSON representation.
+    pub fn config_value_display(v: &serde_json::Value) -> String {
+        match v {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Null => "null".to_string(),
+            other => other.to_string(),
+        }
+    }
+
+    /// Truncate a VM name to `max_len` characters, appending "..." if truncated.
+    /// Returns the name unchanged if it fits within `max_len`.
+    pub fn truncate_vm_name(name: &str, max_len: usize) -> String {
+        if name.len() > max_len && max_len > 3 {
+            format!("{}...", &name[..max_len - 3])
+        } else {
+            name.to_string()
+        }
+    }
+
+    /// Format a list of tmux session names for display, collapsing long lists.
+    /// If the list has more than `max_show` entries, the remainder is summarised
+    /// as `"+N more"`.
+    pub fn format_tmux_sessions(sessions: &[String], max_show: usize) -> String {
+        if sessions.is_empty() {
+            "-".to_string()
+        } else if sessions.len() <= max_show {
+            sessions.join(", ")
+        } else {
+            format!(
+                "{}, +{} more",
+                sessions[..max_show].join(", "),
+                sessions.len() - max_show,
+            )
+        }
+    }
+
+    /// Format the reconnect prompt message for SSH auto-reconnect.
+    pub fn reconnect_prompt(attempt: u32, max_retries: u32) -> String {
+        format!(
+            "SSH disconnected. Reconnect? (attempt {}/{}) [Y/n] ",
+            attempt, max_retries,
+        )
+    }
+}
+
+/// Pure helpers for tag parsing and validation.
+#[allow(dead_code)]
+mod tag_helpers {
+    /// Split a `key=value` tag string. Returns `None` if the format is invalid
+    /// (missing `=`, empty key, or fewer than 2 parts).
+    pub fn parse_tag(input: &str) -> Option<(&str, &str)> {
+        let parts: Vec<&str> = input.splitn(2, '=').collect();
+        if parts.len() == 2 && !parts[0].is_empty() {
+            Some((parts[0], parts[1]))
+        } else {
+            None
+        }
+    }
+
+    /// Validate a list of tag strings, returning the first invalid one (if any).
+    pub fn find_invalid_tag(tags: &[String]) -> Option<&str> {
+        tags.iter().find(|t| parse_tag(t).is_none()).map(|t| t.as_str())
+    }
+}
+
+/// Pure helpers for disk naming conventions.
+#[allow(dead_code)]
+mod disk_helpers {
+    /// Build a data-disk name for a VM: `{vm_name}_datadisk_{lun}`.
+    pub fn build_data_disk_name(vm_name: &str, lun: u32) -> String {
+        format!("{}_datadisk_{}", vm_name, lun)
+    }
+
+    /// Build the restored OS disk name: `{vm_name}_OsDisk_restored`.
+    pub fn build_restored_disk_name(vm_name: &str) -> String {
+        format!("{}_OsDisk_restored", vm_name)
+    }
+}
+
+/// Pure helpers for AI-generated command validation.
+#[allow(dead_code)]
+mod command_helpers {
+    /// Check whether a command string is allowed for execution.
+    /// Currently only allows commands starting with `"az "`.
+    pub fn is_allowed_command(cmd: &str) -> bool {
+        cmd.trim().starts_with("az ")
+    }
+
+    /// Classify a command and return a user-facing skip reason, or `None` if it's allowed.
+    pub fn skip_reason(cmd: &str) -> Option<String> {
+        let trimmed = cmd.trim();
+        if trimmed.is_empty() {
+            Some("empty command".to_string())
+        } else if !is_allowed_command(trimmed) {
+            Some(format!("Skipping non-Azure command: {}", trimmed))
+        } else {
+            None
+        }
+    }
+}
+
+/// Pure helpers for autopilot idle-detection parsing.
+#[allow(dead_code)]
+mod autopilot_parse_helpers {
+    /// Parse CPU percentage and uptime from the combined SSH output
+    /// of `/proc/stat` + `/proc/uptime` commands.
+    /// Returns `(cpu_pct, uptime_secs)`.
+    pub fn parse_idle_check(stdout: &str) -> (f64, f64) {
+        let lines: Vec<&str> = stdout.trim().lines().collect();
+        let cpu_pct = lines
+            .first()
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(100.0);
+        let uptime_secs = lines
+            .get(1)
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        (cpu_pct, uptime_secs)
+    }
+
+    /// Decide whether a VM is idle given its CPU percentage, uptime in seconds,
+    /// and the configured idle threshold in minutes.
+    pub fn is_idle(cpu_pct: f64, uptime_secs: f64, idle_threshold_minutes: u32) -> bool {
+        cpu_pct < 5.0 && uptime_secs > (idle_threshold_minutes as f64) * 60.0
+    }
+}
+
 /// Pure helpers for batch handler result parsing and aggregation.
 mod batch_helpers {
     /// Parse VM resource IDs from the TSV output of
@@ -15986,5 +16131,242 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_mount_path_not_absolute() {
         assert!(super::mount_helpers::validate_mount_path("relative/path").is_err());
+    }
+
+    // ── stop_helpers tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_stop_action_labels_deallocate() {
+        let (action, done) = super::stop_helpers::stop_action_labels(true);
+        assert_eq!(action, "Deallocating");
+        assert_eq!(done, "Deallocated");
+    }
+
+    #[test]
+    fn test_stop_action_labels_stop() {
+        let (action, done) = super::stop_helpers::stop_action_labels(false);
+        assert_eq!(action, "Stopping");
+        assert_eq!(done, "Stopped");
+    }
+
+    // ── display_helpers tests ───────────────────────────────────────
+
+    #[test]
+    fn test_config_value_display_string() {
+        let v = serde_json::Value::String("hello".to_string());
+        assert_eq!(super::display_helpers::config_value_display(&v), "hello");
+    }
+
+    #[test]
+    fn test_config_value_display_null() {
+        assert_eq!(
+            super::display_helpers::config_value_display(&serde_json::Value::Null),
+            "null"
+        );
+    }
+
+    #[test]
+    fn test_config_value_display_number() {
+        let v = serde_json::json!(42);
+        assert_eq!(super::display_helpers::config_value_display(&v), "42");
+    }
+
+    #[test]
+    fn test_truncate_vm_name_short() {
+        assert_eq!(
+            super::display_helpers::truncate_vm_name("my-vm", 20),
+            "my-vm"
+        );
+    }
+
+    #[test]
+    fn test_truncate_vm_name_long() {
+        let name = "azlin-very-long-vm-name-12345";
+        let result = super::display_helpers::truncate_vm_name(name, 20);
+        assert_eq!(result, "azlin-very-long-v...");
+        assert_eq!(result.len(), 20);
+    }
+
+    #[test]
+    fn test_truncate_vm_name_exact_boundary() {
+        let name = "exactly-twenty-chars";
+        assert_eq!(name.len(), 20);
+        assert_eq!(
+            super::display_helpers::truncate_vm_name(name, 20),
+            name
+        );
+    }
+
+    #[test]
+    fn test_format_tmux_sessions_empty() {
+        let sessions: Vec<String> = vec![];
+        assert_eq!(
+            super::display_helpers::format_tmux_sessions(&sessions, 3),
+            "-"
+        );
+    }
+
+    #[test]
+    fn test_format_tmux_sessions_few() {
+        let sessions = vec!["main".to_string(), "dev".to_string()];
+        assert_eq!(
+            super::display_helpers::format_tmux_sessions(&sessions, 3),
+            "main, dev"
+        );
+    }
+
+    #[test]
+    fn test_format_tmux_sessions_overflow() {
+        let sessions: Vec<String> = (1..=5).map(|i| format!("s{}", i)).collect();
+        let result = super::display_helpers::format_tmux_sessions(&sessions, 3);
+        assert_eq!(result, "s1, s2, s3, +2 more");
+    }
+
+    #[test]
+    fn test_reconnect_prompt_format() {
+        let msg = super::display_helpers::reconnect_prompt(2, 5);
+        assert!(msg.contains("2/5"));
+        assert!(msg.contains("[Y/n]"));
+    }
+
+    // ── tag_helpers tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_parse_tag_key_value() {
+        assert_eq!(
+            super::tag_helpers::parse_tag("env=production"),
+            Some(("env", "production"))
+        );
+    }
+
+    #[test]
+    fn test_parse_tag_missing_equals() {
+        assert_eq!(super::tag_helpers::parse_tag("justkey"), None);
+    }
+
+    #[test]
+    fn test_parse_tag_empty_key() {
+        assert_eq!(super::tag_helpers::parse_tag("=value"), None);
+    }
+
+    #[test]
+    fn test_parse_tag_embedded_equals() {
+        assert_eq!(
+            super::tag_helpers::parse_tag("key=val=ue"),
+            Some(("key", "val=ue"))
+        );
+    }
+
+    #[test]
+    fn test_find_invalid_tag_all_valid() {
+        let tags = vec!["a=1".to_string(), "b=2".to_string()];
+        assert_eq!(super::tag_helpers::find_invalid_tag(&tags), None);
+    }
+
+    #[test]
+    fn test_find_invalid_tag_has_bad() {
+        let tags = vec!["a=1".to_string(), "bad".to_string(), "c=3".to_string()];
+        assert_eq!(super::tag_helpers::find_invalid_tag(&tags), Some("bad"));
+    }
+
+    // ── disk_helpers tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_build_data_disk_name_lun0() {
+        assert_eq!(
+            super::disk_helpers::build_data_disk_name("my-vm", 0),
+            "my-vm_datadisk_0"
+        );
+    }
+
+    #[test]
+    fn test_build_data_disk_name_lun5() {
+        assert_eq!(
+            super::disk_helpers::build_data_disk_name("worker", 5),
+            "worker_datadisk_5"
+        );
+    }
+
+    #[test]
+    fn test_build_restored_disk_name() {
+        assert_eq!(
+            super::disk_helpers::build_restored_disk_name("my-vm"),
+            "my-vm_OsDisk_restored"
+        );
+    }
+
+    // ── command_helpers tests ───────────────────────────────────────
+
+    #[test]
+    fn test_is_allowed_command_az() {
+        assert!(super::command_helpers::is_allowed_command("az vm list"));
+    }
+
+    #[test]
+    fn test_is_allowed_command_non_az() {
+        assert!(!super::command_helpers::is_allowed_command("rm -rf /"));
+    }
+
+    #[test]
+    fn test_is_allowed_command_whitespace_prefix() {
+        assert!(super::command_helpers::is_allowed_command("  az vm list"));
+    }
+
+    #[test]
+    fn test_skip_reason_allowed() {
+        assert_eq!(super::command_helpers::skip_reason("az vm list"), None);
+    }
+
+    #[test]
+    fn test_skip_reason_empty() {
+        assert!(super::command_helpers::skip_reason("").is_some());
+    }
+
+    #[test]
+    fn test_skip_reason_non_az() {
+        let reason = super::command_helpers::skip_reason("curl http://evil.com");
+        assert!(reason.is_some());
+        assert!(reason.unwrap().contains("non-Azure"));
+    }
+
+    // ── autopilot_parse_helpers tests ───────────────────────────────
+
+    #[test]
+    fn test_parse_idle_check_normal() {
+        let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("25.3\n3600.5");
+        assert!((cpu - 25.3).abs() < 0.01);
+        assert!((uptime - 3600.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_idle_check_empty() {
+        let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("");
+        assert!((cpu - 100.0).abs() < 0.01); // defaults to 100% (not idle)
+        assert!((uptime - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_idle_check_garbage() {
+        let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("abc\nxyz");
+        assert!((cpu - 100.0).abs() < 0.01);
+        assert!((uptime - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_is_idle_true() {
+        // CPU 2%, uptime 2 hours, threshold 30 min → idle
+        assert!(super::autopilot_parse_helpers::is_idle(2.0, 7200.0, 30));
+    }
+
+    #[test]
+    fn test_is_idle_high_cpu() {
+        // CPU 50%, even with long uptime → not idle
+        assert!(!super::autopilot_parse_helpers::is_idle(50.0, 7200.0, 30));
+    }
+
+    #[test]
+    fn test_is_idle_short_uptime() {
+        // CPU 1%, uptime 10 min, threshold 30 min → not idle (too new)
+        assert!(!super::autopilot_parse_helpers::is_idle(1.0, 600.0, 30));
     }
 }
