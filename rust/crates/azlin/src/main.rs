@@ -465,6 +465,7 @@ async fn async_main() -> Result<()> {
             show_all_vms,
             vm_pattern,
             include_stopped,
+            all_contexts,
             ..
         } => {
             let auth = create_auth()?;
@@ -472,7 +473,62 @@ async fn async_main() -> Result<()> {
             let include_all = all || include_stopped;
 
             // Resolve resource group(s)
-            let mut all_vms = if show_all_vms {
+            let mut all_vms = if all_contexts {
+                // Read all context files from ~/.azlin/contexts/ and aggregate VMs
+                let ctx_dir = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+                    .join(".azlin")
+                    .join("contexts");
+                if ctx_dir.is_dir() {
+                    let mut aggregated = Vec::new();
+                    let mut entries: Vec<_> = std::fs::read_dir(&ctx_dir)?
+                        .filter_map(|e| e.ok())
+                        .filter(|e| {
+                            e.path()
+                                .extension()
+                                .is_some_and(|ext| ext == "toml")
+                        })
+                        .collect();
+                    entries.sort_by_key(|e| e.file_name());
+                    for entry in entries {
+                        match contexts::read_context_resource_group(&entry.path()) {
+                            Ok((ctx_name, Some(rg))) => {
+                                match vm_manager.list_vms(&rg).await {
+                                    Ok(vms) => {
+                                        println!("── context: {} (rg: {}) ──", ctx_name, rg);
+                                        aggregated.extend(vms);
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Warning: failed to list VMs for context '{}' (rg: {}): {}", ctx_name, rg, e);
+                                    }
+                                }
+                            }
+                            Ok((ctx_name, None)) => {
+                                eprintln!("Warning: context '{}' has no resource_group, skipping.", ctx_name);
+                            }
+                            Err(e) => {
+                                eprintln!("Warning: failed to read context file {:?}: {}", entry.path(), e);
+                            }
+                        }
+                    }
+                    aggregated
+                } else {
+                    eprintln!("Warning: no contexts directory found at {:?}. Falling back to default list.", ctx_dir);
+                    match &resource_group {
+                        Some(rg) => vm_manager.list_vms(rg).await?,
+                        None => {
+                            let config = azlin_core::AzlinConfig::load().ok();
+                            match config.and_then(|c| c.default_resource_group) {
+                                Some(rg) => vm_manager.list_vms(&rg).await?,
+                                None => {
+                                    eprintln!("No resource group specified. Use --resource-group or set in config.");
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if show_all_vms {
                 vm_manager.list_all_vms().await?
             } else {
                 match &resource_group {
@@ -909,12 +965,23 @@ async fn async_main() -> Result<()> {
             resource_group,
             user,
             key,
+            no_tmux,
+            tmux_session,
+            no_reconnect,
+            max_retries,
+            yes,
+            disable_bastion_pool,
+            remote_command,
             ..
         } => {
             let name = vm_identifier.unwrap_or_else(|| {
                 eprintln!("VM name is required.");
                 std::process::exit(1);
             });
+
+            if disable_bastion_pool {
+                std::env::set_var("AZLIN_DISABLE_BASTION_POOL", "1");
+            }
 
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
@@ -937,11 +1004,47 @@ async fn async_main() -> Result<()> {
                 ssh_args.push("-i".to_string());
                 ssh_args.push(key_path.display().to_string());
             }
-            ssh_args.push(format!("{}@{}", username, ip));
 
-            let status = std::process::Command::new("ssh").args(&ssh_args).status()?;
+            if !no_tmux {
+                let sess = tmux_session.as_deref().unwrap_or("azlin");
+                // Wrap SSH in tmux attach-or-create
+                ssh_args.push(format!("{}@{}", username, ip));
+                if remote_command.is_empty() {
+                    ssh_args.push("-t".to_string());
+                    ssh_args.push(format!(
+                        "tmux new-session -A -s {}",
+                        sess
+                    ));
+                } else {
+                    ssh_args.extend(remote_command.iter().cloned());
+                }
+            } else {
+                ssh_args.push(format!("{}@{}", username, ip));
+                if !remote_command.is_empty() {
+                    ssh_args.extend(remote_command.iter().cloned());
+                }
+            }
 
-            std::process::exit(status.code().unwrap_or(1));
+            let mut attempt = 0u32;
+            let max = if no_reconnect { 1 } else { max_retries + 1 };
+            loop {
+                let status = std::process::Command::new("ssh").args(&ssh_args).status()?;
+                attempt += 1;
+                if status.success() || attempt >= max {
+                    std::process::exit(status.code().unwrap_or(1));
+                }
+                if !yes {
+                    eprint!("SSH disconnected. Reconnect? (attempt {}/{}) [Y/n] ", attempt, max - 1);
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input)?;
+                    if input.trim().eq_ignore_ascii_case("n") {
+                        std::process::exit(status.code().unwrap_or(1));
+                    }
+                } else {
+                    eprintln!("SSH disconnected. Reconnecting (attempt {}/{})...", attempt, max - 1);
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
         }
         azlin_cli::Commands::Tag { action } => {
             let auth = create_auth()?;
@@ -1980,6 +2083,7 @@ async fn async_main() -> Result<()> {
             azlin_cli::StorageAction::Mount {
                 storage_name,
                 vm,
+                mount_point,
                 resource_group,
             } => {
                 let rg = resolve_resource_group(resource_group)?;
@@ -2000,12 +2104,14 @@ async fn async_main() -> Result<()> {
                     .admin_username
                     .unwrap_or_else(|| "azureuser".to_string());
 
-                // Validate storage name to prevent command injection
-                mount_helpers::validate_mount_path(&format!("/mnt/{}", storage_name))
-                    .map_err(|e| anyhow::anyhow!("Invalid storage name: {}", e))?;
+                let mp = mount_point.unwrap_or_else(|| format!("/mnt/{}", storage_name));
+
+                // Validate mount path to prevent command injection
+                mount_helpers::validate_mount_path(&mp)
+                    .map_err(|e| anyhow::anyhow!("Invalid mount path: {}", e))?;
 
                 let mount_cmd = format!(
-                        "sudo mkdir -p /mnt/{storage_name} && sudo mount -t nfs {storage_name}.file.core.windows.net:/{storage_name}/home /mnt/{storage_name} -o vers=3,sec=sys"
+                        "sudo mkdir -p {mp} && sudo mount -t nfs {storage_name}.file.core.windows.net:/{storage_name}/home {mp} -o vers=3,sec=sys"
                     );
                 let status = std::process::Command::new("ssh")
                     .args([
@@ -2018,8 +2124,8 @@ async fn async_main() -> Result<()> {
 
                 if status.success() {
                     println!(
-                        "Mounted '{}' on VM '{}' at /mnt/{}",
-                        storage_name, vm, storage_name
+                        "Mounted '{}' on VM '{}' at {}",
+                        storage_name, vm, mp
                     );
                 } else {
                     eprintln!("Failed to mount storage on VM.");
@@ -2628,6 +2734,7 @@ async fn async_main() -> Result<()> {
             request,
             dry_run,
             yes,
+            verbose,
             ..
         } => {
             let client = azlin_ai::AnthropicClient::new()?;
@@ -2681,12 +2788,26 @@ async fn async_main() -> Result<()> {
                         continue;
                     }
                 };
+                if verbose {
+                    eprintln!("[verbose] Executing: {}", cmd_str);
+                }
                 println!("$ {}", cmd_str);
-                let status = std::process::Command::new(&parts[0])
+                let output = std::process::Command::new(&parts[0])
                     .args(&parts[1..])
-                    .status()?;
-                if !status.success() {
-                    eprintln!("Command failed with exit code: {:?}", status.code());
+                    .output()?;
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stdout.is_empty() {
+                    print!("{}", stdout);
+                }
+                if verbose && !stderr.is_empty() {
+                    eprint!("{}", stderr);
+                }
+                if !output.status.success() {
+                    eprintln!("Command failed with exit code: {:?}", output.status.code());
+                    if !verbose && !stderr.is_empty() {
+                        eprint!("{}", stderr);
+                    }
                 }
             }
         }
@@ -6346,6 +6467,30 @@ mod contexts {
         std::fs::write(&new_path, toml::to_string_pretty(&table)?)?;
         std::fs::remove_file(&old_path)?;
         Ok(())
+    }
+
+    /// Read a context TOML file and return (name, resource_group).
+    /// Returns `None` for resource_group when the field is absent.
+    pub fn read_context_resource_group(
+        ctx_path: &Path,
+    ) -> Result<(String, Option<String>), anyhow::Error> {
+        let content = std::fs::read_to_string(ctx_path)?;
+        let table: toml::Value = toml::from_str(&content)?;
+        let name = table
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| {
+                ctx_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+            })
+            .to_string();
+        let rg = table
+            .get("resource_group")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        Ok((name, rg))
     }
 }
 
@@ -15168,5 +15313,678 @@ created = \"2024-01-01T00:00:00Z\"\n";
         let msg = super::batch_helpers::summarise_batch("restart", "prod-rg", true);
         assert!(msg.contains("restart"));
         assert!(msg.contains("prod-rg"));
+    }
+
+    // ── all_contexts tests ────────────────────────────────────────
+
+    #[test]
+    fn test_read_context_resource_group_with_rg() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_path = tmp.path().join("dev.toml");
+        fs::write(
+            &ctx_path,
+            "name = \"dev\"\nresource_group = \"dev-rg\"\nregion = \"westus2\"\n",
+        )
+        .unwrap();
+
+        let (name, rg) = super::contexts::read_context_resource_group(&ctx_path).unwrap();
+        assert_eq!(name, "dev");
+        assert_eq!(rg, Some("dev-rg".to_string()));
+    }
+
+    #[test]
+    fn test_read_context_resource_group_without_rg() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_path = tmp.path().join("minimal.toml");
+        fs::write(&ctx_path, "name = \"minimal\"\n").unwrap();
+
+        let (name, rg) = super::contexts::read_context_resource_group(&ctx_path).unwrap();
+        assert_eq!(name, "minimal");
+        assert_eq!(rg, None);
+    }
+
+    #[test]
+    fn test_read_context_resource_group_falls_back_to_filename() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_path = tmp.path().join("staging.toml");
+        fs::write(
+            &ctx_path,
+            "resource_group = \"staging-rg\"\n",
+        )
+        .unwrap();
+
+        let (name, rg) = super::contexts::read_context_resource_group(&ctx_path).unwrap();
+        assert_eq!(name, "staging");
+        assert_eq!(rg, Some("staging-rg".to_string()));
+    }
+
+    // ── create_helpers tests ────────────────────────────────────────
+
+    #[test]
+    fn test_generate_vm_name_with_base_pool_1() {
+        let name = super::create_helpers::generate_vm_name(Some("my-vm"), 0, 1, "20240101");
+        assert_eq!(name, "my-vm");
+    }
+
+    #[test]
+    fn test_generate_vm_name_with_base_pool_multiple() {
+        let n1 = super::create_helpers::generate_vm_name(Some("my-vm"), 0, 3, "20240101");
+        let n2 = super::create_helpers::generate_vm_name(Some("my-vm"), 1, 3, "20240101");
+        let n3 = super::create_helpers::generate_vm_name(Some("my-vm"), 2, 3, "20240101");
+        assert_eq!(n1, "my-vm-1");
+        assert_eq!(n2, "my-vm-2");
+        assert_eq!(n3, "my-vm-3");
+    }
+
+    #[test]
+    fn test_generate_vm_name_no_base_uses_timestamp() {
+        let name = super::create_helpers::generate_vm_name(None, 0, 1, "20240315-120000");
+        assert_eq!(name, "azlin-vm-20240315-120000");
+    }
+
+    #[test]
+    fn test_resolve_with_template_default_user_value() {
+        let result = super::create_helpers::resolve_with_template_default(
+            "Standard_D8s_v3",
+            "Standard_D4s_v3",
+            Some("Standard_D2s_v3".to_string()),
+        );
+        assert_eq!(result, "Standard_D8s_v3");
+    }
+
+    #[test]
+    fn test_resolve_with_template_default_uses_template() {
+        let result = super::create_helpers::resolve_with_template_default(
+            "Standard_D4s_v3",
+            "Standard_D4s_v3",
+            Some("Standard_D16s_v3".to_string()),
+        );
+        assert_eq!(result, "Standard_D16s_v3");
+    }
+
+    #[test]
+    fn test_resolve_with_template_default_no_template() {
+        let result = super::create_helpers::resolve_with_template_default(
+            "Standard_D4s_v3",
+            "Standard_D4s_v3",
+            None,
+        );
+        assert_eq!(result, "Standard_D4s_v3");
+    }
+
+    #[test]
+    fn test_build_clone_cmd_https() {
+        let cmd = super::create_helpers::build_clone_cmd("https://github.com/user/repo.git");
+        assert!(cmd.contains("git clone"));
+        assert!(cmd.contains("https://github.com/user/repo.git"));
+        assert!(cmd.contains("~/src/$(basename"));
+    }
+
+    #[test]
+    fn test_build_ssh_connect_args() {
+        let args = super::create_helpers::build_ssh_connect_args("azureuser", "10.0.0.1");
+        assert_eq!(
+            args,
+            vec![
+                "-o".to_string(),
+                "StrictHostKeyChecking=no".to_string(),
+                "azureuser@10.0.0.1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_create_build_snapshot_name() {
+        let name = super::create_helpers::build_snapshot_name("my-vm", "20240315");
+        assert_eq!(name, "my-vm_clone_snap_20240315");
+    }
+
+    #[test]
+    fn test_build_clone_name() {
+        assert_eq!(
+            super::create_helpers::build_clone_name("source-vm", 0),
+            "source-vm-clone-1"
+        );
+        assert_eq!(
+            super::create_helpers::build_clone_name("source-vm", 4),
+            "source-vm-clone-5"
+        );
+    }
+
+    #[test]
+    fn test_build_disk_name() {
+        assert_eq!(
+            super::create_helpers::build_disk_name("my-vm"),
+            "my-vm_OsDisk"
+        );
+    }
+
+    // ── connect_helpers tests ───────────────────────────────────────
+
+    #[test]
+    fn test_build_ssh_args_without_key() {
+        let args = super::connect_helpers::build_ssh_args("azureuser", "10.0.0.5", None);
+        assert_eq!(
+            args,
+            vec![
+                "-o".to_string(),
+                "StrictHostKeyChecking=no".to_string(),
+                "azureuser@10.0.0.5".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_ssh_args_with_key() {
+        use std::path::Path;
+        let key = Path::new("/home/user/.ssh/id_ed25519");
+        let args = super::connect_helpers::build_ssh_args("admin", "192.168.1.1", Some(key));
+        assert_eq!(
+            args,
+            vec![
+                "-o".to_string(),
+                "StrictHostKeyChecking=no".to_string(),
+                "-i".to_string(),
+                "/home/user/.ssh/id_ed25519".to_string(),
+                "admin@192.168.1.1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_vscode_remote_uri() {
+        let uri = super::connect_helpers::build_vscode_remote_uri("azureuser", "10.0.0.5");
+        assert_eq!(uri, "ssh-remote+azureuser@10.0.0.5");
+    }
+
+    #[test]
+    fn test_build_log_follow_args() {
+        let args = super::connect_helpers::build_log_follow_args(
+            "azureuser",
+            "10.0.0.5",
+            "/var/log/syslog",
+        );
+        assert_eq!(args.len(), 6);
+        assert_eq!(args[4], "azureuser@10.0.0.5");
+        assert_eq!(args[5], "sudo tail -f /var/log/syslog");
+    }
+
+    #[test]
+    fn test_build_log_tail_args() {
+        let args = super::connect_helpers::build_log_tail_args(
+            "admin",
+            "10.0.0.1",
+            100,
+            "/var/log/auth.log",
+        );
+        assert_eq!(args.len(), 6);
+        assert!(args[5].contains("tail -n 100"));
+        assert!(args[5].contains("/var/log/auth.log"));
+    }
+
+    // ── update_helpers tests ────────────────────────────────────────
+
+    #[test]
+    fn test_build_dev_update_script_contains_sections() {
+        let script = super::update_helpers::build_dev_update_script();
+        assert!(script.starts_with("#!/bin/bash"));
+        assert!(script.contains("set -e"));
+        assert!(script.contains("apt-get update"));
+        assert!(script.contains("rustup update"));
+        assert!(script.contains("pip3 install"));
+        assert!(script.contains("npm install"));
+    }
+
+    #[test]
+    fn test_build_os_update_cmd() {
+        let cmd = super::update_helpers::build_os_update_cmd();
+        assert!(cmd.contains("apt-get update"));
+        assert!(cmd.contains("apt-get upgrade"));
+        assert!(cmd.contains("DEBIAN_FRONTEND=noninteractive"));
+    }
+
+    #[test]
+    fn test_log_type_to_path_cloud_init() {
+        assert_eq!(
+            super::update_helpers::log_type_to_path("cloud-init"),
+            "/var/log/cloud-init-output.log"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("CloudInit"),
+            "/var/log/cloud-init-output.log"
+        );
+    }
+
+    #[test]
+    fn test_log_type_to_path_syslog() {
+        assert_eq!(
+            super::update_helpers::log_type_to_path("syslog"),
+            "/var/log/syslog"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("Syslog"),
+            "/var/log/syslog"
+        );
+    }
+
+    #[test]
+    fn test_log_type_to_path_auth() {
+        assert_eq!(
+            super::update_helpers::log_type_to_path("auth"),
+            "/var/log/auth.log"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("Auth"),
+            "/var/log/auth.log"
+        );
+    }
+
+    #[test]
+    fn test_log_type_to_path_unknown_defaults_syslog() {
+        assert_eq!(
+            super::update_helpers::log_type_to_path("something-else"),
+            "/var/log/syslog"
+        );
+    }
+
+    // ── compose_helpers tests ───────────────────────────────────────
+
+    #[test]
+    fn test_resolve_compose_file_default() {
+        let f = super::compose_helpers::resolve_compose_file(None);
+        assert_eq!(f, "docker-compose.yml");
+    }
+
+    #[test]
+    fn test_resolve_compose_file_custom() {
+        let f = super::compose_helpers::resolve_compose_file(Some("compose.prod.yaml"));
+        assert_eq!(f, "compose.prod.yaml");
+    }
+
+    #[test]
+    fn test_build_compose_cmd_up() {
+        let cmd = super::compose_helpers::build_compose_cmd("up -d", "docker-compose.yml");
+        assert_eq!(cmd, "docker compose -f docker-compose.yml up -d");
+    }
+
+    #[test]
+    fn test_build_compose_cmd_down() {
+        let cmd = super::compose_helpers::build_compose_cmd("down", "compose.prod.yaml");
+        assert_eq!(cmd, "docker compose -f compose.prod.yaml down");
+    }
+
+    // ── runner_helpers tests ────────────────────────────────────────
+
+    #[test]
+    fn test_build_runner_vm_name() {
+        assert_eq!(
+            super::runner_helpers::build_runner_vm_name("ci-pool", 0),
+            "azlin-runner-ci-pool-1"
+        );
+        assert_eq!(
+            super::runner_helpers::build_runner_vm_name("ci-pool", 2),
+            "azlin-runner-ci-pool-3"
+        );
+    }
+
+    #[test]
+    fn test_build_runner_tags() {
+        let tags = super::runner_helpers::build_runner_tags("ci-pool", "user/repo");
+        assert!(tags.contains("azlin-runner=true"));
+        assert!(tags.contains("pool=ci-pool"));
+        assert!(tags.contains("repo=user/repo"));
+    }
+
+    #[test]
+    fn test_build_runner_config_fields() {
+        let config = super::runner_helpers::build_runner_config(
+            "ci-pool",
+            "user/repo",
+            3,
+            "self-hosted,linux",
+            "my-rg",
+            "Standard_D4s_v3",
+            "2024-03-15T00:00:00Z",
+        );
+        let keys: Vec<&str> = config.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(keys.contains(&"pool"));
+        assert!(keys.contains(&"repo"));
+        assert!(keys.contains(&"count"));
+        assert!(keys.contains(&"labels"));
+        assert!(keys.contains(&"resource_group"));
+        assert!(keys.contains(&"vm_size"));
+        assert!(keys.contains(&"enabled"));
+        assert!(keys.contains(&"created"));
+
+        let count = config
+            .iter()
+            .find(|(k, _)| k == "count")
+            .map(|(_, v)| v.as_integer().unwrap())
+            .unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_pool_config_filename() {
+        assert_eq!(
+            super::runner_helpers::pool_config_filename("ci-pool"),
+            "ci-pool.toml"
+        );
+    }
+
+    // ── autopilot_helpers tests ─────────────────────────────────────
+
+    #[test]
+    fn test_build_autopilot_config_with_budget() {
+        let config = super::autopilot_helpers::build_autopilot_config(
+            Some(500),
+            "aggressive",
+            30,
+            80,
+            "2024-03-15T00:00:00Z",
+        );
+        let tbl = config.as_table().unwrap();
+        assert_eq!(tbl["enabled"].as_bool(), Some(true));
+        assert_eq!(tbl["budget"].as_integer(), Some(500));
+        assert_eq!(tbl["strategy"].as_str(), Some("aggressive"));
+        assert_eq!(tbl["idle_threshold_minutes"].as_integer(), Some(30));
+        assert_eq!(tbl["cpu_threshold_percent"].as_integer(), Some(80));
+    }
+
+    #[test]
+    fn test_build_autopilot_config_without_budget() {
+        let config = super::autopilot_helpers::build_autopilot_config(
+            None,
+            "conservative",
+            60,
+            50,
+            "2024-03-15T00:00:00Z",
+        );
+        let tbl = config.as_table().unwrap();
+        assert!(tbl.get("budget").is_none());
+        assert_eq!(tbl["strategy"].as_str(), Some("conservative"));
+    }
+
+    #[test]
+    fn test_build_budget_name() {
+        assert_eq!(
+            super::autopilot_helpers::build_budget_name("my-rg"),
+            "azlin-budget-my-rg"
+        );
+    }
+
+    #[test]
+    fn test_build_prefix_filter_query() {
+        let q = super::autopilot_helpers::build_prefix_filter_query("azlin-vm");
+        assert_eq!(q, "[?starts_with(name, 'azlin-vm')].id");
+    }
+
+    #[test]
+    fn test_build_cost_scope() {
+        let scope = super::autopilot_helpers::build_cost_scope("sub-123", "my-rg");
+        assert_eq!(scope, "/subscriptions/sub-123/resourceGroups/my-rg");
+    }
+
+    // ── config_path_helpers tests ───────────────────────────────────
+
+    #[test]
+    fn test_validate_config_path_safe() {
+        assert!(super::config_path_helpers::validate_config_path("config.toml").is_ok());
+        assert!(super::config_path_helpers::validate_config_path("subdir/config.toml").is_ok());
+    }
+
+    #[test]
+    fn test_validate_config_path_traversal_rejected() {
+        assert!(super::config_path_helpers::validate_config_path("../etc/passwd").is_err());
+        assert!(
+            super::config_path_helpers::validate_config_path("subdir/../../etc/shadow").is_err()
+        );
+    }
+
+    // ── snapshot_helpers additional tests ────────────────────────────
+
+    #[test]
+    fn test_snapshot_row_full_data() {
+        let snap = serde_json::json!({
+            "name": "vm1_snapshot_20240315",
+            "diskSizeGb": 128,
+            "timeCreated": "2024-03-15T12:00:00Z",
+            "provisioningState": "Succeeded"
+        });
+        let row = super::snapshot_helpers::snapshot_row(&snap);
+        assert_eq!(row[0], "vm1_snapshot_20240315");
+        assert_eq!(row[1], "128");
+        assert_eq!(row[2], "2024-03-15T12:00:00Z");
+        assert_eq!(row[3], "Succeeded");
+    }
+
+    #[test]
+    fn test_snapshot_row_defaults_for_empty_json() {
+        let snap = serde_json::json!({});
+        let row = super::snapshot_helpers::snapshot_row(&snap);
+        assert_eq!(row[0], "-");
+        assert_eq!(row[1], "null");
+        assert_eq!(row[2], "-");
+        assert_eq!(row[3], "-");
+    }
+
+    #[test]
+    fn test_snapshot_schedule_path_format() {
+        let path = super::snapshot_helpers::schedule_path("my-vm");
+        assert!(path.to_string_lossy().contains("my-vm.toml"));
+        assert!(path.to_string_lossy().contains("schedules"));
+    }
+
+    // ── output_helpers edge case tests ──────────────────────────────
+
+    #[test]
+    fn test_format_as_table_header_only_no_rows() {
+        let out = super::output_helpers::format_as_table(&["Name", "Value"], &[]);
+        assert_eq!(out, "Name  Value");
+    }
+
+    #[test]
+    fn test_format_as_table_renders_single_col() {
+        let rows = vec![vec!["alpha".to_string()], vec!["beta".to_string()]];
+        let out = super::output_helpers::format_as_table(&["Items"], &rows);
+        assert!(out.contains("Items"));
+        assert!(out.contains("alpha"));
+        assert!(out.contains("beta"));
+    }
+
+    #[test]
+    fn test_format_as_csv_header_only() {
+        let out = super::output_helpers::format_as_csv(&["Name", "Size"], &[]);
+        assert_eq!(out, "Name,Size");
+    }
+
+    #[test]
+    fn test_format_as_json_empty_slice() {
+        let items: Vec<String> = vec![];
+        let out = super::output_helpers::format_as_json(&items);
+        assert_eq!(out, "[]");
+    }
+
+    #[test]
+    fn test_format_as_json_with_data() {
+        let items = vec!["hello", "world"];
+        let out = super::output_helpers::format_as_json(&items);
+        assert!(out.contains("hello"));
+        assert!(out.contains("world"));
+    }
+
+    // ── parse_cost_history_rows tests ───────────────────────────────
+
+    #[test]
+    fn test_parse_cost_history_no_rows_key() {
+        let data = serde_json::json!({});
+        let rows = super::parse_cost_history_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_valid() {
+        let data = serde_json::json!({
+            "rows": [
+                [12.50, "2024-03-01"],
+                [8.75, "2024-03-02"]
+            ]
+        });
+        let rows = super::parse_cost_history_rows(&data);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, "2024-03-01");
+        assert_eq!(rows[0].1, "$12.50");
+        assert_eq!(rows[1].0, "2024-03-02");
+        assert_eq!(rows[1].1, "$8.75");
+    }
+
+    #[test]
+    fn test_parse_cost_history_numeric_date() {
+        // When date is an integer, the parser maps it to empty string via the
+        // `as_str().or_else(|| as_i64().map(|_| ""))` branch.
+        let data = serde_json::json!({
+            "rows": [
+                [5.00, 20240301]
+            ]
+        });
+        let rows = super::parse_cost_history_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1, "$5.00");
+        // Integer dates produce an empty string via the current parser logic
+        assert_eq!(rows[0].0, "");
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_empty_array() {
+        let data = serde_json::json!({ "rows": [] });
+        let rows = super::parse_cost_history_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    // ── storage_helpers additional tests ─────────────────────────────
+
+    #[test]
+    fn test_storage_account_row_all_fields() {
+        let acct = serde_json::json!({
+            "name": "mystorageacct",
+            "location": "westus2",
+            "kind": "StorageV2",
+            "sku": {"name": "Standard_LRS"},
+            "provisioningState": "Succeeded"
+        });
+        let row = super::storage_helpers::storage_account_row(&acct);
+        assert_eq!(row[0], "mystorageacct");
+        assert_eq!(row[1], "westus2");
+        assert_eq!(row[2], "StorageV2");
+        assert_eq!(row[3], "Standard_LRS");
+        assert_eq!(row[4], "Succeeded");
+    }
+
+    #[test]
+    fn test_storage_account_row_missing() {
+        let acct = serde_json::json!({});
+        let row = super::storage_helpers::storage_account_row(&acct);
+        assert!(row.iter().all(|c| c == "-"));
+    }
+
+    // ── vm_validation edge cases ────────────────────────────────────
+
+    #[test]
+    fn test_validate_vm_name_max_length() {
+        let name = "a".repeat(64);
+        assert!(super::vm_validation::validate_vm_name(&name).is_ok());
+    }
+
+    #[test]
+    fn test_validate_vm_name_exceeds_max() {
+        let name = "a".repeat(65);
+        assert!(super::vm_validation::validate_vm_name(&name).is_err());
+    }
+
+    #[test]
+    fn test_validate_vm_name_with_underscores_rejected() {
+        assert!(super::vm_validation::validate_vm_name("my_vm").is_err());
+    }
+
+    // ── env_helpers edge case tests ─────────────────────────────────
+
+    #[test]
+    fn test_split_env_var_missing_equals() {
+        assert!(super::env_helpers::split_env_var("NOVALUE").is_none());
+    }
+
+    #[test]
+    fn test_split_env_var_empty_key() {
+        assert!(super::env_helpers::split_env_var("=value").is_none());
+    }
+
+    #[test]
+    fn test_split_env_var_blank_value() {
+        let result = super::env_helpers::split_env_var("KEY=");
+        assert_eq!(result, Some(("KEY", "")));
+    }
+
+    #[test]
+    fn test_split_env_var_embedded_equals() {
+        let result = super::env_helpers::split_env_var("KEY=val=ue");
+        assert_eq!(result, Some(("KEY", "val=ue")));
+    }
+
+    #[test]
+    fn test_parse_env_output_blank_input() {
+        let result = super::env_helpers::parse_env_output("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_env_output_multiple() {
+        let result = super::env_helpers::parse_env_output("HOME=/home/user\nPATH=/usr/bin\nSHELL=/bin/bash");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], ("HOME".to_string(), "/home/user".to_string()));
+        assert_eq!(result[1], ("PATH".to_string(), "/usr/bin".to_string()));
+    }
+
+    // ── sync_helpers edge case tests ────────────────────────────────
+
+    #[test]
+    fn test_validate_sync_source_var_rejected() {
+        assert!(super::sync_helpers::validate_sync_source("/var/log/syslog").is_err());
+    }
+
+    #[test]
+    fn test_validate_sync_source_root_rejected() {
+        assert!(super::sync_helpers::validate_sync_source("/root/.bashrc").is_err());
+    }
+
+    #[test]
+    fn test_validate_sync_source_safe_path() {
+        assert!(super::sync_helpers::validate_sync_source("my-dotfiles/.bashrc").is_ok());
+    }
+
+    #[test]
+    fn test_validate_sync_source_dotdot_only() {
+        assert!(super::sync_helpers::validate_sync_source("..").is_err());
+    }
+
+    // ── mount_helpers additional edge case tests ────────────────────
+
+    #[test]
+    fn test_mount_path_null_char() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/data\0bad").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_pipe_char() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/data|bad").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_newline_injection() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/data\nbad").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_not_absolute() {
+        assert!(super::mount_helpers::validate_mount_path("relative/path").is_err());
     }
 }

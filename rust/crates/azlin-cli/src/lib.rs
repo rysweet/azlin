@@ -98,6 +98,10 @@ pub enum Commands {
         /// Config file path
         #[arg(long)]
         config: Option<PathBuf>,
+
+        /// Show detailed execution information
+        #[arg(short, long)]
+        verbose: bool,
     },
 
     /// Autonomous Azure infrastructure deployment (alias: do)
@@ -324,6 +328,10 @@ pub enum Commands {
         #[arg(long)]
         include_stopped: bool,
 
+        /// List VMs across all contexts
+        #[arg(long)]
+        all_contexts: bool,
+
         /// Config file path
         #[arg(long)]
         config: Option<PathBuf>,
@@ -437,6 +445,14 @@ pub enum Commands {
         /// Skip prompts (auto-accept)
         #[arg(short, long)]
         yes: bool,
+
+        /// Disable bastion connection pooling
+        #[arg(long)]
+        disable_bastion_pool: bool,
+
+        /// Remote command to execute (use -- separator)
+        #[arg(last = true)]
+        remote_command: Vec<String>,
     },
 
     /// Update all development tools on a VM
@@ -1295,6 +1311,9 @@ pub enum StorageAction {
         /// VM name or identifier
         #[arg(long)]
         vm: String,
+        /// Local mount point path
+        #[arg(long)]
+        mount_point: Option<String>,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
     },
@@ -2505,6 +2524,63 @@ mod tests {
             assert!(dry_run);
         } else {
             panic!("Expected Do command");
+        }
+    }
+
+    #[test]
+    fn test_do_verbose() {
+        let cli = Cli::parse_from(["azlin", "do", "list my VMs", "--verbose"]);
+        if let Commands::Do {
+            request, verbose, ..
+        } = cli.command
+        {
+            assert_eq!(request, "list my VMs");
+            assert!(verbose);
+        } else {
+            panic!("Expected Do command");
+        }
+    }
+
+    #[test]
+    fn test_storage_mount_with_mount_point() {
+        let cli = Cli::parse_from([
+            "azlin",
+            "storage",
+            "mount",
+            "mystorage",
+            "--vm",
+            "my-vm",
+            "--mount-point",
+            "/home/user/azure",
+        ]);
+        if let Commands::Storage {
+            action:
+                StorageAction::Mount {
+                    storage_name,
+                    vm,
+                    mount_point,
+                    ..
+                },
+        } = cli.command
+        {
+            assert_eq!(storage_name, "mystorage");
+            assert_eq!(vm, "my-vm");
+            assert_eq!(mount_point, Some("/home/user/azure".to_string()));
+        } else {
+            panic!("Expected Storage Mount");
+        }
+    }
+
+    #[test]
+    fn test_storage_mount_default_mount_point() {
+        let cli = Cli::parse_from(["azlin", "storage", "mount", "mystorage", "--vm", "my-vm"]);
+        if let Commands::Storage {
+            action: StorageAction::Mount { mount_point, .. },
+        } = cli.command
+        {
+            assert!(mount_point.is_none());
+        } else {
+            panic!("Expected Storage Mount");
         }
     }
 
@@ -4003,6 +4079,38 @@ mod tests {
     }
 
     #[test]
+    fn test_connect_disable_bastion_pool() {
+        let cli = Cli::parse_from(["azlin", "connect", "my-vm", "--disable-bastion-pool"]);
+        if let Commands::Connect {
+            vm_identifier,
+            disable_bastion_pool,
+            ..
+        } = cli.command
+        {
+            assert_eq!(vm_identifier, Some("my-vm".to_string()));
+            assert!(disable_bastion_pool);
+        } else {
+            panic!("Expected Connect command");
+        }
+    }
+
+    #[test]
+    fn test_connect_remote_command() {
+        let cli = Cli::parse_from(["azlin", "connect", "my-vm", "--", "ls", "-la"]);
+        if let Commands::Connect {
+            vm_identifier,
+            remote_command,
+            ..
+        } = cli.command
+        {
+            assert_eq!(vm_identifier, Some("my-vm".to_string()));
+            assert_eq!(remote_command, vec!["ls".to_string(), "-la".to_string()]);
+        } else {
+            panic!("Expected Connect command");
+        }
+    }
+
+    #[test]
     fn test_new_with_all_options() {
         let cli = Cli::parse_from([
             "azlin",
@@ -4237,6 +4345,15 @@ mod tests {
             assert!(no_cache);
         } else {
             panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_all_contexts() {
+        let cli = Cli::parse_from(["azlin", "list", "--all-contexts"]);
+        match cli.command {
+            Commands::List { all_contexts, .. } => assert!(all_contexts),
+            _ => panic!("Expected List"),
         }
     }
 
