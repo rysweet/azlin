@@ -1478,6 +1478,10 @@ async fn async_main() -> Result<()> {
                     .admin_username
                     .unwrap_or_else(|| "azureuser".to_string());
 
+                // Validate storage name to prevent command injection
+                mount_helpers::validate_mount_path(&format!("/mnt/{}", storage_name))
+                    .map_err(|e| anyhow::anyhow!("Invalid storage name: {}", e))?;
+
                 let mount_cmd = format!(
                         "sudo mkdir -p /mnt/{storage_name} && sudo mount -t nfs {storage_name}.file.core.windows.net:/{storage_name}/home /mnt/{storage_name} -o vers=3,sec=sys"
                     );
