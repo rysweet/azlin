@@ -1324,11 +1324,7 @@ async fn async_main() -> Result<()> {
                 pb.set_message(format!("Creating storage account {}...", name));
                 pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-                let sku = match tier.to_lowercase().as_str() {
-                    "premium" => "Premium_LRS",
-                    "standard" => "Standard_LRS",
-                    _ => "Premium_LRS",
-                };
+                let sku = storage_helpers::storage_sku_from_tier(&tier);
 
                 let output = std::process::Command::new("az")
                     .args([
@@ -1389,13 +1385,7 @@ async fn async_main() -> Result<()> {
                             .apply_modifier(UTF8_ROUND_CORNERS)
                             .set_header(vec!["Name", "Location", "Kind", "SKU", "State"]);
                         for acct in &accounts {
-                            table.add_row(vec![
-                                acct["name"].as_str().unwrap_or("-"),
-                                acct["location"].as_str().unwrap_or("-"),
-                                acct["kind"].as_str().unwrap_or("-"),
-                                acct["sku"]["name"].as_str().unwrap_or("-"),
-                                acct["provisioningState"].as_str().unwrap_or("-"),
-                            ]);
+                            table.add_row(storage_helpers::storage_account_row(acct));
                         }
                         println!("{table}");
                     }
@@ -1733,17 +1723,7 @@ async fn async_main() -> Result<()> {
                         })
                         .unwrap_or_else(|_| "-".to_string());
 
-                    let key_type = if name.contains("ed25519") {
-                        "ed25519"
-                    } else if name.contains("ecdsa") {
-                        "ecdsa"
-                    } else if name.contains("rsa") {
-                        "rsa"
-                    } else if name.contains("dsa") {
-                        "dsa"
-                    } else {
-                        "unknown"
-                    };
+                    let key_type = key_helpers::detect_key_type(&name);
 
                     rows.push(vec![
                         name,
@@ -1970,16 +1950,7 @@ async fn async_main() -> Result<()> {
                     println!("{}: {}", key_style.apply_to("Profile"), profile);
                     if let Some(obj) = data.as_object() {
                         for (k, v) in obj {
-                            let display = match v {
-                                serde_json::Value::String(s) => {
-                                    if k.contains("secret") || k.contains("password") {
-                                        "********".to_string()
-                                    } else {
-                                        s.clone()
-                                    }
-                                }
-                                other => other.to_string(),
-                            };
+                            let display = auth_helpers::mask_profile_value(k, v);
                             println!("{}: {}", key_style.apply_to(k), display);
                         }
                     }
@@ -2001,6 +1972,7 @@ async fn async_main() -> Result<()> {
                         let acct: serde_json::Value =
                             serde_json::from_slice(&output.stdout).unwrap_or_default();
                         let key_style = Style::new().cyan().bold();
+                        let (subscription, tenant, user) = auth_test_helpers::extract_account_info(&acct);
                         println!(
                             "{}",
                             Style::new()
@@ -2011,17 +1983,17 @@ async fn async_main() -> Result<()> {
                         println!(
                             "{}: {}",
                             key_style.apply_to("Subscription"),
-                            acct["name"].as_str().unwrap_or("-")
+                            subscription
                         );
                         println!(
                             "{}: {}",
                             key_style.apply_to("Tenant"),
-                            acct["tenantId"].as_str().unwrap_or("-")
+                            tenant
                         );
                         println!(
                             "{}: {}",
                             key_style.apply_to("User"),
-                            acct["user"]["name"].as_str().unwrap_or("-")
+                            user
                         );
                     } else {
                         eprintln!("Authentication test failed. Run 'az login' to authenticate.");
@@ -3863,19 +3835,7 @@ async fn async_main() -> Result<()> {
             let dest = &args[args.len() - 1];
             let rg = resolve_resource_group(resource_group)?;
 
-            let is_remote = |s: &str| {
-                s.contains(':')
-                    && !s.starts_with('/')
-                    && s.len() > 2
-                    && s.chars().nth(1) != Some(':')
-            };
-            let direction = if is_remote(source) && !is_remote(dest) {
-                "remote→local"
-            } else if !is_remote(source) && is_remote(dest) {
-                "local→remote"
-            } else {
-                "local→local"
-            };
+            let direction = cp_helpers::classify_transfer_direction(source, dest);
 
             if dry_run {
                 println!(
@@ -3885,8 +3845,8 @@ async fn async_main() -> Result<()> {
             } else {
                 println!("Copying ({}) {} → {}...", direction, source, dest);
                 // For remote transfers, use scp via az CLI resolved IP
-                if is_remote(source) || is_remote(dest) {
-                    let (vm_part, _path_part) = if is_remote(source) {
+                if cp_helpers::is_remote_path(source) || cp_helpers::is_remote_path(dest) {
+                    let (vm_part, _path_part) = if cp_helpers::is_remote_path(source) {
                         source
                             .split_once(':')
                             .ok_or_else(|| anyhow::anyhow!("Invalid remote path: {}", source))?
@@ -3903,13 +3863,13 @@ async fn async_main() -> Result<()> {
                         .ok_or_else(|| anyhow::anyhow!("No IP for VM '{}'", vm_part))?;
                     let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
 
-                    let scp_source = if is_remote(source) {
-                        source.replacen(vm_part, &format!("{}@{}", user, ip), 1)
+                    let scp_source = if cp_helpers::is_remote_path(source) {
+                        cp_helpers::resolve_scp_path(source, vm_part, &user, &ip)
                     } else {
                         source.clone()
                     };
-                    let scp_dest = if is_remote(dest) {
-                        dest.replacen(vm_part, &format!("{}@{}", user, ip), 1)
+                    let scp_dest = if cp_helpers::is_remote_path(dest) {
+                        cp_helpers::resolve_scp_path(dest, vm_part, &user, &ip)
                     } else {
                         dest.clone()
                     };
@@ -3972,11 +3932,7 @@ async fn async_main() -> Result<()> {
             if output.status.success() {
                 let log_text = String::from_utf8_lossy(&output.stdout);
                 let log_lines: Vec<&str> = log_text.lines().collect();
-                let start = if log_lines.len() > lines as usize {
-                    log_lines.len() - lines as usize
-                } else {
-                    0
-                };
+                let start = log_helpers::tail_start_index(log_lines.len(), lines as usize);
                 for line in &log_lines[start..] {
                     println!("{}", line);
                 }
@@ -4339,11 +4295,7 @@ async fn async_main() -> Result<()> {
                 } else {
                     println!("\nFound {} Bastion host(s):\n", bastions.len());
                     for b in &bastions {
-                        let name = b["name"].as_str().unwrap_or("unknown");
-                        let rg = b["resourceGroup"].as_str().unwrap_or("unknown");
-                        let location = b["location"].as_str().unwrap_or("unknown");
-                        let sku = b["sku"]["name"].as_str().unwrap_or("Standard");
-                        let state = b["provisioningState"].as_str().unwrap_or("unknown");
+                        let (name, rg, location, sku, state) = bastion_helpers::bastion_summary(b);
                         println!("  {}", name);
                         println!("    Resource Group: {}", rg);
                         println!("    Location: {}", location);
@@ -4395,23 +4347,10 @@ async fn async_main() -> Result<()> {
                     b["provisioningState"].as_str().unwrap_or("Unknown")
                 );
                 println!("DNS Name: {}", b["dnsName"].as_str().unwrap_or("N/A"));
-                let ip_configs = b["ipConfigurations"].as_array();
-                if let Some(configs) = ip_configs {
-                    println!("\nIP Configurations: {}", configs.len());
-                    for (idx, config) in configs.iter().enumerate() {
-                        let subnet_id = config["subnet"]["id"].as_str().unwrap_or("N/A");
-                        let public_ip_id =
-                            config["publicIPAddress"]["id"].as_str().unwrap_or("N/A");
-                        let subnet_short = if subnet_id != "N/A" {
-                            subnet_id.rsplit('/').next().unwrap_or("N/A")
-                        } else {
-                            "N/A"
-                        };
-                        let pip_short = if public_ip_id != "N/A" {
-                            public_ip_id.rsplit('/').next().unwrap_or("N/A")
-                        } else {
-                            "N/A"
-                        };
+                let ip_config_list = bastion_helpers::extract_ip_configs(&b);
+                if !ip_config_list.is_empty() {
+                    println!("\nIP Configurations: {}", ip_config_list.len());
+                    for (idx, (subnet_short, pip_short)) in ip_config_list.iter().enumerate() {
                         println!("  [{}] Subnet: {}", idx + 1, subnet_short);
                         println!("      Public IP: {}", pip_short);
                     }
@@ -5379,6 +5318,165 @@ mod config_path_helpers {
             }
         }
         Ok(())
+    }
+}
+
+/// Helpers for storage account operations — SKU resolution and row extraction.
+#[allow(dead_code)]
+mod storage_helpers {
+    /// Map a user-facing storage tier string to the Azure SKU name.
+    pub fn storage_sku_from_tier(tier: &str) -> &'static str {
+        match tier.to_lowercase().as_str() {
+            "premium" => "Premium_LRS",
+            "standard" => "Standard_LRS",
+            _ => "Premium_LRS",
+        }
+    }
+
+    /// Extract display columns from a storage account JSON value.
+    pub fn storage_account_row(acct: &serde_json::Value) -> Vec<String> {
+        vec![
+            acct["name"].as_str().unwrap_or("-").to_string(),
+            acct["location"].as_str().unwrap_or("-").to_string(),
+            acct["kind"].as_str().unwrap_or("-").to_string(),
+            acct["sku"]["name"].as_str().unwrap_or("-").to_string(),
+            acct["provisioningState"].as_str().unwrap_or("-").to_string(),
+        ]
+    }
+}
+
+/// Helpers for SSH key file classification and type detection.
+#[allow(dead_code)]
+mod key_helpers {
+    /// Detect the SSH key type from a filename.
+    pub fn detect_key_type(name: &str) -> &'static str {
+        if name.contains("ed25519") {
+            "ed25519"
+        } else if name.contains("ecdsa") {
+            "ecdsa"
+        } else if name.contains("rsa") {
+            "rsa"
+        } else if name.contains("dsa") {
+            "dsa"
+        } else {
+            "unknown"
+        }
+    }
+
+    /// Determine whether a filename looks like an SSH key (without filesystem checks).
+    /// Returns true for `.pub` files and known private key names.
+    pub fn is_known_key_name(name: &str) -> bool {
+        name.ends_with(".pub")
+            || ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"].contains(&name)
+    }
+}
+
+/// Helpers for auth profile display — masking secrets.
+#[allow(dead_code)]
+mod auth_helpers {
+    /// Return a display-safe representation of a profile field value.
+    /// Secrets (fields whose key contains "secret" or "password") are masked.
+    pub fn mask_profile_value(key: &str, value: &serde_json::Value) -> String {
+        match value {
+            serde_json::Value::String(s) => {
+                if key.contains("secret") || key.contains("password") {
+                    "********".to_string()
+                } else {
+                    s.clone()
+                }
+            }
+            other => other.to_string(),
+        }
+    }
+}
+
+/// Helpers for `azlin cp` — remote path detection and SCP path rewriting.
+#[allow(dead_code)]
+mod cp_helpers {
+    /// Check whether a path string refers to a remote VM (e.g. `vm-name:/path`).
+    pub fn is_remote_path(s: &str) -> bool {
+        s.contains(':')
+            && !s.starts_with('/')
+            && s.len() > 2
+            && s.chars().nth(1) != Some(':')
+    }
+
+    /// Classify the transfer direction based on source and destination strings.
+    pub fn classify_transfer_direction(source: &str, dest: &str) -> &'static str {
+        if is_remote_path(source) && !is_remote_path(dest) {
+            "remote→local"
+        } else if !is_remote_path(source) && is_remote_path(dest) {
+            "local→remote"
+        } else {
+            "local→local"
+        }
+    }
+
+    /// Rewrite a `vm_name:path` string to `user@ip:path` for SCP.
+    pub fn resolve_scp_path(path: &str, vm_part: &str, user: &str, ip: &str) -> String {
+        path.replacen(vm_part, &format!("{}@{}", user, ip), 1)
+    }
+}
+
+/// Helpers for Bastion host JSON extraction.
+#[allow(dead_code)]
+mod bastion_helpers {
+    /// Extract display fields from a Bastion host JSON value.
+    pub fn bastion_summary(b: &serde_json::Value) -> (String, String, String, String, String) {
+        (
+            b["name"].as_str().unwrap_or("unknown").to_string(),
+            b["resourceGroup"].as_str().unwrap_or("unknown").to_string(),
+            b["location"].as_str().unwrap_or("unknown").to_string(),
+            b["sku"]["name"].as_str().unwrap_or("Standard").to_string(),
+            b["provisioningState"].as_str().unwrap_or("unknown").to_string(),
+        )
+    }
+
+    /// Extract the short name from the end of an Azure resource ID.
+    pub fn shorten_resource_id(id: &str) -> &str {
+        if id == "N/A" {
+            return "N/A";
+        }
+        id.rsplit('/').next().unwrap_or("N/A")
+    }
+
+    /// Extract IP configuration details from a Bastion JSON value.
+    /// Returns Vec of (subnet_short, public_ip_short).
+    pub fn extract_ip_configs(b: &serde_json::Value) -> Vec<(String, String)> {
+        let mut result = Vec::new();
+        if let Some(configs) = b["ipConfigurations"].as_array() {
+            for config in configs {
+                let subnet_id = config["subnet"]["id"].as_str().unwrap_or("N/A");
+                let public_ip_id = config["publicIPAddress"]["id"].as_str().unwrap_or("N/A");
+                result.push((
+                    shorten_resource_id(subnet_id).to_string(),
+                    shorten_resource_id(public_ip_id).to_string(),
+                ));
+            }
+        }
+        result
+    }
+}
+
+/// Helpers for log tail computation.
+#[allow(dead_code)]
+mod log_helpers {
+    /// Compute the start index for tailing `count` lines from a total of `total` lines.
+    pub fn tail_start_index(total: usize, count: usize) -> usize {
+        if total > count { total - count } else { 0 }
+    }
+}
+
+/// Helpers for auth test result extraction.
+#[allow(dead_code)]
+mod auth_test_helpers {
+    /// Extract subscription, tenant, and user from an `az account show` JSON response.
+    pub fn extract_account_info(acct: &serde_json::Value) -> (String, String, String) {
+        (
+            acct["name"].as_str().unwrap_or("-").to_string(),
+            acct["tenantId"].as_str().unwrap_or("-").to_string(),
+            acct["user"]["name"].as_str().unwrap_or("-").to_string(),
+        )
     }
 }
 
@@ -10488,5 +10586,325 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(stdout.contains("template") || stdout.contains("Template"));
+    }
+
+    // ── Storage helpers tests ───────────────────────────────────────
+
+    #[test]
+    fn test_storage_sku_from_tier_premium() {
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("premium"), "Premium_LRS");
+    }
+
+    #[test]
+    fn test_storage_sku_from_tier_standard() {
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("standard"), "Standard_LRS");
+    }
+
+    #[test]
+    fn test_storage_sku_from_tier_case_insensitive() {
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("Premium"), "Premium_LRS");
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("STANDARD"), "Standard_LRS");
+    }
+
+    #[test]
+    fn test_storage_sku_from_tier_unknown_defaults_premium() {
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("hot"), "Premium_LRS");
+        assert_eq!(super::storage_helpers::storage_sku_from_tier(""), "Premium_LRS");
+    }
+
+    #[test]
+    fn test_storage_account_row_full() {
+        let acct = serde_json::json!({
+            "name": "mystorage",
+            "location": "eastus2",
+            "kind": "FileStorage",
+            "sku": { "name": "Premium_LRS" },
+            "provisioningState": "Succeeded"
+        });
+        let row = super::storage_helpers::storage_account_row(&acct);
+        assert_eq!(row, vec!["mystorage", "eastus2", "FileStorage", "Premium_LRS", "Succeeded"]);
+    }
+
+    #[test]
+    fn test_storage_account_row_missing_fields() {
+        let acct = serde_json::json!({});
+        let row = super::storage_helpers::storage_account_row(&acct);
+        assert_eq!(row, vec!["-", "-", "-", "-", "-"]);
+    }
+
+    // ── Key helpers tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_detect_key_type_ed25519() {
+        assert_eq!(super::key_helpers::detect_key_type("id_ed25519"), "ed25519");
+        assert_eq!(super::key_helpers::detect_key_type("id_ed25519.pub"), "ed25519");
+    }
+
+    #[test]
+    fn test_detect_key_type_ecdsa() {
+        assert_eq!(super::key_helpers::detect_key_type("id_ecdsa"), "ecdsa");
+    }
+
+    #[test]
+    fn test_detect_key_type_rsa() {
+        assert_eq!(super::key_helpers::detect_key_type("id_rsa"), "rsa");
+        assert_eq!(super::key_helpers::detect_key_type("id_rsa.pub"), "rsa");
+    }
+
+    #[test]
+    fn test_detect_key_type_dsa() {
+        assert_eq!(super::key_helpers::detect_key_type("id_dsa"), "dsa");
+    }
+
+    #[test]
+    fn test_detect_key_type_unknown() {
+        assert_eq!(super::key_helpers::detect_key_type("my_custom_key"), "unknown");
+        assert_eq!(super::key_helpers::detect_key_type("authorized_keys"), "unknown");
+    }
+
+    #[test]
+    fn test_is_known_key_name_pub() {
+        assert!(super::key_helpers::is_known_key_name("id_rsa.pub"));
+        assert!(super::key_helpers::is_known_key_name("id_ed25519.pub"));
+        assert!(super::key_helpers::is_known_key_name("custom.pub"));
+    }
+
+    #[test]
+    fn test_is_known_key_name_private() {
+        assert!(super::key_helpers::is_known_key_name("id_rsa"));
+        assert!(super::key_helpers::is_known_key_name("id_ed25519"));
+        assert!(super::key_helpers::is_known_key_name("id_ecdsa"));
+        assert!(super::key_helpers::is_known_key_name("id_dsa"));
+    }
+
+    #[test]
+    fn test_is_known_key_name_not_key() {
+        assert!(!super::key_helpers::is_known_key_name("known_hosts"));
+        assert!(!super::key_helpers::is_known_key_name("config"));
+        assert!(!super::key_helpers::is_known_key_name("authorized_keys"));
+    }
+
+    // ── Auth helpers tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_mask_profile_value_plain_string() {
+        let v = serde_json::Value::String("my-tenant".into());
+        assert_eq!(super::auth_helpers::mask_profile_value("tenant_id", &v), "my-tenant");
+    }
+
+    #[test]
+    fn test_mask_profile_value_secret_masked() {
+        let v = serde_json::Value::String("super-secret-123".into());
+        assert_eq!(super::auth_helpers::mask_profile_value("client_secret", &v), "********");
+    }
+
+    #[test]
+    fn test_mask_profile_value_password_masked() {
+        let v = serde_json::Value::String("p@ssw0rd".into());
+        assert_eq!(super::auth_helpers::mask_profile_value("db_password", &v), "********");
+    }
+
+    #[test]
+    fn test_mask_profile_value_non_string() {
+        let v = serde_json::json!(42);
+        assert_eq!(super::auth_helpers::mask_profile_value("count", &v), "42");
+    }
+
+    #[test]
+    fn test_mask_profile_value_boolean() {
+        let v = serde_json::json!(true);
+        assert_eq!(super::auth_helpers::mask_profile_value("enabled", &v), "true");
+    }
+
+    // ── CP helpers tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_is_remote_path_positive() {
+        assert!(super::cp_helpers::is_remote_path("myvm:/home/user/file.txt"));
+        assert!(super::cp_helpers::is_remote_path("dev-vm-1:/tmp/data"));
+    }
+
+    #[test]
+    fn test_is_remote_path_local() {
+        assert!(!super::cp_helpers::is_remote_path("/tmp/local.txt"));
+        assert!(!super::cp_helpers::is_remote_path("./relative/path"));
+        assert!(!super::cp_helpers::is_remote_path("file.txt"));
+    }
+
+    #[test]
+    fn test_is_remote_path_windows_drive_excluded() {
+        assert!(!super::cp_helpers::is_remote_path("C:\\Users\\file"));
+    }
+
+    #[test]
+    fn test_is_remote_path_too_short() {
+        assert!(!super::cp_helpers::is_remote_path("a:"));
+    }
+
+    #[test]
+    fn test_classify_transfer_direction_remote_to_local() {
+        assert_eq!(
+            super::cp_helpers::classify_transfer_direction("vm:/path", "/local"),
+            "remote→local"
+        );
+    }
+
+    #[test]
+    fn test_classify_transfer_direction_local_to_remote() {
+        assert_eq!(
+            super::cp_helpers::classify_transfer_direction("/local", "vm:/path"),
+            "local→remote"
+        );
+    }
+
+    #[test]
+    fn test_classify_transfer_direction_local_to_local() {
+        assert_eq!(
+            super::cp_helpers::classify_transfer_direction("/a", "/b"),
+            "local→local"
+        );
+    }
+
+    #[test]
+    fn test_resolve_scp_path_rewrites() {
+        let result = super::cp_helpers::resolve_scp_path("myvm:/home/data", "myvm", "azureuser", "10.0.0.5");
+        assert_eq!(result, "azureuser@10.0.0.5:/home/data");
+    }
+
+    #[test]
+    fn test_resolve_scp_path_no_match() {
+        let result = super::cp_helpers::resolve_scp_path("/local/path", "myvm", "user", "10.0.0.1");
+        assert_eq!(result, "/local/path");
+    }
+
+    // ── Bastion helpers tests ───────────────────────────────────────
+
+    #[test]
+    fn test_bastion_summary_full() {
+        let b = serde_json::json!({
+            "name": "my-bastion",
+            "resourceGroup": "my-rg",
+            "location": "eastus2",
+            "sku": { "name": "Standard" },
+            "provisioningState": "Succeeded"
+        });
+        let (name, rg, loc, sku, state) = super::bastion_helpers::bastion_summary(&b);
+        assert_eq!(name, "my-bastion");
+        assert_eq!(rg, "my-rg");
+        assert_eq!(loc, "eastus2");
+        assert_eq!(sku, "Standard");
+        assert_eq!(state, "Succeeded");
+    }
+
+    #[test]
+    fn test_bastion_summary_defaults() {
+        let b = serde_json::json!({});
+        let (name, rg, loc, sku, state) = super::bastion_helpers::bastion_summary(&b);
+        assert_eq!(name, "unknown");
+        assert_eq!(rg, "unknown");
+        assert_eq!(loc, "unknown");
+        assert_eq!(sku, "Standard");
+        assert_eq!(state, "unknown");
+    }
+
+    #[test]
+    fn test_shorten_resource_id_full_path() {
+        let id = "/subscriptions/abc/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/my-pip";
+        assert_eq!(super::bastion_helpers::shorten_resource_id(id), "my-pip");
+    }
+
+    #[test]
+    fn test_shorten_resource_id_na() {
+        assert_eq!(super::bastion_helpers::shorten_resource_id("N/A"), "N/A");
+    }
+
+    #[test]
+    fn test_shorten_resource_id_simple() {
+        assert_eq!(super::bastion_helpers::shorten_resource_id("just-a-name"), "just-a-name");
+    }
+
+    #[test]
+    fn test_extract_ip_configs_with_configs() {
+        let b = serde_json::json!({
+            "ipConfigurations": [
+                {
+                    "subnet": { "id": "/sub/rg/subnets/AzureBastionSubnet" },
+                    "publicIPAddress": { "id": "/sub/rg/publicIPAddresses/bastion-pip" }
+                },
+                {
+                    "subnet": { "id": "N/A" },
+                    "publicIPAddress": { "id": "N/A" }
+                }
+            ]
+        });
+        let configs = super::bastion_helpers::extract_ip_configs(&b);
+        assert_eq!(configs.len(), 2);
+        assert_eq!(configs[0], ("AzureBastionSubnet".to_string(), "bastion-pip".to_string()));
+        assert_eq!(configs[1], ("N/A".to_string(), "N/A".to_string()));
+    }
+
+    #[test]
+    fn test_extract_ip_configs_empty() {
+        let b = serde_json::json!({});
+        let configs = super::bastion_helpers::extract_ip_configs(&b);
+        assert!(configs.is_empty());
+    }
+
+    // ── Log helpers tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_tail_start_index_more_than_count() {
+        assert_eq!(super::log_helpers::tail_start_index(100, 20), 80);
+    }
+
+    #[test]
+    fn test_tail_start_index_less_than_count() {
+        assert_eq!(super::log_helpers::tail_start_index(5, 20), 0);
+    }
+
+    #[test]
+    fn test_tail_start_index_equal() {
+        assert_eq!(super::log_helpers::tail_start_index(20, 20), 0);
+    }
+
+    #[test]
+    fn test_tail_start_index_zero() {
+        assert_eq!(super::log_helpers::tail_start_index(0, 20), 0);
+    }
+
+    // ── Auth test helpers tests ─────────────────────────────────────
+
+    #[test]
+    fn test_extract_account_info_full() {
+        let acct = serde_json::json!({
+            "name": "My Subscription",
+            "tenantId": "tenant-123",
+            "user": { "name": "user@example.com" }
+        });
+        let (sub, tenant, user) = super::auth_test_helpers::extract_account_info(&acct);
+        assert_eq!(sub, "My Subscription");
+        assert_eq!(tenant, "tenant-123");
+        assert_eq!(user, "user@example.com");
+    }
+
+    #[test]
+    fn test_extract_account_info_missing_fields() {
+        let acct = serde_json::json!({});
+        let (sub, tenant, user) = super::auth_test_helpers::extract_account_info(&acct);
+        assert_eq!(sub, "-");
+        assert_eq!(tenant, "-");
+        assert_eq!(user, "-");
+    }
+
+    #[test]
+    fn test_extract_account_info_partial() {
+        let acct = serde_json::json!({
+            "name": "Sub Only",
+            "user": {}
+        });
+        let (sub, tenant, user) = super::auth_test_helpers::extract_account_info(&acct);
+        assert_eq!(sub, "Sub Only");
+        assert_eq!(tenant, "-");
+        assert_eq!(user, "-");
     }
 }
