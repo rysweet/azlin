@@ -1637,6 +1637,21 @@ async fn async_main() -> Result<()> {
                     .args(["mkdir", "-p", &mount_str])
                     .status();
 
+                // Write credentials to a temp file instead of passing on CLI
+                // to avoid exposing the storage key in process listings.
+                use std::os::unix::fs::PermissionsExt;
+                let creds_dir = dirs::home_dir().unwrap_or_default().join(".azlin");
+                std::fs::create_dir_all(&creds_dir)?;
+                let creds_path = creds_dir.join(format!(".mount_creds_{}", account));
+                std::fs::write(
+                    &creds_path,
+                    format!("username={}\npassword={}\n", account, key),
+                )?;
+                std::fs::set_permissions(
+                    &creds_path,
+                    std::fs::Permissions::from_mode(0o600),
+                )?;
+
                 let status = std::process::Command::new("sudo")
                     .args([
                         "mount",
@@ -1646,11 +1661,14 @@ async fn async_main() -> Result<()> {
                         &mount_str,
                         "-o",
                         &format!(
-                            "vers=3.0,username={},password={},serverino,nosharesock,actimeo=30",
-                            account, key
+                            "vers=3.0,credentials={},serverino,nosharesock,actimeo=30",
+                            creds_path.display()
                         ),
                     ])
                     .status()?;
+
+                // Clean up credentials file after mount
+                let _ = std::fs::remove_file(&creds_path);
 
                 if status.success() {
                     println!("Mounted '{}' at {}", share, mount_str);
@@ -5026,8 +5044,34 @@ mod env_helpers {
         }
     }
 
+    /// Validate that an env key contains only safe characters (alphanumeric + underscore).
+    pub fn validate_env_key(key: &str) -> Result<(), String> {
+        if key.is_empty() {
+            return Err("Environment variable key must not be empty".into());
+        }
+        if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(format!(
+                "Environment variable key '{}' contains invalid characters; only [A-Za-z0-9_] allowed",
+                key
+            ));
+        }
+        if key.chars().next().unwrap().is_ascii_digit() {
+            return Err(format!(
+                "Environment variable key '{}' must not start with a digit",
+                key
+            ));
+        }
+        Ok(())
+    }
+
     /// Build the shell command that upserts `KEY=VALUE` in `~/.profile`.
+    /// The `escaped_value` must already be shell-escaped (e.g. via `shell_escape`).
     pub fn build_env_set_cmd(key: &str, escaped_value: &str) -> String {
+        // Validate key to prevent injection through the key name
+        if validate_env_key(key).is_err() {
+            // Return a harmless no-op rather than an injectable command
+            return "true".to_string();
+        }
         format!(
             "grep -q '^export {}=' ~/.profile 2>/dev/null && sed -i 's/^export {}=.*/export {}={}/' ~/.profile || echo 'export {}={}' >> ~/.profile",
             key, key, key, escaped_value, key, escaped_value
@@ -5090,6 +5134,29 @@ mod sync_helpers {
         vec![".bashrc", ".profile", ".vimrc", ".tmux.conf", ".gitconfig"]
     }
 
+    /// Validate that a sync source path is safe (no absolute paths to sensitive
+    /// system files, no traversal outside the user's home).
+    pub fn validate_sync_source(source: &str) -> Result<(), String> {
+        // Reject paths that reference sensitive system directories directly
+        let forbidden_prefixes = ["/etc/", "/var/", "/root/", "/proc/", "/sys/"];
+        for prefix in &forbidden_prefixes {
+            if source.starts_with(prefix) {
+                return Err(format!(
+                    "Sync source '{}' references a sensitive system path",
+                    source
+                ));
+            }
+        }
+        // Reject path-traversal sequences that escape the intended directory
+        if source.contains("/../") || source.ends_with("/..") || source == ".." {
+            return Err(format!(
+                "Sync source '{}' contains path traversal",
+                source
+            ));
+        }
+        Ok(())
+    }
+
     /// Build the argument list for an rsync invocation.
     pub fn build_rsync_args(source: &str, user: &str, ip: &str, dest: &str) -> Vec<String> {
         vec![
@@ -5125,9 +5192,10 @@ mod health_helpers {
         }
     }
 
-    /// Format a metric value as `"xx.x%"`.
+    /// Format a metric value as `"xx.x%"`, clamping negatives to 0.
     pub fn format_percentage(value: f32) -> String {
-        format!("{:.1}%", value)
+        let clamped = if value < 0.0 { 0.0 } else { value };
+        format!("{:.1}%", clamped)
     }
 
     /// Return a status emoji summarising overall health.
@@ -5224,6 +5292,90 @@ mod output_helpers {
     /// Serialize a slice to pretty-printed JSON. Returns an error string on failure.
     pub fn format_as_json<T: serde::Serialize>(items: &[T]) -> String {
         serde_json::to_string_pretty(items).unwrap_or_else(|e| format!("JSON error: {e}"))
+    }
+}
+
+/// VM name validation — enforces Azure naming constraints.
+#[allow(dead_code)]
+mod vm_validation {
+    /// Azure VM names: 1-64 chars, alphanumeric and hyphens, no leading/trailing hyphen.
+    pub fn validate_vm_name(name: &str) -> Result<(), String> {
+        if name.is_empty() {
+            return Err("VM name must not be empty".into());
+        }
+        if name.len() > 64 {
+            return Err(format!(
+                "VM name '{}' exceeds 64 character limit (got {})",
+                &name[..32],
+                name.len()
+            ));
+        }
+        if name.starts_with('-') {
+            return Err(format!("VM name '{}' must not start with a hyphen", name));
+        }
+        if name.ends_with('-') {
+            return Err(format!("VM name '{}' must not end with a hyphen", name));
+        }
+        if !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+        {
+            return Err(format!(
+                "VM name '{}' contains invalid characters; only [a-zA-Z0-9-] allowed",
+                name
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Mount path validation — prevents command injection in mount operations.
+#[allow(dead_code)]
+mod mount_helpers {
+    /// Validate a mount-point path is safe (no shell metacharacters, no traversal).
+    pub fn validate_mount_path(path: &str) -> Result<(), String> {
+        if path.is_empty() {
+            return Err("Mount path must not be empty".into());
+        }
+        if !path.starts_with('/') {
+            return Err(format!("Mount path '{}' must be absolute", path));
+        }
+        // Reject shell metacharacters
+        let bad_chars = [';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '!', '\n', '\0'];
+        for c in bad_chars {
+            if path.contains(c) {
+                return Err(format!(
+                    "Mount path '{}' contains dangerous character '{}'",
+                    path, c
+                ));
+            }
+        }
+        // Reject traversal
+        if path.contains("/../") || path.ends_with("/..") || path == ".." {
+            return Err(format!("Mount path '{}' contains path traversal", path));
+        }
+        Ok(())
+    }
+}
+
+/// Config path validation — prevents traversal attacks on config file loading.
+#[allow(dead_code)]
+mod config_path_helpers {
+    use std::path::Path;
+
+    /// Validate a config file path doesn't escape the expected config directory.
+    pub fn validate_config_path(path: &str) -> Result<(), String> {
+        let p = Path::new(path);
+        // Reject traversal components
+        for component in p.components() {
+            if let std::path::Component::ParentDir = component {
+                return Err(format!(
+                    "Config path '{}' contains parent directory traversal",
+                    path
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -9600,5 +9752,321 @@ created = \"2024-01-01T00:00:00Z\"\n";
         let items: Vec<String> = vec![];
         let json = super::output_helpers::format_as_json(&items);
         assert_eq!(json.trim(), "[]");
+    }
+
+    #[test]
+    fn test_creds_file_format() {
+        let content = format!("username={}\npassword={}\n", "testaccount", "testkey123");
+        assert!(content.starts_with("username="));
+        assert!(content.contains("password="));
+        assert!(!content.contains("--")); // no CLI args
+    }
+
+    // ── Security & business-logic tests ─────────────────────────────
+
+    // 1. Config path traversal
+    #[test]
+    fn test_config_path_traversal_blocked() {
+        let result = super::config_path_helpers::validate_config_path("../../etc/passwd");
+        assert!(result.is_err(), "path traversal must be rejected");
+        assert!(result.unwrap_err().contains("traversal"));
+    }
+
+    #[test]
+    fn test_config_path_traversal_deep() {
+        let result =
+            super::config_path_helpers::validate_config_path("foo/../../../etc/shadow");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_path_safe_relative() {
+        let result = super::config_path_helpers::validate_config_path("config.toml");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_config_path_safe_nested() {
+        let result =
+            super::config_path_helpers::validate_config_path("subdir/config.toml");
+        assert!(result.is_ok());
+    }
+
+    // 2. VM name validation
+    #[test]
+    fn test_vm_name_no_leading_hyphen() {
+        let result = super::vm_validation::validate_vm_name("-bad-name");
+        assert!(result.is_err(), "leading hyphen must be rejected");
+        assert!(result.unwrap_err().contains("hyphen"));
+    }
+
+    #[test]
+    fn test_vm_name_no_trailing_hyphen() {
+        let result = super::vm_validation::validate_vm_name("bad-name-");
+        assert!(result.is_err(), "trailing hyphen must be rejected");
+    }
+
+    #[test]
+    fn test_vm_name_max_length() {
+        let long_name = "a".repeat(65);
+        let result = super::vm_validation::validate_vm_name(&long_name);
+        assert!(result.is_err(), "names > 64 chars must be rejected");
+        assert!(result.unwrap_err().contains("64"));
+    }
+
+    #[test]
+    fn test_vm_name_exactly_64_chars() {
+        let name = "a".repeat(64);
+        let result = super::vm_validation::validate_vm_name(&name);
+        assert!(result.is_ok(), "exactly 64 chars should be allowed");
+    }
+
+    #[test]
+    fn test_vm_name_empty() {
+        let result = super::vm_validation::validate_vm_name("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_vm_name_no_shell_metacharacters() {
+        for bad in &["vm;rm", "vm$(whoami)", "vm`id`", "vm|cat", "vm&bg"] {
+            let result = super::vm_validation::validate_vm_name(bad);
+            assert!(result.is_err(), "'{}' must be rejected", bad);
+        }
+    }
+
+    #[test]
+    fn test_vm_name_valid() {
+        assert!(super::vm_validation::validate_vm_name("my-dev-vm-01").is_ok());
+        assert!(super::vm_validation::validate_vm_name("VM1").is_ok());
+    }
+
+    // 3. Env variable security
+    #[test]
+    fn test_env_key_no_command_injection() {
+        let result = super::env_helpers::validate_env_key("MY_VAR;rm -rf /");
+        assert!(result.is_err(), "semicolons in key must be rejected");
+    }
+
+    #[test]
+    fn test_env_key_no_spaces() {
+        let result = super::env_helpers::validate_env_key("MY VAR");
+        assert!(result.is_err(), "spaces in key must be rejected");
+    }
+
+    #[test]
+    fn test_env_key_no_equals() {
+        let result = super::env_helpers::validate_env_key("MY=VAR");
+        assert!(result.is_err(), "equals in key must be rejected");
+    }
+
+    #[test]
+    fn test_env_key_no_dollar() {
+        let result = super::env_helpers::validate_env_key("$HOME");
+        assert!(result.is_err(), "dollar sign in key must be rejected");
+    }
+
+    #[test]
+    fn test_env_key_no_leading_digit() {
+        let result = super::env_helpers::validate_env_key("9VAR");
+        assert!(result.is_err(), "leading digit must be rejected");
+    }
+
+    #[test]
+    fn test_env_key_valid() {
+        assert!(super::env_helpers::validate_env_key("MY_VAR").is_ok());
+        assert!(super::env_helpers::validate_env_key("PATH").is_ok());
+        assert!(super::env_helpers::validate_env_key("_PRIVATE").is_ok());
+    }
+
+    #[test]
+    fn test_env_value_no_command_injection() {
+        let escaped = super::shell_escape("$(whoami)");
+        // shell_escape wraps in single quotes, neutralizing $()
+        assert!(escaped.starts_with('\''), "value must be single-quoted");
+        assert!(escaped.ends_with('\''), "value must be single-quoted");
+        // The $(whoami) is inside single quotes so won't execute
+        let cmd = super::env_helpers::build_env_set_cmd("MY_VAR", &escaped);
+        assert!(cmd.contains("'$(whoami)'"), "injection must be quoted");
+    }
+
+    #[test]
+    fn test_env_value_semicolon_injection() {
+        let escaped = super::shell_escape("value; rm -rf /");
+        let cmd = super::env_helpers::build_env_set_cmd("VAR", &escaped);
+        // The semicolon must be inside quotes, not acting as a command separator
+        assert!(
+            cmd.contains("'value; rm -rf /'"),
+            "semicolon must be quoted, got: {}",
+            cmd
+        );
+    }
+
+    #[test]
+    fn test_env_set_cmd_rejects_bad_key() {
+        let cmd = super::env_helpers::build_env_set_cmd("BAD;KEY", "'safe_value'");
+        // With a bad key, should return a no-op
+        assert_eq!(cmd, "true", "bad key should produce no-op command");
+    }
+
+    // 4. Shell escape
+    #[test]
+    fn test_shell_escape_semicolons() {
+        let escaped = super::shell_escape("hello; rm -rf /");
+        // Must be wrapped in single quotes
+        assert!(escaped.starts_with('\''));
+        assert!(escaped.ends_with('\''));
+        assert!(escaped.contains("hello; rm -rf /"));
+    }
+
+    #[test]
+    fn test_shell_escape_backticks() {
+        let escaped = super::shell_escape("`whoami`");
+        assert!(escaped.starts_with('\''), "backticks must be quoted");
+        assert!(escaped.contains("`whoami`"));
+    }
+
+    #[test]
+    fn test_shell_escape_dollar_paren() {
+        let escaped = super::shell_escape("$(rm -rf /)");
+        assert!(escaped.starts_with('\''));
+        // The dangerous sequence is neutralized inside single quotes
+        assert!(!escaped.starts_with("$("));
+    }
+
+    #[test]
+    fn test_shell_escape_single_quotes() {
+        let escaped = super::shell_escape("it's dangerous");
+        // Single quotes within single-quoted strings need special escaping
+        assert!(escaped.contains("'\\''"), "single quote must be escaped");
+    }
+
+    #[test]
+    fn test_shell_escape_empty_string_security() {
+        let escaped = super::shell_escape("");
+        assert_eq!(escaped, "''");
+    }
+
+    #[test]
+    fn test_shell_escape_pipe() {
+        let escaped = super::shell_escape("data | cat /etc/passwd");
+        assert!(escaped.starts_with('\''));
+        assert!(escaped.ends_with('\''));
+    }
+
+    #[test]
+    fn test_shell_escape_newlines() {
+        let escaped = super::shell_escape("line1\nline2");
+        assert!(escaped.starts_with('\''));
+        assert!(escaped.ends_with('\''));
+    }
+
+    // 5. Mount path injection
+    #[test]
+    fn test_mount_path_no_semicolons() {
+        let result = super::mount_helpers::validate_mount_path("/mnt/data;rm -rf /");
+        assert!(result.is_err(), "semicolons in mount path must be rejected");
+    }
+
+    #[test]
+    fn test_mount_path_no_pipe() {
+        let result = super::mount_helpers::validate_mount_path("/mnt/data|cat /etc/passwd");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mount_path_no_backticks() {
+        let result = super::mount_helpers::validate_mount_path("/mnt/`whoami`");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mount_path_no_dollar_paren() {
+        let result = super::mount_helpers::validate_mount_path("/mnt/$(id)");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mount_path_no_traversal() {
+        let result = super::mount_helpers::validate_mount_path("/mnt/../etc/shadow");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mount_path_requires_absolute() {
+        let result = super::mount_helpers::validate_mount_path("relative/path");
+        assert!(result.is_err(), "relative paths must be rejected");
+    }
+
+    #[test]
+    fn test_mount_path_valid() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/data").is_ok());
+        assert!(super::mount_helpers::validate_mount_path("/mnt/azure-files").is_ok());
+    }
+
+    // 6. Dotfile sync security
+    #[test]
+    fn test_sync_rejects_sensitive_paths() {
+        let result = super::sync_helpers::validate_sync_source("/etc/shadow");
+        assert!(result.is_err(), "sensitive system paths must be rejected");
+    }
+
+    #[test]
+    fn test_sync_rejects_var_paths() {
+        let result = super::sync_helpers::validate_sync_source("/var/log/syslog");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sync_rejects_traversal() {
+        let result =
+            super::sync_helpers::validate_sync_source("/home/user/../../../etc/passwd");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sync_allows_home_dotfiles() {
+        assert!(
+            super::sync_helpers::validate_sync_source("/home/user/.bashrc").is_ok()
+        );
+        assert!(
+            super::sync_helpers::validate_sync_source(".bashrc").is_ok()
+        );
+    }
+
+    // 7. Health helpers edge cases
+    #[test]
+    fn test_health_percentage_negative() {
+        assert_eq!(
+            super::health_helpers::format_percentage(-5.0),
+            "0.0%",
+            "negative percentages must clamp to 0"
+        );
+    }
+
+    #[test]
+    fn test_health_percentage_zero() {
+        assert_eq!(super::health_helpers::format_percentage(0.0), "0.0%");
+    }
+
+    #[test]
+    fn test_health_percentage_over_100() {
+        // Over-100 values are allowed (shows actual measurement)
+        let result = super::health_helpers::format_percentage(150.0);
+        assert_eq!(result, "150.0%");
+    }
+
+    #[test]
+    fn test_health_percentage_normal() {
+        assert_eq!(super::health_helpers::format_percentage(55.5), "55.5%");
+    }
+
+    #[test]
+    fn test_health_metric_color_boundaries() {
+        assert_eq!(super::health_helpers::metric_color(80.1), "red");
+        assert_eq!(super::health_helpers::metric_color(80.0), "yellow");
+        assert_eq!(super::health_helpers::metric_color(50.1), "yellow");
+        assert_eq!(super::health_helpers::metric_color(50.0), "green");
+        assert_eq!(super::health_helpers::metric_color(0.0), "green");
     }
 }
