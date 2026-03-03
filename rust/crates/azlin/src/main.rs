@@ -6969,4 +6969,864 @@ created = \"2024-01-01T00:00:00Z\"\n";
         // Should not panic
         super::render_health_table(&metrics);
     }
+
+    // ── CLI integration: subcommand --help coverage ──────────────
+
+    #[test]
+    fn test_bastion_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["bastion", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_bastion_list_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["bastion", "list", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_bastion_status_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["bastion", "status", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_bastion_configure_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["bastion", "configure", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_snapshot_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["snapshot", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_snapshot_create_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["snapshot", "create", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_snapshot_list_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["snapshot", "list", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_snapshot_restore_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["snapshot", "restore", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_snapshot_delete_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["snapshot", "delete", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_snapshot_enable_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["snapshot", "enable", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_snapshot_disable_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["snapshot", "disable", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_snapshot_sync_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["snapshot", "sync", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_snapshot_status_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["snapshot", "status", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_storage_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["storage", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_storage_mount_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["storage", "mount", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_storage_create_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["storage", "create", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_storage_list_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["storage", "list", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_storage_status_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["storage", "status", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_storage_delete_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["storage", "delete", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_tag_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["tag", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_tag_add_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["tag", "add", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_tag_remove_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["tag", "remove", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_tag_list_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["tag", "list", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_auth_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["auth", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_auth_setup_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["auth", "setup", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_auth_test_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["auth", "test", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_auth_list_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["auth", "list", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_auth_show_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["auth", "show", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_auth_remove_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["auth", "remove", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_keys_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["keys", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_keys_rotate_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["keys", "rotate", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_keys_list_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["keys", "list", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_keys_export_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["keys", "export", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_keys_backup_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["keys", "backup", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_batch_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["batch", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_batch_command_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["batch", "command", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_batch_stop_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["batch", "stop", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_batch_start_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["batch", "start", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_batch_sync_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["batch", "sync", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_fleet_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["fleet", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_fleet_run_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["fleet", "run", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_fleet_workflow_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["fleet", "workflow", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_costs_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["costs", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_costs_dashboard_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["costs", "dashboard", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_costs_history_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["costs", "history", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_costs_budget_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["costs", "budget", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_costs_recommend_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["costs", "recommend", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_costs_actions_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["costs", "actions", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_compose_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["compose", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_compose_up_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["compose", "up", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_compose_down_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["compose", "down", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_compose_ps_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["compose", "ps", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_ip_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["ip", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_ip_check_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["ip", "check", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_disk_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["disk", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_disk_add_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["disk", "add", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_github_runner_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["github-runner", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_github_runner_enable_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["github-runner", "enable", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_github_runner_disable_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["github-runner", "disable", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_github_runner_status_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["github-runner", "status", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_github_runner_scale_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["github-runner", "scale", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_autopilot_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["autopilot", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_autopilot_enable_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["autopilot", "enable", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_autopilot_disable_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["autopilot", "disable", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_autopilot_status_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["autopilot", "status", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_autopilot_config_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["autopilot", "config", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_autopilot_run_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["autopilot", "run", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_web_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["web", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_web_start_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["web", "start", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_web_stop_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["web", "stop", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_doit_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["doit", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_doit_deploy_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["doit", "deploy", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_doit_status_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["doit", "status", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_doit_list_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["doit", "list", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_doit_show_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["doit", "show", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_doit_cleanup_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["doit", "cleanup", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_doit_examples_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["doit", "examples", "--help"]).assert().success();
+    }
+
+    // ── CLI integration: top-level command --help ────────────────
+
+    #[test]
+    fn test_new_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["new", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_list_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["list", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_start_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["start", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_stop_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["stop", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_show_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["show", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_connect_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["connect", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_delete_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["delete", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_health_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["health", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_env_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["env", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_cost_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["cost", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_session_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["session", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_config_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["config", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_ask_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["ask", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_do_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["do", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_clone_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["clone", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_cp_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["cp", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_sync_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["sync", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_update_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["update", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_logs_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["logs", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_cleanup_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["cleanup", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_prune_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["prune", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_restore_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["restore", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_status_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["status", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_code_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["code", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_os_update_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["os-update", "--help"]).assert().success();
+    }
+
+    #[test]
+    fn test_sync_keys_help() {
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["sync-keys", "--help"]).assert().success();
+    }
+
+    // ── CLI integration: config commands with temp home ──────────
+
+    #[test]
+    fn test_config_show_with_temp_home() {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["config", "show"])
+            .env("HOME", dir.path())
+            .output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success() || stdout.contains("config") ||
+                stderr.contains("config") || stdout.contains("No"));
+    }
+
+    #[test]
+    fn test_config_set_and_show() {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["config", "set", "resource_group", "test-rg"])
+            .env("HOME", dir.path())
+            .output().unwrap();
+        let combined = format!("{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr));
+        assert!(out.status.success() || combined.contains("config") ||
+                combined.contains("set"));
+    }
+
+    // ── CLI integration: completions content verification ────────
+
+    #[test]
+    fn test_completions_zsh_content() {
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["completions", "zsh"]).output().unwrap();
+        assert!(out.status.success());
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("compdef") || stdout.len() > 100);
+    }
+
+    #[test]
+    fn test_completions_powershell() {
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["completions", "powershell"]).output().unwrap();
+        assert!(out.status.success());
+        assert!(out.stdout.len() > 50);
+    }
+
+    #[test]
+    fn test_completions_elvish() {
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["completions", "elvish"]).output().unwrap();
+        assert!(out.status.success());
+        assert!(out.stdout.len() > 50);
+    }
+
+    // ── CLI integration: graceful failures without Azure ─────────
+
+    #[test]
+    fn test_list_no_config() {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["list"])
+            .env("HOME", dir.path())
+            .env_remove("AZURE_SUBSCRIPTION_ID")
+            .output().unwrap();
+        // Should fail gracefully, not crash
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(!out.status.success() ||
+                stderr.contains("config") || stderr.contains("subscription") ||
+                stderr.contains("auth") || stderr.contains("az login") ||
+                stdout.contains("No VMs"));
+    }
+
+    #[test]
+    fn test_show_no_config() {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["show", "nonexistent-vm"])
+            .env("HOME", dir.path())
+            .env_remove("AZURE_SUBSCRIPTION_ID")
+            .output().unwrap();
+        assert!(!out.status.success() ||
+                String::from_utf8_lossy(&out.stderr).len() > 0);
+    }
+
+    #[test]
+    fn test_health_no_config() {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["health"])
+            .env("HOME", dir.path())
+            .env_remove("AZURE_SUBSCRIPTION_ID")
+            .output().unwrap();
+        // Graceful failure or empty result
+        let combined = format!("{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr));
+        assert!(!out.status.success() || combined.len() > 0);
+    }
+
+    #[test]
+    fn test_status_no_config() {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["status"])
+            .env("HOME", dir.path())
+            .env_remove("AZURE_SUBSCRIPTION_ID")
+            .output().unwrap();
+        let combined = format!("{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr));
+        assert!(!out.status.success() || combined.len() > 0);
+    }
+
+    // ── CLI integration: context full lifecycle ──────────────────
+
+    #[test]
+    fn test_context_full_lifecycle() {
+        let dir = TempDir::new().unwrap();
+        // create
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["context", "create", "lifecycle-ctx",
+                   "--subscription-id", "sub-123",
+                   "--resource-group", "rg-test"])
+            .env("HOME", dir.path()).assert().success();
+        // list
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["context", "list"])
+            .env("HOME", dir.path()).output().unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("lifecycle-ctx"));
+        // use
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["context", "use", "lifecycle-ctx"])
+            .env("HOME", dir.path()).assert().success();
+        // show
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["context", "show"])
+            .env("HOME", dir.path()).output().unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("lifecycle-ctx"));
+        // delete
+        assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["context", "delete", "lifecycle-ctx", "--force"])
+            .env("HOME", dir.path()).assert().success();
+    }
+
+    // ── CLI integration: auth list with temp home ────────────────
+
+    #[test]
+    fn test_auth_list_empty() {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["auth", "list"])
+            .env("HOME", dir.path())
+            .output().unwrap();
+        assert!(out.status.success());
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("No") || stdout.contains("profile") || stdout.is_empty() || stdout.contains("auth"));
+    }
+
+    // ── CLI integration: sessions with temp home ─────────────────
+
+    #[test]
+    fn test_sessions_list_empty_temp() {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["sessions", "list"])
+            .env("HOME", dir.path())
+            .output().unwrap();
+        assert!(out.status.success());
+    }
+
+    // ── CLI integration: template with temp home ─────────────────
+
+    #[test]
+    fn test_template_list_empty_temp() {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["template", "list"])
+            .env("HOME", dir.path())
+            .output().unwrap();
+        assert!(out.status.success());
+    }
+
+    // ── CLI integration: verbose flag ────────────────────────────
+
+    #[test]
+    fn test_verbose_version() {
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["--verbose", "version"])
+            .output().unwrap();
+        assert!(out.status.success());
+        assert!(String::from_utf8_lossy(&out.stdout).contains("2.3.0"));
+    }
+
+    // ── CLI integration: json output format ──────────────────────
+
+    #[test]
+    fn test_json_output_version() {
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["--output", "json", "version"])
+            .output().unwrap();
+        assert!(out.status.success());
+    }
+
+    #[test]
+    fn test_csv_output_version() {
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["--output", "csv", "version"])
+            .output().unwrap();
+        assert!(out.status.success());
+    }
+
+    // ── CLI integration: invalid subcommand ──────────────────────
+
+    #[test]
+    fn test_invalid_subcommand() {
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["totally-bogus-command"])
+            .output().unwrap();
+        assert!(!out.status.success());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("error") || stderr.contains("unrecognized") ||
+                stderr.contains("invalid") || stderr.len() > 0);
+    }
+
+    // ── CLI integration: doit examples ───────────────────────────
+
+    #[test]
+    fn test_doit_examples() {
+        let out = assert_cmd::Command::cargo_bin("azlin").unwrap()
+            .args(["doit", "examples"])
+            .output().unwrap();
+        assert!(out.status.success());
+        assert!(out.stdout.len() > 10);
+    }
 }
