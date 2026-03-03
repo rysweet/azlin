@@ -1,115 +1,115 @@
 # Azlin Feature Scorecard
 
-Generated: 2026-03-03 09:48:08 UTC
+Generated: 2026-03-03 11:19:40 UTC
 
 | Feature | Agentic Test | Python Works | Rust Works | Python (ms) | Rust (ms) | Speedup |
 |---------|:---:|:---:|:---:|---:|---:|---:|
-| `list` | ✅ | ✅ | ✅ | 725 | 14 | 51x |
-| `new` | ✅ | ✅ | ✅ | 702 | 14 | 50x |
-| `start` | ✅ | ✅ | ✅ | 699 | 13 | 53x |
-| `stop` | ✅ | ✅ | ✅ | 699 | 14 | 49x |
-| `connect` | ✅ | ✅ | ✅ | 689 | 13 | 53x |
-| `status` | ✅ | ✅ | ✅ | 688 | 13 | 52x |
-| `health` | ✅ | ✅ | ✅ | 690 | 13 | 53x |
-| `cost` | ✅ | ✅ | ✅ | 710 | 13 | 54x |
-| `ask` | ⬜ | ✅ | ✅ | 745 | 13 | 57x |
-| `do` | ✅ | ❌ | ✅ | 748 | 13 | 57x |
-| `clone` | ✅ | ✅ | ✅ | 731 | 15 | 48x |
-| `cp` | ✅ | ✅ | ✅ | 730 | 14 | 52x |
-| `sync` | ✅ | ✅ | ✅ | 729 | 13 | 56x |
-| `sync-keys` | ⬜ | ✅ | ✅ | 745 | 13 | 57x |
-| `code` | ✅ | ✅ | ✅ | 717 | 13 | 55x |
-| `logs` | ✅ | ✅ | ✅ | 704 | 13 | 54x |
-| `top` | ✅ | ✅ | ✅ | 691 | 13 | 53x |
-| `kill` | ⬜ | ✅ | ✅ | 706 | 13 | 54x |
-| `killall` | ⬜ | ✅ | ✅ | 700 | 13 | 53x |
-| `destroy` | ✅ | ✅ | ✅ | 724 | 14 | 51x |
-| `update` | ✅ | ✅ | ✅ | 701 | 14 | 50x |
-| `os-update` | ✅ | ✅ | ✅ | 688 | 13 | 52x |
-| `restore` | ✅ | ✅ | ✅ | 690 | 14 | 49x |
+| `list` | ✅ | ✅ | ✅ | 710 | 13 | 54x |
+| `new` | ✅ | ✅ | ✅ | 700 | 14 | 50x |
+| `start` | ✅ | ✅ | ✅ | 704 | 14 | 50x |
+| `stop` | ✅ | ✅ | ✅ | 702 | 14 | 50x |
+| `connect` | ✅ | ✅ | ✅ | 713 | 14 | 50x |
+| `status` | ✅ | ✅ | ✅ | 705 | 13 | 54x |
+| `health` | ✅ | ✅ | ✅ | 729 | 13 | 56x |
+| `cost` | ✅ | ✅ | ✅ | 711 | 13 | 54x |
+| `ask` | ✅ | ✅ | ✅ | 713 | 14 | 50x |
+| `do` | ✅ | ❌ | ✅ | 727 | 14 | 51x |
+| `clone` | ✅ | ✅ | ✅ | 722 | 14 | 51x |
+| `cp` | ✅ | ✅ | ✅ | 719 | 14 | 51x |
+| `sync` | ✅ | ✅ | ✅ | 689 | 13 | 53x |
+| `sync-keys` | ✅ | ✅ | ✅ | 694 | 14 | 49x |
+| `code` | ✅ | ✅ | ✅ | 704 | 14 | 50x |
+| `logs` | ✅ | ✅ | ✅ | 686 | 14 | 49x |
+| `top` | ✅ | ✅ | ✅ | 696 | 14 | 49x |
+| `kill` | ✅ | ✅ | ✅ | 685 | 13 | 52x |
+| `killall` | ✅ | ✅ | ✅ | 712 | 14 | 50x |
+| `destroy` | ✅ | ✅ | ✅ | 695 | 14 | 49x |
+| `update` | ✅ | ✅ | ✅ | 692 | 13 | 53x |
+| `os-update` | ✅ | ✅ | ✅ | 701 | 15 | 46x |
+| `restore` | ✅ | ✅ | ✅ | 709 | 14 | 50x |
 | `ps` | ✅ | ✅ | ✅ | 694 | 14 | 49x |
-| `w` | ✅ | ✅ | ✅ | 699 | 14 | 49x |
-| `session` | ✅ | ✅ | ✅ | 703 | 14 | 50x |
-| `env set` | ✅ | ✅ | ✅ | 700 | 13 | 53x |
-| `env list` | ✅ | ✅ | ✅ | 697 | 14 | 49x |
-| `env delete` | ✅ | ✅ | ✅ | 695 | 14 | 49x |
-| `env export` | ✅ | ✅ | ✅ | 691 | 14 | 49x |
-| `env import` | ✅ | ✅ | ✅ | 700 | 14 | 50x |
-| `env clear` | ✅ | ✅ | ✅ | 701 | 14 | 50x |
-| `config show` | ✅ | ❌ | ✅ | 698 | 14 | 49x |
-| `config set` | ✅ | ❌ | ✅ | 708 | 13 | 54x |
-| `config get` | ✅ | ❌ | ✅ | 729 | 12 | 60x |
-| `snapshot create` | ✅ | ✅ | ✅ | 755 | 13 | 58x |
-| `snapshot list` | ✅ | ✅ | ✅ | 709 | 13 | 54x |
-| `snapshot restore` | ✅ | ✅ | ✅ | 738 | 14 | 52x |
-| `snapshot delete` | ✅ | ✅ | ✅ | 713 | 13 | 54x |
-| `storage create` | ✅ | ✅ | ✅ | 720 | 14 | 51x |
-| `storage list` | ✅ | ✅ | ✅ | 733 | 13 | 56x |
-| `storage status` | ✅ | ✅ | ✅ | 705 | 13 | 54x |
-| `storage mount` | ✅ | ✅ | ✅ | 719 | 13 | 55x |
-| `storage unmount` | ✅ | ✅ | ✅ | 717 | 14 | 51x |
-| `storage delete` | ✅ | ✅ | ✅ | 708 | 13 | 54x |
-| `keys rotate` | ✅ | ✅ | ✅ | 707 | 15 | 47x |
-| `keys list` | ✅ | ✅ | ✅ | 715 | 13 | 55x |
-| `keys export` | ✅ | ✅ | ✅ | 705 | 14 | 50x |
-| `keys backup` | ✅ | ✅ | ✅ | 712 | 13 | 54x |
-| `auth setup` | ✅ | ✅ | ✅ | 710 | 14 | 50x |
-| `auth test` | ✅ | ✅ | ✅ | 713 | 13 | 54x |
-| `auth list` | ✅ | ✅ | ✅ | 706 | 13 | 54x |
-| `auth show` | ✅ | ✅ | ✅ | 705 | 14 | 50x |
-| `auth remove` | ✅ | ✅ | ✅ | 712 | 14 | 50x |
-| `tag add` | ✅ | ✅ | ✅ | 715 | 13 | 55x |
-| `tag remove` | ✅ | ✅ | ✅ | 695 | 13 | 53x |
-| `tag list` | ✅ | ✅ | ✅ | 685 | 13 | 52x |
-| `batch stop` | ✅ | ✅ | ✅ | 703 | 13 | 54x |
+| `w` | ✅ | ✅ | ✅ | 702 | 13 | 54x |
+| `session` | ✅ | ✅ | ✅ | 694 | 13 | 53x |
+| `env set` | ✅ | ✅ | ✅ | 693 | 14 | 49x |
+| `env list` | ✅ | ✅ | ✅ | 700 | 14 | 50x |
+| `env delete` | ✅ | ✅ | ✅ | 691 | 14 | 49x |
+| `env export` | ✅ | ✅ | ✅ | 696 | 14 | 49x |
+| `env import` | ✅ | ✅ | ✅ | 695 | 13 | 53x |
+| `env clear` | ✅ | ✅ | ✅ | 705 | 14 | 50x |
+| `config show` | ✅ | ❌ | ✅ | 699 | 14 | 49x |
+| `config set` | ✅ | ❌ | ✅ | 701 | 13 | 53x |
+| `config get` | ✅ | ❌ | ✅ | 696 | 13 | 53x |
+| `snapshot create` | ✅ | ✅ | ✅ | 684 | 13 | 52x |
+| `snapshot list` | ✅ | ✅ | ✅ | 692 | 13 | 53x |
+| `snapshot restore` | ✅ | ✅ | ✅ | 702 | 13 | 54x |
+| `snapshot delete` | ✅ | ✅ | ✅ | 730 | 13 | 56x |
+| `storage create` | ✅ | ✅ | ✅ | 687 | 13 | 52x |
+| `storage list` | ✅ | ✅ | ✅ | 692 | 14 | 49x |
+| `storage status` | ✅ | ✅ | ✅ | 700 | 14 | 50x |
+| `storage mount` | ✅ | ✅ | ✅ | 700 | 13 | 53x |
+| `storage unmount` | ✅ | ✅ | ✅ | 716 | 14 | 51x |
+| `storage delete` | ✅ | ✅ | ✅ | 709 | 14 | 50x |
+| `keys rotate` | ✅ | ✅ | ✅ | 724 | 13 | 55x |
+| `keys list` | ✅ | ✅ | ✅ | 703 | 13 | 54x |
+| `keys export` | ✅ | ✅ | ✅ | 706 | 12 | 58x |
+| `keys backup` | ✅ | ✅ | ✅ | 700 | 13 | 53x |
+| `auth setup` | ✅ | ✅ | ✅ | 688 | 13 | 52x |
+| `auth test` | ✅ | ✅ | ✅ | 700 | 13 | 53x |
+| `auth list` | ✅ | ✅ | ✅ | 697 | 13 | 53x |
+| `auth show` | ✅ | ✅ | ✅ | 689 | 13 | 53x |
+| `auth remove` | ✅ | ✅ | ✅ | 700 | 13 | 53x |
+| `tag add` | ✅ | ✅ | ✅ | 707 | 13 | 54x |
+| `tag remove` | ✅ | ✅ | ✅ | 684 | 12 | 57x |
+| `tag list` | ✅ | ✅ | ✅ | 694 | 12 | 57x |
+| `batch stop` | ✅ | ✅ | ✅ | 702 | 13 | 54x |
 | `batch start` | ✅ | ✅ | ✅ | 692 | 13 | 53x |
-| `batch command` | ✅ | ✅ | ✅ | 711 | 14 | 50x |
-| `fleet run` | ✅ | ✅ | ✅ | 711 | 14 | 50x |
-| `fleet workflow` | ✅ | ✅ | ✅ | 693 | 14 | 49x |
-| `compose up` | ✅ | ✅ | ✅ | 697 | 14 | 49x |
-| `compose down` | ✅ | ✅ | ✅ | 701 | 14 | 50x |
-| `compose ps` | ✅ | ✅ | ✅ | 703 | 14 | 50x |
-| `template create` | ✅ | ✅ | ✅ | 702 | 14 | 50x |
-| `template list` | ✅ | ✅ | ✅ | 695 | 14 | 49x |
-| `template delete` | ✅ | ✅ | ✅ | 699 | 13 | 53x |
-| `template save` | ✅ | ❌ | ✅ | 702 | 13 | 54x |
-| `template show` | ✅ | ❌ | ✅ | 696 | 14 | 49x |
-| `template apply` | ✅ | ❌ | ✅ | 695 | 13 | 53x |
-| `autopilot enable` | ✅ | ✅ | ✅ | 700 | 14 | 50x |
-| `autopilot disable` | ✅ | ✅ | ✅ | 703 | 14 | 50x |
-| `autopilot status` | ✅ | ✅ | ✅ | 700 | 14 | 50x |
-| `context list` | ✅ | ✅ | ✅ | 712 | 13 | 54x |
-| `context current` | ✅ | ✅ | ✅ | 698 | 14 | 49x |
-| `context use` | ✅ | ✅ | ✅ | 702 | 14 | 50x |
-| `context create` | ✅ | ✅ | ✅ | 712 | 14 | 50x |
-| `context delete` | ✅ | ✅ | ✅ | 699 | 14 | 49x |
-| `context rename` | ✅ | ✅ | ✅ | 699 | 13 | 53x |
-| `disk add` | ✅ | ✅ | ✅ | 718 | 14 | 51x |
-| `ip check` | ✅ | ✅ | ✅ | 699 | 14 | 49x |
-| `web start` | ✅ | ✅ | ✅ | 712 | 14 | 50x |
-| `web stop` | ✅ | ✅ | ✅ | 700 | 14 | 50x |
-| `costs dashboard` | ✅ | ✅ | ✅ | 707 | 14 | 50x |
-| `costs history` | ✅ | ✅ | ✅ | 696 | 14 | 49x |
-| `costs budget` | ✅ | ✅ | ✅ | 703 | 14 | 50x |
-| `costs recommend` | ✅ | ✅ | ✅ | 721 | 14 | 51x |
-| `costs actions` | ✅ | ✅ | ✅ | 723 | 13 | 55x |
-| `github-runner enable` | ✅ | ✅ | ✅ | 694 | 14 | 49x |
-| `github-runner disable` | ✅ | ✅ | ✅ | 701 | 13 | 53x |
-| `github-runner status` | ✅ | ✅ | ✅ | 688 | 13 | 52x |
-| `github-runner scale` | ✅ | ✅ | ✅ | 684 | 13 | 52x |
-| `doit deploy` | ⬜ | ✅ | ✅ | 736 | 13 | 56x |
-| `sessions save` | ✅ | ✅ | ✅ | 703 | 13 | 54x |
-| `sessions list` | ✅ | ✅ | ✅ | 693 | 13 | 53x |
-| `sessions load` | ✅ | ✅ | ✅ | 696 | 14 | 49x |
-| `sessions delete` | ✅ | ❌ | ✅ | 708 | 14 | 50x |
-| `bastion list` | ⬜ | ✅ | ✅ | 699 | 14 | 49x |
-| `bastion status` | ⬜ | ✅ | ✅ | 682 | 14 | 48x |
-| `bastion configure` | ⬜ | ✅ | ✅ | 683 | 14 | 48x |
-| `completions bash` | ✅ | ❌ | ✅ | 704 | 15 | 46x |
+| `batch command` | ✅ | ✅ | ✅ | 698 | 13 | 53x |
+| `fleet run` | ✅ | ✅ | ✅ | 701 | 13 | 53x |
+| `fleet workflow` | ✅ | ✅ | ✅ | 696 | 13 | 53x |
+| `compose up` | ✅ | ✅ | ✅ | 693 | 13 | 53x |
+| `compose down` | ✅ | ✅ | ✅ | 692 | 13 | 53x |
+| `compose ps` | ✅ | ✅ | ✅ | 683 | 13 | 52x |
+| `template create` | ✅ | ✅ | ✅ | 709 | 13 | 54x |
+| `template list` | ✅ | ✅ | ✅ | 701 | 13 | 53x |
+| `template delete` | ✅ | ✅ | ✅ | 688 | 16 | 43x |
+| `template save` | ✅ | ❌ | ✅ | 698 | 14 | 49x |
+| `template show` | ✅ | ❌ | ✅ | 715 | 14 | 51x |
+| `template apply` | ✅ | ❌ | ✅ | 714 | 14 | 51x |
+| `autopilot enable` | ✅ | ✅ | ✅ | 698 | 14 | 49x |
+| `autopilot disable` | ✅ | ✅ | ✅ | 700 | 13 | 53x |
+| `autopilot status` | ✅ | ✅ | ✅ | 690 | 13 | 53x |
+| `context list` | ✅ | ✅ | ✅ | 701 | 14 | 50x |
+| `context current` | ✅ | ✅ | ✅ | 694 | 14 | 49x |
+| `context use` | ✅ | ✅ | ✅ | 702 | 13 | 54x |
+| `context create` | ✅ | ✅ | ✅ | 719 | 14 | 51x |
+| `context delete` | ✅ | ✅ | ✅ | 694 | 13 | 53x |
+| `context rename` | ✅ | ✅ | ✅ | 693 | 13 | 53x |
+| `disk add` | ✅ | ✅ | ✅ | 694 | 13 | 53x |
+| `ip check` | ✅ | ✅ | ✅ | 706 | 13 | 54x |
+| `web start` | ✅ | ✅ | ✅ | 692 | 13 | 53x |
+| `web stop` | ✅ | ✅ | ✅ | 696 | 13 | 53x |
+| `costs dashboard` | ✅ | ✅ | ✅ | 720 | 13 | 55x |
+| `costs history` | ✅ | ✅ | ✅ | 696 | 13 | 53x |
+| `costs budget` | ✅ | ✅ | ✅ | 691 | 13 | 53x |
+| `costs recommend` | ✅ | ✅ | ✅ | 691 | 13 | 53x |
+| `costs actions` | ✅ | ✅ | ✅ | 700 | 13 | 53x |
+| `github-runner enable` | ✅ | ✅ | ✅ | 710 | 14 | 50x |
+| `github-runner disable` | ✅ | ✅ | ✅ | 694 | 14 | 49x |
+| `github-runner status` | ✅ | ✅ | ✅ | 703 | 13 | 54x |
+| `github-runner scale` | ✅ | ✅ | ✅ | 701 | 13 | 53x |
+| `doit deploy` | ✅ | ✅ | ✅ | 696 | 14 | 49x |
+| `sessions save` | ✅ | ✅ | ✅ | 700 | 14 | 50x |
+| `sessions list` | ✅ | ✅ | ✅ | 704 | 13 | 54x |
+| `sessions load` | ✅ | ✅ | ✅ | 706 | 13 | 54x |
+| `sessions delete` | ✅ | ❌ | ✅ | 701 | 13 | 53x |
+| `bastion list` | ✅ | ✅ | ✅ | 710 | 14 | 50x |
+| `bastion status` | ✅ | ✅ | ✅ | 704 | 14 | 50x |
+| `bastion configure` | ✅ | ✅ | ✅ | 693 | 14 | 49x |
+| `completions bash` | ✅ | ❌ | ✅ | 715 | 13 | 55x |
 
 ## Summary
 
 - **Total commands tested**: 102
 - **Python passing**: 93 / 102
 - **Rust passing**: 102 / 102
-- **With agentic tests**: 94 / 102
+- **With agentic tests**: 102 / 102
