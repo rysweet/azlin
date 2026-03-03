@@ -60,6 +60,24 @@ pub struct TmuxSession {
     pub attached: bool,
 }
 
+/// Summary of Azure costs for a resource group.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostSummary {
+    pub total_cost: f64,
+    pub currency: String,
+    pub period_start: DateTime<Utc>,
+    pub period_end: DateTime<Utc>,
+    pub by_vm: Vec<VmCost>,
+}
+
+/// Cost data for an individual VM.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VmCost {
+    pub vm_name: String,
+    pub cost: f64,
+    pub currency: String,
+}
+
 /// Represents a command execution result.
 #[derive(Debug, Clone)]
 pub struct CommandResult {
@@ -131,5 +149,61 @@ mod tests {
         let json = r#"{"vm_name":"vm1","session_name":"dev","windows":3,"created_time":"2024-01-01"}"#;
         let session: TmuxSession = serde_json::from_str(json).unwrap();
         assert!(!session.attached);
+    }
+
+    #[test]
+    fn test_cost_summary_serialization() {
+        let summary = CostSummary {
+            total_cost: 42.50,
+            currency: "USD".to_string(),
+            period_start: Utc::now(),
+            period_end: Utc::now(),
+            by_vm: vec![
+                VmCost {
+                    vm_name: "vm-1".to_string(),
+                    cost: 25.00,
+                    currency: "USD".to_string(),
+                },
+                VmCost {
+                    vm_name: "vm-2".to_string(),
+                    cost: 17.50,
+                    currency: "USD".to_string(),
+                },
+            ],
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        let deserialized: CostSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.total_cost, 42.50);
+        assert_eq!(deserialized.currency, "USD");
+        assert_eq!(deserialized.by_vm.len(), 2);
+    }
+
+    #[test]
+    fn test_vm_cost_fields() {
+        let vm_cost = VmCost {
+            vm_name: "dev-vm".to_string(),
+            cost: 10.99,
+            currency: "EUR".to_string(),
+        };
+        let json = serde_json::to_string(&vm_cost).unwrap();
+        let deserialized: VmCost = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.vm_name, "dev-vm");
+        assert_eq!(deserialized.cost, 10.99);
+        assert_eq!(deserialized.currency, "EUR");
+    }
+
+    #[test]
+    fn test_cost_summary_empty_vms() {
+        let summary = CostSummary {
+            total_cost: 0.0,
+            currency: "USD".to_string(),
+            period_start: Utc::now(),
+            period_end: Utc::now(),
+            by_vm: vec![],
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        let deserialized: CostSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.total_cost, 0.0);
+        assert!(deserialized.by_vm.is_empty());
     }
 }

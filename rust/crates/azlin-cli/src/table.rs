@@ -14,6 +14,32 @@ pub fn render_vm_table(vms: &[VmInfo], format: &OutputFormat) {
     }
 }
 
+/// Render a tag listing in a table.
+pub fn render_tags_table(vm_name: &str, tags: &std::collections::HashMap<String, String>) {
+    if tags.is_empty() {
+        println!("No tags on VM '{}'.", vm_name);
+        return;
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_header(vec!["Key", "Value"]);
+
+    let mut keys: Vec<&String> = tags.keys().collect();
+    keys.sort();
+    for key in keys {
+        table.add_row(vec![
+            Cell::new(key),
+            Cell::new(tags.get(key).unwrap()),
+        ]);
+    }
+
+    println!("Tags for VM '{}':", vm_name);
+    println!("{table}");
+}
+
 fn render_table(vms: &[VmInfo]) {
     if vms.is_empty() {
         println!("No VMs found.");

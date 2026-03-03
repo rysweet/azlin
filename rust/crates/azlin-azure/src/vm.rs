@@ -249,6 +249,63 @@ impl VmManager {
         self.convert_vm(&vm, resource_group).await
     }
 
+    /// Add a tag to a VM, preserving existing tags.
+    pub async fn add_tag(&self, resource_group: &str, name: &str, key: &str, value: &str) -> Result<()> {
+        debug!(resource_group, name, key, value, "Adding tag to VM");
+        let vm = self.get_vm(resource_group, name).await?;
+        let mut tags = vm.tags.clone();
+        tags.insert(key.to_string(), value.to_string());
+
+        let tags_json: serde_json::Map<String, serde_json::Value> = tags
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+            .collect();
+
+        let mut update = azure_mgmt_compute::models::VirtualMachineUpdate::new();
+        update.update_resource.tags = Some(serde_json::Value::Object(tags_json));
+
+        self.compute_client
+            .virtual_machines()
+            .update(resource_group, name, update, &self.subscription_id)
+            .into_future()
+            .await
+            .context(format!("Failed to add tag to VM '{name}'"))?;
+        debug!(name, key, "Tag added");
+        Ok(())
+    }
+
+    /// Remove a tag from a VM, preserving other tags.
+    pub async fn remove_tag(&self, resource_group: &str, name: &str, key: &str) -> Result<()> {
+        debug!(resource_group, name, key, "Removing tag from VM");
+        let vm = self.get_vm(resource_group, name).await?;
+        let mut tags = vm.tags.clone();
+        tags.remove(key);
+
+        let tags_json: serde_json::Map<String, serde_json::Value> = tags
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+            .collect();
+
+        let mut update = azure_mgmt_compute::models::VirtualMachineUpdate::new();
+        update.update_resource.tags = Some(serde_json::Value::Object(tags_json));
+
+        self.compute_client
+            .virtual_machines()
+            .update(resource_group, name, update, &self.subscription_id)
+            .into_future()
+            .await
+            .context(format!("Failed to remove tag from VM '{name}'"))?;
+        debug!(name, key, "Tag removed");
+        Ok(())
+    }
+
+    /// List tags on a VM.
+    pub async fn list_tags(&self, resource_group: &str, name: &str) -> Result<HashMap<String, String>> {
+        debug!(resource_group, name, "Listing tags on VM");
+        let vm = self.get_vm(resource_group, name).await?;
+        Ok(vm.tags)
+    }
+
     /// Delete a VM.
     pub async fn delete_vm(&self, resource_group: &str, name: &str) -> Result<()> {
         debug!(resource_group, name, "Deleting VM");
@@ -531,5 +588,34 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(extract_power_state(Some(&iv)), PowerState::Stopping);
+    }
+
+    #[test]
+    fn test_extract_tags_with_mixed_values() {
+        let tags = serde_json::json!({
+            "env": "production",
+            "team": "backend",
+            "numeric": 42
+        });
+        let result = extract_tags(Some(&tags));
+        assert_eq!(result.get("env").unwrap(), "production");
+        assert_eq!(result.get("team").unwrap(), "backend");
+        // Non-string values are skipped
+        assert!(result.get("numeric").is_none());
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_tags_empty_object() {
+        let tags = serde_json::json!({});
+        let result = extract_tags(Some(&tags));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_tags_non_object() {
+        let tags = serde_json::json!("not an object");
+        let result = extract_tags(Some(&tags));
+        assert!(result.is_empty());
     }
 }
