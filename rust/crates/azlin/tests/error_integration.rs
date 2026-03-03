@@ -50,6 +50,17 @@ fn test_no_azure_auth_graceful_error() {
 }
 
 #[test]
+fn test_azure_error_shows_login_suggestion() {
+    let (stdout, stderr, code) = run_azlin(&["list", "--resource-group", "test-rg"]);
+    let combined = format!("{}{}", stdout, stderr);
+    assert_ne!(code, 0, "should fail without Azure auth");
+    assert!(
+        combined.contains("az login"),
+        "should suggest 'az login' when auth fails, got: {combined}"
+    );
+}
+
+#[test]
 fn test_status_without_auth_no_panic() {
     let (stdout, stderr, _) = run_azlin(&["status", "fake-vm"]);
     let combined = format!("{}{}", stdout, stderr);

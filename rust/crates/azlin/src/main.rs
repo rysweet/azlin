@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
 };
@@ -238,8 +238,33 @@ fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bo
     println!("{table}");
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() {
+    color_eyre::install().ok();
+
+    let result = tokio::runtime::Runtime::new()
+        .expect("Failed to create tokio runtime")
+        .block_on(async_main());
+
+    if let Err(e) = result {
+        let msg = format!("{e:?}");
+        eprintln!("Error: {e}");
+
+        if msg.contains("az login") || msg.contains("authentication") || msg.contains("Azure") {
+            eprintln!("\n💡 Suggestion: Run 'az login' to authenticate with Azure");
+        }
+        if msg.contains("ANTHROPIC_API_KEY") {
+            eprintln!("\n💡 Suggestion: Set ANTHROPIC_API_KEY environment variable");
+            eprintln!("   Get a key at: https://console.anthropic.com/");
+        }
+        if msg.contains("not found") && msg.contains("VM") {
+            eprintln!("\n💡 Suggestion: Run 'azlin list' to see available VMs");
+        }
+
+        std::process::exit(1);
+    }
+}
+
+async fn async_main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -4285,6 +4310,10 @@ async fn main() -> Result<()> {
             }
         },
 
+        azlin_cli::Commands::Completions { shell } => {
+            let mut cmd = azlin_cli::Cli::command();
+            clap_complete::generate(shell, &mut cmd, "azlin", &mut std::io::stdout());
+        }
         azlin_cli::Commands::AzlinHelp { command_name } => match command_name.as_deref() {
             Some(cmd) => {
                 println!("azlin {} — Extended help", cmd);
@@ -5352,5 +5381,37 @@ mod tests {
         let result = super::ssh_exec_checked("192.0.2.1", "user", "echo hello").await;
         // Unreachable host should fail (either connection refused or timeout)
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_completions_bash() {
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["completions", "bash"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("_azlin"));
+    }
+
+    #[test]
+    fn test_completions_zsh() {
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["completions", "zsh"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+    }
+
+    #[test]
+    fn test_completions_fish() {
+        let output = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["completions", "fish"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
     }
 }
