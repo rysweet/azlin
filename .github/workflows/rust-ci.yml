@@ -24,5 +24,7 @@ jobs:
         run: cargo build --release
       - name: Test
         run: cargo test --all
+        env:
+          RUST_MIN_STACK: "8388608"
       - name: Clippy
         run: cargo clippy --all -- -D warnings
