@@ -2,6 +2,8 @@
 
 pub mod auth;
 pub mod costs;
+pub mod rate_limiter;
+pub mod retry;
 pub mod vm;
 
 pub use auth::AzureAuth;
