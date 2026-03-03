@@ -88,10 +88,20 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    let allowed_prefixes = ["az ", "echo ", "azlin "];
     for (i, cmd) in commands.iter().enumerate() {
+        let is_allowed = allowed_prefixes.iter().any(|p| cmd.starts_with(p));
+        if !is_allowed {
+            eprintln!("⚠ Skipping disallowed command: {}", cmd);
+            continue;
+        }
         println!("→ [{}/{}] {}", i + 1, commands.len(), cmd);
-        let output = std::process::Command::new("sh")
-            .args(["-c", cmd])
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        if parts.is_empty() {
+            continue;
+        }
+        let output = std::process::Command::new(parts[0])
+            .args(&parts[1..])
             .output()?;
         if !output.stdout.is_empty() {
             print!("{}", String::from_utf8_lossy(&output.stdout));

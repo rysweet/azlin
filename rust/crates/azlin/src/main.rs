@@ -4,8 +4,20 @@ use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
 };
 use console::Style;
+use crossterm::{
+    event::{self, Event, KeyCode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    ExecutableCommand,
+};
 use dialoguer::Confirm;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color as RatColor, Style as RatStyle},
+    widgets::{Block, Borders, Cell as RatCell, Row, Table as RatTable},
+    Terminal,
+};
 use tracing_subscriber::EnvFilter;
 
 /// Health metrics collected from a VM via SSH.
@@ -175,6 +187,131 @@ fn render_health_table(metrics: &[HealthMetrics]) {
         ]);
     }
     println!("{table}");
+}
+
+/// Run an interactive TUI dashboard showing health metrics.
+fn run_health_tui(metrics: &[HealthMetrics]) -> Result<()> {
+    enable_raw_mode()?;
+    std::io::stdout().execute(EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(std::io::stdout());
+    let mut terminal = Terminal::new(backend)?;
+
+    let result = (|| -> Result<()> {
+        loop {
+            terminal.draw(|f| {
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Length(3),
+                        Constraint::Min(10),
+                        Constraint::Length(3),
+                    ])
+                    .split(f.area());
+
+                // Header
+                let header = Block::default()
+                    .title(" azlin health dashboard ")
+                    .borders(Borders::ALL)
+                    .border_style(RatStyle::default().fg(RatColor::Cyan));
+                f.render_widget(header, chunks[0]);
+
+                // Table
+                let header_row = Row::new(vec![
+                    RatCell::from("VM Name").style(RatStyle::default().fg(RatColor::Yellow)),
+                    RatCell::from("Power State").style(RatStyle::default().fg(RatColor::Yellow)),
+                    RatCell::from("CPU %").style(RatStyle::default().fg(RatColor::Yellow)),
+                    RatCell::from("Memory %").style(RatStyle::default().fg(RatColor::Yellow)),
+                    RatCell::from("Disk %").style(RatStyle::default().fg(RatColor::Yellow)),
+                    RatCell::from("Load Avg").style(RatStyle::default().fg(RatColor::Yellow)),
+                ]);
+
+                let rows: Vec<Row> = metrics
+                    .iter()
+                    .map(|m| {
+                        let state_color = match m.power_state.as_str() {
+                            "running" => RatColor::Green,
+                            "stopped" | "deallocated" => RatColor::Red,
+                            _ => RatColor::Yellow,
+                        };
+                        let cpu_color = if m.cpu_percent > 80.0 {
+                            RatColor::Red
+                        } else if m.cpu_percent > 50.0 {
+                            RatColor::Yellow
+                        } else {
+                            RatColor::Green
+                        };
+                        let mem_color = if m.mem_percent > 80.0 {
+                            RatColor::Red
+                        } else if m.mem_percent > 50.0 {
+                            RatColor::Yellow
+                        } else {
+                            RatColor::Green
+                        };
+                        let disk_color = if m.disk_percent > 80.0 {
+                            RatColor::Red
+                        } else if m.disk_percent > 50.0 {
+                            RatColor::Yellow
+                        } else {
+                            RatColor::Green
+                        };
+                        Row::new(vec![
+                            RatCell::from(m.vm_name.as_str()),
+                            RatCell::from(m.power_state.as_str())
+                                .style(RatStyle::default().fg(state_color)),
+                            RatCell::from(format!("{:.1}", m.cpu_percent))
+                                .style(RatStyle::default().fg(cpu_color)),
+                            RatCell::from(format!("{:.1}", m.mem_percent))
+                                .style(RatStyle::default().fg(mem_color)),
+                            RatCell::from(format!("{:.1}", m.disk_percent))
+                                .style(RatStyle::default().fg(disk_color)),
+                            RatCell::from(m.load_avg.as_str()),
+                        ])
+                    })
+                    .collect();
+
+                let table = RatTable::new(
+                    rows,
+                    [
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(15),
+                        Constraint::Percentage(15),
+                        Constraint::Percentage(15),
+                        Constraint::Percentage(15),
+                        Constraint::Percentage(15),
+                    ],
+                )
+                .header(header_row)
+                .block(
+                    Block::default()
+                        .title(" Health — Four Golden Signals ")
+                        .borders(Borders::ALL),
+                );
+                f.render_widget(table, chunks[1]);
+
+                // Footer
+                let footer = Block::default()
+                    .title(" q: quit | r: refresh ")
+                    .borders(Borders::ALL)
+                    .border_style(RatStyle::default().fg(RatColor::DarkGray));
+                f.render_widget(footer, chunks[2]);
+            })?;
+
+            if event::poll(std::time::Duration::from_secs(10))? {
+                if let Event::Key(key) = event::read()? {
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Char('r') => continue,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Ok(())
+    })();
+
+    disable_raw_mode()?;
+    std::io::stdout().execute(LeaveAlternateScreen)?;
+    result
 }
 
 /// Get running VMs with their IPs from Azure for SSH-based commands.
@@ -596,7 +733,7 @@ async fn async_main() -> Result<()> {
             }
         }
         azlin_cli::Commands::Health {
-            vm, resource_group, ..
+            vm, resource_group, tui, ..
         } => {
             let auth = match azlin_azure::AzureAuth::new() {
                 Ok(a) => a,
@@ -644,6 +781,8 @@ async fn async_main() -> Result<()> {
 
             if metrics.is_empty() {
                 println!("No VMs found in resource group '{}'", rg);
+            } else if tui {
+                run_health_tui(&metrics)?;
             } else {
                 println!("Health Dashboard — Four Golden Signals ({})", rg);
                 render_health_table(&metrics);
@@ -935,54 +1074,86 @@ async fn async_main() -> Result<()> {
             let summary = azlin_azure::get_cost_summary(&auth, &rg).await?;
             pb.finish_and_clear();
 
-            let key_style = Style::new().cyan().bold();
-            let val_style = Style::new().white();
-
-            println!(
-                "{}: ${:.2} {}",
-                key_style.apply_to("Total Cost"),
-                summary.total_cost,
-                val_style.apply_to(&summary.currency)
-            );
-            println!(
-                "{}: {} to {}",
-                key_style.apply_to("Period"),
-                summary.period_start.format("%Y-%m-%d"),
-                summary.period_end.format("%Y-%m-%d")
-            );
-
-            if let Some(ref f) = from {
-                println!("{}: {}", key_style.apply_to("From filter"), f);
-            }
-            if let Some(ref t) = to {
-                println!("{}: {}", key_style.apply_to("To filter"), t);
-            }
-            if estimate {
-                println!(
-                    "{}: ${:.2}/month (projected)",
-                    key_style.apply_to("Estimate"),
-                    summary.total_cost
-                );
-            }
-
-            if by_vm && !summary.by_vm.is_empty() {
-                println!();
-                let mut table = comfy_table::Table::new();
-                table
-                    .load_preset(comfy_table::presets::UTF8_FULL)
-                    .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
-                    .set_header(vec!["VM Name", "Cost", "Currency"]);
-
-                for vm_cost in &summary.by_vm {
-                    table.add_row(vec![
-                        comfy_table::Cell::new(&vm_cost.vm_name),
-                        comfy_table::Cell::new(format!("${:.2}", vm_cost.cost)),
-                        comfy_table::Cell::new(&vm_cost.currency),
-                    ]);
+            match &cli.output {
+                azlin_cli::OutputFormat::Json => {
+                    match serde_json::to_string_pretty(&summary) {
+                        Ok(json) => println!("{json}"),
+                        Err(e) => eprintln!("Failed to serialize cost data: {e}"),
+                    }
                 }
-                println!("{table}");
-            } else if by_vm {
-                println!("\nNo per-VM cost data available.");
+                azlin_cli::OutputFormat::Csv | azlin_cli::OutputFormat::Table => {
+                    let is_csv = matches!(cli.output, azlin_cli::OutputFormat::Csv);
+
+                    if is_csv {
+                        println!("Total Cost,Currency,Period Start,Period End");
+                        println!(
+                            "{:.2},{},{},{}",
+                            summary.total_cost,
+                            summary.currency,
+                            summary.period_start.format("%Y-%m-%d"),
+                            summary.period_end.format("%Y-%m-%d")
+                        );
+                    } else {
+                        let key_style = Style::new().cyan().bold();
+                        let val_style = Style::new().white();
+
+                        println!(
+                            "{}: ${:.2} {}",
+                            key_style.apply_to("Total Cost"),
+                            summary.total_cost,
+                            val_style.apply_to(&summary.currency)
+                        );
+                        println!(
+                            "{}: {} to {}",
+                            key_style.apply_to("Period"),
+                            summary.period_start.format("%Y-%m-%d"),
+                            summary.period_end.format("%Y-%m-%d")
+                        );
+
+                        if let Some(ref f) = from {
+                            println!("{}: {}", key_style.apply_to("From filter"), f);
+                        }
+                        if let Some(ref t) = to {
+                            println!("{}: {}", key_style.apply_to("To filter"), t);
+                        }
+                        if estimate {
+                            println!(
+                                "{}: ${:.2}/month (projected)",
+                                key_style.apply_to("Estimate"),
+                                summary.total_cost
+                            );
+                        }
+                    }
+
+                    if by_vm && !summary.by_vm.is_empty() {
+                        let rows: Vec<Vec<String>> = summary
+                            .by_vm
+                            .iter()
+                            .map(|vc| {
+                                vec![
+                                    vc.vm_name.clone(),
+                                    format!("{:.2}", vc.cost),
+                                    vc.currency.clone(),
+                                ]
+                            })
+                            .collect();
+                        if is_csv {
+                            println!("VM Name,Cost,Currency");
+                            for r in &rows {
+                                println!("{},{},{}", r[0], r[1], r[2]);
+                            }
+                        } else {
+                            println!();
+                            azlin_cli::table::render_rows(
+                                &["VM Name", "Cost", "Currency"],
+                                &rows,
+                                &cli.output,
+                            );
+                        }
+                    } else if by_vm {
+                        println!("\nNo per-VM cost data available.");
+                    }
+                }
             }
         }
         azlin_cli::Commands::Snapshot { action } => {
@@ -1617,13 +1788,8 @@ async fn async_main() -> Result<()> {
                 }
 
                 let entries = std::fs::read_dir(&ssh_dir)?;
-                let mut table = Table::new();
-                table
-                    .load_preset(UTF8_FULL)
-                    .apply_modifier(UTF8_ROUND_CORNERS)
-                    .set_header(vec!["Key File", "Type", "Size (bytes)", "Modified"]);
+                let mut rows: Vec<Vec<String>> = Vec::new();
 
-                let mut found = false;
                 for entry in entries {
                     let entry = entry?;
                     let name = entry.file_name().to_string_lossy().to_string();
@@ -1661,14 +1827,22 @@ async fn async_main() -> Result<()> {
                         "unknown"
                     };
 
-                    table.add_row(vec![&name, key_type, &meta.len().to_string(), &modified]);
-                    found = true;
+                    rows.push(vec![
+                        name,
+                        key_type.to_string(),
+                        meta.len().to_string(),
+                        modified,
+                    ]);
                 }
 
-                if found {
-                    println!("{table}");
-                } else {
+                if rows.is_empty() {
                     println!("No SSH keys found in {}", ssh_dir.display());
+                } else {
+                    azlin_cli::table::render_rows(
+                        &["Key File", "Type", "Size (bytes)", "Modified"],
+                        &rows,
+                        &cli.output,
+                    );
                 }
             }
             azlin_cli::KeysAction::Rotate {
@@ -1835,13 +2009,8 @@ async fn async_main() -> Result<()> {
                     }
 
                     let entries = std::fs::read_dir(&profiles_dir)?;
-                    let mut table = Table::new();
-                    table
-                        .load_preset(UTF8_FULL)
-                        .apply_modifier(UTF8_ROUND_CORNERS)
-                        .set_header(vec!["Profile", "Tenant ID", "Client ID"]);
+                    let mut rows: Vec<Vec<String>> = Vec::new();
 
-                    let mut found = false;
                     for entry in entries {
                         let entry = entry?;
                         let name = entry.file_name().to_string_lossy().to_string();
@@ -1850,19 +2019,28 @@ async fn async_main() -> Result<()> {
                             let profile: serde_json::Value =
                                 serde_json::from_str(&content).unwrap_or_default();
                             let profile_name = name.trim_end_matches(".json");
-                            table.add_row(vec![
-                                profile_name,
-                                profile["tenant_id"].as_str().unwrap_or("-"),
-                                profile["client_id"].as_str().unwrap_or("-"),
+                            rows.push(vec![
+                                profile_name.to_string(),
+                                profile["tenant_id"]
+                                    .as_str()
+                                    .unwrap_or("-")
+                                    .to_string(),
+                                profile["client_id"]
+                                    .as_str()
+                                    .unwrap_or("-")
+                                    .to_string(),
                             ]);
-                            found = true;
                         }
                     }
 
-                    if found {
-                        println!("{table}");
-                    } else {
+                    if rows.is_empty() {
                         println!("No authentication profiles found.");
+                    } else {
+                        azlin_cli::table::render_rows(
+                            &["Profile", "Tenant ID", "Client ID"],
+                            &rows,
+                            &cli.output,
+                        );
                     }
                 }
                 azlin_cli::AuthAction::Show { profile } => {
@@ -2861,15 +3039,10 @@ async fn async_main() -> Result<()> {
                         if dry_run {
                             println!("[dry-run] Would sync {} to {}:{}", dotfile, name, dotfile);
                         } else {
-                            let rsync_args = format!(
-                                "rsync -az -e 'ssh -o StrictHostKeyChecking=no' {} {}@{}:~/{}",
-                                local.display(),
-                                user,
-                                ip,
-                                dotfile
-                            );
-                            let output = std::process::Command::new("bash")
-                                .args(["-c", &rsync_args])
+                            let output = std::process::Command::new("rsync")
+                                .args(["-az", "-e", "ssh -o StrictHostKeyChecking=no"])
+                                .arg(local.as_os_str())
+                                .arg(format!("{}@{}:~/{}", user, ip, dotfile))
                                 .output();
                             match output {
                                 Ok(o) if o.status.success() => {
@@ -3167,12 +3340,7 @@ async fn async_main() -> Result<()> {
                         println!("No templates found.");
                         return Ok(());
                     }
-                    let mut table = Table::new();
-                    table
-                        .load_preset(UTF8_FULL)
-                        .apply_modifier(UTF8_ROUND_CORNERS)
-                        .set_header(vec!["Name", "VM Size", "Region"]);
-                    let mut found = false;
+                    let mut rows: Vec<Vec<String>> = Vec::new();
                     for entry in std::fs::read_dir(&azlin_dir)? {
                         let entry = entry?;
                         let fname = entry.file_name().to_string_lossy().to_string();
@@ -3181,18 +3349,30 @@ async fn async_main() -> Result<()> {
                             let tpl: toml::Value = content
                                 .parse()
                                 .unwrap_or(toml::Value::Table(Default::default()));
-                            table.add_row(vec![
-                                tpl.get("name").and_then(|v| v.as_str()).unwrap_or("-"),
-                                tpl.get("vm_size").and_then(|v| v.as_str()).unwrap_or("-"),
-                                tpl.get("region").and_then(|v| v.as_str()).unwrap_or("-"),
+                            rows.push(vec![
+                                tpl.get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("-")
+                                    .to_string(),
+                                tpl.get("vm_size")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("-")
+                                    .to_string(),
+                                tpl.get("region")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("-")
+                                    .to_string(),
                             ]);
-                            found = true;
                         }
                     }
-                    if found {
-                        println!("{table}");
-                    } else {
+                    if rows.is_empty() {
                         println!("No templates found.");
+                    } else {
+                        azlin_cli::table::render_rows(
+                            &["Name", "VM Size", "Region"],
+                            &rows,
+                            &cli.output,
+                        );
                     }
                 }
                 azlin_cli::TemplateAction::Show { name } => {
@@ -3328,25 +3508,44 @@ async fn async_main() -> Result<()> {
                     let active = std::fs::read_to_string(&active_ctx_path)
                         .map(|s| s.trim().to_string())
                         .unwrap_or_default();
-                    let mut found = false;
                     let mut entries: Vec<_> = std::fs::read_dir(&ctx_dir)?
                         .filter_map(|e| e.ok())
                         .collect();
                     entries.sort_by_key(|e| e.file_name());
+                    let mut rows: Vec<Vec<String>> = Vec::new();
                     for entry in entries {
                         let name = entry.file_name().to_string_lossy().to_string();
                         if name.ends_with(".toml") {
-                            let ctx_name = name.trim_end_matches(".toml");
-                            if ctx_name == active {
-                                println!("* {}", ctx_name);
+                            let ctx_name = name.trim_end_matches(".toml").to_string();
+                            let is_active = if ctx_name == active {
+                                "true".to_string()
                             } else {
-                                println!("  {}", ctx_name);
-                            }
-                            found = true;
+                                "false".to_string()
+                            };
+                            rows.push(vec![ctx_name, is_active]);
                         }
                     }
-                    if !found {
+                    if rows.is_empty() {
                         println!("No contexts found. Create one with: azlin context create <name>");
+                    } else {
+                        match &cli.output {
+                            azlin_cli::OutputFormat::Table => {
+                                for row in &rows {
+                                    if row[1] == "true" {
+                                        println!("* {}", row[0]);
+                                    } else {
+                                        println!("  {}", row[0]);
+                                    }
+                                }
+                            }
+                            _ => {
+                                azlin_cli::table::render_rows(
+                                    &["Name", "Active"],
+                                    &rows,
+                                    &cli.output,
+                                );
+                            }
+                        }
                     }
                 }
                 azlin_cli::ContextAction::Show { .. }
@@ -3702,17 +3901,33 @@ async fn async_main() -> Result<()> {
                     println!("No saved sessions.");
                     return Ok(());
                 }
-                let mut found = false;
+                let mut rows: Vec<Vec<String>> = Vec::new();
                 for entry in std::fs::read_dir(&dir)? {
                     let entry = entry?;
                     let name = entry.file_name().to_string_lossy().to_string();
                     if name.ends_with(".toml") {
-                        println!("  {}", name.trim_end_matches(".toml"));
-                        found = true;
+                        rows.push(vec![
+                            name.trim_end_matches(".toml").to_string(),
+                        ]);
                     }
                 }
-                if !found {
+                if rows.is_empty() {
                     println!("No saved sessions.");
+                } else {
+                    match &cli.output {
+                        azlin_cli::OutputFormat::Table => {
+                            for row in &rows {
+                                println!("  {}", row[0]);
+                            }
+                        }
+                        _ => {
+                            azlin_cli::table::render_rows(
+                                &["Session"],
+                                &rows,
+                                &cli.output,
+                            );
+                        }
+                    }
                 }
             }
         },

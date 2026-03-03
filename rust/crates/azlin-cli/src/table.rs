@@ -5,6 +5,53 @@ use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Color
 
 use crate::OutputFormat;
 
+/// Render generic tabular data (headers + rows of strings) in the requested format.
+pub fn render_rows(headers: &[&str], rows: &[Vec<String>], format: &OutputFormat) {
+    match format {
+        OutputFormat::Table => {
+            if rows.is_empty() {
+                println!("No data found.");
+                return;
+            }
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .apply_modifier(UTF8_ROUND_CORNERS)
+                .set_header(headers.iter().map(|h| Cell::new(h)).collect::<Vec<_>>());
+            for row in rows {
+                table.add_row(row.iter().map(|c| Cell::new(c)).collect::<Vec<_>>());
+            }
+            println!("{table}");
+        }
+        OutputFormat::Json => {
+            let objects: Vec<serde_json::Value> = rows
+                .iter()
+                .map(|row| {
+                    let mut map = serde_json::Map::new();
+                    for (i, h) in headers.iter().enumerate() {
+                        map.insert(
+                            h.to_string(),
+                            serde_json::Value::String(row.get(i).cloned().unwrap_or_default()),
+                        );
+                    }
+                    serde_json::Value::Object(map)
+                })
+                .collect();
+            match serde_json::to_string_pretty(&objects) {
+                Ok(json) => println!("{json}"),
+                Err(e) => eprintln!("Failed to serialize to JSON: {e}"),
+            }
+        }
+        OutputFormat::Csv => {
+            println!("{}", headers.join(","));
+            for row in rows {
+                let escaped: Vec<String> = row.iter().map(|c| csv_escape(c)).collect();
+                println!("{}", escaped.join(","));
+            }
+        }
+    }
+}
+
 /// Render a list of VMs in the requested output format.
 pub fn render_vm_table(vms: &[VmInfo], format: &OutputFormat) {
     match format {
