@@ -13,7 +13,7 @@ pub struct AzureError {
 pub fn parse_azure_error(body: &str) -> Option<AzureError> {
     let json: Value = serde_json::from_str(body).ok()?;
     let error = json.get("error")?;
-    
+
     Some(AzureError {
         code: error.get("code")?.as_str()?.to_string(),
         message: error.get("message")?.as_str()?.to_string(),
@@ -35,7 +35,7 @@ pub fn parse_azure_error(body: &str) -> Option<AzureError> {
 /// Format Azure error into user-friendly message with actionable suggestions
 pub fn format_user_friendly_error(error: &AzureError) -> String {
     let mut msg = String::new();
-    
+
     match error.code.as_str() {
         "ResourceGroupNotFound" => {
             msg.push_str(&format!("❌ Resource group not found: {}\n", error.message));
@@ -74,14 +74,14 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
             msg.push_str(&format!("❌ Azure error [{}]: {}\n", error.code, error.message));
         }
     }
-    
+
     if !error.details.is_empty() {
         msg.push_str("\nDetails:\n");
         for detail in &error.details {
             msg.push_str(&format!("  - [{}] {}\n", detail.code, detail.message));
         }
     }
-    
+
     msg
 }
 
@@ -89,12 +89,12 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
 pub fn sanitize_command_for_logging(command: &str) -> String {
     let sensitive_params = [
         "--admin-password",
-        "--connection-string", 
+        "--connection-string",
         "--storage-account-key",
         "--sas-token",
         "--client-secret",
     ];
-    
+
     let mut sanitized = command.to_string();
     for param in &sensitive_params {
         if let Some(idx) = sanitized.find(param) {
