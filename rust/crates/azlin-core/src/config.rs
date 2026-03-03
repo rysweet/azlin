@@ -212,13 +212,13 @@ impl AzlinConfig {
         }
 
         if Self::U64_FIELDS.contains(&key) {
-            value.parse::<u64>().map_err(|_| {
+            let parsed = value.parse::<u64>().map_err(|_| {
                 crate::AzlinError::Config(format!(
                     "Field '{}' must be a positive integer, got '{}'",
                     key, value
                 ))
             })?;
-            return Ok(serde_json::json!(value.parse::<u64>().unwrap()));
+            return Ok(serde_json::json!(parsed));
         }
 
         // Default: pass through as string

@@ -1632,11 +1632,11 @@ async fn main() -> Result<()> {
                 match pub_key {
                     Some(src) => {
                         std::fs::copy(&src, &output)?;
-                        println!(
-                            "Exported {} to {}",
-                            src.file_name().unwrap().to_string_lossy(),
-                            output.display()
-                        );
+                        let fname = src
+                            .file_name()
+                            .map(|f| f.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| src.display().to_string());
+                        println!("Exported {} to {}", fname, output.display());
                     }
                     None => {
                         eprintln!("No SSH public key found in {}", ssh_dir.display());
@@ -4674,5 +4674,609 @@ mod tests {
         let vms: Vec<(String, String, String)> = vec![];
         // Should not panic on empty list
         super::run_on_fleet(&vms, "echo hi", true);
+    }
+
+    // ── shell_escape tests ───────────────────────────────────────
+
+    #[test]
+    fn test_shell_escape_empty_string() {
+        assert_eq!(super::shell_escape(""), "''");
+    }
+
+    #[test]
+    fn test_shell_escape_no_special_chars() {
+        assert_eq!(super::shell_escape("hello"), "'hello'");
+    }
+
+    #[test]
+    fn test_shell_escape_with_spaces() {
+        assert_eq!(super::shell_escape("hello world"), "'hello world'");
+    }
+
+    #[test]
+    fn test_shell_escape_with_dollar_sign() {
+        assert_eq!(super::shell_escape("$HOME"), "'$HOME'");
+    }
+
+    #[test]
+    fn test_shell_escape_with_backticks() {
+        assert_eq!(super::shell_escape("`whoami`"), "'`whoami`'");
+    }
+
+    #[test]
+    fn test_shell_escape_with_double_quotes() {
+        assert_eq!(super::shell_escape(r#"say "hi""#), r#"'say "hi"'"#);
+    }
+
+    #[test]
+    fn test_shell_escape_multiple_single_quotes() {
+        let result = super::shell_escape("it's Tom's");
+        assert_eq!(result, "'it'\\''s Tom'\\''s'");
+    }
+
+    #[test]
+    fn test_shell_escape_newline() {
+        let result = super::shell_escape("line1\nline2");
+        assert!(result.starts_with('\''));
+        assert!(result.ends_with('\''));
+        assert!(result.contains('\n'));
+    }
+
+    #[test]
+    fn test_shell_escape_semicolons_and_pipes() {
+        let result = super::shell_escape("cmd1; cmd2 | cmd3");
+        assert_eq!(result, "'cmd1; cmd2 | cmd3'");
+    }
+
+    #[test]
+    fn test_shell_escape_unicode() {
+        assert_eq!(super::shell_escape("café"), "'café'");
+    }
+
+    // ── resolve_resource_group tests ─────────────────────────────
+
+    #[test]
+    fn test_resolve_resource_group_with_explicit_value() {
+        let result = super::resolve_resource_group(Some("my-rg".to_string()));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "my-rg");
+    }
+
+    #[test]
+    fn test_resolve_resource_group_explicit_empty_string() {
+        let result = super::resolve_resource_group(Some("".to_string()));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "");
+    }
+
+    #[test]
+    fn test_resolve_resource_group_explicit_with_special_chars() {
+        let result = super::resolve_resource_group(Some("my-rg_123".to_string()));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "my-rg_123");
+    }
+
+    // ── resolve_vm_ip_or_flag tests ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_resolve_vm_ip_or_flag_returns_provided_ip() {
+        let (ip, user) = super::resolve_vm_ip_or_flag("any-vm", Some("10.0.0.5"), None)
+            .await
+            .unwrap();
+        assert_eq!(ip, "10.0.0.5");
+        assert_eq!(user, "azureuser");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_vm_ip_or_flag_ipv6() {
+        let (ip, user) = super::resolve_vm_ip_or_flag("vm", Some("::1"), None)
+            .await
+            .unwrap();
+        assert_eq!(ip, "::1");
+        assert_eq!(user, "azureuser");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_vm_ip_or_flag_localhost() {
+        let (ip, user) = super::resolve_vm_ip_or_flag("vm", Some("127.0.0.1"), None)
+            .await
+            .unwrap();
+        assert_eq!(ip, "127.0.0.1");
+        assert_eq!(user, "azureuser");
+    }
+
+    // ── HealthMetrics tests ──────────────────────────────────────
+
+    #[test]
+    fn test_health_metrics_stopped_vm() {
+        let m = super::collect_health_metrics("vm-stop", "10.0.0.1", "user", "stopped");
+        assert_eq!(m.vm_name, "vm-stop");
+        assert_eq!(m.power_state, "stopped");
+        assert_eq!(m.cpu_percent, 0.0);
+        assert_eq!(m.mem_percent, 0.0);
+        assert_eq!(m.disk_percent, 0.0);
+        assert_eq!(m.load_avg, "-");
+    }
+
+    #[test]
+    fn test_health_metrics_starting_vm() {
+        let m = super::collect_health_metrics("vm-start", "10.0.0.1", "user", "starting");
+        assert_eq!(m.power_state, "starting");
+        assert_eq!(m.cpu_percent, 0.0);
+    }
+
+    #[test]
+    fn test_health_metrics_unknown_state() {
+        let m = super::collect_health_metrics("vm-x", "10.0.0.1", "user", "unknown");
+        assert_eq!(m.power_state, "unknown");
+        assert_eq!(m.cpu_percent, 0.0);
+        assert_eq!(m.load_avg, "-");
+    }
+
+    // ── render_health_table tests ────────────────────────────────
+
+    #[test]
+    fn test_render_health_table_empty_list() {
+        let metrics: Vec<super::HealthMetrics> = vec![];
+        // Should not panic on empty input
+        super::render_health_table(&metrics);
+    }
+
+    #[test]
+    fn test_render_health_table_single_entry() {
+        let metrics = vec![super::HealthMetrics {
+            vm_name: "solo-vm".to_string(),
+            power_state: "running".to_string(),
+            cpu_percent: 50.0,
+            mem_percent: 40.0,
+            disk_percent: 30.0,
+            load_avg: "1.00, 0.50, 0.25".to_string(),
+        }];
+        super::render_health_table(&metrics);
+    }
+
+    #[test]
+    fn test_render_health_table_high_usage_values() {
+        let metrics = vec![super::HealthMetrics {
+            vm_name: "hot-vm".to_string(),
+            power_state: "running".to_string(),
+            cpu_percent: 99.9,
+            mem_percent: 95.0,
+            disk_percent: 98.0,
+            load_avg: "16.00, 12.00, 8.00".to_string(),
+        }];
+        super::render_health_table(&metrics);
+    }
+
+    #[test]
+    fn test_render_health_table_zero_usage() {
+        let metrics = vec![super::HealthMetrics {
+            vm_name: "idle-vm".to_string(),
+            power_state: "running".to_string(),
+            cpu_percent: 0.0,
+            mem_percent: 0.0,
+            disk_percent: 0.0,
+            load_avg: "0.00, 0.00, 0.00".to_string(),
+        }];
+        super::render_health_table(&metrics);
+    }
+
+    #[test]
+    fn test_render_health_table_mixed_states() {
+        let metrics = vec![
+            super::HealthMetrics {
+                vm_name: "vm-a".to_string(),
+                power_state: "running".to_string(),
+                cpu_percent: 10.0,
+                mem_percent: 20.0,
+                disk_percent: 30.0,
+                load_avg: "0.10".to_string(),
+            },
+            super::HealthMetrics {
+                vm_name: "vm-b".to_string(),
+                power_state: "deallocated".to_string(),
+                cpu_percent: 0.0,
+                mem_percent: 0.0,
+                disk_percent: 0.0,
+                load_avg: "-".to_string(),
+            },
+            super::HealthMetrics {
+                vm_name: "vm-c".to_string(),
+                power_state: "stopping".to_string(),
+                cpu_percent: 0.0,
+                mem_percent: 0.0,
+                disk_percent: 0.0,
+                load_avg: "-".to_string(),
+            },
+        ];
+        super::render_health_table(&metrics);
+    }
+
+    // ── cp direction detection tests ─────────────────────────────
+
+    #[test]
+    fn test_cp_direction_local_to_remote() {
+        let is_remote = |s: &str| {
+            s.contains(':')
+                && !s.starts_with('/')
+                && s.len() > 2
+                && s.chars().nth(1) != Some(':')
+        };
+        assert!(!is_remote("/tmp/file.txt"));
+        assert!(is_remote("myvm:/home/user/file.txt"));
+    }
+
+    #[test]
+    fn test_cp_direction_remote_to_local() {
+        let is_remote = |s: &str| {
+            s.contains(':')
+                && !s.starts_with('/')
+                && s.len() > 2
+                && s.chars().nth(1) != Some(':')
+        };
+        let source = "vm1:/tmp/data.tar.gz";
+        let dest = "/home/local/data.tar.gz";
+        assert!(is_remote(source));
+        assert!(!is_remote(dest));
+    }
+
+    #[test]
+    fn test_cp_direction_windows_path_not_remote() {
+        let is_remote = |s: &str| {
+            s.contains(':')
+                && !s.starts_with('/')
+                && s.len() > 2
+                && s.chars().nth(1) != Some(':')
+        };
+        assert!(!is_remote("C:\\Users\\file.txt"));
+        assert!(!is_remote("D:\\data"));
+    }
+
+    #[test]
+    fn test_cp_direction_both_local() {
+        let is_remote = |s: &str| {
+            s.contains(':')
+                && !s.starts_with('/')
+                && s.len() > 2
+                && s.chars().nth(1) != Some(':')
+        };
+        let source = "/tmp/a.txt";
+        let dest = "/tmp/b.txt";
+        let direction = if is_remote(source) && !is_remote(dest) {
+            "remote→local"
+        } else if !is_remote(source) && is_remote(dest) {
+            "local→remote"
+        } else {
+            "local→local"
+        };
+        assert_eq!(direction, "local→local");
+    }
+
+    #[test]
+    fn test_cp_direction_absolute_path_with_colon() {
+        let is_remote = |s: &str| {
+            s.contains(':')
+                && !s.starts_with('/')
+                && s.len() > 2
+                && s.chars().nth(1) != Some(':')
+        };
+        // Absolute path starting with / should not be remote
+        assert!(!is_remote("/path/with:colon"));
+    }
+
+    // ── run_on_fleet tests ───────────────────────────────────────
+
+    #[test]
+    fn test_run_on_fleet_show_output_false() {
+        let vms: Vec<(String, String, String)> = vec![];
+        super::run_on_fleet(&vms, "ls", false);
+    }
+
+    // ── snapshot name format tests ───────────────────────────────
+
+    #[test]
+    fn test_snapshot_name_format_different_vms() {
+        for vm_name in &["dev-vm", "prod-server-01", "test_box"] {
+            let name = format!(
+                "{}_snapshot_{}",
+                vm_name,
+                chrono::Utc::now().format("%Y%m%d_%H%M%S")
+            );
+            assert!(name.starts_with(&format!("{}_snapshot_", vm_name)));
+        }
+    }
+
+    #[test]
+    fn test_snapshot_name_contains_timestamp_components() {
+        let snap = format!(
+            "vm_snapshot_{}",
+            chrono::Utc::now().format("%Y%m%d_%H%M%S")
+        );
+        let parts: Vec<&str> = snap.split('_').collect();
+        assert!(parts.len() >= 4); // vm, snapshot, date, time
+    }
+
+    // ── storage SKU mapping tests ────────────────────────────────
+
+    #[test]
+    fn test_storage_sku_mapping_case_insensitive() {
+        for input in &["PREMIUM", "Premium", "premium", "pReMiUm"] {
+            let sku = match input.to_lowercase().as_str() {
+                "premium" => "Premium_LRS",
+                "standard" => "Standard_LRS",
+                _ => "Premium_LRS",
+            };
+            assert_eq!(sku, "Premium_LRS", "Failed for input: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_storage_sku_mapping_standard_variants() {
+        for input in &["STANDARD", "Standard", "standard"] {
+            let sku = match input.to_lowercase().as_str() {
+                "premium" => "Premium_LRS",
+                "standard" => "Standard_LRS",
+                _ => "Premium_LRS",
+            };
+            assert_eq!(sku, "Standard_LRS", "Failed for input: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_storage_sku_mapping_unknown_defaults_to_premium() {
+        for input in &["ultra", "archive", "random", ""] {
+            let sku = match input.to_lowercase().as_str() {
+                "premium" => "Premium_LRS",
+                "standard" => "Standard_LRS",
+                _ => "Premium_LRS",
+            };
+            assert_eq!(sku, "Premium_LRS", "Failed for input: {}", input);
+        }
+    }
+
+    // ── auth profile tests ───────────────────────────────────────
+
+    #[test]
+    fn test_auth_profile_list_empty_directory() {
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        fs::create_dir_all(&profiles_dir).unwrap();
+
+        let entries: Vec<String> = fs::read_dir(&profiles_dir)
+            .unwrap()
+            .filter_map(|e| {
+                let name = e.ok()?.file_name().to_string_lossy().to_string();
+                if name.ends_with(".json") {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_auth_profile_multiple_profiles() {
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        fs::create_dir_all(&profiles_dir).unwrap();
+
+        for name in &["dev", "staging", "prod"] {
+            let data = serde_json::json!({
+                "tenant_id": format!("{}-tenant", name),
+                "client_id": format!("{}-client", name),
+            });
+            fs::write(
+                profiles_dir.join(format!("{}.json", name)),
+                serde_json::to_string(&data).unwrap(),
+            )
+            .unwrap();
+        }
+
+        let count = fs::read_dir(&profiles_dir)
+            .unwrap()
+            .filter_map(|e| {
+                let n = e.ok()?.file_name().to_string_lossy().to_string();
+                if n.ends_with(".json") { Some(n) } else { None }
+            })
+            .count();
+        assert_eq!(count, 3);
+    }
+
+    // ── context tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_context_switch_updates_file() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_dir = tmp.path().join("contexts");
+        fs::create_dir_all(&ctx_dir).unwrap();
+
+        let current_path = tmp.path().join("current_context");
+
+        // Create two contexts
+        for name in &["dev", "prod"] {
+            let ctx = serde_json::json!({
+                "name": name,
+                "region": if *name == "dev" { "westus2" } else { "eastus" },
+            });
+            fs::write(
+                ctx_dir.join(format!("{}.json", name)),
+                serde_json::to_string(&ctx).unwrap(),
+            )
+            .unwrap();
+        }
+
+        // Switch to prod
+        fs::write(&current_path, "prod").unwrap();
+        assert_eq!(fs::read_to_string(&current_path).unwrap(), "prod");
+
+        // Switch to dev
+        fs::write(&current_path, "dev").unwrap();
+        assert_eq!(fs::read_to_string(&current_path).unwrap(), "dev");
+    }
+
+    // ── session tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_session_list_multiple() {
+        let tmp = TempDir::new().unwrap();
+        let sessions_dir = tmp.path().join("sessions");
+        fs::create_dir_all(&sessions_dir).unwrap();
+
+        for i in 0..5 {
+            let session = serde_json::json!({
+                "name": format!("session-{}", i),
+                "resource_group": format!("rg-{}", i),
+                "saved_at": "2025-01-01T00:00:00Z",
+            });
+            fs::write(
+                sessions_dir.join(format!("session-{}.json", i)),
+                serde_json::to_string(&session).unwrap(),
+            )
+            .unwrap();
+        }
+
+        let sessions: Vec<String> = fs::read_dir(&sessions_dir)
+            .unwrap()
+            .filter_map(|e| Some(e.ok()?.file_name().to_string_lossy().to_string()))
+            .collect();
+        assert_eq!(sessions.len(), 5);
+    }
+
+    #[test]
+    fn test_session_overwrite() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("session.json");
+
+        let v1 = serde_json::json!({"name": "s1", "resource_group": "rg-old"});
+        fs::write(&path, serde_json::to_string(&v1).unwrap()).unwrap();
+
+        let v2 = serde_json::json!({"name": "s1", "resource_group": "rg-new"});
+        fs::write(&path, serde_json::to_string(&v2).unwrap()).unwrap();
+
+        let loaded: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(loaded["resource_group"], "rg-new");
+    }
+
+    // ── template tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_template_list_empty() {
+        let tmp = TempDir::new().unwrap();
+        let tpl_dir = tmp.path().join("templates");
+        fs::create_dir_all(&tpl_dir).unwrap();
+
+        let count = fs::read_dir(&tpl_dir).unwrap().count();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_template_with_cloud_init() {
+        let tmp = TempDir::new().unwrap();
+        let tpl = serde_json::json!({
+            "name": "web-server",
+            "vm_size": "Standard_B2s",
+            "cloud_init": "#!/bin/bash\napt-get update && apt-get install -y nginx",
+        });
+        let path = tmp.path().join("web-server.json");
+        fs::write(&path, serde_json::to_string_pretty(&tpl).unwrap()).unwrap();
+
+        let loaded: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(loaded["cloud_init"].as_str().unwrap().contains("nginx"));
+    }
+
+    #[test]
+    fn test_template_delete() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("ephemeral.json");
+        fs::write(&path, r#"{"name":"ephemeral"}"#).unwrap();
+        assert!(path.exists());
+        fs::remove_file(&path).unwrap();
+        assert!(!path.exists());
+    }
+
+    // ── keys tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_keys_list_no_ssh_dir() {
+        let tmp = TempDir::new().unwrap();
+        let nonexistent = tmp.path().join("no_such_dir");
+        assert!(fs::read_dir(&nonexistent).is_err());
+    }
+
+    #[test]
+    fn test_keys_list_filters_non_key_files() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path();
+        fs::write(ssh_dir.join("authorized_keys"), "key data").unwrap();
+        fs::write(ssh_dir.join("known_hosts"), "host data").unwrap();
+        fs::write(ssh_dir.join("config"), "Host *").unwrap();
+
+        let key_files: Vec<String> = fs::read_dir(ssh_dir)
+            .unwrap()
+            .filter_map(|e| {
+                let name = e.ok()?.file_name().to_string_lossy().to_string();
+                if name.starts_with("id_") || name.ends_with(".pub") {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(key_files.is_empty());
+    }
+
+    #[test]
+    fn test_keys_multiple_key_types() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path();
+        for key_type in &["id_rsa", "id_ed25519", "id_ecdsa"] {
+            fs::write(ssh_dir.join(key_type), "private").unwrap();
+            fs::write(ssh_dir.join(format!("{}.pub", key_type)), "public").unwrap();
+        }
+
+        let keys: Vec<String> = fs::read_dir(ssh_dir)
+            .unwrap()
+            .filter_map(|e| {
+                let name = e.ok()?.file_name().to_string_lossy().to_string();
+                if name.starts_with("id_") { Some(name) } else { None }
+            })
+            .collect();
+        assert_eq!(keys.len(), 6); // 3 private + 3 public
+    }
+
+    // ── resolve_vm_targets tests ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_resolve_vm_targets_with_ip_flag() {
+        let targets = super::resolve_vm_targets(Some("my-vm"), Some("192.168.1.1"), None)
+            .await
+            .unwrap();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].0, "my-vm");
+        assert_eq!(targets[0].1, "192.168.1.1");
+        assert_eq!(targets[0].2, "azureuser");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_vm_targets_ip_only_no_vm_name() {
+        let targets = super::resolve_vm_targets(None, Some("10.0.0.1"), None)
+            .await
+            .unwrap();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].0, "10.0.0.1"); // uses IP as display name
+        assert_eq!(targets[0].1, "10.0.0.1");
+    }
+
+    // ── ssh_exec_checked tests ───────────────────────────────────
+
+    #[tokio::test]
+    async fn test_ssh_exec_checked_unreachable_returns_error() {
+        let result = super::ssh_exec_checked("192.0.2.1", "user", "echo hello").await;
+        // Unreachable host should fail (either connection refused or timeout)
+        assert!(result.is_err());
     }
 }

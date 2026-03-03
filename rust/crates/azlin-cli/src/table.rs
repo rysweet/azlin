@@ -30,7 +30,9 @@ pub fn render_tags_table(vm_name: &str, tags: &std::collections::HashMap<String,
     let mut keys: Vec<&String> = tags.keys().collect();
     keys.sort();
     for key in keys {
-        table.add_row(vec![Cell::new(key), Cell::new(tags.get(key).unwrap())]);
+        if let Some(val) = tags.get(key) {
+            table.add_row(vec![Cell::new(key), Cell::new(val)]);
+        }
     }
 
     println!("Tags for VM '{}':", vm_name);
