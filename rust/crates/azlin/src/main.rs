@@ -54,14 +54,7 @@ fn ssh_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
 /// Collect health metrics from a single VM via SSH.
 fn collect_health_metrics(vm_name: &str, ip: &str, user: &str, power_state: &str) -> HealthMetrics {
     if power_state != "running" {
-        return HealthMetrics {
-            vm_name: vm_name.to_string(),
-            power_state: power_state.to_string(),
-            cpu_percent: 0.0,
-            mem_percent: 0.0,
-            disk_percent: 0.0,
-            load_avg: "-".to_string(),
-        };
+        return health_parse_helpers::default_metrics(vm_name, power_state);
     }
 
     // CPU usage from top (idle percentage -> used)
@@ -71,13 +64,7 @@ fn collect_health_metrics(vm_name: &str, ip: &str, user: &str, power_state: &str
         "top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'",
     )
     .ok()
-    .and_then(|(code, out, _)| {
-        if code == 0 {
-            out.trim().parse::<f32>().ok()
-        } else {
-            None
-        }
-    })
+    .and_then(|(code, out, _)| health_parse_helpers::parse_cpu_stdout(code, &out))
     .unwrap_or(0.0);
 
     // Memory usage from free
@@ -87,25 +74,13 @@ fn collect_health_metrics(vm_name: &str, ip: &str, user: &str, power_state: &str
         "free | awk '/Mem:/{printf \"%.1f\", $3/$2 * 100}'",
     )
     .ok()
-    .and_then(|(code, out, _)| {
-        if code == 0 {
-            out.trim().parse::<f32>().ok()
-        } else {
-            None
-        }
-    })
+    .and_then(|(code, out, _)| health_parse_helpers::parse_mem_stdout(code, &out))
     .unwrap_or(0.0);
 
     // Disk usage from df
     let disk = ssh_exec(ip, user, "df / --output=pcent | tail -1 | tr -d ' %'")
         .ok()
-        .and_then(|(code, out, _)| {
-            if code == 0 {
-                out.trim().parse::<f32>().ok()
-            } else {
-                None
-            }
-        })
+        .and_then(|(code, out, _)| health_parse_helpers::parse_disk_stdout(code, &out))
         .unwrap_or(0.0);
 
     // Load average from uptime
@@ -115,13 +90,7 @@ fn collect_health_metrics(vm_name: &str, ip: &str, user: &str, power_state: &str
         "uptime | awk -F'load average:' '{print $2}' | xargs",
     )
     .ok()
-    .and_then(|(code, out, _)| {
-        if code == 0 {
-            Some(out.trim().to_string())
-        } else {
-            None
-        }
-    })
+    .and_then(|(code, out, _)| health_parse_helpers::parse_load_stdout(code, &out))
     .unwrap_or_else(|| "-".to_string());
 
     HealthMetrics {
@@ -378,28 +347,11 @@ fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bo
             Err(e) => (-1, String::new(), e.to_string()),
         };
 
-        if code == 0 {
-            let line_count = stdout.trim().lines().count();
-            bars[i].finish_with_message(format!("✓ done ({} lines)", line_count));
-        } else {
-            let err_summary = stderr.trim().lines().next().unwrap_or("error");
-            bars[i].finish_with_message(format!("✗ {}", err_summary));
-        }
+        bars[i].finish_with_message(fleet_helpers::finish_message(code, &stdout, &stderr));
 
-        let status = if code == 0 { "OK" } else { "FAIL" };
-        let status_color = if code == 0 { Color::Green } else { Color::Red };
-        let output_text = if show_output {
-            let out = stdout.trim();
-            if out.is_empty() {
-                stderr.trim().to_string()
-            } else {
-                out.to_string()
-            }
-        } else if code != 0 {
-            stderr.trim().lines().next().unwrap_or("").to_string()
-        } else {
-            String::new()
-        };
+        let (status, ok) = fleet_helpers::classify_result(code);
+        let status_color = if ok { Color::Green } else { Color::Red };
+        let output_text = fleet_helpers::format_output_text(code, &stdout, &stderr, show_output);
         table.add_row(vec![
             Cell::new(name),
             Cell::new(status).fg(status_color),
@@ -538,30 +490,14 @@ async fn async_main() -> Result<()> {
                 }
             };
 
-            // Filter stopped VMs unless --all/--include-stopped
-            if !include_all {
-                all_vms.retain(|vm| {
-                    vm.power_state == azlin_core::models::PowerState::Running
-                        || vm.power_state == azlin_core::models::PowerState::Starting
-                });
-            }
-
-            // Filter by tag
-            if let Some(ref tag_filter) = tag {
-                if let Some((key, val)) = tag_filter.split_once('=') {
-                    all_vms.retain(|vm| {
-                        vm.tags.get(key).is_some_and(|v| v == val)
-                    });
-                } else {
-                    all_vms.retain(|vm| vm.tags.contains_key(tag_filter));
-                }
-            }
-
-            // Filter by VM name pattern
-            if let Some(ref pattern) = vm_pattern {
-                let pat = pattern.replace('*', "");
-                all_vms.retain(|vm| vm.name.contains(&pat));
-            }
+            // Filter stopped VMs unless --all/--include-stopped,
+            // then by tag and name pattern.
+            list_helpers::apply_filters(
+                &mut all_vms,
+                include_all,
+                tag.as_deref(),
+                vm_pattern.as_deref(),
+            );
 
             // Collect tmux sessions if not disabled
             let mut tmux_sessions: std::collections::HashMap<String, Vec<String>> =
@@ -3466,21 +3402,18 @@ async fn async_main() -> Result<()> {
                 let list_output = std::process::Command::new("az")
                     .args(["vm", "list", "-g", &rg, "--query", "[].id", "-o", "tsv"])
                     .output()?;
-                let ids: Vec<&str> = std::str::from_utf8(&list_output.stdout)
-                    .unwrap_or("")
-                    .lines()
-                    .filter(|l| !l.is_empty())
-                    .collect();
+                let tsv = std::str::from_utf8(&list_output.stdout).unwrap_or("");
+                let ids = batch_helpers::parse_vm_ids(tsv);
                 if ids.is_empty() {
                     println!("No VMs found in resource group '{}'", rg);
                 } else {
-                    let mut args = vec!["vm", "deallocate", "--ids"];
-                    args.extend(ids.iter().copied());
+                    let args = batch_helpers::build_batch_args("deallocate", &ids);
                     let output = std::process::Command::new("az").args(&args).output()?;
+                    let msg = batch_helpers::summarise_batch("stop", &rg, output.status.success());
                     if output.status.success() {
-                        println!("Batch stop completed for resource group '{}'", rg);
+                        println!("{}", msg);
                     } else {
-                        eprintln!("Batch stop failed. Run commands individually.");
+                        eprintln!("{}", msg);
                     }
                 }
             }
@@ -3505,21 +3438,18 @@ async fn async_main() -> Result<()> {
                 let list_output = std::process::Command::new("az")
                     .args(["vm", "list", "-g", &rg, "--query", "[].id", "-o", "tsv"])
                     .output()?;
-                let ids: Vec<&str> = std::str::from_utf8(&list_output.stdout)
-                    .unwrap_or("")
-                    .lines()
-                    .filter(|l| !l.is_empty())
-                    .collect();
+                let tsv = std::str::from_utf8(&list_output.stdout).unwrap_or("");
+                let ids = batch_helpers::parse_vm_ids(tsv);
                 if ids.is_empty() {
                     println!("No VMs found in resource group '{}'", rg);
                 } else {
-                    let mut args = vec!["vm", "start", "--ids"];
-                    args.extend(ids.iter().copied());
+                    let args = batch_helpers::build_batch_args("start", &ids);
                     let output = std::process::Command::new("az").args(&args).output()?;
+                    let msg = batch_helpers::summarise_batch("start", &rg, output.status.success());
                     if output.status.success() {
-                        println!("Batch start completed for resource group '{}'", rg);
+                        println!("{}", msg);
                     } else {
-                        eprintln!("Batch start failed. Run commands individually.");
+                        eprintln!("{}", msg);
                     }
                 }
             }
@@ -6989,6 +6919,186 @@ mod auth_test_helpers {
             acct["tenantId"].as_str().unwrap_or("-").to_string(),
             acct["user"]["name"].as_str().unwrap_or("-").to_string(),
         )
+    }
+}
+
+/// Pure helpers for parsing SSH stdout into health metric values.
+/// These extract the logic that was previously inline in `collect_health_metrics`,
+/// making it testable without SSH.
+mod health_parse_helpers {
+    /// Parse CPU percentage from the stdout of
+    /// `top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'`.
+    /// Returns `None` if the output cannot be parsed.
+    pub fn parse_cpu_stdout(exit_code: i32, stdout: &str) -> Option<f32> {
+        if exit_code == 0 {
+            stdout.trim().parse::<f32>().ok()
+        } else {
+            None
+        }
+    }
+
+    /// Parse memory percentage from the stdout of
+    /// `free | awk '/Mem:/{printf "%.1f", $3/$2 * 100}'`.
+    pub fn parse_mem_stdout(exit_code: i32, stdout: &str) -> Option<f32> {
+        if exit_code == 0 {
+            stdout.trim().parse::<f32>().ok()
+        } else {
+            None
+        }
+    }
+
+    /// Parse disk percentage from the stdout of
+    /// `df / --output=pcent | tail -1 | tr -d ' %'`.
+    pub fn parse_disk_stdout(exit_code: i32, stdout: &str) -> Option<f32> {
+        if exit_code == 0 {
+            stdout.trim().parse::<f32>().ok()
+        } else {
+            None
+        }
+    }
+
+    /// Parse load average string from the stdout of
+    /// `uptime | awk -F'load average:' '{print $2}' | xargs`.
+    pub fn parse_load_stdout(exit_code: i32, stdout: &str) -> Option<String> {
+        if exit_code == 0 {
+            let trimmed = stdout.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Build a complete set of default (zero) metrics for a non-running VM.
+    pub fn default_metrics(vm_name: &str, power_state: &str) -> super::HealthMetrics {
+        super::HealthMetrics {
+            vm_name: vm_name.to_string(),
+            power_state: power_state.to_string(),
+            cpu_percent: 0.0,
+            mem_percent: 0.0,
+            disk_percent: 0.0,
+            load_avg: "-".to_string(),
+        }
+    }
+}
+
+/// Pure helpers for the `run_on_fleet` result classification and formatting.
+mod fleet_helpers {
+    /// Classify SSH result exit code into a status label and whether it succeeded.
+    pub fn classify_result(exit_code: i32) -> (&'static str, bool) {
+        if exit_code == 0 {
+            ("OK", true)
+        } else {
+            ("FAIL", false)
+        }
+    }
+
+    /// Build the progress-bar finish message for a completed SSH execution.
+    pub fn finish_message(exit_code: i32, stdout: &str, stderr: &str) -> String {
+        if exit_code == 0 {
+            let line_count = stdout.trim().lines().count();
+            format!("✓ done ({} lines)", line_count)
+        } else {
+            let err_summary = stderr.trim().lines().next().unwrap_or("error");
+            format!("✗ {}", err_summary)
+        }
+    }
+
+    /// Build the output-column text for the fleet summary table.
+    pub fn format_output_text(
+        exit_code: i32,
+        stdout: &str,
+        stderr: &str,
+        show_output: bool,
+    ) -> String {
+        if show_output {
+            let out = stdout.trim();
+            if out.is_empty() {
+                stderr.trim().to_string()
+            } else {
+                out.to_string()
+            }
+        } else if exit_code != 0 {
+            stderr.trim().lines().next().unwrap_or("").to_string()
+        } else {
+            String::new()
+        }
+    }
+}
+
+/// Pure helpers for filtering VMs in the list handler.
+mod list_helpers {
+    use azlin_core::models::{PowerState, VmInfo};
+
+    /// Filter out stopped/deallocated VMs, keeping only Running and Starting.
+    pub fn filter_running(vms: &mut Vec<VmInfo>) {
+        vms.retain(|vm| {
+            vm.power_state == PowerState::Running || vm.power_state == PowerState::Starting
+        });
+    }
+
+    /// Filter VMs by a tag expression.
+    /// If `tag_filter` is `"key=value"`, keeps VMs where `tags[key] == value`.
+    /// If `tag_filter` is just `"key"`, keeps VMs that have the key present.
+    pub fn filter_by_tag(vms: &mut Vec<VmInfo>, tag_filter: &str) {
+        if let Some((key, val)) = tag_filter.split_once('=') {
+            vms.retain(|vm| vm.tags.get(key).is_some_and(|v| v == val));
+        } else {
+            vms.retain(|vm| vm.tags.contains_key(tag_filter));
+        }
+    }
+
+    /// Filter VMs by a glob-like name pattern (supports `*` as a wildcard).
+    pub fn filter_by_pattern(vms: &mut Vec<VmInfo>, pattern: &str) {
+        let pat = pattern.replace('*', "");
+        vms.retain(|vm| vm.name.contains(&pat));
+    }
+
+    /// Apply all three optional filters in order: stopped, tag, pattern.
+    pub fn apply_filters(
+        vms: &mut Vec<VmInfo>,
+        include_all: bool,
+        tag: Option<&str>,
+        pattern: Option<&str>,
+    ) {
+        if !include_all {
+            filter_running(vms);
+        }
+        if let Some(t) = tag {
+            filter_by_tag(vms, t);
+        }
+        if let Some(p) = pattern {
+            filter_by_pattern(vms, p);
+        }
+    }
+}
+
+/// Pure helpers for batch handler result parsing and aggregation.
+mod batch_helpers {
+    /// Parse VM resource IDs from the TSV output of
+    /// `az vm list -g <rg> --query "[].id" -o tsv`.
+    pub fn parse_vm_ids(tsv_output: &str) -> Vec<&str> {
+        tsv_output.lines().filter(|l| !l.is_empty()).collect()
+    }
+
+    /// Build the `az` argument list for a batch VM operation.
+    /// `action` is e.g. `"deallocate"` or `"start"`.
+    pub fn build_batch_args<'a>(action: &'a str, ids: &[&'a str]) -> Vec<&'a str> {
+        let mut args = vec!["vm", action, "--ids"];
+        args.extend(ids);
+        args
+    }
+
+    /// Summarise the result of a batch operation as a user-facing message.
+    pub fn summarise_batch(action: &str, rg: &str, success: bool) -> String {
+        if success {
+            format!("Batch {} completed for resource group '{}'", action, rg)
+        } else {
+            format!("Batch {} failed. Run commands individually.", action)
+        }
     }
 }
 
@@ -14414,5 +14524,415 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_eq!(m.vm_name, "test-vm");
         assert_eq!(m.power_state, "running");
         assert!(m.cpu_percent > 0.0);
+    }
+
+    // ── health_parse_helpers tests ──────────────────────────────
+
+    #[test]
+    fn test_parse_cpu_stdout_valid() {
+        assert_eq!(
+            super::health_parse_helpers::parse_cpu_stdout(0, "  23.4\n"),
+            Some(23.4)
+        );
+    }
+
+    #[test]
+    fn test_parse_cpu_stdout_non_zero_exit() {
+        assert_eq!(super::health_parse_helpers::parse_cpu_stdout(1, "23.4"), None);
+    }
+
+    #[test]
+    fn test_parse_cpu_stdout_garbage() {
+        assert_eq!(
+            super::health_parse_helpers::parse_cpu_stdout(0, "not a number"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_parse_cpu_stdout_empty() {
+        assert_eq!(super::health_parse_helpers::parse_cpu_stdout(0, ""), None);
+    }
+
+    #[test]
+    fn test_parse_cpu_stdout_whitespace_only() {
+        assert_eq!(
+            super::health_parse_helpers::parse_cpu_stdout(0, "   \n  "),
+            None
+        );
+    }
+
+    #[test]
+    fn test_parse_mem_stdout_valid() {
+        assert_eq!(
+            super::health_parse_helpers::parse_mem_stdout(0, "67.3\n"),
+            Some(67.3)
+        );
+    }
+
+    #[test]
+    fn test_parse_mem_stdout_failure() {
+        assert_eq!(super::health_parse_helpers::parse_mem_stdout(127, "67.3"), None);
+    }
+
+    #[test]
+    fn test_parse_mem_stdout_zero() {
+        assert_eq!(
+            super::health_parse_helpers::parse_mem_stdout(0, "0.0"),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn test_parse_disk_stdout_valid() {
+        assert_eq!(
+            super::health_parse_helpers::parse_disk_stdout(0, " 42 \n"),
+            Some(42.0)
+        );
+    }
+
+    #[test]
+    fn test_parse_disk_stdout_failure() {
+        assert_eq!(
+            super::health_parse_helpers::parse_disk_stdout(255, "42"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_parse_disk_stdout_not_numeric() {
+        assert_eq!(
+            super::health_parse_helpers::parse_disk_stdout(0, "N/A"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_parse_load_stdout_valid() {
+        assert_eq!(
+            super::health_parse_helpers::parse_load_stdout(0, " 1.23, 0.45, 0.67 \n"),
+            Some("1.23, 0.45, 0.67".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_load_stdout_failure() {
+        assert_eq!(
+            super::health_parse_helpers::parse_load_stdout(1, "1.23, 0.45, 0.67"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_parse_load_stdout_empty() {
+        assert_eq!(super::health_parse_helpers::parse_load_stdout(0, "  \n"), None);
+    }
+
+    #[test]
+    fn test_default_metrics() {
+        let m = super::health_parse_helpers::default_metrics("my-vm", "deallocated");
+        assert_eq!(m.vm_name, "my-vm");
+        assert_eq!(m.power_state, "deallocated");
+        assert_eq!(m.cpu_percent, 0.0);
+        assert_eq!(m.mem_percent, 0.0);
+        assert_eq!(m.disk_percent, 0.0);
+        assert_eq!(m.load_avg, "-");
+    }
+
+    // ── fleet_helpers tests ─────────────────────────────────────
+
+    #[test]
+    fn test_classify_result_success() {
+        let (status, ok) = super::fleet_helpers::classify_result(0);
+        assert_eq!(status, "OK");
+        assert!(ok);
+    }
+
+    #[test]
+    fn test_classify_result_failure() {
+        let (status, ok) = super::fleet_helpers::classify_result(1);
+        assert_eq!(status, "FAIL");
+        assert!(!ok);
+    }
+
+    #[test]
+    fn test_classify_result_negative() {
+        let (status, ok) = super::fleet_helpers::classify_result(-1);
+        assert_eq!(status, "FAIL");
+        assert!(!ok);
+    }
+
+    #[test]
+    fn test_finish_message_success() {
+        let msg = super::fleet_helpers::finish_message(0, "line1\nline2\nline3\n", "");
+        assert_eq!(msg, "✓ done (3 lines)");
+    }
+
+    #[test]
+    fn test_finish_message_success_empty_stdout() {
+        let msg = super::fleet_helpers::finish_message(0, "", "");
+        assert_eq!(msg, "✓ done (0 lines)");
+    }
+
+    #[test]
+    fn test_finish_message_failure() {
+        let msg = super::fleet_helpers::finish_message(1, "", "Permission denied\nfatal error");
+        assert_eq!(msg, "✗ Permission denied");
+    }
+
+    #[test]
+    fn test_finish_message_failure_empty_stderr() {
+        let msg = super::fleet_helpers::finish_message(1, "", "");
+        assert_eq!(msg, "✗ error");
+    }
+
+    #[test]
+    fn test_format_output_text_show_output_with_stdout() {
+        let text =
+            super::fleet_helpers::format_output_text(0, "hello world\n", "some warning", true);
+        assert_eq!(text, "hello world");
+    }
+
+    #[test]
+    fn test_format_output_text_show_output_empty_stdout() {
+        let text = super::fleet_helpers::format_output_text(0, "  \n", "fallback stderr", true);
+        assert_eq!(text, "fallback stderr");
+    }
+
+    #[test]
+    fn test_format_output_text_no_show_failure() {
+        let text = super::fleet_helpers::format_output_text(
+            1,
+            "",
+            "error: connection refused\nmore details",
+            false,
+        );
+        assert_eq!(text, "error: connection refused");
+    }
+
+    #[test]
+    fn test_format_output_text_no_show_success() {
+        let text = super::fleet_helpers::format_output_text(0, "data", "warning", false);
+        assert_eq!(text, "");
+    }
+
+    #[test]
+    fn test_format_output_text_no_show_failure_empty_stderr() {
+        let text = super::fleet_helpers::format_output_text(1, "", "", false);
+        assert_eq!(text, "");
+    }
+
+    // ── list_helpers tests ──────────────────────────────────────
+
+    fn make_vm(name: &str, state: azlin_core::models::PowerState) -> azlin_core::models::VmInfo {
+        azlin_core::models::VmInfo {
+            name: name.to_string(),
+            resource_group: "rg".to_string(),
+            location: "eastus".to_string(),
+            vm_size: "Standard_B2s".to_string(),
+            power_state: state,
+            provisioning_state: "Succeeded".to_string(),
+            os_type: azlin_core::models::OsType::Linux,
+            public_ip: Some("10.0.0.1".to_string()),
+            private_ip: None,
+            admin_username: Some("azureuser".to_string()),
+            tags: std::collections::HashMap::new(),
+            created_time: None,
+        }
+    }
+
+    fn make_tagged_vm(
+        name: &str,
+        tags: Vec<(&str, &str)>,
+    ) -> azlin_core::models::VmInfo {
+        let mut vm = make_vm(name, azlin_core::models::PowerState::Running);
+        for (k, v) in tags {
+            vm.tags.insert(k.to_string(), v.to_string());
+        }
+        vm
+    }
+
+    #[test]
+    fn test_filter_running_removes_stopped() {
+        let mut vms = vec![
+            make_vm("running-vm", azlin_core::models::PowerState::Running),
+            make_vm("stopped-vm", azlin_core::models::PowerState::Stopped),
+            make_vm("starting-vm", azlin_core::models::PowerState::Starting),
+            make_vm("dealloc-vm", azlin_core::models::PowerState::Deallocated),
+        ];
+        super::list_helpers::filter_running(&mut vms);
+        assert_eq!(vms.len(), 2);
+        assert_eq!(vms[0].name, "running-vm");
+        assert_eq!(vms[1].name, "starting-vm");
+    }
+
+    #[test]
+    fn test_filter_running_empty_list() {
+        let mut vms: Vec<azlin_core::models::VmInfo> = vec![];
+        super::list_helpers::filter_running(&mut vms);
+        assert!(vms.is_empty());
+    }
+
+    #[test]
+    fn test_filter_by_tag_key_value() {
+        let mut vms = vec![
+            make_tagged_vm("vm1", vec![("env", "prod")]),
+            make_tagged_vm("vm2", vec![("env", "dev")]),
+            make_tagged_vm("vm3", vec![("team", "infra")]),
+        ];
+        super::list_helpers::filter_by_tag(&mut vms, "env=prod");
+        assert_eq!(vms.len(), 1);
+        assert_eq!(vms[0].name, "vm1");
+    }
+
+    #[test]
+    fn test_filter_by_tag_key_only() {
+        let mut vms = vec![
+            make_tagged_vm("vm1", vec![("env", "prod")]),
+            make_tagged_vm("vm2", vec![("env", "dev")]),
+            make_tagged_vm("vm3", vec![("team", "infra")]),
+        ];
+        super::list_helpers::filter_by_tag(&mut vms, "env");
+        assert_eq!(vms.len(), 2);
+        assert_eq!(vms[0].name, "vm1");
+        assert_eq!(vms[1].name, "vm2");
+    }
+
+    #[test]
+    fn test_filter_by_tag_no_match() {
+        let mut vms = vec![make_tagged_vm("vm1", vec![("env", "prod")])];
+        super::list_helpers::filter_by_tag(&mut vms, "env=staging");
+        assert!(vms.is_empty());
+    }
+
+    #[test]
+    fn test_filter_by_tag_nonexistent_key() {
+        let mut vms = vec![make_tagged_vm("vm1", vec![("env", "prod")])];
+        super::list_helpers::filter_by_tag(&mut vms, "region");
+        assert!(vms.is_empty());
+    }
+
+    #[test]
+    fn test_filter_by_pattern_simple() {
+        let mut vms = vec![
+            make_vm("web-server-01", azlin_core::models::PowerState::Running),
+            make_vm("db-server-01", azlin_core::models::PowerState::Running),
+            make_vm("web-server-02", azlin_core::models::PowerState::Running),
+        ];
+        super::list_helpers::filter_by_pattern(&mut vms, "web");
+        assert_eq!(vms.len(), 2);
+        assert_eq!(vms[0].name, "web-server-01");
+        assert_eq!(vms[1].name, "web-server-02");
+    }
+
+    #[test]
+    fn test_filter_by_pattern_with_glob() {
+        let mut vms = vec![
+            make_vm("web-server-01", azlin_core::models::PowerState::Running),
+            make_vm("db-server-01", azlin_core::models::PowerState::Running),
+        ];
+        super::list_helpers::filter_by_pattern(&mut vms, "*web*");
+        assert_eq!(vms.len(), 1);
+        assert_eq!(vms[0].name, "web-server-01");
+    }
+
+    #[test]
+    fn test_filter_by_pattern_no_match() {
+        let mut vms = vec![
+            make_vm("web-server", azlin_core::models::PowerState::Running),
+        ];
+        super::list_helpers::filter_by_pattern(&mut vms, "cache");
+        assert!(vms.is_empty());
+    }
+
+    #[test]
+    fn test_apply_filters_all_disabled() {
+        let mut vms = vec![
+            make_vm("vm1", azlin_core::models::PowerState::Running),
+            make_vm("vm2", azlin_core::models::PowerState::Stopped),
+        ];
+        super::list_helpers::apply_filters(&mut vms, true, None, None);
+        assert_eq!(vms.len(), 2);
+    }
+
+    #[test]
+    fn test_apply_filters_exclude_stopped() {
+        let mut vms = vec![
+            make_vm("vm1", azlin_core::models::PowerState::Running),
+            make_vm("vm2", azlin_core::models::PowerState::Stopped),
+        ];
+        super::list_helpers::apply_filters(&mut vms, false, None, None);
+        assert_eq!(vms.len(), 1);
+        assert_eq!(vms[0].name, "vm1");
+    }
+
+    #[test]
+    fn test_apply_filters_combined() {
+        let mut vms = vec![
+            make_tagged_vm("web-prod", vec![("env", "prod")]),
+            make_tagged_vm("web-dev", vec![("env", "dev")]),
+            make_tagged_vm("db-prod", vec![("env", "prod")]),
+        ];
+        super::list_helpers::apply_filters(&mut vms, true, Some("env=prod"), Some("web"));
+        assert_eq!(vms.len(), 1);
+        assert_eq!(vms[0].name, "web-prod");
+    }
+
+    // ── batch_helpers tests ─────────────────────────────────────
+
+    #[test]
+    fn test_parse_vm_ids_normal() {
+        let ids = super::batch_helpers::parse_vm_ids(
+            "/sub/1/rg/test/vm/vm1\n/sub/1/rg/test/vm/vm2\n",
+        );
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], "/sub/1/rg/test/vm/vm1");
+        assert_eq!(ids[1], "/sub/1/rg/test/vm/vm2");
+    }
+
+    #[test]
+    fn test_parse_vm_ids_empty() {
+        let ids = super::batch_helpers::parse_vm_ids("");
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn test_parse_vm_ids_blank_lines() {
+        let ids = super::batch_helpers::parse_vm_ids("\n\n/sub/vm1\n\n");
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0], "/sub/vm1");
+    }
+
+    #[test]
+    fn test_build_batch_args_deallocate() {
+        let ids = vec!["/sub/vm1", "/sub/vm2"];
+        let args = super::batch_helpers::build_batch_args("deallocate", &ids);
+        assert_eq!(args, vec!["vm", "deallocate", "--ids", "/sub/vm1", "/sub/vm2"]);
+    }
+
+    #[test]
+    fn test_build_batch_args_start() {
+        let ids = vec!["/sub/vm1"];
+        let args = super::batch_helpers::build_batch_args("start", &ids);
+        assert_eq!(args, vec!["vm", "start", "--ids", "/sub/vm1"]);
+    }
+
+    #[test]
+    fn test_summarise_batch_success() {
+        let msg = super::batch_helpers::summarise_batch("stop", "my-rg", true);
+        assert_eq!(msg, "Batch stop completed for resource group 'my-rg'");
+    }
+
+    #[test]
+    fn test_summarise_batch_failure() {
+        let msg = super::batch_helpers::summarise_batch("start", "my-rg", false);
+        assert_eq!(msg, "Batch start failed. Run commands individually.");
+    }
+
+    #[test]
+    fn test_summarise_batch_other_action() {
+        let msg = super::batch_helpers::summarise_batch("restart", "prod-rg", true);
+        assert!(msg.contains("restart"));
+        assert!(msg.contains("prod-rg"));
     }
 }
