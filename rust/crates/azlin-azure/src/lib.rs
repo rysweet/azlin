@@ -4,6 +4,7 @@ pub mod auth;
 pub mod cloud_init;
 pub mod costs;
 pub mod error_handler;
+pub mod orphan_detector;
 pub mod rate_limiter;
 pub mod retry;
 pub mod vm;
