@@ -7076,6 +7076,240 @@ mod list_helpers {
     }
 }
 
+/// Pure helpers for VM creation: name generation, template resolution, clone naming.
+#[allow(dead_code)]
+mod create_helpers {
+    /// Generate a VM name. If a base name is given with pool > 1, appends index.
+    /// If no base name, generates a timestamped name.
+    pub fn generate_vm_name(base: Option<&str>, index: usize, pool_count: usize, timestamp: &str) -> String {
+        match base {
+            Some(n) if pool_count > 1 => format!("{}-{}", n, index + 1),
+            Some(n) => n.to_string(),
+            None => format!("azlin-vm-{}", timestamp),
+        }
+    }
+
+    /// Resolve final VM size: if the user-supplied size is the default sentinel,
+    /// use the template override (if any), otherwise keep the user value.
+    pub fn resolve_with_template_default(
+        user_value: &str,
+        default_sentinel: &str,
+        template_value: Option<String>,
+    ) -> String {
+        if user_value == default_sentinel {
+            template_value.unwrap_or_else(|| user_value.to_string())
+        } else {
+            user_value.to_string()
+        }
+    }
+
+    /// Build the git clone command to run on a remote VM.
+    pub fn build_clone_cmd(repo_url: &str) -> String {
+        format!("git clone {} ~/src/$(basename {} .git)", repo_url, repo_url)
+    }
+
+    /// Build SSH connect args (for auto-connect after VM creation).
+    pub fn build_ssh_connect_args(user: &str, ip: &str) -> Vec<String> {
+        vec![
+            "-o".to_string(),
+            "StrictHostKeyChecking=no".to_string(),
+            format!("{}@{}", user, ip),
+        ]
+    }
+
+    /// Generate a snapshot name for VM cloning.
+    pub fn build_snapshot_name(source_vm: &str, timestamp: &str) -> String {
+        format!("{}_clone_snap_{}", source_vm, timestamp)
+    }
+
+    /// Generate a clone VM name from the source VM and replica index.
+    pub fn build_clone_name(source_vm: &str, index: usize) -> String {
+        format!("{}-clone-{}", source_vm, index + 1)
+    }
+
+    /// Generate an OS disk name from a VM name.
+    pub fn build_disk_name(vm_name: &str) -> String {
+        format!("{}_OsDisk", vm_name)
+    }
+}
+
+/// Pure helpers for the connect handler: SSH arg building, VS Code URI construction.
+#[allow(dead_code)]
+mod connect_helpers {
+    use std::path::Path;
+
+    /// Build SSH command arguments for connecting to a VM.
+    pub fn build_ssh_args(username: &str, ip: &str, key: Option<&Path>) -> Vec<String> {
+        let mut args = vec!["-o".to_string(), "StrictHostKeyChecking=no".to_string()];
+        if let Some(key_path) = key {
+            args.push("-i".to_string());
+            args.push(key_path.display().to_string());
+        }
+        args.push(format!("{}@{}", username, ip));
+        args
+    }
+
+    /// Build a VS Code remote SSH URI for a VM.
+    pub fn build_vscode_remote_uri(user: &str, ip: &str) -> String {
+        format!("ssh-remote+{}@{}", user, ip)
+    }
+
+    /// Build SSH args for streaming logs via `tail -f`.
+    pub fn build_log_follow_args(username: &str, ip: &str, log_path: &str) -> Vec<String> {
+        vec![
+            "-o".to_string(),
+            "StrictHostKeyChecking=no".to_string(),
+            "-o".to_string(),
+            "ConnectTimeout=10".to_string(),
+            format!("{}@{}", username, ip),
+            format!("sudo tail -f {}", log_path),
+        ]
+    }
+
+    /// Build SSH args for fetching a specific number of log lines.
+    pub fn build_log_tail_args(username: &str, ip: &str, lines: u32, log_path: &str) -> Vec<String> {
+        vec![
+            "-o".to_string(),
+            "StrictHostKeyChecking=no".to_string(),
+            "-o".to_string(),
+            "ConnectTimeout=10".to_string(),
+            format!("{}@{}", username, ip),
+            format!("sudo tail -n {} {}", lines, log_path),
+        ]
+    }
+}
+
+/// Pure helpers for update/os-update commands: script generation.
+#[allow(dead_code)]
+mod update_helpers {
+    /// Build the full development tools update script.
+    pub fn build_dev_update_script() -> &'static str {
+        concat!(
+            "#!/bin/bash\n",
+            "set -e\n",
+            "echo 'Updating system packages...'\n",
+            "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq\n",
+            "sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq\n",
+            "echo 'Updating Rust toolchain...'\n",
+            "if command -v rustup &>/dev/null; then rustup update 2>/dev/null || true; fi\n",
+            "echo 'Updating Python packages...'\n",
+            "if command -v pip3 &>/dev/null; then pip3 install --upgrade pip 2>/dev/null || true; fi\n",
+            "echo 'Updating Node.js packages...'\n",
+            "if command -v npm &>/dev/null; then sudo npm install -g npm 2>/dev/null || true; fi\n",
+            "echo 'Development tools updated.'\n",
+        )
+    }
+
+    /// Build the OS-only update command.
+    pub fn build_os_update_cmd() -> &'static str {
+        "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq"
+    }
+
+    /// Map a log type name to its file path on the remote VM.
+    pub fn log_type_to_path(log_type: &str) -> &'static str {
+        match log_type {
+            "cloud-init" | "CloudInit" => "/var/log/cloud-init-output.log",
+            "syslog" | "Syslog" => "/var/log/syslog",
+            "auth" | "Auth" => "/var/log/auth.log",
+            _ => "/var/log/syslog",
+        }
+    }
+}
+
+/// Pure helpers for compose commands: command building, file resolution.
+#[allow(dead_code)]
+mod compose_helpers {
+    /// Resolve the compose file path, defaulting to "docker-compose.yml".
+    pub fn resolve_compose_file(file: Option<&str>) -> String {
+        file.unwrap_or("docker-compose.yml").to_string()
+    }
+
+    /// Build a docker compose command string for a given subcommand and file.
+    pub fn build_compose_cmd(subcommand: &str, file: &str) -> String {
+        format!("docker compose -f {} {}", file, subcommand)
+    }
+}
+
+/// Pure helpers for GitHub runner fleet management.
+#[allow(dead_code)]
+mod runner_helpers {
+    /// Generate a runner VM name from pool name and index.
+    pub fn build_runner_vm_name(pool: &str, index: usize) -> String {
+        format!("azlin-runner-{}-{}", pool, index + 1)
+    }
+
+    /// Build the tag string for a runner VM.
+    pub fn build_runner_tags(pool: &str, repo: &str) -> String {
+        format!("azlin-runner=true pool={} repo={}", pool, repo)
+    }
+
+    /// Build a runner pool TOML config as a map of key-value pairs.
+    pub fn build_runner_config(
+        pool: &str,
+        repo: &str,
+        count: u32,
+        labels: &str,
+        rg: &str,
+        vm_size: &str,
+        timestamp: &str,
+    ) -> Vec<(String, toml::Value)> {
+        vec![
+            ("pool".to_string(), toml::Value::String(pool.to_string())),
+            ("repo".to_string(), toml::Value::String(repo.to_string())),
+            ("count".to_string(), toml::Value::Integer(count as i64)),
+            ("labels".to_string(), toml::Value::String(labels.to_string())),
+            ("resource_group".to_string(), toml::Value::String(rg.to_string())),
+            ("vm_size".to_string(), toml::Value::String(vm_size.to_string())),
+            ("enabled".to_string(), toml::Value::Boolean(true)),
+            ("created".to_string(), toml::Value::String(timestamp.to_string())),
+        ]
+    }
+
+    /// Build the pool config file name.
+    pub fn pool_config_filename(pool: &str) -> String {
+        format!("{}.toml", pool)
+    }
+}
+
+/// Pure helpers for autopilot config building.
+#[allow(dead_code)]
+mod autopilot_helpers {
+    /// Build the autopilot TOML config as a toml::Value::Table.
+    pub fn build_autopilot_config(
+        budget: Option<u32>,
+        strategy: &str,
+        idle_threshold: u32,
+        cpu_threshold: u32,
+        timestamp: &str,
+    ) -> toml::Value {
+        let mut config = toml::map::Map::new();
+        config.insert("enabled".to_string(), toml::Value::Boolean(true));
+        if let Some(b) = budget {
+            config.insert("budget".to_string(), toml::Value::Integer(b as i64));
+        }
+        config.insert("strategy".to_string(), toml::Value::String(strategy.to_string()));
+        config.insert("idle_threshold_minutes".to_string(), toml::Value::Integer(idle_threshold as i64));
+        config.insert("cpu_threshold_percent".to_string(), toml::Value::Integer(cpu_threshold as i64));
+        config.insert("updated".to_string(), toml::Value::String(timestamp.to_string()));
+        toml::Value::Table(config)
+    }
+
+    /// Build the budget name for a resource group.
+    pub fn build_budget_name(resource_group: &str) -> String {
+        format!("azlin-budget-{}", resource_group)
+    }
+
+    /// Build the killall VM filter query for `az vm list`.
+    pub fn build_prefix_filter_query(prefix: &str) -> String {
+        format!("[?starts_with(name, '{}')].id", prefix)
+    }
+
+    /// Build the cost management scope string.
+    pub fn build_cost_scope(subscription_id: &str, resource_group: &str) -> String {
+        format!("/subscriptions/{}/resourceGroups/{}", subscription_id, resource_group)
+    }
+}
+
 /// Pure helpers for batch handler result parsing and aggregation.
 mod batch_helpers {
     /// Parse VM resource IDs from the TSV output of
