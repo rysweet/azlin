@@ -5,6 +5,7 @@ use comfy_table::{
 };
 use console::Style;
 use dialoguer::Confirm;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use tracing_subscriber::EnvFilter;
 
 /// Health metrics collected from a VM via SSH.
@@ -198,8 +199,31 @@ async fn get_running_vms_with_ips(
     Ok(results)
 }
 
-/// Execute a command on all running VMs and print results in a table.
+/// Create a consistent spinner style used across all operations.
+fn fleet_spinner_style() -> ProgressStyle {
+    ProgressStyle::default_spinner()
+        .template("{prefix:.bold} {spinner} {msg}")
+        .expect("valid spinner template")
+}
+
+/// Execute a command on all running VMs with MultiProgress bars, then print a
+/// summary table. Each VM gets its own spinner showing live status.
 fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bool) {
+    let mp = MultiProgress::new();
+    let style = fleet_spinner_style();
+
+    let bars: Vec<_> = vms
+        .iter()
+        .map(|(name, _ip, _user)| {
+            let pb = mp.add(ProgressBar::new_spinner());
+            pb.set_style(style.clone());
+            pb.set_prefix(format!("{:>20}", name));
+            pb.set_message("connecting...");
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb
+        })
+        .collect();
+
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -210,11 +234,21 @@ fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bo
             Cell::new("Output").add_attribute(Attribute::Bold),
         ]);
 
-    for (name, ip, user) in vms {
+    for (i, (name, ip, user)) in vms.iter().enumerate() {
+        bars[i].set_message(format!("running: {}", command));
         let (code, stdout, stderr) = match ssh_exec(ip, user, command) {
             Ok(r) => r,
             Err(e) => (-1, String::new(), e.to_string()),
         };
+
+        if code == 0 {
+            let line_count = stdout.trim().lines().count();
+            bars[i].finish_with_message(format!("✓ done ({} lines)", line_count));
+        } else {
+            let err_summary = stderr.trim().lines().next().unwrap_or("error");
+            bars[i].finish_with_message(format!("✗ {}", err_summary));
+        }
+
         let status = if code == 0 { "OK" } else { "FAIL" };
         let status_color = if code == 0 { Color::Green } else { Color::Red };
         let output_text = if show_output {
@@ -357,11 +391,13 @@ async fn async_main() -> Result<()> {
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            let pb = indicatif::ProgressBar::new_spinner();
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(fleet_spinner_style());
+            pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Starting {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             vm_manager.start_vm(&rg, &vm_name).await?;
-            pb.finish_with_message(format!("Started {}", vm_name));
+            pb.finish_with_message(format!("✓ Started {}", vm_name));
         }
         azlin_cli::Commands::Stop {
             vm_name,
@@ -379,11 +415,13 @@ async fn async_main() -> Result<()> {
                 "Stopping"
             };
             let done = if deallocate { "Deallocated" } else { "Stopped" };
-            let pb = indicatif::ProgressBar::new_spinner();
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(fleet_spinner_style());
+            pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("{} {}...", action, vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             vm_manager.stop_vm(&rg, &vm_name, deallocate).await?;
-            pb.finish_with_message(format!("{} {}", done, vm_name));
+            pb.finish_with_message(format!("✓ {} {}", done, vm_name));
         }
         azlin_cli::Commands::Show { name } => {
             let auth = create_auth()?;
@@ -678,11 +716,13 @@ async fn async_main() -> Result<()> {
                 }
             }
 
-            let pb = indicatif::ProgressBar::new_spinner();
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(fleet_spinner_style());
+            pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Deleting {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             vm_manager.delete_vm(&rg, &vm_name).await?;
-            pb.finish_with_message(format!("Deleted {}", vm_name));
+            pb.finish_with_message(format!("✓ Deleted {}", vm_name));
         }
         azlin_cli::Commands::Kill {
             vm_name,
@@ -693,11 +733,13 @@ async fn async_main() -> Result<()> {
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            let pb = indicatif::ProgressBar::new_spinner();
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(fleet_spinner_style());
+            pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Killing {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             vm_manager.delete_vm(&rg, &vm_name).await?;
-            pb.finish_with_message(format!("Killed {}", vm_name));
+            pb.finish_with_message(format!("✓ Killed {}", vm_name));
         }
         azlin_cli::Commands::Destroy {
             vm_name,
@@ -729,11 +771,13 @@ async fn async_main() -> Result<()> {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
 
-            let pb = indicatif::ProgressBar::new_spinner();
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(fleet_spinner_style());
+            pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Destroying {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             vm_manager.delete_vm(&rg, &vm_name).await?;
-            pb.finish_with_message(format!("Destroyed {}", vm_name));
+            pb.finish_with_message(format!("✓ Destroyed {}", vm_name));
         }
         azlin_cli::Commands::Env { action } => match action {
             azlin_cli::EnvAction::Set {
@@ -3079,17 +3123,44 @@ async fn async_main() -> Result<()> {
                     vm_size,
                     region,
                     cloud_init,
+                }
+                | azlin_cli::TemplateAction::Save {
+                    name,
+                    description,
+                    vm_size,
+                    region,
+                    cloud_init,
                 } => {
-                    let tpl = serde_json::json!({
-                        "name": name,
-                        "description": description.unwrap_or_default(),
-                        "vm_size": vm_size.unwrap_or_else(|| "Standard_D4s_v3".to_string()),
-                        "region": region.unwrap_or_else(|| "westus2".to_string()),
-                        "cloud_init": cloud_init.map(|p| p.display().to_string()),
-                    });
-                    let path = azlin_dir.join(format!("{}.json", name));
-                    std::fs::write(&path, serde_json::to_string_pretty(&tpl)?)?;
-                    println!("Created template '{}' at {}", name, path.display());
+                    let mut tbl = toml::map::Map::new();
+                    tbl.insert("name".into(), toml::Value::String(name.clone()));
+                    tbl.insert(
+                        "description".into(),
+                        toml::Value::String(description.unwrap_or_default()),
+                    );
+                    tbl.insert(
+                        "vm_size".into(),
+                        toml::Value::String(
+                            vm_size.unwrap_or_else(|| "Standard_D4s_v3".to_string()),
+                        ),
+                    );
+                    tbl.insert(
+                        "region".into(),
+                        toml::Value::String(region.unwrap_or_else(|| "westus2".to_string())),
+                    );
+                    if let Some(ci) = cloud_init {
+                        tbl.insert(
+                            "cloud_init".into(),
+                            toml::Value::String(ci.display().to_string()),
+                        );
+                    }
+                    let tpl = toml::Value::Table(tbl);
+                    let path = azlin_dir.join(format!("{}.toml", name));
+                    std::fs::write(
+                        &path,
+                        toml::to_string_pretty(&tpl)
+                            .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?,
+                    )?;
+                    println!("Saved template '{}' at {}", name, path.display());
                 }
                 azlin_cli::TemplateAction::List => {
                     if !azlin_dir.exists() {
@@ -3104,15 +3175,16 @@ async fn async_main() -> Result<()> {
                     let mut found = false;
                     for entry in std::fs::read_dir(&azlin_dir)? {
                         let entry = entry?;
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        if name.ends_with(".json") {
+                        let fname = entry.file_name().to_string_lossy().to_string();
+                        if fname.ends_with(".toml") {
                             let content = std::fs::read_to_string(entry.path())?;
-                            let tpl: serde_json::Value =
-                                serde_json::from_str(&content).unwrap_or_default();
+                            let tpl: toml::Value = content
+                                .parse()
+                                .unwrap_or(toml::Value::Table(Default::default()));
                             table.add_row(vec![
-                                tpl["name"].as_str().unwrap_or("-"),
-                                tpl["vm_size"].as_str().unwrap_or("-"),
-                                tpl["region"].as_str().unwrap_or("-"),
+                                tpl.get("name").and_then(|v| v.as_str()).unwrap_or("-"),
+                                tpl.get("vm_size").and_then(|v| v.as_str()).unwrap_or("-"),
+                                tpl.get("region").and_then(|v| v.as_str()).unwrap_or("-"),
                             ]);
                             found = true;
                         }
@@ -3123,8 +3195,38 @@ async fn async_main() -> Result<()> {
                         println!("No templates found.");
                     }
                 }
+                azlin_cli::TemplateAction::Show { name } => {
+                    let path = azlin_dir.join(format!("{}.toml", name));
+                    if !path.exists() {
+                        eprintln!("Template '{}' not found.", name);
+                        std::process::exit(1);
+                    }
+                    let content = std::fs::read_to_string(&path)?;
+                    println!("{content}");
+                }
+                azlin_cli::TemplateAction::Apply { name } => {
+                    let path = azlin_dir.join(format!("{}.toml", name));
+                    if !path.exists() {
+                        eprintln!("Template '{}' not found.", name);
+                        std::process::exit(1);
+                    }
+                    let content = std::fs::read_to_string(&path)?;
+                    let tpl: toml::Value = content.parse()?;
+                    let vm_size = tpl
+                        .get("vm_size")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Standard_D4s_v3");
+                    let region = tpl
+                        .get("region")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("westus2");
+                    println!(
+                        "To create a VM with template '{}', run:\n  azlin new my-vm --size {} --region {}",
+                        name, vm_size, region
+                    );
+                }
                 azlin_cli::TemplateAction::Delete { name, force } => {
-                    let path = azlin_dir.join(format!("{}.json", name));
+                    let path = azlin_dir.join(format!("{}.toml", name));
                     if !path.exists() {
                         eprintln!("Template '{}' not found.", name);
                         std::process::exit(1);
@@ -3143,7 +3245,7 @@ async fn async_main() -> Result<()> {
                     println!("Deleted template '{}'", name);
                 }
                 azlin_cli::TemplateAction::Export { name, output_file } => {
-                    let path = azlin_dir.join(format!("{}.json", name));
+                    let path = azlin_dir.join(format!("{}.toml", name));
                     if !path.exists() {
                         eprintln!("Template '{}' not found.", name);
                         std::process::exit(1);
@@ -3153,12 +3255,17 @@ async fn async_main() -> Result<()> {
                 }
                 azlin_cli::TemplateAction::Import { input_file } => {
                     let content = std::fs::read_to_string(&input_file)?;
-                    let tpl: serde_json::Value = serde_json::from_str(&content)?;
-                    let name = tpl["name"]
-                        .as_str()
+                    let tpl: toml::Value = content.parse()?;
+                    let name = tpl
+                        .get("name")
+                        .and_then(|v| v.as_str())
                         .ok_or_else(|| anyhow::anyhow!("Template missing 'name' field"))?;
-                    let path = azlin_dir.join(format!("{}.json", name));
-                    std::fs::write(&path, serde_json::to_string_pretty(&tpl)?)?;
+                    let path = azlin_dir.join(format!("{}.toml", name));
+                    std::fs::write(
+                        &path,
+                        toml::to_string_pretty(&tpl)
+                            .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?,
+                    )?;
                     println!("Imported template '{}' from {}", name, input_file.display());
                 }
             }
@@ -3209,20 +3316,32 @@ async fn async_main() -> Result<()> {
 
         // ── Context ──────────────────────────────────────────────────
         azlin_cli::Commands::Context { action } => {
-            let azlin_dir = dirs::home_dir()
+            let azlin_home = dirs::home_dir()
                 .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                .join(".azlin")
-                .join("contexts");
-            std::fs::create_dir_all(&azlin_dir)?;
+                .join(".azlin");
+            let ctx_dir = azlin_home.join("contexts");
+            let active_ctx_path = azlin_home.join("active-context");
+            std::fs::create_dir_all(&ctx_dir)?;
 
             match action {
                 azlin_cli::ContextAction::List { .. } => {
+                    let active = std::fs::read_to_string(&active_ctx_path)
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_default();
                     let mut found = false;
-                    for entry in std::fs::read_dir(&azlin_dir)? {
-                        let entry = entry?;
+                    let mut entries: Vec<_> = std::fs::read_dir(&ctx_dir)?
+                        .filter_map(|e| e.ok())
+                        .collect();
+                    entries.sort_by_key(|e| e.file_name());
+                    for entry in entries {
                         let name = entry.file_name().to_string_lossy().to_string();
-                        if name.ends_with(".json") {
-                            println!("  {}", name.trim_end_matches(".json"));
+                        if name.ends_with(".toml") {
+                            let ctx_name = name.trim_end_matches(".toml");
+                            if ctx_name == active {
+                                println!("* {}", ctx_name);
+                            } else {
+                                println!("  {}", ctx_name);
+                            }
                             found = true;
                         }
                     }
@@ -3230,20 +3349,28 @@ async fn async_main() -> Result<()> {
                         println!("No contexts found. Create one with: azlin context create <name>");
                     }
                 }
-                azlin_cli::ContextAction::Show { .. } => {
-                    let current_path = azlin_dir.join("current");
-                    match std::fs::read_to_string(&current_path) {
-                        Ok(name) => println!("Current context: {}", name.trim()),
+                azlin_cli::ContextAction::Show { .. }
+                | azlin_cli::ContextAction::Current { .. } => {
+                    match std::fs::read_to_string(&active_ctx_path) {
+                        Ok(name) => {
+                            let name = name.trim();
+                            println!("Current context: {}", name);
+                            let path = ctx_dir.join(format!("{}.toml", name));
+                            if let Ok(content) = std::fs::read_to_string(&path) {
+                                println!("{}", content.trim());
+                            }
+                        }
                         Err(_) => println!("No context selected."),
                     }
                 }
-                azlin_cli::ContextAction::Use { name, .. } => {
-                    let ctx_path = azlin_dir.join(format!("{}.json", name));
+                azlin_cli::ContextAction::Use { name, .. }
+                | azlin_cli::ContextAction::Switch { name, .. } => {
+                    let ctx_path = ctx_dir.join(format!("{}.toml", name));
                     if !ctx_path.exists() {
                         eprintln!("Context '{}' not found.", name);
                         std::process::exit(1);
                     }
-                    std::fs::write(azlin_dir.join("current"), &name)?;
+                    std::fs::write(&active_ctx_path, &name)?;
                     println!("Switched to context '{}'", name);
                 }
                 azlin_cli::ContextAction::Create {
@@ -3255,20 +3382,30 @@ async fn async_main() -> Result<()> {
                     key_vault_name,
                     ..
                 } => {
-                    let ctx = serde_json::json!({
-                        "name": name,
-                        "subscription_id": subscription_id,
-                        "tenant_id": tenant_id,
-                        "resource_group": resource_group,
-                        "region": region,
-                        "key_vault_name": key_vault_name,
-                    });
-                    let path = azlin_dir.join(format!("{}.json", name));
-                    std::fs::write(&path, serde_json::to_string_pretty(&ctx)?)?;
+                    let mut ctx = toml::map::Map::new();
+                    ctx.insert("name".to_string(), toml::Value::String(name.clone()));
+                    if let Some(v) = subscription_id {
+                        ctx.insert("subscription_id".to_string(), toml::Value::String(v));
+                    }
+                    if let Some(v) = tenant_id {
+                        ctx.insert("tenant_id".to_string(), toml::Value::String(v));
+                    }
+                    if let Some(v) = resource_group {
+                        ctx.insert("resource_group".to_string(), toml::Value::String(v));
+                    }
+                    if let Some(v) = region {
+                        ctx.insert("region".to_string(), toml::Value::String(v));
+                    }
+                    if let Some(v) = key_vault_name {
+                        ctx.insert("key_vault_name".to_string(), toml::Value::String(v));
+                    }
+                    let toml_str = toml::to_string_pretty(&toml::Value::Table(ctx))?;
+                    let path = ctx_dir.join(format!("{}.toml", name));
+                    std::fs::write(&path, &toml_str)?;
                     println!("Created context '{}'", name);
                 }
                 azlin_cli::ContextAction::Delete { name, force, .. } => {
-                    let path = azlin_dir.join(format!("{}.json", name));
+                    let path = ctx_dir.join(format!("{}.toml", name));
                     if !path.exists() {
                         eprintln!("Context '{}' not found.", name);
                         std::process::exit(1);
@@ -3284,29 +3421,41 @@ async fn async_main() -> Result<()> {
                         }
                     }
                     std::fs::remove_file(&path)?;
+                    // Clear active context if it was the deleted one
+                    if let Ok(active) = std::fs::read_to_string(&active_ctx_path) {
+                        if active.trim() == name {
+                            let _ = std::fs::remove_file(&active_ctx_path);
+                        }
+                    }
                     println!("Deleted context '{}'", name);
                 }
                 azlin_cli::ContextAction::Rename {
                     old_name, new_name, ..
                 } => {
-                    let old_path = azlin_dir.join(format!("{}.json", old_name));
-                    let new_path = azlin_dir.join(format!("{}.json", new_name));
+                    let old_path = ctx_dir.join(format!("{}.toml", old_name));
+                    let new_path = ctx_dir.join(format!("{}.toml", new_name));
                     if !old_path.exists() {
                         eprintln!("Context '{}' not found.", old_name);
                         std::process::exit(1);
                     }
-                    std::fs::rename(&old_path, &new_path)?;
+                    // Update name field inside the TOML file
+                    let content = std::fs::read_to_string(&old_path)?;
+                    let mut table: toml::Value = toml::from_str(&content)?;
+                    if let Some(t) = table.as_table_mut() {
+                        t.insert("name".to_string(), toml::Value::String(new_name.clone()));
+                    }
+                    std::fs::write(&new_path, toml::to_string_pretty(&table)?)?;
+                    std::fs::remove_file(&old_path)?;
+                    // Update active context if it was the renamed one
+                    if let Ok(active) = std::fs::read_to_string(&active_ctx_path) {
+                        if active.trim() == old_name {
+                            std::fs::write(&active_ctx_path, &new_name)?;
+                        }
+                    }
                     println!("Renamed context '{}' → '{}'", old_name, new_name);
                 }
                 azlin_cli::ContextAction::Migrate { .. } => {
                     println!("Context migration: no legacy configuration found.");
-                }
-                azlin_cli::ContextAction::Current { .. } => {
-                    let current_path = azlin_dir.join("current");
-                    match std::fs::read_to_string(&current_path) {
-                        Ok(name) => println!("Current context: {}", name.trim()),
-                        Err(_) => println!("No context selected."),
-                    }
                 }
             }
         }
@@ -3473,22 +3622,32 @@ async fn async_main() -> Result<()> {
             azlin_cli::SessionsAction::Save {
                 session_name,
                 resource_group,
+                vms,
                 ..
             } => {
                 let rg = resolve_resource_group(resource_group)?;
-                let azlin_dir = dirs::home_dir()
+                let sessions_dir = dirs::home_dir()
                     .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
                     .join(".azlin")
                     .join("sessions");
-                std::fs::create_dir_all(&azlin_dir)?;
+                std::fs::create_dir_all(&sessions_dir)?;
 
-                let session = serde_json::json!({
-                    "name": session_name,
-                    "resource_group": rg,
-                    "saved_at": chrono::Utc::now().to_rfc3339(),
-                });
-                let path = azlin_dir.join(format!("{}.json", session_name));
-                std::fs::write(&path, serde_json::to_string_pretty(&session)?)?;
+                let mut session = toml::map::Map::new();
+                session.insert(
+                    "name".to_string(),
+                    toml::Value::String(session_name.clone()),
+                );
+                session.insert("resource_group".to_string(), toml::Value::String(rg));
+                let vm_array: Vec<toml::Value> =
+                    vms.iter().map(|v| toml::Value::String(v.clone())).collect();
+                session.insert("vms".to_string(), toml::Value::Array(vm_array));
+                session.insert(
+                    "created".to_string(),
+                    toml::Value::String(chrono::Utc::now().to_rfc3339()),
+                );
+
+                let path = sessions_dir.join(format!("{}.toml", session_name));
+                std::fs::write(&path, toml::to_string_pretty(&toml::Value::Table(session))?)?;
                 println!("Saved session '{}' to {}", session_name, path.display());
             }
             azlin_cli::SessionsAction::Load { session_name } => {
@@ -3496,22 +3655,43 @@ async fn async_main() -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
                     .join(".azlin")
                     .join("sessions")
-                    .join(format!("{}.json", session_name));
+                    .join(format!("{}.toml", session_name));
                 if !path.exists() {
                     eprintln!("Session '{}' not found.", session_name);
                     std::process::exit(1);
                 }
                 let content = std::fs::read_to_string(&path)?;
-                let session: serde_json::Value = serde_json::from_str(&content)?;
+                let session: toml::Value = content.parse()?;
+                let default_tbl = toml::map::Map::new();
+                let tbl = session.as_table().unwrap_or(&default_tbl);
                 println!("Loaded session '{}':", session_name);
                 println!(
                     "  Resource group: {}",
-                    session["resource_group"].as_str().unwrap_or("-")
+                    tbl.get("resource_group")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-")
                 );
+                if let Some(vms) = tbl.get("vms").and_then(|v| v.as_array()) {
+                    let names: Vec<&str> = vms.iter().filter_map(|v| v.as_str()).collect();
+                    println!("  VMs:            {}", names.join(", "));
+                }
                 println!(
-                    "  Saved at:       {}",
-                    session["saved_at"].as_str().unwrap_or("-")
+                    "  Created:        {}",
+                    tbl.get("created").and_then(|v| v.as_str()).unwrap_or("-")
                 );
+            }
+            azlin_cli::SessionsAction::Delete { session_name } => {
+                let path = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+                    .join(".azlin")
+                    .join("sessions")
+                    .join(format!("{}.toml", session_name));
+                if !path.exists() {
+                    eprintln!("Session '{}' not found.", session_name);
+                    std::process::exit(1);
+                }
+                std::fs::remove_file(&path)?;
+                println!("Deleted session '{}'.", session_name);
             }
             azlin_cli::SessionsAction::List => {
                 let dir = dirs::home_dir()
@@ -3526,8 +3706,8 @@ async fn async_main() -> Result<()> {
                 for entry in std::fs::read_dir(&dir)? {
                     let entry = entry?;
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if name.ends_with(".json") {
-                        println!("  {}", name.trim_end_matches(".json"));
+                    if name.ends_with(".toml") {
+                        println!("  {}", name.trim_end_matches(".toml"));
                         found = true;
                     }
                 }
@@ -4645,27 +4825,193 @@ mod tests {
         let ctx_dir = tmp.path().join("contexts");
         fs::create_dir_all(&ctx_dir).unwrap();
 
-        let ctx = serde_json::json!({
-            "name": "staging",
-            "subscription_id": "sub-123",
-            "tenant_id": "tenant-456",
-            "resource_group": "staging-rg",
-            "region": "eastus",
-        });
+        let mut ctx = toml::map::Map::new();
+        ctx.insert("name".into(), toml::Value::String("staging".into()));
+        ctx.insert(
+            "subscription_id".into(),
+            toml::Value::String("sub-123".into()),
+        );
+        ctx.insert("tenant_id".into(), toml::Value::String("tenant-456".into()));
+        ctx.insert(
+            "resource_group".into(),
+            toml::Value::String("staging-rg".into()),
+        );
+        ctx.insert("region".into(), toml::Value::String("eastus".into()));
 
-        let path = ctx_dir.join("staging.json");
-        fs::write(&path, serde_json::to_string_pretty(&ctx).unwrap()).unwrap();
+        let toml_str = toml::to_string_pretty(&toml::Value::Table(ctx)).unwrap();
+        let path = ctx_dir.join("staging.toml");
+        fs::write(&path, &toml_str).unwrap();
         assert!(path.exists());
 
         // read back
-        let loaded: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(loaded["name"], "staging");
-        assert_eq!(loaded["resource_group"], "staging-rg");
+        let loaded: toml::Value = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(loaded["name"].as_str().unwrap(), "staging");
+        assert_eq!(loaded["resource_group"].as_str().unwrap(), "staging-rg");
 
         // delete
         fs::remove_file(&path).unwrap();
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_context_switch_updates_active_context() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_dir = tmp.path().join("contexts");
+        fs::create_dir_all(&ctx_dir).unwrap();
+
+        for name in &["dev", "prod"] {
+            let mut ctx = toml::map::Map::new();
+            ctx.insert("name".into(), toml::Value::String(name.to_string()));
+            ctx.insert(
+                "subscription_id".into(),
+                toml::Value::String(format!("sub-{}", name)),
+            );
+            let toml_str = toml::to_string_pretty(&toml::Value::Table(ctx)).unwrap();
+            fs::write(ctx_dir.join(format!("{}.toml", name)), &toml_str).unwrap();
+        }
+
+        let active_path = tmp.path().join("active-context");
+        fs::write(&active_path, "dev").unwrap();
+        assert_eq!(fs::read_to_string(&active_path).unwrap().trim(), "dev");
+
+        // Switch to prod
+        assert!(ctx_dir.join("prod.toml").exists());
+        fs::write(&active_path, "prod").unwrap();
+        assert_eq!(fs::read_to_string(&active_path).unwrap().trim(), "prod");
+    }
+
+    #[test]
+    fn test_context_list_marks_active() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_dir = tmp.path().join("contexts");
+        fs::create_dir_all(&ctx_dir).unwrap();
+
+        for name in &["alpha", "beta", "gamma"] {
+            let mut ctx = toml::map::Map::new();
+            ctx.insert("name".into(), toml::Value::String(name.to_string()));
+            let toml_str = toml::to_string_pretty(&toml::Value::Table(ctx)).unwrap();
+            fs::write(ctx_dir.join(format!("{}.toml", name)), &toml_str).unwrap();
+        }
+
+        let active_path = tmp.path().join("active-context");
+        fs::write(&active_path, "beta").unwrap();
+        let active = fs::read_to_string(&active_path).unwrap().trim().to_string();
+
+        let mut entries: Vec<_> = fs::read_dir(&ctx_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        let mut lines = Vec::new();
+        for entry in entries {
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if fname.ends_with(".toml") {
+                let ctx_name = fname.trim_end_matches(".toml");
+                if ctx_name == active {
+                    lines.push(format!("* {}", ctx_name));
+                } else {
+                    lines.push(format!("  {}", ctx_name));
+                }
+            }
+        }
+        assert_eq!(lines, vec!["  alpha", "* beta", "  gamma"]);
+    }
+
+    #[test]
+    fn test_context_rename_updates_name_field() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_dir = tmp.path().join("contexts");
+        fs::create_dir_all(&ctx_dir).unwrap();
+
+        let mut ctx = toml::map::Map::new();
+        ctx.insert("name".into(), toml::Value::String("old".into()));
+        ctx.insert(
+            "subscription_id".into(),
+            toml::Value::String("sub-1".into()),
+        );
+        let toml_str = toml::to_string_pretty(&toml::Value::Table(ctx)).unwrap();
+        fs::write(ctx_dir.join("old.toml"), &toml_str).unwrap();
+
+        let active_path = tmp.path().join("active-context");
+        fs::write(&active_path, "old").unwrap();
+
+        // Rename: read, update name, write new, remove old
+        let old_path = ctx_dir.join("old.toml");
+        let content = fs::read_to_string(&old_path).unwrap();
+        let mut table: toml::Value = toml::from_str(&content).unwrap();
+        table
+            .as_table_mut()
+            .unwrap()
+            .insert("name".into(), toml::Value::String("new".into()));
+        let new_path = ctx_dir.join("new.toml");
+        fs::write(&new_path, toml::to_string_pretty(&table).unwrap()).unwrap();
+        fs::remove_file(&old_path).unwrap();
+
+        if fs::read_to_string(&active_path).unwrap().trim() == "old" {
+            fs::write(&active_path, "new").unwrap();
+        }
+
+        assert!(!old_path.exists());
+        assert!(new_path.exists());
+        let loaded: toml::Value = toml::from_str(&fs::read_to_string(&new_path).unwrap()).unwrap();
+        assert_eq!(loaded["name"].as_str().unwrap(), "new");
+        assert_eq!(fs::read_to_string(&active_path).unwrap().trim(), "new");
+    }
+
+    #[test]
+    fn test_context_delete_clears_active_if_matching() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_dir = tmp.path().join("contexts");
+        fs::create_dir_all(&ctx_dir).unwrap();
+
+        let mut ctx = toml::map::Map::new();
+        ctx.insert("name".into(), toml::Value::String("doomed".into()));
+        let toml_str = toml::to_string_pretty(&toml::Value::Table(ctx)).unwrap();
+        fs::write(ctx_dir.join("doomed.toml"), &toml_str).unwrap();
+
+        let active_path = tmp.path().join("active-context");
+        fs::write(&active_path, "doomed").unwrap();
+
+        fs::remove_file(ctx_dir.join("doomed.toml")).unwrap();
+        if fs::read_to_string(&active_path).unwrap().trim() == "doomed" {
+            fs::remove_file(&active_path).unwrap();
+        }
+
+        assert!(!active_path.exists());
+    }
+
+    #[test]
+    fn test_context_toml_format() {
+        let tmp = TempDir::new().unwrap();
+        let ctx_dir = tmp.path().join("contexts");
+        fs::create_dir_all(&ctx_dir).unwrap();
+
+        let mut ctx = toml::map::Map::new();
+        ctx.insert("name".into(), toml::Value::String("production".into()));
+        ctx.insert(
+            "subscription_id".into(),
+            toml::Value::String("sub-id-here".into()),
+        );
+        ctx.insert(
+            "resource_group".into(),
+            toml::Value::String("prod-rg".into()),
+        );
+        ctx.insert("tenant_id".into(), toml::Value::String("tenant-id".into()));
+
+        let toml_str = toml::to_string_pretty(&toml::Value::Table(ctx)).unwrap();
+        let path = ctx_dir.join("production.toml");
+        fs::write(&path, &toml_str).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("name = \"production\""));
+        assert!(content.contains("subscription_id = \"sub-id-here\""));
+        assert!(content.contains("resource_group = \"prod-rg\""));
+        assert!(content.contains("tenant_id = \"tenant-id\""));
+
+        // Round-trip
+        let loaded: toml::Value = toml::from_str(&content).unwrap();
+        assert_eq!(loaded["name"].as_str().unwrap(), "production");
+        assert_eq!(loaded["subscription_id"].as_str().unwrap(), "sub-id-here");
     }
 
     #[test]
@@ -4674,20 +5020,27 @@ mod tests {
         let sessions_dir = tmp.path().join("sessions");
         fs::create_dir_all(&sessions_dir).unwrap();
 
-        let session = serde_json::json!({
-            "name": "my-session",
-            "resource_group": "dev-rg",
-            "saved_at": "2025-01-01T00:00:00Z",
-        });
+        let content = "\
+name = \"my-session\"\n\
+resource_group = \"dev-rg\"\n\
+vms = [\"dev-vm-1\", \"dev-vm-2\", \"dev-vm-3\"]\n\
+created = \"2025-01-01T00:00:00Z\"\n";
 
-        let path = sessions_dir.join("my-session.json");
-        fs::write(&path, serde_json::to_string_pretty(&session).unwrap()).unwrap();
+        let path = sessions_dir.join("my-session.toml");
+        fs::write(&path, content).unwrap();
         assert!(path.exists());
 
-        let loaded: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(loaded["name"], "my-session");
-        assert_eq!(loaded["resource_group"], "dev-rg");
+        let loaded: toml::Value = fs::read_to_string(&path).unwrap().parse().unwrap();
+        let tbl = loaded.as_table().unwrap();
+        assert_eq!(tbl["name"].as_str().unwrap(), "my-session");
+        assert_eq!(tbl["resource_group"].as_str().unwrap(), "dev-rg");
+        let vms: Vec<&str> = tbl["vms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(vms, vec!["dev-vm-1", "dev-vm-2", "dev-vm-3"]);
     }
 
     #[test]
@@ -5076,6 +5429,43 @@ mod tests {
         super::run_on_fleet(&vms, "ls", false);
     }
 
+    #[test]
+    fn test_fleet_spinner_style_template() {
+        let style = super::fleet_spinner_style();
+        // Verify style can be applied to a spinner without panicking
+        let pb = indicatif::ProgressBar::new_spinner();
+        pb.set_style(style);
+        pb.set_prefix(format!("{:>20}", "test-vm"));
+        pb.set_message("connecting...");
+        pb.finish_with_message("✓ done");
+    }
+
+    #[test]
+    fn test_multiprogress_bar_formatting() {
+        let mp = indicatif::MultiProgress::new();
+        let style = super::fleet_spinner_style();
+        let vm_names = vec!["vm-alpha", "prod-server-01", "x"];
+        let bars: Vec<_> = vm_names
+            .iter()
+            .map(|name| {
+                let pb = mp.add(indicatif::ProgressBar::new_spinner());
+                pb.set_style(style.clone());
+                pb.set_prefix(format!("{:>20}", name));
+                pb.set_message("connecting...");
+                pb
+            })
+            .collect();
+        // Verify each bar can transition through states
+        for (i, pb) in bars.iter().enumerate() {
+            pb.set_message(format!("running: cmd-{}", i));
+            if i % 2 == 0 {
+                pb.finish_with_message(format!("✓ done ({} lines)", i * 10));
+            } else {
+                pb.finish_with_message(format!("✗ error on vm {}", vm_names[i]));
+            }
+        }
+    }
+
     // ── snapshot name format tests ───────────────────────────────
 
     #[test]
@@ -5230,21 +5620,16 @@ mod tests {
         fs::create_dir_all(&sessions_dir).unwrap();
 
         for i in 0..5 {
-            let session = serde_json::json!({
-                "name": format!("session-{}", i),
-                "resource_group": format!("rg-{}", i),
-                "saved_at": "2025-01-01T00:00:00Z",
-            });
-            fs::write(
-                sessions_dir.join(format!("session-{}.json", i)),
-                serde_json::to_string(&session).unwrap(),
-            )
-            .unwrap();
+            let content = format!(
+                "name = \"session-{i}\"\nresource_group = \"rg-{i}\"\nvms = []\ncreated = \"2025-01-01T00:00:00Z\"\n"
+            );
+            fs::write(sessions_dir.join(format!("session-{}.toml", i)), content).unwrap();
         }
 
         let sessions: Vec<String> = fs::read_dir(&sessions_dir)
             .unwrap()
             .filter_map(|e| Some(e.ok()?.file_name().to_string_lossy().to_string()))
+            .filter(|n| n.ends_with(".toml"))
             .collect();
         assert_eq!(sessions.len(), 5);
     }
@@ -5252,17 +5637,72 @@ mod tests {
     #[test]
     fn test_session_overwrite() {
         let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("session.json");
+        let path = tmp.path().join("session.toml");
 
-        let v1 = serde_json::json!({"name": "s1", "resource_group": "rg-old"});
-        fs::write(&path, serde_json::to_string(&v1).unwrap()).unwrap();
+        let v1 = "name = \"s1\"\nresource_group = \"rg-old\"\nvms = []\n";
+        fs::write(&path, v1).unwrap();
 
-        let v2 = serde_json::json!({"name": "s1", "resource_group": "rg-new"});
-        fs::write(&path, serde_json::to_string(&v2).unwrap()).unwrap();
+        let v2 = "name = \"s1\"\nresource_group = \"rg-new\"\nvms = []\n";
+        fs::write(&path, v2).unwrap();
 
-        let loaded: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(loaded["resource_group"], "rg-new");
+        let loaded: toml::Value = fs::read_to_string(&path).unwrap().parse().unwrap();
+        assert_eq!(
+            loaded.as_table().unwrap()["resource_group"]
+                .as_str()
+                .unwrap(),
+            "rg-new"
+        );
+    }
+
+    #[test]
+    fn test_session_delete() {
+        let tmp = TempDir::new().unwrap();
+        let sessions_dir = tmp.path().join("sessions");
+        fs::create_dir_all(&sessions_dir).unwrap();
+
+        let path = sessions_dir.join("to-delete.toml");
+        fs::write(
+            &path,
+            "name = \"to-delete\"\nresource_group = \"rg\"\nvms = []\n",
+        )
+        .unwrap();
+        assert!(path.exists());
+
+        fs::remove_file(&path).unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_session_toml_with_vms() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("dev-team.toml");
+
+        let content = "\
+name = \"dev-team\"\n\
+resource_group = \"dev-rg\"\n\
+vms = [\"dev-vm-1\", \"dev-vm-2\", \"dev-vm-3\"]\n\
+created = \"2024-01-01T00:00:00Z\"\n";
+        fs::write(&path, content).unwrap();
+
+        let loaded: toml::Value = fs::read_to_string(&path).unwrap().parse().unwrap();
+        let tbl = loaded.as_table().unwrap();
+        assert_eq!(tbl["name"].as_str().unwrap(), "dev-team");
+        assert_eq!(tbl["resource_group"].as_str().unwrap(), "dev-rg");
+        let vms: Vec<&str> = tbl["vms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(vms, vec!["dev-vm-1", "dev-vm-2", "dev-vm-3"]);
+        assert_eq!(tbl["created"].as_str().unwrap(), "2024-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_session_load_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("sessions").join("ghost.toml");
+        assert!(!path.exists());
     }
 
     // ── template tests ───────────────────────────────────────────

@@ -1698,6 +1698,33 @@ pub enum TemplateAction {
         /// Input file path
         input_file: PathBuf,
     },
+    /// Save current VM config as a template (alias for create)
+    Save {
+        /// Template name
+        name: String,
+        /// Template description
+        #[arg(long)]
+        description: Option<String>,
+        /// Azure VM size
+        #[arg(long)]
+        vm_size: Option<String>,
+        /// Azure region
+        #[arg(long)]
+        region: Option<String>,
+        /// Path to cloud-init script file
+        #[arg(long)]
+        cloud_init: Option<PathBuf>,
+    },
+    /// Show template details
+    Show {
+        /// Template name
+        name: String,
+    },
+    /// Apply a template when creating a new VM
+    Apply {
+        /// Template name
+        name: String,
+    },
 }
 
 // ── Autopilot subcommands ─────────────────────────────────────────────────
@@ -1760,6 +1787,13 @@ pub enum ContextAction {
     },
     /// Switch to a context
     Use {
+        /// Context name
+        name: String,
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+    /// Switch to a context (alias for use)
+    Switch {
         /// Context name
         name: String,
         #[arg(long)]
@@ -2004,11 +2038,19 @@ pub enum SessionsAction {
         session_name: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
+        /// VM names to include in the session
+        #[arg(long, num_args = 1..)]
+        vms: Vec<String>,
         #[arg(long)]
         config: Option<PathBuf>,
     },
     /// Load a saved session
     Load {
+        /// Session name
+        session_name: String,
+    },
+    /// Delete a saved session
+    Delete {
         /// Session name
         session_name: String,
     },
@@ -3216,6 +3258,30 @@ mod tests {
     }
 
     #[test]
+    fn test_context_switch() {
+        let cli = Cli::parse_from(["azlin", "context", "switch", "staging"]);
+        if let Commands::Context {
+            action: ContextAction::Switch { name, .. },
+        } = cli.command
+        {
+            assert_eq!(name, "staging");
+        } else {
+            panic!("Expected Context Switch");
+        }
+    }
+
+    #[test]
+    fn test_context_current() {
+        let cli = Cli::parse_from(["azlin", "context", "current"]);
+        assert!(matches!(
+            cli.command,
+            Commands::Context {
+                action: ContextAction::Current { .. }
+            }
+        ));
+    }
+
+    #[test]
     fn test_template_list() {
         let cli = Cli::parse_from(["azlin", "template", "list"]);
         assert!(matches!(
@@ -3268,6 +3334,62 @@ mod tests {
     }
 
     #[test]
+    fn test_template_save() {
+        let cli = Cli::parse_from([
+            "azlin",
+            "template",
+            "save",
+            "my-tpl",
+            "--vm-size",
+            "Standard_B2s",
+            "--region",
+            "eastus",
+        ]);
+        if let Commands::Template {
+            action:
+                TemplateAction::Save {
+                    name,
+                    vm_size,
+                    region,
+                    ..
+                },
+        } = cli.command
+        {
+            assert_eq!(name, "my-tpl");
+            assert_eq!(vm_size, Some("Standard_B2s".to_string()));
+            assert_eq!(region, Some("eastus".to_string()));
+        } else {
+            panic!("Expected Template Save");
+        }
+    }
+
+    #[test]
+    fn test_template_show() {
+        let cli = Cli::parse_from(["azlin", "template", "show", "dev-tpl"]);
+        if let Commands::Template {
+            action: TemplateAction::Show { name },
+        } = cli.command
+        {
+            assert_eq!(name, "dev-tpl");
+        } else {
+            panic!("Expected Template Show");
+        }
+    }
+
+    #[test]
+    fn test_template_apply() {
+        let cli = Cli::parse_from(["azlin", "template", "apply", "gpu-box"]);
+        if let Commands::Template {
+            action: TemplateAction::Apply { name },
+        } = cli.command
+        {
+            assert_eq!(name, "gpu-box");
+        } else {
+            panic!("Expected Template Apply");
+        }
+    }
+
+    #[test]
     fn test_sessions_list() {
         let cli = Cli::parse_from(["azlin", "sessions", "list"]);
         assert!(matches!(
@@ -3288,6 +3410,37 @@ mod tests {
             assert_eq!(session_name, "dev-session");
         } else {
             panic!("Expected Sessions Load");
+        }
+    }
+
+    #[test]
+    fn test_sessions_delete() {
+        let cli = Cli::parse_from(["azlin", "sessions", "delete", "old-session"]);
+        if let Commands::Sessions {
+            action: SessionsAction::Delete { session_name },
+        } = cli.command
+        {
+            assert_eq!(session_name, "old-session");
+        } else {
+            panic!("Expected Sessions Delete");
+        }
+    }
+
+    #[test]
+    fn test_sessions_save_with_vms() {
+        let cli = Cli::parse_from([
+            "azlin", "sessions", "save", "dev-team", "--vms", "vm-1", "vm-2", "vm-3",
+        ]);
+        if let Commands::Sessions {
+            action: SessionsAction::Save {
+                session_name, vms, ..
+            },
+        } = cli.command
+        {
+            assert_eq!(session_name, "dev-team");
+            assert_eq!(vms, vec!["vm-1", "vm-2", "vm-3"]);
+        } else {
+            panic!("Expected Sessions Save with vms");
         }
     }
 
