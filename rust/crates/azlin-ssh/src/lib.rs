@@ -315,6 +315,37 @@ impl Default for SshPool {
     }
 }
 
+/// Generate a new SSH key pair name with timestamp
+pub fn rotation_key_name(prefix: &str) -> String {
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    format!("{}_rotated_{}", prefix, timestamp)
+}
+
+/// Check if a key file is older than max_age_days
+pub fn key_needs_rotation(key_path: &std::path::Path, max_age_days: u32) -> bool {
+    if let Ok(metadata) = std::fs::metadata(key_path) {
+        if let Ok(modified) = metadata.modified() {
+            let age = std::time::SystemTime::now()
+                .duration_since(modified)
+                .unwrap_or_default();
+            return age.as_secs() > (max_age_days as u64 * 86400);
+        }
+    }
+    true // If we can't determine age, assume rotation needed
+}
+
+/// Plan key rotation across a fleet of VMs
+pub fn plan_rotation(vm_count: usize, batch_size: usize) -> Vec<(usize, usize)> {
+    let mut batches = Vec::new();
+    let mut start = 0;
+    while start < vm_count {
+        let end = (start + batch_size).min(vm_count);
+        batches.push((start, end));
+        start = end;
+    }
+    batches
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1059,5 +1090,38 @@ mod tests {
         let cfg = SshConfig::new("host", "user", PathBuf::from("/key"));
         assert_eq!(cfg.host, "host");
         assert_eq!(cfg.username, "user");
+    }
+
+    #[test]
+    fn test_rotation_key_name() {
+        let name = rotation_key_name("azlin");
+        assert!(name.starts_with("azlin_rotated_"));
+        assert!(name.len() > 20);
+    }
+
+    #[test]
+    fn test_key_needs_rotation_missing_file() {
+        assert!(key_needs_rotation(std::path::Path::new("/nonexistent/key"), 30));
+    }
+
+    #[test]
+    fn test_plan_rotation_single_batch() {
+        let batches = plan_rotation(3, 10);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0], (0, 3));
+    }
+
+    #[test]
+    fn test_plan_rotation_multiple_batches() {
+        let batches = plan_rotation(10, 3);
+        assert_eq!(batches.len(), 4);
+        assert_eq!(batches[0], (0, 3));
+        assert_eq!(batches[3], (9, 10));
+    }
+
+    #[test]
+    fn test_plan_rotation_empty() {
+        let batches = plan_rotation(0, 5);
+        assert!(batches.is_empty());
     }
 }

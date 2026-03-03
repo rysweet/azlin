@@ -3,6 +3,7 @@
 pub mod config;
 pub mod error;
 pub mod models;
+pub mod sanitizer;
 
 pub use config::AzlinConfig;
 pub use error::{AzlinError, Result};
