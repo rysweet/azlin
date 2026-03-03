@@ -10072,4 +10072,425 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_eq!(super::health_helpers::metric_color(50.0), "green");
         assert_eq!(super::health_helpers::metric_color(0.0), "green");
     }
+
+    // ── Error-path coverage: commands that call create_auth() ────────
+
+    /// Helper: run azlin with no Azure config and verify graceful failure.
+    fn assert_graceful_auth_error(args: &[&str]) {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(args)
+            .env("HOME", dir.path())
+            .env_remove("AZURE_SUBSCRIPTION_ID")
+            .env_remove("AZURE_CLIENT_ID")
+            .env_remove("AZURE_CLIENT_SECRET")
+            .env_remove("AZURE_TENANT_ID")
+            .timeout(std::time::Duration::from_secs(15))
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let combined = format!("{}{}", stdout, stderr);
+        // Must not panic
+        assert!(
+            !combined.contains("thread 'main' panicked"),
+            "Command {:?} panicked: {}",
+            args,
+            combined
+        );
+        // Should fail (create_auth calls process::exit(1))
+        assert!(
+            !out.status.success(),
+            "Command {:?} should fail without auth, got success. Output: {}",
+            args,
+            combined
+        );
+        // Should mention auth/config/login
+        assert!(
+            combined.contains("auth")
+                || combined.contains("Auth")
+                || combined.contains("config")
+                || combined.contains("login")
+                || combined.contains("subscription")
+                || combined.contains("error")
+                || combined.contains("Error")
+                || combined.contains("az login"),
+            "Command {:?} should mention auth/config/error, got: {}",
+            args,
+            combined
+        );
+    }
+
+    #[test]
+    fn test_start_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["start", "nonexistent-vm"]);
+    }
+
+    #[test]
+    fn test_stop_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["stop", "nonexistent-vm"]);
+    }
+
+    #[test]
+    fn test_connect_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["connect", "nonexistent-vm"]);
+    }
+
+    #[test]
+    fn test_new_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["new"]);
+    }
+
+    #[test]
+    fn test_create_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["create"]);
+    }
+
+    #[test]
+    fn test_cost_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["cost"]);
+    }
+
+    #[test]
+    fn test_snapshot_create_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["snapshot", "create", "test-vm"]);
+    }
+
+    #[test]
+    fn test_snapshot_list_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["snapshot", "list", "test-vm"]);
+    }
+
+    #[test]
+    fn test_snapshot_delete_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["snapshot", "delete", "test-snap"]);
+    }
+
+    #[test]
+    fn test_snapshot_restore_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["snapshot", "restore", "test-vm", "test-snap"]);
+    }
+
+    #[test]
+    fn test_snapshot_enable_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["snapshot", "enable", "test-vm", "--every", "24"]);
+    }
+
+    #[test]
+    fn test_snapshot_disable_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["snapshot", "disable", "test-vm"]);
+    }
+
+    #[test]
+    fn test_snapshot_status_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["snapshot", "status", "test-vm"]);
+    }
+
+    #[test]
+    fn test_storage_list_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["storage", "list"]);
+    }
+
+    #[test]
+    fn test_storage_create_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["storage", "create", "teststorage"]);
+    }
+
+    #[test]
+    fn test_storage_status_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["storage", "status", "teststorage"]);
+    }
+
+    #[test]
+    fn test_storage_delete_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["storage", "delete", "teststorage"]);
+    }
+
+    #[test]
+    fn test_bastion_list_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["bastion", "list"]);
+    }
+
+    #[test]
+    fn test_bastion_status_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["bastion", "status", "mybastion", "--rg", "myrg"]);
+    }
+
+    #[test]
+    fn test_keys_rotate_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["keys", "rotate"]);
+    }
+
+    #[test]
+    fn test_keys_list_no_ssh_dir_graceful() {
+        let dir = TempDir::new().unwrap();
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["keys", "list"])
+            .env("HOME", dir.path())
+            .env_remove("AZURE_SUBSCRIPTION_ID")
+            .timeout(std::time::Duration::from_secs(15))
+            .output()
+            .unwrap();
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            !combined.contains("thread 'main' panicked"),
+            "keys list panicked: {}",
+            combined
+        );
+        // keys list without Azure checks local SSH dir — succeeds or mentions no keys
+        assert!(
+            out.status.success()
+                || combined.contains("SSH")
+                || combined.contains("key")
+                || combined.contains("error"),
+            "Unexpected output: {}",
+            combined
+        );
+    }
+
+    #[test]
+    fn test_tag_add_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["tag", "add", "test-vm", "env=dev"]);
+    }
+
+    #[test]
+    fn test_tag_remove_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["tag", "remove", "test-vm", "env"]);
+    }
+
+    #[test]
+    fn test_tag_list_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["tag", "list", "test-vm"]);
+    }
+
+    #[test]
+    fn test_batch_start_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["batch", "start", "--all"]);
+    }
+
+    #[test]
+    fn test_batch_stop_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["batch", "stop", "--all"]);
+    }
+
+    #[test]
+    fn test_fleet_run_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["fleet", "run", "echo hello", "--all"]);
+    }
+
+    #[test]
+    fn test_destroy_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["destroy", "test-vm", "--force"]);
+    }
+
+    #[test]
+    fn test_delete_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["delete", "test-vm", "--force"]);
+    }
+
+    #[test]
+    fn test_kill_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["kill", "test-vm", "--force"]);
+    }
+
+    #[test]
+    fn test_show_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["show", "test-vm"]);
+    }
+
+    #[test]
+    fn test_update_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["update", "test-vm"]);
+    }
+
+    #[test]
+    fn test_os_update_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["os-update", "test-vm"]);
+    }
+
+    #[test]
+    fn test_code_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["code", "test-vm"]);
+    }
+
+    #[test]
+    fn test_compose_up_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["compose", "up"]);
+    }
+
+    #[test]
+    fn test_compose_down_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["compose", "down"]);
+    }
+
+    #[test]
+    fn test_killall_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["killall", "--force"]);
+    }
+
+    #[test]
+    fn test_cleanup_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["cleanup", "--force"]);
+    }
+
+    #[test]
+    fn test_clone_graceful_error_no_auth() {
+        assert_graceful_auth_error(&["clone", "source-vm"]);
+    }
+
+    // ── Command-specific validation ─────────────────────────────────
+
+    #[test]
+    fn test_env_set_requires_args() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["env", "set"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    #[test]
+    fn test_env_delete_requires_args() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["env", "delete"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    #[test]
+    fn test_env_list_requires_vm() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["env", "list"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    #[test]
+    fn test_snapshot_create_requires_vm() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["snapshot", "create"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    #[test]
+    fn test_tag_add_requires_vm_and_tags() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["tag", "add"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    #[test]
+    fn test_start_requires_vm_name() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["start"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    #[test]
+    fn test_stop_requires_vm_name() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["stop"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    #[test]
+    fn test_delete_requires_vm_name() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["delete"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    #[test]
+    fn test_destroy_requires_vm_name() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["destroy"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    #[test]
+    fn test_kill_requires_vm_name() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["kill"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    #[test]
+    fn test_fleet_run_requires_command() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["fleet", "run"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+    }
+
+    // ── Additional help flag coverage ──────────────────────────────
+
+    #[test]
+    fn test_sessions_help_output() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["sessions", "--help"])
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("session") || stdout.contains("Session"));
+    }
+
+    #[test]
+    fn test_context_help_output() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["context", "--help"])
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("context") || stdout.contains("Context"));
+    }
+
+    #[test]
+    fn test_template_help_output() {
+        let out = assert_cmd::Command::cargo_bin("azlin")
+            .unwrap()
+            .args(["template", "--help"])
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("template") || stdout.contains("Template"));
+    }
 }
