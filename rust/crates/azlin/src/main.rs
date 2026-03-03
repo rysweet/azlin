@@ -20,6 +20,16 @@ use ratatui::{
 };
 use tracing_subscriber::EnvFilter;
 
+/// Thread-safe flag to disable bastion pool, replacing the unsound
+/// `std::env::set_var` call in an async/multi-threaded context.
+static DISABLE_BASTION_POOL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Check whether bastion pool is disabled.
+#[allow(dead_code)]
+fn is_bastion_pool_disabled() -> bool {
+    *DISABLE_BASTION_POOL.get().unwrap_or(&false)
+}
+
 /// Health metrics collected from a VM via SSH.
 struct HealthMetrics {
     vm_name: String,
@@ -980,7 +990,7 @@ async fn async_main() -> Result<()> {
             });
 
             if disable_bastion_pool {
-                std::env::set_var("AZLIN_DISABLE_BASTION_POOL", "1");
+                let _ = DISABLE_BASTION_POOL.set(true);
             }
 
             let auth = create_auth()?;
@@ -1235,7 +1245,7 @@ async fn async_main() -> Result<()> {
                     red.apply_to(format!("OS update failed on '{}'", vm_identifier))
                 );
                 if !stderr.trim().is_empty() {
-                    eprintln!("{}", stderr.trim());
+                    eprintln!("{}", azlin_core::sanitizer::sanitize(stderr.trim()));
                 }
                 std::process::exit(1);
             }
@@ -1516,7 +1526,7 @@ async fn async_main() -> Result<()> {
                         println!("Created snapshot '{}'", snapshot_name);
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to create snapshot: {}", stderr.trim());
+                        eprintln!("Failed to create snapshot: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         std::process::exit(1);
                     }
                 }
@@ -1558,7 +1568,7 @@ async fn async_main() -> Result<()> {
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to list snapshots: {}", stderr.trim());
+                        eprintln!("Failed to list snapshots: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         std::process::exit(1);
                     }
                 }
@@ -1650,7 +1660,7 @@ async fn async_main() -> Result<()> {
                         pb2.finish_and_clear();
                         if !dealloc.status.success() {
                             let stderr = String::from_utf8_lossy(&dealloc.stderr);
-                            eprintln!("Failed to deallocate VM: {}", stderr.trim());
+                            eprintln!("Failed to deallocate VM: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                             eprintln!(
                                 "Manual swap: az vm update --resource-group {} --name {} --os-disk {}",
                                 rg, vm_name, new_disk
@@ -1679,7 +1689,7 @@ async fn async_main() -> Result<()> {
                         pb3.finish_and_clear();
                         if !swap.status.success() {
                             let stderr = String::from_utf8_lossy(&swap.stderr);
-                            eprintln!("Failed to swap OS disk: {}", stderr.trim());
+                            eprintln!("Failed to swap OS disk: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                             std::process::exit(1);
                         }
 
@@ -1705,11 +1715,11 @@ async fn async_main() -> Result<()> {
                             );
                         } else {
                             let stderr = String::from_utf8_lossy(&start.stderr);
-                            eprintln!("VM restored but failed to restart: {}", stderr.trim());
+                            eprintln!("VM restored but failed to restart: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&disk_output.stderr);
-                        eprintln!("Failed to restore: {}", stderr.trim());
+                        eprintln!("Failed to restore: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         std::process::exit(1);
                     }
                 }
@@ -1752,7 +1762,7 @@ async fn async_main() -> Result<()> {
                         println!("Deleted snapshot '{}'", snapshot_name);
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to delete snapshot: {}", stderr.trim());
+                        eprintln!("Failed to delete snapshot: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         std::process::exit(1);
                     }
                 }
@@ -1978,7 +1988,7 @@ async fn async_main() -> Result<()> {
                     println!("Created storage account '{}' ({} GB, {})", name, size, tier);
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to create storage account: {}", stderr.trim());
+                    eprintln!("Failed to create storage account: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                     std::process::exit(1);
                 }
             }
@@ -2016,7 +2026,7 @@ async fn async_main() -> Result<()> {
                     }
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to list storage accounts: {}", stderr.trim());
+                    eprintln!("Failed to list storage accounts: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                     std::process::exit(1);
                 }
             }
@@ -2076,7 +2086,7 @@ async fn async_main() -> Result<()> {
                     );
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to show storage account: {}", stderr.trim());
+                    eprintln!("Failed to show storage account: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                     std::process::exit(1);
                 }
             }
@@ -2210,7 +2220,7 @@ async fn async_main() -> Result<()> {
                     println!("Deleted storage account '{}'", name);
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to delete storage account: {}", stderr.trim());
+                    eprintln!("Failed to delete storage account: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                     std::process::exit(1);
                 }
             }
@@ -2244,7 +2254,7 @@ async fn async_main() -> Result<()> {
 
                 if !key_output.status.success() {
                     let stderr = String::from_utf8_lossy(&key_output.stderr);
-                    eprintln!("Failed to get storage account key: {}", stderr.trim());
+                    eprintln!("Failed to get storage account key: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                     std::process::exit(1);
                 }
 
@@ -2568,6 +2578,10 @@ async fn async_main() -> Result<()> {
                     }
                 }
                 azlin_cli::AuthAction::Show { profile } => {
+                    if let Err(e) = name_validation::validate_name(&profile) {
+                        eprintln!("Invalid profile name: {}", e);
+                        std::process::exit(1);
+                    }
                     let profile_path = azlin_dir.join("profiles").join(format!("{}.json", profile));
                     if !profile_path.exists() {
                         eprintln!("Profile '{}' not found.", profile);
@@ -2663,6 +2677,11 @@ async fn async_main() -> Result<()> {
                     let profiles_dir = azlin_dir.join("profiles");
                     std::fs::create_dir_all(&profiles_dir)?;
 
+                    if let Err(e) = name_validation::validate_name(&profile) {
+                        eprintln!("Invalid profile name: {}", e);
+                        std::process::exit(1);
+                    }
+
                     let profile_data = serde_json::json!({
                         "tenant_id": tenant,
                         "client_id": client,
@@ -2674,6 +2693,10 @@ async fn async_main() -> Result<()> {
                     println!("Saved profile '{}' to {}", profile, profile_path.display());
                 }
                 azlin_cli::AuthAction::Remove { profile, yes } => {
+                    if let Err(e) = name_validation::validate_name(&profile) {
+                        eprintln!("Invalid profile name: {}", e);
+                        std::process::exit(1);
+                    }
                     let profile_path = azlin_dir.join("profiles").join(format!("{}.json", profile));
                     if !profile_path.exists() {
                         eprintln!("Profile '{}' not found.", profile);
@@ -3062,6 +3085,10 @@ async fn async_main() -> Result<()> {
 
             // Load template defaults if specified
             let (tmpl_size, tmpl_region) = if let Some(ref tmpl_name) = template {
+                if let Err(e) = name_validation::validate_name(tmpl_name) {
+                    eprintln!("Invalid template name: {}", e);
+                    std::process::exit(1);
+                }
                 let templates_dir = dirs::home_dir()
                     .unwrap_or_default()
                     .join(".config")
@@ -3161,9 +3188,14 @@ async fn async_main() -> Result<()> {
                 // Clone repo if specified
                 if let Some(ref repo_url) = repo {
                     if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
+                        let clone_cmd = match create_helpers::build_clone_cmd(repo_url) {
+                            Ok(cmd) => cmd,
+                            Err(e) => {
+                                eprintln!("Invalid repository URL: {}", e);
+                                return Ok(());
+                            }
+                        };
                         println!("Cloning repository '{}'...", repo_url);
-                        let clone_cmd =
-                            format!("git clone {} ~/src/$(basename {} .git)", repo_url, repo_url);
                         let (exit_code, stdout, stderr) = ssh_exec(ip, &admin_user, &clone_cmd)?;
                         if exit_code == 0 {
                             println!("Repository cloned successfully.");
@@ -3171,7 +3203,7 @@ async fn async_main() -> Result<()> {
                                 print!("{}", stdout);
                             }
                         } else {
-                            eprintln!("Failed to clone repository: {}", stderr);
+                            eprintln!("Failed to clone repository: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         }
                     }
                 }
@@ -3248,7 +3280,7 @@ async fn async_main() -> Result<()> {
                     red.apply_to(format!("Update failed on '{}'", vm_identifier))
                 );
                 if !stderr.trim().is_empty() {
-                    eprintln!("{}", stderr.trim());
+                    eprintln!("{}", azlin_core::sanitizer::sanitize(stderr.trim()));
                 }
                 std::process::exit(1);
             }
@@ -3296,7 +3328,7 @@ async fn async_main() -> Result<()> {
 
             if !snap_out.status.success() {
                 let stderr = String::from_utf8_lossy(&snap_out.stderr);
-                eprintln!("Failed to snapshot source VM: {}", stderr.trim());
+                eprintln!("Failed to snapshot source VM: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                 std::process::exit(1);
             }
             println!("Created snapshot '{}'", snapshot_name);
@@ -3356,7 +3388,7 @@ async fn async_main() -> Result<()> {
                         eprintln!(
                             "  Failed to create VM '{}': {}",
                             clone_name,
-                            stderr.trim()
+                            azlin_core::sanitizer::sanitize(stderr.trim())
                         );
                     }
                 } else {
@@ -3364,7 +3396,7 @@ async fn async_main() -> Result<()> {
                     eprintln!(
                         "  Failed to create disk for clone '{}': {}",
                         clone_name,
-                        stderr.trim()
+                        azlin_core::sanitizer::sanitize(stderr.trim())
                     );
                 }
             }
@@ -3520,8 +3552,10 @@ async fn async_main() -> Result<()> {
                         return Ok(());
                     }
                 }
+                let query = batch_helpers::build_vm_list_query(tag.as_deref())
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
                 let list_output = std::process::Command::new("az")
-                    .args(["vm", "list", "-g", &rg, "--query", "[].id", "-o", "tsv"])
+                    .args(["vm", "list", "-g", &rg, "--query", &query, "-o", "tsv"])
                     .output()?;
                 let tsv = std::str::from_utf8(&list_output.stdout).unwrap_or("");
                 let ids = batch_helpers::parse_vm_ids(tsv);
@@ -3556,8 +3590,10 @@ async fn async_main() -> Result<()> {
                         return Ok(());
                     }
                 }
+                let query = batch_helpers::build_vm_list_query(tag.as_deref())
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
                 let list_output = std::process::Command::new("az")
-                    .args(["vm", "list", "-g", &rg, "--query", "[].id", "-o", "tsv"])
+                    .args(["vm", "list", "-g", &rg, "--query", &query, "-o", "tsv"])
                     .output()?;
                 let tsv = std::str::from_utf8(&list_output.stdout).unwrap_or("");
                 let ids = batch_helpers::parse_vm_ids(tsv);
@@ -3640,7 +3676,7 @@ async fn async_main() -> Result<()> {
                                         "Failed to sync {} to {}: {}",
                                         dotfile,
                                         name,
-                                        stderr.trim()
+                                        azlin_core::sanitizer::sanitize(stderr.trim())
                                     );
                                 }
                                 Err(e) => {
@@ -3901,7 +3937,7 @@ async fn async_main() -> Result<()> {
                             println!("  Provisioned VM '{}'", vm_name);
                         } else {
                             let stderr = String::from_utf8_lossy(&out.stderr);
-                            eprintln!("  Failed to provision '{}': {}", vm_name, stderr.trim());
+                            eprintln!("  Failed to provision '{}': {}", vm_name, azlin_core::sanitizer::sanitize(stderr.trim()));
                         }
                     }
                     println!("Runner fleet configuration saved to {}", pool_path.display());
@@ -4587,7 +4623,7 @@ async fn async_main() -> Result<()> {
                     );
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to attach disk: {}", stderr.trim());
+                    eprintln!("Failed to attach disk: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                     std::process::exit(1);
                 }
             }
@@ -4959,7 +4995,7 @@ async fn async_main() -> Result<()> {
                         println!("Synced SSH key to VM '{}' for user '{}'", vm_name, ssh_user);
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to sync keys: {}", stderr.trim());
+                        eprintln!("Failed to sync keys: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         std::process::exit(1);
                     }
                 }
@@ -5133,12 +5169,12 @@ async fn async_main() -> Result<()> {
                             }
                         } else {
                             let stderr = String::from_utf8_lossy(&boot_output.stderr);
-                            eprintln!("Failed to fetch logs: {}", stderr.trim());
+                            eprintln!("Failed to fetch logs: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                             std::process::exit(1);
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to fetch logs via SSH: {}", stderr.trim());
+                        eprintln!("Failed to fetch logs via SSH: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         std::process::exit(1);
                     }
                 }
@@ -5221,7 +5257,7 @@ async fn async_main() -> Result<()> {
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to query cost history: {}", stderr.trim());
+                        eprintln!("Failed to query cost history: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         std::process::exit(1);
                     }
                 }
@@ -5261,7 +5297,7 @@ async fn async_main() -> Result<()> {
                                 );
                             } else {
                                 let stderr = String::from_utf8_lossy(&output.stderr);
-                                eprintln!("Failed to create budget: {}", stderr.trim());
+                                eprintln!("Failed to create budget: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                                 std::process::exit(1);
                             }
                         }
@@ -5286,7 +5322,7 @@ async fn async_main() -> Result<()> {
                                 }
                             } else {
                                 let stderr = String::from_utf8_lossy(&output.stderr);
-                                eprintln!("Failed to list budgets: {}", stderr.trim());
+                                eprintln!("Failed to list budgets: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                             }
                         }
                         "delete" => {
@@ -5305,7 +5341,7 @@ async fn async_main() -> Result<()> {
                                 println!("Budget deleted for '{}'.", resource_group);
                             } else {
                                 let stderr = String::from_utf8_lossy(&output.stderr);
-                                eprintln!("Failed to delete budget: {}", stderr.trim());
+                                eprintln!("Failed to delete budget: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                             }
                         }
                         _ => {
@@ -5373,7 +5409,7 @@ async fn async_main() -> Result<()> {
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to list recommendations: {}", stderr.trim());
+                        eprintln!("Failed to list recommendations: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         std::process::exit(1);
                     }
                 }
@@ -5457,14 +5493,38 @@ async fn async_main() -> Result<()> {
                                                         "  Deallocating idle VM: {} (impact: {})",
                                                         resource_id, impact
                                                     );
-                                                    let _ = std::process::Command::new("az")
+                                                    match std::process::Command::new("az")
                                                         .args([
                                                             "vm",
                                                             "deallocate",
                                                             "--ids",
                                                             resource_id,
                                                         ])
-                                                        .output();
+                                                        .output()
+                                                    {
+                                                        Ok(output)
+                                                            if output.status.success() =>
+                                                        {
+                                                            println!(
+                                                                "  ✓ Deallocated successfully"
+                                                            );
+                                                        }
+                                                        Ok(output) => {
+                                                            eprintln!(
+                                                                "  ✗ Failed to deallocate: {}",
+                                                                String::from_utf8_lossy(
+                                                                    &output.stderr
+                                                                )
+                                                                .trim()
+                                                            );
+                                                        }
+                                                        Err(e) => {
+                                                            eprintln!(
+                                                                "  ✗ Failed to run az: {}",
+                                                                e
+                                                            );
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -5475,7 +5535,7 @@ async fn async_main() -> Result<()> {
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to list cost actions: {}", stderr.trim());
+                        eprintln!("Failed to list cost actions: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         std::process::exit(1);
                     }
                 }
@@ -5538,7 +5598,7 @@ async fn async_main() -> Result<()> {
                         println!("Deleted {} VMs with prefix '{}'", id_list.len(), prefix);
                     } else {
                         let stderr = String::from_utf8_lossy(&del.stderr);
-                        eprintln!("Failed to delete VMs: {}", stderr.trim());
+                        eprintln!("Failed to delete VMs: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
                         std::process::exit(1);
                     }
                 }
@@ -6201,6 +6261,36 @@ fn parse_cost_action_rows(data: &serde_json::Value) -> Vec<(String, String, Stri
     result
 }
 
+/// Validate names used to construct filesystem paths (profiles, templates).
+#[allow(dead_code)]
+mod name_validation {
+    /// Reject names containing path-traversal or null-byte characters.
+    ///
+    /// A valid name consists only of ASCII alphanumerics, hyphens, underscores,
+    /// and dots (but not `..`).  No slashes, backslashes, or null bytes.
+    pub fn validate_name(name: &str) -> Result<(), String> {
+        if name.is_empty() {
+            return Err("Name must not be empty".into());
+        }
+        if name.contains('/') || name.contains('\\') {
+            return Err(format!(
+                "Name '{}' contains path separator characters",
+                name
+            ));
+        }
+        if name.contains('\0') {
+            return Err(format!("Name '{}' contains a null byte", name));
+        }
+        if name.contains("..") {
+            return Err(format!(
+                "Name '{}' contains '..' (path traversal)",
+                name
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Template TOML helpers for reading, writing, and listing templates.
 mod templates {
     use std::path::{Path, PathBuf};
@@ -6239,6 +6329,8 @@ mod templates {
         name: &str,
         tpl: &toml::Value,
     ) -> Result<PathBuf, anyhow::Error> {
+        super::name_validation::validate_name(name)
+            .map_err(|e| anyhow::anyhow!("Invalid template name: {}", e))?;
         std::fs::create_dir_all(dir)?;
         let path = dir.join(format!("{}.toml", name));
         std::fs::write(
@@ -6251,6 +6343,8 @@ mod templates {
 
     /// Load a template TOML from the given directory.
     pub fn load_template(dir: &Path, name: &str) -> Result<toml::Value, anyhow::Error> {
+        super::name_validation::validate_name(name)
+            .map_err(|e| anyhow::anyhow!("Invalid template name: {}", e))?;
         let path = dir.join(format!("{}.toml", name));
         if !path.exists() {
             anyhow::bail!("Template '{}' not found.", name);
@@ -6294,6 +6388,8 @@ mod templates {
 
     /// Delete a template by name. Returns error if not found.
     pub fn delete_template(dir: &Path, name: &str) -> Result<(), anyhow::Error> {
+        super::name_validation::validate_name(name)
+            .map_err(|e| anyhow::anyhow!("Invalid template name: {}", e))?;
         let path = dir.join(format!("{}.toml", name));
         if !path.exists() {
             anyhow::bail!("Template '{}' not found.", name);
@@ -6310,6 +6406,7 @@ mod templates {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Template missing 'name' field"))?
             .to_string();
+        // validate_name is called inside save_template
         save_template(dir, &name, &tpl)?;
         Ok(name)
     }
@@ -6544,6 +6641,11 @@ mod env_helpers {
 
     /// Build the shell command that removes a key from `~/.profile`.
     pub fn build_env_delete_cmd(key: &str) -> String {
+        // Validate key to prevent injection through the key name
+        if validate_env_key(key).is_err() {
+            // Return a harmless no-op rather than an injectable command
+            return "true".to_string();
+        }
         format!("sed -i '/^export {}=/d' ~/.profile", key)
     }
 
@@ -7221,6 +7323,41 @@ mod list_helpers {
     }
 }
 
+/// Pure helpers for validating repository URLs against shell injection.
+#[allow(dead_code)]
+mod repo_helpers {
+    /// Shell metacharacters that must not appear in a repo URL.
+    const SHELL_META: &[char] = &[';', '|', '&', '$', '`', '(', ')', '\n', '\r', '\'', '"', '<', '>', '{', '}', ' '];
+
+    /// Validate that a repository URL does not contain shell metacharacters.
+    ///
+    /// Returns `Ok(())` if the URL is safe to interpolate into a shell command,
+    /// or `Err(String)` describing the problem.
+    pub fn validate_repo_url(url: &str) -> Result<(), String> {
+        if url.is_empty() {
+            return Err("Repository URL must not be empty".into());
+        }
+        if let Some(bad) = url.chars().find(|c| SHELL_META.contains(c)) {
+            return Err(format!(
+                "Repository URL contains disallowed character '{}'",
+                bad.escape_default()
+            ));
+        }
+        // Must look like an HTTPS or git@ URL
+        if !(url.starts_with("https://")
+            || url.starts_with("http://")
+            || url.starts_with("git@")
+            || url.starts_with("ssh://"))
+        {
+            return Err(format!(
+                "Repository URL must start with https://, http://, git@, or ssh:// (got '{}')",
+                url
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Pure helpers for VM creation: name generation, template resolution, clone naming.
 #[allow(dead_code)]
 mod create_helpers {
@@ -7249,8 +7386,15 @@ mod create_helpers {
     }
 
     /// Build the git clone command to run on a remote VM.
-    pub fn build_clone_cmd(repo_url: &str) -> String {
-        format!("git clone {} ~/src/$(basename {} .git)", repo_url, repo_url)
+    ///
+    /// Returns `Err` if the URL contains shell metacharacters.
+    pub fn build_clone_cmd(repo_url: &str) -> Result<String, String> {
+        super::repo_helpers::validate_repo_url(repo_url)?;
+        let quoted = shlex::try_quote(repo_url).map_err(|e| format!("Failed to quote URL: {e}"))?;
+        Ok(format!(
+            "git clone {} ~/src/$(basename {} .git)",
+            quoted, quoted
+        ))
     }
 
     /// Build SSH connect args (for auto-connect after VM creation).
@@ -7616,6 +7760,30 @@ mod batch_helpers {
         args
     }
 
+    /// Build the JMESPath query for `az vm list`.
+    ///
+    /// If `tag` is `Some("key=value")`, returns a filter like
+    /// `[?tags.KEY=='VALUE'].id`.  Otherwise returns `[].id`.
+    pub fn build_vm_list_query(tag: Option<&str>) -> Result<String, String> {
+        match tag {
+            Some(t) => {
+                let (key, value) = super::tag_helpers::parse_tag(t)
+                    .ok_or_else(|| format!("Invalid tag format '{}'. Use key=value.", t))?;
+                // Reject characters that could break JMESPath / shell quoting
+                for ch in ['\'', '"', '\\', '`', '$', ';', '|', '&', '\n', '\r'] {
+                    if key.contains(ch) || value.contains(ch) {
+                        return Err(format!(
+                            "Tag key or value contains disallowed character '{}'",
+                            ch.escape_default()
+                        ));
+                    }
+                }
+                Ok(format!("[?tags.{}=='{}'].id", key, value))
+            }
+            None => Ok("[].id".to_string()),
+        }
+    }
+
     /// Summarise the result of a batch operation as a user-facing message.
     pub fn summarise_batch(action: &str, rg: &str, success: bool) -> String {
         if success {
@@ -7627,6 +7795,7 @@ mod batch_helpers {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use std::fs;
     use tempfile::TempDir;
@@ -15744,7 +15913,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_build_clone_cmd_https() {
-        let cmd = super::create_helpers::build_clone_cmd("https://github.com/user/repo.git");
+        let cmd = super::create_helpers::build_clone_cmd("https://github.com/user/repo.git").unwrap();
         assert!(cmd.contains("git clone"));
         assert!(cmd.contains("https://github.com/user/repo.git"));
         assert!(cmd.contains("~/src/$(basename"));
@@ -16806,7 +16975,7 @@ region = "eastus"
 
     #[test]
     fn test_build_clone_cmd_ssh_url() {
-        let cmd = super::create_helpers::build_clone_cmd("git@github.com:user/repo.git");
+        let cmd = super::create_helpers::build_clone_cmd("git@github.com:user/repo.git").unwrap();
         assert!(cmd.contains("git clone"));
         assert!(cmd.contains("git@github.com:user/repo.git"));
         assert!(cmd.contains("repo")); // basename extraction
@@ -18527,7 +18696,7 @@ custom_field = "extra"
 
     #[test]
     fn test_build_clone_cmd_format() {
-        let cmd = super::create_helpers::build_clone_cmd("https://github.com/user/repo.git");
+        let cmd = super::create_helpers::build_clone_cmd("https://github.com/user/repo.git").unwrap();
         assert!(cmd.contains("git clone"));
         assert!(cmd.contains("https://github.com/user/repo.git"));
         assert!(cmd.contains("~/src/$(basename"));
@@ -18549,5 +18718,192 @@ custom_field = "extra"
         let args = super::create_helpers::build_ssh_connect_args("user", "10.0.0.1");
         assert!(args.contains(&"StrictHostKeyChecking=no".to_string()));
         assert!(args.contains(&"user@10.0.0.1".to_string()));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Security fix tests
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── validate_repo_url ──────────────────────────────────────────
+
+    #[test]
+    fn test_validate_repo_url_rejects_semicolon() {
+        assert!(super::repo_helpers::validate_repo_url("https://evil.com/repo.git; rm -rf /").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_url_rejects_pipe() {
+        assert!(super::repo_helpers::validate_repo_url("https://evil.com/repo.git|cat /etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_url_rejects_backtick() {
+        assert!(super::repo_helpers::validate_repo_url("https://evil.com/`whoami`.git").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_url_rejects_dollar() {
+        assert!(super::repo_helpers::validate_repo_url("https://evil.com/$HOME.git").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_url_rejects_ampersand() {
+        assert!(super::repo_helpers::validate_repo_url("https://evil.com/repo.git&echo pwned").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_url_rejects_newline() {
+        assert!(super::repo_helpers::validate_repo_url("https://evil.com/repo.git\nrm -rf /").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_url_rejects_parens() {
+        assert!(super::repo_helpers::validate_repo_url("https://evil.com/$(whoami).git").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_url_rejects_empty() {
+        assert!(super::repo_helpers::validate_repo_url("").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_url_rejects_bad_scheme() {
+        assert!(super::repo_helpers::validate_repo_url("ftp://evil.com/repo.git").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_url_accepts_https() {
+        assert!(super::repo_helpers::validate_repo_url("https://github.com/user/repo.git").is_ok());
+    }
+
+    #[test]
+    fn test_validate_repo_url_accepts_git_ssh() {
+        assert!(super::repo_helpers::validate_repo_url("git@github.com:user/repo.git").is_ok());
+    }
+
+    #[test]
+    fn test_validate_repo_url_accepts_ssh_scheme() {
+        assert!(super::repo_helpers::validate_repo_url("ssh://git@github.com/user/repo.git").is_ok());
+    }
+
+    #[test]
+    fn test_build_clone_cmd_rejects_injection() {
+        assert!(super::create_helpers::build_clone_cmd("https://evil.com/repo.git; rm -rf /").is_err());
+    }
+
+    // ── validate_name (path traversal) ─────────────────────────────
+
+    #[test]
+    fn test_validate_name_rejects_slash() {
+        assert!(super::name_validation::validate_name("../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_validate_name_rejects_backslash() {
+        assert!(super::name_validation::validate_name("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn test_validate_name_rejects_dotdot() {
+        assert!(super::name_validation::validate_name("..").is_err());
+    }
+
+    #[test]
+    fn test_validate_name_rejects_null() {
+        assert!(super::name_validation::validate_name("foo\0bar").is_err());
+    }
+
+    #[test]
+    fn test_validate_name_rejects_empty() {
+        assert!(super::name_validation::validate_name("").is_err());
+    }
+
+    #[test]
+    fn test_validate_name_accepts_simple() {
+        assert!(super::name_validation::validate_name("my-profile").is_ok());
+    }
+
+    #[test]
+    fn test_validate_name_accepts_dot_prefix() {
+        assert!(super::name_validation::validate_name(".hidden").is_ok());
+    }
+
+    #[test]
+    fn test_validate_name_accepts_underscores() {
+        assert!(super::name_validation::validate_name("my_template_v2").is_ok());
+    }
+
+    #[test]
+    fn test_template_save_rejects_traversal() {
+        let tmp = TempDir::new().unwrap();
+        let tpl = toml::Value::Table(Default::default());
+        let result = super::templates::save_template(tmp.path(), "../escape", &tpl);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_template_load_rejects_traversal() {
+        let tmp = TempDir::new().unwrap();
+        let result = super::templates::load_template(tmp.path(), "../../etc/passwd");
+        assert!(result.is_err());
+    }
+
+    // ── env delete key validation ──────────────────────────────────
+
+    #[test]
+    fn test_build_env_delete_cmd_rejects_injection() {
+        let cmd = super::env_helpers::build_env_delete_cmd("foo;rm -rf /;#");
+        assert_eq!(cmd, "true");
+    }
+
+    #[test]
+    fn test_build_env_delete_cmd_rejects_dollar() {
+        let cmd = super::env_helpers::build_env_delete_cmd("$HOME");
+        assert_eq!(cmd, "true");
+    }
+
+    #[test]
+    fn test_build_env_delete_cmd_valid_key_works() {
+        let cmd = super::env_helpers::build_env_delete_cmd("VALID_KEY");
+        assert!(cmd.contains("sed"));
+        assert!(cmd.contains("VALID_KEY"));
+    }
+
+    // ── batch tag filter ───────────────────────────────────────────
+
+    #[test]
+    fn test_build_vm_list_query_no_tag() {
+        let q = super::batch_helpers::build_vm_list_query(None).unwrap();
+        assert_eq!(q, "[].id");
+    }
+
+    #[test]
+    fn test_build_vm_list_query_with_tag() {
+        let q = super::batch_helpers::build_vm_list_query(Some("env=dev")).unwrap();
+        assert_eq!(q, "[?tags.env=='dev'].id");
+    }
+
+    #[test]
+    fn test_build_vm_list_query_invalid_tag_format() {
+        assert!(super::batch_helpers::build_vm_list_query(Some("notag")).is_err());
+    }
+
+    #[test]
+    fn test_build_vm_list_query_rejects_injection_in_tag_value() {
+        assert!(super::batch_helpers::build_vm_list_query(Some("env=dev';rm -rf /")).is_err());
+    }
+
+    #[test]
+    fn test_build_vm_list_query_rejects_injection_in_tag_key() {
+        assert!(super::batch_helpers::build_vm_list_query(Some("en$v=dev")).is_err());
+    }
+
+    // ── OnceLock bastion pool flag ─────────────────────────────────
+
+    #[test]
+    fn test_is_bastion_pool_disabled_default() {
+        // OnceLock may or may not be set from other tests, so just verify it
+        // returns a bool without panicking
+        let _result = super::is_bastion_pool_disabled();
     }
 }

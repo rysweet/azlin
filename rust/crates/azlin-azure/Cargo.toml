@@ -28,6 +28,6 @@ uuid = { workspace = true }
 azure_core_old = { package = "azure_core", version = "0.2" }
 async-trait = "0.1"
 oauth2 = { version = "4", default-features = false }
+tempfile = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }

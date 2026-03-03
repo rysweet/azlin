@@ -493,7 +493,8 @@ impl VmManager {
         debug!(%vm_name, "Creating VM");
         let image_urn = params.image.to_string();
 
-        let cloud_init_path = create_cloud_init_file()?;
+        let cloud_init_file = create_cloud_init_file()?;
+        let cloud_init_path = cloud_init_file.path().to_string_lossy().to_string();
         let mut az_args = vec![
             "vm",
             "create",
@@ -527,8 +528,7 @@ impl VmManager {
 
         az_cli(&az_args).context(format!("Failed to create VM '{vm_name}'"))?;
 
-        // Clean up temp file
-        let _ = std::fs::remove_file(&cloud_init_path);
+        // cloud_init_file is dropped here, which auto-deletes the temp file
 
         // 7. Fetch and return VM info (includes IP lookup via SDK)
         debug!(%vm_name, "Fetching created VM details");
@@ -656,12 +656,22 @@ fn az_cli(args: &[&str]) -> Result<String> {
     }
 }
 
-/// Write cloud-init script to a temp file and return its path.
-fn create_cloud_init_file() -> Result<String> {
-    let dir = std::env::temp_dir();
-    let path = dir.join("azlin-cloud-init.sh");
-    std::fs::write(&path, CLOUD_INIT_SCRIPT).context("Failed to write cloud-init temp file")?;
-    Ok(path.to_string_lossy().to_string())
+/// Write cloud-init script to a unique temp file and return the handle.
+///
+/// The caller must keep the returned `NamedTempFile` alive until the file is no
+/// longer needed (e.g. until the `az vm create` command has finished). Dropping
+/// the handle deletes the file automatically.
+fn create_cloud_init_file() -> Result<tempfile::NamedTempFile> {
+    use std::io::Write;
+    let mut tmp = tempfile::Builder::new()
+        .prefix("azlin-cloud-init-")
+        .suffix(".sh")
+        .tempfile()
+        .context("Failed to create cloud-init temp file")?;
+    tmp.write_all(CLOUD_INIT_SCRIPT.as_bytes())
+        .context("Failed to write cloud-init temp file")?;
+    tmp.flush().context("Failed to flush cloud-init temp file")?;
+    Ok(tmp)
 }
 
 /// Cloud-init script for basic VM setup.
@@ -1178,19 +1188,20 @@ mod tests {
 
     #[test]
     fn test_create_cloud_init_file_creates_file() {
-        let path = create_cloud_init_file().expect("should create cloud-init file");
-        // The function writes CLOUD_INIT_SCRIPT to a fixed temp path.
-        // Another parallel test may overwrite it, so just verify the path is valid.
-        assert!(!path.is_empty(), "cloud-init file path should not be empty");
+        let tmp = create_cloud_init_file().expect("should create cloud-init file");
+        let path = tmp.path();
+        assert!(path.exists(), "cloud-init temp file should exist");
+        let content = std::fs::read_to_string(path).expect("should read temp file");
         assert!(
-            path.contains("azlin-cloud-init"),
-            "path should contain expected filename: {path}"
+            content.contains("cloud-init provisioning complete"),
+            "file should contain the cloud-init script"
         );
     }
 
     #[test]
     fn test_create_cloud_init_file_path_is_in_temp() {
-        let path = create_cloud_init_file().unwrap();
+        let tmp = create_cloud_init_file().unwrap();
+        let path = tmp.path().to_string_lossy().to_string();
         let temp_dir = std::env::temp_dir();
         assert!(
             path.starts_with(temp_dir.to_string_lossy().as_ref()),
@@ -1520,10 +1531,14 @@ mod tests {
     // ── create_cloud_init_file path test ────────────────────────────
 
     #[test]
-    fn test_create_cloud_init_file_consistent_name() {
-        let path1 = create_cloud_init_file().unwrap();
-        let path2 = create_cloud_init_file().unwrap();
-        assert_eq!(path1, path2, "should produce same path each time");
+    fn test_create_cloud_init_file_unique_paths() {
+        let tmp1 = create_cloud_init_file().unwrap();
+        let tmp2 = create_cloud_init_file().unwrap();
+        assert_ne!(
+            tmp1.path(),
+            tmp2.path(),
+            "concurrent calls should produce unique paths"
+        );
     }
 
     // ── extract_tags with all JSON types ────────────────────────────
@@ -2116,7 +2131,10 @@ mod tests {
         // With fallback, list_all_vms may succeed via az CLI if CLI auth is valid.
         // We only verify it doesn't panic; both Ok and Err are acceptable.
         match &result {
-            Ok(vms) => assert!(vms.len() >= 0, "should return a list"),
+            Ok(vms) => {
+                // Verify we get a valid list (empty is fine, just not a panic)
+                let _ = vms.len();
+            }
             Err(err) => {
                 let msg = err.to_string();
                 assert!(!msg.is_empty(), "error should be descriptive");

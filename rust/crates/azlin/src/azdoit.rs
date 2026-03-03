@@ -122,6 +122,7 @@ async fn main() -> Result<()> {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     #[test]
     fn test_azdoit_help() {
