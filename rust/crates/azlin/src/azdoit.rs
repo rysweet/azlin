@@ -600,7 +600,7 @@ mod tests {
 
     #[test]
     fn test_error_msg_command_failed_unknown_exit() {
-        let exit_code = None::<i32>.unwrap_or(-1);
+        let exit_code = -1_i32;
         let msg = format!("  ⚠ Command failed (exit {})", exit_code);
         assert!(msg.contains("exit -1"));
     }
@@ -610,7 +610,7 @@ mod tests {
 
     #[test]
     fn test_progress_display_format() {
-        let commands = vec!["az vm list", "az group show"];
+        let commands = ["az vm list", "az group show"];
         for (i, cmd) in commands.iter().enumerate() {
             let msg = format!("→ [{}/{}] {}", i + 1, commands.len(), cmd);
             assert!(msg.contains(&format!("{}/{}", i + 1, commands.len())));

@@ -5463,7 +5463,7 @@ mod bastion_helpers {
 mod log_helpers {
     /// Compute the start index for tailing `count` lines from a total of `total` lines.
     pub fn tail_start_index(total: usize, count: usize) -> usize {
-        if total > count { total - count } else { 0 }
+        total.saturating_sub(count)
     }
 }
 
@@ -10906,5 +10906,1836 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_eq!(sub, "Sub Only");
         assert_eq!(tenant, "-");
         assert_eq!(user, "-");
+    }
+
+    // ── NEW: templates edge-case tests ───────────────────────────
+
+    #[test]
+    fn test_template_build_all_none_defaults() {
+        let tpl = super::templates::build_template_toml("t1", None, None, None, None);
+        let t = tpl.as_table().unwrap();
+        assert_eq!(t["name"].as_str().unwrap(), "t1");
+        assert_eq!(t["description"].as_str().unwrap(), "");
+        assert_eq!(t["vm_size"].as_str().unwrap(), "Standard_D4s_v3");
+        assert_eq!(t["region"].as_str().unwrap(), "westus2");
+        assert!(t.get("cloud_init").is_none());
+    }
+
+    #[test]
+    fn test_template_build_all_some() {
+        let tpl = super::templates::build_template_toml(
+            "big",
+            Some("GPU template"),
+            Some("Standard_NC6"),
+            Some("eastus"),
+            Some("#!/bin/bash\necho hi"),
+        );
+        let t = tpl.as_table().unwrap();
+        assert_eq!(t["name"].as_str().unwrap(), "big");
+        assert_eq!(t["description"].as_str().unwrap(), "GPU template");
+        assert_eq!(t["vm_size"].as_str().unwrap(), "Standard_NC6");
+        assert_eq!(t["region"].as_str().unwrap(), "eastus");
+        assert_eq!(t["cloud_init"].as_str().unwrap(), "#!/bin/bash\necho hi");
+    }
+
+    #[test]
+    fn test_template_save_creates_directory() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("nested").join("templates");
+        let tpl = super::templates::build_template_toml("x", None, None, None, None);
+        let path = super::templates::save_template(&dir, "x", &tpl).unwrap();
+        assert!(path.exists());
+        assert!(path.to_string_lossy().ends_with("x.toml"));
+    }
+
+    #[test]
+    fn test_template_load_not_found() {
+        let tmp = TempDir::new().unwrap();
+        let err = super::templates::load_template(tmp.path(), "nope").unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_template_save_load_roundtrip_with_cloud_init() {
+        let tmp = TempDir::new().unwrap();
+        let tpl = super::templates::build_template_toml(
+            "ci",
+            Some("cloud-init test"),
+            Some("Standard_B2s"),
+            Some("westus3"),
+            Some("#!/bin/bash\napt update"),
+        );
+        super::templates::save_template(tmp.path(), "ci", &tpl).unwrap();
+        let loaded = super::templates::load_template(tmp.path(), "ci").unwrap();
+        assert_eq!(loaded["name"].as_str().unwrap(), "ci");
+        assert_eq!(loaded["cloud_init"].as_str().unwrap(), "#!/bin/bash\napt update");
+    }
+
+    #[test]
+    fn test_template_list_multiple_sorted_fields() {
+        let tmp = TempDir::new().unwrap();
+        for (n, sz, rg) in &[("a", "Standard_A1", "westus"), ("b", "Standard_B2", "eastus")] {
+            let tpl = super::templates::build_template_toml(n, None, Some(sz), Some(rg), None);
+            super::templates::save_template(tmp.path(), n, &tpl).unwrap();
+        }
+        let rows = super::templates::list_templates(tmp.path()).unwrap();
+        assert_eq!(rows.len(), 2);
+        let names: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
+        assert!(names.contains(&"a"));
+        assert!(names.contains(&"b"));
+    }
+
+    #[test]
+    fn test_template_list_nonexistent_dir() {
+        let tmp = TempDir::new().unwrap();
+        let rows = super::templates::list_templates(&tmp.path().join("nope")).unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_template_list_ignores_non_toml_files() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("readme.md"), "not a template").unwrap();
+        fs::write(tmp.path().join("data.json"), "{}").unwrap();
+        let tpl = super::templates::build_template_toml("only", None, None, None, None);
+        super::templates::save_template(tmp.path(), "only", &tpl).unwrap();
+        let rows = super::templates::list_templates(tmp.path()).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0][0], "only");
+    }
+
+    #[test]
+    fn test_template_delete_not_found() {
+        let tmp = TempDir::new().unwrap();
+        let err = super::templates::delete_template(tmp.path(), "ghost").unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_template_delete_removes_file() {
+        let tmp = TempDir::new().unwrap();
+        let tpl = super::templates::build_template_toml("del", None, None, None, None);
+        super::templates::save_template(tmp.path(), "del", &tpl).unwrap();
+        assert!(tmp.path().join("del.toml").exists());
+        super::templates::delete_template(tmp.path(), "del").unwrap();
+        assert!(!tmp.path().join("del.toml").exists());
+    }
+
+    #[test]
+    fn test_template_import_valid() {
+        let tmp = TempDir::new().unwrap();
+        let content = "name = \"imported\"\nvm_size = \"Standard_D2s_v3\"\nregion = \"westus2\"\n";
+        let name = super::templates::import_template(tmp.path(), content).unwrap();
+        assert_eq!(name, "imported");
+        assert!(tmp.path().join("imported.toml").exists());
+    }
+
+    #[test]
+    fn test_template_import_missing_name() {
+        let tmp = TempDir::new().unwrap();
+        let content = "vm_size = \"Standard_D2s_v3\"\n";
+        let err = super::templates::import_template(tmp.path(), content).unwrap_err();
+        assert!(err.to_string().contains("name"));
+    }
+
+    #[test]
+    fn test_template_import_invalid_toml() {
+        let tmp = TempDir::new().unwrap();
+        let err = super::templates::import_template(tmp.path(), "{{invalid").unwrap_err();
+        assert!(!err.to_string().is_empty());
+    }
+
+    // ── NEW: sessions edge-case tests ────────────────────────────
+
+    #[test]
+    fn test_session_build_toml_fields() {
+        let s = super::sessions::build_session_toml("dev", "rg-dev", &["vm1".into(), "vm2".into()]);
+        let t = s.as_table().unwrap();
+        assert_eq!(t["name"].as_str().unwrap(), "dev");
+        assert_eq!(t["resource_group"].as_str().unwrap(), "rg-dev");
+        let vms = t["vms"].as_array().unwrap();
+        assert_eq!(vms.len(), 2);
+        assert_eq!(vms[0].as_str().unwrap(), "vm1");
+        assert!(t["created"].as_str().unwrap().contains('T'));
+    }
+
+    #[test]
+    fn test_session_build_toml_empty_vms() {
+        let s = super::sessions::build_session_toml("empty", "rg", &[]);
+        let t = s.as_table().unwrap();
+        assert!(t["vms"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_session_parse_toml_valid() {
+        let content = "name = \"s1\"\nresource_group = \"rg-test\"\nvms = [\"vm-a\", \"vm-b\"]\ncreated = \"2025-01-01T00:00:00Z\"\n";
+        let (rg, vms, created) = super::sessions::parse_session_toml(content).unwrap();
+        assert_eq!(rg, "rg-test");
+        assert_eq!(vms, vec!["vm-a", "vm-b"]);
+        assert_eq!(created, "2025-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_session_parse_toml_missing_fields() {
+        let content = "name = \"minimal\"\n";
+        let (rg, vms, created) = super::sessions::parse_session_toml(content).unwrap();
+        assert_eq!(rg, "-");
+        assert!(vms.is_empty());
+        assert_eq!(created, "-");
+    }
+
+    #[test]
+    fn test_session_parse_toml_invalid() {
+        let err = super::sessions::parse_session_toml("{{bad").unwrap_err();
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn test_session_list_names_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let names = super::sessions::list_session_names(tmp.path()).unwrap();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_session_list_names_nonexistent_dir() {
+        let tmp = TempDir::new().unwrap();
+        let names = super::sessions::list_session_names(&tmp.path().join("nope")).unwrap();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_session_list_names_filters_toml() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("s1.toml"), "name=\"s1\"\n").unwrap();
+        fs::write(tmp.path().join("s2.toml"), "name=\"s2\"\n").unwrap();
+        fs::write(tmp.path().join("readme.md"), "ignore").unwrap();
+        let names = super::sessions::list_session_names(tmp.path()).unwrap();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"s1".to_string()));
+        assert!(names.contains(&"s2".to_string()));
+    }
+
+    #[test]
+    fn test_session_build_and_parse_roundtrip() {
+        let built = super::sessions::build_session_toml("rt", "rg-rt", &["vm-x".into()]);
+        let serialized = toml::to_string_pretty(&built).unwrap();
+        let (rg, vms, created) = super::sessions::parse_session_toml(&serialized).unwrap();
+        assert_eq!(rg, "rg-rt");
+        assert_eq!(vms, vec!["vm-x"]);
+        assert!(!created.is_empty());
+        assert_ne!(created, "-");
+    }
+
+    // ── NEW: contexts edge-case tests ────────────────────────────
+
+    #[test]
+    fn test_context_build_toml_minimal() {
+        let toml_str = super::contexts::build_context_toml("dev", None, None, None, None, None).unwrap();
+        assert!(toml_str.contains("name = \"dev\""));
+        assert!(!toml_str.contains("subscription_id"));
+    }
+
+    #[test]
+    fn test_context_build_toml_all_fields() {
+        let toml_str = super::contexts::build_context_toml(
+            "prod",
+            Some("sub-123"),
+            Some("tenant-456"),
+            Some("rg-prod"),
+            Some("eastus2"),
+            Some("kv-prod"),
+        )
+        .unwrap();
+        assert!(toml_str.contains("name = \"prod\""));
+        assert!(toml_str.contains("subscription_id = \"sub-123\""));
+        assert!(toml_str.contains("tenant_id = \"tenant-456\""));
+        assert!(toml_str.contains("resource_group = \"rg-prod\""));
+        assert!(toml_str.contains("region = \"eastus2\""));
+        assert!(toml_str.contains("key_vault_name = \"kv-prod\""));
+    }
+
+    #[test]
+    fn test_context_build_toml_partial_fields() {
+        let toml_str = super::contexts::build_context_toml(
+            "staging",
+            Some("sub-789"),
+            None,
+            Some("rg-staging"),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(toml_str.contains("name = \"staging\""));
+        assert!(toml_str.contains("subscription_id = \"sub-789\""));
+        assert!(toml_str.contains("resource_group = \"rg-staging\""));
+        assert!(!toml_str.contains("tenant_id"));
+        assert!(!toml_str.contains("region"));
+        assert!(!toml_str.contains("key_vault_name"));
+    }
+
+    #[test]
+    fn test_context_list_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let list = super::contexts::list_contexts(tmp.path(), "").unwrap();
+        assert!(list.is_empty());
+    }
+
+    #[test]
+    fn test_context_list_marks_active_correctly() {
+        let tmp = TempDir::new().unwrap();
+        for name in &["dev", "staging", "prod"] {
+            let content = super::contexts::build_context_toml(name, None, None, None, None, None).unwrap();
+            fs::write(tmp.path().join(format!("{}.toml", name)), content).unwrap();
+        }
+        let list = super::contexts::list_contexts(tmp.path(), "staging").unwrap();
+        assert_eq!(list.len(), 3);
+        for (name, active) in &list {
+            if name == "staging" {
+                assert!(active, "staging should be active");
+            } else {
+                assert!(!active, "{} should not be active", name);
+            }
+        }
+    }
+
+    #[test]
+    fn test_context_list_ignores_non_toml() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("dev.toml"), "name = \"dev\"\n").unwrap();
+        fs::write(tmp.path().join("notes.txt"), "ignore").unwrap();
+        let list = super::contexts::list_contexts(tmp.path(), "").unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].0, "dev");
+    }
+
+    #[test]
+    fn test_context_rename_success() {
+        let tmp = TempDir::new().unwrap();
+        let content = super::contexts::build_context_toml("old", None, None, None, None, None).unwrap();
+        fs::write(tmp.path().join("old.toml"), content).unwrap();
+        super::contexts::rename_context_file(tmp.path(), "old", "new").unwrap();
+        assert!(!tmp.path().join("old.toml").exists());
+        assert!(tmp.path().join("new.toml").exists());
+        let loaded: toml::Value = fs::read_to_string(tmp.path().join("new.toml"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(loaded["name"].as_str().unwrap(), "new");
+    }
+
+    #[test]
+    fn test_context_rename_not_found() {
+        let tmp = TempDir::new().unwrap();
+        let err = super::contexts::rename_context_file(tmp.path(), "ghost", "new").unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    // ── NEW: env_helpers additional edge cases ───────────────────
+
+    #[test]
+    fn test_split_env_var_equals_in_value() {
+        let result = super::env_helpers::split_env_var("DB_URL=postgres://host:5432/db?opt=val");
+        assert_eq!(result, Some(("DB_URL", "postgres://host:5432/db?opt=val")));
+    }
+
+    #[test]
+    fn test_split_env_var_empty_string() {
+        assert_eq!(super::env_helpers::split_env_var(""), None);
+    }
+
+    #[test]
+    fn test_split_env_var_just_equals() {
+        assert_eq!(super::env_helpers::split_env_var("="), None);
+    }
+
+    #[test]
+    fn test_validate_env_key_underscores() {
+        assert!(super::env_helpers::validate_env_key("MY_VAR_123").is_ok());
+    }
+
+    #[test]
+    fn test_validate_env_key_single_char() {
+        assert!(super::env_helpers::validate_env_key("X").is_ok());
+    }
+
+    #[test]
+    fn test_validate_env_key_with_dash() {
+        assert!(super::env_helpers::validate_env_key("MY-VAR").is_err());
+    }
+
+    #[test]
+    fn test_validate_env_key_with_dot() {
+        assert!(super::env_helpers::validate_env_key("my.var").is_err());
+    }
+
+    #[test]
+    fn test_validate_env_key_unicode() {
+        assert!(super::env_helpers::validate_env_key("café").is_err());
+    }
+
+    #[test]
+    fn test_build_env_set_cmd_valid_key() {
+        let cmd = super::env_helpers::build_env_set_cmd("FOO", "'bar'");
+        assert!(cmd.contains("FOO"));
+        assert!(cmd.contains("'bar'"));
+        assert!(cmd.contains("grep"));
+    }
+
+    #[test]
+    fn test_build_env_set_cmd_invalid_key_returns_noop() {
+        let cmd = super::env_helpers::build_env_set_cmd("BAD;KEY", "'val'");
+        assert_eq!(cmd, "true");
+    }
+
+    #[test]
+    fn test_build_env_delete_cmd_format() {
+        let cmd = super::env_helpers::build_env_delete_cmd("MY_VAR");
+        assert!(cmd.contains("sed"));
+        assert!(cmd.contains("MY_VAR"));
+    }
+
+    #[test]
+    fn test_env_list_cmd_value() {
+        assert_eq!(super::env_helpers::env_list_cmd(), "env | sort");
+    }
+
+    #[test]
+    fn test_env_clear_cmd_value() {
+        let cmd = super::env_helpers::env_clear_cmd();
+        assert!(cmd.contains("sed"));
+        assert!(cmd.contains("export"));
+    }
+
+    #[test]
+    fn test_parse_env_output_multiline() {
+        let output = "A=1\nB=two\nC=three=3\nD=\n";
+        let vars = super::env_helpers::parse_env_output(output);
+        assert_eq!(vars.len(), 4);
+        assert_eq!(vars[0], ("A".into(), "1".into()));
+        assert_eq!(vars[1], ("B".into(), "two".into()));
+        assert_eq!(vars[2], ("C".into(), "three=3".into()));
+        assert_eq!(vars[3], ("D".into(), "".into()));
+    }
+
+    #[test]
+    fn test_build_env_file_multiple() {
+        let vars = vec![
+            ("K1".into(), "v1".into()),
+            ("K2".into(), "v2".into()),
+        ];
+        let file = super::env_helpers::build_env_file(&vars);
+        assert_eq!(file, "K1=v1\nK2=v2");
+    }
+
+    #[test]
+    fn test_parse_env_file_mixed_content() {
+        let content = "# comment\n\nFOO=bar\n  # another comment  \n  BAZ=qux  \n\n";
+        let vars = super::env_helpers::parse_env_file(content);
+        assert_eq!(vars.len(), 2);
+        assert_eq!(vars[0], ("FOO".into(), "bar".into()));
+        assert_eq!(vars[1], ("BAZ".into(), "qux".into()));
+    }
+
+    #[test]
+    fn test_env_file_build_then_parse_roundtrip() {
+        let original = vec![
+            ("PATH".into(), "/usr/bin".into()),
+            ("HOME".into(), "/home/user".into()),
+        ];
+        let file = super::env_helpers::build_env_file(&original);
+        let parsed = super::env_helpers::parse_env_file(&file);
+        assert_eq!(parsed, original);
+    }
+
+    // ── NEW: sync_helpers additional tests ───────────────────────
+
+    #[test]
+    fn test_default_dotfiles_count() {
+        let df = super::sync_helpers::default_dotfiles();
+        assert!(df.len() >= 4);
+        assert!(df.contains(&".bashrc"));
+        assert!(df.contains(&".gitconfig"));
+    }
+
+    #[test]
+    fn test_validate_sync_source_etc() {
+        assert!(super::sync_helpers::validate_sync_source("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_validate_sync_source_proc() {
+        assert!(super::sync_helpers::validate_sync_source("/proc/1/status").is_err());
+    }
+
+    #[test]
+    fn test_validate_sync_source_sys() {
+        assert!(super::sync_helpers::validate_sync_source("/sys/class/net").is_err());
+    }
+
+    #[test]
+    fn test_validate_sync_source_root() {
+        assert!(super::sync_helpers::validate_sync_source("/root/secret").is_err());
+    }
+
+    #[test]
+    fn test_validate_sync_source_traversal_end() {
+        assert!(super::sync_helpers::validate_sync_source("foo/..").is_err());
+    }
+
+    #[test]
+    fn test_validate_sync_source_double_dot_bare() {
+        assert!(super::sync_helpers::validate_sync_source("..").is_err());
+    }
+
+    #[test]
+    fn test_validate_sync_source_safe_home() {
+        assert!(super::sync_helpers::validate_sync_source("/home/user/.bashrc").is_ok());
+    }
+
+    #[test]
+    fn test_validate_sync_source_relative() {
+        assert!(super::sync_helpers::validate_sync_source("src/main.rs").is_ok());
+    }
+
+    #[test]
+    fn test_build_rsync_args_format() {
+        let args = super::sync_helpers::build_rsync_args(".bashrc", "admin", "10.0.0.1", ".bashrc");
+        assert_eq!(args[0], "-az");
+        assert_eq!(args[1], "-e");
+        assert_eq!(args[2], "ssh -o StrictHostKeyChecking=no");
+        assert_eq!(args[3], ".bashrc");
+        assert_eq!(args[4], "admin@10.0.0.1:~/.bashrc");
+    }
+
+    #[test]
+    fn test_build_rsync_args_with_subpath() {
+        let args = super::sync_helpers::build_rsync_args("config/", "user", "192.168.1.1", "config/");
+        assert_eq!(args[4], "user@192.168.1.1:~/config/");
+    }
+
+    // ── NEW: health_helpers boundary tests ───────────────────────
+
+    #[test]
+    fn test_metric_color_exact_50() {
+        assert_eq!(super::health_helpers::metric_color(50.0), "green");
+    }
+
+    #[test]
+    fn test_metric_color_exact_80() {
+        assert_eq!(super::health_helpers::metric_color(80.0), "yellow");
+    }
+
+    #[test]
+    fn test_metric_color_just_above_80() {
+        assert_eq!(super::health_helpers::metric_color(80.1), "red");
+    }
+
+    #[test]
+    fn test_metric_color_just_above_50() {
+        assert_eq!(super::health_helpers::metric_color(50.1), "yellow");
+    }
+
+    #[test]
+    fn test_metric_color_zero() {
+        assert_eq!(super::health_helpers::metric_color(0.0), "green");
+    }
+
+    #[test]
+    fn test_metric_color_100() {
+        assert_eq!(super::health_helpers::metric_color(100.0), "red");
+    }
+
+    #[test]
+    fn test_state_color_deallocated() {
+        assert_eq!(super::health_helpers::state_color("deallocated"), "red");
+    }
+
+    #[test]
+    fn test_state_color_starting() {
+        assert_eq!(super::health_helpers::state_color("starting"), "yellow");
+    }
+
+    #[test]
+    fn test_state_color_empty_string() {
+        assert_eq!(super::health_helpers::state_color(""), "yellow");
+    }
+
+    #[test]
+    fn test_format_percentage_large() {
+        assert_eq!(super::health_helpers::format_percentage(99.99), "100.0%");
+    }
+
+    #[test]
+    fn test_format_percentage_very_negative() {
+        assert_eq!(super::health_helpers::format_percentage(-100.0), "0.0%");
+    }
+
+    #[test]
+    fn test_format_percentage_exactly_zero() {
+        assert_eq!(super::health_helpers::format_percentage(0.0), "0.0%");
+    }
+
+    #[test]
+    fn test_status_emoji_all_low() {
+        assert_eq!(super::health_helpers::status_emoji(10.0, 20.0, 30.0), "🟢");
+    }
+
+    #[test]
+    fn test_status_emoji_cpu_critical() {
+        assert_eq!(super::health_helpers::status_emoji(91.0, 10.0, 10.0), "🔴");
+    }
+
+    #[test]
+    fn test_status_emoji_mem_critical() {
+        assert_eq!(super::health_helpers::status_emoji(10.0, 95.0, 10.0), "🔴");
+    }
+
+    #[test]
+    fn test_status_emoji_disk_critical() {
+        assert_eq!(super::health_helpers::status_emoji(10.0, 10.0, 91.0), "🔴");
+    }
+
+    #[test]
+    fn test_status_emoji_cpu_warning() {
+        assert_eq!(super::health_helpers::status_emoji(75.0, 10.0, 10.0), "🟡");
+    }
+
+    #[test]
+    fn test_status_emoji_exact_boundary_70() {
+        assert_eq!(super::health_helpers::status_emoji(70.0, 70.0, 70.0), "🟢");
+    }
+
+    #[test]
+    fn test_status_emoji_exact_boundary_90() {
+        assert_eq!(super::health_helpers::status_emoji(90.0, 90.0, 90.0), "🟡");
+    }
+
+    // ── NEW: snapshot_helpers additional tests ───────────────────
+
+    #[test]
+    fn test_build_snapshot_name_format() {
+        let name = super::snapshot_helpers::build_snapshot_name("my-vm", "20250101_120000");
+        assert_eq!(name, "my-vm_snapshot_20250101_120000");
+    }
+
+    #[test]
+    fn test_build_snapshot_name_with_dashes() {
+        let name = super::snapshot_helpers::build_snapshot_name("vm-with-dashes", "ts");
+        assert_eq!(name, "vm-with-dashes_snapshot_ts");
+    }
+
+    #[test]
+    fn test_filter_snapshots_partial_match() {
+        let snaps = vec![
+            serde_json::json!({"name": "dev-vm_snapshot_123"}),
+            serde_json::json!({"name": "prod-vm_snapshot_456"}),
+            serde_json::json!({"name": "dev-vm_snapshot_789"}),
+        ];
+        let filtered = super::snapshot_helpers::filter_snapshots(&snaps, "dev-vm");
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_snapshot_row_complete() {
+        let snap = serde_json::json!({
+            "name": "snap-1",
+            "diskSizeGb": 128,
+            "timeCreated": "2025-01-01T00:00:00Z",
+            "provisioningState": "Succeeded"
+        });
+        let row = super::snapshot_helpers::snapshot_row(&snap);
+        assert_eq!(row[0], "snap-1");
+        assert_eq!(row[1], "128");
+        assert_eq!(row[2], "2025-01-01T00:00:00Z");
+        assert_eq!(row[3], "Succeeded");
+    }
+
+    #[test]
+    fn test_snapshot_row_null_fields() {
+        let snap = serde_json::json!({});
+        let row = super::snapshot_helpers::snapshot_row(&snap);
+        assert_eq!(row[0], "-");
+        assert_eq!(row[1], "null");
+        assert_eq!(row[2], "-");
+        assert_eq!(row[3], "-");
+    }
+
+    // ── NEW: output_helpers additional tests ─────────────────────
+
+    #[test]
+    fn test_format_as_csv_multiple_rows() {
+        let headers = &["Name", "Age", "City"];
+        let rows = vec![
+            vec!["Alice".into(), "30".into(), "NYC".into()],
+            vec!["Bob".into(), "25".into(), "LA".into()],
+        ];
+        let csv = super::output_helpers::format_as_csv(headers, &rows);
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines[0], "Name,Age,City");
+        assert_eq!(lines[1], "Alice,30,NYC");
+        assert_eq!(lines[2], "Bob,25,LA");
+    }
+
+    #[test]
+    fn test_format_as_csv_single_row() {
+        let csv = super::output_helpers::format_as_csv(&["X"], &[vec!["1".into()]]);
+        assert_eq!(csv, "X\n1");
+    }
+
+    #[test]
+    fn test_format_as_table_alignment() {
+        let headers = &["Short", "LongerHeader"];
+        let rows = vec![
+            vec!["a".into(), "b".into()],
+            vec!["ccc".into(), "d".into()],
+        ];
+        let table = super::output_helpers::format_as_table(headers, &rows);
+        let lines: Vec<&str> = table.lines().collect();
+        assert_eq!(lines.len(), 3);
+        // Header line should have both column names
+        assert!(lines[0].contains("Short"));
+        assert!(lines[0].contains("LongerHeader"));
+    }
+
+    #[test]
+    fn test_format_as_table_single_column() {
+        let table = super::output_helpers::format_as_table(
+            &["Items"],
+            &[vec!["one".into()], vec!["two".into()]],
+        );
+        assert!(table.contains("Items"));
+        assert!(table.contains("one"));
+        assert!(table.contains("two"));
+    }
+
+    #[test]
+    fn test_format_as_table_no_rows() {
+        let table = super::output_helpers::format_as_table(&["A", "B"], &[]);
+        assert!(table.contains("A"));
+        assert!(table.contains("B"));
+        assert_eq!(table.lines().count(), 1);
+    }
+
+    #[test]
+    fn test_format_as_table_wide_cell_expands_column() {
+        let headers = &["H"];
+        let rows = vec![vec!["very long cell content".into()]];
+        let table = super::output_helpers::format_as_table(headers, &rows);
+        let lines: Vec<&str> = table.lines().collect();
+        // The header line should be padded to at least the width of the cell
+        assert!(lines[0].len() >= "very long cell content".len());
+    }
+
+    #[test]
+    fn test_format_as_json_numbers() {
+        let items: Vec<i32> = vec![1, 2, 3];
+        let json = super::output_helpers::format_as_json(&items);
+        let parsed: Vec<i32> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_format_as_json_empty_vec() {
+        let items: Vec<String> = vec![];
+        let json = super::output_helpers::format_as_json(&items);
+        assert_eq!(json.trim(), "[]");
+    }
+
+    #[test]
+    fn test_format_as_json_structs() {
+        let items = vec![
+            serde_json::json!({"name": "a"}),
+            serde_json::json!({"name": "b"}),
+        ];
+        let json = super::output_helpers::format_as_json(&items);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.len(), 2);
+    }
+
+    // ── NEW: vm_validation additional tests ──────────────────────
+
+    #[test]
+    fn test_vm_name_valid_simple() {
+        assert!(super::vm_validation::validate_vm_name("myvm").is_ok());
+    }
+
+    #[test]
+    fn test_vm_name_valid_with_numbers() {
+        assert!(super::vm_validation::validate_vm_name("vm-01-prod").is_ok());
+    }
+
+    #[test]
+    fn test_vm_name_single_char() {
+        assert!(super::vm_validation::validate_vm_name("a").is_ok());
+    }
+
+    #[test]
+    fn test_vm_name_underscores_rejected() {
+        assert!(super::vm_validation::validate_vm_name("my_vm").is_err());
+    }
+
+    #[test]
+    fn test_vm_name_spaces_rejected() {
+        assert!(super::vm_validation::validate_vm_name("my vm").is_err());
+    }
+
+    #[test]
+    fn test_vm_name_dots_rejected() {
+        assert!(super::vm_validation::validate_vm_name("vm.prod").is_err());
+    }
+
+    #[test]
+    fn test_vm_name_double_hyphen_ok() {
+        assert!(super::vm_validation::validate_vm_name("vm--test").is_ok());
+    }
+
+    #[test]
+    fn test_vm_name_63_chars() {
+        let name: String = std::iter::repeat('a').take(63).collect();
+        assert!(super::vm_validation::validate_vm_name(&name).is_ok());
+    }
+
+    #[test]
+    fn test_vm_name_64_chars() {
+        let name: String = std::iter::repeat('b').take(64).collect();
+        assert!(super::vm_validation::validate_vm_name(&name).is_ok());
+    }
+
+    #[test]
+    fn test_vm_name_65_chars() {
+        let name: String = std::iter::repeat('c').take(65).collect();
+        assert!(super::vm_validation::validate_vm_name(&name).is_err());
+    }
+
+    // ── NEW: mount_helpers additional tests ──────────────────────
+
+    #[test]
+    fn test_mount_path_valid_nested() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/data/disk1").is_ok());
+    }
+
+    #[test]
+    fn test_mount_path_root() {
+        assert!(super::mount_helpers::validate_mount_path("/").is_ok());
+    }
+
+    #[test]
+    fn test_mount_path_ampersand() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/a&b").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_dollar() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/$HOME").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_newline() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/a\nb").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_null_byte() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/a\0b").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_relative_rejected() {
+        assert!(super::mount_helpers::validate_mount_path("mnt/data").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_exclamation() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/test!").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_parentheses() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/(test)").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_curly_braces() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/{test}").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_angle_brackets() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/<test>").is_err());
+    }
+
+    // ── NEW: config_path_helpers additional tests ────────────────
+
+    #[test]
+    fn test_config_path_simple_relative() {
+        assert!(super::config_path_helpers::validate_config_path("config.toml").is_ok());
+    }
+
+    #[test]
+    fn test_config_path_nested() {
+        assert!(super::config_path_helpers::validate_config_path("a/b/c.toml").is_ok());
+    }
+
+    #[test]
+    fn test_config_path_dot_prefix() {
+        assert!(super::config_path_helpers::validate_config_path("./config.toml").is_ok());
+    }
+
+    #[test]
+    fn test_config_path_parent_traversal() {
+        assert!(super::config_path_helpers::validate_config_path("../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_config_path_middle_traversal() {
+        assert!(super::config_path_helpers::validate_config_path("a/../../etc").is_err());
+    }
+
+    #[test]
+    fn test_config_path_absolute_allowed() {
+        assert!(super::config_path_helpers::validate_config_path("/home/user/config.toml").is_ok());
+    }
+
+    // ── NEW: storage_helpers additional tests ────────────────────
+
+    #[test]
+    fn test_storage_sku_premium() {
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("premium"), "Premium_LRS");
+    }
+
+    #[test]
+    fn test_storage_sku_standard() {
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("standard"), "Standard_LRS");
+    }
+
+    #[test]
+    fn test_storage_sku_mixed_case() {
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("PREMIUM"), "Premium_LRS");
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("StAnDaRd"), "Standard_LRS");
+    }
+
+    #[test]
+    fn test_storage_sku_unknown() {
+        assert_eq!(super::storage_helpers::storage_sku_from_tier("unknown"), "Premium_LRS");
+        assert_eq!(super::storage_helpers::storage_sku_from_tier(""), "Premium_LRS");
+    }
+
+    #[test]
+    fn test_storage_account_row_complete() {
+        let acct = serde_json::json!({
+            "name": "mystorageacct",
+            "location": "westus2",
+            "kind": "StorageV2",
+            "sku": {"name": "Standard_LRS"},
+            "provisioningState": "Succeeded"
+        });
+        let row = super::storage_helpers::storage_account_row(&acct);
+        assert_eq!(row, vec!["mystorageacct", "westus2", "StorageV2", "Standard_LRS", "Succeeded"]);
+    }
+
+    #[test]
+    fn test_storage_account_row_partial() {
+        let acct = serde_json::json!({"name": "partial"});
+        let row = super::storage_helpers::storage_account_row(&acct);
+        assert_eq!(row[0], "partial");
+        assert_eq!(row[1], "-");
+        assert_eq!(row[2], "-");
+        assert_eq!(row[3], "-");
+        assert_eq!(row[4], "-");
+    }
+
+    #[test]
+    fn test_storage_account_row_empty() {
+        let acct = serde_json::json!({});
+        let row = super::storage_helpers::storage_account_row(&acct);
+        assert!(row.iter().all(|c| c == "-"));
+    }
+
+    // ── NEW: key_helpers additional tests ────────────────────────
+
+    #[test]
+    fn test_detect_key_type_filename_prefix() {
+        assert_eq!(super::key_helpers::detect_key_type("id_ed25519.pub"), "ed25519");
+        assert_eq!(super::key_helpers::detect_key_type("id_ecdsa.pub"), "ecdsa");
+        assert_eq!(super::key_helpers::detect_key_type("id_rsa.pub"), "rsa");
+        assert_eq!(super::key_helpers::detect_key_type("id_dsa.pub"), "dsa");
+    }
+
+    #[test]
+    fn test_detect_key_type_custom_name() {
+        assert_eq!(super::key_helpers::detect_key_type("my_ed25519_key"), "ed25519");
+        assert_eq!(super::key_helpers::detect_key_type("backup_rsa"), "rsa");
+    }
+
+    #[test]
+    fn test_detect_key_type_random_file() {
+        assert_eq!(super::key_helpers::detect_key_type("known_hosts"), "unknown");
+        assert_eq!(super::key_helpers::detect_key_type("authorized_keys"), "unknown");
+    }
+
+    #[test]
+    fn test_is_known_key_name_standard_private() {
+        assert!(super::key_helpers::is_known_key_name("id_rsa"));
+        assert!(super::key_helpers::is_known_key_name("id_ed25519"));
+        assert!(super::key_helpers::is_known_key_name("id_ecdsa"));
+        assert!(super::key_helpers::is_known_key_name("id_dsa"));
+    }
+
+    #[test]
+    fn test_is_known_key_name_pub_extension() {
+        assert!(super::key_helpers::is_known_key_name("custom.pub"));
+        assert!(super::key_helpers::is_known_key_name("id_ed25519.pub"));
+    }
+
+    #[test]
+    fn test_is_known_key_name_non_key_files() {
+        assert!(!super::key_helpers::is_known_key_name("known_hosts"));
+        assert!(!super::key_helpers::is_known_key_name("config"));
+        assert!(!super::key_helpers::is_known_key_name("authorized_keys"));
+    }
+
+    // ── NEW: auth_helpers additional tests ───────────────────────
+
+    #[test]
+    fn test_mask_profile_string_no_secret() {
+        let v = serde_json::json!("my-tenant-id");
+        assert_eq!(super::auth_helpers::mask_profile_value("tenant_id", &v), "my-tenant-id");
+    }
+
+    #[test]
+    fn test_mask_profile_secret_key() {
+        let v = serde_json::json!("s3cr3t-value");
+        assert_eq!(super::auth_helpers::mask_profile_value("client_secret", &v), "********");
+    }
+
+    #[test]
+    fn test_mask_profile_password_key() {
+        let v = serde_json::json!("pa$$word");
+        assert_eq!(super::auth_helpers::mask_profile_value("admin_password", &v), "********");
+    }
+
+    #[test]
+    fn test_mask_profile_number_value() {
+        let v = serde_json::json!(42);
+        assert_eq!(super::auth_helpers::mask_profile_value("count", &v), "42");
+    }
+
+    #[test]
+    fn test_mask_profile_bool_value() {
+        let v = serde_json::json!(true);
+        assert_eq!(super::auth_helpers::mask_profile_value("enabled", &v), "true");
+    }
+
+    #[test]
+    fn test_mask_profile_null_value() {
+        let v = serde_json::json!(null);
+        assert_eq!(super::auth_helpers::mask_profile_value("field", &v), "null");
+    }
+
+    #[test]
+    fn test_mask_profile_secret_in_key_substring() {
+        let v = serde_json::json!("value123");
+        assert_eq!(super::auth_helpers::mask_profile_value("my_secret_key", &v), "********");
+    }
+
+    // ── NEW: cp_helpers additional tests ─────────────────────────
+
+    #[test]
+    fn test_is_remote_path_standard() {
+        assert!(super::cp_helpers::is_remote_path("vm-name:/path/to/file"));
+    }
+
+    #[test]
+    fn test_is_remote_path_short_colon() {
+        // Two chars with colon at pos 1 like "C:" should NOT be remote
+        assert!(!super::cp_helpers::is_remote_path("C:"));
+    }
+
+    #[test]
+    fn test_is_remote_path_absolute() {
+        assert!(!super::cp_helpers::is_remote_path("/home/user/file.txt"));
+    }
+
+    #[test]
+    fn test_is_remote_path_windows_drive() {
+        assert!(!super::cp_helpers::is_remote_path("C:\\Users\\file"));
+    }
+
+    #[test]
+    fn test_is_remote_path_no_colon() {
+        assert!(!super::cp_helpers::is_remote_path("localfile.txt"));
+    }
+
+    #[test]
+    fn test_is_remote_path_empty() {
+        assert!(!super::cp_helpers::is_remote_path(""));
+    }
+
+    #[test]
+    fn test_classify_transfer_local_to_remote() {
+        assert_eq!(
+            super::cp_helpers::classify_transfer_direction("file.txt", "vm:/path"),
+            "local→remote"
+        );
+    }
+
+    #[test]
+    fn test_classify_transfer_remote_to_local() {
+        assert_eq!(
+            super::cp_helpers::classify_transfer_direction("vm:/path", "file.txt"),
+            "remote→local"
+        );
+    }
+
+    #[test]
+    fn test_classify_transfer_both_local() {
+        assert_eq!(
+            super::cp_helpers::classify_transfer_direction("file1.txt", "file2.txt"),
+            "local→local"
+        );
+    }
+
+    #[test]
+    fn test_resolve_scp_path_rewrite() {
+        let result = super::cp_helpers::resolve_scp_path("vm-1:/data/file.txt", "vm-1", "admin", "10.0.0.5");
+        assert_eq!(result, "admin@10.0.0.5:/data/file.txt");
+    }
+
+    #[test]
+    fn test_resolve_scp_path_no_match_passthrough() {
+        let result = super::cp_helpers::resolve_scp_path("other-vm:/file", "vm-1", "u", "1.2.3.4");
+        assert_eq!(result, "other-vm:/file");
+    }
+
+    // ── NEW: bastion_helpers additional tests ────────────────────
+
+    #[test]
+    fn test_bastion_summary_full_json() {
+        let b = serde_json::json!({
+            "name": "bastion-prod",
+            "resourceGroup": "rg-prod",
+            "location": "eastus",
+            "sku": {"name": "Premium"},
+            "provisioningState": "Succeeded"
+        });
+        let (name, rg, loc, sku, state) = super::bastion_helpers::bastion_summary(&b);
+        assert_eq!(name, "bastion-prod");
+        assert_eq!(rg, "rg-prod");
+        assert_eq!(loc, "eastus");
+        assert_eq!(sku, "Premium");
+        assert_eq!(state, "Succeeded");
+    }
+
+    #[test]
+    fn test_bastion_summary_missing_all() {
+        let b = serde_json::json!({});
+        let (name, rg, loc, sku, state) = super::bastion_helpers::bastion_summary(&b);
+        assert_eq!(name, "unknown");
+        assert_eq!(rg, "unknown");
+        assert_eq!(loc, "unknown");
+        assert_eq!(sku, "Standard");
+        assert_eq!(state, "unknown");
+    }
+
+    #[test]
+    fn test_shorten_resource_id_long() {
+        let id = "/subscriptions/sub-123/resourceGroups/rg/providers/Microsoft.Network/bastionHosts/my-bastion";
+        assert_eq!(super::bastion_helpers::shorten_resource_id(id), "my-bastion");
+    }
+
+    #[test]
+    fn test_shorten_resource_id_single_segment() {
+        assert_eq!(super::bastion_helpers::shorten_resource_id("just-a-name"), "just-a-name");
+    }
+
+    #[test]
+    fn test_shorten_resource_id_empty() {
+        assert_eq!(super::bastion_helpers::shorten_resource_id(""), "");
+    }
+
+    #[test]
+    fn test_extract_ip_configs_multiple() {
+        let b = serde_json::json!({
+            "ipConfigurations": [
+                {
+                    "subnet": {"id": "/subs/x/subnets/sn-1"},
+                    "publicIPAddress": {"id": "/subs/x/publicIPAddresses/pip-1"}
+                },
+                {
+                    "subnet": {"id": "/subs/x/subnets/sn-2"},
+                    "publicIPAddress": {"id": "/subs/x/publicIPAddresses/pip-2"}
+                }
+            ]
+        });
+        let configs = super::bastion_helpers::extract_ip_configs(&b);
+        assert_eq!(configs.len(), 2);
+        assert_eq!(configs[0], ("sn-1".to_string(), "pip-1".to_string()));
+        assert_eq!(configs[1], ("sn-2".to_string(), "pip-2".to_string()));
+    }
+
+    #[test]
+    fn test_extract_ip_configs_missing_ids() {
+        let b = serde_json::json!({
+            "ipConfigurations": [
+                {"subnet": {}, "publicIPAddress": {}}
+            ]
+        });
+        let configs = super::bastion_helpers::extract_ip_configs(&b);
+        assert_eq!(configs.len(), 1);
+        assert_eq!(configs[0], ("N/A".to_string(), "N/A".to_string()));
+    }
+
+    #[test]
+    fn test_extract_ip_configs_no_array() {
+        let b = serde_json::json!({"name": "no-configs"});
+        let configs = super::bastion_helpers::extract_ip_configs(&b);
+        assert!(configs.is_empty());
+    }
+
+    // ── NEW: log_helpers additional tests ────────────────────────
+
+    #[test]
+    fn test_tail_start_index_large_total() {
+        assert_eq!(super::log_helpers::tail_start_index(1000, 50), 950);
+    }
+
+    #[test]
+    fn test_tail_start_index_count_larger_than_total() {
+        assert_eq!(super::log_helpers::tail_start_index(5, 100), 0);
+    }
+
+    #[test]
+    fn test_tail_start_index_both_zero() {
+        assert_eq!(super::log_helpers::tail_start_index(0, 0), 0);
+    }
+
+    #[test]
+    fn test_tail_start_index_count_one() {
+        assert_eq!(super::log_helpers::tail_start_index(10, 1), 9);
+    }
+
+    // ── NEW: parse_cost_history_rows additional tests ────────────
+
+    #[test]
+    fn test_parse_cost_history_rows_no_rows_key() {
+        let data = serde_json::json!({"other": "data"});
+        let rows = super::parse_cost_history_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_rows_not_array() {
+        let data = serde_json::json!({"rows": "not-array"});
+        let rows = super::parse_cost_history_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_multiple_entries() {
+        let data = serde_json::json!({
+            "rows": [
+                [10.5, "2025-01-01"],
+                [20.0, "2025-01-02"],
+                [0.0, "2025-01-03"]
+            ]
+        });
+        let rows = super::parse_cost_history_rows(&data);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0], ("2025-01-01".to_string(), "$10.50".to_string()));
+        assert_eq!(rows[1], ("2025-01-02".to_string(), "$20.00".to_string()));
+        assert_eq!(rows[2], ("2025-01-03".to_string(), "$0.00".to_string()));
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_integer_date() {
+        let data = serde_json::json!({"rows": [[5.0, 20250101]]});
+        let rows = super::parse_cost_history_rows(&data);
+        assert_eq!(rows.len(), 1);
+        // Integer dates yield empty string due to as_str().or_else(as_i64 -> "") mapping
+        assert_eq!(rows[0].0, "");
+        assert_eq!(rows[0].1, "$5.00");
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_null_values() {
+        let data = serde_json::json!({"rows": [[null, null]]});
+        let rows = super::parse_cost_history_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "-");
+        assert_eq!(rows[0].1, "-");
+    }
+
+    // ── NEW: parse_recommendation_rows additional tests ─────────
+
+    #[test]
+    fn test_parse_recommendation_rows_null_input() {
+        let data = serde_json::json!(null);
+        let rows = super::parse_recommendation_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_recommendation_rows_empty_array() {
+        let data = serde_json::json!([]);
+        let rows = super::parse_recommendation_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_recommendation_rows_partial_fields() {
+        let data = serde_json::json!([
+            {"category": "Cost"},
+            {"impact": "High"},
+            {"shortDescription": {"problem": "Underutilized"}}
+        ]);
+        let rows = super::parse_recommendation_rows(&data);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0], ("Cost".into(), "-".into(), "-".into()));
+        assert_eq!(rows[1], ("-".into(), "High".into(), "-".into()));
+        assert_eq!(rows[2], ("-".into(), "-".into(), "Underutilized".into()));
+    }
+
+    #[test]
+    fn test_parse_recommendation_rows_complete() {
+        let data = serde_json::json!([{
+            "category": "Cost",
+            "impact": "Medium",
+            "shortDescription": {"problem": "Resize VM to save money"}
+        }]);
+        let rows = super::parse_recommendation_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "Cost");
+        assert_eq!(rows[0].1, "Medium");
+        assert_eq!(rows[0].2, "Resize VM to save money");
+    }
+
+    // ── NEW: parse_cost_action_rows additional tests ────────────
+
+    #[test]
+    fn test_parse_cost_action_rows_null_input() {
+        let data = serde_json::json!(null);
+        let rows = super::parse_cost_action_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_object_not_array() {
+        let data = serde_json::json!({"key": "val"});
+        let rows = super::parse_cost_action_rows(&data);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_complete() {
+        let data = serde_json::json!([{
+            "impactedField": "Microsoft.Compute/virtualMachines",
+            "impact": "High",
+            "shortDescription": {"problem": "Shut down unused VMs"}
+        }]);
+        let rows = super::parse_cost_action_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "Microsoft.Compute/virtualMachines");
+        assert_eq!(rows[0].1, "High");
+        assert_eq!(rows[0].2, "Shut down unused VMs");
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_missing_all_fields() {
+        let data = serde_json::json!([{}]);
+        let rows = super::parse_cost_action_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0], ("-".into(), "-".into(), "-".into()));
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_multiple() {
+        let data = serde_json::json!([
+            {"impactedField": "F1", "impact": "Low", "shortDescription": {"problem": "P1"}},
+            {"impactedField": "F2", "impact": "High", "shortDescription": {"problem": "P2"}}
+        ]);
+        let rows = super::parse_cost_action_rows(&data);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, "F1");
+        assert_eq!(rows[1].0, "F2");
+    }
+
+    // ── NEW: format_cost_summary additional tests ───────────────
+
+    #[test]
+    fn test_format_cost_summary_table_with_filters() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 150.75,
+            currency: "USD".to_string(),
+            period_start: chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            period_end: chrono::DateTime::parse_from_rfc3339("2025-01-31T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            by_vm: vec![],
+        };
+        let out = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &Some("2025-01-01".into()),
+            &Some("2025-01-31".into()),
+            false,
+            false,
+        );
+        assert!(out.contains("$150.75"));
+        assert!(out.contains("From filter: 2025-01-01"));
+        assert!(out.contains("To filter: 2025-01-31"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_table_with_estimate() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 50.0,
+            currency: "USD".to_string(),
+            period_start: chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            period_end: chrono::DateTime::parse_from_rfc3339("2025-01-31T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            by_vm: vec![],
+        };
+        let out = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &None,
+            &None,
+            true,
+            false,
+        );
+        assert!(out.contains("Estimate: $50.00/month (projected)"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_by_vm_empty_table() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 100.0,
+            currency: "USD".to_string(),
+            period_start: chrono::DateTime::parse_from_rfc3339("2025-06-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            period_end: chrono::DateTime::parse_from_rfc3339("2025-06-30T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            by_vm: vec![],
+        };
+        let out = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &None,
+            &None,
+            false,
+            true,
+        );
+        assert!(out.contains("No per-VM cost data available"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_by_vm_csv_multi() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 200.0,
+            currency: "USD".to_string(),
+            period_start: chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            period_end: chrono::DateTime::parse_from_rfc3339("2025-01-31T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            by_vm: vec![
+                azlin_core::models::VmCost {
+                    vm_name: "vm-a".to_string(),
+                    cost: 120.50,
+                    currency: "USD".to_string(),
+                },
+                azlin_core::models::VmCost {
+                    vm_name: "vm-b".to_string(),
+                    cost: 79.50,
+                    currency: "USD".to_string(),
+                },
+            ],
+        };
+        let out = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Csv,
+            &None,
+            &None,
+            false,
+            true,
+        );
+        assert!(out.contains("VM Name,Cost,Currency"));
+        assert!(out.contains("vm-a,120.50,USD"));
+        assert!(out.contains("vm-b,79.50,USD"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_by_vm_table_format() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 300.0,
+            currency: "EUR".to_string(),
+            period_start: chrono::DateTime::parse_from_rfc3339("2025-03-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            period_end: chrono::DateTime::parse_from_rfc3339("2025-03-31T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            by_vm: vec![azlin_core::models::VmCost {
+                vm_name: "prod-vm".to_string(),
+                cost: 300.0,
+                currency: "EUR".to_string(),
+            }],
+        };
+        let out = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &None,
+            &None,
+            false,
+            true,
+        );
+        assert!(out.contains("$300.00 EUR"));
+        assert!(out.contains("prod-vm"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_json_output() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 99.99,
+            currency: "USD".to_string(),
+            period_start: chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            period_end: chrono::DateTime::parse_from_rfc3339("2025-01-31T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            by_vm: vec![],
+        };
+        let out = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Json,
+            &Some("ignored".into()),
+            &Some("ignored".into()),
+            true,
+            true,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["total_cost"].as_f64().unwrap(), 99.99);
+        assert_eq!(parsed["currency"].as_str().unwrap(), "USD");
+    }
+
+    #[test]
+    fn test_format_cost_summary_csv_no_by_vm() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 42.0,
+            currency: "GBP".to_string(),
+            period_start: chrono::DateTime::parse_from_rfc3339("2025-02-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            period_end: chrono::DateTime::parse_from_rfc3339("2025-02-28T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            by_vm: vec![],
+        };
+        let out = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Csv,
+            &None,
+            &None,
+            false,
+            false,
+        );
+        assert!(out.starts_with("Total Cost,Currency,Period Start,Period End\n"));
+        assert!(out.contains("42.00,GBP,2025-02-01,2025-02-28"));
+    }
+
+    // ── NEW: shell_escape additional tests ───────────────────────
+
+    #[test]
+    fn test_shell_escape_tab() {
+        let result = super::shell_escape("\t");
+        assert_eq!(result, "'\t'");
+    }
+
+    #[test]
+    fn test_shell_escape_mixed_quotes() {
+        let result = super::shell_escape("it's a \"test\"");
+        assert_eq!(result, "'it'\\''s a \"test\"'");
+    }
+
+    #[test]
+    fn test_shell_escape_backslash() {
+        let result = super::shell_escape("path\\to\\file");
+        assert_eq!(result, "'path\\to\\file'");
+    }
+
+    #[test]
+    fn test_shell_escape_env_var_syntax() {
+        let result = super::shell_escape("${HOME}");
+        assert_eq!(result, "'${HOME}'");
+    }
+
+    #[test]
+    fn test_shell_escape_command_substitution() {
+        let result = super::shell_escape("$(whoami)");
+        assert_eq!(result, "'$(whoami)'");
+    }
+
+    #[test]
+    fn test_shell_escape_consecutive_single_quotes() {
+        let result = super::shell_escape("''");
+        assert_eq!(result, "''\\'''\\'''");
+    }
+
+    // ── NEW: auth_test_helpers additional tests ─────────────────
+
+    #[test]
+    fn test_extract_account_info_nested_user() {
+        let acct = serde_json::json!({
+            "name": "Enterprise Sub",
+            "tenantId": "t-abc-123",
+            "user": {"name": "admin@contoso.com", "type": "servicePrincipal"}
+        });
+        let (sub, tenant, user) = super::auth_test_helpers::extract_account_info(&acct);
+        assert_eq!(sub, "Enterprise Sub");
+        assert_eq!(tenant, "t-abc-123");
+        assert_eq!(user, "admin@contoso.com");
+    }
+
+    #[test]
+    fn test_extract_account_info_numeric_values() {
+        let acct = serde_json::json!({
+            "name": 123,
+            "tenantId": 456,
+            "user": {"name": 789}
+        });
+        let (sub, tenant, user) = super::auth_test_helpers::extract_account_info(&acct);
+        assert_eq!(sub, "-");
+        assert_eq!(tenant, "-");
+        assert_eq!(user, "-");
+    }
+
+    // ── NEW: template file system edge cases ─────────────────────
+
+    #[test]
+    fn test_template_overwrite_existing() {
+        let tmp = TempDir::new().unwrap();
+        let tpl1 = super::templates::build_template_toml("x", Some("v1"), None, None, None);
+        super::templates::save_template(tmp.path(), "x", &tpl1).unwrap();
+        let tpl2 = super::templates::build_template_toml("x", Some("v2"), None, None, None);
+        super::templates::save_template(tmp.path(), "x", &tpl2).unwrap();
+        let loaded = super::templates::load_template(tmp.path(), "x").unwrap();
+        assert_eq!(loaded["description"].as_str().unwrap(), "v2");
+    }
+
+    #[test]
+    fn test_template_import_overwrites_existing() {
+        let tmp = TempDir::new().unwrap();
+        let tpl = super::templates::build_template_toml("imp", Some("old"), None, None, None);
+        super::templates::save_template(tmp.path(), "imp", &tpl).unwrap();
+        let content = "name = \"imp\"\ndescription = \"new\"\nvm_size = \"Standard_A1\"\nregion = \"westus\"\n";
+        super::templates::import_template(tmp.path(), content).unwrap();
+        let loaded = super::templates::load_template(tmp.path(), "imp").unwrap();
+        assert_eq!(loaded["description"].as_str().unwrap(), "new");
+    }
+
+    // ── NEW: session file persistence tests ──────────────────────
+
+    #[test]
+    fn test_session_save_then_list() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("sessions");
+        fs::create_dir_all(&dir).unwrap();
+        for name in &["alpha", "beta", "gamma"] {
+            let s = super::sessions::build_session_toml(name, "rg", &[]);
+            let content = toml::to_string_pretty(&s).unwrap();
+            fs::write(dir.join(format!("{}.toml", name)), content).unwrap();
+        }
+        let names = super::sessions::list_session_names(&dir).unwrap();
+        assert_eq!(names.len(), 3);
+        for expected in &["alpha", "beta", "gamma"] {
+            assert!(names.contains(&expected.to_string()));
+        }
+    }
+
+    #[test]
+    fn test_session_parse_with_many_vms() {
+        let vms: Vec<String> = (0..20).map(|i| format!("vm-{:03}", i)).collect();
+        let built = super::sessions::build_session_toml("big", "rg-big", &vms);
+        let serialized = toml::to_string_pretty(&built).unwrap();
+        let (rg, parsed_vms, _) = super::sessions::parse_session_toml(&serialized).unwrap();
+        assert_eq!(rg, "rg-big");
+        assert_eq!(parsed_vms.len(), 20);
+        assert_eq!(parsed_vms[0], "vm-000");
+        assert_eq!(parsed_vms[19], "vm-019");
+    }
+
+    // ── NEW: context file persistence tests ──────────────────────
+
+    #[test]
+    fn test_context_rename_preserves_other_fields() {
+        let tmp = TempDir::new().unwrap();
+        let content = super::contexts::build_context_toml(
+            "old", Some("sub-1"), Some("tenant-1"), Some("rg-1"), Some("westus2"), Some("kv-1"),
+        ).unwrap();
+        fs::write(tmp.path().join("old.toml"), content).unwrap();
+        super::contexts::rename_context_file(tmp.path(), "old", "new").unwrap();
+        let loaded: toml::Value = fs::read_to_string(tmp.path().join("new.toml"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        let t = loaded.as_table().unwrap();
+        assert_eq!(t["name"].as_str().unwrap(), "new");
+        assert_eq!(t["subscription_id"].as_str().unwrap(), "sub-1");
+        assert_eq!(t["tenant_id"].as_str().unwrap(), "tenant-1");
+        assert_eq!(t["resource_group"].as_str().unwrap(), "rg-1");
+        assert_eq!(t["region"].as_str().unwrap(), "westus2");
+        assert_eq!(t["key_vault_name"].as_str().unwrap(), "kv-1");
+    }
+
+    #[test]
+    fn test_context_list_sorted() {
+        let tmp = TempDir::new().unwrap();
+        for name in &["charlie", "alpha", "bravo"] {
+            fs::write(
+                tmp.path().join(format!("{}.toml", name)),
+                format!("name = \"{}\"\n", name),
+            )
+            .unwrap();
+        }
+        let list = super::contexts::list_contexts(tmp.path(), "bravo").unwrap();
+        assert_eq!(list[0].0, "alpha");
+        assert_eq!(list[1].0, "bravo");
+        assert!(list[1].1);
+        assert_eq!(list[2].0, "charlie");
+    }
+
+    // ── NEW: comprehensive validate_env_key tests ───────────────
+
+    #[test]
+    fn test_validate_env_key_all_digits() {
+        assert!(super::env_helpers::validate_env_key("123").is_err());
+    }
+
+    #[test]
+    fn test_validate_env_key_underscore_start() {
+        assert!(super::env_helpers::validate_env_key("_VAR").is_ok());
+    }
+
+    #[test]
+    fn test_validate_env_key_long_valid() {
+        let key = "A".repeat(256);
+        assert!(super::env_helpers::validate_env_key(&key).is_ok());
+    }
+
+    #[test]
+    fn test_validate_env_key_tab() {
+        assert!(super::env_helpers::validate_env_key("A\tB").is_err());
+    }
+
+    #[test]
+    fn test_validate_env_key_newline() {
+        assert!(super::env_helpers::validate_env_key("A\nB").is_err());
+    }
+
+    // ── NEW: cp_helpers edge cases ──────────────────────────────
+
+    #[test]
+    fn test_is_remote_path_colon_at_end() {
+        assert!(super::cp_helpers::is_remote_path("vm:"));
+    }
+
+    #[test]
+    fn test_is_remote_path_long_vm_name() {
+        assert!(super::cp_helpers::is_remote_path("my-long-vm-name-123:/data/dir"));
+    }
+
+    #[test]
+    fn test_classify_both_remote() {
+        // Both paths have colons and look remote, so neither condition
+        // (remote+!remote or !remote+remote) matches — returns local→local
+        let dir = super::cp_helpers::classify_transfer_direction("vm1:/a", "vm2:/b");
+        assert_eq!(dir, "local→local");
+    }
+
+    #[test]
+    fn test_resolve_scp_path_multiple_colons() {
+        let result = super::cp_helpers::resolve_scp_path("vm:path:with:colons", "vm", "u", "1.1.1.1");
+        assert_eq!(result, "u@1.1.1.1:path:with:colons");
+    }
+
+    // ── NEW: output formatting with unicode ─────────────────────
+
+    #[test]
+    fn test_format_as_csv_unicode_content() {
+        let rows = vec![vec!["名前".into(), "東京".into()]];
+        let csv = super::output_helpers::format_as_csv(&["Name", "City"], &rows);
+        assert!(csv.contains("名前,東京"));
+    }
+
+    #[test]
+    fn test_format_as_table_unicode_alignment() {
+        let rows = vec![vec!["日本語".into(), "データ".into()]];
+        let table = super::output_helpers::format_as_table(&["Label", "Value"], &rows);
+        assert!(table.contains("日本語"));
+        assert!(table.contains("データ"));
+    }
+
+    #[test]
+    fn test_format_as_csv_commas_in_values() {
+        let rows = vec![vec!["a,b".into(), "c".into()]];
+        let csv = super::output_helpers::format_as_csv(&["X", "Y"], &rows);
+        // Note: no escaping is done - this tests current behavior
+        assert!(csv.contains("a,b,c"));
+    }
+
+    // ── NEW: snapshot filter edge cases ──────────────────────────
+
+    #[test]
+    fn test_filter_snapshots_substring_match() {
+        let snaps = vec![
+            serde_json::json!({"name": "vm1_snap"}),
+            serde_json::json!({"name": "vm10_snap"}),
+            serde_json::json!({"name": "vm1-extra_snap"}),
+        ];
+        let filtered = super::snapshot_helpers::filter_snapshots(&snaps, "vm1");
+        // "vm1" is a substring of all three
+        assert_eq!(filtered.len(), 3);
+    }
+
+    #[test]
+    fn test_filter_snapshots_case_sensitive() {
+        let snaps = vec![
+            serde_json::json!({"name": "VM1_snap"}),
+            serde_json::json!({"name": "vm1_snap"}),
+        ];
+        let filtered = super::snapshot_helpers::filter_snapshots(&snaps, "vm1");
+        assert_eq!(filtered.len(), 1);
+    }
+
+    // ── NEW: validate_mount_path traversal cases ────────────────
+
+    #[test]
+    fn test_mount_path_traversal_in_middle() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/a/../b").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_traversal_at_end() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/..").is_err());
+    }
+
+    #[test]
+    fn test_mount_path_with_spaces_ok() {
+        assert!(super::mount_helpers::validate_mount_path("/mnt/my data").is_ok());
+    }
+
+    #[test]
+    fn test_mount_path_deeply_nested() {
+        assert!(super::mount_helpers::validate_mount_path("/a/b/c/d/e/f/g/h").is_ok());
     }
 }

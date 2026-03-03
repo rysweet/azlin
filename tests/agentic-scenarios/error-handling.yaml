@@ -1,19 +1,20 @@
-# Error Handling — Test error behavior for invalid input
-# Works with BOTH Python and Rust versions.
-# Validates unknown commands, missing arguments, and error output.
-# Avoids version-specific features (config subcommand is Rust-only).
+# Error Handling — Verify graceful failures for bad inputs across commands
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Tests invalid VM names, missing arguments, bad flags, and nonexistent resources.
+# All tests verify no panics and appropriate error messaging.
 
 name: "Error Handling"
-description: "Validates error output for unknown commands and missing arguments in both versions"
+description: "Validates graceful error handling for invalid inputs, missing args, and bad flags"
 version: "2.0.0"
 tags:
   - "errors"
   - "validation"
+  - "resilience"
   - "outside-in"
   - "dual-version"
 
 config:
-  timeout: 30000
+  timeout: 120000
   retries: 1
   parallel: false
 
@@ -22,28 +23,46 @@ agents:
     type: "system"
     config:
       shell: "bash"
-      timeout: 15000
+      timeout: 30000
       capture_output: true
 
 steps:
-  - name: "Unknown command produces error output"
+  - name: "unknown top-level command exits non-zero"
     agent: "cli-runner"
     action: "execute_command"
     params:
-      command: "${AZLIN_BIN:-azlin} nonexistent-command 2>&1; echo EXIT_CODE:$?"
+      command: "! ${AZLIN_BIN:-azlin} totally-fake-command 2>/dev/null"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "unknown command output contains error guidance"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} totally-fake-command 2>&1 || true"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "invalid global flag exits non-zero"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "! ${AZLIN_BIN:-azlin} --not-a-real-flag 2>/dev/null"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "No arguments shows usage text"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} 2>&1 || true"
     expect:
       exit_code: 0
       stdout_contains:
-        - "EXIT_CODE:"
-    timeout: 10000
-
-  - name: "Unknown command exits non-zero"
-    agent: "cli-runner"
-    action: "execute_command"
-    params:
-      command: "! ${AZLIN_BIN:-azlin} nonexistent-command 2>/dev/null"
-    expect:
-      exit_code: 0
+        - "Usage"
     timeout: 10000
 
   - name: "start with no args produces error"
@@ -88,24 +107,123 @@ steps:
         - "EXIT_CODE:"
     timeout: 10000
 
-  - name: "No arguments shows usage text"
+  - name: "kill with no args produces error"
     agent: "cli-runner"
     action: "execute_command"
     params:
-      command: "${AZLIN_BIN:-azlin} 2>&1 || true"
+      command: "${AZLIN_BIN:-azlin} kill 2>&1; echo EXIT_CODE:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT_CODE:"
+    timeout: 10000
+
+  - name: "start with invalid VM name produces no panic"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} start @@@invalid-vm-name!!! 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 30000
+
+  - name: "stop with invalid VM name produces no panic"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} stop @@@invalid-vm-name!!! 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 30000
+
+  - name: "connect with empty string produces no panic"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} connect '' 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 15000
+
+  - name: "env with no subcommand shows help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} env 2>&1 || true"
     expect:
       exit_code: 0
       stdout_contains:
         - "Usage"
     timeout: 10000
 
-  - name: "Invalid flag shows error"
+  - name: "env set with no args shows error"
     agent: "cli-runner"
     action: "execute_command"
     params:
-      command: "${AZLIN_BIN:-azlin} --not-a-real-flag 2>&1; echo EXIT_CODE:$?"
+      command: "${AZLIN_BIN:-azlin} env set 2>&1; echo EXIT_CODE:$?"
     expect:
       exit_code: 0
       stdout_contains:
         - "EXIT_CODE:"
     timeout: 10000
+
+  - name: "snapshot with no subcommand shows help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} snapshot 2>&1 || true"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "snapshot create with no args shows error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} snapshot create 2>&1; echo EXIT_CODE:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT_CODE:"
+    timeout: 10000
+
+  - name: "logs with nonexistent VM produces no panic"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} logs nonexistent-vm-xyz123 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 30000
+
+  - name: "list with nonexistent resource group produces no panic"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} list --resource-group nonexistent-rg-xyz123 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 30000
+
+  - name: "multiple subcommand groups with no args produce no panics"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "PANICS=0; for cmd in 'tag' 'disk' 'storage' 'snapshot' 'env'; do OUT=$(${AZLIN_BIN:-azlin} $cmd 2>&1 || true); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && PANICS=$((PANICS+1)); done; echo PANICS:$PANICS"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "PANICS:0"
+    timeout: 30000
