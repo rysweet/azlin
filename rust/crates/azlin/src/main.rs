@@ -14258,4 +14258,162 @@ created = \"2024-01-01T00:00:00Z\"\n";
     fn test_mount_path_deeply_nested() {
         assert!(super::mount_helpers::validate_mount_path("/a/b/c/d/e/f/g/h").is_ok());
     }
+
+    // ── Additional shell_escape tests ───────────────────────────
+    #[test]
+    fn test_shell_escape_empty_v2() {
+        assert_eq!(super::shell_escape(""), "''");
+    }
+
+    #[test]
+    fn test_shell_escape_special_chars() {
+        assert_eq!(super::shell_escape("a b;c&d|e"), "'a b;c&d|e'");
+    }
+
+    #[test]
+    fn test_shell_escape_with_newlines_v2() {
+        assert_eq!(super::shell_escape("line1\nline2"), "'line1\nline2'");
+    }
+
+    // ── Additional parse tests ──────────────────────────────────
+    #[test]
+    fn test_parse_recommendation_rows_only_category() {
+        let data = serde_json::json!([{
+            "category": "Cost"
+        }]);
+        let rows = super::parse_recommendation_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "Cost");
+        assert_eq!(rows[0].1, "-");
+    }
+
+    #[test]
+    fn test_parse_recommendation_rows_two_entries() {
+        let data = serde_json::json!([
+            {"category": "Cost", "impact": "High", "shortDescription": {"problem": "idle VM"}},
+            {"category": "Security", "impact": "Low", "shortDescription": {"problem": "no NSG"}}
+        ]);
+        let rows = super::parse_recommendation_rows(&data);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].0, "Security");
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_missing_solution_field() {
+        let data = serde_json::json!([{
+            "category": "Cost",
+            "impact": "Medium",
+            "shortDescription": {}
+        }]);
+        let rows = super::parse_cost_action_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].2, "-");
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_two_items() {
+        let data = serde_json::json!([
+            {"impactedField": "VM/compute", "impact": "High", "shortDescription": {"problem": "idle VM"}},
+            {"impactedField": "Storage", "impact": "Low", "shortDescription": {"problem": "unattached disk"}}
+        ]);
+        let rows = super::parse_cost_action_rows(&data);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, "VM/compute");
+        assert_eq!(rows[0].2, "idle VM");
+        assert_eq!(rows[1].0, "Storage");
+    }
+
+    // ── format_cost_summary additional tests ────────────────────
+    #[test]
+    fn test_format_cost_summary_with_from_to_filters() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 50.0,
+            currency: "USD".to_string(),
+            period_start: chrono::NaiveDate::from_ymd_opt(2025, 1, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc(),
+            period_end: chrono::NaiveDate::from_ymd_opt(2025, 1, 31)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc(),
+            by_vm: vec![],
+        };
+        let out = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Table,
+            &Some("2025-01-01".to_string()),
+            &Some("2025-01-31".to_string()),
+            false,
+            false,
+        );
+        assert!(out.contains("From filter: 2025-01-01"));
+        assert!(out.contains("To filter: 2025-01-31"));
+    }
+
+    #[test]
+    fn test_format_cost_summary_by_vm_csv_output() {
+        let summary = azlin_core::models::CostSummary {
+            total_cost: 200.0,
+            currency: "USD".to_string(),
+            period_start: chrono::NaiveDate::from_ymd_opt(2025, 1, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc(),
+            period_end: chrono::NaiveDate::from_ymd_opt(2025, 1, 31)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc(),
+            by_vm: vec![
+                azlin_core::models::VmCost {
+                    vm_name: "vm-1".to_string(),
+                    cost: 100.0,
+                    currency: "USD".to_string(),
+                },
+                azlin_core::models::VmCost {
+                    vm_name: "vm-2".to_string(),
+                    cost: 100.0,
+                    currency: "USD".to_string(),
+                },
+            ],
+        };
+        let out = super::format_cost_summary(
+            &summary,
+            &azlin_cli::OutputFormat::Csv,
+            &None,
+            &None,
+            false,
+            true,
+        );
+        assert!(out.contains("VM Name,Cost,Currency"));
+        assert!(out.contains("vm-1,100.00,USD"));
+        assert!(out.contains("vm-2,100.00,USD"));
+    }
+
+    // ── fleet_spinner_style test ────────────────────────────────
+    #[test]
+    fn test_fleet_spinner_style_creation() {
+        let style = super::fleet_spinner_style();
+        let _ = style;
+    }
+
+    // ── HealthMetrics test ──────────────────────────────────────
+    #[test]
+    fn test_health_metrics_struct() {
+        let m = super::HealthMetrics {
+            vm_name: "test-vm".to_string(),
+            power_state: "running".to_string(),
+            cpu_percent: 45.0,
+            mem_percent: 60.0,
+            disk_percent: 30.0,
+            load_avg: "1.5 2.0 1.8".to_string(),
+        };
+        assert_eq!(m.vm_name, "test-vm");
+        assert_eq!(m.power_state, "running");
+        assert!(m.cpu_percent > 0.0);
+    }
 }
