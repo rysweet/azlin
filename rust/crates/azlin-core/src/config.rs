@@ -78,20 +78,20 @@ impl Default for AzlinConfig {
 
 impl AzlinConfig {
     /// Returns the config directory path (~/.azlin/)
-    pub fn config_dir() -> PathBuf {
-        dirs::home_dir()
-            .expect("Home directory not found")
-            .join(".azlin")
+    pub fn config_dir() -> crate::Result<PathBuf> {
+        Ok(dirs::home_dir()
+            .ok_or_else(|| crate::AzlinError::Config("Home directory not found".into()))?
+            .join(".azlin"))
     }
 
     /// Returns the config file path (~/.azlin/config.toml)
-    pub fn config_path() -> PathBuf {
-        Self::config_dir().join("config.toml")
+    pub fn config_path() -> crate::Result<PathBuf> {
+        Ok(Self::config_dir()?.join("config.toml"))
     }
 
     /// Load config from disk, returning defaults if file doesn't exist.
     pub fn load() -> crate::Result<Self> {
-        let path = Self::config_path();
+        let path = Self::config_path()?;
         if !path.exists() {
             return Ok(Self::default());
         }
@@ -105,11 +105,11 @@ impl AzlinConfig {
 
     /// Save config to disk, creating the directory if needed.
     pub fn save(&self) -> crate::Result<()> {
-        let dir = Self::config_dir();
+        let dir = Self::config_dir()?;
         std::fs::create_dir_all(&dir).map_err(|e| {
             crate::AzlinError::Config(format!("Failed to create config dir: {e}"))
         })?;
-        let path = Self::config_path();
+        let path = Self::config_path()?;
         let contents = toml::to_string_pretty(self).map_err(|e| {
             crate::AzlinError::Config(format!("Failed to serialize config: {e}"))
         })?;

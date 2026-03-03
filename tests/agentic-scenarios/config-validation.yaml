@@ -1,0 +1,90 @@
+# Config Validation — Test config set/get/show operations
+# Validates that config set persists values and config show includes all expected keys.
+
+name: "Config Validation"
+description: "Validates config set, get, and show with expected keys and values"
+version: "1.0.0"
+tags:
+  - "config"
+  - "validation"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Config set default_region succeeds"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config set default_region westus2"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "default_region"
+    timeout: 10000
+
+  - name: "Config set default_vm_size succeeds"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config set default_vm_size Standard_D2s_v3"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "default_vm_size"
+    timeout: 10000
+
+  - name: "Config get default_region returns a region"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config get default_region"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "us"
+    timeout: 10000
+
+  - name: "Config show contains default_region"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config show"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "default_region"
+    timeout: 10000
+
+  - name: "Config show contains default_vm_size"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config show"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "default_vm_size"
+    timeout: 10000
+
+  - name: "Config show contains default_resource_group"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config show"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "default_resource_group"
+    timeout: 10000

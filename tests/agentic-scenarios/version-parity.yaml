@@ -1,0 +1,55 @@
+# Version Parity — Validate version output format
+# Ensures the version command outputs correct format with "azlin" and a version number.
+
+name: "Version Parity"
+description: "Validates --version output contains 'azlin' and a version number pattern"
+version: "1.0.0"
+tags:
+  - "version"
+  - "parity"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Version output contains azlin"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --version"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "azlin"
+    timeout: 10000
+
+  - name: "Version output contains version number pattern"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --version | grep -E '[0-9]+\\.[0-9]+\\.[0-9]+'"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Version subcommand also works"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} version"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "azlin"
+    timeout: 10000

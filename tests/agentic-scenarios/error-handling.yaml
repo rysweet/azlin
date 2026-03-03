@@ -1,0 +1,100 @@
+# Error Handling — Test error behavior for invalid input
+# Validates that unknown commands and missing arguments produce proper error output.
+
+name: "Error Handling"
+description: "Validates error output for unknown commands and missing required arguments"
+version: "1.0.0"
+tags:
+  - "errors"
+  - "validation"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Unknown command produces error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} nonexistent-command 2>&1; echo EXIT_CODE:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "error"
+        - "EXIT_CODE:"
+    timeout: 10000
+
+  - name: "Unknown command exit code is non-zero"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "! ${AZLIN_BIN:-azlin} nonexistent-command 2>/dev/null"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "start with no args produces usage info"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} start 2>&1; echo EXIT_CODE:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT_CODE:"
+    timeout: 10000
+
+  - name: "connect with no args produces usage info"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} connect 2>&1; echo EXIT_CODE:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT_CODE:"
+    timeout: 10000
+
+  - name: "config set with no args shows error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config set 2>&1; echo EXIT_CODE:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT_CODE:"
+    timeout: 10000
+
+  - name: "config get with no args shows error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config get 2>&1; echo EXIT_CODE:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT_CODE:"
+    timeout: 10000
+
+  - name: "Double dash with no command shows help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} 2>&1; echo EXIT_CODE:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000

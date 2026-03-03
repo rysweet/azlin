@@ -1392,12 +1392,25 @@ async fn main() -> Result<()> {
             }
 
             for cmd in &commands {
-                let parts: Vec<&str> = cmd.split_whitespace().collect();
-                if parts.is_empty() {
+                let cmd_str = cmd.trim();
+                if cmd_str.is_empty() {
                     continue;
                 }
-                println!("$ {}", cmd);
-                let status = std::process::Command::new(parts[0])
+                // Validate command starts with allowed prefix
+                if !cmd_str.starts_with("az ") {
+                    eprintln!("Skipping non-Azure command: {}", cmd_str);
+                    continue;
+                }
+                // Use shlex for proper argument parsing
+                let parts = match shlex::split(cmd_str) {
+                    Some(p) if !p.is_empty() => p,
+                    _ => {
+                        eprintln!("Failed to parse command: {}", cmd_str);
+                        continue;
+                    }
+                };
+                println!("$ {}", cmd_str);
+                let status = std::process::Command::new(&parts[0])
                     .args(&parts[1..])
                     .status()?;
                 if !status.success() {
@@ -1638,14 +1651,27 @@ async fn main() -> Result<()> {
                         return Ok(());
                     }
                 }
-                let output = std::process::Command::new("az")
-                    .args(["vm", "deallocate", "--ids",
-                        &format!("$(az vm list -g {} --query '[].id' -o tsv)", rg)])
+                let list_output = std::process::Command::new("az")
+                    .args(["vm", "list", "-g", &rg, "--query", "[].id", "-o", "tsv"])
                     .output()?;
-                if output.status.success() {
-                    println!("Batch stop completed for resource group '{}'", rg);
+                let ids: Vec<&str> = std::str::from_utf8(&list_output.stdout)
+                    .unwrap_or("")
+                    .lines()
+                    .filter(|l| !l.is_empty())
+                    .collect();
+                if ids.is_empty() {
+                    println!("No VMs found in resource group '{}'", rg);
                 } else {
-                    eprintln!("Batch stop failed. Run commands individually.");
+                    let mut args = vec!["vm", "deallocate", "--ids"];
+                    args.extend(ids.iter().copied());
+                    let output = std::process::Command::new("az")
+                        .args(&args)
+                        .output()?;
+                    if output.status.success() {
+                        println!("Batch stop completed for resource group '{}'", rg);
+                    } else {
+                        eprintln!("Batch stop failed. Run commands individually.");
+                    }
                 }
             }
             azlin_cli::BatchAction::Start {
@@ -1666,14 +1692,27 @@ async fn main() -> Result<()> {
                         return Ok(());
                     }
                 }
-                let output = std::process::Command::new("az")
-                    .args(["vm", "start", "--ids",
-                        &format!("$(az vm list -g {} --query '[].id' -o tsv)", rg)])
+                let list_output = std::process::Command::new("az")
+                    .args(["vm", "list", "-g", &rg, "--query", "[].id", "-o", "tsv"])
                     .output()?;
-                if output.status.success() {
-                    println!("Batch start completed for resource group '{}'", rg);
+                let ids: Vec<&str> = std::str::from_utf8(&list_output.stdout)
+                    .unwrap_or("")
+                    .lines()
+                    .filter(|l| !l.is_empty())
+                    .collect();
+                if ids.is_empty() {
+                    println!("No VMs found in resource group '{}'", rg);
                 } else {
-                    eprintln!("Batch start failed. Run commands individually.");
+                    let mut args = vec!["vm", "start", "--ids"];
+                    args.extend(ids.iter().copied());
+                    let output = std::process::Command::new("az")
+                        .args(&args)
+                        .output()?;
+                    if output.status.success() {
+                        println!("Batch start completed for resource group '{}'", rg);
+                    } else {
+                        eprintln!("Batch start failed. Run commands individually.");
+                    }
                 }
             }
             azlin_cli::BatchAction::Command {
@@ -2076,13 +2115,19 @@ async fn main() -> Result<()> {
                     match ip {
                         Some(addr) => {
                             println!("VM '{}': {}", name, addr);
-                            let output = std::process::Command::new("bash")
-                                .args(["-c", &format!(
-                                    "timeout 5 bash -c 'echo >/dev/tcp/{}/{}' 2>/dev/null && echo 'Port {} open' || echo 'Port {} closed'",
-                                    addr, port, port, port
-                                )])
-                                .output()?;
-                            println!("  {}", String::from_utf8_lossy(&output.stdout).trim());
+                            let addr_port = format!("{}:{}", addr, port);
+                            match addr_port.parse::<std::net::SocketAddr>() {
+                                Ok(sock_addr) => {
+                                    match std::net::TcpStream::connect_timeout(
+                                        &sock_addr,
+                                        std::time::Duration::from_secs(5),
+                                    ) {
+                                        Ok(_) => println!("  Port {} on {} is OPEN", port, addr),
+                                        Err(_) => println!("  Port {} on {} is CLOSED", port, addr),
+                                    }
+                                }
+                                Err(e) => eprintln!("  Invalid address '{}': {}", addr_port, e),
+                            }
                         }
                         None => println!("VM '{}': no IP address found", name),
                     }
@@ -2261,7 +2306,9 @@ async fn main() -> Result<()> {
             let dest = &args[args.len() - 1];
             let rg = resolve_resource_group(resource_group)?;
 
-            let is_remote = |s: &str| s.contains(':');
+            let is_remote = |s: &str| {
+                s.contains(':') && !s.starts_with('/') && s.len() > 2 && s.chars().nth(1) != Some(':')
+            };
             let direction = if is_remote(source) && !is_remote(dest) {
                 "remote→local"
             } else if !is_remote(source) && is_remote(dest) {
@@ -2277,9 +2324,11 @@ async fn main() -> Result<()> {
                 // For remote transfers, use scp via az CLI resolved IP
                 if is_remote(source) || is_remote(dest) {
                     let (vm_part, _path_part) = if is_remote(source) {
-                        source.split_once(':').unwrap()
+                        source.split_once(':')
+                            .ok_or_else(|| anyhow::anyhow!("Invalid remote path: {}", source))?
                     } else {
-                        dest.split_once(':').unwrap()
+                        dest.split_once(':')
+                            .ok_or_else(|| anyhow::anyhow!("Invalid remote path: {}", dest))?
                     };
                     let auth = create_auth()?;
                     let vm_manager = azlin_azure::VmManager::new(&auth);
@@ -2758,9 +2807,12 @@ mod tests {
 
     #[test]
     fn test_cp_direction_detection() {
-        let is_remote = |s: &str| s.contains(':');
+        let is_remote = |s: &str| {
+            s.contains(':') && !s.starts_with('/') && s.len() > 2 && s.chars().nth(1) != Some(':')
+        };
         assert!(is_remote("myvm:/home/user/file.txt"));
         assert!(!is_remote("/tmp/local.txt"));
+        assert!(!is_remote("C:\\Windows")); // Windows drive letter
 
         let source = "myvm:/home/user/file.txt";
         let dest = "/tmp/local.txt";
