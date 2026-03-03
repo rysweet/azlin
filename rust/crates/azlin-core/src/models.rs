@@ -155,6 +155,42 @@ impl std::fmt::Display for VmImage {
     }
 }
 
+/// Validate Azure VM name according to Azure rules
+pub fn validate_vm_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("VM name cannot be empty".to_string());
+    }
+    if name.len() > 64 {
+        return Err(format!(
+            "VM name '{}' exceeds 64 character limit ({})",
+            name,
+            name.len()
+        ));
+    }
+    if name.starts_with('-') || name.starts_with('.') {
+        return Err(format!(
+            "VM name '{}' cannot start with hyphen or period",
+            name
+        ));
+    }
+    if name.ends_with('-') || name.ends_with('.') {
+        return Err(format!(
+            "VM name '{}' cannot end with hyphen or period",
+            name
+        ));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+    {
+        return Err(format!(
+            "VM name '{}' can only contain alphanumeric characters, hyphens, and periods",
+            name
+        ));
+    }
+    Ok(())
+}
+
 /// Represents a command execution result.
 #[derive(Debug, Clone)]
 pub struct CommandResult {
@@ -642,6 +678,41 @@ mod tests {
         };
         let sum: f64 = summary.by_vm.iter().map(|v| v.cost).sum();
         assert!((summary.total_cost - sum).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_validate_vm_name_valid() {
+        assert!(validate_vm_name("my-vm-01").is_ok());
+        assert!(validate_vm_name("dev.server").is_ok());
+        assert!(validate_vm_name("a").is_ok());
+    }
+
+    #[test]
+    fn test_validate_vm_name_empty() {
+        assert!(validate_vm_name("").is_err());
+    }
+
+    #[test]
+    fn test_validate_vm_name_too_long() {
+        assert!(validate_vm_name(&"a".repeat(65)).is_err());
+        assert!(validate_vm_name(&"a".repeat(64)).is_ok());
+    }
+
+    #[test]
+    fn test_validate_vm_name_leading_hyphen() {
+        assert!(validate_vm_name("-bad").is_err());
+    }
+
+    #[test]
+    fn test_validate_vm_name_trailing_hyphen() {
+        assert!(validate_vm_name("bad-").is_err());
+    }
+
+    #[test]
+    fn test_validate_vm_name_special_chars() {
+        assert!(validate_vm_name("bad@name").is_err());
+        assert!(validate_vm_name("bad name").is_err());
+        assert!(validate_vm_name("bad;name").is_err());
     }
 
     #[test]

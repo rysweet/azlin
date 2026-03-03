@@ -1,7 +1,9 @@
 //! azlin-azure: Azure SDK integration for VM management, auth, networking, and costs.
 
 pub mod auth;
+pub mod cloud_init;
 pub mod costs;
+pub mod error_handler;
 pub mod rate_limiter;
 pub mod retry;
 pub mod vm;

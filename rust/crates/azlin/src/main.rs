@@ -2470,6 +2470,9 @@ async fn async_main() -> Result<()> {
                     format!("azlin-vm-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"))
                 };
 
+                azlin_core::models::validate_vm_name(&vm_name)
+                    .map_err(|e| anyhow::anyhow!(e))?;
+
                 let params = azlin_core::models::CreateVmParams {
                     name: vm_name.clone(),
                     resource_group: rg.clone(),
