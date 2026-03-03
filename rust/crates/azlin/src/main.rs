@@ -11696,19 +11696,19 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_vm_name_63_chars() {
-        let name: String = std::iter::repeat('a').take(63).collect();
+        let name = "a".repeat(63);
         assert!(super::vm_validation::validate_vm_name(&name).is_ok());
     }
 
     #[test]
     fn test_vm_name_64_chars() {
-        let name: String = std::iter::repeat('b').take(64).collect();
+        let name = "b".repeat(64);
         assert!(super::vm_validation::validate_vm_name(&name).is_ok());
     }
 
     #[test]
     fn test_vm_name_65_chars() {
-        let name: String = std::iter::repeat('c').take(65).collect();
+        let name = "c".repeat(65);
         assert!(super::vm_validation::validate_vm_name(&name).is_err());
     }
 
