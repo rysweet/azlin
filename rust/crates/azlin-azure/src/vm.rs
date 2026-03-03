@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use tracing::{debug, warn};
 
-use azlin_core::models::{OsType, PowerState, VmInfo};
+use azlin_core::models::{CreateVmParams, OsType, PowerState, VmInfo};
 
 use crate::AzureAuth;
 
@@ -319,7 +319,156 @@ impl VmManager {
         Ok(())
     }
 
-    /// Fetch public and private IPs for a VM by querying its network interfaces.
+    /// Provision a new VM with all required networking resources.
+    ///
+    /// Creates: resource group → NSG → VNet/subnet → public IP → NIC → VM.
+    /// Uses the `az` CLI for resource creation (matching the Python implementation)
+    /// and the SDK for the final VM lookup.
+    pub async fn create_vm(&self, params: &CreateVmParams) -> Result<VmInfo> {
+        let rg = &params.resource_group;
+        let location = &params.region;
+        let vm_name = &params.name;
+
+        // Read SSH public key
+        let ssh_pub_key = std::fs::read_to_string(&params.ssh_key_path)
+            .context(format!(
+                "Failed to read SSH public key: {}",
+                params.ssh_key_path.display()
+            ))?;
+
+        // 1. Create or verify resource group
+        debug!(rg, location, "Creating/verifying resource group");
+        az_cli(&[
+            "group", "create",
+            "--name", rg,
+            "--location", location,
+        ])
+        .context(format!("Failed to create resource group '{rg}'"))?;
+
+        // 2. Create NSG with SSH + HTTPS rules
+        let nsg_name = format!("{vm_name}-nsg");
+        debug!(%nsg_name, "Creating NSG");
+        az_cli(&[
+            "network", "nsg", "create",
+            "--resource-group", rg,
+            "--name", &nsg_name,
+            "--location", location,
+        ])
+        .context(format!("Failed to create NSG '{nsg_name}'"))?;
+
+        az_cli(&[
+            "network", "nsg", "rule", "create",
+            "--resource-group", rg,
+            "--nsg-name", &nsg_name,
+            "--name", "AllowSSH",
+            "--priority", "1000",
+            "--protocol", "Tcp",
+            "--destination-port-ranges", "22",
+            "--access", "Allow",
+            "--direction", "Inbound",
+        ])
+        .context("Failed to create SSH NSG rule")?;
+
+        az_cli(&[
+            "network", "nsg", "rule", "create",
+            "--resource-group", rg,
+            "--nsg-name", &nsg_name,
+            "--name", "AllowHTTPS",
+            "--priority", "1001",
+            "--protocol", "Tcp",
+            "--destination-port-ranges", "443",
+            "--access", "Allow",
+            "--direction", "Inbound",
+        ])
+        .context("Failed to create HTTPS NSG rule")?;
+
+        // 3. Create VNet + subnet
+        let vnet_name = format!("{vm_name}-vnet");
+        let subnet_name = format!("{vm_name}-subnet");
+        debug!(%vnet_name, %subnet_name, "Creating VNet and subnet");
+        az_cli(&[
+            "network", "vnet", "create",
+            "--resource-group", rg,
+            "--name", &vnet_name,
+            "--address-prefix", "10.0.0.0/16",
+            "--subnet-name", &subnet_name,
+            "--subnet-prefix", "10.0.0.0/24",
+            "--location", location,
+            "--network-security-group", &nsg_name,
+        ])
+        .context(format!("Failed to create VNet '{vnet_name}'"))?;
+
+        // 4. Create public IP
+        let pip_name = format!("{vm_name}-pip");
+        debug!(%pip_name, "Creating public IP");
+        az_cli(&[
+            "network", "public-ip", "create",
+            "--resource-group", rg,
+            "--name", &pip_name,
+            "--sku", "Standard",
+            "--allocation-method", "Static",
+            "--location", location,
+        ])
+        .context(format!("Failed to create public IP '{pip_name}'"))?;
+
+        // 5. Create NIC
+        let nic_name = format!("{vm_name}-nic");
+        debug!(%nic_name, "Creating NIC");
+        az_cli(&[
+            "network", "nic", "create",
+            "--resource-group", rg,
+            "--name", &nic_name,
+            "--vnet-name", &vnet_name,
+            "--subnet", &subnet_name,
+            "--public-ip-address", &pip_name,
+            "--network-security-group", &nsg_name,
+            "--location", location,
+        ])
+        .context(format!("Failed to create NIC '{nic_name}'"))?;
+
+        // 6. Create the VM
+        debug!(%vm_name, "Creating VM");
+        let image_urn = format!(
+            "{}:{}:{}:{}",
+            params.image.publisher, params.image.offer, params.image.sku, params.image.version
+        );
+
+        let cloud_init_path = create_cloud_init_file()?;
+        let mut az_args = vec![
+            "vm", "create",
+            "--resource-group", rg,
+            "--name", vm_name,
+            "--nics", &nic_name,
+            "--image", &image_urn,
+            "--size", &params.vm_size,
+            "--admin-username", &params.admin_username,
+            "--ssh-key-value", ssh_pub_key.trim(),
+            "--authentication-type", "ssh",
+            "--custom-data", &cloud_init_path,
+        ];
+
+        let tag_strs: Vec<String> = params
+            .tags
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        if !tag_strs.is_empty() {
+            az_args.push("--tags");
+            for t in &tag_strs {
+                az_args.push(t);
+            }
+        }
+
+        az_cli(&az_args).context(format!("Failed to create VM '{vm_name}'"))?;
+
+        // Clean up temp file
+        let _ = std::fs::remove_file(&cloud_init_path);
+
+        // 7. Fetch and return VM info (includes IP lookup via SDK)
+        debug!(%vm_name, "Fetching created VM details");
+        let vm_info = self.get_vm(rg, vm_name).await?;
+        Ok(vm_info)
+    }
     async fn get_vm_ips(
         &self,
         props: Option<&azure_mgmt_compute::models::VirtualMachineProperties>,
@@ -424,6 +573,53 @@ impl VmManager {
         }
     }
 }
+
+/// Run an `az` CLI command, returning Ok(stdout) on success.
+fn az_cli(args: &[&str]) -> Result<String> {
+    debug!(args = ?args, "Running az CLI command");
+    let output = std::process::Command::new("az")
+        .args(args)
+        .arg("--output")
+        .arg("json")
+        .output()
+        .context("Failed to execute 'az' CLI. Is Azure CLI installed?")?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(anyhow::anyhow!("az CLI failed: {}", stderr.trim()))
+    }
+}
+
+/// Write cloud-init script to a temp file and return its path.
+fn create_cloud_init_file() -> Result<String> {
+    let dir = std::env::temp_dir();
+    let path = dir.join("azlin-cloud-init.sh");
+    std::fs::write(&path, CLOUD_INIT_SCRIPT)
+        .context("Failed to write cloud-init temp file")?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Cloud-init script for basic VM setup.
+const CLOUD_INIT_SCRIPT: &str = r#"#!/bin/bash
+set -euo pipefail
+
+apt-get update -qq
+apt-get upgrade -y -qq
+
+apt-get install -y -qq \
+    git curl wget jq unzip \
+    build-essential \
+    tmux ripgrep fd-find \
+    docker.io
+
+systemctl enable docker
+systemctl start docker
+usermod -aG docker azureuser
+
+echo "cloud-init provisioning complete"
+"#;
 
 /// Extract resource group name from an Azure resource ID.
 fn extract_resource_group(resource_id: &str) -> String {

@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +79,80 @@ pub struct VmCost {
     pub vm_name: String,
     pub cost: f64,
     pub currency: String,
+}
+
+/// Parameters for creating a new Azure VM.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateVmParams {
+    pub name: String,
+    pub resource_group: String,
+    pub region: String,
+    pub vm_size: String,
+    pub admin_username: String,
+    pub ssh_key_path: PathBuf,
+    pub image: VmImage,
+    pub tags: HashMap<String, String>,
+}
+
+impl CreateVmParams {
+    /// Validate that all required fields are non-empty and the SSH key exists.
+    pub fn validate(&self) -> std::result::Result<(), String> {
+        if self.name.is_empty() {
+            return Err("VM name cannot be empty".into());
+        }
+        if self.name.len() > 64 {
+            return Err("VM name must be 64 characters or less".into());
+        }
+        if self.resource_group.is_empty() {
+            return Err("Resource group cannot be empty".into());
+        }
+        if self.region.is_empty() {
+            return Err("Region cannot be empty".into());
+        }
+        if self.vm_size.is_empty() {
+            return Err("VM size cannot be empty".into());
+        }
+        if self.admin_username.is_empty() {
+            return Err("Admin username cannot be empty".into());
+        }
+        if !self.ssh_key_path.exists() {
+            return Err(format!(
+                "SSH public key not found: {}",
+                self.ssh_key_path.display()
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// OS image specification for VM creation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VmImage {
+    pub publisher: String,
+    pub offer: String,
+    pub sku: String,
+    pub version: String,
+}
+
+impl Default for VmImage {
+    fn default() -> Self {
+        Self {
+            publisher: "Canonical".into(),
+            offer: "ubuntu-24_04-lts".into(),
+            sku: "server".into(),
+            version: "latest".into(),
+        }
+    }
+}
+
+impl std::fmt::Display for VmImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:{}:{}:{}",
+            self.publisher, self.offer, self.sku, self.version
+        )
+    }
 }
 
 /// Represents a command execution result.
@@ -205,5 +282,88 @@ mod tests {
         let deserialized: CostSummary = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.total_cost, 0.0);
         assert!(deserialized.by_vm.is_empty());
+    }
+
+    #[test]
+    fn test_vm_image_default() {
+        let img = VmImage::default();
+        assert_eq!(img.publisher, "Canonical");
+        assert_eq!(img.offer, "ubuntu-24_04-lts");
+        assert_eq!(img.sku, "server");
+        assert_eq!(img.version, "latest");
+    }
+
+    #[test]
+    fn test_vm_image_display() {
+        let img = VmImage::default();
+        assert_eq!(img.to_string(), "Canonical:ubuntu-24_04-lts:server:latest");
+    }
+
+    #[test]
+    fn test_create_vm_params_validate_empty_name() {
+        let params = CreateVmParams {
+            name: "".into(),
+            resource_group: "test-rg".into(),
+            region: "westus2".into(),
+            vm_size: "Standard_D2s_v3".into(),
+            admin_username: "azureuser".into(),
+            ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
+            image: VmImage::default(),
+            tags: HashMap::new(),
+        };
+        assert!(params.validate().is_err());
+        assert!(params.validate().unwrap_err().contains("name"));
+    }
+
+    #[test]
+    fn test_create_vm_params_validate_long_name() {
+        let params = CreateVmParams {
+            name: "a".repeat(65),
+            resource_group: "test-rg".into(),
+            region: "westus2".into(),
+            vm_size: "Standard_D2s_v3".into(),
+            admin_username: "azureuser".into(),
+            ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
+            image: VmImage::default(),
+            tags: HashMap::new(),
+        };
+        assert!(params.validate().is_err());
+        assert!(params.validate().unwrap_err().contains("64 characters"));
+    }
+
+    #[test]
+    fn test_create_vm_params_serialization() {
+        let params = CreateVmParams {
+            name: "test-vm".into(),
+            resource_group: "test-rg".into(),
+            region: "westus2".into(),
+            vm_size: "Standard_D2s_v3".into(),
+            admin_username: "azureuser".into(),
+            ssh_key_path: PathBuf::from("/home/user/.ssh/id_rsa.pub"),
+            image: VmImage::default(),
+            tags: HashMap::from([("env".into(), "dev".into())]),
+        };
+        let json = serde_json::to_string(&params).unwrap();
+        let deserialized: CreateVmParams = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.name, "test-vm");
+        assert_eq!(deserialized.region, "westus2");
+        assert_eq!(deserialized.image, VmImage::default());
+        assert_eq!(deserialized.tags.get("env").unwrap(), "dev");
+    }
+
+    #[test]
+    fn test_create_vm_params_validate_missing_ssh_key() {
+        let params = CreateVmParams {
+            name: "test-vm".into(),
+            resource_group: "test-rg".into(),
+            region: "westus2".into(),
+            vm_size: "Standard_D2s_v3".into(),
+            admin_username: "azureuser".into(),
+            ssh_key_path: PathBuf::from("/tmp/nonexistent_key_abc123.pub"),
+            image: VmImage::default(),
+            tags: HashMap::new(),
+        };
+        let err = params.validate().unwrap_err();
+        assert!(err.contains("SSH public key not found"));
     }
 }
