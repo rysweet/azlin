@@ -2025,7 +2025,14 @@ mod tests {
 
     #[test]
     fn test_new_command() {
-        let cli = Cli::parse_from(["azlin", "new", "--name", "my-vm", "--vm-size", "Standard_D2s_v3"]);
+        let cli = Cli::parse_from([
+            "azlin",
+            "new",
+            "--name",
+            "my-vm",
+            "--vm-size",
+            "Standard_D2s_v3",
+        ]);
         if let Commands::New { name, vm_size, .. } = cli.command {
             assert_eq!(name, Some("my-vm".to_string()));
             assert_eq!(vm_size, Some("Standard_D2s_v3".to_string()));
@@ -2037,7 +2044,12 @@ mod tests {
     #[test]
     fn test_clone_command() {
         let cli = Cli::parse_from(["azlin", "clone", "source-vm", "--num-replicas", "3"]);
-        if let Commands::Clone { source_vm, num_replicas, .. } = cli.command {
+        if let Commands::Clone {
+            source_vm,
+            num_replicas,
+            ..
+        } = cli.command
+        {
             assert_eq!(source_vm, "source-vm");
             assert_eq!(num_replicas, 3);
         } else {
@@ -2058,7 +2070,12 @@ mod tests {
     #[test]
     fn test_stop_command() {
         let cli = Cli::parse_from(["azlin", "stop", "my-vm"]);
-        if let Commands::Stop { vm_name, deallocate, .. } = cli.command {
+        if let Commands::Stop {
+            vm_name,
+            deallocate,
+            ..
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
             assert!(deallocate);
         } else {
@@ -2069,7 +2086,12 @@ mod tests {
     #[test]
     fn test_connect_command() {
         let cli = Cli::parse_from(["azlin", "connect", "my-vm", "--no-tmux"]);
-        if let Commands::Connect { vm_identifier, no_tmux, .. } = cli.command {
+        if let Commands::Connect {
+            vm_identifier,
+            no_tmux,
+            ..
+        } = cli.command
+        {
             assert_eq!(vm_identifier, Some("my-vm".to_string()));
             assert!(no_tmux);
         } else {
@@ -2091,7 +2113,10 @@ mod tests {
     #[test]
     fn test_destroy_with_dry_run() {
         let cli = Cli::parse_from(["azlin", "destroy", "my-vm", "--dry-run"]);
-        if let Commands::Destroy { vm_name, dry_run, .. } = cli.command {
+        if let Commands::Destroy {
+            vm_name, dry_run, ..
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
             assert!(dry_run);
         } else {
@@ -2113,7 +2138,15 @@ mod tests {
     #[test]
     fn test_env_set() {
         let cli = Cli::parse_from(["azlin", "env", "set", "my-vm", "KEY=VALUE"]);
-        if let Commands::Env { action: EnvAction::Set { vm_identifier, env_var, .. } } = cli.command {
+        if let Commands::Env {
+            action:
+                EnvAction::Set {
+                    vm_identifier,
+                    env_var,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(vm_identifier, "my-vm");
             assert_eq!(env_var, "KEY=VALUE");
         } else {
@@ -2124,7 +2157,15 @@ mod tests {
     #[test]
     fn test_env_list() {
         let cli = Cli::parse_from(["azlin", "env", "list", "my-vm", "--show-values"]);
-        if let Commands::Env { action: EnvAction::List { vm_identifier, show_values, .. } } = cli.command {
+        if let Commands::Env {
+            action:
+                EnvAction::List {
+                    vm_identifier,
+                    show_values,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(vm_identifier, "my-vm");
             assert!(show_values);
         } else {
@@ -2135,7 +2176,10 @@ mod tests {
     #[test]
     fn test_snapshot_create() {
         let cli = Cli::parse_from(["azlin", "snapshot", "create", "my-vm"]);
-        if let Commands::Snapshot { action: SnapshotAction::Create { vm_name, .. } } = cli.command {
+        if let Commands::Snapshot {
+            action: SnapshotAction::Create { vm_name, .. },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
         } else {
             panic!("Expected Snapshot Create");
@@ -2144,8 +2188,19 @@ mod tests {
 
     #[test]
     fn test_snapshot_restore() {
-        let cli = Cli::parse_from(["azlin", "snapshot", "restore", "my-vm", "snap-001", "--force"]);
-        if let Commands::Snapshot { action: SnapshotAction::Restore { vm_name, snapshot_name, force, .. } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin", "snapshot", "restore", "my-vm", "snap-001", "--force",
+        ]);
+        if let Commands::Snapshot {
+            action:
+                SnapshotAction::Restore {
+                    vm_name,
+                    snapshot_name,
+                    force,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
             assert_eq!(snapshot_name, "snap-001");
             assert!(force);
@@ -2157,7 +2212,10 @@ mod tests {
     #[test]
     fn test_storage_create() {
         let cli = Cli::parse_from(["azlin", "storage", "create", "team-shared", "--size", "200"]);
-        if let Commands::Storage { action: StorageAction::Create { name, size, .. } } = cli.command {
+        if let Commands::Storage {
+            action: StorageAction::Create { name, size, .. },
+        } = cli.command
+        {
             assert_eq!(name, "team-shared");
             assert_eq!(size, 200);
         } else {
@@ -2168,7 +2226,10 @@ mod tests {
     #[test]
     fn test_keys_rotate() {
         let cli = Cli::parse_from(["azlin", "keys", "rotate", "--all-vms"]);
-        if let Commands::Keys { action: KeysAction::Rotate { all_vms, .. } } = cli.command {
+        if let Commands::Keys {
+            action: KeysAction::Rotate { all_vms, .. },
+        } = cli.command
+        {
             assert!(all_vms);
         } else {
             panic!("Expected Keys Rotate");
@@ -2178,7 +2239,10 @@ mod tests {
     #[test]
     fn test_auth_setup() {
         let cli = Cli::parse_from(["azlin", "auth", "setup", "--profile", "prod"]);
-        if let Commands::Auth { action: AuthAction::Setup { profile, .. } } = cli.command {
+        if let Commands::Auth {
+            action: AuthAction::Setup { profile, .. },
+        } = cli.command
+        {
             assert_eq!(profile, "prod");
         } else {
             panic!("Expected Auth Setup");
@@ -2188,7 +2252,10 @@ mod tests {
     #[test]
     fn test_auth_remove() {
         let cli = Cli::parse_from(["azlin", "auth", "remove", "staging", "--yes"]);
-        if let Commands::Auth { action: AuthAction::Remove { profile, yes } } = cli.command {
+        if let Commands::Auth {
+            action: AuthAction::Remove { profile, yes },
+        } = cli.command
+        {
             assert_eq!(profile, "staging");
             assert!(yes);
         } else {
@@ -2210,7 +2277,10 @@ mod tests {
     #[test]
     fn test_sync_command() {
         let cli = Cli::parse_from(["azlin", "sync", "--vm-name", "myvm", "--dry-run"]);
-        if let Commands::Sync { vm_name, dry_run, .. } = cli.command {
+        if let Commands::Sync {
+            vm_name, dry_run, ..
+        } = cli.command
+        {
             assert_eq!(vm_name, Some("myvm".to_string()));
             assert!(dry_run);
         } else {
@@ -2241,7 +2311,13 @@ mod tests {
     #[test]
     fn test_logs_command() {
         let cli = Cli::parse_from(["azlin", "logs", "my-vm", "-n", "100", "--follow"]);
-        if let Commands::Logs { vm_identifier, lines, follow, .. } = cli.command {
+        if let Commands::Logs {
+            vm_identifier,
+            lines,
+            follow,
+            ..
+        } = cli.command
+        {
             assert_eq!(vm_identifier, "my-vm");
             assert_eq!(lines, 100);
             assert!(follow);
@@ -2263,7 +2339,10 @@ mod tests {
     #[test]
     fn test_cost_command() {
         let cli = Cli::parse_from(["azlin", "cost", "--by-vm", "--estimate"]);
-        if let Commands::Cost { by_vm, estimate, .. } = cli.command {
+        if let Commands::Cost {
+            by_vm, estimate, ..
+        } = cli.command
+        {
             assert!(by_vm);
             assert!(estimate);
         } else {
@@ -2284,7 +2363,10 @@ mod tests {
     #[test]
     fn test_do_command() {
         let cli = Cli::parse_from(["azlin", "do", "create a new vm called Sam", "--dry-run"]);
-        if let Commands::Do { request, dry_run, .. } = cli.command {
+        if let Commands::Do {
+            request, dry_run, ..
+        } = cli.command
+        {
             assert_eq!(request, "create a new vm called Sam");
             assert!(dry_run);
         } else {
@@ -2294,8 +2376,19 @@ mod tests {
 
     #[test]
     fn test_doit_deploy() {
-        let cli = Cli::parse_from(["azlin", "doit", "deploy", "Give me App Service", "--dry-run"]);
-        if let Commands::Doit { action: DoitAction::Deploy { request, dry_run, .. } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "doit",
+            "deploy",
+            "Give me App Service",
+            "--dry-run",
+        ]);
+        if let Commands::Doit {
+            action: DoitAction::Deploy {
+                request, dry_run, ..
+            },
+        } = cli.command
+        {
             assert_eq!(request, "Give me App Service");
             assert!(dry_run);
         } else {
@@ -2305,8 +2398,24 @@ mod tests {
 
     #[test]
     fn test_batch_command() {
-        let cli = Cli::parse_from(["azlin", "batch", "command", "uptime", "--all", "--show-output"]);
-        if let Commands::Batch { action: BatchAction::Command { command, all, show_output, .. } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "batch",
+            "command",
+            "uptime",
+            "--all",
+            "--show-output",
+        ]);
+        if let Commands::Batch {
+            action:
+                BatchAction::Command {
+                    command,
+                    all,
+                    show_output,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(command, "uptime");
             assert!(all);
             assert!(show_output);
@@ -2318,7 +2427,16 @@ mod tests {
     #[test]
     fn test_fleet_run() {
         let cli = Cli::parse_from(["azlin", "fleet", "run", "apt update", "--all", "--dry-run"]);
-        if let Commands::Fleet { action: FleetAction::Run { command, all, dry_run, .. } } = cli.command {
+        if let Commands::Fleet {
+            action:
+                FleetAction::Run {
+                    command,
+                    all,
+                    dry_run,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(command, "apt update");
             assert!(all);
             assert!(dry_run);
@@ -2330,13 +2448,29 @@ mod tests {
     #[test]
     fn test_compose_up() {
         let cli = Cli::parse_from(["azlin", "compose", "up"]);
-        assert!(matches!(cli.command, Commands::Compose { action: ComposeAction::Up { .. } }));
+        assert!(matches!(
+            cli.command,
+            Commands::Compose {
+                action: ComposeAction::Up { .. }
+            }
+        ));
     }
 
     #[test]
     fn test_github_runner_enable() {
-        let cli = Cli::parse_from(["azlin", "github-runner", "enable", "--repo", "owner/repo", "--count", "3"]);
-        if let Commands::GithubRunner { action: GithubRunnerAction::Enable { repo, count, .. } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "github-runner",
+            "enable",
+            "--repo",
+            "owner/repo",
+            "--count",
+            "3",
+        ]);
+        if let Commands::GithubRunner {
+            action: GithubRunnerAction::Enable { repo, count, .. },
+        } = cli.command
+        {
             assert_eq!(repo, Some("owner/repo".to_string()));
             assert_eq!(count, 3);
         } else {
@@ -2346,8 +2480,18 @@ mod tests {
 
     #[test]
     fn test_template_create() {
-        let cli = Cli::parse_from(["azlin", "template", "create", "dev-template", "--vm-size", "Standard_D4s_v3"]);
-        if let Commands::Template { action: TemplateAction::Create { name, vm_size, .. } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "template",
+            "create",
+            "dev-template",
+            "--vm-size",
+            "Standard_D4s_v3",
+        ]);
+        if let Commands::Template {
+            action: TemplateAction::Create { name, vm_size, .. },
+        } = cli.command
+        {
             assert_eq!(name, "dev-template");
             assert_eq!(vm_size, Some("Standard_D4s_v3".to_string()));
         } else {
@@ -2358,7 +2502,10 @@ mod tests {
     #[test]
     fn test_autopilot_enable() {
         let cli = Cli::parse_from(["azlin", "autopilot", "enable", "--budget", "500"]);
-        if let Commands::Autopilot { action: AutopilotAction::Enable { budget, .. } } = cli.command {
+        if let Commands::Autopilot {
+            action: AutopilotAction::Enable { budget, .. },
+        } = cli.command
+        {
             assert_eq!(budget, Some(500));
         } else {
             panic!("Expected Autopilot Enable");
@@ -2368,7 +2515,10 @@ mod tests {
     #[test]
     fn test_context_create() {
         let cli = Cli::parse_from(["azlin", "context", "create", "prod", "--region", "eastus"]);
-        if let Commands::Context { action: ContextAction::Create { name, region, .. } } = cli.command {
+        if let Commands::Context {
+            action: ContextAction::Create { name, region, .. },
+        } = cli.command
+        {
             assert_eq!(name, "prod");
             assert_eq!(region, Some("eastus".to_string()));
         } else {
@@ -2379,7 +2529,10 @@ mod tests {
     #[test]
     fn test_disk_add() {
         let cli = Cli::parse_from(["azlin", "disk", "add", "my-vm", "--size", "128"]);
-        if let Commands::Disk { action: DiskAction::Add { vm_name, size, .. } } = cli.command {
+        if let Commands::Disk {
+            action: DiskAction::Add { vm_name, size, .. },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
             assert_eq!(size, 128);
         } else {
@@ -2390,7 +2543,10 @@ mod tests {
     #[test]
     fn test_web_start() {
         let cli = Cli::parse_from(["azlin", "web", "start", "--port", "8080"]);
-        if let Commands::Web { action: WebAction::Start { port, .. } } = cli.command {
+        if let Commands::Web {
+            action: WebAction::Start { port, .. },
+        } = cli.command
+        {
             assert_eq!(port, 8080);
         } else {
             panic!("Expected Web Start");
@@ -2400,7 +2556,12 @@ mod tests {
     #[test]
     fn test_os_update() {
         let cli = Cli::parse_from(["azlin", "os-update", "my-vm", "--timeout", "600"]);
-        if let Commands::OsUpdate { vm_identifier, timeout, .. } = cli.command {
+        if let Commands::OsUpdate {
+            vm_identifier,
+            timeout,
+            ..
+        } = cli.command
+        {
             assert_eq!(vm_identifier, "my-vm");
             assert_eq!(timeout, 600);
         } else {
@@ -2421,7 +2582,10 @@ mod tests {
     #[test]
     fn test_sessions_save() {
         let cli = Cli::parse_from(["azlin", "sessions", "save", "my-session"]);
-        if let Commands::Sessions { action: SessionsAction::Save { session_name, .. } } = cli.command {
+        if let Commands::Sessions {
+            action: SessionsAction::Save { session_name, .. },
+        } = cli.command
+        {
             assert_eq!(session_name, "my-session");
         } else {
             panic!("Expected Sessions Save");
@@ -2431,7 +2595,10 @@ mod tests {
     #[test]
     fn test_tag_add() {
         let cli = Cli::parse_from(["azlin", "tag", "add", "my-vm", "env=dev", "team=backend"]);
-        if let Commands::Tag { action: TagAction::Add { vm_name, tags, .. } } = cli.command {
+        if let Commands::Tag {
+            action: TagAction::Add { vm_name, tags, .. },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
             assert_eq!(tags, vec!["env=dev", "team=backend"]);
         } else {
@@ -2442,7 +2609,10 @@ mod tests {
     #[test]
     fn test_costs_dashboard() {
         let cli = Cli::parse_from(["azlin", "costs", "dashboard", "--resource-group", "my-rg"]);
-        if let Commands::Costs { action: CostsAction::Dashboard { resource_group, .. } } = cli.command {
+        if let Commands::Costs {
+            action: CostsAction::Dashboard { resource_group, .. },
+        } = cli.command
+        {
             assert_eq!(resource_group, "my-rg");
         } else {
             panic!("Expected Costs Dashboard");
@@ -2452,7 +2622,10 @@ mod tests {
     #[test]
     fn test_ip_check() {
         let cli = Cli::parse_from(["azlin", "ip", "check", "--all", "--port", "443"]);
-        if let Commands::Ip { action: IpAction::Check { all, port, .. } } = cli.command {
+        if let Commands::Ip {
+            action: IpAction::Check { all, port, .. },
+        } = cli.command
+        {
             assert!(all);
             assert_eq!(port, 443);
         } else {
@@ -2477,7 +2650,10 @@ mod tests {
     #[test]
     fn test_cleanup_command() {
         let cli = Cli::parse_from(["azlin", "cleanup", "--dry-run", "--age-days", "7"]);
-        if let Commands::Cleanup { dry_run, age_days, .. } = cli.command {
+        if let Commands::Cleanup {
+            dry_run, age_days, ..
+        } = cli.command
+        {
             assert!(dry_run);
             assert_eq!(age_days, 7);
         } else {
@@ -2498,7 +2674,12 @@ mod tests {
     #[test]
     fn test_session_command() {
         let cli = Cli::parse_from(["azlin", "session", "vm-123", "my-project"]);
-        if let Commands::Session { vm_name, session_name, .. } = cli.command {
+        if let Commands::Session {
+            vm_name,
+            session_name,
+            ..
+        } = cli.command
+        {
             assert_eq!(vm_name, "vm-123");
             assert_eq!(session_name, Some("my-project".to_string()));
         } else {
@@ -2535,13 +2716,21 @@ mod tests {
     #[test]
     fn test_bastion_list() {
         let cli = Cli::parse_from(["azlin", "bastion", "list"]);
-        assert!(matches!(cli.command, Commands::Bastion { action: BastionAction::List { .. } }));
+        assert!(matches!(
+            cli.command,
+            Commands::Bastion {
+                action: BastionAction::List { .. }
+            }
+        ));
     }
 
     #[test]
     fn test_bastion_list_with_rg() {
         let cli = Cli::parse_from(["azlin", "bastion", "list", "--resource-group", "my-rg"]);
-        if let Commands::Bastion { action: BastionAction::List { resource_group } } = cli.command {
+        if let Commands::Bastion {
+            action: BastionAction::List { resource_group },
+        } = cli.command
+        {
             assert_eq!(resource_group, Some("my-rg".to_string()));
         } else {
             panic!("Expected Bastion List command");
@@ -2550,8 +2739,22 @@ mod tests {
 
     #[test]
     fn test_bastion_status() {
-        let cli = Cli::parse_from(["azlin", "bastion", "status", "my-bastion", "--resource-group", "my-rg"]);
-        if let Commands::Bastion { action: BastionAction::Status { name, resource_group } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "bastion",
+            "status",
+            "my-bastion",
+            "--resource-group",
+            "my-rg",
+        ]);
+        if let Commands::Bastion {
+            action:
+                BastionAction::Status {
+                    name,
+                    resource_group,
+                },
+        } = cli.command
+        {
             assert_eq!(name, "my-bastion");
             assert_eq!(resource_group, "my-rg");
         } else {
@@ -2562,11 +2765,26 @@ mod tests {
     #[test]
     fn test_bastion_configure() {
         let cli = Cli::parse_from([
-            "azlin", "bastion", "configure", "my-vm",
-            "--bastion-name", "my-bastion",
-            "--resource-group", "my-rg",
+            "azlin",
+            "bastion",
+            "configure",
+            "my-vm",
+            "--bastion-name",
+            "my-bastion",
+            "--resource-group",
+            "my-rg",
         ]);
-        if let Commands::Bastion { action: BastionAction::Configure { vm_name, bastion_name, resource_group, disable, .. } } = cli.command {
+        if let Commands::Bastion {
+            action:
+                BastionAction::Configure {
+                    vm_name,
+                    bastion_name,
+                    resource_group,
+                    disable,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
             assert_eq!(bastion_name, "my-bastion");
             assert_eq!(resource_group, Some("my-rg".to_string()));
@@ -2579,12 +2797,20 @@ mod tests {
     #[test]
     fn test_bastion_configure_disable() {
         let cli = Cli::parse_from([
-            "azlin", "bastion", "configure", "my-vm",
-            "--bastion-name", "my-bastion",
-            "--resource-group", "my-rg",
+            "azlin",
+            "bastion",
+            "configure",
+            "my-vm",
+            "--bastion-name",
+            "my-bastion",
+            "--resource-group",
+            "my-rg",
             "--disable",
         ]);
-        if let Commands::Bastion { action: BastionAction::Configure { disable, .. } } = cli.command {
+        if let Commands::Bastion {
+            action: BastionAction::Configure { disable, .. },
+        } = cli.command
+        {
             assert!(disable);
         } else {
             panic!("Expected Bastion Configure command");
@@ -2672,19 +2898,44 @@ mod tests {
     #[test]
     fn test_compose_down() {
         let cli = Cli::parse_from(["azlin", "compose", "down"]);
-        assert!(matches!(cli.command, Commands::Compose { action: ComposeAction::Down { .. } }));
+        assert!(matches!(
+            cli.command,
+            Commands::Compose {
+                action: ComposeAction::Down { .. }
+            }
+        ));
     }
 
     #[test]
     fn test_compose_ps() {
         let cli = Cli::parse_from(["azlin", "compose", "ps"]);
-        assert!(matches!(cli.command, Commands::Compose { action: ComposeAction::Ps { .. } }));
+        assert!(matches!(
+            cli.command,
+            Commands::Compose {
+                action: ComposeAction::Ps { .. }
+            }
+        ));
     }
 
     #[test]
     fn test_compose_up_with_file() {
-        let cli = Cli::parse_from(["azlin", "compose", "up", "-f", "docker-compose.yml", "--resource-group", "rg1"]);
-        if let Commands::Compose { action: ComposeAction::Up { file, resource_group } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "compose",
+            "up",
+            "-f",
+            "docker-compose.yml",
+            "--resource-group",
+            "rg1",
+        ]);
+        if let Commands::Compose {
+            action:
+                ComposeAction::Up {
+                    file,
+                    resource_group,
+                },
+        } = cli.command
+        {
             assert_eq!(file, Some(PathBuf::from("docker-compose.yml")));
             assert_eq!(resource_group, Some("rg1".to_string()));
         } else {
@@ -2695,15 +2946,35 @@ mod tests {
     #[test]
     fn test_fleet_run_with_all_options() {
         let cli = Cli::parse_from([
-            "azlin", "fleet", "run", "uptime",
-            "--resource-group", "rg1",
-            "--tag", "env=dev",
-            "--parallel", "5",
+            "azlin",
+            "fleet",
+            "run",
+            "uptime",
+            "--resource-group",
+            "rg1",
+            "--tag",
+            "env=dev",
+            "--parallel",
+            "5",
             "--smart-route",
             "--retry-failed",
-            "--timeout", "60",
+            "--timeout",
+            "60",
         ]);
-        if let Commands::Fleet { action: FleetAction::Run { command, resource_group, tag, parallel, smart_route, retry_failed, timeout, .. } } = cli.command {
+        if let Commands::Fleet {
+            action:
+                FleetAction::Run {
+                    command,
+                    resource_group,
+                    tag,
+                    parallel,
+                    smart_route,
+                    retry_failed,
+                    timeout,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(command, "uptime");
             assert_eq!(resource_group, Some("rg1".to_string()));
             assert_eq!(tag, Some("env=dev".to_string()));
@@ -2719,7 +2990,12 @@ mod tests {
     #[test]
     fn test_fleet_workflow() {
         let cli = Cli::parse_from(["azlin", "fleet", "workflow", "workflow.yml", "--all"]);
-        if let Commands::Fleet { action: FleetAction::Workflow { workflow_file, all, .. } } = cli.command {
+        if let Commands::Fleet {
+            action: FleetAction::Workflow {
+                workflow_file, all, ..
+            },
+        } = cli.command
+        {
             assert_eq!(workflow_file, PathBuf::from("workflow.yml"));
             assert!(all);
         } else {
@@ -2729,8 +3005,13 @@ mod tests {
 
     #[test]
     fn test_disk_add_with_lun() {
-        let cli = Cli::parse_from(["azlin", "disk", "add", "my-vm", "--size", "128", "--lun", "2"]);
-        if let Commands::Disk { action: DiskAction::Add { lun, sku, .. } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin", "disk", "add", "my-vm", "--size", "128", "--lun", "2",
+        ]);
+        if let Commands::Disk {
+            action: DiskAction::Add { lun, sku, .. },
+        } = cli.command
+        {
             assert_eq!(lun, Some(2));
             assert_eq!(sku, "Premium_LRS");
         } else {
@@ -2741,7 +3022,16 @@ mod tests {
     #[test]
     fn test_ip_check_single_vm() {
         let cli = Cli::parse_from(["azlin", "ip", "check", "my-vm"]);
-        if let Commands::Ip { action: IpAction::Check { vm_identifier, all, port, .. } } = cli.command {
+        if let Commands::Ip {
+            action:
+                IpAction::Check {
+                    vm_identifier,
+                    all,
+                    port,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(vm_identifier, Some("my-vm".to_string()));
             assert!(!all);
             assert_eq!(port, 22);
@@ -2753,7 +3043,10 @@ mod tests {
     #[test]
     fn test_github_runner_disable() {
         let cli = Cli::parse_from(["azlin", "github-runner", "disable", "--keep-vms"]);
-        if let Commands::GithubRunner { action: GithubRunnerAction::Disable { keep_vms, pool } } = cli.command {
+        if let Commands::GithubRunner {
+            action: GithubRunnerAction::Disable { keep_vms, pool },
+        } = cli.command
+        {
             assert!(keep_vms);
             assert_eq!(pool, "default");
         } else {
@@ -2764,7 +3057,10 @@ mod tests {
     #[test]
     fn test_github_runner_status() {
         let cli = Cli::parse_from(["azlin", "github-runner", "status"]);
-        if let Commands::GithubRunner { action: GithubRunnerAction::Status { pool } } = cli.command {
+        if let Commands::GithubRunner {
+            action: GithubRunnerAction::Status { pool },
+        } = cli.command
+        {
             assert_eq!(pool, "default");
         } else {
             panic!("Expected GithubRunner Status");
@@ -2773,8 +3069,19 @@ mod tests {
 
     #[test]
     fn test_github_runner_scale() {
-        let cli = Cli::parse_from(["azlin", "github-runner", "scale", "--pool", "ci", "--count", "5"]);
-        if let Commands::GithubRunner { action: GithubRunnerAction::Scale { pool, count } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "github-runner",
+            "scale",
+            "--pool",
+            "ci",
+            "--count",
+            "5",
+        ]);
+        if let Commands::GithubRunner {
+            action: GithubRunnerAction::Scale { pool, count },
+        } = cli.command
+        {
             assert_eq!(pool, "ci");
             assert_eq!(count, 5);
         } else {
@@ -2785,7 +3092,10 @@ mod tests {
     #[test]
     fn test_autopilot_disable() {
         let cli = Cli::parse_from(["azlin", "autopilot", "disable", "--keep-config"]);
-        if let Commands::Autopilot { action: AutopilotAction::Disable { keep_config } } = cli.command {
+        if let Commands::Autopilot {
+            action: AutopilotAction::Disable { keep_config },
+        } = cli.command
+        {
             assert!(keep_config);
         } else {
             panic!("Expected Autopilot Disable");
@@ -2795,13 +3105,21 @@ mod tests {
     #[test]
     fn test_autopilot_status() {
         let cli = Cli::parse_from(["azlin", "autopilot", "status"]);
-        assert!(matches!(cli.command, Commands::Autopilot { action: AutopilotAction::Status }));
+        assert!(matches!(
+            cli.command,
+            Commands::Autopilot {
+                action: AutopilotAction::Status
+            }
+        ));
     }
 
     #[test]
     fn test_autopilot_run() {
         let cli = Cli::parse_from(["azlin", "autopilot", "run", "--dry-run"]);
-        if let Commands::Autopilot { action: AutopilotAction::Run { dry_run } } = cli.command {
+        if let Commands::Autopilot {
+            action: AutopilotAction::Run { dry_run },
+        } = cli.command
+        {
             assert!(dry_run);
         } else {
             panic!("Expected Autopilot Run");
@@ -2811,13 +3129,21 @@ mod tests {
     #[test]
     fn test_context_list() {
         let cli = Cli::parse_from(["azlin", "context", "list"]);
-        assert!(matches!(cli.command, Commands::Context { action: ContextAction::List { .. } }));
+        assert!(matches!(
+            cli.command,
+            Commands::Context {
+                action: ContextAction::List { .. }
+            }
+        ));
     }
 
     #[test]
     fn test_context_use() {
         let cli = Cli::parse_from(["azlin", "context", "use", "prod"]);
-        if let Commands::Context { action: ContextAction::Use { name, .. } } = cli.command {
+        if let Commands::Context {
+            action: ContextAction::Use { name, .. },
+        } = cli.command
+        {
             assert_eq!(name, "prod");
         } else {
             panic!("Expected Context Use");
@@ -2827,7 +3153,10 @@ mod tests {
     #[test]
     fn test_context_delete() {
         let cli = Cli::parse_from(["azlin", "context", "delete", "old-ctx", "--force"]);
-        if let Commands::Context { action: ContextAction::Delete { name, force, .. } } = cli.command {
+        if let Commands::Context {
+            action: ContextAction::Delete { name, force, .. },
+        } = cli.command
+        {
             assert_eq!(name, "old-ctx");
             assert!(force);
         } else {
@@ -2838,7 +3167,12 @@ mod tests {
     #[test]
     fn test_context_rename() {
         let cli = Cli::parse_from(["azlin", "context", "rename", "old", "new"]);
-        if let Commands::Context { action: ContextAction::Rename { old_name, new_name, .. } } = cli.command {
+        if let Commands::Context {
+            action: ContextAction::Rename {
+                old_name, new_name, ..
+            },
+        } = cli.command
+        {
             assert_eq!(old_name, "old");
             assert_eq!(new_name, "new");
         } else {
@@ -2849,13 +3183,21 @@ mod tests {
     #[test]
     fn test_template_list() {
         let cli = Cli::parse_from(["azlin", "template", "list"]);
-        assert!(matches!(cli.command, Commands::Template { action: TemplateAction::List }));
+        assert!(matches!(
+            cli.command,
+            Commands::Template {
+                action: TemplateAction::List
+            }
+        ));
     }
 
     #[test]
     fn test_template_delete() {
         let cli = Cli::parse_from(["azlin", "template", "delete", "old-tpl", "--force"]);
-        if let Commands::Template { action: TemplateAction::Delete { name, force } } = cli.command {
+        if let Commands::Template {
+            action: TemplateAction::Delete { name, force },
+        } = cli.command
+        {
             assert_eq!(name, "old-tpl");
             assert!(force);
         } else {
@@ -2866,7 +3208,10 @@ mod tests {
     #[test]
     fn test_template_export() {
         let cli = Cli::parse_from(["azlin", "template", "export", "tpl", "out.yaml"]);
-        if let Commands::Template { action: TemplateAction::Export { name, output_file } } = cli.command {
+        if let Commands::Template {
+            action: TemplateAction::Export { name, output_file },
+        } = cli.command
+        {
             assert_eq!(name, "tpl");
             assert_eq!(output_file, PathBuf::from("out.yaml"));
         } else {
@@ -2877,7 +3222,10 @@ mod tests {
     #[test]
     fn test_template_import() {
         let cli = Cli::parse_from(["azlin", "template", "import", "in.yaml"]);
-        if let Commands::Template { action: TemplateAction::Import { input_file } } = cli.command {
+        if let Commands::Template {
+            action: TemplateAction::Import { input_file },
+        } = cli.command
+        {
             assert_eq!(input_file, PathBuf::from("in.yaml"));
         } else {
             panic!("Expected Template Import");
@@ -2887,13 +3235,21 @@ mod tests {
     #[test]
     fn test_sessions_list() {
         let cli = Cli::parse_from(["azlin", "sessions", "list"]);
-        assert!(matches!(cli.command, Commands::Sessions { action: SessionsAction::List }));
+        assert!(matches!(
+            cli.command,
+            Commands::Sessions {
+                action: SessionsAction::List
+            }
+        ));
     }
 
     #[test]
     fn test_sessions_load() {
         let cli = Cli::parse_from(["azlin", "sessions", "load", "dev-session"]);
-        if let Commands::Sessions { action: SessionsAction::Load { session_name } } = cli.command {
+        if let Commands::Sessions {
+            action: SessionsAction::Load { session_name },
+        } = cli.command
+        {
             assert_eq!(session_name, "dev-session");
         } else {
             panic!("Expected Sessions Load");
@@ -2902,8 +3258,23 @@ mod tests {
 
     #[test]
     fn test_costs_history() {
-        let cli = Cli::parse_from(["azlin", "costs", "history", "--resource-group", "rg", "--days", "7"]);
-        if let Commands::Costs { action: CostsAction::History { resource_group, days } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "costs",
+            "history",
+            "--resource-group",
+            "rg",
+            "--days",
+            "7",
+        ]);
+        if let Commands::Costs {
+            action:
+                CostsAction::History {
+                    resource_group,
+                    days,
+                },
+        } = cli.command
+        {
             assert_eq!(resource_group, "rg");
             assert_eq!(days, 7);
         } else {
@@ -2913,8 +3284,23 @@ mod tests {
 
     #[test]
     fn test_costs_recommend() {
-        let cli = Cli::parse_from(["azlin", "costs", "recommend", "--resource-group", "rg", "--priority", "high"]);
-        if let Commands::Costs { action: CostsAction::Recommend { resource_group, priority } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "costs",
+            "recommend",
+            "--resource-group",
+            "rg",
+            "--priority",
+            "high",
+        ]);
+        if let Commands::Costs {
+            action:
+                CostsAction::Recommend {
+                    resource_group,
+                    priority,
+                },
+        } = cli.command
+        {
             assert_eq!(resource_group, "rg");
             assert_eq!(priority, Some("high".to_string()));
         } else {
@@ -2925,13 +3311,21 @@ mod tests {
     #[test]
     fn test_config_show() {
         let cli = Cli::parse_from(["azlin", "config", "show"]);
-        assert!(matches!(cli.command, Commands::Config { action: ConfigAction::Show }));
+        assert!(matches!(
+            cli.command,
+            Commands::Config {
+                action: ConfigAction::Show
+            }
+        ));
     }
 
     #[test]
     fn test_config_get() {
         let cli = Cli::parse_from(["azlin", "config", "get", "default_region"]);
-        if let Commands::Config { action: ConfigAction::Get { key } } = cli.command {
+        if let Commands::Config {
+            action: ConfigAction::Get { key },
+        } = cli.command
+        {
             assert_eq!(key, "default_region");
         } else {
             panic!("Expected Config Get");
@@ -2941,7 +3335,10 @@ mod tests {
     #[test]
     fn test_batch_stop() {
         let cli = Cli::parse_from(["azlin", "batch", "stop", "--all", "--confirm"]);
-        if let Commands::Batch { action: BatchAction::Stop { all, confirm, .. } } = cli.command {
+        if let Commands::Batch {
+            action: BatchAction::Stop { all, confirm, .. },
+        } = cli.command
+        {
             assert!(all);
             assert!(confirm);
         } else {
@@ -2952,7 +3349,10 @@ mod tests {
     #[test]
     fn test_batch_start() {
         let cli = Cli::parse_from(["azlin", "batch", "start", "--tag", "env=dev"]);
-        if let Commands::Batch { action: BatchAction::Start { tag, .. } } = cli.command {
+        if let Commands::Batch {
+            action: BatchAction::Start { tag, .. },
+        } = cli.command
+        {
             assert_eq!(tag, Some("env=dev".to_string()));
         } else {
             panic!("Expected Batch Start");
@@ -2962,7 +3362,10 @@ mod tests {
     #[test]
     fn test_batch_sync() {
         let cli = Cli::parse_from(["azlin", "batch", "sync", "--all", "--dry-run"]);
-        if let Commands::Batch { action: BatchAction::Sync { all, dry_run, .. } } = cli.command {
+        if let Commands::Batch {
+            action: BatchAction::Sync { all, dry_run, .. },
+        } = cli.command
+        {
             assert!(all);
             assert!(dry_run);
         } else {
@@ -2973,7 +3376,12 @@ mod tests {
     #[test]
     fn test_env_delete() {
         let cli = Cli::parse_from(["azlin", "env", "delete", "my-vm", "MY_KEY"]);
-        if let Commands::Env { action: EnvAction::Delete { vm_identifier, key, .. } } = cli.command {
+        if let Commands::Env {
+            action: EnvAction::Delete {
+                vm_identifier, key, ..
+            },
+        } = cli.command
+        {
             assert_eq!(vm_identifier, "my-vm");
             assert_eq!(key, "MY_KEY");
         } else {
@@ -2984,7 +3392,15 @@ mod tests {
     #[test]
     fn test_env_clear() {
         let cli = Cli::parse_from(["azlin", "env", "clear", "my-vm", "--force"]);
-        if let Commands::Env { action: EnvAction::Clear { vm_identifier, force, .. } } = cli.command {
+        if let Commands::Env {
+            action:
+                EnvAction::Clear {
+                    vm_identifier,
+                    force,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(vm_identifier, "my-vm");
             assert!(force);
         } else {
@@ -2995,7 +3411,15 @@ mod tests {
     #[test]
     fn test_env_export() {
         let cli = Cli::parse_from(["azlin", "env", "export", "my-vm", "env.out"]);
-        if let Commands::Env { action: EnvAction::Export { vm_identifier, output_file, .. } } = cli.command {
+        if let Commands::Env {
+            action:
+                EnvAction::Export {
+                    vm_identifier,
+                    output_file,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(vm_identifier, "my-vm");
             assert_eq!(output_file, Some("env.out".to_string()));
         } else {
@@ -3006,7 +3430,15 @@ mod tests {
     #[test]
     fn test_env_import() {
         let cli = Cli::parse_from(["azlin", "env", "import", "my-vm", ".env"]);
-        if let Commands::Env { action: EnvAction::Import { vm_identifier, env_file, .. } } = cli.command {
+        if let Commands::Env {
+            action:
+                EnvAction::Import {
+                    vm_identifier,
+                    env_file,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(vm_identifier, "my-vm");
             assert_eq!(env_file, PathBuf::from(".env"));
         } else {
@@ -3017,7 +3449,10 @@ mod tests {
     #[test]
     fn test_snapshot_list() {
         let cli = Cli::parse_from(["azlin", "snapshot", "list", "my-vm"]);
-        if let Commands::Snapshot { action: SnapshotAction::List { vm_name, .. } } = cli.command {
+        if let Commands::Snapshot {
+            action: SnapshotAction::List { vm_name, .. },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
         } else {
             panic!("Expected Snapshot List");
@@ -3027,7 +3462,15 @@ mod tests {
     #[test]
     fn test_snapshot_delete() {
         let cli = Cli::parse_from(["azlin", "snapshot", "delete", "snap-001", "--force"]);
-        if let Commands::Snapshot { action: SnapshotAction::Delete { snapshot_name, force, .. } } = cli.command {
+        if let Commands::Snapshot {
+            action:
+                SnapshotAction::Delete {
+                    snapshot_name,
+                    force,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(snapshot_name, "snap-001");
             assert!(force);
         } else {
@@ -3037,8 +3480,19 @@ mod tests {
 
     #[test]
     fn test_snapshot_enable() {
-        let cli = Cli::parse_from(["azlin", "snapshot", "enable", "my-vm", "--every", "6", "--keep", "3"]);
-        if let Commands::Snapshot { action: SnapshotAction::Enable { vm_name, every, keep, .. } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin", "snapshot", "enable", "my-vm", "--every", "6", "--keep", "3",
+        ]);
+        if let Commands::Snapshot {
+            action:
+                SnapshotAction::Enable {
+                    vm_name,
+                    every,
+                    keep,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
             assert_eq!(every, 6);
             assert_eq!(keep, 3);
@@ -3050,7 +3504,10 @@ mod tests {
     #[test]
     fn test_snapshot_disable() {
         let cli = Cli::parse_from(["azlin", "snapshot", "disable", "my-vm"]);
-        if let Commands::Snapshot { action: SnapshotAction::Disable { vm_name, .. } } = cli.command {
+        if let Commands::Snapshot {
+            action: SnapshotAction::Disable { vm_name, .. },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
         } else {
             panic!("Expected Snapshot Disable");
@@ -3060,13 +3517,23 @@ mod tests {
     #[test]
     fn test_storage_list() {
         let cli = Cli::parse_from(["azlin", "storage", "list"]);
-        assert!(matches!(cli.command, Commands::Storage { action: StorageAction::List { .. } }));
+        assert!(matches!(
+            cli.command,
+            Commands::Storage {
+                action: StorageAction::List { .. }
+            }
+        ));
     }
 
     #[test]
     fn test_storage_mount() {
         let cli = Cli::parse_from(["azlin", "storage", "mount", "mystorage", "--vm", "my-vm"]);
-        if let Commands::Storage { action: StorageAction::Mount { storage_name, vm, .. } } = cli.command {
+        if let Commands::Storage {
+            action: StorageAction::Mount {
+                storage_name, vm, ..
+            },
+        } = cli.command
+        {
             assert_eq!(storage_name, "mystorage");
             assert_eq!(vm, "my-vm");
         } else {
@@ -3077,7 +3544,10 @@ mod tests {
     #[test]
     fn test_storage_delete() {
         let cli = Cli::parse_from(["azlin", "storage", "delete", "old-storage", "--force"]);
-        if let Commands::Storage { action: StorageAction::Delete { name, force, .. } } = cli.command {
+        if let Commands::Storage {
+            action: StorageAction::Delete { name, force, .. },
+        } = cli.command
+        {
             assert_eq!(name, "old-storage");
             assert!(force);
         } else {
@@ -3088,7 +3558,10 @@ mod tests {
     #[test]
     fn test_keys_list() {
         let cli = Cli::parse_from(["azlin", "keys", "list", "--all-vms"]);
-        if let Commands::Keys { action: KeysAction::List { all_vms, .. } } = cli.command {
+        if let Commands::Keys {
+            action: KeysAction::List { all_vms, .. },
+        } = cli.command
+        {
             assert!(all_vms);
         } else {
             panic!("Expected Keys List");
@@ -3100,7 +3573,10 @@ mod tests {
     #[test]
     fn test_keys_backup() {
         let cli = Cli::parse_from(["azlin", "keys", "backup"]);
-        if let Commands::Keys { action: KeysAction::Backup { destination } } = cli.command {
+        if let Commands::Keys {
+            action: KeysAction::Backup { destination },
+        } = cli.command
+        {
             assert!(destination.is_none());
         } else {
             panic!("Expected Keys Backup");
@@ -3110,7 +3586,10 @@ mod tests {
     #[test]
     fn test_auth_test() {
         let cli = Cli::parse_from(["azlin", "auth", "test"]);
-        if let Commands::Auth { action: AuthAction::Test { profile, .. } } = cli.command {
+        if let Commands::Auth {
+            action: AuthAction::Test { profile, .. },
+        } = cli.command
+        {
             assert_eq!(profile, "default");
         } else {
             panic!("Expected Auth Test");
@@ -3120,13 +3599,21 @@ mod tests {
     #[test]
     fn test_auth_list() {
         let cli = Cli::parse_from(["azlin", "auth", "list"]);
-        assert!(matches!(cli.command, Commands::Auth { action: AuthAction::List }));
+        assert!(matches!(
+            cli.command,
+            Commands::Auth {
+                action: AuthAction::List
+            }
+        ));
     }
 
     #[test]
     fn test_auth_show() {
         let cli = Cli::parse_from(["azlin", "auth", "show", "prod"]);
-        if let Commands::Auth { action: AuthAction::Show { profile } } = cli.command {
+        if let Commands::Auth {
+            action: AuthAction::Show { profile },
+        } = cli.command
+        {
             assert_eq!(profile, "prod");
         } else {
             panic!("Expected Auth Show");
@@ -3136,7 +3623,12 @@ mod tests {
     #[test]
     fn test_tag_remove() {
         let cli = Cli::parse_from(["azlin", "tag", "remove", "my-vm", "env", "team"]);
-        if let Commands::Tag { action: TagAction::Remove { vm_name, tag_keys, .. } } = cli.command {
+        if let Commands::Tag {
+            action: TagAction::Remove {
+                vm_name, tag_keys, ..
+            },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
             assert_eq!(tag_keys, vec!["env", "team"]);
         } else {
@@ -3147,7 +3639,10 @@ mod tests {
     #[test]
     fn test_tag_list() {
         let cli = Cli::parse_from(["azlin", "tag", "list", "my-vm"]);
-        if let Commands::Tag { action: TagAction::List { vm_name, .. } } = cli.command {
+        if let Commands::Tag {
+            action: TagAction::List { vm_name, .. },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
         } else {
             panic!("Expected Tag List");
@@ -3157,31 +3652,54 @@ mod tests {
     #[test]
     fn test_web_stop() {
         let cli = Cli::parse_from(["azlin", "web", "stop"]);
-        assert!(matches!(cli.command, Commands::Web { action: WebAction::Stop }));
+        assert!(matches!(
+            cli.command,
+            Commands::Web {
+                action: WebAction::Stop
+            }
+        ));
     }
 
     #[test]
     fn test_doit_status() {
         let cli = Cli::parse_from(["azlin", "doit", "status"]);
-        assert!(matches!(cli.command, Commands::Doit { action: DoitAction::Status { .. } }));
+        assert!(matches!(
+            cli.command,
+            Commands::Doit {
+                action: DoitAction::Status { .. }
+            }
+        ));
     }
 
     #[test]
     fn test_doit_list() {
         let cli = Cli::parse_from(["azlin", "doit", "list"]);
-        assert!(matches!(cli.command, Commands::Doit { action: DoitAction::List { .. } }));
+        assert!(matches!(
+            cli.command,
+            Commands::Doit {
+                action: DoitAction::List { .. }
+            }
+        ));
     }
 
     #[test]
     fn test_doit_examples() {
         let cli = Cli::parse_from(["azlin", "doit", "examples"]);
-        assert!(matches!(cli.command, Commands::Doit { action: DoitAction::Examples }));
+        assert!(matches!(
+            cli.command,
+            Commands::Doit {
+                action: DoitAction::Examples
+            }
+        ));
     }
 
     #[test]
     fn test_doit_cleanup() {
         let cli = Cli::parse_from(["azlin", "doit", "cleanup", "--force", "--dry-run"]);
-        if let Commands::Doit { action: DoitAction::Cleanup { force, dry_run, .. } } = cli.command {
+        if let Commands::Doit {
+            action: DoitAction::Cleanup { force, dry_run, .. },
+        } = cli.command
+        {
             assert!(force);
             assert!(dry_run);
         } else {
@@ -3191,8 +3709,22 @@ mod tests {
 
     #[test]
     fn test_connect_with_user_and_key() {
-        let cli = Cli::parse_from(["azlin", "connect", "my-vm", "--user", "admin", "--key", "/path/to/key"]);
-        if let Commands::Connect { vm_identifier, user, key, .. } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "connect",
+            "my-vm",
+            "--user",
+            "admin",
+            "--key",
+            "/path/to/key",
+        ]);
+        if let Commands::Connect {
+            vm_identifier,
+            user,
+            key,
+            ..
+        } = cli.command
+        {
             assert_eq!(vm_identifier, Some("my-vm".to_string()));
             assert_eq!(user, "admin");
             assert_eq!(key, Some(PathBuf::from("/path/to/key")));
@@ -3204,7 +3736,15 @@ mod tests {
     #[test]
     fn test_connect_defaults() {
         let cli = Cli::parse_from(["azlin", "connect"]);
-        if let Commands::Connect { vm_identifier, user, no_tmux, no_reconnect, max_retries, .. } = cli.command {
+        if let Commands::Connect {
+            vm_identifier,
+            user,
+            no_tmux,
+            no_reconnect,
+            max_retries,
+            ..
+        } = cli.command
+        {
             assert!(vm_identifier.is_none());
             assert_eq!(user, "azureuser");
             assert!(!no_tmux);
@@ -3218,17 +3758,35 @@ mod tests {
     #[test]
     fn test_new_with_all_options() {
         let cli = Cli::parse_from([
-            "azlin", "new",
-            "--name", "test-vm",
-            "--vm-size", "Standard_D4s_v3",
-            "--region", "eastus",
-            "--resource-group", "rg",
-            "--repo", "https://github.com/user/repo",
+            "azlin",
+            "new",
+            "--name",
+            "test-vm",
+            "--vm-size",
+            "Standard_D4s_v3",
+            "--region",
+            "eastus",
+            "--resource-group",
+            "rg",
+            "--repo",
+            "https://github.com/user/repo",
             "--no-auto-connect",
             "--private",
-            "--bastion-name", "mybastion",
+            "--bastion-name",
+            "mybastion",
         ]);
-        if let Commands::New { name, vm_size, region, resource_group, repo, no_auto_connect, private, bastion_name, .. } = cli.command {
+        if let Commands::New {
+            name,
+            vm_size,
+            region,
+            resource_group,
+            repo,
+            no_auto_connect,
+            private,
+            bastion_name,
+            ..
+        } = cli.command
+        {
             assert_eq!(name, Some("test-vm".to_string()));
             assert_eq!(vm_size, Some("Standard_D4s_v3".to_string()));
             assert_eq!(region, Some("eastus".to_string()));
@@ -3245,7 +3803,13 @@ mod tests {
     #[test]
     fn test_destroy_with_delete_rg() {
         let cli = Cli::parse_from(["azlin", "destroy", "my-vm", "--delete-rg", "--force"]);
-        if let Commands::Destroy { vm_name, delete_rg, force, .. } = cli.command {
+        if let Commands::Destroy {
+            vm_name,
+            delete_rg,
+            force,
+            ..
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
             assert!(delete_rg);
             assert!(force);
@@ -3257,15 +3821,27 @@ mod tests {
     #[test]
     fn test_cleanup_with_all_flags() {
         let cli = Cli::parse_from([
-            "azlin", "cleanup",
-            "--age-days", "30",
-            "--idle-days", "14",
+            "azlin",
+            "cleanup",
+            "--age-days",
+            "30",
+            "--idle-days",
+            "14",
             "--dry-run",
             "--force",
             "--include-running",
             "--include-named",
         ]);
-        if let Commands::Cleanup { age_days, idle_days, dry_run, force, include_running, include_named, .. } = cli.command {
+        if let Commands::Cleanup {
+            age_days,
+            idle_days,
+            dry_run,
+            force,
+            include_running,
+            include_named,
+            ..
+        } = cli.command
+        {
             assert_eq!(age_days, 30);
             assert_eq!(idle_days, 14);
             assert!(dry_run);
@@ -3330,13 +3906,21 @@ mod tests {
     #[test]
     fn test_context_show() {
         let cli = Cli::parse_from(["azlin", "context", "show"]);
-        assert!(matches!(cli.command, Commands::Context { action: ContextAction::Show { .. } }));
+        assert!(matches!(
+            cli.command,
+            Commands::Context {
+                action: ContextAction::Show { .. }
+            }
+        ));
     }
 
     #[test]
     fn test_context_migrate() {
         let cli = Cli::parse_from(["azlin", "context", "migrate", "--force"]);
-        if let Commands::Context { action: ContextAction::Migrate { force, .. } } = cli.command {
+        if let Commands::Context {
+            action: ContextAction::Migrate { force, .. },
+        } = cli.command
+        {
             assert!(force);
         } else {
             panic!("Expected Context Migrate");
@@ -3346,7 +3930,10 @@ mod tests {
     #[test]
     fn test_snapshot_status() {
         let cli = Cli::parse_from(["azlin", "snapshot", "status", "my-vm"]);
-        if let Commands::Snapshot { action: SnapshotAction::Status { vm_name, .. } } = cli.command {
+        if let Commands::Snapshot {
+            action: SnapshotAction::Status { vm_name, .. },
+        } = cli.command
+        {
             assert_eq!(vm_name, "my-vm");
         } else {
             panic!("Expected Snapshot Status");
@@ -3356,7 +3943,10 @@ mod tests {
     #[test]
     fn test_snapshot_sync() {
         let cli = Cli::parse_from(["azlin", "snapshot", "sync", "--vm", "my-vm"]);
-        if let Commands::Snapshot { action: SnapshotAction::Sync { vm, .. } } = cli.command {
+        if let Commands::Snapshot {
+            action: SnapshotAction::Sync { vm, .. },
+        } = cli.command
+        {
             assert_eq!(vm, Some("my-vm".to_string()));
         } else {
             panic!("Expected Snapshot Sync");
@@ -3366,7 +3956,10 @@ mod tests {
     #[test]
     fn test_storage_status() {
         let cli = Cli::parse_from(["azlin", "storage", "status", "mystorage"]);
-        if let Commands::Storage { action: StorageAction::Status { name, .. } } = cli.command {
+        if let Commands::Storage {
+            action: StorageAction::Status { name, .. },
+        } = cli.command
+        {
             assert_eq!(name, "mystorage");
         } else {
             panic!("Expected Storage Status");
@@ -3376,7 +3969,10 @@ mod tests {
     #[test]
     fn test_storage_unmount() {
         let cli = Cli::parse_from(["azlin", "storage", "unmount", "--vm", "my-vm"]);
-        if let Commands::Storage { action: StorageAction::Unmount { vm, .. } } = cli.command {
+        if let Commands::Storage {
+            action: StorageAction::Unmount { vm, .. },
+        } = cli.command
+        {
             assert_eq!(vm, "my-vm");
         } else {
             panic!("Expected Storage Unmount");
@@ -3385,8 +3981,26 @@ mod tests {
 
     #[test]
     fn test_costs_budget() {
-        let cli = Cli::parse_from(["azlin", "costs", "budget", "set", "--resource-group", "rg", "--amount", "1000"]);
-        if let Commands::Costs { action: CostsAction::Budget { action, resource_group, amount, .. } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "costs",
+            "budget",
+            "set",
+            "--resource-group",
+            "rg",
+            "--amount",
+            "1000",
+        ]);
+        if let Commands::Costs {
+            action:
+                CostsAction::Budget {
+                    action,
+                    resource_group,
+                    amount,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(action, "set");
             assert_eq!(resource_group, "rg");
             assert_eq!(amount, Some(1000.0));
@@ -3397,8 +4011,25 @@ mod tests {
 
     #[test]
     fn test_costs_actions() {
-        let cli = Cli::parse_from(["azlin", "costs", "actions", "list", "--resource-group", "rg", "--dry-run"]);
-        if let Commands::Costs { action: CostsAction::Actions { action, resource_group, dry_run, .. } } = cli.command {
+        let cli = Cli::parse_from([
+            "azlin",
+            "costs",
+            "actions",
+            "list",
+            "--resource-group",
+            "rg",
+            "--dry-run",
+        ]);
+        if let Commands::Costs {
+            action:
+                CostsAction::Actions {
+                    action,
+                    resource_group,
+                    dry_run,
+                    ..
+                },
+        } = cli.command
+        {
             assert_eq!(action, "list");
             assert_eq!(resource_group, "rg");
             assert!(dry_run);

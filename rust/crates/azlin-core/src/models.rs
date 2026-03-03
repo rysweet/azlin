@@ -223,7 +223,8 @@ mod tests {
 
     #[test]
     fn test_tmux_session_defaults() {
-        let json = r#"{"vm_name":"vm1","session_name":"dev","windows":3,"created_time":"2024-01-01"}"#;
+        let json =
+            r#"{"vm_name":"vm1","session_name":"dev","windows":3,"created_time":"2024-01-01"}"#;
         let session: TmuxSession = serde_json::from_str(json).unwrap();
         assert!(!session.attached);
     }
@@ -455,9 +456,18 @@ mod tests {
             tags: HashMap::new(),
             created_time: None,
         };
-        assert_eq!(make_vm(PowerState::Running).power_state, PowerState::Running);
-        assert_eq!(make_vm(PowerState::Stopped).power_state, PowerState::Stopped);
-        assert_eq!(make_vm(PowerState::Deallocated).power_state, PowerState::Deallocated);
+        assert_eq!(
+            make_vm(PowerState::Running).power_state,
+            PowerState::Running
+        );
+        assert_eq!(
+            make_vm(PowerState::Stopped).power_state,
+            PowerState::Stopped
+        );
+        assert_eq!(
+            make_vm(PowerState::Deallocated).power_state,
+            PowerState::Deallocated
+        );
     }
 
     #[test]
@@ -566,7 +576,10 @@ mod tests {
             sku: "2022-Datacenter".into(),
             version: "latest".into(),
         };
-        assert_eq!(img.to_string(), "MicrosoftWindowsServer:WindowsServer:2022-Datacenter:latest");
+        assert_eq!(
+            img.to_string(),
+            "MicrosoftWindowsServer:WindowsServer:2022-Datacenter:latest"
+        );
     }
 
     #[test]
@@ -615,8 +628,16 @@ mod tests {
             period_start: Utc::now(),
             period_end: Utc::now(),
             by_vm: vec![
-                VmCost { vm_name: "a".into(), cost: 60.0, currency: "USD".into() },
-                VmCost { vm_name: "b".into(), cost: 40.0, currency: "USD".into() },
+                VmCost {
+                    vm_name: "a".into(),
+                    cost: 60.0,
+                    currency: "USD".into(),
+                },
+                VmCost {
+                    vm_name: "b".into(),
+                    cost: 40.0,
+                    currency: "USD".into(),
+                },
             ],
         };
         let sum: f64 = summary.by_vm.iter().map(|v| v.cost).sum();

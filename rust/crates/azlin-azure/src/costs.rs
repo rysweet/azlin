@@ -12,14 +12,10 @@ use crate::AzureAuth;
 ///
 /// Uses the Azure Cost Management API via `azure_mgmt_costmanagement`.
 /// Currently returns stub data while the full SDK integration is completed.
-pub async fn get_cost_summary(
-    auth: &AzureAuth,
-    resource_group: &str,
-) -> Result<CostSummary> {
+pub async fn get_cost_summary(auth: &AzureAuth, resource_group: &str) -> Result<CostSummary> {
     debug!(
         subscription = auth.subscription_id(),
-        resource_group,
-        "Fetching cost summary"
+        resource_group, "Fetching cost summary"
     );
 
     // TODO: Wire up azure_mgmt_costmanagement SDK client once auth adapter
@@ -39,8 +35,8 @@ pub async fn get_cost_summary(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use azlin_core::models::VmCost;
+    use chrono::Utc;
 
     #[test]
     fn test_stub_cost_summary_structure() {
@@ -76,8 +72,16 @@ mod tests {
 
     #[test]
     fn test_cost_summary_multiple_currencies() {
-        let vm1 = VmCost { vm_name: "vm-us".into(), cost: 50.0, currency: "USD".into() };
-        let vm2 = VmCost { vm_name: "vm-eu".into(), cost: 45.0, currency: "EUR".into() };
+        let vm1 = VmCost {
+            vm_name: "vm-us".into(),
+            cost: 50.0,
+            currency: "USD".into(),
+        };
+        let vm2 = VmCost {
+            vm_name: "vm-eu".into(),
+            cost: 45.0,
+            currency: "EUR".into(),
+        };
         // VmCost can hold different currencies per VM
         assert_eq!(vm1.currency, "USD");
         assert_eq!(vm2.currency, "EUR");

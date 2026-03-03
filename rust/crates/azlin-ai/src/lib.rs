@@ -183,7 +183,8 @@ mod tests {
 
     #[test]
     fn test_parse_commands_from_text() {
-        let text = "az vm list --resource-group myRG\naz vm start --name myVM --resource-group myRG\n";
+        let text =
+            "az vm list --resource-group myRG\naz vm start --name myVM --resource-group myRG\n";
         let commands: Vec<String> = text
             .lines()
             .map(|l| l.trim().to_string())

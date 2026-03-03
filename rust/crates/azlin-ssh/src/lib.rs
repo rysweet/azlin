@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use azlin_core::models::CommandResult;
 use azlin_core::{AzlinError, Result};
-use async_trait::async_trait;
 use russh::client::{self, Handle};
 use russh::ChannelMsg;
 use russh_keys::load_secret_key;
@@ -77,9 +77,10 @@ impl SshClient {
         let key = load_secret_key(&config.key_path, None)
             .map_err(|e| AzlinError::SshKey(format!("failed to load key: {e}")))?;
 
-        let mut russh_config = client::Config::default();
-        russh_config.inactivity_timeout = Some(config.timeout);
-        let russh_config = Arc::new(russh_config);
+        let russh_config = Arc::new(client::Config {
+            inactivity_timeout: Some(config.timeout),
+            ..Default::default()
+        });
 
         let addr = (config.host.as_str(), config.port);
         let mut handle = tokio::time::timeout(
@@ -161,10 +162,7 @@ impl SshClient {
             .await
             .map_err(|e| AzlinError::FileTransfer(format!("channel open: {e}")))?;
 
-        let cmd = format!(
-            "cat > {}",
-            shell_escape::unix::escape(remote_path.into())
-        );
+        let cmd = format!("cat > {}", shell_escape::unix::escape(remote_path.into()));
         channel
             .exec(true, cmd.as_bytes())
             .await
@@ -195,10 +193,7 @@ impl SshClient {
 
     /// Download a remote file to a local path via `cat`.
     pub async fn download(&mut self, remote_path: &str, local_path: &Path) -> Result<()> {
-        let cmd = format!(
-            "cat {}",
-            shell_escape::unix::escape(remote_path.into())
-        );
+        let cmd = format!("cat {}", shell_escape::unix::escape(remote_path.into()));
         let result = self.execute(&cmd).await?;
 
         if !result.success() {

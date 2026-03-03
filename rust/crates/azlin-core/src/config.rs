@@ -5,24 +5,51 @@ use std::path::PathBuf;
 /// Known valid Azure regions (subset — allows any alphanumeric lowercase string
 /// that matches the general Azure region pattern).
 const VALID_AZURE_REGIONS: &[&str] = &[
-    "eastus", "eastus2", "westus", "westus2", "westus3",
-    "centralus", "northcentralus", "southcentralus", "westcentralus",
-    "canadacentral", "canadaeast",
-    "brazilsouth", "brazilsoutheast",
-    "northeurope", "westeurope", "uksouth", "ukwest",
-    "francecentral", "francesouth",
-    "germanywestcentral", "germanynorth",
-    "switzerlandnorth", "switzerlandwest",
-    "norwayeast", "norwaywest",
+    "eastus",
+    "eastus2",
+    "westus",
+    "westus2",
+    "westus3",
+    "centralus",
+    "northcentralus",
+    "southcentralus",
+    "westcentralus",
+    "canadacentral",
+    "canadaeast",
+    "brazilsouth",
+    "brazilsoutheast",
+    "northeurope",
+    "westeurope",
+    "uksouth",
+    "ukwest",
+    "francecentral",
+    "francesouth",
+    "germanywestcentral",
+    "germanynorth",
+    "switzerlandnorth",
+    "switzerlandwest",
+    "norwayeast",
+    "norwaywest",
     "swedencentral",
-    "eastasia", "southeastasia",
-    "japaneast", "japanwest",
-    "koreacentral", "koreasouth",
-    "australiaeast", "australiasoutheast", "australiacentral",
-    "centralindia", "southindia", "westindia",
-    "uaenorth", "uaecentral",
-    "southafricanorth", "southafricawest",
-    "qatarcentral", "polandcentral", "italynorth",
+    "eastasia",
+    "southeastasia",
+    "japaneast",
+    "japanwest",
+    "koreacentral",
+    "koreasouth",
+    "australiaeast",
+    "australiasoutheast",
+    "australiacentral",
+    "centralindia",
+    "southindia",
+    "westindia",
+    "uaenorth",
+    "uaecentral",
+    "southafricanorth",
+    "southafricawest",
+    "qatarcentral",
+    "polandcentral",
+    "italynorth",
 ];
 
 /// Main azlin configuration, stored at ~/.azlin/config.toml
@@ -96,33 +123,34 @@ impl AzlinConfig {
             return Ok(Self::default());
         }
         let contents = std::fs::read_to_string(&path).map_err(|e| {
-            crate::AzlinError::Config(format!("Failed to read config at {}: {}", path.display(), e))
+            crate::AzlinError::Config(format!(
+                "Failed to read config at {}: {}",
+                path.display(),
+                e
+            ))
         })?;
-        toml::from_str(&contents).map_err(|e| {
-            crate::AzlinError::Config(format!("Failed to parse config: {e}"))
-        })
+        toml::from_str(&contents)
+            .map_err(|e| crate::AzlinError::Config(format!("Failed to parse config: {e}")))
     }
 
     /// Save config to disk, creating the directory if needed.
     pub fn save(&self) -> crate::Result<()> {
         let dir = Self::config_dir()?;
-        std::fs::create_dir_all(&dir).map_err(|e| {
-            crate::AzlinError::Config(format!("Failed to create config dir: {e}"))
-        })?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| crate::AzlinError::Config(format!("Failed to create config dir: {e}")))?;
         let path = Self::config_path()?;
-        let contents = toml::to_string_pretty(self).map_err(|e| {
-            crate::AzlinError::Config(format!("Failed to serialize config: {e}"))
-        })?;
-        std::fs::write(&path, contents).map_err(|e| {
-            crate::AzlinError::Config(format!("Failed to write config: {e}"))
-        })?;
+        let contents = toml::to_string_pretty(self)
+            .map_err(|e| crate::AzlinError::Config(format!("Failed to serialize config: {e}")))?;
+        std::fs::write(&path, contents)
+            .map_err(|e| crate::AzlinError::Config(format!("Failed to write config: {e}")))?;
 
         // Set file permissions to 600 on Unix
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-                .map_err(|e| crate::AzlinError::Config(format!("Failed to set permissions: {e}")))?;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).map_err(
+                |e| crate::AzlinError::Config(format!("Failed to set permissions: {e}")),
+            )?;
         }
 
         Ok(())
@@ -221,7 +249,10 @@ mod tests {
         };
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: AzlinConfig = toml::from_str(&serialized).unwrap();
-        assert_eq!(deserialized.default_resource_group, Some("my-rg".to_string()));
+        assert_eq!(
+            deserialized.default_resource_group,
+            Some("my-rg".to_string())
+        );
         assert_eq!(deserialized.default_region, "eastus");
     }
 
@@ -259,7 +290,10 @@ mod tests {
     fn test_validate_field_default_region_valid() {
         let result = AzlinConfig::validate_field("default_region", "eastus");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), serde_json::Value::String("eastus".to_string()));
+        assert_eq!(
+            result.unwrap(),
+            serde_json::Value::String("eastus".to_string())
+        );
     }
 
     #[test]
@@ -325,7 +359,10 @@ mod tests {
     fn test_validate_field_string_passthrough() {
         let result = AzlinConfig::validate_field("ssh_sync_method", "rsync");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), serde_json::Value::String("rsync".to_string()));
+        assert_eq!(
+            result.unwrap(),
+            serde_json::Value::String("rsync".to_string())
+        );
     }
 
     // ── Additional config tests ──────────────────────────────────────
@@ -427,7 +464,10 @@ mod tests {
     fn test_validate_field_region_case_insensitive() {
         let result = AzlinConfig::validate_field("default_region", "WestUS2");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), serde_json::Value::String("westus2".to_string()));
+        assert_eq!(
+            result.unwrap(),
+            serde_json::Value::String("westus2".to_string())
+        );
     }
 
     #[test]
@@ -462,7 +502,10 @@ mod tests {
     fn test_validate_field_unknown_key_passthrough() {
         let result = AzlinConfig::validate_field("some_unknown_key", "any-value");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), serde_json::Value::String("any-value".to_string()));
+        assert_eq!(
+            result.unwrap(),
+            serde_json::Value::String("any-value".to_string())
+        );
     }
 
     #[test]

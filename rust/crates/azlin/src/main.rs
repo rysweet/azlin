@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table, Color, Attribute, Cell};
+use comfy_table::{
+    modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
+};
 use console::Style;
 use dialoguer::Confirm;
 use tracing_subscriber::EnvFilter;
@@ -19,9 +21,12 @@ struct HealthMetrics {
 fn ssh_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
     let output = std::process::Command::new("ssh")
         .args([
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ConnectTimeout=10",
-            "-o", "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "ConnectTimeout=10",
+            "-o",
+            "BatchMode=yes",
             &format!("{}@{}", user, ip),
             cmd,
         ])
@@ -47,28 +52,64 @@ fn collect_health_metrics(vm_name: &str, ip: &str, user: &str, power_state: &str
     }
 
     // CPU usage from top (idle percentage -> used)
-    let cpu = ssh_exec(ip, user, "top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'")
-        .ok()
-        .and_then(|(code, out, _)| if code == 0 { out.trim().parse::<f32>().ok() } else { None })
-        .unwrap_or(0.0);
+    let cpu = ssh_exec(
+        ip,
+        user,
+        "top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'",
+    )
+    .ok()
+    .and_then(|(code, out, _)| {
+        if code == 0 {
+            out.trim().parse::<f32>().ok()
+        } else {
+            None
+        }
+    })
+    .unwrap_or(0.0);
 
     // Memory usage from free
-    let mem = ssh_exec(ip, user, "free | awk '/Mem:/{printf \"%.1f\", $3/$2 * 100}'")
-        .ok()
-        .and_then(|(code, out, _)| if code == 0 { out.trim().parse::<f32>().ok() } else { None })
-        .unwrap_or(0.0);
+    let mem = ssh_exec(
+        ip,
+        user,
+        "free | awk '/Mem:/{printf \"%.1f\", $3/$2 * 100}'",
+    )
+    .ok()
+    .and_then(|(code, out, _)| {
+        if code == 0 {
+            out.trim().parse::<f32>().ok()
+        } else {
+            None
+        }
+    })
+    .unwrap_or(0.0);
 
     // Disk usage from df
     let disk = ssh_exec(ip, user, "df / --output=pcent | tail -1 | tr -d ' %'")
         .ok()
-        .and_then(|(code, out, _)| if code == 0 { out.trim().parse::<f32>().ok() } else { None })
+        .and_then(|(code, out, _)| {
+            if code == 0 {
+                out.trim().parse::<f32>().ok()
+            } else {
+                None
+            }
+        })
         .unwrap_or(0.0);
 
     // Load average from uptime
-    let load = ssh_exec(ip, user, "uptime | awk -F'load average:' '{print $2}' | xargs")
-        .ok()
-        .and_then(|(code, out, _)| if code == 0 { Some(out.trim().to_string()) } else { None })
-        .unwrap_or_else(|| "-".to_string());
+    let load = ssh_exec(
+        ip,
+        user,
+        "uptime | awk -F'load average:' '{print $2}' | xargs",
+    )
+    .ok()
+    .and_then(|(code, out, _)| {
+        if code == 0 {
+            Some(out.trim().to_string())
+        } else {
+            None
+        }
+    })
+    .unwrap_or_else(|| "-".to_string());
 
     HealthMetrics {
         vm_name: vm_name.to_string(),
@@ -101,9 +142,27 @@ fn render_health_table(metrics: &[HealthMetrics]) {
             "stopped" | "deallocated" => Color::Red,
             _ => Color::Yellow,
         };
-        let cpu_color = if m.cpu_percent > 80.0 { Color::Red } else if m.cpu_percent > 50.0 { Color::Yellow } else { Color::Green };
-        let mem_color = if m.mem_percent > 80.0 { Color::Red } else if m.mem_percent > 50.0 { Color::Yellow } else { Color::Green };
-        let disk_color = if m.disk_percent > 80.0 { Color::Red } else if m.disk_percent > 50.0 { Color::Yellow } else { Color::Green };
+        let cpu_color = if m.cpu_percent > 80.0 {
+            Color::Red
+        } else if m.cpu_percent > 50.0 {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
+        let mem_color = if m.mem_percent > 80.0 {
+            Color::Red
+        } else if m.mem_percent > 50.0 {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
+        let disk_color = if m.disk_percent > 80.0 {
+            Color::Red
+        } else if m.disk_percent > 50.0 {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
 
         table.add_row(vec![
             Cell::new(&m.vm_name),
@@ -128,7 +187,10 @@ async fn get_running_vms_with_ips(
     for vm in &vms {
         if vm.power_state == azlin_core::models::PowerState::Running {
             if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
-                let user = vm.admin_username.clone().unwrap_or_else(|| "azureuser".to_string());
+                let user = vm
+                    .admin_username
+                    .clone()
+                    .unwrap_or_else(|| "azureuser".to_string());
                 results.push((vm.name.clone(), ip.clone(), user));
             }
         }
@@ -157,7 +219,11 @@ fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bo
         let status_color = if code == 0 { Color::Green } else { Color::Red };
         let output_text = if show_output {
             let out = stdout.trim();
-            if out.is_empty() { stderr.trim().to_string() } else { out.to_string() }
+            if out.is_empty() {
+                stderr.trim().to_string()
+            } else {
+                out.to_string()
+            }
         } else if code != 0 {
             stderr.trim().lines().next().unwrap_or("").to_string()
         } else {
@@ -202,7 +268,11 @@ async fn main() -> Result<()> {
                             serde_json::Value::Null => "null".to_string(),
                             other => other.to_string(),
                         };
-                        println!("{}: {}", key_style.apply_to(k), val_style.apply_to(&display));
+                        println!(
+                            "{}: {}",
+                            key_style.apply_to(k),
+                            val_style.apply_to(&display)
+                        );
                     }
                 }
             }
@@ -233,10 +303,7 @@ async fn main() -> Result<()> {
                 }
             }
         },
-        azlin_cli::Commands::List {
-            resource_group,
-            ..
-        } => {
+        azlin_cli::Commands::List { resource_group, .. } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
 
@@ -281,7 +348,11 @@ async fn main() -> Result<()> {
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            let action = if deallocate { "Deallocating" } else { "Stopping" };
+            let action = if deallocate {
+                "Deallocating"
+            } else {
+                "Stopping"
+            };
             let done = if deallocate { "Deallocated" } else { "Stopped" };
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("{} {}...", action, vm_name));
@@ -355,23 +426,20 @@ async fn main() -> Result<()> {
             let vm = vm_manager.get_vm(&rg, &name).await?;
             pb.finish_and_clear();
 
-            let ip = vm.public_ip.or(vm.private_ip)
+            let ip = vm
+                .public_ip
+                .or(vm.private_ip)
                 .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", name))?;
             let username = vm.admin_username.unwrap_or_else(|| user.clone());
 
-            let mut ssh_args = vec![
-                "-o".to_string(),
-                "StrictHostKeyChecking=no".to_string(),
-            ];
+            let mut ssh_args = vec!["-o".to_string(), "StrictHostKeyChecking=no".to_string()];
             if let Some(key_path) = &key {
                 ssh_args.push("-i".to_string());
                 ssh_args.push(key_path.display().to_string());
             }
             ssh_args.push(format!("{}@{}", username, ip));
 
-            let status = std::process::Command::new("ssh")
-                .args(&ssh_args)
-                .status()?;
+            let status = std::process::Command::new("ssh").args(&ssh_args).status()?;
 
             std::process::exit(status.code().unwrap_or(1));
         }
@@ -380,7 +448,11 @@ async fn main() -> Result<()> {
             let vm_manager = azlin_azure::VmManager::new(&auth);
 
             match action {
-                azlin_cli::TagAction::Add { vm_name, tags, resource_group } => {
+                azlin_cli::TagAction::Add {
+                    vm_name,
+                    tags,
+                    resource_group,
+                } => {
                     let rg = resolve_resource_group(resource_group)?;
                     for tag in &tags {
                         let parts: Vec<&str> = tag.splitn(2, '=').collect();
@@ -388,25 +460,39 @@ async fn main() -> Result<()> {
                             eprintln!("Invalid tag format '{}'. Use key=value.", tag);
                             std::process::exit(1);
                         }
-                        vm_manager.add_tag(&rg, &vm_name, parts[0], parts[1]).await?;
+                        vm_manager
+                            .add_tag(&rg, &vm_name, parts[0], parts[1])
+                            .await?;
                         println!("Added tag {}={} to VM '{}'", parts[0], parts[1], vm_name);
                     }
                 }
-                azlin_cli::TagAction::Remove { vm_name, tag_keys, resource_group } => {
+                azlin_cli::TagAction::Remove {
+                    vm_name,
+                    tag_keys,
+                    resource_group,
+                } => {
                     let rg = resolve_resource_group(resource_group)?;
                     for key in &tag_keys {
                         vm_manager.remove_tag(&rg, &vm_name, key).await?;
                         println!("Removed tag '{}' from VM '{}'", key, vm_name);
                     }
                 }
-                azlin_cli::TagAction::List { vm_name, resource_group } => {
+                azlin_cli::TagAction::List {
+                    vm_name,
+                    resource_group,
+                } => {
                     let rg = resolve_resource_group(resource_group)?;
                     let tags = vm_manager.list_tags(&rg, &vm_name).await?;
                     azlin_cli::table::render_tags_table(&vm_name, &tags);
                 }
             }
         }
-        azlin_cli::Commands::W { resource_group, vm, ip, .. } => {
+        azlin_cli::Commands::W {
+            resource_group,
+            vm,
+            ip,
+            ..
+        } => {
             let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
             for (name, addr, user) in &targets {
                 println!("── {} ──", name);
@@ -416,7 +502,12 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        azlin_cli::Commands::Ps { resource_group, vm, ip, .. } => {
+        azlin_cli::Commands::Ps {
+            resource_group,
+            vm,
+            ip,
+            ..
+        } => {
             let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
             for (name, addr, user) in &targets {
                 println!("── {} ──", name);
@@ -426,7 +517,12 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        azlin_cli::Commands::Top { resource_group, vm, ip, .. } => {
+        azlin_cli::Commands::Top {
+            resource_group,
+            vm,
+            ip,
+            ..
+        } => {
             let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
             for (name, addr, user) in &targets {
                 println!("── {} ──", name);
@@ -437,15 +533,15 @@ async fn main() -> Result<()> {
             }
         }
         azlin_cli::Commands::Health {
-            vm,
-            resource_group,
-            ..
+            vm, resource_group, ..
         } => {
             let auth = match azlin_azure::AzureAuth::new() {
                 Ok(a) => a,
                 Err(_) => {
                     eprintln!("Azure authentication failed.");
-                    eprintln!("Hint: use 'az login' or specify --vm and --ip flags for direct SSH.");
+                    eprintln!(
+                        "Hint: use 'az login' or specify --vm and --ip flags for direct SSH."
+                    );
                     std::process::exit(1);
                 }
             };
@@ -458,19 +554,28 @@ async fn main() -> Result<()> {
 
             let metrics: Vec<HealthMetrics> = if let Some(vm_name) = vm {
                 let vm_info = vm_manager.get_vm(&rg, &vm_name).await?;
-                let ip = vm_info.public_ip.or(vm_info.private_ip)
+                let ip = vm_info
+                    .public_ip
+                    .or(vm_info.private_ip)
                     .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_name))?;
-                let user = vm_info.admin_username.unwrap_or_else(|| "azureuser".to_string());
+                let user = vm_info
+                    .admin_username
+                    .unwrap_or_else(|| "azureuser".to_string());
                 let state = vm_info.power_state.to_string();
                 vec![collect_health_metrics(&vm_name, &ip, &user, &state)]
             } else {
                 let vms = vm_manager.list_vms(&rg).await?;
-                vms.iter().filter_map(|vm_info| {
-                    let ip = vm_info.public_ip.as_ref().or(vm_info.private_ip.as_ref())?;
-                    let user = vm_info.admin_username.clone().unwrap_or_else(|| "azureuser".to_string());
-                    let state = vm_info.power_state.to_string();
-                    Some(collect_health_metrics(&vm_info.name, ip, &user, &state))
-                }).collect()
+                vms.iter()
+                    .filter_map(|vm_info| {
+                        let ip = vm_info.public_ip.as_ref().or(vm_info.private_ip.as_ref())?;
+                        let user = vm_info
+                            .admin_username
+                            .clone()
+                            .unwrap_or_else(|| "azureuser".to_string());
+                        let state = vm_info.power_state.to_string();
+                        Some(collect_health_metrics(&vm_info.name, ip, &user, &state))
+                    })
+                    .collect()
             };
             pb.finish_and_clear();
 
@@ -497,24 +602,30 @@ async fn main() -> Result<()> {
             let vm = vm_manager.get_vm(&rg, &vm_identifier).await?;
             pb.finish_and_clear();
 
-            let ip = vm.public_ip.or(vm.private_ip)
+            let ip = vm
+                .public_ip
+                .or(vm.private_ip)
                 .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_identifier))?;
             let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
 
             println!("Running OS updates on '{}'...", vm_identifier);
-            let cmd = format!(
-                "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq"
-            );
+            let cmd = "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq".to_string();
             let (code, stdout, stderr) = ssh_exec(&ip, &user, &cmd)?;
             if code == 0 {
                 let green = Style::new().green();
-                println!("{}", green.apply_to(format!("OS update completed on '{}'", vm_identifier)));
+                println!(
+                    "{}",
+                    green.apply_to(format!("OS update completed on '{}'", vm_identifier))
+                );
                 if !stdout.trim().is_empty() {
                     println!("{}", stdout.trim());
                 }
             } else {
                 let red = Style::new().red();
-                eprintln!("{}", red.apply_to(format!("OS update failed on '{}'", vm_identifier)));
+                eprintln!(
+                    "{}",
+                    red.apply_to(format!("OS update failed on '{}'", vm_identifier))
+                );
                 if !stderr.trim().is_empty() {
                     eprintln!("{}", stderr.trim());
                 }
@@ -613,7 +724,8 @@ async fn main() -> Result<()> {
                     std::process::exit(1);
                 }
                 let (key, value) = (parts[0], parts[1]);
-                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let (addr, user) =
+                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let escaped = shell_escape(value);
                 let cmd = format!(
                     "grep -q '^export {}=' ~/.profile 2>/dev/null && sed -i 's/^export {}=.*/export {}={}/' ~/.profile || echo 'export {}={}' >> ~/.profile",
@@ -628,7 +740,8 @@ async fn main() -> Result<()> {
                 ip,
                 ..
             } => {
-                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let (addr, user) =
+                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let output = ssh_exec_checked(&addr, &user, "env | sort").await?;
                 let mut table = Table::new();
                 table
@@ -649,7 +762,8 @@ async fn main() -> Result<()> {
                 ip,
                 ..
             } => {
-                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let (addr, user) =
+                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let cmd = format!("sed -i '/^export {}=/d' ~/.profile", key);
                 ssh_exec_checked(&addr, &user, &cmd).await?;
                 println!("Deleted '{}' from VM '{}'", key, vm_identifier);
@@ -661,12 +775,16 @@ async fn main() -> Result<()> {
                 ip,
                 ..
             } => {
-                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let (addr, user) =
+                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let output = ssh_exec_checked(&addr, &user, "env | sort").await?;
                 match output_file {
                     Some(path) => {
                         std::fs::write(&path, &output)?;
-                        println!("Exported env vars from VM '{}' to '{}'", vm_identifier, path);
+                        println!(
+                            "Exported env vars from VM '{}' to '{}'",
+                            vm_identifier, path
+                        );
                     }
                     None => print!("{}", output),
                 }
@@ -678,7 +796,8 @@ async fn main() -> Result<()> {
                 ip,
                 ..
             } => {
-                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let (addr, user) =
+                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let content = std::fs::read_to_string(&env_file)?;
                 for line in content.lines() {
                     let line = line.trim();
@@ -694,7 +813,11 @@ async fn main() -> Result<()> {
                         ssh_exec_checked(&addr, &user, &cmd).await?;
                     }
                 }
-                println!("Imported env vars from '{}' to VM '{}'", env_file.display(), vm_identifier);
+                println!(
+                    "Imported env vars from '{}' to VM '{}'",
+                    env_file.display(),
+                    vm_identifier
+                );
             }
             azlin_cli::EnvAction::Clear {
                 vm_identifier,
@@ -716,10 +839,14 @@ async fn main() -> Result<()> {
                         return Ok(());
                     }
                 }
-                let (addr, user) = resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let (addr, user) =
+                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let cmd = "sed -i '/^export /d' ~/.profile";
                 ssh_exec_checked(&addr, &user, cmd).await?;
-                println!("Cleared all custom environment variables on VM '{}'", vm_identifier);
+                println!(
+                    "Cleared all custom environment variables on VM '{}'",
+                    vm_identifier
+                );
             }
         },
         azlin_cli::Commands::Cost {
@@ -816,11 +943,16 @@ async fn main() -> Result<()> {
 
                     let output = std::process::Command::new("az")
                         .args([
-                            "snapshot", "create",
-                            "--resource-group", &rg,
-                            "--source-disk", &format!("{}_OsDisk", vm_name),
-                            "--name", &snapshot_name,
-                            "--output", "json",
+                            "snapshot",
+                            "create",
+                            "--resource-group",
+                            &rg,
+                            "--source-disk",
+                            &format!("{}_OsDisk", vm_name),
+                            "--name",
+                            &snapshot_name,
+                            "--output",
+                            "json",
                         ])
                         .output()?;
 
@@ -836,9 +968,12 @@ async fn main() -> Result<()> {
                 azlin_cli::SnapshotAction::List { vm_name, .. } => {
                     let output = std::process::Command::new("az")
                         .args([
-                            "snapshot", "list",
-                            "--resource-group", &rg,
-                            "--output", "json",
+                            "snapshot",
+                            "list",
+                            "--resource-group",
+                            &rg,
+                            "--output",
+                            "json",
                         ])
                         .output()?;
 
@@ -862,7 +997,12 @@ async fn main() -> Result<()> {
                             table
                                 .load_preset(UTF8_FULL)
                                 .apply_modifier(UTF8_ROUND_CORNERS)
-                                .set_header(vec!["Name", "Disk Size (GB)", "Time Created", "State"]);
+                                .set_header(vec![
+                                    "Name",
+                                    "Disk Size (GB)",
+                                    "Time Created",
+                                    "State",
+                                ]);
                             for snap in &filtered {
                                 table.add_row(vec![
                                     snap["name"].as_str().unwrap_or("-"),
@@ -905,11 +1045,16 @@ async fn main() -> Result<()> {
 
                     let snap_output = std::process::Command::new("az")
                         .args([
-                            "snapshot", "show",
-                            "--resource-group", &rg,
-                            "--name", &snapshot_name,
-                            "--query", "id",
-                            "--output", "tsv",
+                            "snapshot",
+                            "show",
+                            "--resource-group",
+                            &rg,
+                            "--name",
+                            &snapshot_name,
+                            "--query",
+                            "id",
+                            "--output",
+                            "tsv",
                         ])
                         .output()?;
 
@@ -919,22 +1064,32 @@ async fn main() -> Result<()> {
                         std::process::exit(1);
                     }
 
-                    let snap_id = String::from_utf8_lossy(&snap_output.stdout).trim().to_string();
+                    let snap_id = String::from_utf8_lossy(&snap_output.stdout)
+                        .trim()
+                        .to_string();
                     let new_disk = format!("{}_OsDisk_restored", vm_name);
 
                     let disk_output = std::process::Command::new("az")
                         .args([
-                            "disk", "create",
-                            "--resource-group", &rg,
-                            "--name", &new_disk,
-                            "--source", &snap_id,
-                            "--output", "json",
+                            "disk",
+                            "create",
+                            "--resource-group",
+                            &rg,
+                            "--name",
+                            &new_disk,
+                            "--source",
+                            &snap_id,
+                            "--output",
+                            "json",
                         ])
                         .output()?;
 
                     pb.finish_and_clear();
                     if disk_output.status.success() {
-                        println!("Restored disk '{}' from snapshot '{}'", new_disk, snapshot_name);
+                        println!(
+                            "Restored disk '{}' from snapshot '{}'",
+                            new_disk, snapshot_name
+                        );
                         println!(
                             "Swap the OS disk on VM '{}' with: az vm update --resource-group {} --name {} --os-disk {}",
                             vm_name, rg, vm_name, new_disk
@@ -970,9 +1125,12 @@ async fn main() -> Result<()> {
 
                     let output = std::process::Command::new("az")
                         .args([
-                            "snapshot", "delete",
-                            "--resource-group", &rg,
-                            "--name", &snapshot_name,
+                            "snapshot",
+                            "delete",
+                            "--resource-group",
+                            &rg,
+                            "--name",
+                            &snapshot_name,
                         ])
                         .output()?;
 
@@ -985,7 +1143,12 @@ async fn main() -> Result<()> {
                         std::process::exit(1);
                     }
                 }
-                azlin_cli::SnapshotAction::Enable { vm_name, every, keep, .. } => {
+                azlin_cli::SnapshotAction::Enable {
+                    vm_name,
+                    every,
+                    keep,
+                    ..
+                } => {
                     println!(
                         "Scheduled snapshots enabled for VM '{}': every {}h, keep {}",
                         vm_name, every, keep
@@ -994,464 +1157,518 @@ async fn main() -> Result<()> {
                 azlin_cli::SnapshotAction::Disable { vm_name, .. } => {
                     println!("Scheduled snapshots disabled for VM '{}'", vm_name);
                 }
-                azlin_cli::SnapshotAction::Sync { vm, .. } => {
-                    match vm {
-                        Some(name) => println!("Snapshot sync completed for VM '{}'", name),
-                        None => println!("Snapshot sync completed for all VMs"),
-                    }
-                }
+                azlin_cli::SnapshotAction::Sync { vm, .. } => match vm {
+                    Some(name) => println!("Snapshot sync completed for VM '{}'", name),
+                    None => println!("Snapshot sync completed for all VMs"),
+                },
                 azlin_cli::SnapshotAction::Status { vm_name, .. } => {
-                    println!("Snapshot schedule status for VM '{}': no schedule configured", vm_name);
+                    println!(
+                        "Snapshot schedule status for VM '{}': no schedule configured",
+                        vm_name
+                    );
                 }
             }
         }
-        azlin_cli::Commands::Storage { action } => {
-            match action {
-                azlin_cli::StorageAction::Create {
-                    name,
-                    size,
-                    tier,
-                    resource_group,
-                    region,
-                } => {
-                    let rg = resolve_resource_group(resource_group)?;
-                    let loc = region.unwrap_or_else(|| "westus2".to_string());
+        azlin_cli::Commands::Storage { action } => match action {
+            azlin_cli::StorageAction::Create {
+                name,
+                size,
+                tier,
+                resource_group,
+                region,
+            } => {
+                let rg = resolve_resource_group(resource_group)?;
+                let loc = region.unwrap_or_else(|| "westus2".to_string());
 
-                    let pb = indicatif::ProgressBar::new_spinner();
-                    pb.set_message(format!("Creating storage account {}...", name));
-                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_message(format!("Creating storage account {}...", name));
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-                    let sku = match tier.to_lowercase().as_str() {
-                        "premium" => "Premium_LRS",
-                        "standard" => "Standard_LRS",
-                        _ => "Premium_LRS",
-                    };
+                let sku = match tier.to_lowercase().as_str() {
+                    "premium" => "Premium_LRS",
+                    "standard" => "Standard_LRS",
+                    _ => "Premium_LRS",
+                };
 
-                    let output = std::process::Command::new("az")
-                        .args([
-                            "storage", "account", "create",
-                            "--name", &name,
-                            "--resource-group", &rg,
-                            "--location", &loc,
-                            "--sku", sku,
-                            "--kind", "FileStorage",
-                            "--enable-nfs-v3", "true",
-                            "--output", "json",
-                        ])
-                        .output()?;
+                let output = std::process::Command::new("az")
+                    .args([
+                        "storage",
+                        "account",
+                        "create",
+                        "--name",
+                        &name,
+                        "--resource-group",
+                        &rg,
+                        "--location",
+                        &loc,
+                        "--sku",
+                        sku,
+                        "--kind",
+                        "FileStorage",
+                        "--enable-nfs-v3",
+                        "true",
+                        "--output",
+                        "json",
+                    ])
+                    .output()?;
 
-                    pb.finish_and_clear();
-                    if output.status.success() {
-                        println!("Created storage account '{}' ({} GB, {})", name, size, tier);
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to create storage account: {}", stderr.trim());
-                        std::process::exit(1);
-                    }
+                pb.finish_and_clear();
+                if output.status.success() {
+                    println!("Created storage account '{}' ({} GB, {})", name, size, tier);
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Failed to create storage account: {}", stderr.trim());
+                    std::process::exit(1);
                 }
-                azlin_cli::StorageAction::List { resource_group } => {
-                    let rg = resolve_resource_group(resource_group)?;
+            }
+            azlin_cli::StorageAction::List { resource_group } => {
+                let rg = resolve_resource_group(resource_group)?;
 
-                    let output = std::process::Command::new("az")
-                        .args([
-                            "storage", "account", "list",
-                            "--resource-group", &rg,
-                            "--output", "json",
-                        ])
-                        .output()?;
+                let output = std::process::Command::new("az")
+                    .args([
+                        "storage",
+                        "account",
+                        "list",
+                        "--resource-group",
+                        &rg,
+                        "--output",
+                        "json",
+                    ])
+                    .output()?;
 
-                    if output.status.success() {
-                        let accounts: Vec<serde_json::Value> =
-                            serde_json::from_slice(&output.stdout).unwrap_or_default();
+                if output.status.success() {
+                    let accounts: Vec<serde_json::Value> =
+                        serde_json::from_slice(&output.stdout).unwrap_or_default();
 
-                        if accounts.is_empty() {
-                            println!("No storage accounts found.");
-                        } else {
-                            let mut table = Table::new();
-                            table
-                                .load_preset(UTF8_FULL)
-                                .apply_modifier(UTF8_ROUND_CORNERS)
-                                .set_header(vec!["Name", "Location", "Kind", "SKU", "State"]);
-                            for acct in &accounts {
-                                table.add_row(vec![
-                                    acct["name"].as_str().unwrap_or("-"),
-                                    acct["location"].as_str().unwrap_or("-"),
-                                    acct["kind"].as_str().unwrap_or("-"),
-                                    acct["sku"]["name"].as_str().unwrap_or("-"),
-                                    acct["provisioningState"].as_str().unwrap_or("-"),
-                                ]);
-                            }
-                            println!("{table}");
+                    if accounts.is_empty() {
+                        println!("No storage accounts found.");
+                    } else {
+                        let mut table = Table::new();
+                        table
+                            .load_preset(UTF8_FULL)
+                            .apply_modifier(UTF8_ROUND_CORNERS)
+                            .set_header(vec!["Name", "Location", "Kind", "SKU", "State"]);
+                        for acct in &accounts {
+                            table.add_row(vec![
+                                acct["name"].as_str().unwrap_or("-"),
+                                acct["location"].as_str().unwrap_or("-"),
+                                acct["kind"].as_str().unwrap_or("-"),
+                                acct["sku"]["name"].as_str().unwrap_or("-"),
+                                acct["provisioningState"].as_str().unwrap_or("-"),
+                            ]);
                         }
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to list storage accounts: {}", stderr.trim());
-                        std::process::exit(1);
+                        println!("{table}");
                     }
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Failed to list storage accounts: {}", stderr.trim());
+                    std::process::exit(1);
                 }
-                azlin_cli::StorageAction::Status {
-                    name,
-                    resource_group,
-                } => {
-                    let rg = resolve_resource_group(resource_group)?;
+            }
+            azlin_cli::StorageAction::Status {
+                name,
+                resource_group,
+            } => {
+                let rg = resolve_resource_group(resource_group)?;
 
-                    let output = std::process::Command::new("az")
-                        .args([
-                            "storage", "account", "show",
-                            "--name", &name,
-                            "--resource-group", &rg,
-                            "--output", "json",
-                        ])
-                        .output()?;
+                let output = std::process::Command::new("az")
+                    .args([
+                        "storage",
+                        "account",
+                        "show",
+                        "--name",
+                        &name,
+                        "--resource-group",
+                        &rg,
+                        "--output",
+                        "json",
+                    ])
+                    .output()?;
 
-                    if output.status.success() {
-                        let acct: serde_json::Value =
-                            serde_json::from_slice(&output.stdout).unwrap_or_default();
-                        let key_style = Style::new().cyan().bold();
-                        println!("{}: {}", key_style.apply_to("Name"), acct["name"].as_str().unwrap_or("-"));
-                        println!("{}: {}", key_style.apply_to("Location"), acct["location"].as_str().unwrap_or("-"));
-                        println!("{}: {}", key_style.apply_to("Kind"), acct["kind"].as_str().unwrap_or("-"));
-                        println!("{}: {}", key_style.apply_to("SKU"), acct["sku"]["name"].as_str().unwrap_or("-"));
-                        println!("{}: {}", key_style.apply_to("State"), acct["provisioningState"].as_str().unwrap_or("-"));
-                        println!(
-                            "{}: {}",
-                            key_style.apply_to("Primary Endpoint"),
-                            acct["primaryEndpoints"]["file"].as_str().unwrap_or("-")
-                        );
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to show storage account: {}", stderr.trim());
-                        std::process::exit(1);
-                    }
+                if output.status.success() {
+                    let acct: serde_json::Value =
+                        serde_json::from_slice(&output.stdout).unwrap_or_default();
+                    let key_style = Style::new().cyan().bold();
+                    println!(
+                        "{}: {}",
+                        key_style.apply_to("Name"),
+                        acct["name"].as_str().unwrap_or("-")
+                    );
+                    println!(
+                        "{}: {}",
+                        key_style.apply_to("Location"),
+                        acct["location"].as_str().unwrap_or("-")
+                    );
+                    println!(
+                        "{}: {}",
+                        key_style.apply_to("Kind"),
+                        acct["kind"].as_str().unwrap_or("-")
+                    );
+                    println!(
+                        "{}: {}",
+                        key_style.apply_to("SKU"),
+                        acct["sku"]["name"].as_str().unwrap_or("-")
+                    );
+                    println!(
+                        "{}: {}",
+                        key_style.apply_to("State"),
+                        acct["provisioningState"].as_str().unwrap_or("-")
+                    );
+                    println!(
+                        "{}: {}",
+                        key_style.apply_to("Primary Endpoint"),
+                        acct["primaryEndpoints"]["file"].as_str().unwrap_or("-")
+                    );
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Failed to show storage account: {}", stderr.trim());
+                    std::process::exit(1);
                 }
-                azlin_cli::StorageAction::Mount {
-                    storage_name,
-                    vm,
-                    resource_group,
-                } => {
-                    let rg = resolve_resource_group(resource_group)?;
-                    let auth = create_auth()?;
-                    let vm_manager = azlin_azure::VmManager::new(&auth);
+            }
+            azlin_cli::StorageAction::Mount {
+                storage_name,
+                vm,
+                resource_group,
+            } => {
+                let rg = resolve_resource_group(resource_group)?;
+                let auth = create_auth()?;
+                let vm_manager = azlin_azure::VmManager::new(&auth);
 
-                    let pb = indicatif::ProgressBar::new_spinner();
-                    pb.set_message(format!("Looking up VM {}...", vm));
-                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
-                    let vm_info = vm_manager.get_vm(&rg, &vm).await?;
-                    pb.finish_and_clear();
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_message(format!("Looking up VM {}...", vm));
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                let vm_info = vm_manager.get_vm(&rg, &vm).await?;
+                pb.finish_and_clear();
 
-                    let ip = vm_info.public_ip.or(vm_info.private_ip).ok_or_else(|| {
-                        anyhow::anyhow!("No IP address found for VM '{}'", vm)
-                    })?;
-                    let user = vm_info.admin_username.unwrap_or_else(|| "azureuser".to_string());
+                let ip = vm_info
+                    .public_ip
+                    .or(vm_info.private_ip)
+                    .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm))?;
+                let user = vm_info
+                    .admin_username
+                    .unwrap_or_else(|| "azureuser".to_string());
 
-                    let mount_cmd = format!(
+                let mount_cmd = format!(
                         "sudo mkdir -p /mnt/{storage_name} && sudo mount -t nfs {storage_name}.file.core.windows.net:/{storage_name}/home /mnt/{storage_name} -o vers=3,sec=sys"
                     );
-                    let status = std::process::Command::new("ssh")
-                        .args([
-                            "-o", "StrictHostKeyChecking=no",
-                            &format!("{}@{}", user, ip),
-                            &mount_cmd,
-                        ])
-                        .status()?;
+                let status = std::process::Command::new("ssh")
+                    .args([
+                        "-o",
+                        "StrictHostKeyChecking=no",
+                        &format!("{}@{}", user, ip),
+                        &mount_cmd,
+                    ])
+                    .status()?;
 
-                    if status.success() {
-                        println!("Mounted '{}' on VM '{}' at /mnt/{}", storage_name, vm, storage_name);
-                    } else {
-                        eprintln!("Failed to mount storage on VM.");
-                        std::process::exit(1);
-                    }
-                }
-                azlin_cli::StorageAction::Unmount { vm, resource_group } => {
-                    let rg = resolve_resource_group(resource_group)?;
-                    let auth = create_auth()?;
-                    let vm_manager = azlin_azure::VmManager::new(&auth);
-
-                    let pb = indicatif::ProgressBar::new_spinner();
-                    pb.set_message(format!("Looking up VM {}...", vm));
-                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
-                    let vm_info = vm_manager.get_vm(&rg, &vm).await?;
-                    pb.finish_and_clear();
-
-                    let ip = vm_info.public_ip.or(vm_info.private_ip).ok_or_else(|| {
-                        anyhow::anyhow!("No IP address found for VM '{}'", vm)
-                    })?;
-                    let user = vm_info.admin_username.unwrap_or_else(|| "azureuser".to_string());
-
-                    let status = std::process::Command::new("ssh")
-                        .args([
-                            "-o", "StrictHostKeyChecking=no",
-                            &format!("{}@{}", user, ip),
-                            "sudo umount /mnt/* 2>/dev/null; echo done",
-                        ])
-                        .status()?;
-
-                    if status.success() {
-                        println!("Unmounted NFS storage from VM '{}'", vm);
-                    } else {
-                        eprintln!("Failed to unmount storage from VM.");
-                        std::process::exit(1);
-                    }
-                }
-                azlin_cli::StorageAction::Delete {
-                    name,
-                    resource_group,
-                    force,
-                } => {
-                    let rg = resolve_resource_group(resource_group)?;
-
-                    if !force {
-                        let confirmed = Confirm::new()
-                            .with_prompt(format!(
-                                "Delete storage account '{}'? This cannot be undone.",
-                                name
-                            ))
-                            .default(false)
-                            .interact()?;
-                        if !confirmed {
-                            println!("Cancelled.");
-                            return Ok(());
-                        }
-                    }
-
-                    let pb = indicatif::ProgressBar::new_spinner();
-                    pb.set_message(format!("Deleting storage account {}...", name));
-                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
-
-                    let output = std::process::Command::new("az")
-                        .args([
-                            "storage", "account", "delete",
-                            "--name", &name,
-                            "--resource-group", &rg,
-                            "--yes",
-                        ])
-                        .output()?;
-
-                    pb.finish_and_clear();
-                    if output.status.success() {
-                        println!("Deleted storage account '{}'", name);
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to delete storage account: {}", stderr.trim());
-                        std::process::exit(1);
-                    }
+                if status.success() {
+                    println!(
+                        "Mounted '{}' on VM '{}' at /mnt/{}",
+                        storage_name, vm, storage_name
+                    );
+                } else {
+                    eprintln!("Failed to mount storage on VM.");
+                    std::process::exit(1);
                 }
             }
-        }
-        azlin_cli::Commands::Keys { action } => {
-            match action {
-                azlin_cli::KeysAction::List { .. } => {
-                    let ssh_dir = dirs::home_dir()
-                        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                        .join(".ssh");
+            azlin_cli::StorageAction::Unmount { vm, resource_group } => {
+                let rg = resolve_resource_group(resource_group)?;
+                let auth = create_auth()?;
+                let vm_manager = azlin_azure::VmManager::new(&auth);
 
-                    if !ssh_dir.exists() {
-                        println!("No SSH directory found at {}", ssh_dir.display());
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_message(format!("Looking up VM {}...", vm));
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                let vm_info = vm_manager.get_vm(&rg, &vm).await?;
+                pb.finish_and_clear();
+
+                let ip = vm_info
+                    .public_ip
+                    .or(vm_info.private_ip)
+                    .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm))?;
+                let user = vm_info
+                    .admin_username
+                    .unwrap_or_else(|| "azureuser".to_string());
+
+                let status = std::process::Command::new("ssh")
+                    .args([
+                        "-o",
+                        "StrictHostKeyChecking=no",
+                        &format!("{}@{}", user, ip),
+                        "sudo umount /mnt/* 2>/dev/null; echo done",
+                    ])
+                    .status()?;
+
+                if status.success() {
+                    println!("Unmounted NFS storage from VM '{}'", vm);
+                } else {
+                    eprintln!("Failed to unmount storage from VM.");
+                    std::process::exit(1);
+                }
+            }
+            azlin_cli::StorageAction::Delete {
+                name,
+                resource_group,
+                force,
+            } => {
+                let rg = resolve_resource_group(resource_group)?;
+
+                if !force {
+                    let confirmed = Confirm::new()
+                        .with_prompt(format!(
+                            "Delete storage account '{}'? This cannot be undone.",
+                            name
+                        ))
+                        .default(false)
+                        .interact()?;
+                    if !confirmed {
+                        println!("Cancelled.");
                         return Ok(());
                     }
+                }
 
-                    let entries = std::fs::read_dir(&ssh_dir)?;
-                    let mut table = Table::new();
-                    table
-                        .load_preset(UTF8_FULL)
-                        .apply_modifier(UTF8_ROUND_CORNERS)
-                        .set_header(vec!["Key File", "Type", "Size (bytes)", "Modified"]);
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_message(format!("Deleting storage account {}...", name));
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-                    let mut found = false;
-                    for entry in entries {
-                        let entry = entry?;
-                        let name = entry.file_name().to_string_lossy().to_string();
+                let output = std::process::Command::new("az")
+                    .args([
+                        "storage",
+                        "account",
+                        "delete",
+                        "--name",
+                        &name,
+                        "--resource-group",
+                        &rg,
+                        "--yes",
+                    ])
+                    .output()?;
 
-                        let is_key = name.ends_with(".pub")
-                            || ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"]
-                                .contains(&name.as_str())
-                            || (!name.starts_with('.') && !name.ends_with(".pub")
-                                && std::path::Path::new(&ssh_dir)
-                                    .join(format!("{}.pub", name))
-                                    .exists());
+                pb.finish_and_clear();
+                if output.status.success() {
+                    println!("Deleted storage account '{}'", name);
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("Failed to delete storage account: {}", stderr.trim());
+                    std::process::exit(1);
+                }
+            }
+        },
+        azlin_cli::Commands::Keys { action } => match action {
+            azlin_cli::KeysAction::List { .. } => {
+                let ssh_dir = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+                    .join(".ssh");
 
-                        if !is_key {
-                            continue;
-                        }
+                if !ssh_dir.exists() {
+                    println!("No SSH directory found at {}", ssh_dir.display());
+                    return Ok(());
+                }
 
-                        let meta = entry.metadata()?;
-                        let modified = meta
-                            .modified()
-                            .map(|t| {
-                                let dt: chrono::DateTime<chrono::Utc> = t.into();
-                                dt.format("%Y-%m-%d %H:%M").to_string()
-                            })
-                            .unwrap_or_else(|_| "-".to_string());
+                let entries = std::fs::read_dir(&ssh_dir)?;
+                let mut table = Table::new();
+                table
+                    .load_preset(UTF8_FULL)
+                    .apply_modifier(UTF8_ROUND_CORNERS)
+                    .set_header(vec!["Key File", "Type", "Size (bytes)", "Modified"]);
 
-                        let key_type = if name.contains("ed25519") {
-                            "ed25519"
-                        } else if name.contains("ecdsa") {
-                            "ecdsa"
-                        } else if name.contains("rsa") {
-                            "rsa"
-                        } else if name.contains("dsa") {
-                            "dsa"
-                        } else {
-                            "unknown"
-                        };
+                let mut found = false;
+                for entry in entries {
+                    let entry = entry?;
+                    let name = entry.file_name().to_string_lossy().to_string();
 
-                        table.add_row(vec![&name, key_type, &meta.len().to_string(), &modified]);
-                        found = true;
+                    let is_key = name.ends_with(".pub")
+                        || ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"].contains(&name.as_str())
+                        || (!name.starts_with('.')
+                            && !name.ends_with(".pub")
+                            && std::path::Path::new(&ssh_dir)
+                                .join(format!("{}.pub", name))
+                                .exists());
+
+                    if !is_key {
+                        continue;
                     }
 
-                    if found {
-                        println!("{table}");
+                    let meta = entry.metadata()?;
+                    let modified = meta
+                        .modified()
+                        .map(|t| {
+                            let dt: chrono::DateTime<chrono::Utc> = t.into();
+                            dt.format("%Y-%m-%d %H:%M").to_string()
+                        })
+                        .unwrap_or_else(|_| "-".to_string());
+
+                    let key_type = if name.contains("ed25519") {
+                        "ed25519"
+                    } else if name.contains("ecdsa") {
+                        "ecdsa"
+                    } else if name.contains("rsa") {
+                        "rsa"
+                    } else if name.contains("dsa") {
+                        "dsa"
                     } else {
-                        println!("No SSH keys found in {}", ssh_dir.display());
-                    }
+                        "unknown"
+                    };
+
+                    table.add_row(vec![&name, key_type, &meta.len().to_string(), &modified]);
+                    found = true;
                 }
-                azlin_cli::KeysAction::Rotate {
-                    resource_group,
-                    all_vms,
-                    no_backup,
-                    vm_prefix,
-                    ..
-                } => {
-                    let rg = resolve_resource_group(resource_group)?;
-                    let ssh_dir = dirs::home_dir()
-                        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                        .join(".ssh");
 
-                    if !no_backup {
-                        let backup_dir = ssh_dir.join(format!(
-                            "backup_{}",
-                            chrono::Utc::now().format("%Y%m%d_%H%M%S")
-                        ));
-                        std::fs::create_dir_all(&backup_dir)?;
-                        for entry in std::fs::read_dir(&ssh_dir)? {
-                            let entry = entry?;
-                            let name = entry.file_name().to_string_lossy().to_string();
-                            if name.starts_with("id_") {
-                                std::fs::copy(entry.path(), backup_dir.join(&name))?;
-                            }
-                        }
-                        println!("Backed up existing keys to {}", backup_dir.display());
-                    }
-
-                    let new_key = ssh_dir.join("id_ed25519_azlin");
-                    if new_key.exists() {
-                        std::fs::remove_file(&new_key)?;
-                        let pub_key = ssh_dir.join("id_ed25519_azlin.pub");
-                        if pub_key.exists() {
-                            std::fs::remove_file(&pub_key)?;
-                        }
-                    }
-
-                    let keygen = std::process::Command::new("ssh-keygen")
-                        .args([
-                            "-t", "ed25519",
-                            "-f", &new_key.to_string_lossy(),
-                            "-N", "",
-                            "-C", "azlin-rotated",
-                        ])
-                        .output()?;
-
-                    if !keygen.status.success() {
-                        eprintln!("Failed to generate new SSH key.");
-                        std::process::exit(1);
-                    }
-                    println!("Generated new ed25519 key pair");
-
-                    let prefix_filter = if all_vms { "" } else { &vm_prefix };
-                    let query = format!("[?starts_with(name, '{}')]", prefix_filter);
-                    let mut az_args = vec![
-                        "vm", "list",
-                        "--resource-group", &rg,
-                        "--output", "json",
-                    ];
-                    if !prefix_filter.is_empty() {
-                        az_args.extend(["--query", query.as_str()]);
-                    }
-
-                    let output = std::process::Command::new("az")
-                        .args(&az_args)
-                        .output()?;
-
-                    if output.status.success() {
-                        let vms: Vec<serde_json::Value> =
-                            serde_json::from_slice(&output.stdout).unwrap_or_default();
-                        let pub_key_content =
-                            std::fs::read_to_string(ssh_dir.join("id_ed25519_azlin.pub"))?;
-                        for vm_val in &vms {
-                            let name = vm_val["name"].as_str().unwrap_or("");
-                            let result = std::process::Command::new("az")
-                                .args([
-                                    "vm", "user", "update",
-                                    "--resource-group", &rg,
-                                    "--name", name,
-                                    "--username", "azureuser",
-                                    "--ssh-key-value", pub_key_content.trim(),
-                                ])
-                                .output();
-                            match result {
-                                Ok(o) if o.status.success() => {
-                                    println!("  Deployed key to VM '{}'", name);
-                                }
-                                _ => {
-                                    eprintln!("  Failed to deploy key to VM '{}'", name);
-                                }
-                            }
-                        }
-                    }
-
-                    println!("Key rotation complete.");
+                if found {
+                    println!("{table}");
+                } else {
+                    println!("No SSH keys found in {}", ssh_dir.display());
                 }
-                azlin_cli::KeysAction::Export { output } => {
-                    let ssh_dir = dirs::home_dir()
-                        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                        .join(".ssh");
+            }
+            azlin_cli::KeysAction::Rotate {
+                resource_group,
+                all_vms,
+                no_backup,
+                vm_prefix,
+                ..
+            } => {
+                let rg = resolve_resource_group(resource_group)?;
+                let ssh_dir = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+                    .join(".ssh");
 
-                    let pub_key = ["id_ed25519_azlin.pub", "id_ed25519.pub", "id_rsa.pub"]
-                        .iter()
-                        .map(|f| ssh_dir.join(f))
-                        .find(|p| p.exists());
-
-                    match pub_key {
-                        Some(src) => {
-                            std::fs::copy(&src, &output)?;
-                            println!(
-                                "Exported {} to {}",
-                                src.file_name().unwrap().to_string_lossy(),
-                                output.display()
-                            );
-                        }
-                        None => {
-                            eprintln!("No SSH public key found in {}", ssh_dir.display());
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                azlin_cli::KeysAction::Backup { destination } => {
-                    let ssh_dir = dirs::home_dir()
-                        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                        .join(".ssh");
-
-                    let backup_dir = destination.unwrap_or_else(|| {
-                        ssh_dir.join(format!(
-                            "backup_{}",
-                            chrono::Utc::now().format("%Y%m%d_%H%M%S")
-                        ))
-                    });
-
+                if !no_backup {
+                    let backup_dir = ssh_dir.join(format!(
+                        "backup_{}",
+                        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+                    ));
                     std::fs::create_dir_all(&backup_dir)?;
-                    let mut count = 0u32;
                     for entry in std::fs::read_dir(&ssh_dir)? {
                         let entry = entry?;
                         let name = entry.file_name().to_string_lossy().to_string();
                         if name.starts_with("id_") {
                             std::fs::copy(entry.path(), backup_dir.join(&name))?;
-                            count += 1;
                         }
                     }
-                    println!("Backed up {} key files to {}", count, backup_dir.display());
+                    println!("Backed up existing keys to {}", backup_dir.display());
+                }
+
+                let new_key = ssh_dir.join("id_ed25519_azlin");
+                if new_key.exists() {
+                    std::fs::remove_file(&new_key)?;
+                    let pub_key = ssh_dir.join("id_ed25519_azlin.pub");
+                    if pub_key.exists() {
+                        std::fs::remove_file(&pub_key)?;
+                    }
+                }
+
+                let keygen = std::process::Command::new("ssh-keygen")
+                    .args([
+                        "-t",
+                        "ed25519",
+                        "-f",
+                        &new_key.to_string_lossy(),
+                        "-N",
+                        "",
+                        "-C",
+                        "azlin-rotated",
+                    ])
+                    .output()?;
+
+                if !keygen.status.success() {
+                    eprintln!("Failed to generate new SSH key.");
+                    std::process::exit(1);
+                }
+                println!("Generated new ed25519 key pair");
+
+                let prefix_filter = if all_vms { "" } else { &vm_prefix };
+                let query = format!("[?starts_with(name, '{}')]", prefix_filter);
+                let mut az_args = vec!["vm", "list", "--resource-group", &rg, "--output", "json"];
+                if !prefix_filter.is_empty() {
+                    az_args.extend(["--query", query.as_str()]);
+                }
+
+                let output = std::process::Command::new("az").args(&az_args).output()?;
+
+                if output.status.success() {
+                    let vms: Vec<serde_json::Value> =
+                        serde_json::from_slice(&output.stdout).unwrap_or_default();
+                    let pub_key_content =
+                        std::fs::read_to_string(ssh_dir.join("id_ed25519_azlin.pub"))?;
+                    for vm_val in &vms {
+                        let name = vm_val["name"].as_str().unwrap_or("");
+                        let result = std::process::Command::new("az")
+                            .args([
+                                "vm",
+                                "user",
+                                "update",
+                                "--resource-group",
+                                &rg,
+                                "--name",
+                                name,
+                                "--username",
+                                "azureuser",
+                                "--ssh-key-value",
+                                pub_key_content.trim(),
+                            ])
+                            .output();
+                        match result {
+                            Ok(o) if o.status.success() => {
+                                println!("  Deployed key to VM '{}'", name);
+                            }
+                            _ => {
+                                eprintln!("  Failed to deploy key to VM '{}'", name);
+                            }
+                        }
+                    }
+                }
+
+                println!("Key rotation complete.");
+            }
+            azlin_cli::KeysAction::Export { output } => {
+                let ssh_dir = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+                    .join(".ssh");
+
+                let pub_key = ["id_ed25519_azlin.pub", "id_ed25519.pub", "id_rsa.pub"]
+                    .iter()
+                    .map(|f| ssh_dir.join(f))
+                    .find(|p| p.exists());
+
+                match pub_key {
+                    Some(src) => {
+                        std::fs::copy(&src, &output)?;
+                        println!(
+                            "Exported {} to {}",
+                            src.file_name().unwrap().to_string_lossy(),
+                            output.display()
+                        );
+                    }
+                    None => {
+                        eprintln!("No SSH public key found in {}", ssh_dir.display());
+                        std::process::exit(1);
+                    }
                 }
             }
-        }
+            azlin_cli::KeysAction::Backup { destination } => {
+                let ssh_dir = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+                    .join(".ssh");
+
+                let backup_dir = destination.unwrap_or_else(|| {
+                    ssh_dir.join(format!(
+                        "backup_{}",
+                        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+                    ))
+                });
+
+                std::fs::create_dir_all(&backup_dir)?;
+                let mut count = 0u32;
+                for entry in std::fs::read_dir(&ssh_dir)? {
+                    let entry = entry?;
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with("id_") {
+                        std::fs::copy(entry.path(), backup_dir.join(&name))?;
+                        count += 1;
+                    }
+                }
+                println!("Backed up {} key files to {}", count, backup_dir.display());
+            }
+        },
         azlin_cli::Commands::Auth { action } => {
             let azlin_dir = dirs::home_dir()
                 .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
@@ -1527,7 +1744,10 @@ async fn main() -> Result<()> {
                 }
                 azlin_cli::AuthAction::Test { profile, .. } => {
                     let pb = indicatif::ProgressBar::new_spinner();
-                    pb.set_message(format!("Testing authentication for profile '{}'...", profile));
+                    pb.set_message(format!(
+                        "Testing authentication for profile '{}'...",
+                        profile
+                    ));
                     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
                     let output = std::process::Command::new("az")
@@ -1539,7 +1759,13 @@ async fn main() -> Result<()> {
                         let acct: serde_json::Value =
                             serde_json::from_slice(&output.stdout).unwrap_or_default();
                         let key_style = Style::new().cyan().bold();
-                        println!("{}", Style::new().green().bold().apply_to("Authentication successful!"));
+                        println!(
+                            "{}",
+                            Style::new()
+                                .green()
+                                .bold()
+                                .apply_to("Authentication successful!")
+                        );
                         println!(
                             "{}: {}",
                             key_style.apply_to("Subscription"),
@@ -1598,10 +1824,7 @@ async fn main() -> Result<()> {
                     });
 
                     let profile_path = profiles_dir.join(format!("{}.json", profile));
-                    std::fs::write(
-                        &profile_path,
-                        serde_json::to_string_pretty(&profile_data)?,
-                    )?;
+                    std::fs::write(&profile_path, serde_json::to_string_pretty(&profile_data)?)?;
                     println!("Saved profile '{}' to {}", profile, profile_path.display());
                 }
                 azlin_cli::AuthAction::Remove { profile, yes } => {
@@ -1729,7 +1952,9 @@ async fn main() -> Result<()> {
         }
         azlin_cli::Commands::Doit { action } | azlin_cli::Commands::AzDoit { action } => {
             match action {
-                azlin_cli::DoitAction::Deploy { request, dry_run, .. } => {
+                azlin_cli::DoitAction::Deploy {
+                    request, dry_run, ..
+                } => {
                     let client = azlin_ai::AnthropicClient::new()?;
 
                     let system_context = "You are azlin, an Azure VM fleet management tool. \
@@ -1782,7 +2007,10 @@ async fn main() -> Result<()> {
                 }
                 azlin_cli::DoitAction::Status { session } => {
                     let session_id = session.unwrap_or_else(|| "latest".to_string());
-                    println!("Deployment status for session '{}': no active sessions tracked.", session_id);
+                    println!(
+                        "Deployment status for session '{}': no active sessions tracked.",
+                        session_id
+                    );
                 }
                 azlin_cli::DoitAction::List { username } => {
                     let auth = create_auth()?;
@@ -1794,10 +2022,12 @@ async fn main() -> Result<()> {
                         pb.enable_steady_tick(std::time::Duration::from_millis(100));
                         let vms = vm_manager.list_vms(&rg).await?;
                         pb.finish_and_clear();
-                        let filtered: Vec<_> = vms.iter()
+                        let filtered: Vec<_> = vms
+                            .iter()
                             .filter(|vm| {
-                                let has_tag = vm.tags.get("created_by").map_or(false, |v| v == "azlin-doit");
-                                let user_match = username.as_ref().map_or(true, |u| {
+                                let has_tag =
+                                    vm.tags.get("created_by").is_some_and(|v| v == "azlin-doit");
+                                let user_match = username.as_ref().is_none_or(|u| {
                                     vm.admin_username.as_deref() == Some(u.as_str())
                                 });
                                 has_tag && user_match
@@ -1811,7 +2041,9 @@ async fn main() -> Result<()> {
                             }
                         }
                     } else {
-                        println!("No resource group configured. Use --resource-group or set in config.");
+                        println!(
+                            "No resource group configured. Use --resource-group or set in config."
+                        );
                     }
                 }
                 azlin_cli::DoitAction::Show { resource_id } => {
@@ -1821,10 +2053,17 @@ async fn main() -> Result<()> {
                     if output.status.success() {
                         print!("{}", String::from_utf8_lossy(&output.stdout));
                     } else {
-                        eprintln!("Failed to show resource: {}", String::from_utf8_lossy(&output.stderr));
+                        eprintln!(
+                            "Failed to show resource: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
                     }
                 }
-                azlin_cli::DoitAction::Cleanup { force, dry_run, username } => {
+                azlin_cli::DoitAction::Cleanup {
+                    force,
+                    dry_run,
+                    username,
+                } => {
                     let auth = create_auth()?;
                     let vm_manager = azlin_azure::VmManager::new(&auth);
                     let rg = resolve_resource_group(None)?;
@@ -1835,12 +2074,14 @@ async fn main() -> Result<()> {
                     let vms = vm_manager.list_vms(&rg).await?;
                     pb.finish_and_clear();
 
-                    let to_delete: Vec<_> = vms.iter()
+                    let to_delete: Vec<_> = vms
+                        .iter()
                         .filter(|vm| {
-                            let has_tag = vm.tags.get("created_by").map_or(false, |v| v == "azlin-doit");
-                            let user_match = username.as_ref().map_or(true, |u| {
-                                vm.admin_username.as_deref() == Some(u.as_str())
-                            });
+                            let has_tag =
+                                vm.tags.get("created_by").is_some_and(|v| v == "azlin-doit");
+                            let user_match = username
+                                .as_ref()
+                                .is_none_or(|u| vm.admin_username.as_deref() == Some(u.as_str()));
                             has_tag && user_match
                         })
                         .collect();
@@ -1888,16 +2129,37 @@ async fn main() -> Result<()> {
 
         // ── VM Lifecycle (New/Vm/Create aliases) ─────────────────────
         azlin_cli::Commands::New {
-            repo, vm_size, region, resource_group, name, pool,
-            no_auto_connect, template, ..
+            repo,
+            vm_size,
+            region,
+            resource_group,
+            name,
+            pool,
+            no_auto_connect,
+            template,
+            ..
         }
         | azlin_cli::Commands::Vm {
-            repo, vm_size, region, resource_group, name, pool,
-            no_auto_connect, template, ..
+            repo,
+            vm_size,
+            region,
+            resource_group,
+            name,
+            pool,
+            no_auto_connect,
+            template,
+            ..
         }
         | azlin_cli::Commands::Create {
-            repo, vm_size, region, resource_group, name, pool,
-            no_auto_connect, template, ..
+            repo,
+            vm_size,
+            region,
+            resource_group,
+            name,
+            pool,
+            no_auto_connect,
+            template,
+            ..
         } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
@@ -1923,11 +2185,21 @@ async fn main() -> Result<()> {
                 if tmpl_path.exists() {
                     let content = std::fs::read_to_string(&tmpl_path)?;
                     let tmpl: toml::Value = content.parse()?;
-                    let ts = tmpl.get("vm_size").and_then(|v| v.as_str()).map(String::from);
-                    let tr = tmpl.get("region").and_then(|v| v.as_str()).map(String::from);
+                    let ts = tmpl
+                        .get("vm_size")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let tr = tmpl
+                        .get("region")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
                     (ts, tr)
                 } else {
-                    eprintln!("Template '{}' not found at {}", tmpl_name, tmpl_path.display());
+                    eprintln!(
+                        "Template '{}' not found at {}",
+                        tmpl_name,
+                        tmpl_path.display()
+                    );
                     (None, None)
                 }
             } else {
@@ -1980,7 +2252,8 @@ async fn main() -> Result<()> {
                 println!("VM '{}' created successfully!", vm.name);
 
                 let mut table = Table::new();
-                table.load_preset(UTF8_FULL)
+                table
+                    .load_preset(UTF8_FULL)
                     .apply_modifier(UTF8_ROUND_CORNERS);
                 table.set_header(vec!["Property", "Value"]);
                 table.add_row(vec!["Name", &vm.name]);
@@ -1998,9 +2271,10 @@ async fn main() -> Result<()> {
 
                 // Clone repo if specified
                 if let Some(ref repo_url) = repo {
-                    if let Some(ref ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
+                    if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
                         println!("Cloning repository '{}'...", repo_url);
-                        let clone_cmd = format!("git clone {} ~/src/$(basename {} .git)", repo_url, repo_url);
+                        let clone_cmd =
+                            format!("git clone {} ~/src/$(basename {} .git)", repo_url, repo_url);
                         let (exit_code, stdout, stderr) = ssh_exec(ip, &admin_user, &clone_cmd)?;
                         if exit_code == 0 {
                             println!("Repository cloned successfully.");
@@ -2019,7 +2293,8 @@ async fn main() -> Result<()> {
                         println!("Connecting to '{}'...", vm_name);
                         let status = std::process::Command::new("ssh")
                             .args([
-                                "-o", "StrictHostKeyChecking=no",
+                                "-o",
+                                "StrictHostKeyChecking=no",
                                 &format!("{}@{}", admin_user, ip),
                             ])
                             .status()?;
@@ -2046,7 +2321,9 @@ async fn main() -> Result<()> {
             let vm = vm_manager.get_vm(&rg, &vm_identifier).await?;
             pb.finish_and_clear();
 
-            let ip = vm.public_ip.or(vm.private_ip)
+            let ip = vm
+                .public_ip
+                .or(vm.private_ip)
                 .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_identifier))?;
             let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
 
@@ -2068,13 +2345,19 @@ async fn main() -> Result<()> {
             let (code, stdout, stderr) = ssh_exec(&ip, &user, update_script)?;
             if code == 0 {
                 let green = Style::new().green();
-                println!("{}", green.apply_to(format!("Update completed on '{}'", vm_identifier)));
+                println!(
+                    "{}",
+                    green.apply_to(format!("Update completed on '{}'", vm_identifier))
+                );
                 if !stdout.trim().is_empty() {
                     println!("{}", stdout.trim());
                 }
             } else {
                 let red = Style::new().red();
-                eprintln!("{}", red.apply_to(format!("Update failed on '{}'", vm_identifier)));
+                eprintln!(
+                    "{}",
+                    red.apply_to(format!("Update failed on '{}'", vm_identifier))
+                );
                 if !stderr.trim().is_empty() {
                     eprintln!("{}", stderr.trim());
                 }
@@ -2096,7 +2379,10 @@ async fn main() -> Result<()> {
                 chrono::Utc::now().format("%Y%m%d_%H%M%S")
             );
 
-            println!("Cloning VM '{}' ({} replica(s))...", source_vm, num_replicas);
+            println!(
+                "Cloning VM '{}' ({} replica(s))...",
+                source_vm, num_replicas
+            );
 
             // Step 1: create snapshot of source
             let pb = indicatif::ProgressBar::new_spinner();
@@ -2105,11 +2391,16 @@ async fn main() -> Result<()> {
 
             let snap_out = std::process::Command::new("az")
                 .args([
-                    "snapshot", "create",
-                    "--resource-group", &rg,
-                    "--source-disk", &format!("{}_OsDisk", source_vm),
-                    "--name", &snapshot_name,
-                    "--output", "json",
+                    "snapshot",
+                    "create",
+                    "--resource-group",
+                    &rg,
+                    "--source-disk",
+                    &format!("{}_OsDisk", source_vm),
+                    "--name",
+                    &snapshot_name,
+                    "--output",
+                    "json",
                 ])
                 .output()?;
             pb.finish_and_clear();
@@ -2129,11 +2420,16 @@ async fn main() -> Result<()> {
 
                 let disk_out = std::process::Command::new("az")
                     .args([
-                        "disk", "create",
-                        "--resource-group", &rg,
-                        "--name", &disk_name,
-                        "--source", &snapshot_name,
-                        "--output", "json",
+                        "disk",
+                        "create",
+                        "--resource-group",
+                        &rg,
+                        "--name",
+                        &disk_name,
+                        "--source",
+                        &snapshot_name,
+                        "--output",
+                        "json",
                     ])
                     .output()?;
 
@@ -2142,7 +2438,11 @@ async fn main() -> Result<()> {
                     println!("  To create VM: az vm create --resource-group {} --name {} --attach-os-disk {} --os-type Linux", rg, clone_name, disk_name);
                 } else {
                     let stderr = String::from_utf8_lossy(&disk_out.stderr);
-                    eprintln!("  Failed to create disk for clone '{}': {}", clone_name, stderr.trim());
+                    eprintln!(
+                        "  Failed to create disk for clone '{}': {}",
+                        clone_name,
+                        stderr.trim()
+                    );
                 }
             }
         }
@@ -2195,9 +2495,7 @@ async fn main() -> Result<()> {
 
         // ── Status ───────────────────────────────────────────────────
         azlin_cli::Commands::Status {
-            resource_group,
-            vm,
-            ..
+            resource_group, vm, ..
         } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
@@ -2312,9 +2610,7 @@ async fn main() -> Result<()> {
                 } else {
                     let mut args = vec!["vm", "deallocate", "--ids"];
                     args.extend(ids.iter().copied());
-                    let output = std::process::Command::new("az")
-                        .args(&args)
-                        .output()?;
+                    let output = std::process::Command::new("az").args(&args).output()?;
                     if output.status.success() {
                         println!("Batch stop completed for resource group '{}'", rg);
                     } else {
@@ -2353,9 +2649,7 @@ async fn main() -> Result<()> {
                 } else {
                     let mut args = vec!["vm", "start", "--ids"];
                     args.extend(ids.iter().copied());
-                    let output = std::process::Command::new("az")
-                        .args(&args)
-                        .output()?;
+                    let output = std::process::Command::new("az").args(&args).output()?;
                     if output.status.success() {
                         println!("Batch start completed for resource group '{}'", rg);
                     } else {
@@ -2403,7 +2697,8 @@ async fn main() -> Result<()> {
                 }
 
                 let home = dirs::home_dir().unwrap_or_default();
-                let dotfiles: Vec<&str> = vec![".bashrc", ".profile", ".vimrc", ".tmux.conf", ".gitconfig"];
+                let dotfiles: Vec<&str> =
+                    vec![".bashrc", ".profile", ".vimrc", ".tmux.conf", ".gitconfig"];
 
                 for (name, ip, user) in &vms {
                     for dotfile in &dotfiles {
@@ -2416,7 +2711,10 @@ async fn main() -> Result<()> {
                         } else {
                             let rsync_args = format!(
                                 "rsync -az -e 'ssh -o StrictHostKeyChecking=no' {} {}@{}:~/{}",
-                                local.display(), user, ip, dotfile
+                                local.display(),
+                                user,
+                                ip,
+                                dotfile
                             );
                             let output = std::process::Command::new("bash")
                                 .args(["-c", &rsync_args])
@@ -2427,7 +2725,12 @@ async fn main() -> Result<()> {
                                 }
                                 Ok(o) => {
                                     let stderr = String::from_utf8_lossy(&o.stderr);
-                                    eprintln!("Failed to sync {} to {}: {}", dotfile, name, stderr.trim());
+                                    eprintln!(
+                                        "Failed to sync {} to {}: {}",
+                                        dotfile,
+                                        name,
+                                        stderr.trim()
+                                    );
                                 }
                                 Err(e) => {
                                     eprintln!("Failed to sync {} to {}: {}", dotfile, name, e);
@@ -2481,19 +2784,31 @@ async fn main() -> Result<()> {
             } => {
                 let rg = resolve_resource_group(resource_group)?;
                 if dry_run {
-                    println!("Would execute workflow '{}' on fleet in '{}'", workflow_file.display(), rg);
+                    println!(
+                        "Would execute workflow '{}' on fleet in '{}'",
+                        workflow_file.display(),
+                        rg
+                    );
                 } else {
                     let auth = create_auth()?;
                     let vm_manager = azlin_azure::VmManager::new(&auth);
 
-                    let content = std::fs::read_to_string(&workflow_file)
-                        .map_err(|e| anyhow::anyhow!("Failed to read workflow file '{}': {}", workflow_file.display(), e))?;
+                    let content = std::fs::read_to_string(&workflow_file).map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to read workflow file '{}': {}",
+                            workflow_file.display(),
+                            e
+                        )
+                    })?;
                     let workflow: serde_yaml::Value = serde_yaml::from_str(&content)
                         .map_err(|e| anyhow::anyhow!("Failed to parse workflow YAML: {}", e))?;
 
-                    let steps = workflow.get("steps")
+                    let steps = workflow
+                        .get("steps")
                         .and_then(|s| s.as_sequence())
-                        .ok_or_else(|| anyhow::anyhow!("Workflow YAML must contain a 'steps' array"))?;
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("Workflow YAML must contain a 'steps' array")
+                        })?;
 
                     let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
                     if vms.is_empty() {
@@ -2501,13 +2816,19 @@ async fn main() -> Result<()> {
                         return Ok(());
                     }
 
-                    println!("Executing workflow '{}' on {} VM(s)...", workflow_file.display(), vms.len());
+                    println!(
+                        "Executing workflow '{}' on {} VM(s)...",
+                        workflow_file.display(),
+                        vms.len()
+                    );
                     for (i, step) in steps.iter().enumerate() {
                         let default_name = format!("step-{}", i + 1);
-                        let step_name = step.get("name")
+                        let step_name = step
+                            .get("name")
                             .and_then(|n| n.as_str())
                             .unwrap_or(&default_name);
-                        let cmd = step.get("command")
+                        let cmd = step
+                            .get("command")
                             .or_else(|| step.get("run"))
                             .and_then(|c| c.as_str());
 
@@ -2515,7 +2836,11 @@ async fn main() -> Result<()> {
                             println!("\n── Step {}: {} ──", i + 1, step_name);
                             run_on_fleet(&vms, cmd, true);
                         } else {
-                            eprintln!("Step {} ('{}') has no 'command' or 'run' field, skipping", i + 1, step_name);
+                            eprintln!(
+                                "Step {} ('{}') has no 'command' or 'run' field, skipping",
+                                i + 1,
+                                step_name
+                            );
                         }
                     }
                     println!("\nWorkflow execution complete.");
@@ -2525,11 +2850,17 @@ async fn main() -> Result<()> {
 
         // ── Compose ──────────────────────────────────────────────────
         azlin_cli::Commands::Compose { action } => match action {
-            azlin_cli::ComposeAction::Up { file, resource_group } => {
+            azlin_cli::ComposeAction::Up {
+                file,
+                resource_group,
+            } => {
                 let auth = create_auth()?;
                 let vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
-                let f = file.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "docker-compose.yml".to_string());
+                let f = file
+                    .as_deref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "docker-compose.yml".to_string());
 
                 let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
                 if vms.is_empty() {
@@ -2541,11 +2872,17 @@ async fn main() -> Result<()> {
                 println!("Running 'docker compose up' on {} VM(s)...", vms.len());
                 run_on_fleet(&vms, &cmd, true);
             }
-            azlin_cli::ComposeAction::Down { file, resource_group } => {
+            azlin_cli::ComposeAction::Down {
+                file,
+                resource_group,
+            } => {
                 let auth = create_auth()?;
                 let vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
-                let f = file.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "docker-compose.yml".to_string());
+                let f = file
+                    .as_deref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "docker-compose.yml".to_string());
 
                 let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
                 if vms.is_empty() {
@@ -2557,11 +2894,17 @@ async fn main() -> Result<()> {
                 println!("Running 'docker compose down' on {} VM(s)...", vms.len());
                 run_on_fleet(&vms, &cmd, true);
             }
-            azlin_cli::ComposeAction::Ps { file, resource_group } => {
+            azlin_cli::ComposeAction::Ps {
+                file,
+                resource_group,
+            } => {
                 let auth = create_auth()?;
                 let vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
-                let f = file.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "docker-compose.yml".to_string());
+                let f = file
+                    .as_deref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "docker-compose.yml".to_string());
 
                 let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
                 if vms.is_empty() {
@@ -2576,35 +2919,42 @@ async fn main() -> Result<()> {
         },
 
         // ── GitHub Runner ────────────────────────────────────────────
-        azlin_cli::Commands::GithubRunner { action } => match action {
-            azlin_cli::GithubRunnerAction::Enable {
-                repo, pool, count, labels, resource_group, ..
-            } => {
-                let rg = resolve_resource_group(resource_group)?;
-                let repo_name = repo.unwrap_or_else(|| "<not set>".to_string());
-                let label_str = labels.unwrap_or_else(|| "self-hosted".to_string());
-                println!("Enabling GitHub runner fleet:");
-                println!("  Repository:     {}", repo_name);
-                println!("  Pool:           {}", pool);
-                println!("  Count:          {}", count);
-                println!("  Labels:         {}", label_str);
-                println!("  Resource Group: {}", rg);
-                println!("Runner fleet configuration saved. Deploy with 'azlin github-runner status'.");
-            }
-            azlin_cli::GithubRunnerAction::Disable { pool, keep_vms } => {
-                println!("Disabling runner pool '{}'", pool);
-                if keep_vms {
-                    println!("VMs will be kept running.");
+        azlin_cli::Commands::GithubRunner { action } => {
+            match action {
+                azlin_cli::GithubRunnerAction::Enable {
+                    repo,
+                    pool,
+                    count,
+                    labels,
+                    resource_group,
+                    ..
+                } => {
+                    let rg = resolve_resource_group(resource_group)?;
+                    let repo_name = repo.unwrap_or_else(|| "<not set>".to_string());
+                    let label_str = labels.unwrap_or_else(|| "self-hosted".to_string());
+                    println!("Enabling GitHub runner fleet:");
+                    println!("  Repository:     {}", repo_name);
+                    println!("  Pool:           {}", pool);
+                    println!("  Count:          {}", count);
+                    println!("  Labels:         {}", label_str);
+                    println!("  Resource Group: {}", rg);
+                    println!("Runner fleet configuration saved. Deploy with 'azlin github-runner status'.");
                 }
-                println!("Runner fleet disabled.");
+                azlin_cli::GithubRunnerAction::Disable { pool, keep_vms } => {
+                    println!("Disabling runner pool '{}'", pool);
+                    if keep_vms {
+                        println!("VMs will be kept running.");
+                    }
+                    println!("Runner fleet disabled.");
+                }
+                azlin_cli::GithubRunnerAction::Status { pool } => {
+                    println!("Runner pool '{}': no runners configured", pool);
+                }
+                azlin_cli::GithubRunnerAction::Scale { pool, count } => {
+                    println!("Scaling runner pool '{}' to {} runners", pool, count);
+                }
             }
-            azlin_cli::GithubRunnerAction::Status { pool } => {
-                println!("Runner pool '{}': no runners configured", pool);
-            }
-            azlin_cli::GithubRunnerAction::Scale { pool, count } => {
-                println!("Scaling runner pool '{}' to {} runners", pool, count);
-            }
-        },
+        }
 
         // ── Template ─────────────────────────────────────────────────
         azlin_cli::Commands::Template { action } => {
@@ -2649,7 +2999,8 @@ async fn main() -> Result<()> {
                         let name = entry.file_name().to_string_lossy().to_string();
                         if name.ends_with(".json") {
                             let content = std::fs::read_to_string(entry.path())?;
-                            let tpl: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+                            let tpl: serde_json::Value =
+                                serde_json::from_str(&content).unwrap_or_default();
                             table.add_row(vec![
                                 tpl["name"].as_str().unwrap_or("-"),
                                 tpl["vm_size"].as_str().unwrap_or("-"),
@@ -2827,7 +3178,9 @@ async fn main() -> Result<()> {
                     std::fs::remove_file(&path)?;
                     println!("Deleted context '{}'", name);
                 }
-                azlin_cli::ContextAction::Rename { old_name, new_name, .. } => {
+                azlin_cli::ContextAction::Rename {
+                    old_name, new_name, ..
+                } => {
                     let old_path = azlin_dir.join(format!("{}.json", old_name));
                     let new_path = azlin_dir.join(format!("{}.json", new_name));
                     if !old_path.exists() {
@@ -2862,19 +3215,29 @@ async fn main() -> Result<()> {
 
                 let output = std::process::Command::new("az")
                     .args([
-                        "vm", "disk", "attach",
-                        "--resource-group", &rg,
-                        "--vm-name", &vm_name,
-                        "--name", &disk_name,
-                        "--size-gb", &size.to_string(),
-                        "--sku", &sku,
+                        "vm",
+                        "disk",
+                        "attach",
+                        "--resource-group",
+                        &rg,
+                        "--vm-name",
+                        &vm_name,
+                        "--name",
+                        &disk_name,
+                        "--size-gb",
+                        &size.to_string(),
+                        "--sku",
+                        &sku,
                         "--new",
                     ])
                     .output()?;
 
                 pb.finish_and_clear();
                 if output.status.success() {
-                    println!("Attached {} GB disk '{}' to VM '{}'", size, disk_name, vm_name);
+                    println!(
+                        "Attached {} GB disk '{}' to VM '{}'",
+                        size, disk_name, vm_name
+                    );
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     eprintln!("Failed to attach disk: {}", stderr.trim());
@@ -2918,7 +3281,10 @@ async fn main() -> Result<()> {
                         None => println!("VM '{}': no IP address found", name),
                     }
                 } else {
-                    println!("Specify a VM name or use --all to check all VMs in '{}'", rg);
+                    println!(
+                        "Specify a VM name or use --all to check all VMs in '{}'",
+                        rg
+                    );
                 }
             }
         },
@@ -2932,7 +3298,10 @@ async fn main() -> Result<()> {
                 // Determine resource group from config
                 let rg = resolve_resource_group(None)?;
 
-                println!("Starting monitoring dashboard for '{}' (Ctrl+C to exit)...", rg);
+                println!(
+                    "Starting monitoring dashboard for '{}' (Ctrl+C to exit)...",
+                    rg
+                );
                 println!("Full TUI dashboard coming soon. Showing real-time VM status:\n");
 
                 loop {
@@ -3020,8 +3389,14 @@ async fn main() -> Result<()> {
                 let content = std::fs::read_to_string(&path)?;
                 let session: serde_json::Value = serde_json::from_str(&content)?;
                 println!("Loaded session '{}':", session_name);
-                println!("  Resource group: {}", session["resource_group"].as_str().unwrap_or("-"));
-                println!("  Saved at:       {}", session["saved_at"].as_str().unwrap_or("-"));
+                println!(
+                    "  Resource group: {}",
+                    session["resource_group"].as_str().unwrap_or("-")
+                );
+                println!(
+                    "  Saved at:       {}",
+                    session["saved_at"].as_str().unwrap_or("-")
+                );
             }
             azlin_cli::SessionsAction::List => {
                 let dir = dirs::home_dir()
@@ -3068,14 +3443,20 @@ async fn main() -> Result<()> {
             let target_vm = vm_name;
             if dry_run {
                 let target_name = target_vm.as_deref().unwrap_or("all VMs");
-                println!("Would sync {} to {} in '{}'", home_dir.display(), target_name, rg);
+                println!(
+                    "Would sync {} to {} in '{}'",
+                    home_dir.display(),
+                    target_name,
+                    rg
+                );
             } else {
                 let auth = create_auth()?;
                 let vm_manager = azlin_azure::VmManager::new(&auth);
                 let vms = vm_manager.list_vms(&rg).await?;
-                let running_vms: Vec<_> = vms.iter()
+                let running_vms: Vec<_> = vms
+                    .iter()
                     .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
-                    .filter(|v| target_vm.as_ref().map_or(true, |t| &v.name == t))
+                    .filter(|v| target_vm.as_ref().is_none_or(|t| &v.name == t))
                     .collect();
 
                 if running_vms.is_empty() {
@@ -3103,9 +3484,7 @@ async fn main() -> Result<()> {
                         args.extend_from_slice(&file_refs);
                         let dest = format!("{}@{}:~/", user, ip);
                         args.push(&dest);
-                        let status = std::process::Command::new("rsync")
-                            .args(&args)
-                            .status()?;
+                        let status = std::process::Command::new("rsync").args(&args).status()?;
                         if status.success() {
                             println!("  ✓ {} synced", vm.name);
                         } else {
@@ -3141,11 +3520,17 @@ async fn main() -> Result<()> {
                     let key_content = std::fs::read_to_string(&key_path)?;
                     let output = std::process::Command::new("az")
                         .args([
-                            "vm", "user", "update",
-                            "--resource-group", &rg,
-                            "--name", &vm_name,
-                            "--username", &ssh_user,
-                            "--ssh-key-value", key_content.trim(),
+                            "vm",
+                            "user",
+                            "update",
+                            "--resource-group",
+                            &rg,
+                            "--name",
+                            &vm_name,
+                            "--username",
+                            &ssh_user,
+                            "--ssh-key-value",
+                            key_content.trim(),
                         ])
                         .output()?;
                     if output.status.success() {
@@ -3181,7 +3566,10 @@ async fn main() -> Result<()> {
             let rg = resolve_resource_group(resource_group)?;
 
             let is_remote = |s: &str| {
-                s.contains(':') && !s.starts_with('/') && s.len() > 2 && s.chars().nth(1) != Some(':')
+                s.contains(':')
+                    && !s.starts_with('/')
+                    && s.len() > 2
+                    && s.chars().nth(1) != Some(':')
             };
             let direction = if is_remote(source) && !is_remote(dest) {
                 "remote→local"
@@ -3192,13 +3580,17 @@ async fn main() -> Result<()> {
             };
 
             if dry_run {
-                println!("Would copy ({}) {} → {} (rg: {})", direction, source, dest, rg);
+                println!(
+                    "Would copy ({}) {} → {} (rg: {})",
+                    direction, source, dest, rg
+                );
             } else {
                 println!("Copying ({}) {} → {}...", direction, source, dest);
                 // For remote transfers, use scp via az CLI resolved IP
                 if is_remote(source) || is_remote(dest) {
                     let (vm_part, _path_part) = if is_remote(source) {
-                        source.split_once(':')
+                        source
+                            .split_once(':')
                             .ok_or_else(|| anyhow::anyhow!("Invalid remote path: {}", source))?
                     } else {
                         dest.split_once(':')
@@ -3207,7 +3599,9 @@ async fn main() -> Result<()> {
                     let auth = create_auth()?;
                     let vm_manager = azlin_azure::VmManager::new(&auth);
                     let vm = vm_manager.get_vm(&rg, vm_part).await?;
-                    let ip = vm.public_ip.or(vm.private_ip)
+                    let ip = vm
+                        .public_ip
+                        .or(vm.private_ip)
                         .ok_or_else(|| anyhow::anyhow!("No IP for VM '{}'", vm_part))?;
                     let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
 
@@ -3250,19 +3644,29 @@ async fn main() -> Result<()> {
             let rg = resolve_resource_group(resource_group)?;
 
             if follow {
-                println!("Following logs for VM '{}' is not supported via az CLI. Use SSH.", vm_identifier);
+                println!(
+                    "Following logs for VM '{}' is not supported via az CLI. Use SSH.",
+                    vm_identifier
+                );
                 return Ok(());
             }
 
             let pb = indicatif::ProgressBar::new_spinner();
-            pb.set_message(format!("Fetching {:?} logs for {}...", log_type, vm_identifier));
+            pb.set_message(format!(
+                "Fetching {:?} logs for {}...",
+                log_type, vm_identifier
+            ));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
             let output = std::process::Command::new("az")
                 .args([
-                    "vm", "boot-diagnostics", "get-boot-log",
-                    "--resource-group", &rg,
-                    "--name", &vm_identifier,
+                    "vm",
+                    "boot-diagnostics",
+                    "get-boot-log",
+                    "--resource-group",
+                    &rg,
+                    "--name",
+                    &vm_identifier,
                 ])
                 .output()?;
 
@@ -3286,26 +3690,31 @@ async fn main() -> Result<()> {
         }
 
         // ── Costs (intelligence) ─────────────────────────────────────
-        azlin_cli::Commands::Costs { action } => match action {
-            azlin_cli::CostsAction::Dashboard { resource_group, .. } => {
-                let auth = create_auth()?;
-                let summary = azlin_azure::get_cost_summary(&auth, &resource_group).await?;
-                println!("Cost Dashboard for '{}':", resource_group);
-                println!("  Total: ${:.2} {}", summary.total_cost, summary.currency);
-                println!("  Period: {} to {}",
-                    summary.period_start.format("%Y-%m-%d"),
-                    summary.period_end.format("%Y-%m-%d")
-                );
-            }
-            azlin_cli::CostsAction::History { resource_group, days } => {
-                let start_date = (chrono::Utc::now() - chrono::Duration::days(days as i64))
-                    .format("%Y-%m-%dT00:00:00+00:00")
-                    .to_string();
-                let end_date = chrono::Utc::now()
-                    .format("%Y-%m-%dT23:59:59+00:00")
-                    .to_string();
+        azlin_cli::Commands::Costs { action } => {
+            match action {
+                azlin_cli::CostsAction::Dashboard { resource_group, .. } => {
+                    let auth = create_auth()?;
+                    let summary = azlin_azure::get_cost_summary(&auth, &resource_group).await?;
+                    println!("Cost Dashboard for '{}':", resource_group);
+                    println!("  Total: ${:.2} {}", summary.total_cost, summary.currency);
+                    println!(
+                        "  Period: {} to {}",
+                        summary.period_start.format("%Y-%m-%d"),
+                        summary.period_end.format("%Y-%m-%d")
+                    );
+                }
+                azlin_cli::CostsAction::History {
+                    resource_group,
+                    days,
+                } => {
+                    let start_date = (chrono::Utc::now() - chrono::Duration::days(days as i64))
+                        .format("%Y-%m-%dT00:00:00+00:00")
+                        .to_string();
+                    let end_date = chrono::Utc::now()
+                        .format("%Y-%m-%dT23:59:59+00:00")
+                        .to_string();
 
-                let output = std::process::Command::new("az")
+                    let output = std::process::Command::new("az")
                     .args([
                         "costmanagement", "query",
                         "--type", "ActualCost",
@@ -3316,178 +3725,229 @@ async fn main() -> Result<()> {
                     ])
                     .output()?;
 
-                if output.status.success() {
-                    let json_str = String::from_utf8_lossy(&output.stdout);
-                    match serde_json::from_str::<serde_json::Value>(&json_str) {
-                        Ok(data) => {
-                            let mut table = Table::new();
-                            table
-                                .load_preset(UTF8_FULL)
-                                .apply_modifier(UTF8_ROUND_CORNERS)
-                                .set_header(vec![
-                                    Cell::new("Date").add_attribute(Attribute::Bold),
-                                    Cell::new("Cost (USD)").add_attribute(Attribute::Bold),
-                                ]);
+                    if output.status.success() {
+                        let json_str = String::from_utf8_lossy(&output.stdout);
+                        match serde_json::from_str::<serde_json::Value>(&json_str) {
+                            Ok(data) => {
+                                let mut table = Table::new();
+                                table
+                                    .load_preset(UTF8_FULL)
+                                    .apply_modifier(UTF8_ROUND_CORNERS)
+                                    .set_header(vec![
+                                        Cell::new("Date").add_attribute(Attribute::Bold),
+                                        Cell::new("Cost (USD)").add_attribute(Attribute::Bold),
+                                    ]);
 
-                            if let Some(rows) = data.get("rows").and_then(|r| r.as_array()) {
-                                for row in rows {
-                                    if let Some(arr) = row.as_array() {
-                                        let cost = arr.first()
-                                            .and_then(|v| v.as_f64())
-                                            .map(|v| format!("${:.2}", v))
-                                            .unwrap_or_else(|| "-".to_string());
-                                        let date = arr.get(1)
-                                            .and_then(|v| v.as_str().or_else(|| v.as_i64().map(|_| "")))
-                                            .map(|s| s.to_string())
-                                            .or_else(|| arr.get(1).and_then(|v| v.as_i64()).map(|v| v.to_string()))
-                                            .unwrap_or_else(|| "-".to_string());
-                                        table.add_row(vec![
-                                            Cell::new(&date),
-                                            Cell::new(&cost),
-                                        ]);
+                                if let Some(rows) = data.get("rows").and_then(|r| r.as_array()) {
+                                    for row in rows {
+                                        if let Some(arr) = row.as_array() {
+                                            let cost = arr
+                                                .first()
+                                                .and_then(|v| v.as_f64())
+                                                .map(|v| format!("${:.2}", v))
+                                                .unwrap_or_else(|| "-".to_string());
+                                            let date = arr
+                                                .get(1)
+                                                .and_then(|v| {
+                                                    v.as_str().or_else(|| v.as_i64().map(|_| ""))
+                                                })
+                                                .map(|s| s.to_string())
+                                                .or_else(|| {
+                                                    arr.get(1)
+                                                        .and_then(|v| v.as_i64())
+                                                        .map(|v| v.to_string())
+                                                })
+                                                .unwrap_or_else(|| "-".to_string());
+                                            table.add_row(vec![Cell::new(&date), Cell::new(&cost)]);
+                                        }
                                     }
                                 }
+                                println!(
+                                    "Cost history for '{}' (last {} days):",
+                                    resource_group, days
+                                );
+                                println!("{table}");
                             }
-                            println!("Cost history for '{}' (last {} days):", resource_group, days);
-                            println!("{table}");
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to parse cost data: {}", e);
-                            println!("{}", json_str);
-                        }
-                    }
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to query cost history: {}", stderr.trim());
-                    std::process::exit(1);
-                }
-            }
-            azlin_cli::CostsAction::Budget { action, resource_group, amount, threshold } => {
-                println!("Budget {}: rg={}, amount={:?}, threshold={:?}",
-                    action, resource_group, amount, threshold);
-            }
-            azlin_cli::CostsAction::Recommend { resource_group, priority } => {
-                let mut cmd_args = vec![
-                    "advisor".to_string(),
-                    "recommendation".to_string(),
-                    "list".to_string(),
-                    "--resource-group".to_string(),
-                    resource_group.clone(),
-                    "-o".to_string(),
-                    "json".to_string(),
-                ];
-                if let Some(ref pri) = priority {
-                    cmd_args.push("--query".to_string());
-                    cmd_args.push(format!("[?impact=='{}']", pri));
-                }
-                let output = std::process::Command::new("az")
-                    .args(&cmd_args)
-                    .output()?;
-
-                if output.status.success() {
-                    let json_str = String::from_utf8_lossy(&output.stdout);
-                    match serde_json::from_str::<serde_json::Value>(&json_str) {
-                        Ok(data) => {
-                            if let Some(recs) = data.as_array() {
-                                if recs.is_empty() {
-                                    let pri = priority.unwrap_or_else(|| "all".to_string());
-                                    println!("No cost recommendations found for '{}' (priority: {})", resource_group, pri);
-                                } else {
-                                    let mut table = Table::new();
-                                    table
-                                        .load_preset(UTF8_FULL)
-                                        .apply_modifier(UTF8_ROUND_CORNERS)
-                                        .set_header(vec![
-                                            Cell::new("Category").add_attribute(Attribute::Bold),
-                                            Cell::new("Impact").add_attribute(Attribute::Bold),
-                                            Cell::new("Problem").add_attribute(Attribute::Bold),
-                                        ]);
-                                    for rec in recs {
-                                        let category = rec.get("category").and_then(|v| v.as_str()).unwrap_or("-");
-                                        let impact = rec.get("impact").and_then(|v| v.as_str()).unwrap_or("-");
-                                        let problem = rec.get("shortDescription")
-                                            .and_then(|v| v.get("problem"))
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("-");
-                                        table.add_row(vec![
-                                            Cell::new(category),
-                                            Cell::new(impact),
-                                            Cell::new(problem),
-                                        ]);
-                                    }
-                                    println!("Cost recommendations for '{}':", resource_group);
-                                    println!("{table}");
-                                }
+                            Err(e) => {
+                                eprintln!("Failed to parse cost data: {}", e);
+                                println!("{}", json_str);
                             }
                         }
-                        Err(e) => eprintln!("Failed to parse advisor data: {}", e),
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        eprintln!("Failed to query cost history: {}", stderr.trim());
+                        std::process::exit(1);
                     }
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to list recommendations: {}", stderr.trim());
-                    std::process::exit(1);
                 }
-            }
-            azlin_cli::CostsAction::Actions { action, resource_group, dry_run, .. } => {
-                let output = std::process::Command::new("az")
-                    .args([
-                        "advisor", "recommendation", "list",
-                        "--resource-group", &resource_group,
-                        "--query", "[?category=='Cost']",
-                        "-o", "json",
-                    ])
-                    .output()?;
+                azlin_cli::CostsAction::Budget {
+                    action,
+                    resource_group,
+                    amount,
+                    threshold,
+                } => {
+                    println!(
+                        "Budget {}: rg={}, amount={:?}, threshold={:?}",
+                        action, resource_group, amount, threshold
+                    );
+                }
+                azlin_cli::CostsAction::Recommend {
+                    resource_group,
+                    priority,
+                } => {
+                    let mut cmd_args = vec![
+                        "advisor".to_string(),
+                        "recommendation".to_string(),
+                        "list".to_string(),
+                        "--resource-group".to_string(),
+                        resource_group.clone(),
+                        "-o".to_string(),
+                        "json".to_string(),
+                    ];
+                    if let Some(ref pri) = priority {
+                        cmd_args.push("--query".to_string());
+                        cmd_args.push(format!("[?impact=='{}']", pri));
+                    }
+                    let output = std::process::Command::new("az").args(&cmd_args).output()?;
 
-                if output.status.success() {
-                    let json_str = String::from_utf8_lossy(&output.stdout);
-                    match serde_json::from_str::<serde_json::Value>(&json_str) {
-                        Ok(data) => {
-                            if let Some(recs) = data.as_array() {
-                                if recs.is_empty() {
-                                    println!("No pending cost actions in '{}'", resource_group);
-                                } else {
-                                    let mut table = Table::new();
-                                    table
-                                        .load_preset(UTF8_FULL)
-                                        .apply_modifier(UTF8_ROUND_CORNERS)
-                                        .set_header(vec![
-                                            Cell::new("Resource").add_attribute(Attribute::Bold),
-                                            Cell::new("Impact").add_attribute(Attribute::Bold),
-                                            Cell::new("Recommendation").add_attribute(Attribute::Bold),
-                                        ]);
-                                    for rec in recs {
-                                        let resource = rec.get("impactedField")
-                                            .and_then(|v| v.as_str()).unwrap_or("-");
-                                        let impact = rec.get("impact")
-                                            .and_then(|v| v.as_str()).unwrap_or("-");
-                                        let problem = rec.get("shortDescription")
-                                            .and_then(|v| v.get("problem"))
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("-");
-                                        table.add_row(vec![
-                                            Cell::new(resource),
-                                            Cell::new(impact),
-                                            Cell::new(problem),
-                                        ]);
-                                    }
-                                    if dry_run {
-                                        println!("Would {} the following cost actions in '{}':", action, resource_group);
+                    if output.status.success() {
+                        let json_str = String::from_utf8_lossy(&output.stdout);
+                        match serde_json::from_str::<serde_json::Value>(&json_str) {
+                            Ok(data) => {
+                                if let Some(recs) = data.as_array() {
+                                    if recs.is_empty() {
+                                        let pri = priority.unwrap_or_else(|| "all".to_string());
+                                        println!(
+                                            "No cost recommendations found for '{}' (priority: {})",
+                                            resource_group, pri
+                                        );
                                     } else {
-                                        println!("Cost actions ({}) in '{}':", action, resource_group);
+                                        let mut table = Table::new();
+                                        table
+                                            .load_preset(UTF8_FULL)
+                                            .apply_modifier(UTF8_ROUND_CORNERS)
+                                            .set_header(vec![
+                                                Cell::new("Category")
+                                                    .add_attribute(Attribute::Bold),
+                                                Cell::new("Impact").add_attribute(Attribute::Bold),
+                                                Cell::new("Problem").add_attribute(Attribute::Bold),
+                                            ]);
+                                        for rec in recs {
+                                            let category = rec
+                                                .get("category")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("-");
+                                            let impact = rec
+                                                .get("impact")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("-");
+                                            let problem = rec
+                                                .get("shortDescription")
+                                                .and_then(|v| v.get("problem"))
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("-");
+                                            table.add_row(vec![
+                                                Cell::new(category),
+                                                Cell::new(impact),
+                                                Cell::new(problem),
+                                            ]);
+                                        }
+                                        println!("Cost recommendations for '{}':", resource_group);
+                                        println!("{table}");
                                     }
-                                    println!("{table}");
                                 }
                             }
+                            Err(e) => eprintln!("Failed to parse advisor data: {}", e),
                         }
-                        Err(e) => eprintln!("Failed to parse advisor data: {}", e),
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        eprintln!("Failed to list recommendations: {}", stderr.trim());
+                        std::process::exit(1);
                     }
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to list cost actions: {}", stderr.trim());
-                    std::process::exit(1);
+                }
+                azlin_cli::CostsAction::Actions {
+                    action,
+                    resource_group,
+                    dry_run,
+                    ..
+                } => {
+                    let output = std::process::Command::new("az")
+                        .args([
+                            "advisor",
+                            "recommendation",
+                            "list",
+                            "--resource-group",
+                            &resource_group,
+                            "--query",
+                            "[?category=='Cost']",
+                            "-o",
+                            "json",
+                        ])
+                        .output()?;
+
+                    if output.status.success() {
+                        let json_str = String::from_utf8_lossy(&output.stdout);
+                        match serde_json::from_str::<serde_json::Value>(&json_str) {
+                            Ok(data) => {
+                                if let Some(recs) = data.as_array() {
+                                    if recs.is_empty() {
+                                        println!("No pending cost actions in '{}'", resource_group);
+                                    } else {
+                                        let mut table = Table::new();
+                                        table
+                                            .load_preset(UTF8_FULL)
+                                            .apply_modifier(UTF8_ROUND_CORNERS)
+                                            .set_header(vec![
+                                                Cell::new("Resource")
+                                                    .add_attribute(Attribute::Bold),
+                                                Cell::new("Impact").add_attribute(Attribute::Bold),
+                                                Cell::new("Recommendation")
+                                                    .add_attribute(Attribute::Bold),
+                                            ]);
+                                        for rec in recs {
+                                            let resource = rec
+                                                .get("impactedField")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("-");
+                                            let impact = rec
+                                                .get("impact")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("-");
+                                            let problem = rec
+                                                .get("shortDescription")
+                                                .and_then(|v| v.get("problem"))
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("-");
+                                            table.add_row(vec![
+                                                Cell::new(resource),
+                                                Cell::new(impact),
+                                                Cell::new(problem),
+                                            ]);
+                                        }
+                                        if dry_run {
+                                            println!(
+                                                "Would {} the following cost actions in '{}':",
+                                                action, resource_group
+                                            );
+                                        } else {
+                                            println!(
+                                                "Cost actions ({}) in '{}':",
+                                                action, resource_group
+                                            );
+                                        }
+                                        println!("{table}");
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("Failed to parse advisor data: {}", e),
+                        }
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        eprintln!("Failed to list cost actions: {}", stderr.trim());
+                        std::process::exit(1);
+                    }
                 }
             }
-        },
+        }
 
         // ── Killall ──────────────────────────────────────────────────
         azlin_cli::Commands::Killall {
@@ -3517,10 +3977,14 @@ async fn main() -> Result<()> {
 
             let output = std::process::Command::new("az")
                 .args([
-                    "vm", "list",
-                    "--resource-group", &rg,
-                    "--query", &format!("[?starts_with(name, '{}')].id", prefix),
-                    "--output", "tsv",
+                    "vm",
+                    "list",
+                    "--resource-group",
+                    &rg,
+                    "--query",
+                    &format!("[?starts_with(name, '{}')].id", prefix),
+                    "--output",
+                    "tsv",
                 ])
                 .output()?;
 
@@ -3570,7 +4034,10 @@ async fn main() -> Result<()> {
             let rg = resolve_resource_group(resource_group)?;
 
             if dry_run {
-                println!("Dry run — scanning for orphaned resources in '{}' (older than {} days)...", rg, age_days);
+                println!(
+                    "Dry run — scanning for orphaned resources in '{}' (older than {} days)...",
+                    rg, age_days
+                );
                 println!("No orphaned resources found.");
                 return Ok(());
             }
@@ -3631,40 +4098,65 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            azlin_cli::BastionAction::Status { name, resource_group } => {
+            azlin_cli::BastionAction::Status {
+                name,
+                resource_group,
+            } => {
                 println!("Checking Bastion host: {}...", name);
                 let output = std::process::Command::new("az")
                     .args([
-                        "network", "bastion", "show",
-                        "--name", &name,
-                        "--resource-group", &resource_group,
-                        "-o", "json",
+                        "network",
+                        "bastion",
+                        "show",
+                        "--name",
+                        &name,
+                        "--resource-group",
+                        &resource_group,
+                        "-o",
+                        "json",
                     ])
                     .output()?;
                 if !output.status.success() {
                     let err = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Bastion host not found: {} in {}: {}", name, resource_group, err);
+                    eprintln!(
+                        "Bastion host not found: {} in {}: {}",
+                        name, resource_group, err
+                    );
                     std::process::exit(1);
                 }
                 let b: serde_json::Value = serde_json::from_slice(&output.stdout)?;
-                println!("\nBastion Host: {}", b["name"].as_str().unwrap_or("unknown"));
-                println!("Resource Group: {}", b["resourceGroup"].as_str().unwrap_or("unknown"));
+                println!(
+                    "\nBastion Host: {}",
+                    b["name"].as_str().unwrap_or("unknown")
+                );
+                println!(
+                    "Resource Group: {}",
+                    b["resourceGroup"].as_str().unwrap_or("unknown")
+                );
                 println!("Location: {}", b["location"].as_str().unwrap_or("unknown"));
                 println!("SKU: {}", b["sku"]["name"].as_str().unwrap_or("Standard"));
-                println!("Provisioning State: {}", b["provisioningState"].as_str().unwrap_or("Unknown"));
+                println!(
+                    "Provisioning State: {}",
+                    b["provisioningState"].as_str().unwrap_or("Unknown")
+                );
                 println!("DNS Name: {}", b["dnsName"].as_str().unwrap_or("N/A"));
                 let ip_configs = b["ipConfigurations"].as_array();
                 if let Some(configs) = ip_configs {
                     println!("\nIP Configurations: {}", configs.len());
                     for (idx, config) in configs.iter().enumerate() {
                         let subnet_id = config["subnet"]["id"].as_str().unwrap_or("N/A");
-                        let public_ip_id = config["publicIPAddress"]["id"].as_str().unwrap_or("N/A");
+                        let public_ip_id =
+                            config["publicIPAddress"]["id"].as_str().unwrap_or("N/A");
                         let subnet_short = if subnet_id != "N/A" {
                             subnet_id.rsplit('/').next().unwrap_or("N/A")
-                        } else { "N/A" };
+                        } else {
+                            "N/A"
+                        };
                         let pip_short = if public_ip_id != "N/A" {
                             public_ip_id.rsplit('/').next().unwrap_or("N/A")
-                        } else { "N/A" };
+                        } else {
+                            "N/A"
+                        };
                         println!("  [{}] Subnet: {}", idx + 1, subnet_short);
                         println!("      Public IP: {}", pip_short);
                     }
@@ -3693,7 +4185,8 @@ async fn main() -> Result<()> {
                     serde_json::json!({"mappings": {}})
                 };
 
-                let mappings = config["mappings"].as_object_mut()
+                let mappings = config["mappings"]
+                    .as_object_mut()
                     .ok_or_else(|| anyhow::anyhow!("Invalid bastion config format"))?;
 
                 if disable {
@@ -3701,11 +4194,14 @@ async fn main() -> Result<()> {
                     std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
                     println!("✓ Disabled Bastion mapping for: {}", vm_name);
                 } else {
-                    mappings.insert(vm_name.clone(), serde_json::json!({
-                        "bastion_name": bastion_name,
-                        "vm_resource_group": vm_rg,
-                        "bastion_resource_group": bastion_rg,
-                    }));
+                    mappings.insert(
+                        vm_name.clone(),
+                        serde_json::json!({
+                            "bastion_name": bastion_name,
+                            "vm_resource_group": vm_rg,
+                            "bastion_resource_group": bastion_rg,
+                        }),
+                    );
                     std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
                     println!("✓ Configured {} to use Bastion: {}", vm_name, bastion_name);
                     println!("  VM RG: {}", vm_rg);
@@ -3715,21 +4211,19 @@ async fn main() -> Result<()> {
             }
         },
 
-        azlin_cli::Commands::AzlinHelp { command_name } => {
-            match command_name.as_deref() {
-                Some(cmd) => {
-                    println!("azlin {} — Extended help", cmd);
-                    println!();
-                    println!("Run 'azlin {} --help' for usage details.", cmd);
-                }
-                None => {
-                    println!("azlin — Azure VM fleet management CLI");
-                    println!();
-                    println!("Run 'azlin --help' for a list of commands.");
-                    println!("Run 'azlin <command> --help' for command-specific help.");
-                }
+        azlin_cli::Commands::AzlinHelp { command_name } => match command_name.as_deref() {
+            Some(cmd) => {
+                println!("azlin {} — Extended help", cmd);
+                println!();
+                println!("Run 'azlin {} --help' for usage details.", cmd);
             }
-        }
+            None => {
+                println!("azlin — Azure VM fleet management CLI");
+                println!();
+                println!("Run 'azlin --help' for a list of commands.");
+                println!("Run 'azlin <command> --help' for command-specific help.");
+            }
+        },
     }
 
     Ok(())
@@ -3788,15 +4282,15 @@ async fn resolve_vm_ip(vm_name: &str, resource_group: Option<String>) -> Result<
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
             let vm = vm_manager.get_vm(&rg, vm_name).await?;
-            let ip = vm.public_ip.or(vm.private_ip)
+            let ip = vm
+                .public_ip
+                .or(vm.private_ip)
                 .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm_name))?;
             let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
             Ok((ip, user))
         }
         Err(_) => {
-            anyhow::bail!(
-                "Azure auth not available. Use --ip flag to specify VM IP directly."
-            )
+            anyhow::bail!("Azure auth not available. Use --ip flag to specify VM IP directly.")
         }
     }
 }
@@ -3822,7 +4316,11 @@ async fn resolve_vm_targets(
 ) -> Result<Vec<(String, String, String)>> {
     if let Some(ip) = ip_flag {
         let name = vm_flag.unwrap_or(ip);
-        return Ok(vec![(name.to_string(), ip.to_string(), "azureuser".to_string())]);
+        return Ok(vec![(
+            name.to_string(),
+            ip.to_string(),
+            "azureuser".to_string(),
+        )]);
     }
     if let Some(vm_name) = vm_flag {
         let (ip, user) = resolve_vm_ip(vm_name, resource_group).await?;
@@ -3940,7 +4438,11 @@ mod tests {
         });
 
         let profile_path = profiles_dir.join("test.json");
-        fs::write(&profile_path, serde_json::to_string_pretty(&profile_data).unwrap()).unwrap();
+        fs::write(
+            &profile_path,
+            serde_json::to_string_pretty(&profile_data).unwrap(),
+        )
+        .unwrap();
 
         assert!(profile_path.exists());
         let content = fs::read_to_string(&profile_path).unwrap();
@@ -4130,9 +4632,8 @@ mod tests {
     fn test_ssh_exec_unreachable_host() {
         // ssh_exec to a non-routable address should either error or return non-zero
         let result = super::ssh_exec("192.0.2.1", "user", "echo hello");
-        match result {
-            Ok((code, _, _)) => assert_ne!(code, 0, "should fail for unreachable host"),
-            Err(_) => {} // also acceptable
+        if let Ok((code, _, _)) = result {
+            assert_ne!(code, 0, "should fail for unreachable host");
         }
     }
 

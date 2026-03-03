@@ -157,7 +157,11 @@ mod tests {
         }
         // "Other" variant uses "{0}" so its message is just "msg" which might clash
         // with some variant. We check that at least most are unique.
-        assert!(unique.len() >= 20, "Expected many distinct messages, got {}", unique.len());
+        assert!(
+            unique.len() >= 20,
+            "Expected many distinct messages, got {}",
+            unique.len()
+        );
     }
 
     #[test]
@@ -193,7 +197,8 @@ mod tests {
             assert!(
                 err.to_string().contains(expected),
                 "Error '{}' should contain '{}'",
-                err, expected
+                err,
+                expected
             );
         }
     }

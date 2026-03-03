@@ -25,8 +25,8 @@ impl AzureAuth {
     ///
     /// The subscription ID is read from `az account show`.
     pub fn new() -> Result<Self> {
-        let credential = DefaultAzureCredential::new()
-            .context("Failed to create DefaultAzureCredential")?;
+        let credential =
+            DefaultAzureCredential::new().context("Failed to create DefaultAzureCredential")?;
 
         let (subscription_id, tenant_id) = Self::read_account_info()?;
 
@@ -39,8 +39,8 @@ impl AzureAuth {
 
     /// Create a new `AzureAuth` with an explicit subscription ID.
     pub fn new_with_subscription(subscription_id: &str) -> Result<Self> {
-        let credential = DefaultAzureCredential::new()
-            .context("Failed to create DefaultAzureCredential")?;
+        let credential =
+            DefaultAzureCredential::new().context("Failed to create DefaultAzureCredential")?;
 
         Ok(Self {
             credential,
@@ -117,14 +117,19 @@ mod tests {
         // In CI without Azure login this will be Err; that's fine.
         match result {
             Ok(auth) => {
-                assert_eq!(auth.subscription_id(), "00000000-0000-0000-0000-000000000000");
+                assert_eq!(
+                    auth.subscription_id(),
+                    "00000000-0000-0000-0000-000000000000"
+                );
                 assert!(auth.tenant_id().is_none());
             }
             Err(e) => {
                 // Expected in environments without Azure CLI login
                 let msg = format!("{e}");
                 assert!(
-                    msg.contains("Credential") || msg.contains("credential") || msg.contains("Azure"),
+                    msg.contains("Credential")
+                        || msg.contains("credential")
+                        || msg.contains("Azure"),
                     "Unexpected error: {msg}"
                 );
             }

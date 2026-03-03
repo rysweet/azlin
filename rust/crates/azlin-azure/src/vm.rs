@@ -58,12 +58,14 @@ impl VmManager {
         });
         let subscription_id = auth.subscription_id().to_string();
 
-        let compute_client =
-            azure_mgmt_compute::ClientBuilder::new(adapter.clone() as Arc<dyn azure_core_old::auth::TokenCredential>)
-                .build();
-        let network_client =
-            azure_mgmt_network::ClientBuilder::new(adapter as Arc<dyn azure_core_old::auth::TokenCredential>)
-                .build();
+        let compute_client = azure_mgmt_compute::ClientBuilder::new(
+            adapter.clone() as Arc<dyn azure_core_old::auth::TokenCredential>
+        )
+        .build();
+        let network_client = azure_mgmt_network::ClientBuilder::new(
+            adapter as Arc<dyn azure_core_old::auth::TokenCredential>,
+        )
+        .build();
 
         Self {
             compute_client,
@@ -141,8 +143,7 @@ impl VmManager {
         let vm_size = props
             .and_then(|p| p.hardware_profile.as_ref())
             .and_then(|hp| hp.vm_size.as_ref())
-            .map(|s| serde_json::to_value(s).ok())
-            .flatten()
+            .and_then(|s| serde_json::to_value(s).ok())
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| "unknown".to_string());
 
@@ -155,9 +156,17 @@ impl VmManager {
             .to_string();
 
         // Detect OS type from OS profile
-        let os_type = if props.and_then(|p| p.os_profile.as_ref()).and_then(|o| o.linux_configuration.as_ref()).is_some() {
+        let os_type = if props
+            .and_then(|p| p.os_profile.as_ref())
+            .and_then(|o| o.linux_configuration.as_ref())
+            .is_some()
+        {
             OsType::Linux
-        } else if props.and_then(|p| p.os_profile.as_ref()).and_then(|o| o.windows_configuration.as_ref()).is_some() {
+        } else if props
+            .and_then(|p| p.os_profile.as_ref())
+            .and_then(|o| o.windows_configuration.as_ref())
+            .is_some()
+        {
             OsType::Windows
         } else {
             OsType::Linux // Default assumption
@@ -250,7 +259,13 @@ impl VmManager {
     }
 
     /// Add a tag to a VM, preserving existing tags.
-    pub async fn add_tag(&self, resource_group: &str, name: &str, key: &str, value: &str) -> Result<()> {
+    pub async fn add_tag(
+        &self,
+        resource_group: &str,
+        name: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<()> {
         debug!(resource_group, name, key, value, "Adding tag to VM");
         let vm = self.get_vm(resource_group, name).await?;
         let mut tags = vm.tags.clone();
@@ -300,7 +315,11 @@ impl VmManager {
     }
 
     /// List tags on a VM.
-    pub async fn list_tags(&self, resource_group: &str, name: &str) -> Result<HashMap<String, String>> {
+    pub async fn list_tags(
+        &self,
+        resource_group: &str,
+        name: &str,
+    ) -> Result<HashMap<String, String>> {
         debug!(resource_group, name, "Listing tags on VM");
         let vm = self.get_vm(resource_group, name).await?;
         Ok(vm.tags)
@@ -330,55 +349,77 @@ impl VmManager {
         let vm_name = &params.name;
 
         // Read SSH public key
-        let ssh_pub_key = std::fs::read_to_string(&params.ssh_key_path)
-            .context(format!(
-                "Failed to read SSH public key: {}",
-                params.ssh_key_path.display()
-            ))?;
+        let ssh_pub_key = std::fs::read_to_string(&params.ssh_key_path).context(format!(
+            "Failed to read SSH public key: {}",
+            params.ssh_key_path.display()
+        ))?;
 
         // 1. Create or verify resource group
         debug!(rg, location, "Creating/verifying resource group");
-        az_cli(&[
-            "group", "create",
-            "--name", rg,
-            "--location", location,
-        ])
-        .context(format!("Failed to create resource group '{rg}'"))?;
+        az_cli(&["group", "create", "--name", rg, "--location", location])
+            .context(format!("Failed to create resource group '{rg}'"))?;
 
         // 2. Create NSG with SSH + HTTPS rules
         let nsg_name = format!("{vm_name}-nsg");
         debug!(%nsg_name, "Creating NSG");
         az_cli(&[
-            "network", "nsg", "create",
-            "--resource-group", rg,
-            "--name", &nsg_name,
-            "--location", location,
+            "network",
+            "nsg",
+            "create",
+            "--resource-group",
+            rg,
+            "--name",
+            &nsg_name,
+            "--location",
+            location,
         ])
         .context(format!("Failed to create NSG '{nsg_name}'"))?;
 
         az_cli(&[
-            "network", "nsg", "rule", "create",
-            "--resource-group", rg,
-            "--nsg-name", &nsg_name,
-            "--name", "AllowSSH",
-            "--priority", "1000",
-            "--protocol", "Tcp",
-            "--destination-port-ranges", "22",
-            "--access", "Allow",
-            "--direction", "Inbound",
+            "network",
+            "nsg",
+            "rule",
+            "create",
+            "--resource-group",
+            rg,
+            "--nsg-name",
+            &nsg_name,
+            "--name",
+            "AllowSSH",
+            "--priority",
+            "1000",
+            "--protocol",
+            "Tcp",
+            "--destination-port-ranges",
+            "22",
+            "--access",
+            "Allow",
+            "--direction",
+            "Inbound",
         ])
         .context("Failed to create SSH NSG rule")?;
 
         az_cli(&[
-            "network", "nsg", "rule", "create",
-            "--resource-group", rg,
-            "--nsg-name", &nsg_name,
-            "--name", "AllowHTTPS",
-            "--priority", "1001",
-            "--protocol", "Tcp",
-            "--destination-port-ranges", "443",
-            "--access", "Allow",
-            "--direction", "Inbound",
+            "network",
+            "nsg",
+            "rule",
+            "create",
+            "--resource-group",
+            rg,
+            "--nsg-name",
+            &nsg_name,
+            "--name",
+            "AllowHTTPS",
+            "--priority",
+            "1001",
+            "--protocol",
+            "Tcp",
+            "--destination-port-ranges",
+            "443",
+            "--access",
+            "Allow",
+            "--direction",
+            "Inbound",
         ])
         .context("Failed to create HTTPS NSG rule")?;
 
@@ -387,14 +428,23 @@ impl VmManager {
         let subnet_name = format!("{vm_name}-subnet");
         debug!(%vnet_name, %subnet_name, "Creating VNet and subnet");
         az_cli(&[
-            "network", "vnet", "create",
-            "--resource-group", rg,
-            "--name", &vnet_name,
-            "--address-prefix", "10.0.0.0/16",
-            "--subnet-name", &subnet_name,
-            "--subnet-prefix", "10.0.0.0/24",
-            "--location", location,
-            "--network-security-group", &nsg_name,
+            "network",
+            "vnet",
+            "create",
+            "--resource-group",
+            rg,
+            "--name",
+            &vnet_name,
+            "--address-prefix",
+            "10.0.0.0/16",
+            "--subnet-name",
+            &subnet_name,
+            "--subnet-prefix",
+            "10.0.0.0/24",
+            "--location",
+            location,
+            "--network-security-group",
+            &nsg_name,
         ])
         .context(format!("Failed to create VNet '{vnet_name}'"))?;
 
@@ -402,12 +452,19 @@ impl VmManager {
         let pip_name = format!("{vm_name}-pip");
         debug!(%pip_name, "Creating public IP");
         az_cli(&[
-            "network", "public-ip", "create",
-            "--resource-group", rg,
-            "--name", &pip_name,
-            "--sku", "Standard",
-            "--allocation-method", "Static",
-            "--location", location,
+            "network",
+            "public-ip",
+            "create",
+            "--resource-group",
+            rg,
+            "--name",
+            &pip_name,
+            "--sku",
+            "Standard",
+            "--allocation-method",
+            "Static",
+            "--location",
+            location,
         ])
         .context(format!("Failed to create public IP '{pip_name}'"))?;
 
@@ -415,14 +472,23 @@ impl VmManager {
         let nic_name = format!("{vm_name}-nic");
         debug!(%nic_name, "Creating NIC");
         az_cli(&[
-            "network", "nic", "create",
-            "--resource-group", rg,
-            "--name", &nic_name,
-            "--vnet-name", &vnet_name,
-            "--subnet", &subnet_name,
-            "--public-ip-address", &pip_name,
-            "--network-security-group", &nsg_name,
-            "--location", location,
+            "network",
+            "nic",
+            "create",
+            "--resource-group",
+            rg,
+            "--name",
+            &nic_name,
+            "--vnet-name",
+            &vnet_name,
+            "--subnet",
+            &subnet_name,
+            "--public-ip-address",
+            &pip_name,
+            "--network-security-group",
+            &nsg_name,
+            "--location",
+            location,
         ])
         .context(format!("Failed to create NIC '{nic_name}'"))?;
 
@@ -435,16 +501,26 @@ impl VmManager {
 
         let cloud_init_path = create_cloud_init_file()?;
         let mut az_args = vec![
-            "vm", "create",
-            "--resource-group", rg,
-            "--name", vm_name,
-            "--nics", &nic_name,
-            "--image", &image_urn,
-            "--size", &params.vm_size,
-            "--admin-username", &params.admin_username,
-            "--ssh-key-value", ssh_pub_key.trim(),
-            "--authentication-type", "ssh",
-            "--custom-data", &cloud_init_path,
+            "vm",
+            "create",
+            "--resource-group",
+            rg,
+            "--name",
+            vm_name,
+            "--nics",
+            &nic_name,
+            "--image",
+            &image_urn,
+            "--size",
+            &params.vm_size,
+            "--admin-username",
+            &params.admin_username,
+            "--ssh-key-value",
+            ssh_pub_key.trim(),
+            "--authentication-type",
+            "ssh",
+            "--custom-data",
+            &cloud_init_path,
         ];
 
         let tag_strs: Vec<String> = params
@@ -495,7 +571,11 @@ impl VmManager {
             };
 
             let nic_rg = extract_resource_group(nic_id);
-            let rg = if nic_rg.is_empty() { resource_group } else { &nic_rg };
+            let rg = if nic_rg.is_empty() {
+                resource_group
+            } else {
+                &nic_rg
+            };
 
             let nic = self
                 .network_client
@@ -596,8 +676,7 @@ fn az_cli(args: &[&str]) -> Result<String> {
 fn create_cloud_init_file() -> Result<String> {
     let dir = std::env::temp_dir();
     let path = dir.join("azlin-cloud-init.sh");
-    std::fs::write(&path, CLOUD_INIT_SCRIPT)
-        .context("Failed to write cloud-init temp file")?;
+    std::fs::write(&path, CLOUD_INIT_SCRIPT).context("Failed to write cloud-init temp file")?;
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -797,7 +876,7 @@ mod tests {
         assert_eq!(result.get("env").unwrap(), "production");
         assert_eq!(result.get("team").unwrap(), "backend");
         // Non-string values are skipped
-        assert!(result.get("numeric").is_none());
+        assert!(!result.contains_key("numeric"));
         assert_eq!(result.len(), 2);
     }
 

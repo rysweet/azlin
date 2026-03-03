@@ -30,10 +30,7 @@ pub fn render_tags_table(vm_name: &str, tags: &std::collections::HashMap<String,
     let mut keys: Vec<&String> = tags.keys().collect();
     keys.sort();
     for key in keys {
-        table.add_row(vec![
-            Cell::new(key),
-            Cell::new(tags.get(key).unwrap()),
-        ]);
+        table.add_row(vec![Cell::new(key), Cell::new(tags.get(key).unwrap())]);
     }
 
     println!("Tags for VM '{}':", vm_name);
@@ -53,8 +50,16 @@ fn render_table(vms: &[VmInfo]) {
         .set_header(vec!["Session", "VM Name", "Status", "IP", "Region", "SKU"]);
 
     for vm in vms {
-        let session = vm.tags.get("session").cloned().unwrap_or_else(|| "-".to_string());
-        let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("-");
+        let session = vm
+            .tags
+            .get("session")
+            .cloned()
+            .unwrap_or_else(|| "-".to_string());
+        let ip = vm
+            .public_ip
+            .as_deref()
+            .or(vm.private_ip.as_deref())
+            .unwrap_or("-");
 
         let status_cell = match &vm.power_state {
             PowerState::Running => Cell::new("running").fg(Color::Green),
@@ -160,7 +165,12 @@ mod tests {
 
     #[test]
     fn test_render_json() {
-        let vms = vec![mock_vm("vm-1", PowerState::Running, Some("1.2.3.4"), Some("dev"))];
+        let vms = vec![mock_vm(
+            "vm-1",
+            PowerState::Running,
+            Some("1.2.3.4"),
+            Some("dev"),
+        )];
         // Should not panic
         render_vm_table(&vms, &OutputFormat::Json);
     }
@@ -186,14 +196,22 @@ mod tests {
     fn test_render_uses_public_ip_over_private() {
         let vm = mock_vm("vm-1", PowerState::Running, Some("1.2.3.4"), None);
         // The public IP should be preferred; we test via CSV output
-        let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("-");
+        let ip = vm
+            .public_ip
+            .as_deref()
+            .or(vm.private_ip.as_deref())
+            .unwrap_or("-");
         assert_eq!(ip, "1.2.3.4");
     }
 
     #[test]
     fn test_render_falls_back_to_private_ip() {
         let vm = mock_vm("vm-1", PowerState::Running, None, None);
-        let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("-");
+        let ip = vm
+            .public_ip
+            .as_deref()
+            .or(vm.private_ip.as_deref())
+            .unwrap_or("-");
         assert_eq!(ip, "10.0.0.4");
     }
 }
