@@ -499,25 +499,355 @@ async fn async_main() -> Result<()> {
                 }
             }
         },
-        azlin_cli::Commands::List { resource_group, .. } => {
+        azlin_cli::Commands::List {
+            resource_group,
+            all,
+            tag,
+            no_tmux,
+            with_latency,
+            show_procs,
+            with_health,
+            wide,
+            compact,
+            quota,
+            show_all_vms,
+            vm_pattern,
+            include_stopped,
+            ..
+        } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
+            let include_all = all || include_stopped;
 
-            let vms = match &resource_group {
-                Some(rg) => vm_manager.list_vms(rg).await?,
-                None => {
-                    let config = azlin_core::AzlinConfig::load().ok();
-                    match config.and_then(|c| c.default_resource_group) {
-                        Some(rg) => vm_manager.list_vms(&rg).await?,
-                        None => {
-                            eprintln!("No resource group specified. Use --resource-group or set in config.");
-                            std::process::exit(1);
+            // Resolve resource group(s)
+            let mut all_vms = if show_all_vms {
+                vm_manager.list_all_vms().await?
+            } else {
+                match &resource_group {
+                    Some(rg) => vm_manager.list_vms(rg).await?,
+                    None => {
+                        let config = azlin_core::AzlinConfig::load().ok();
+                        match config.and_then(|c| c.default_resource_group) {
+                            Some(rg) => vm_manager.list_vms(&rg).await?,
+                            None => {
+                                eprintln!("No resource group specified. Use --resource-group or set in config.");
+                                std::process::exit(1);
+                            }
                         }
                     }
                 }
             };
 
-            azlin_cli::table::render_vm_table(&vms, &cli.output);
+            // Filter stopped VMs unless --all/--include-stopped
+            if !include_all {
+                all_vms.retain(|vm| {
+                    vm.power_state == azlin_core::models::PowerState::Running
+                        || vm.power_state == azlin_core::models::PowerState::Starting
+                });
+            }
+
+            // Filter by tag
+            if let Some(ref tag_filter) = tag {
+                if let Some((key, val)) = tag_filter.split_once('=') {
+                    all_vms.retain(|vm| {
+                        vm.tags.get(key).is_some_and(|v| v == val)
+                    });
+                } else {
+                    all_vms.retain(|vm| vm.tags.contains_key(tag_filter));
+                }
+            }
+
+            // Filter by VM name pattern
+            if let Some(ref pattern) = vm_pattern {
+                let pat = pattern.replace('*', "");
+                all_vms.retain(|vm| vm.name.contains(&pat));
+            }
+
+            // Collect tmux sessions if not disabled
+            let mut tmux_sessions: std::collections::HashMap<String, Vec<String>> =
+                std::collections::HashMap::new();
+            if !no_tmux {
+                for vm in &all_vms {
+                    if vm.power_state != azlin_core::models::PowerState::Running {
+                        continue;
+                    }
+                    let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
+                    if let Some(ip) = ip {
+                        let user = vm.admin_username.as_deref().unwrap_or("azureuser");
+                        let output = std::process::Command::new("ssh")
+                            .args([
+                                "-o", "StrictHostKeyChecking=no",
+                                "-o", "ConnectTimeout=5",
+                                "-o", "BatchMode=yes",
+                                &format!("{}@{}", user, ip),
+                                "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
+                            ])
+                            .output();
+                        if let Ok(out) = output {
+                            if out.status.success() {
+                                let sessions: Vec<String> = String::from_utf8_lossy(&out.stdout)
+                                    .lines()
+                                    .filter(|l| !l.is_empty())
+                                    .map(|l| l.to_string())
+                                    .collect();
+                                if !sessions.is_empty() {
+                                    tmux_sessions.insert(vm.name.clone(), sessions);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Collect latency if requested
+            let mut latencies: std::collections::HashMap<String, u64> =
+                std::collections::HashMap::new();
+            if with_latency {
+                for vm in &all_vms {
+                    if vm.power_state != azlin_core::models::PowerState::Running {
+                        continue;
+                    }
+                    let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
+                    if let Some(ip) = ip {
+                        let start = std::time::Instant::now();
+                        let _ = std::net::TcpStream::connect_timeout(
+                            &format!("{}:22", ip).parse().unwrap(),
+                            std::time::Duration::from_secs(5),
+                        );
+                        latencies.insert(vm.name.clone(), start.elapsed().as_millis() as u64);
+                    }
+                }
+            }
+
+            // Collect health metrics if requested
+            let mut health_data: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            if with_health {
+                for vm in &all_vms {
+                    if vm.power_state != azlin_core::models::PowerState::Running {
+                        continue;
+                    }
+                    let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
+                    if let Some(ip) = ip {
+                        let user = vm.admin_username.as_deref().unwrap_or("azureuser");
+                        let output = std::process::Command::new("ssh")
+                            .args([
+                                "-o", "StrictHostKeyChecking=no",
+                                "-o", "ConnectTimeout=5",
+                                "-o", "BatchMode=yes",
+                                &format!("{}@{}", user, ip),
+                                "echo \"CPU:$(top -bn1 | grep 'Cpu(s)' | awk '{print $2}')% MEM:$(free -m | awk '/Mem:/{printf \"%.0f%%\", $3/$2*100}') DISK:$(df -h / | awk 'NR==2{print $5}')\"",
+                            ])
+                            .output();
+                        if let Ok(out) = output {
+                            if out.status.success() {
+                                let metrics = String::from_utf8_lossy(&out.stdout)
+                                    .trim()
+                                    .to_string();
+                                health_data.insert(vm.name.clone(), metrics);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Collect top processes if requested
+            let mut proc_data: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            if show_procs {
+                for vm in &all_vms {
+                    if vm.power_state != azlin_core::models::PowerState::Running {
+                        continue;
+                    }
+                    let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
+                    if let Some(ip) = ip {
+                        let user = vm.admin_username.as_deref().unwrap_or("azureuser");
+                        let output = std::process::Command::new("ssh")
+                            .args([
+                                "-o", "StrictHostKeyChecking=no",
+                                "-o", "ConnectTimeout=5",
+                                "-o", "BatchMode=yes",
+                                &format!("{}@{}", user, ip),
+                                "ps aux --sort=-%mem | head -6 | tail -5 | awk '{print $11}' | tr '\\n' ', '",
+                            ])
+                            .output();
+                        if let Ok(out) = output {
+                            if out.status.success() {
+                                let procs = String::from_utf8_lossy(&out.stdout)
+                                    .trim()
+                                    .to_string();
+                                proc_data.insert(vm.name.clone(), procs);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Build and render table
+            let mut headers = vec!["Session", "VM Name", "Tmux", "Status", "IP", "Region", "SKU"];
+            if with_latency {
+                headers.push("Latency");
+            }
+            if with_health {
+                headers.push("Health");
+            }
+            if show_procs {
+                headers.push("Top Procs");
+            }
+
+            match &cli.output {
+                azlin_cli::OutputFormat::Json => {
+                    let json_vms: Vec<serde_json::Value> = all_vms
+                        .iter()
+                        .map(|vm| {
+                            let mut obj = serde_json::json!({
+                                "name": vm.name,
+                                "resource_group": vm.resource_group,
+                                "power_state": vm.power_state.to_string(),
+                                "ip": vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("-"),
+                                "location": vm.location,
+                                "vm_size": vm.vm_size,
+                                "session": vm.tags.get("azlin-session").unwrap_or(&"-".to_string()),
+                                "tmux_sessions": tmux_sessions.get(&vm.name).cloned().unwrap_or_default(),
+                            });
+                            if with_latency {
+                                obj["latency_ms"] = serde_json::json!(latencies.get(&vm.name));
+                            }
+                            if with_health {
+                                obj["health"] = serde_json::json!(health_data.get(&vm.name));
+                            }
+                            obj
+                        })
+                        .collect();
+                    println!("{}", serde_json::to_string_pretty(&json_vms)?);
+                }
+                azlin_cli::OutputFormat::Csv => {
+                    println!("{}", headers.join(","));
+                    for vm in &all_vms {
+                        let session = vm.tags.get("azlin-session").map(|s| s.as_str()).unwrap_or("-");
+                        let tmux = tmux_sessions
+                            .get(&vm.name)
+                            .map(|s| s.join(";"))
+                            .unwrap_or_default();
+                        let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("-");
+                        let mut row = format!(
+                            "{},{},{},{},{},{},{}",
+                            session, vm.name, tmux, vm.power_state, ip, vm.location, vm.vm_size
+                        );
+                        if with_latency {
+                            row.push_str(&format!(
+                                ",{}",
+                                latencies.get(&vm.name).map(|l| format!("{}ms", l)).unwrap_or_default()
+                            ));
+                        }
+                        println!("{}", row);
+                    }
+                }
+                azlin_cli::OutputFormat::Table => {
+                    let mut table = Table::new();
+                    table
+                        .load_preset(UTF8_FULL)
+                        .apply_modifier(UTF8_ROUND_CORNERS);
+                    let header_cells: Vec<Cell> = headers
+                        .iter()
+                        .map(|h| Cell::new(h).add_attribute(Attribute::Bold))
+                        .collect();
+                    table.set_header(header_cells);
+
+                    if compact {
+                        table.set_width(80);
+                    }
+
+                    for vm in &all_vms {
+                        let session = vm.tags.get("azlin-session").map(|s| s.as_str()).unwrap_or("-");
+                        let tmux = tmux_sessions
+                            .get(&vm.name)
+                            .map(|s| {
+                                if s.len() <= 3 {
+                                    s.join(", ")
+                                } else {
+                                    format!("{}, +{} more", s[..3].join(", "), s.len() - 3)
+                                }
+                            })
+                            .unwrap_or_else(|| "-".to_string());
+                        let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("-");
+                        let state_color = match vm.power_state {
+                            azlin_core::models::PowerState::Running => Color::Green,
+                            azlin_core::models::PowerState::Stopped
+                            | azlin_core::models::PowerState::Deallocated => Color::Red,
+                            _ => Color::Yellow,
+                        };
+
+                        let vm_name_display = if wide {
+                            vm.name.clone()
+                        } else if vm.name.len() > 20 {
+                            format!("{}...", &vm.name[..17])
+                        } else {
+                            vm.name.clone()
+                        };
+
+                        let mut row = vec![
+                            Cell::new(session),
+                            Cell::new(&vm_name_display),
+                            Cell::new(&tmux),
+                            Cell::new(vm.power_state.to_string()).fg(state_color),
+                            Cell::new(ip),
+                            Cell::new(&vm.location),
+                            Cell::new(&vm.vm_size),
+                        ];
+                        if with_latency {
+                            let lat = latencies
+                                .get(&vm.name)
+                                .map(|l| format!("{}ms", l))
+                                .unwrap_or_else(|| "-".to_string());
+                            row.push(Cell::new(lat));
+                        }
+                        if with_health {
+                            let h = health_data
+                                .get(&vm.name)
+                                .cloned()
+                                .unwrap_or_else(|| "-".to_string());
+                            row.push(Cell::new(h));
+                        }
+                        if show_procs {
+                            let p = proc_data
+                                .get(&vm.name)
+                                .cloned()
+                                .unwrap_or_else(|| "-".to_string());
+                            row.push(Cell::new(p));
+                        }
+                        table.add_row(row);
+                    }
+                    println!("{table}");
+                }
+            }
+
+            // Show quota summary if requested
+            if quota {
+                let rg = resource_group
+                    .or_else(|| {
+                        azlin_core::AzlinConfig::load()
+                            .ok()
+                            .and_then(|c| c.default_resource_group)
+                    })
+                    .unwrap_or_default();
+                println!("\nvCPU Quota:");
+                let output = std::process::Command::new("az")
+                    .args([
+                        "vm",
+                        "list-usage",
+                        "--location",
+                        "westus",
+                        "--query",
+                        "[?contains(name.value, 'vCPUs')].{Name:name.localizedValue, Current:currentValue, Limit:limit}",
+                        "--output",
+                        "table",
+                    ])
+                    .output()?;
+                if output.status.success() {
+                    print!("{}", String::from_utf8_lossy(&output.stdout));
+                }
+            }
         }
         azlin_cli::Commands::Start {
             vm_name,

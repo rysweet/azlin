@@ -276,9 +276,53 @@ pub enum Commands {
         #[arg(long)]
         tag: Option<String>,
 
-        /// Show active tmux sessions
+        /// Show active tmux sessions (default: true, use --no-tmux to disable)
         #[arg(long, default_value = "true")]
         show_tmux: bool,
+
+        /// Disable tmux session checking
+        #[arg(long)]
+        no_tmux: bool,
+
+        /// Show SSH latency for each VM
+        #[arg(long)]
+        with_latency: bool,
+
+        /// Show top processes on each VM
+        #[arg(long)]
+        show_procs: bool,
+
+        /// Show VM health metrics (CPU, memory, disk)
+        #[arg(long)]
+        with_health: bool,
+
+        /// Wide output (don't truncate VM names)
+        #[arg(short, long)]
+        wide: bool,
+
+        /// Compact output
+        #[arg(short, long)]
+        compact: bool,
+
+        /// Skip cache, fetch fresh data
+        #[arg(long)]
+        no_cache: bool,
+
+        /// Show vCPU quota summary
+        #[arg(short, long)]
+        quota: bool,
+
+        /// Scan all resource groups
+        #[arg(short = 'a', long)]
+        show_all_vms: bool,
+
+        /// Filter VMs by name pattern (glob)
+        #[arg(long)]
+        vm_pattern: Option<String>,
+
+        /// Include stopped/deallocated VMs (alias for --all)
+        #[arg(long)]
+        include_stopped: bool,
 
         /// Config file path
         #[arg(long)]
@@ -4081,6 +4125,116 @@ mod tests {
         let cli = Cli::parse_from(["azlin", "list", "--all"]);
         if let Commands::List { all, .. } = cli.command {
             assert!(all);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_wide_flag() {
+        let cli = Cli::parse_from(["azlin", "list", "--wide"]);
+        if let Commands::List { wide, .. } = cli.command {
+            assert!(wide);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_compact_flag() {
+        let cli = Cli::parse_from(["azlin", "list", "--compact"]);
+        if let Commands::List { compact, .. } = cli.command {
+            assert!(compact);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_latency_flag() {
+        let cli = Cli::parse_from(["azlin", "list", "--with-latency"]);
+        if let Commands::List { with_latency, .. } = cli.command {
+            assert!(with_latency);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_health_flag() {
+        let cli = Cli::parse_from(["azlin", "list", "--with-health"]);
+        if let Commands::List { with_health, .. } = cli.command {
+            assert!(with_health);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_no_tmux() {
+        let cli = Cli::parse_from(["azlin", "list", "--no-tmux"]);
+        if let Commands::List { no_tmux, .. } = cli.command {
+            assert!(no_tmux);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_show_procs() {
+        let cli = Cli::parse_from(["azlin", "list", "--show-procs"]);
+        if let Commands::List { show_procs, .. } = cli.command {
+            assert!(show_procs);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_quota() {
+        let cli = Cli::parse_from(["azlin", "list", "--quota"]);
+        if let Commands::List { quota, .. } = cli.command {
+            assert!(quota);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_show_all_vms() {
+        let cli = Cli::parse_from(["azlin", "list", "--show-all-vms"]);
+        if let Commands::List { show_all_vms, .. } = cli.command {
+            assert!(show_all_vms);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_vm_pattern() {
+        let cli = Cli::parse_from(["azlin", "list", "--vm-pattern", "test-*"]);
+        if let Commands::List { vm_pattern, .. } = cli.command {
+            assert_eq!(vm_pattern.unwrap(), "test-*");
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_include_stopped() {
+        let cli = Cli::parse_from(["azlin", "list", "--include-stopped"]);
+        if let Commands::List { include_stopped, .. } = cli.command {
+            assert!(include_stopped);
+        } else {
+            panic!("Expected List command");
+        }
+    }
+
+    #[test]
+    fn test_list_with_no_cache() {
+        let cli = Cli::parse_from(["azlin", "list", "--no-cache"]);
+        if let Commands::List { no_cache, .. } = cli.command {
+            assert!(no_cache);
         } else {
             panic!("Expected List command");
         }
