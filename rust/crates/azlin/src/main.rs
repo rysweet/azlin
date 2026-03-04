@@ -1,9 +1,24 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
 };
 use console::Style;
+
+/// Create a styled table with the standard UTF8 rounded preset and bold headers.
+fn new_table(headers: &[&str]) -> Table {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_header(
+            headers
+                .iter()
+                .map(|h| Cell::new(*h).add_attribute(Attribute::Bold))
+                .collect::<Vec<_>>(),
+        );
+    table
+}
 use crossterm::{
     event::{self, Event, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -23,6 +38,12 @@ use tracing_subscriber::EnvFilter;
 /// Thread-safe flag to disable bastion pool, replacing the unsound
 /// `std::env::set_var` call in an async/multi-threaded context.
 static DISABLE_BASTION_POOL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Estimated monthly cost for an orphaned Azure Standard public IP address.
+const ORPHANED_PUBLIC_IP_MONTHLY_COST: f64 = 3.65;
+
+/// Default admin username for Azure VMs.
+const DEFAULT_ADMIN_USERNAME: &str = "azureuser";
 
 /// Check whether bastion pool is disabled.
 #[allow(dead_code)]
@@ -45,7 +66,7 @@ fn ssh_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
     let output = std::process::Command::new("ssh")
         .args([
             "-o",
-            "StrictHostKeyChecking=no",
+            "StrictHostKeyChecking=accept-new",
             "-o",
             "ConnectTimeout=10",
             "-o",
@@ -115,18 +136,14 @@ fn collect_health_metrics(vm_name: &str, ip: &str, user: &str, power_state: &str
 
 /// Render a health metrics table.
 fn render_health_table(metrics: &[HealthMetrics]) {
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS)
-        .set_header(vec![
-            Cell::new("VM Name").add_attribute(Attribute::Bold),
-            Cell::new("Power State").add_attribute(Attribute::Bold),
-            Cell::new("CPU %").add_attribute(Attribute::Bold),
-            Cell::new("Memory %").add_attribute(Attribute::Bold),
-            Cell::new("Disk %").add_attribute(Attribute::Bold),
-            Cell::new("Load Average").add_attribute(Attribute::Bold),
-        ]);
+    let mut table = new_table(&[
+        "VM Name",
+        "Power State",
+        "CPU %",
+        "Memory %",
+        "Disk %",
+        "Load Average",
+    ]);
 
     for m in metrics {
         let state_color = match m.power_state.as_str() {
@@ -307,7 +324,7 @@ async fn get_running_vms_with_ips(
                 let user = vm
                     .admin_username
                     .clone()
-                    .unwrap_or_else(|| "azureuser".to_string());
+                    .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
                 results.push((vm.name.clone(), ip.clone(), user));
             }
         }
@@ -411,7 +428,7 @@ async fn async_main() -> Result<()> {
 
     match cli.command {
         azlin_cli::Commands::Version => {
-            println!("azlin 2.3.0 (rust)");
+            println!("azlin {} (rust)", env!("CARGO_PKG_VERSION"));
         }
         azlin_cli::Commands::Config { action } => match action {
             azlin_cli::ConfigAction::Show => {
@@ -448,8 +465,7 @@ async fn async_main() -> Result<()> {
                 let mut json = serde_json::to_value(&config)?;
                 if let Some(obj) = json.as_object() {
                     if !obj.contains_key(&key) {
-                        eprintln!("Unknown config key: {key}");
-                        std::process::exit(1);
+                        anyhow::bail!("Unknown config key: {key}");
                     }
                 }
                 let validated = azlin_core::AzlinConfig::validate_field(&key, &value)?;
@@ -485,19 +501,12 @@ async fn async_main() -> Result<()> {
             // Resolve resource group(s)
             let mut all_vms = if all_contexts {
                 // Read all context files from ~/.azlin/contexts/ and aggregate VMs
-                let ctx_dir = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".azlin")
-                    .join("contexts");
+                let ctx_dir = home_dir()?.join(".azlin").join("contexts");
                 if ctx_dir.is_dir() {
                     let mut aggregated = Vec::new();
                     let mut entries: Vec<_> = std::fs::read_dir(&ctx_dir)?
                         .filter_map(|e| e.ok())
-                        .filter(|e| {
-                            e.path()
-                                .extension()
-                                .is_some_and(|ext| ext == "toml")
-                        })
+                        .filter(|e| e.path().extension().is_some_and(|ext| ext == "toml"))
                         .collect();
                     entries.sort_by_key(|e| e.file_name());
                     for entry in entries {
@@ -514,25 +523,35 @@ async fn async_main() -> Result<()> {
                                 }
                             }
                             Ok((ctx_name, None)) => {
-                                eprintln!("Warning: context '{}' has no resource_group, skipping.", ctx_name);
+                                eprintln!(
+                                    "Warning: context '{}' has no resource_group, skipping.",
+                                    ctx_name
+                                );
                             }
                             Err(e) => {
-                                eprintln!("Warning: failed to read context file {:?}: {}", entry.path(), e);
+                                eprintln!(
+                                    "Warning: failed to read context file {:?}: {}",
+                                    entry.path(),
+                                    e
+                                );
                             }
                         }
                     }
                     aggregated
                 } else {
-                    eprintln!("Warning: no contexts directory found at {:?}. Falling back to default list.", ctx_dir);
+                    eprintln!(
+                        "Warning: no contexts directory found at {:?}. Using default VM list.",
+                        ctx_dir
+                    );
                     match &resource_group {
                         Some(rg) => vm_manager.list_vms(rg).await?,
                         None => {
-                            let config = azlin_core::AzlinConfig::load().ok();
-                            match config.and_then(|c| c.default_resource_group) {
+                            let config = azlin_core::AzlinConfig::load()
+                                .context("Failed to load azlin config")?;
+                            match config.default_resource_group {
                                 Some(rg) => vm_manager.list_vms(&rg).await?,
                                 None => {
-                                    eprintln!("No resource group specified. Use --resource-group or set in config.");
-                                    std::process::exit(1);
+                                    anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
                                 }
                             }
                         }
@@ -544,12 +563,12 @@ async fn async_main() -> Result<()> {
                 match &resource_group {
                     Some(rg) => vm_manager.list_vms(rg).await?,
                     None => {
-                        let config = azlin_core::AzlinConfig::load().ok();
-                        match config.and_then(|c| c.default_resource_group) {
+                        let config = azlin_core::AzlinConfig::load()
+                            .context("Failed to load azlin config")?;
+                        match config.default_resource_group {
                             Some(rg) => vm_manager.list_vms(&rg).await?,
                             None => {
-                                eprintln!("No resource group specified. Use --resource-group or set in config.");
-                                std::process::exit(1);
+                                anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
                             }
                         }
                     }
@@ -575,12 +594,18 @@ async fn async_main() -> Result<()> {
                     }
                     let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
                     if let Some(ip) = ip {
-                        let user = vm.admin_username.as_deref().unwrap_or("azureuser");
+                        let user = vm
+                            .admin_username
+                            .as_deref()
+                            .unwrap_or(DEFAULT_ADMIN_USERNAME);
                         let output = std::process::Command::new("ssh")
                             .args([
-                                "-o", "StrictHostKeyChecking=no",
-                                "-o", "ConnectTimeout=5",
-                                "-o", "BatchMode=yes",
+                                "-o",
+                                "StrictHostKeyChecking=accept-new",
+                                "-o",
+                                "ConnectTimeout=10",
+                                "-o",
+                                "BatchMode=yes",
                                 &format!("{}@{}", user, ip),
                                 "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
                             ])
@@ -635,11 +660,14 @@ async fn async_main() -> Result<()> {
                     }
                     let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
                     if let Some(ip) = ip {
-                        let user = vm.admin_username.as_deref().unwrap_or("azureuser");
+                        let user = vm
+                            .admin_username
+                            .as_deref()
+                            .unwrap_or(DEFAULT_ADMIN_USERNAME);
                         let output = std::process::Command::new("ssh")
                             .args([
-                                "-o", "StrictHostKeyChecking=no",
-                                "-o", "ConnectTimeout=5",
+                                "-o", "StrictHostKeyChecking=accept-new",
+                                "-o", "ConnectTimeout=10",
                                 "-o", "BatchMode=yes",
                                 &format!("{}@{}", user, ip),
                                 "echo \"CPU:$(top -bn1 | grep 'Cpu(s)' | awk '{print $2}')% MEM:$(free -m | awk '/Mem:/{printf \"%.0f%%\", $3/$2*100}') DISK:$(df -h / | awk 'NR==2{print $5}')\"",
@@ -647,9 +675,8 @@ async fn async_main() -> Result<()> {
                             .output();
                         if let Ok(out) = output {
                             if out.status.success() {
-                                let metrics = String::from_utf8_lossy(&out.stdout)
-                                    .trim()
-                                    .to_string();
+                                let metrics =
+                                    String::from_utf8_lossy(&out.stdout).trim().to_string();
                                 health_data.insert(vm.name.clone(), metrics);
                             }
                         }
@@ -667,11 +694,14 @@ async fn async_main() -> Result<()> {
                     }
                     let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
                     if let Some(ip) = ip {
-                        let user = vm.admin_username.as_deref().unwrap_or("azureuser");
+                        let user = vm
+                            .admin_username
+                            .as_deref()
+                            .unwrap_or(DEFAULT_ADMIN_USERNAME);
                         let output = std::process::Command::new("ssh")
                             .args([
-                                "-o", "StrictHostKeyChecking=no",
-                                "-o", "ConnectTimeout=5",
+                                "-o", "StrictHostKeyChecking=accept-new",
+                                "-o", "ConnectTimeout=10",
                                 "-o", "BatchMode=yes",
                                 &format!("{}@{}", user, ip),
                                 "ps aux --sort=-%mem | head -6 | tail -5 | awk '{print $11}' | tr '\\n' ', '",
@@ -679,9 +709,7 @@ async fn async_main() -> Result<()> {
                             .output();
                         if let Ok(out) = output {
                             if out.status.success() {
-                                let procs = String::from_utf8_lossy(&out.stdout)
-                                    .trim()
-                                    .to_string();
+                                let procs = String::from_utf8_lossy(&out.stdout).trim().to_string();
                                 proc_data.insert(vm.name.clone(), procs);
                             }
                         }
@@ -690,7 +718,9 @@ async fn async_main() -> Result<()> {
             }
 
             // Build and render table
-            let mut headers = vec!["Session", "VM Name", "Tmux", "Status", "IP", "Region", "SKU"];
+            let mut headers = vec![
+                "Session", "VM Name", "Tmux", "Status", "IP", "Region", "SKU",
+            ];
             if with_latency {
                 headers.push("Latency");
             }
@@ -730,12 +760,20 @@ async fn async_main() -> Result<()> {
                 azlin_cli::OutputFormat::Csv => {
                     println!("{}", headers.join(","));
                     for vm in &all_vms {
-                        let session = vm.tags.get("azlin-session").map(|s| s.as_str()).unwrap_or("-");
+                        let session = vm
+                            .tags
+                            .get("azlin-session")
+                            .map(|s| s.as_str())
+                            .unwrap_or("-");
                         let tmux = tmux_sessions
                             .get(&vm.name)
                             .map(|s| s.join(";"))
                             .unwrap_or_default();
-                        let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("-");
+                        let ip = vm
+                            .public_ip
+                            .as_deref()
+                            .or(vm.private_ip.as_deref())
+                            .unwrap_or("-");
                         let mut row = format!(
                             "{},{},{},{},{},{},{}",
                             session, vm.name, tmux, vm.power_state, ip, vm.location, vm.vm_size
@@ -743,7 +781,10 @@ async fn async_main() -> Result<()> {
                         if with_latency {
                             row.push_str(&format!(
                                 ",{}",
-                                latencies.get(&vm.name).map(|l| format!("{}ms", l)).unwrap_or_default()
+                                latencies
+                                    .get(&vm.name)
+                                    .map(|l| format!("{}ms", l))
+                                    .unwrap_or_default()
                             ));
                         }
                         println!("{}", row);
@@ -765,12 +806,20 @@ async fn async_main() -> Result<()> {
                     }
 
                     for vm in &all_vms {
-                        let session = vm.tags.get("azlin-session").map(|s| s.as_str()).unwrap_or("-");
+                        let session = vm
+                            .tags
+                            .get("azlin-session")
+                            .map(|s| s.as_str())
+                            .unwrap_or("-");
                         let tmux = tmux_sessions
                             .get(&vm.name)
                             .map(|s| display_helpers::format_tmux_sessions(s, 3))
                             .unwrap_or_else(|| "-".to_string());
-                        let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("-");
+                        let ip = vm
+                            .public_ip
+                            .as_deref()
+                            .or(vm.private_ip.as_deref())
+                            .unwrap_or("-");
                         let state_color = match vm.power_state {
                             azlin_core::models::PowerState::Running => Color::Green,
                             azlin_core::models::PowerState::Stopped
@@ -822,20 +871,26 @@ async fn async_main() -> Result<()> {
 
             // Show quota summary if requested
             if quota {
-                let _rg = resource_group
-                    .or_else(|| {
-                        azlin_core::AzlinConfig::load()
-                            .ok()
-                            .and_then(|c| c.default_resource_group)
-                    })
-                    .unwrap_or_default();
+                let _rg = match resource_group {
+                    Some(rg) => rg,
+                    None => {
+                        let config = azlin_core::AzlinConfig::load()
+                            .context("Failed to load azlin config")?;
+                        config.default_resource_group.ok_or_else(|| {
+                            anyhow::anyhow!("No resource group specified. Use --resource-group or set in config.")
+                        })?
+                    }
+                };
                 println!("\nvCPU Quota:");
+                // Use the configured default region instead of hardcoding "westus"
+                let config_for_quota = azlin_core::AzlinConfig::load().unwrap_or_default();
+                let quota_location = config_for_quota.default_region.clone();
                 let output = std::process::Command::new("az")
                     .args([
                         "vm",
                         "list-usage",
                         "--location",
-                        "westus",
+                        &quota_location,
                         "--query",
                         "[?contains(name.value, 'vCPUs')].{Name:name.localizedValue, Current:currentValue, Limit:limit}",
                         "--output",
@@ -930,7 +985,10 @@ async fn async_main() -> Result<()> {
                     println!("provisioning_state,{}", vm.provisioning_state);
                     println!("public_ip,{}", vm.public_ip.as_deref().unwrap_or(""));
                     println!("private_ip,{}", vm.private_ip.as_deref().unwrap_or(""));
-                    println!("admin_username,{}", vm.admin_username.as_deref().unwrap_or(""));
+                    println!(
+                        "admin_username,{}",
+                        vm.admin_username.as_deref().unwrap_or("")
+                    );
                 }
                 azlin_cli::OutputFormat::Table => {
                     println!("Name:               {}", vm.name);
@@ -975,10 +1033,7 @@ async fn async_main() -> Result<()> {
             remote_command,
             ..
         } => {
-            let name = vm_identifier.unwrap_or_else(|| {
-                eprintln!("VM name is required.");
-                std::process::exit(1);
-            });
+            let name = vm_identifier.ok_or_else(|| anyhow::anyhow!("VM name is required."))?;
 
             if disable_bastion_pool {
                 let _ = DISABLE_BASTION_POOL.set(true);
@@ -1004,16 +1059,18 @@ async fn async_main() -> Result<()> {
 
             if !no_tmux {
                 let sess = tmux_session.as_deref().unwrap_or("azlin");
-                if !sess.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-                    anyhow::bail!("Invalid tmux session name: must be alphanumeric, underscore, or hyphen");
+                if !sess
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+                {
+                    anyhow::bail!(
+                        "Invalid tmux session name: must be alphanumeric, underscore, or hyphen"
+                    );
                 }
                 // Wrap SSH in tmux attach-or-create
                 if remote_command.is_empty() {
                     ssh_args.push("-t".to_string());
-                    ssh_args.push(format!(
-                        "tmux new-session -A -s {}",
-                        sess
-                    ));
+                    ssh_args.push(format!("tmux new-session -A -s {}", sess));
                 } else {
                     ssh_args.extend(remote_command.iter().cloned());
                 }
@@ -1030,14 +1087,22 @@ async fn async_main() -> Result<()> {
                     std::process::exit(status.code().unwrap_or(1));
                 }
                 if !yes {
-                    eprint!("SSH disconnected. Reconnect? (attempt {}/{}) [Y/n] ", attempt, max - 1);
+                    eprint!(
+                        "SSH disconnected. Reconnect? (attempt {}/{}) [Y/n] ",
+                        attempt,
+                        max - 1
+                    );
                     let mut input = String::new();
                     std::io::stdin().read_line(&mut input)?;
                     if input.trim().eq_ignore_ascii_case("n") {
                         std::process::exit(status.code().unwrap_or(1));
                     }
                 } else {
-                    eprintln!("SSH disconnected. Reconnecting (attempt {}/{})...", attempt, max - 1);
+                    eprintln!(
+                        "SSH disconnected. Reconnecting (attempt {}/{})...",
+                        attempt,
+                        max - 1
+                    );
                 }
                 std::thread::sleep(std::time::Duration::from_secs(2));
             }
@@ -1057,13 +1122,10 @@ async fn async_main() -> Result<()> {
                         let (key, value) = match tag_helpers::parse_tag(tag) {
                             Some(kv) => kv,
                             None => {
-                                eprintln!("Invalid tag format '{}'. Use key=value.", tag);
-                                std::process::exit(1);
+                                anyhow::bail!("Invalid tag format '{}'. Use key=value.", tag);
                             }
                         };
-                        vm_manager
-                            .add_tag(&rg, &vm_name, key, value)
-                            .await?;
+                        vm_manager.add_tag(&rg, &vm_name, key, value).await?;
                         println!("Added tag {}={} to VM '{}'", key, value, vm_name);
                     }
                 }
@@ -1142,11 +1204,10 @@ async fn async_main() -> Result<()> {
             let auth = match azlin_azure::AzureAuth::new() {
                 Ok(a) => a,
                 Err(_) => {
-                    eprintln!("Azure authentication failed.");
-                    eprintln!(
-                        "Hint: use 'az login' or specify --vm and --ip flags for direct SSH."
+                    anyhow::bail!(
+                        "Azure authentication failed.\n\
+                         Hint: use 'az login' or specify --vm and --ip flags for direct SSH."
                     );
-                    std::process::exit(1);
                 }
             };
             let vm_manager = azlin_azure::VmManager::new(&auth);
@@ -1164,7 +1225,7 @@ async fn async_main() -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_name))?;
                 let user = vm_info
                     .admin_username
-                    .unwrap_or_else(|| "azureuser".to_string());
+                    .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
                 let state = vm_info.power_state.to_string();
                 vec![collect_health_metrics(&vm_name, &ip, &user, &state)]
             } else {
@@ -1175,7 +1236,7 @@ async fn async_main() -> Result<()> {
                         let user = vm_info
                             .admin_username
                             .clone()
-                            .unwrap_or_else(|| "azureuser".to_string());
+                            .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
                         let state = vm_info.power_state.to_string();
                         Some(collect_health_metrics(&vm_info.name, ip, &user, &state))
                     })
@@ -1212,7 +1273,9 @@ async fn async_main() -> Result<()> {
                 .public_ip
                 .or(vm.private_ip)
                 .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_identifier))?;
-            let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
+            let user = vm
+                .admin_username
+                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
             println!("Running OS updates on '{}'...", vm_identifier);
             let cmd = update_helpers::build_os_update_cmd().to_string();
@@ -1232,10 +1295,12 @@ async fn async_main() -> Result<()> {
                     "{}",
                     red.apply_to(format!("OS update failed on '{}'", vm_identifier))
                 );
-                if !stderr.trim().is_empty() {
-                    eprintln!("{}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                }
-                std::process::exit(1);
+                let detail = if stderr.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", azlin_core::sanitizer::sanitize(stderr.trim()))
+                };
+                anyhow::bail!("OS update failed on '{}'{}", vm_identifier, detail);
             }
         }
         azlin_cli::Commands::Delete {
@@ -1333,8 +1398,7 @@ async fn async_main() -> Result<()> {
                 let (key, value) = match env_helpers::split_env_var(&env_var) {
                     Some(kv) => kv,
                     None => {
-                        eprintln!("Invalid format. Use KEY=VALUE");
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid format. Use KEY=VALUE");
                     }
                 };
                 let (addr, user) =
@@ -1342,8 +1406,7 @@ async fn async_main() -> Result<()> {
                 let escaped = shell_escape(value);
                 let cmd = env_helpers::build_env_set_cmd(key, &escaped);
                 if cmd == "true" {
-                    eprintln!("Invalid environment variable key: {}", key);
-                    std::process::exit(1);
+                    anyhow::bail!("Invalid environment variable key: {}", key);
                 }
                 ssh_exec_checked(&addr, &user, &cmd).await?;
                 println!("Set {}={} on VM '{}'", key, value, vm_identifier);
@@ -1472,13 +1535,20 @@ async fn async_main() -> Result<()> {
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message("Fetching cost data...");
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            let summary = azlin_azure::get_cost_summary(&auth, &rg).await?;
-            pb.finish_and_clear();
-
-            println!(
-                "{}",
-                format_cost_summary(&summary, &cli.output, &from, &to, estimate, by_vm)
-            );
+            match azlin_azure::get_cost_summary(&auth, &rg).await {
+                Ok(summary) => {
+                    pb.finish_and_clear();
+                    println!(
+                        "{}",
+                        format_cost_summary(&summary, &cli.output, &from, &to, estimate, by_vm)
+                    );
+                }
+                Err(e) => {
+                    pb.finish_and_clear();
+                    eprintln!("⚠ Cost data unavailable: {e}");
+                    eprintln!("  Run 'az consumption usage list' for cost data via Azure CLI.");
+                }
+            }
         }
         azlin_cli::Commands::Snapshot { action } => {
             let rg = match &action {
@@ -1522,8 +1592,10 @@ async fn async_main() -> Result<()> {
                         println!("Created snapshot '{}'", snapshot_name);
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to create snapshot: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                        std::process::exit(1);
+                        anyhow::bail!(
+                            "Failed to create snapshot: {}",
+                            azlin_core::sanitizer::sanitize(stderr.trim())
+                        );
                     }
                 }
                 azlin_cli::SnapshotAction::List { vm_name, .. } => {
@@ -1540,7 +1612,8 @@ async fn async_main() -> Result<()> {
 
                     if output.status.success() {
                         let snapshots: Vec<serde_json::Value> =
-                            serde_json::from_slice(&output.stdout).unwrap_or_default();
+                            serde_json::from_slice(&output.stdout)
+                                .context("Failed to parse snapshot list JSON")?;
                         let filtered = snapshot_helpers::filter_snapshots(&snapshots, &vm_name);
 
                         if filtered.is_empty() {
@@ -1564,8 +1637,10 @@ async fn async_main() -> Result<()> {
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to list snapshots: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                        std::process::exit(1);
+                        anyhow::bail!(
+                            "Failed to list snapshots: {}",
+                            azlin_core::sanitizer::sanitize(stderr.trim())
+                        );
                     }
                 }
                 azlin_cli::SnapshotAction::Restore {
@@ -1609,8 +1684,7 @@ async fn async_main() -> Result<()> {
 
                     if !snap_output.status.success() {
                         pb.finish_and_clear();
-                        eprintln!("Snapshot '{}' not found.", snapshot_name);
-                        std::process::exit(1);
+                        anyhow::bail!("Snapshot '{}' not found.", snapshot_name);
                     }
 
                     let snap_id = String::from_utf8_lossy(&snap_output.stdout)
@@ -1656,12 +1730,12 @@ async fn async_main() -> Result<()> {
                         pb2.finish_and_clear();
                         if !dealloc.status.success() {
                             let stderr = String::from_utf8_lossy(&dealloc.stderr);
-                            eprintln!("Failed to deallocate VM: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                            eprintln!(
-                                "Manual swap: az vm update --resource-group {} --name {} --os-disk {}",
+                            anyhow::bail!(
+                                "Failed to deallocate VM: {}\n\
+                                 Manual swap: az vm update --resource-group {} --name {} --os-disk {}",
+                                azlin_core::sanitizer::sanitize(stderr.trim()),
                                 rg, vm_name, new_disk
                             );
-                            std::process::exit(1);
                         }
 
                         // Step 4: Swap the OS disk
@@ -1685,8 +1759,10 @@ async fn async_main() -> Result<()> {
                         pb3.finish_and_clear();
                         if !swap.status.success() {
                             let stderr = String::from_utf8_lossy(&swap.stderr);
-                            eprintln!("Failed to swap OS disk: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                            std::process::exit(1);
+                            anyhow::bail!(
+                                "Failed to swap OS disk: {}",
+                                azlin_core::sanitizer::sanitize(stderr.trim())
+                            );
                         }
 
                         // Step 5: Start the VM back up
@@ -1694,14 +1770,7 @@ async fn async_main() -> Result<()> {
                         pb4.set_message(format!("Starting VM '{}'...", vm_name));
                         pb4.enable_steady_tick(std::time::Duration::from_millis(100));
                         let start = std::process::Command::new("az")
-                            .args([
-                                "vm",
-                                "start",
-                                "--resource-group",
-                                &rg,
-                                "--name",
-                                &vm_name,
-                            ])
+                            .args(["vm", "start", "--resource-group", &rg, "--name", &vm_name])
                             .output()?;
                         pb4.finish_and_clear();
                         if start.status.success() {
@@ -1711,12 +1780,17 @@ async fn async_main() -> Result<()> {
                             );
                         } else {
                             let stderr = String::from_utf8_lossy(&start.stderr);
-                            eprintln!("VM restored but failed to restart: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
+                            eprintln!(
+                                "VM restored but failed to restart: {}",
+                                azlin_core::sanitizer::sanitize(stderr.trim())
+                            );
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&disk_output.stderr);
-                        eprintln!("Failed to restore: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                        std::process::exit(1);
+                        anyhow::bail!(
+                            "Failed to restore: {}",
+                            azlin_core::sanitizer::sanitize(stderr.trim())
+                        );
                     }
                 }
                 azlin_cli::SnapshotAction::Delete {
@@ -1758,8 +1832,10 @@ async fn async_main() -> Result<()> {
                         println!("Deleted snapshot '{}'", snapshot_name);
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to delete snapshot: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                        std::process::exit(1);
+                        anyhow::bail!(
+                            "Failed to delete snapshot: {}",
+                            azlin_core::sanitizer::sanitize(stderr.trim())
+                        );
                     }
                 }
                 azlin_cli::SnapshotAction::Enable {
@@ -1769,8 +1845,7 @@ async fn async_main() -> Result<()> {
                     ..
                 } => {
                     if let Err(e) = name_validation::validate_name(&vm_name) {
-                        eprintln!("Invalid VM name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid VM name: {}", e);
                     }
                     let schedule = snapshot_helpers::SnapshotSchedule {
                         vm_name: vm_name.clone(),
@@ -1788,8 +1863,7 @@ async fn async_main() -> Result<()> {
                 }
                 azlin_cli::SnapshotAction::Disable { vm_name, .. } => {
                     if let Err(e) = name_validation::validate_name(&vm_name) {
-                        eprintln!("Invalid VM name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid VM name: {}", e);
                     }
                     let path = snapshot_helpers::schedule_path(&vm_name);
                     if let Some(mut sched) = snapshot_helpers::load_schedule(&vm_name) {
@@ -1810,8 +1884,7 @@ async fn async_main() -> Result<()> {
                             .collect::<Vec<_>>(),
                         None => snapshot_helpers::load_all_schedules(),
                     };
-                    let enabled: Vec<_> =
-                        schedules.iter().filter(|s| s.enabled).collect();
+                    let enabled: Vec<_> = schedules.iter().filter(|s| s.enabled).collect();
                     if enabled.is_empty() {
                         println!("No enabled snapshot schedules found.");
                     } else {
@@ -1831,16 +1904,18 @@ async fn async_main() -> Result<()> {
                             let mut needs_snapshot = true;
                             if list_output.status.success() {
                                 let all_snaps: Vec<serde_json::Value> =
-                                    serde_json::from_slice(&list_output.stdout)
-                                        .unwrap_or_default();
+                                    serde_json::from_slice(&list_output.stdout).unwrap_or_default();
                                 let filtered =
                                     snapshot_helpers::filter_snapshots(&all_snaps, &sched.vm_name);
                                 // Find the most recent snapshot by timeCreated
-                                let newest = filtered.iter().filter_map(|s| {
-                                    s["timeCreated"]
-                                        .as_str()
-                                        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-                                }).max();
+                                let newest = filtered
+                                    .iter()
+                                    .filter_map(|s| {
+                                        s["timeCreated"].as_str().and_then(|t| {
+                                            chrono::DateTime::parse_from_rfc3339(t).ok()
+                                        })
+                                    })
+                                    .max();
                                 if let Some(latest) = newest {
                                     let age = chrono::Utc::now()
                                         .signed_duration_since(latest.with_timezone(&chrono::Utc));
@@ -1857,8 +1932,7 @@ async fn async_main() -> Result<()> {
                             }
 
                             if needs_snapshot {
-                                let ts =
-                                    chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+                                let ts = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
                                 let snap_name =
                                     snapshot_helpers::build_snapshot_name(&sched.vm_name, &ts);
 
@@ -1912,7 +1986,10 @@ async fn async_main() -> Result<()> {
 
                                 pb.finish_and_clear();
                                 if create_output.status.success() {
-                                    println!("Created snapshot '{}' for VM '{}'", snap_name, sched.vm_name);
+                                    println!(
+                                        "Created snapshot '{}' for VM '{}'",
+                                        snap_name, sched.vm_name
+                                    );
                                 } else {
                                     eprintln!(
                                         "Failed to create snapshot for VM '{}': {}",
@@ -1992,8 +2069,10 @@ async fn async_main() -> Result<()> {
                     println!("Created storage account '{}' ({} GB, {})", name, size, tier);
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to create storage account: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                    std::process::exit(1);
+                    anyhow::bail!(
+                        "Failed to create storage account: {}",
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    );
                 }
             }
             azlin_cli::StorageAction::List { resource_group } => {
@@ -2013,7 +2092,8 @@ async fn async_main() -> Result<()> {
 
                 if output.status.success() {
                     let accounts: Vec<serde_json::Value> =
-                        serde_json::from_slice(&output.stdout).unwrap_or_default();
+                        serde_json::from_slice(&output.stdout)
+                            .context("Failed to parse storage account list JSON")?;
 
                     if accounts.is_empty() {
                         println!("No storage accounts found.");
@@ -2030,8 +2110,10 @@ async fn async_main() -> Result<()> {
                     }
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to list storage accounts: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                    std::process::exit(1);
+                    anyhow::bail!(
+                        "Failed to list storage accounts: {}",
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    );
                 }
             }
             azlin_cli::StorageAction::Status {
@@ -2055,8 +2137,8 @@ async fn async_main() -> Result<()> {
                     .output()?;
 
                 if output.status.success() {
-                    let acct: serde_json::Value =
-                        serde_json::from_slice(&output.stdout).unwrap_or_default();
+                    let acct: serde_json::Value = serde_json::from_slice(&output.stdout)
+                        .context("Failed to parse storage account JSON")?;
                     let key_style = Style::new().cyan().bold();
                     println!(
                         "{}: {}",
@@ -2090,8 +2172,10 @@ async fn async_main() -> Result<()> {
                     );
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to show storage account: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                    std::process::exit(1);
+                    anyhow::bail!(
+                        "Failed to show storage account: {}",
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    );
                 }
             }
             azlin_cli::StorageAction::Mount {
@@ -2116,10 +2200,13 @@ async fn async_main() -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm))?;
                 let user = vm_info
                     .admin_username
-                    .unwrap_or_else(|| "azureuser".to_string());
+                    .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
                 // Validate storage_name: Azure storage accounts allow only [a-zA-Z0-9-]
-                if !storage_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                if !storage_name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-')
+                {
                     anyhow::bail!("Invalid storage name: contains disallowed characters");
                 }
 
@@ -2135,20 +2222,16 @@ async fn async_main() -> Result<()> {
                 let status = std::process::Command::new("ssh")
                     .args([
                         "-o",
-                        "StrictHostKeyChecking=no",
+                        "StrictHostKeyChecking=accept-new",
                         &format!("{}@{}", user, ip),
                         &mount_cmd,
                     ])
                     .status()?;
 
                 if status.success() {
-                    println!(
-                        "Mounted '{}' on VM '{}' at {}",
-                        storage_name, vm, mp
-                    );
+                    println!("Mounted '{}' on VM '{}' at {}", storage_name, vm, mp);
                 } else {
-                    eprintln!("Failed to mount storage on VM.");
-                    std::process::exit(1);
+                    anyhow::bail!("Failed to mount storage on VM.");
                 }
             }
             azlin_cli::StorageAction::Unmount { vm, resource_group } => {
@@ -2168,12 +2251,12 @@ async fn async_main() -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm))?;
                 let user = vm_info
                     .admin_username
-                    .unwrap_or_else(|| "azureuser".to_string());
+                    .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
                 let status = std::process::Command::new("ssh")
                     .args([
                         "-o",
-                        "StrictHostKeyChecking=no",
+                        "StrictHostKeyChecking=accept-new",
                         &format!("{}@{}", user, ip),
                         "sudo umount /mnt/* 2>/dev/null; echo done",
                     ])
@@ -2182,8 +2265,7 @@ async fn async_main() -> Result<()> {
                 if status.success() {
                     println!("Unmounted NFS storage from VM '{}'", vm);
                 } else {
-                    eprintln!("Failed to unmount storage from VM.");
-                    std::process::exit(1);
+                    anyhow::bail!("Failed to unmount storage from VM.");
                 }
             }
             azlin_cli::StorageAction::Delete {
@@ -2229,8 +2311,10 @@ async fn async_main() -> Result<()> {
                     println!("Deleted storage account '{}'", name);
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to delete storage account: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                    std::process::exit(1);
+                    anyhow::bail!(
+                        "Failed to delete storage account: {}",
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    );
                 }
             }
             azlin_cli::StorageAction::MountFile {
@@ -2263,8 +2347,10 @@ async fn async_main() -> Result<()> {
 
                 if !key_output.status.success() {
                     let stderr = String::from_utf8_lossy(&key_output.stderr);
-                    eprintln!("Failed to get storage account key: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                    std::process::exit(1);
+                    anyhow::bail!(
+                        "Failed to get storage account key: {}",
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    );
                 }
 
                 let key = String::from_utf8_lossy(&key_output.stdout)
@@ -2284,17 +2370,14 @@ async fn async_main() -> Result<()> {
                 // Write credentials to a temp file instead of passing on CLI
                 // to avoid exposing the storage key in process listings.
                 use std::os::unix::fs::PermissionsExt;
-                let creds_dir = dirs::home_dir().unwrap_or_default().join(".azlin");
+                let creds_dir = home_dir()?.join(".azlin");
                 std::fs::create_dir_all(&creds_dir)?;
                 let creds_path = creds_dir.join(format!(".mount_creds_{}", account));
                 std::fs::write(
                     &creds_path,
                     format!("username={}\npassword={}\n", account, key),
                 )?;
-                std::fs::set_permissions(
-                    &creds_path,
-                    std::fs::Permissions::from_mode(0o600),
-                )?;
+                std::fs::set_permissions(&creds_path, std::fs::Permissions::from_mode(0o600))?;
 
                 let status = std::process::Command::new("sudo")
                     .args([
@@ -2311,14 +2394,20 @@ async fn async_main() -> Result<()> {
                     ])
                     .status()?;
 
-                // Clean up credentials file after mount
-                let _ = std::fs::remove_file(&creds_path);
+                // Clean up credentials file after mount — warn if cleanup fails
+                // since the file contains a storage account key in plaintext
+                if let Err(e) = std::fs::remove_file(&creds_path) {
+                    eprintln!(
+                        "⚠ Warning: could not remove credentials file {}: {e}",
+                        creds_path.display()
+                    );
+                    eprintln!("  Please remove it manually (contains storage account key).");
+                }
 
                 if status.success() {
                     println!("Mounted '{}' at {}", share, mount_str);
                 } else {
-                    eprintln!("Failed to mount Azure Files share.");
-                    std::process::exit(1);
+                    anyhow::bail!("Failed to mount Azure Files share.");
                 }
             }
             azlin_cli::StorageAction::UnmountFile { mount_point } => {
@@ -2333,16 +2422,13 @@ async fn async_main() -> Result<()> {
                 if status.success() {
                     println!("Unmounted '{}'", mount_str);
                 } else {
-                    eprintln!("Failed to unmount '{}'.", mount_str);
-                    std::process::exit(1);
+                    anyhow::bail!("Failed to unmount '{}'.", mount_str);
                 }
             }
         },
         azlin_cli::Commands::Keys { action } => match action {
             azlin_cli::KeysAction::List { .. } => {
-                let ssh_dir = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".ssh");
+                let ssh_dir = home_dir()?.join(".ssh");
 
                 if !ssh_dir.exists() {
                     println!("No SSH directory found at {}", ssh_dir.display());
@@ -2405,9 +2491,7 @@ async fn async_main() -> Result<()> {
                 ..
             } => {
                 let rg = resolve_resource_group(resource_group)?;
-                let ssh_dir = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".ssh");
+                let ssh_dir = home_dir()?.join(".ssh");
 
                 if !no_backup {
                     let backup_dir = ssh_dir.join(format!(
@@ -2448,8 +2532,7 @@ async fn async_main() -> Result<()> {
                     .output()?;
 
                 if !keygen.status.success() {
-                    eprintln!("Failed to generate new SSH key.");
-                    std::process::exit(1);
+                    anyhow::bail!("Failed to generate new SSH key.");
                 }
                 println!("Generated new ed25519 key pair");
 
@@ -2463,8 +2546,8 @@ async fn async_main() -> Result<()> {
                 let output = std::process::Command::new("az").args(&az_args).output()?;
 
                 if output.status.success() {
-                    let vms: Vec<serde_json::Value> =
-                        serde_json::from_slice(&output.stdout).unwrap_or_default();
+                    let vms: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)
+                        .context("Failed to parse VM list JSON")?;
                     let pub_key_content =
                         std::fs::read_to_string(ssh_dir.join("id_ed25519_azlin.pub"))?;
                     for vm_val in &vms {
@@ -2479,7 +2562,7 @@ async fn async_main() -> Result<()> {
                                 "--name",
                                 name,
                                 "--username",
-                                "azureuser",
+                                DEFAULT_ADMIN_USERNAME,
                                 "--ssh-key-value",
                                 pub_key_content.trim(),
                             ])
@@ -2498,9 +2581,7 @@ async fn async_main() -> Result<()> {
                 println!("Key rotation complete.");
             }
             azlin_cli::KeysAction::Export { output } => {
-                let ssh_dir = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".ssh");
+                let ssh_dir = home_dir()?.join(".ssh");
 
                 let pub_key = ["id_ed25519_azlin.pub", "id_ed25519.pub", "id_rsa.pub"]
                     .iter()
@@ -2517,15 +2598,12 @@ async fn async_main() -> Result<()> {
                         println!("Exported {} to {}", fname, output.display());
                     }
                     None => {
-                        eprintln!("No SSH public key found in {}", ssh_dir.display());
-                        std::process::exit(1);
+                        anyhow::bail!("No SSH public key found in {}", ssh_dir.display());
                     }
                 }
             }
             azlin_cli::KeysAction::Backup { destination } => {
-                let ssh_dir = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".ssh");
+                let ssh_dir = home_dir()?.join(".ssh");
 
                 let backup_dir = destination.unwrap_or_else(|| {
                     ssh_dir.join(format!(
@@ -2548,9 +2626,7 @@ async fn async_main() -> Result<()> {
             }
         },
         azlin_cli::Commands::Auth { action } => {
-            let azlin_dir = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                .join(".azlin");
+            let azlin_dir = home_dir()?.join(".azlin");
 
             match action {
                 azlin_cli::AuthAction::List => {
@@ -2568,8 +2644,8 @@ async fn async_main() -> Result<()> {
                         let name = entry.file_name().to_string_lossy().to_string();
                         if name.ends_with(".json") {
                             let content = std::fs::read_to_string(entry.path())?;
-                            let profile: serde_json::Value =
-                                serde_json::from_str(&content).unwrap_or_default();
+                            let profile: serde_json::Value = serde_json::from_str(&content)
+                                .context(format!("Failed to parse auth profile '{}'", name))?;
                             let profile_name = name.trim_end_matches(".json");
                             rows.push(vec![
                                 profile_name.to_string(),
@@ -2591,18 +2667,16 @@ async fn async_main() -> Result<()> {
                 }
                 azlin_cli::AuthAction::Show { profile } => {
                     if let Err(e) = name_validation::validate_name(&profile) {
-                        eprintln!("Invalid profile name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid profile name: {}", e);
                     }
                     let profile_path = azlin_dir.join("profiles").join(format!("{}.json", profile));
                     if !profile_path.exists() {
-                        eprintln!("Profile '{}' not found.", profile);
-                        std::process::exit(1);
+                        anyhow::bail!("Profile '{}' not found.", profile);
                     }
 
                     let content = std::fs::read_to_string(&profile_path)?;
-                    let data: serde_json::Value =
-                        serde_json::from_str(&content).unwrap_or_default();
+                    let data: serde_json::Value = serde_json::from_str(&content)
+                        .context(format!("Failed to parse auth profile '{}'", profile))?;
                     let key_style = Style::new().cyan().bold();
 
                     println!("{}: {}", key_style.apply_to("Profile"), profile);
@@ -2627,10 +2701,11 @@ async fn async_main() -> Result<()> {
 
                     pb.finish_and_clear();
                     if output.status.success() {
-                        let acct: serde_json::Value =
-                            serde_json::from_slice(&output.stdout).unwrap_or_default();
+                        let acct: serde_json::Value = serde_json::from_slice(&output.stdout)
+                            .context("Failed to parse 'az account show' JSON")?;
                         let key_style = Style::new().cyan().bold();
-                        let (subscription, tenant, user) = auth_test_helpers::extract_account_info(&acct);
+                        let (subscription, tenant, user) =
+                            auth_test_helpers::extract_account_info(&acct);
                         println!(
                             "{}",
                             Style::new()
@@ -2638,24 +2713,13 @@ async fn async_main() -> Result<()> {
                                 .bold()
                                 .apply_to("Authentication successful!")
                         );
-                        println!(
-                            "{}: {}",
-                            key_style.apply_to("Subscription"),
-                            subscription
-                        );
-                        println!(
-                            "{}: {}",
-                            key_style.apply_to("Tenant"),
-                            tenant
-                        );
-                        println!(
-                            "{}: {}",
-                            key_style.apply_to("User"),
-                            user
-                        );
+                        println!("{}: {}", key_style.apply_to("Subscription"), subscription);
+                        println!("{}: {}", key_style.apply_to("Tenant"), tenant);
+                        println!("{}: {}", key_style.apply_to("User"), user);
                     } else {
-                        eprintln!("Authentication test failed. Run 'az login' to authenticate.");
-                        std::process::exit(1);
+                        anyhow::bail!(
+                            "Authentication test failed. Run 'az login' to authenticate."
+                        );
                     }
                 }
                 azlin_cli::AuthAction::Setup {
@@ -2690,8 +2754,7 @@ async fn async_main() -> Result<()> {
                     std::fs::create_dir_all(&profiles_dir)?;
 
                     if let Err(e) = name_validation::validate_name(&profile) {
-                        eprintln!("Invalid profile name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid profile name: {}", e);
                     }
 
                     let profile_data = serde_json::json!({
@@ -2706,13 +2769,11 @@ async fn async_main() -> Result<()> {
                 }
                 azlin_cli::AuthAction::Remove { profile, yes } => {
                     if let Err(e) = name_validation::validate_name(&profile) {
-                        eprintln!("Invalid profile name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid profile name: {}", e);
                     }
                     let profile_path = azlin_dir.join("profiles").join(format!("{}.json", profile));
                     if !profile_path.exists() {
-                        eprintln!("Profile '{}' not found.", profile);
-                        std::process::exit(1);
+                        anyhow::bail!("Profile '{}' not found.", profile);
                     }
 
                     if !yes {
@@ -2740,10 +2801,7 @@ async fn async_main() -> Result<()> {
             auth_profile: _,
             ..
         } => {
-            let query_text = query.unwrap_or_else(|| {
-                eprintln!("No query provided.");
-                std::process::exit(1);
-            });
+            let query_text = query.ok_or_else(|| anyhow::anyhow!("No query provided."))?;
 
             if dry_run {
                 println!("Would query Claude API with: {}", query_text);
@@ -2751,13 +2809,18 @@ async fn async_main() -> Result<()> {
             }
 
             let client = azlin_ai::AnthropicClient::new()?;
-            let rg = resource_group
-                .or_else(|| {
-                    azlin_core::AzlinConfig::load()
-                        .ok()
-                        .and_then(|c| c.default_resource_group)
-                })
-                .unwrap_or_default();
+            let rg = match resource_group {
+                Some(rg) => rg,
+                None => {
+                    let config =
+                        azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
+                    config.default_resource_group.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "No resource group specified. Use --resource-group or set in config."
+                        )
+                    })?
+                }
+            };
 
             let context = format!("Resource group: {}", rg);
             let pb = indicatif::ProgressBar::new_spinner();
@@ -2848,7 +2911,7 @@ async fn async_main() -> Result<()> {
                 }
             }
         }
-        azlin_cli::Commands::Doit { action } | azlin_cli::Commands::AzDoit { action } => {
+        azlin_cli::Commands::Doit { action } => {
             match action {
                 azlin_cli::DoitAction::Deploy {
                     request, dry_run, ..
@@ -2905,68 +2968,53 @@ async fn async_main() -> Result<()> {
                 }
                 azlin_cli::DoitAction::Status { session } => {
                     // Check for doit-tagged VMs in the default RG to show deployment status
-                    let rg_result = resolve_resource_group(None);
-                    if let Ok(rg) = rg_result {
-                        let auth = create_auth()?;
-                        let vm_manager = azlin_azure::VmManager::new(&auth);
-                        let vms = vm_manager.list_vms(&rg).await.unwrap_or_default();
-                        let doit_vms: Vec<_> = vms
-                            .iter()
-                            .filter(|vm| {
-                                vm.tags.get("created_by").is_some_and(|v| v == "azlin-doit")
-                            })
-                            .collect();
-                        if doit_vms.is_empty() {
-                            let session_id = session.unwrap_or_else(|| "latest".to_string());
-                            println!(
-                                "No active doit deployments for session '{}' in '{}'.",
-                                session_id, rg
-                            );
-                        } else {
-                            println!("Doit deployments in '{}':", rg);
-                            for vm in &doit_vms {
-                                println!(
-                                    "  {} — {} — {}",
-                                    vm.name, vm.power_state, vm.vm_size
-                                );
-                            }
-                        }
+                    let rg = resolve_resource_group(None)?;
+                    let auth = create_auth()?;
+                    let vm_manager = azlin_azure::VmManager::new(&auth);
+                    let vms = vm_manager.list_vms(&rg).await?;
+                    let doit_vms: Vec<_> = vms
+                        .iter()
+                        .filter(|vm| vm.tags.get("created_by").is_some_and(|v| v == "azlin-doit"))
+                        .collect();
+                    if doit_vms.is_empty() {
+                        let session_id = session.unwrap_or_else(|| "latest".to_string());
+                        println!(
+                            "No active doit deployments for session '{}' in '{}'.",
+                            session_id, rg
+                        );
                     } else {
-                        println!("No resource group configured. Set default_resource_group in config.");
+                        println!("Doit deployments in '{}':", rg);
+                        for vm in &doit_vms {
+                            println!("  {} — {} — {}", vm.name, vm.power_state, vm.vm_size);
+                        }
                     }
                 }
                 azlin_cli::DoitAction::List { username } => {
                     let auth = create_auth()?;
                     let vm_manager = azlin_azure::VmManager::new(&auth);
-                    let rg_result = resolve_resource_group(None);
-                    if let Ok(rg) = rg_result {
-                        let pb = indicatif::ProgressBar::new_spinner();
-                        pb.set_message("Listing doit-created resources...");
-                        pb.enable_steady_tick(std::time::Duration::from_millis(100));
-                        let vms = vm_manager.list_vms(&rg).await?;
-                        pb.finish_and_clear();
-                        let filtered: Vec<_> = vms
-                            .iter()
-                            .filter(|vm| {
-                                let has_tag =
-                                    vm.tags.get("created_by").is_some_and(|v| v == "azlin-doit");
-                                let user_match = username.as_ref().is_none_or(|u| {
-                                    vm.admin_username.as_deref() == Some(u.as_str())
-                                });
-                                has_tag && user_match
-                            })
-                            .collect();
-                        if filtered.is_empty() {
-                            println!("No doit-created resources found.");
-                        } else {
-                            for vm in &filtered {
-                                println!("  {} ({})", vm.name, vm.power_state);
-                            }
-                        }
+                    let rg = resolve_resource_group(None)?;
+                    let pb = indicatif::ProgressBar::new_spinner();
+                    pb.set_message("Listing doit-created resources...");
+                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                    let vms = vm_manager.list_vms(&rg).await?;
+                    pb.finish_and_clear();
+                    let filtered: Vec<_> = vms
+                        .iter()
+                        .filter(|vm| {
+                            let has_tag =
+                                vm.tags.get("created_by").is_some_and(|v| v == "azlin-doit");
+                            let user_match = username
+                                .as_ref()
+                                .is_none_or(|u| vm.admin_username.as_deref() == Some(u.as_str()));
+                            has_tag && user_match
+                        })
+                        .collect();
+                    if filtered.is_empty() {
+                        println!("No doit-created resources found.");
                     } else {
-                        println!(
-                            "No resource group configured. Use --resource-group or set in config."
-                        );
+                        for vm in &filtered {
+                            println!("  {} ({})", vm.name, vm.power_state);
+                        }
                     }
                 }
                 azlin_cli::DoitAction::Show { resource_id } => {
@@ -2978,7 +3026,9 @@ async fn async_main() -> Result<()> {
                     } else {
                         eprintln!(
                             "Failed to show resource: {}",
-                            azlin_core::sanitizer::sanitize(&String::from_utf8_lossy(&output.stderr))
+                            azlin_core::sanitizer::sanitize(&String::from_utf8_lossy(
+                                &output.stderr
+                            ))
                         );
                     }
                 }
@@ -3067,9 +3117,13 @@ async fn async_main() -> Result<()> {
             let rg = resolve_resource_group(resource_group)?;
 
             let vm_count = pool.unwrap_or(1);
-            let size = vm_size.unwrap_or_else(|| "Standard_DS2_v2".to_string());
-            let loc = region.unwrap_or_else(|| "eastus2".to_string());
-            let admin_user = "azureuser".to_string();
+            // Use config defaults instead of hardcoded values
+            let config_defaults = azlin_core::AzlinConfig::load().unwrap_or_default();
+            let user_specified_size = vm_size.is_some();
+            let user_specified_region = region.is_some();
+            let size = vm_size.unwrap_or_else(|| config_defaults.default_vm_size.clone());
+            let loc = region.unwrap_or_else(|| config_defaults.default_region.clone());
+            let admin_user = DEFAULT_ADMIN_USERNAME.to_string();
             let ssh_key_path = dirs::home_dir()
                 .unwrap_or_default()
                 .join(".ssh")
@@ -3078,8 +3132,7 @@ async fn async_main() -> Result<()> {
             // Load template defaults if specified
             let (tmpl_size, tmpl_region) = if let Some(ref tmpl_name) = template {
                 if let Err(e) = name_validation::validate_name(tmpl_name) {
-                    eprintln!("Invalid template name: {}", e);
-                    std::process::exit(1);
+                    anyhow::bail!("Invalid template name: {}", e);
                 }
                 let templates_dir = dirs::home_dir()
                     .unwrap_or_default()
@@ -3111,12 +3164,14 @@ async fn async_main() -> Result<()> {
                 (None, None)
             };
 
-            let final_size = if size == "Standard_DS2_v2" {
+            // If the user didn't specify --vm-size or --region explicitly (i.e.,
+            // they're still the config defaults), allow the template to override.
+            let final_size = if !user_specified_size {
                 tmpl_size.unwrap_or(size)
             } else {
                 size
             };
-            let final_loc = if loc == "eastus2" {
+            let final_loc = if !user_specified_region {
                 tmpl_region.unwrap_or(loc)
             } else {
                 loc
@@ -3133,8 +3188,7 @@ async fn async_main() -> Result<()> {
                     format!("azlin-vm-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"))
                 };
 
-                azlin_core::models::validate_vm_name(&vm_name)
-                    .map_err(|e| anyhow::anyhow!(e))?;
+                azlin_core::models::validate_vm_name(&vm_name).map_err(|e| anyhow::anyhow!(e))?;
 
                 let params = azlin_core::models::CreateVmParams {
                     name: vm_name.clone(),
@@ -3195,7 +3249,10 @@ async fn async_main() -> Result<()> {
                                 print!("{}", stdout);
                             }
                         } else {
-                            eprintln!("Failed to clone repository: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
+                            eprintln!(
+                                "Failed to clone repository: {}",
+                                azlin_core::sanitizer::sanitize(stderr.trim())
+                            );
                         }
                     }
                 }
@@ -3207,7 +3264,7 @@ async fn async_main() -> Result<()> {
                         let status = std::process::Command::new("ssh")
                             .args([
                                 "-o",
-                                "StrictHostKeyChecking=no",
+                                "StrictHostKeyChecking=accept-new",
                                 &format!("{}@{}", admin_user, ip),
                             ])
                             .status()?;
@@ -3238,7 +3295,9 @@ async fn async_main() -> Result<()> {
                 .public_ip
                 .or(vm.private_ip)
                 .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_identifier))?;
-            let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
+            let user = vm
+                .admin_username
+                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
             println!("Updating development tools on '{}'...", vm_identifier);
             let update_script = update_helpers::build_dev_update_script();
@@ -3253,15 +3312,12 @@ async fn async_main() -> Result<()> {
                     println!("{}", stdout.trim());
                 }
             } else {
-                let red = Style::new().red();
-                eprintln!(
-                    "{}",
-                    red.apply_to(format!("Update failed on '{}'", vm_identifier))
-                );
-                if !stderr.trim().is_empty() {
-                    eprintln!("{}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                }
-                std::process::exit(1);
+                let detail = if stderr.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", azlin_core::sanitizer::sanitize(stderr.trim()))
+                };
+                anyhow::bail!("Update failed on '{}'{}", vm_identifier, detail);
             }
         }
 
@@ -3307,8 +3363,10 @@ async fn async_main() -> Result<()> {
 
             if !snap_out.status.success() {
                 let stderr = String::from_utf8_lossy(&snap_out.stderr);
-                eprintln!("Failed to snapshot source VM: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                std::process::exit(1);
+                anyhow::bail!(
+                    "Failed to snapshot source VM: {}",
+                    azlin_core::sanitizer::sanitize(stderr.trim())
+                );
             }
             println!("Created snapshot '{}'", snapshot_name);
 
@@ -3388,7 +3446,8 @@ async fn async_main() -> Result<()> {
             clear,
             ..
         } => {
-            let mut config = azlin_core::AzlinConfig::load().unwrap_or_default();
+            let mut config =
+                azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
             let mut json = serde_json::to_value(&config)?;
 
             let sessions_key = "sessions";
@@ -3476,10 +3535,7 @@ async fn async_main() -> Result<()> {
             auth_profile: _,
             ..
         } => {
-            let name = vm_identifier.unwrap_or_else(|| {
-                eprintln!("VM name is required.");
-                std::process::exit(1);
-            });
+            let name = vm_identifier.ok_or_else(|| anyhow::anyhow!("VM name is required."))?;
 
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
@@ -3495,7 +3551,9 @@ async fn async_main() -> Result<()> {
                 .public_ip
                 .or(vm.private_ip)
                 .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", name))?;
-            let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
+            let user = vm
+                .admin_username
+                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
             let remote_uri = format!("ssh-remote+{}@{}", user, ip);
             println!("Opening VS Code: code --remote {}", remote_uri);
@@ -3506,8 +3564,7 @@ async fn async_main() -> Result<()> {
             match status {
                 Ok(s) if s.success() => println!("VS Code opened for VM '{}'", name),
                 _ => {
-                    eprintln!("Failed to open VS Code. Ensure 'code' is in your PATH.");
-                    std::process::exit(1);
+                    anyhow::bail!("Failed to open VS Code. Ensure 'code' is in your PATH.");
                 }
             }
         }
@@ -3629,7 +3686,7 @@ async fn async_main() -> Result<()> {
                     return Ok(());
                 }
 
-                let home = dirs::home_dir().unwrap_or_default();
+                let home = home_dir()?;
                 let dotfiles = sync_helpers::default_dotfiles();
 
                 for (name, ip, user) in &vms {
@@ -3642,7 +3699,7 @@ async fn async_main() -> Result<()> {
                             println!("[dry-run] Would sync {} to {}:{}", dotfile, name, dotfile);
                         } else {
                             let output = std::process::Command::new("rsync")
-                                .args(["-az", "-e", "ssh -o StrictHostKeyChecking=no"])
+                                .args(["-az", "-e", "ssh -o StrictHostKeyChecking=accept-new"])
                                 .arg(local.as_os_str())
                                 .arg(format!("{}@{}:~/{}", user, ip, dotfile))
                                 .output();
@@ -3850,10 +3907,7 @@ async fn async_main() -> Result<()> {
 
         // ── GitHub Runner ────────────────────────────────────────────
         azlin_cli::Commands::GithubRunner { action } => {
-            let runner_dir = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                .join(".azlin")
-                .join("runners");
+            let runner_dir = home_dir()?.join(".azlin").join("runners");
             std::fs::create_dir_all(&runner_dir)?;
 
             match action {
@@ -3868,8 +3922,7 @@ async fn async_main() -> Result<()> {
                 } => {
                     let rg = resolve_resource_group(resource_group)?;
                     if let Err(e) = name_validation::validate_name(&pool) {
-                        eprintln!("Invalid pool name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid pool name: {}", e);
                     }
                     let repo_name = repo.unwrap_or_else(|| "<not set>".to_string());
                     let label_str = labels.unwrap_or_else(|| "self-hosted".to_string());
@@ -3881,12 +3934,17 @@ async fn async_main() -> Result<()> {
                     config.insert("repo".to_string(), toml::Value::String(repo_name.clone()));
                     config.insert("count".to_string(), toml::Value::Integer(count as i64));
                     config.insert("labels".to_string(), toml::Value::String(label_str.clone()));
-                    config.insert("resource_group".to_string(), toml::Value::String(rg.clone()));
+                    config.insert(
+                        "resource_group".to_string(),
+                        toml::Value::String(rg.clone()),
+                    );
                     config.insert("vm_size".to_string(), toml::Value::String(size.clone()));
                     config.insert("enabled".to_string(), toml::Value::Boolean(true));
                     config.insert(
                         "created".to_string(),
-                        toml::Value::String(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+                        toml::Value::String(
+                            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                        ),
                     );
                     let val = toml::Value::Table(config);
                     let pool_path = runner_dir.join(format!("{}.toml", pool));
@@ -3908,15 +3966,23 @@ async fn async_main() -> Result<()> {
                         pb.enable_steady_tick(std::time::Duration::from_millis(100));
                         let out = std::process::Command::new("az")
                             .args([
-                                "vm", "create",
-                                "--resource-group", &rg,
-                                "--name", &vm_name,
-                                "--image", "Ubuntu2204",
-                                "--size", &size,
-                                "--admin-username", "azureuser",
+                                "vm",
+                                "create",
+                                "--resource-group",
+                                &rg,
+                                "--name",
+                                &vm_name,
+                                "--image",
+                                "Ubuntu2204",
+                                "--size",
+                                &size,
+                                "--admin-username",
+                                DEFAULT_ADMIN_USERNAME,
                                 "--generate-ssh-keys",
-                                "--tags", &format!("azlin-runner=true pool={} repo={}", pool, repo_name),
-                                "--output", "json",
+                                "--tags",
+                                &format!("azlin-runner=true pool={} repo={}", pool, repo_name),
+                                "--output",
+                                "json",
                             ])
                             .output()?;
                         pb.finish_and_clear();
@@ -3924,11 +3990,20 @@ async fn async_main() -> Result<()> {
                             println!("  Provisioned VM '{}'", vm_name);
                         } else {
                             let stderr = String::from_utf8_lossy(&out.stderr);
-                            eprintln!("  Failed to provision '{}': {}", vm_name, azlin_core::sanitizer::sanitize(stderr.trim()));
+                            eprintln!(
+                                "  Failed to provision '{}': {}",
+                                vm_name,
+                                azlin_core::sanitizer::sanitize(stderr.trim())
+                            );
                         }
                     }
-                    println!("Runner fleet configuration saved to {}", pool_path.display());
-                    println!("Note: To complete setup, install the GitHub Actions runner on each VM.");
+                    println!(
+                        "Runner fleet configuration saved to {}",
+                        pool_path.display()
+                    );
+                    println!(
+                        "Note: To complete setup, install the GitHub Actions runner on each VM."
+                    );
                 }
                 azlin_cli::GithubRunnerAction::Disable { pool, keep_vms } => {
                     let pool_path = runner_dir.join(format!("{}.toml", pool));
@@ -3937,19 +4012,24 @@ async fn async_main() -> Result<()> {
                             // Find and delete runner VMs
                             let rg_output = std::process::Command::new("az")
                                 .args([
-                                    "vm", "list",
-                                    "--query", &format!("[?tags.pool=='{}'].id", pool),
-                                    "--output", "tsv",
+                                    "vm",
+                                    "list",
+                                    "--query",
+                                    &format!("[?tags.pool=='{}'].id", pool),
+                                    "--output",
+                                    "tsv",
                                 ])
                                 .output()?;
                             if rg_output.status.success() {
                                 let ids = String::from_utf8_lossy(&rg_output.stdout);
-                                let id_list: Vec<&str> = ids.lines().filter(|l| !l.is_empty()).collect();
+                                let id_list: Vec<&str> =
+                                    ids.lines().filter(|l| !l.is_empty()).collect();
                                 if !id_list.is_empty() {
                                     println!("Deleting {} runner VM(s)...", id_list.len());
                                     let mut args = vec!["vm", "delete", "--yes", "--ids"];
                                     args.extend(id_list.iter().copied());
-                                    let del_output = std::process::Command::new("az").args(&args).output()?;
+                                    let del_output =
+                                        std::process::Command::new("az").args(&args).output()?;
                                     if !del_output.status.success() {
                                         eprintln!(
                                             "Warning: VM deletion may have failed (exit {})",
@@ -3981,9 +4061,15 @@ async fn async_main() -> Result<()> {
                         // List actual runner VMs
                         let output = std::process::Command::new("az")
                             .args([
-                                "vm", "list",
-                                "--query", &format!("[?tags.pool=='{}'].{{name:name, state:powerState}}", pool),
-                                "--output", "table",
+                                "vm",
+                                "list",
+                                "--query",
+                                &format!(
+                                    "[?tags.pool=='{}'].{{name:name, state:powerState}}",
+                                    pool
+                                ),
+                                "--output",
+                                "table",
                             ])
                             .output()?;
                         if output.status.success() {
@@ -3995,7 +4081,10 @@ async fn async_main() -> Result<()> {
                         }
                     } else {
                         println!("Runner pool '{}': not configured", pool);
-                        println!("Enable with: azlin github-runner enable --repo <owner/repo> --pool {}", pool);
+                        println!(
+                            "Enable with: azlin github-runner enable --repo <owner/repo> --pool {}",
+                            pool
+                        );
                     }
                 }
                 azlin_cli::GithubRunnerAction::Scale { pool, count } => {
@@ -4017,7 +4106,9 @@ async fn async_main() -> Result<()> {
                             pool, old_count, count
                         );
                         if count > old_count {
-                            println!("Note: Provision additional VMs with 'azlin github-runner enable'");
+                            println!(
+                                "Note: Provision additional VMs with 'azlin github-runner enable'"
+                            );
                         }
                     } else {
                         println!("Runner pool '{}' not configured.", pool);
@@ -4028,21 +4119,11 @@ async fn async_main() -> Result<()> {
 
         // ── Template ─────────────────────────────────────────────────
         azlin_cli::Commands::Template { action } => {
-            let azlin_dir = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                .join(".azlin")
-                .join("templates");
+            let azlin_dir = home_dir()?.join(".azlin").join("templates");
             std::fs::create_dir_all(&azlin_dir)?;
 
             match action {
                 azlin_cli::TemplateAction::Create {
-                    name,
-                    description,
-                    vm_size,
-                    region,
-                    cloud_init,
-                }
-                | azlin_cli::TemplateAction::Save {
                     name,
                     description,
                     vm_size,
@@ -4078,8 +4159,7 @@ async fn async_main() -> Result<()> {
                     match templates::load_template(&azlin_dir, &name) {
                         Ok(tpl) => println!("{}", toml::to_string_pretty(&tpl).unwrap_or_default()),
                         Err(_) => {
-                            eprintln!("Template '{}' not found.", name);
-                            std::process::exit(1);
+                            anyhow::bail!("Template '{}' not found.", name);
                         }
                     }
                 }
@@ -4100,15 +4180,13 @@ async fn async_main() -> Result<()> {
                             );
                         }
                         Err(_) => {
-                            eprintln!("Template '{}' not found.", name);
-                            std::process::exit(1);
+                            anyhow::bail!("Template '{}' not found.", name);
                         }
                     }
                 }
                 azlin_cli::TemplateAction::Delete { name, force } => {
                     if templates::load_template(&azlin_dir, &name).is_err() {
-                        eprintln!("Template '{}' not found.", name);
-                        std::process::exit(1);
+                        anyhow::bail!("Template '{}' not found.", name);
                     }
                     if !force {
                         let ok = Confirm::new()
@@ -4126,8 +4204,7 @@ async fn async_main() -> Result<()> {
                 azlin_cli::TemplateAction::Export { name, output_file } => {
                     let path = azlin_dir.join(format!("{}.toml", name));
                     if !path.exists() {
-                        eprintln!("Template '{}' not found.", name);
-                        std::process::exit(1);
+                        anyhow::bail!("Template '{}' not found.", name);
                     }
                     std::fs::copy(&path, &output_file)?;
                     println!("Exported template '{}' to {}", name, output_file.display());
@@ -4148,21 +4225,13 @@ async fn async_main() -> Result<()> {
                 idle_threshold,
                 cpu_threshold,
             } => {
-                let azlin_home = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".azlin");
+                let azlin_home = home_dir()?.join(".azlin");
                 std::fs::create_dir_all(&azlin_home)?;
                 let ap_path = azlin_home.join("autopilot.toml");
                 let mut config = toml::map::Map::new();
-                config.insert(
-                    "enabled".to_string(),
-                    toml::Value::Boolean(true),
-                );
+                config.insert("enabled".to_string(), toml::Value::Boolean(true));
                 if let Some(b) = budget {
-                    config.insert(
-                        "budget".to_string(),
-                        toml::Value::Integer(b as i64),
-                    );
+                    config.insert("budget".to_string(), toml::Value::Integer(b as i64));
                 }
                 config.insert(
                     "strategy".to_string(),
@@ -4194,10 +4263,7 @@ async fn async_main() -> Result<()> {
                 println!("Saved to {}", ap_path.display());
             }
             azlin_cli::AutopilotAction::Disable { keep_config } => {
-                let ap_path = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".azlin")
-                    .join("autopilot.toml");
+                let ap_path = home_dir()?.join(".azlin").join("autopilot.toml");
                 if ap_path.exists() {
                     if keep_config {
                         let content = std::fs::read_to_string(&ap_path)?;
@@ -4216,18 +4282,12 @@ async fn async_main() -> Result<()> {
                 }
             }
             azlin_cli::AutopilotAction::Status => {
-                let ap_path = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".azlin")
-                    .join("autopilot.toml");
+                let ap_path = home_dir()?.join(".azlin").join("autopilot.toml");
                 if ap_path.exists() {
                     let content = std::fs::read_to_string(&ap_path)?;
                     let val: toml::Value = toml::from_str(&content)?;
                     if let Some(t) = val.as_table() {
-                        let enabled = t
-                            .get("enabled")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false);
+                        let enabled = t.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
                         println!(
                             "Autopilot: {}",
                             if enabled { "ENABLED" } else { "DISABLED" }
@@ -4244,10 +4304,7 @@ async fn async_main() -> Result<()> {
                 }
             }
             azlin_cli::AutopilotAction::Config { set, show } => {
-                let ap_path = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".azlin")
-                    .join("autopilot.toml");
+                let ap_path = home_dir()?.join(".azlin").join("autopilot.toml");
                 if show || set.is_empty() {
                     if ap_path.exists() {
                         let content = std::fs::read_to_string(&ap_path)?;
@@ -4269,10 +4326,7 @@ async fn async_main() -> Result<()> {
                     if let Some(t) = val.as_table_mut() {
                         for kv in &set {
                             if let Some((k, v)) = kv.split_once('=') {
-                                t.insert(
-                                    k.to_string(),
-                                    toml::Value::String(v.to_string()),
-                                );
+                                t.insert(k.to_string(), toml::Value::String(v.to_string()));
                                 println!("Set {} = {}", k, v);
                             }
                         }
@@ -4285,19 +4339,18 @@ async fn async_main() -> Result<()> {
                 let rg = resolve_resource_group(None)?;
                 let auth = create_auth()?;
                 let vm_manager = azlin_azure::VmManager::new(&auth);
-                let vms = vm_manager.list_vms(&rg).await.unwrap_or_default();
-                let ap_path = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".azlin")
-                    .join("autopilot.toml");
+                let vms = vm_manager.list_vms(&rg).await?;
+                let ap_path = home_dir()?.join(".azlin").join("autopilot.toml");
                 let (idle_threshold, cost_limit) = if ap_path.exists() {
                     let content = std::fs::read_to_string(&ap_path)?;
                     let val: toml::Value = toml::from_str(&content)?;
-                    let thresh = val.as_table()
+                    let thresh = val
+                        .as_table()
                         .and_then(|t| t.get("idle_threshold_minutes"))
                         .and_then(|v| v.as_integer())
                         .unwrap_or(30) as u32;
-                    let limit = val.as_table()
+                    let limit = val
+                        .as_table()
                         .and_then(|t| t.get("cost_limit_usd"))
                         .and_then(|v| v.as_float())
                         .unwrap_or(0.0);
@@ -4305,7 +4358,10 @@ async fn async_main() -> Result<()> {
                 } else {
                     (30, 0.0)
                 };
-                println!("Autopilot check (idle threshold: {} min, cost limit: ${:.2}):", idle_threshold, cost_limit);
+                println!(
+                    "Autopilot check (idle threshold: {} min, cost limit: ${:.2}):",
+                    idle_threshold, cost_limit
+                );
 
                 let mut actions: Vec<(String, String)> = Vec::new();
                 for vm in &vms {
@@ -4314,12 +4370,15 @@ async fn async_main() -> Result<()> {
                     }
                     let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
                     if let Some(ip) = ip {
-                        let user = vm.admin_username.as_deref().unwrap_or("azureuser");
+                        let user = vm
+                            .admin_username
+                            .as_deref()
+                            .unwrap_or(DEFAULT_ADMIN_USERNAME);
                         // Check CPU and uptime via SSH
                         let output = std::process::Command::new("ssh")
                             .args([
-                                "-o", "StrictHostKeyChecking=no",
-                                "-o", "ConnectTimeout=5",
+                                "-o", "StrictHostKeyChecking=accept-new",
+                                "-o", "ConnectTimeout=10",
                                 "-o", "BatchMode=yes",
                                 &format!("{}@{}", user, ip),
                                 "awk '{u=$2+$4; t=$2+$4+$5; if (t>0) printf \"%.1f\", u*100/t; else print \"0\"}' /proc/stat | head -1 && cat /proc/uptime | awk '{print $1}'",
@@ -4329,19 +4388,21 @@ async fn async_main() -> Result<()> {
                             if out.status.success() {
                                 let text = String::from_utf8_lossy(&out.stdout);
                                 let lines: Vec<&str> = text.trim().lines().collect();
-                                let cpu_pct: f64 = lines.first()
-                                    .and_then(|s| s.parse().ok())
-                                    .unwrap_or(100.0);
-                                let uptime_secs: f64 = lines.get(1)
-                                    .and_then(|s| s.parse().ok())
-                                    .unwrap_or(0.0);
+                                let cpu_pct: f64 =
+                                    lines.first().and_then(|s| s.parse().ok()).unwrap_or(100.0);
+                                let uptime_secs: f64 =
+                                    lines.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
                                 let idle_mins = idle_threshold as f64;
                                 if cpu_pct < 5.0 && uptime_secs > idle_mins * 60.0 {
                                     println!("  ⚠ {} — CPU {} for {:.0}min — IDLE (recommend deallocate)",
                                              vm.name, health_helpers::format_percentage(cpu_pct as f32), uptime_secs / 60.0);
                                     actions.push((vm.name.clone(), "deallocate".to_string()));
                                 } else {
-                                    println!("  ✓ {} — CPU {} — active", vm.name, health_helpers::format_percentage(cpu_pct as f32));
+                                    println!(
+                                        "  ✓ {} — CPU {} — active",
+                                        vm.name,
+                                        health_helpers::format_percentage(cpu_pct as f32)
+                                    );
                                 }
                             } else {
                                 println!("  ? {} — could not check (SSH failed)", vm.name);
@@ -4377,9 +4438,7 @@ async fn async_main() -> Result<()> {
 
         // ── Context ──────────────────────────────────────────────────
         azlin_cli::Commands::Context { action } => {
-            let azlin_home = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                .join(".azlin");
+            let azlin_home = home_dir()?.join(".azlin");
             let ctx_dir = azlin_home.join("contexts");
             let active_ctx_path = azlin_home.join("active-context");
             std::fs::create_dir_all(&ctx_dir)?;
@@ -4422,8 +4481,7 @@ async fn async_main() -> Result<()> {
                         }
                     }
                 }
-                azlin_cli::ContextAction::Show { .. }
-                | azlin_cli::ContextAction::Current { .. } => {
+                azlin_cli::ContextAction::Show { .. } => {
                     match std::fs::read_to_string(&active_ctx_path) {
                         Ok(name) => {
                             let name = name.trim();
@@ -4436,16 +4494,13 @@ async fn async_main() -> Result<()> {
                         Err(_) => println!("No context selected."),
                     }
                 }
-                azlin_cli::ContextAction::Use { name, .. }
-                | azlin_cli::ContextAction::Switch { name, .. } => {
+                azlin_cli::ContextAction::Use { name, .. } => {
                     if let Err(e) = name_validation::validate_name(&name) {
-                        eprintln!("Invalid context name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid context name: {}", e);
                     }
                     let ctx_path = ctx_dir.join(format!("{}.toml", name));
                     if !ctx_path.exists() {
-                        eprintln!("Context '{}' not found.", name);
-                        std::process::exit(1);
+                        anyhow::bail!("Context '{}' not found.", name);
                     }
                     std::fs::write(&active_ctx_path, &name)?;
                     println!("Switched to context '{}'", name);
@@ -4460,8 +4515,7 @@ async fn async_main() -> Result<()> {
                     ..
                 } => {
                     if let Err(e) = name_validation::validate_name(&name) {
-                        eprintln!("Invalid context name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid context name: {}", e);
                     }
                     let toml_str = contexts::build_context_toml(
                         &name,
@@ -4477,13 +4531,11 @@ async fn async_main() -> Result<()> {
                 }
                 azlin_cli::ContextAction::Delete { name, force, .. } => {
                     if let Err(e) = name_validation::validate_name(&name) {
-                        eprintln!("Invalid context name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid context name: {}", e);
                     }
                     let path = ctx_dir.join(format!("{}.toml", name));
                     if !path.exists() {
-                        eprintln!("Context '{}' not found.", name);
-                        std::process::exit(1);
+                        anyhow::bail!("Context '{}' not found.", name);
                     }
                     if !force {
                         let ok = Confirm::new()
@@ -4508,12 +4560,10 @@ async fn async_main() -> Result<()> {
                     old_name, new_name, ..
                 } => {
                     if let Err(e) = name_validation::validate_name(&old_name) {
-                        eprintln!("Invalid context name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid context name: {}", e);
                     }
                     if let Err(e) = name_validation::validate_name(&new_name) {
-                        eprintln!("Invalid context name: {}", e);
-                        std::process::exit(1);
+                        anyhow::bail!("Invalid context name: {}", e);
                     }
                     contexts::rename_context_file(&ctx_dir, &old_name, &new_name)?;
                     // Update active context if it was the renamed one
@@ -4526,67 +4576,63 @@ async fn async_main() -> Result<()> {
                 }
                 azlin_cli::ContextAction::Migrate { force, .. } => {
                     // Check for legacy config.toml with subscription/tenant at top level
-                    let config = azlin_core::AzlinConfig::load().ok();
-                    if let Some(cfg) = config {
-                        let sub = cfg
-                            .default_resource_group
-                            .as_ref()
-                            .and_then(|_| {
-                                // Try to read subscription from az account
-                                let out = std::process::Command::new("az")
-                                    .args(["account", "show", "--query", "id", "-o", "tsv"])
-                                    .output()
-                                    .ok();
-                                out.and_then(|o| {
-                                    if o.status.success() {
-                                        Some(
-                                            String::from_utf8_lossy(&o.stdout)
-                                                .trim()
-                                                .to_string(),
-                                        )
-                                    } else {
-                                        None
-                                    }
-                                })
-                            });
-                        let tenant = std::process::Command::new("az")
-                            .args(["account", "show", "--query", "tenantId", "-o", "tsv"])
+                    let cfg = azlin_core::AzlinConfig::load()
+                        .context("Failed to load azlin config for migration")?;
+                    let sub = cfg.default_resource_group.as_ref().and_then(|_| {
+                        let out = std::process::Command::new("az")
+                            .args(["account", "show", "--query", "id", "-o", "tsv"])
                             .output()
-                            .ok()
-                            .and_then(|o| {
-                                if o.status.success() {
-                                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                                } else {
-                                    None
-                                }
-                            });
-
-                        if let (Some(sub_id), Some(tenant_id)) = (sub, tenant) {
-                            let ctx_name = "default";
-                            let ctx_path = ctx_dir.join(format!("{}.toml", ctx_name));
-                            if ctx_path.exists() && !force {
-                                println!("Context 'default' already exists. Use --force to overwrite.");
-                            } else {
-                                let mut ctx = toml::map::Map::new();
-                                ctx.insert("name".to_string(), toml::Value::String(ctx_name.to_string()));
-                                ctx.insert("subscription_id".to_string(), toml::Value::String(sub_id));
-                                ctx.insert("tenant_id".to_string(), toml::Value::String(tenant_id));
-                                if let Some(rg) = &cfg.default_resource_group {
-                                    ctx.insert("resource_group".to_string(), toml::Value::String(rg.clone()));
-                                }
-                                if !cfg.default_region.is_empty() {
-                                    ctx.insert("region".to_string(), toml::Value::String(cfg.default_region.clone()));
-                                }
-                                let val = toml::Value::Table(ctx);
-                                std::fs::write(&ctx_path, toml::to_string_pretty(&val)?)?;
-                                std::fs::write(&active_ctx_path, ctx_name)?;
-                                println!("Migrated legacy config to context '{}'", ctx_name);
-                            }
+                            .ok()?;
+                        if out.status.success() {
+                            Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
                         } else {
-                            println!("Could not determine subscription/tenant from az account. Run 'az login' first.");
+                            None
+                        }
+                    });
+                    let tenant = std::process::Command::new("az")
+                        .args(["account", "show", "--query", "tenantId", "-o", "tsv"])
+                        .output()
+                        .ok()
+                        .and_then(|o| {
+                            if o.status.success() {
+                                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                            } else {
+                                None
+                            }
+                        });
+
+                    if let (Some(sub_id), Some(tenant_id)) = (sub, tenant) {
+                        let ctx_name = "default";
+                        let ctx_path = ctx_dir.join(format!("{}.toml", ctx_name));
+                        if ctx_path.exists() && !force {
+                            println!("Context 'default' already exists. Use --force to overwrite.");
+                        } else {
+                            let mut ctx = toml::map::Map::new();
+                            ctx.insert(
+                                "name".to_string(),
+                                toml::Value::String(ctx_name.to_string()),
+                            );
+                            ctx.insert("subscription_id".to_string(), toml::Value::String(sub_id));
+                            ctx.insert("tenant_id".to_string(), toml::Value::String(tenant_id));
+                            if let Some(rg) = &cfg.default_resource_group {
+                                ctx.insert(
+                                    "resource_group".to_string(),
+                                    toml::Value::String(rg.clone()),
+                                );
+                            }
+                            if !cfg.default_region.is_empty() {
+                                ctx.insert(
+                                    "region".to_string(),
+                                    toml::Value::String(cfg.default_region.clone()),
+                                );
+                            }
+                            let val = toml::Value::Table(ctx);
+                            std::fs::write(&ctx_path, toml::to_string_pretty(&val)?)?;
+                            std::fs::write(&active_ctx_path, ctx_name)?;
+                            println!("Migrated legacy config to context '{}'", ctx_name);
                         }
                     } else {
-                        println!("No legacy configuration found to migrate.");
+                        println!("Could not determine subscription/tenant from az account. Run 'az login' first.");
                     }
                 }
             }
@@ -4636,8 +4682,10 @@ async fn async_main() -> Result<()> {
                     );
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Failed to attach disk: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                    std::process::exit(1);
+                    anyhow::bail!(
+                        "Failed to attach disk: {}",
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    );
                 }
             }
         },
@@ -4691,15 +4739,18 @@ async fn async_main() -> Result<()> {
                 // Start the PWA dev server (same as Python: npm run dev in pwa/)
                 let pwa_dir = std::env::current_dir()?.join("pwa");
                 if !pwa_dir.exists() {
-                    eprintln!("PWA directory not found at {:?}", pwa_dir);
-                    eprintln!("Make sure you're in the azlin project root.");
-                    std::process::exit(1);
+                    anyhow::bail!(
+                        "PWA directory not found at {:?}. Make sure you're in the azlin project root.",
+                        pwa_dir
+                    );
                 }
 
                 // Generate env config from azlin context
-                let config = azlin_core::AzlinConfig::load().ok();
+                let config =
+                    azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
                 let env_file = pwa_dir.join(".env.local");
-                if let Some(ref cfg) = config {
+                {
+                    let cfg = &config;
                     let mut env_content = String::new();
                     if let Some(ref rg) = cfg.default_resource_group {
                         env_content.push_str(&format!("VITE_RESOURCE_GROUP={}\n", rg));
@@ -4724,11 +4775,10 @@ async fn async_main() -> Result<()> {
                 println!("Press Ctrl+C to stop the server");
 
                 // Write PID file for web stop
-                let pid_path = dirs::home_dir()
-                    .unwrap_or_default()
-                    .join(".azlin")
-                    .join("web.pid");
-                std::fs::create_dir_all(pid_path.parent().unwrap())?;
+                let pid_path = home_dir()?.join(".azlin").join("web.pid");
+                if let Some(parent) = pid_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
 
                 let mut child = std::process::Command::new("npm")
                     .args(["run", "dev", "--", "--port", &port_str, "--host", &host])
@@ -4745,10 +4795,7 @@ async fn async_main() -> Result<()> {
             }
             azlin_cli::WebAction::Stop => {
                 // Check for a running web dashboard pid file
-                let pid_path = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".azlin")
-                    .join("web.pid");
+                let pid_path = home_dir()?.join(".azlin").join("web.pid");
                 if pid_path.exists() {
                     let pid_str = std::fs::read_to_string(&pid_path)?;
                     if let Ok(pid) = pid_str.trim().parse::<u32>() {
@@ -4780,7 +4827,7 @@ async fn async_main() -> Result<()> {
             // Find running VMs with session tags
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
-            let vms = vm_manager.list_vms(&rg).await.unwrap_or_default();
+            let vms = vm_manager.list_vms(&rg).await?;
             let running: Vec<_> = vms
                 .iter()
                 .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
@@ -4798,7 +4845,11 @@ async fn async_main() -> Result<()> {
                     .get("azlin-session")
                     .map(|s| s.as_str())
                     .unwrap_or("-");
-                let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("no-ip");
+                let ip = vm
+                    .public_ip
+                    .as_deref()
+                    .or(vm.private_ip.as_deref())
+                    .unwrap_or("no-ip");
                 println!("  {} (session: {}, ip: {})", vm.name, session, ip);
             }
             println!("Session restore complete. Use 'azlin connect <vm-name>' to reconnect.");
@@ -4813,10 +4864,7 @@ async fn async_main() -> Result<()> {
                 ..
             } => {
                 let rg = resolve_resource_group(resource_group)?;
-                let sessions_dir = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".azlin")
-                    .join("sessions");
+                let sessions_dir = home_dir()?.join(".azlin").join("sessions");
                 std::fs::create_dir_all(&sessions_dir)?;
 
                 let session_val = sessions::build_session_toml(&session_name, &rg, &vms);
@@ -4825,14 +4873,12 @@ async fn async_main() -> Result<()> {
                 println!("Saved session '{}' to {}", session_name, path.display());
             }
             azlin_cli::SessionsAction::Load { session_name } => {
-                let path = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+                let path = home_dir()?
                     .join(".azlin")
                     .join("sessions")
                     .join(format!("{}.toml", session_name));
                 if !path.exists() {
-                    eprintln!("Session '{}' not found.", session_name);
-                    std::process::exit(1);
+                    anyhow::bail!("Session '{}' not found.", session_name);
                 }
                 let content = std::fs::read_to_string(&path)?;
                 let (rg, vms, created) = sessions::parse_session_toml(&content)?;
@@ -4847,14 +4893,12 @@ async fn async_main() -> Result<()> {
                 session_name,
                 force,
             } => {
-                let path = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+                let path = home_dir()?
                     .join(".azlin")
                     .join("sessions")
                     .join(format!("{}.toml", session_name));
                 if !path.exists() {
-                    eprintln!("Session '{}' not found.", session_name);
-                    std::process::exit(1);
+                    anyhow::bail!("Session '{}' not found.", session_name);
                 }
                 if !force {
                     let confirmed = Confirm::new()
@@ -4870,10 +4914,7 @@ async fn async_main() -> Result<()> {
                 println!("Deleted session '{}'.", session_name);
             }
             azlin_cli::SessionsAction::List => {
-                let dir = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".azlin")
-                    .join("sessions");
+                let dir = home_dir()?.join(".azlin").join("sessions");
                 let names = sessions::list_session_names(&dir)?;
                 if names.is_empty() {
                     println!("No saved sessions.");
@@ -4901,14 +4942,10 @@ async fn async_main() -> Result<()> {
             ..
         } => {
             let rg = resolve_resource_group(resource_group)?;
-            let home_dir = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                .join(".azlin")
-                .join("home");
+            let home_dir = home_dir()?.join(".azlin").join("home");
 
             if !home_dir.exists() {
-                eprintln!("No ~/.azlin/home/ directory found. Nothing to sync.");
-                std::process::exit(1);
+                anyhow::bail!("No ~/.azlin/home/ directory found. Nothing to sync.");
             }
 
             let target_vm = vm_name;
@@ -4948,7 +4985,10 @@ async fn async_main() -> Result<()> {
 
                 for vm in &running_vms {
                     if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
-                        let user = vm.admin_username.as_deref().unwrap_or("azureuser");
+                        let user = vm
+                            .admin_username
+                            .as_deref()
+                            .unwrap_or(DEFAULT_ADMIN_USERNAME);
                         println!("Syncing dotfiles to {}...", vm.name);
                         let mut args: Vec<&str> = vec!["-avz", "--progress"];
                         let file_refs: Vec<&str> = dotfiles.iter().map(|s| s.as_str()).collect();
@@ -4977,9 +5017,7 @@ async fn async_main() -> Result<()> {
             ..
         } => {
             let rg = resolve_resource_group(resource_group)?;
-            let ssh_dir = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                .join(".ssh");
+            let ssh_dir = home_dir()?.join(".ssh");
 
             let pub_key = ["id_ed25519_azlin.pub", "id_ed25519.pub", "id_rsa.pub"]
                 .iter()
@@ -5008,13 +5046,14 @@ async fn async_main() -> Result<()> {
                         println!("Synced SSH key to VM '{}' for user '{}'", vm_name, ssh_user);
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to sync keys: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                        std::process::exit(1);
+                        anyhow::bail!(
+                            "Failed to sync keys: {}",
+                            azlin_core::sanitizer::sanitize(stderr.trim())
+                        );
                     }
                 }
                 None => {
-                    eprintln!("No SSH public key found in {}", ssh_dir.display());
-                    std::process::exit(1);
+                    anyhow::bail!("No SSH public key found in {}", ssh_dir.display());
                 }
             }
         }
@@ -5028,8 +5067,7 @@ async fn async_main() -> Result<()> {
         } => {
             if args.len() < 2 {
                 eprintln!("Usage: azlin cp <source> <destination>");
-                eprintln!("Use vm_name:path for remote paths.");
-                std::process::exit(1);
+                anyhow::bail!("Use vm_name:path for remote paths.");
             }
 
             let source = &args[0];
@@ -5062,7 +5100,9 @@ async fn async_main() -> Result<()> {
                         .public_ip
                         .or(vm.private_ip)
                         .ok_or_else(|| anyhow::anyhow!("No IP for VM '{}'", vm_part))?;
-                    let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
+                    let user = vm
+                        .admin_username
+                        .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
                     let scp_source = if cp_helpers::is_remote_path(source) {
                         cp_helpers::resolve_scp_path(source, vm_part, &user, &ip)
@@ -5076,13 +5116,17 @@ async fn async_main() -> Result<()> {
                     };
 
                     let status = std::process::Command::new("scp")
-                        .args(["-o", "StrictHostKeyChecking=no", &scp_source, &scp_dest])
+                        .args([
+                            "-o",
+                            "StrictHostKeyChecking=accept-new",
+                            &scp_source,
+                            &scp_dest,
+                        ])
                         .status()?;
                     if status.success() {
                         println!("Copy complete.");
                     } else {
-                        eprintln!("scp failed.");
-                        std::process::exit(1);
+                        anyhow::bail!("scp failed.");
                     }
                 } else {
                     std::fs::copy(source, dest)?;
@@ -5117,7 +5161,10 @@ async fn async_main() -> Result<()> {
                 .public_ip
                 .or(vm.private_ip)
                 .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm_identifier))?;
-            let username = vm.admin_username.as_deref().unwrap_or("azureuser");
+            let username = vm
+                .admin_username
+                .as_deref()
+                .unwrap_or(DEFAULT_ADMIN_USERNAME);
 
             if follow {
                 // Stream logs via SSH tail -f
@@ -5137,7 +5184,8 @@ async fn async_main() -> Result<()> {
                 ));
                 pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-                let tail_args = connect_helpers::build_log_tail_args(username, &ip, lines, log_path);
+                let tail_args =
+                    connect_helpers::build_log_tail_args(username, &ip, lines, log_path);
                 let output = std::process::Command::new("ssh")
                     .args(&tail_args)
                     .output()?;
@@ -5147,37 +5195,11 @@ async fn async_main() -> Result<()> {
                     let log_text = String::from_utf8_lossy(&output.stdout);
                     print!("{}", log_text);
                 } else {
-                    // Fallback to boot diagnostics for cloud-init
-                    if matches!(log_type, azlin_cli::LogType::CloudInit) {
-                        let boot_output = std::process::Command::new("az")
-                            .args([
-                                "vm",
-                                "boot-diagnostics",
-                                "get-boot-log",
-                                "--resource-group",
-                                &rg,
-                                "--name",
-                                &vm_identifier,
-                            ])
-                            .output()?;
-                        if boot_output.status.success() {
-                            let log_text = String::from_utf8_lossy(&boot_output.stdout);
-                            let log_lines: Vec<&str> = log_text.lines().collect();
-                            let start =
-                                log_helpers::tail_start_index(log_lines.len(), lines as usize);
-                            for line in &log_lines[start..] {
-                                println!("{}", line);
-                            }
-                        } else {
-                            let stderr = String::from_utf8_lossy(&boot_output.stderr);
-                            eprintln!("Failed to fetch logs: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                            std::process::exit(1);
-                        }
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to fetch logs via SSH: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                        std::process::exit(1);
-                    }
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    anyhow::bail!(
+                        "Failed to fetch logs via SSH: {}",
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    );
                 }
             }
         }
@@ -5187,14 +5209,23 @@ async fn async_main() -> Result<()> {
             match action {
                 azlin_cli::CostsAction::Dashboard { resource_group, .. } => {
                     let auth = create_auth()?;
-                    let summary = azlin_azure::get_cost_summary(&auth, &resource_group).await?;
-                    println!("Cost Dashboard for '{}':", resource_group);
-                    println!("  Total: ${:.2} {}", summary.total_cost, summary.currency);
-                    println!(
-                        "  Period: {} to {}",
-                        summary.period_start.format("%Y-%m-%d"),
-                        summary.period_end.format("%Y-%m-%d")
-                    );
+                    match azlin_azure::get_cost_summary(&auth, &resource_group).await {
+                        Ok(summary) => {
+                            println!("Cost Dashboard for '{}':", resource_group);
+                            println!("  Total: ${:.2} {}", summary.total_cost, summary.currency);
+                            println!(
+                                "  Period: {} to {}",
+                                summary.period_start.format("%Y-%m-%d"),
+                                summary.period_end.format("%Y-%m-%d")
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("⚠ Cost data unavailable: {e}");
+                            eprintln!(
+                                "  Run 'az consumption usage list' for cost data via Azure CLI."
+                            );
+                        }
+                    }
                 }
                 azlin_cli::CostsAction::History {
                     resource_group,
@@ -5211,23 +5242,33 @@ async fn async_main() -> Result<()> {
                     let sub_output = std::process::Command::new("az")
                         .args(["account", "show", "--query", "id", "-o", "tsv"])
                         .output()?;
-                    let sub_id = String::from_utf8_lossy(&sub_output.stdout).trim().to_string();
+                    let sub_id = String::from_utf8_lossy(&sub_output.stdout)
+                        .trim()
+                        .to_string();
                     if sub_id.is_empty() {
-                        eprintln!("Could not determine subscription ID. Run 'az login' first.");
-                        std::process::exit(1);
+                        anyhow::bail!("Could not determine subscription ID. Run 'az login' first.");
                     }
 
-                    let scope = format!("/subscriptions/{}/resourceGroups/{}", sub_id, resource_group);
+                    let scope = format!(
+                        "/subscriptions/{}/resourceGroups/{}",
+                        sub_id, resource_group
+                    );
                     let output = std::process::Command::new("az")
-                    .args([
-                        "costmanagement", "query",
-                        "--type", "ActualCost",
-                        "--scope", &scope,
-                        "--timeframe", "Custom",
-                        "--time-period", &format!("start={}&end={}", start_date, end_date),
-                        "-o", "json",
-                    ])
-                    .output()?;
+                        .args([
+                            "costmanagement",
+                            "query",
+                            "--type",
+                            "ActualCost",
+                            "--scope",
+                            &scope,
+                            "--timeframe",
+                            "Custom",
+                            "--time-period",
+                            &format!("start={}&end={}", start_date, end_date),
+                            "-o",
+                            "json",
+                        ])
+                        .output()?;
 
                     if output.status.success() {
                         let json_str = String::from_utf8_lossy(&output.stdout);
@@ -5258,8 +5299,10 @@ async fn async_main() -> Result<()> {
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to query cost history: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                        std::process::exit(1);
+                        anyhow::bail!(
+                            "Failed to query cost history: {}",
+                            azlin_core::sanitizer::sanitize(stderr.trim())
+                        );
                     }
                 }
                 azlin_cli::CostsAction::Budget {
@@ -5267,90 +5310,98 @@ async fn async_main() -> Result<()> {
                     resource_group,
                     amount,
                     threshold,
-                } => {
-                    match action.as_str() {
-                        "create" | "set" => {
-                            let budget_amount = amount.unwrap_or(100.0);
-                            let alert_threshold = threshold.unwrap_or(80);
-                            let output = std::process::Command::new("az")
-                                .args([
-                                    "consumption",
-                                    "budget",
-                                    "create",
-                                    "--budget-name",
-                                    &format!("azlin-budget-{}", resource_group),
-                                    "--amount",
-                                    &format!("{:.2}", budget_amount),
-                                    "--time-grain",
-                                    "Monthly",
-                                    "--resource-group",
-                                    &resource_group,
-                                    "--category",
-                                    "Cost",
-                                    "--output",
-                                    "json",
-                                ])
-                                .output()?;
-                            if output.status.success() {
-                                println!(
-                                    "Budget set: ${:.2}/month for '{}' (alert at {}%)",
-                                    budget_amount, resource_group, alert_threshold
-                                );
-                            } else {
-                                let stderr = String::from_utf8_lossy(&output.stderr);
-                                eprintln!("Failed to create budget: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                                std::process::exit(1);
-                            }
-                        }
-                        "show" | "list" => {
-                            let output = std::process::Command::new("az")
-                                .args([
-                                    "consumption",
-                                    "budget",
-                                    "list",
-                                    "--resource-group",
-                                    &resource_group,
-                                    "--output",
-                                    "table",
-                                ])
-                                .output()?;
-                            if output.status.success() {
-                                let text = String::from_utf8_lossy(&output.stdout);
-                                if text.trim().is_empty() {
-                                    println!("No budgets found for '{}'.", resource_group);
-                                } else {
-                                    print!("{}", text);
-                                }
-                            } else {
-                                let stderr = String::from_utf8_lossy(&output.stderr);
-                                eprintln!("Failed to list budgets: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                            }
-                        }
-                        "delete" => {
-                            let output = std::process::Command::new("az")
-                                .args([
-                                    "consumption",
-                                    "budget",
-                                    "delete",
-                                    "--budget-name",
-                                    &format!("azlin-budget-{}", resource_group),
-                                    "--resource-group",
-                                    &resource_group,
-                                ])
-                                .output()?;
-                            if output.status.success() {
-                                println!("Budget deleted for '{}'.", resource_group);
-                            } else {
-                                let stderr = String::from_utf8_lossy(&output.stderr);
-                                eprintln!("Failed to delete budget: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                            }
-                        }
-                        _ => {
-                            eprintln!("Unknown budget action '{}'. Use: create, show, delete", action);
-                            std::process::exit(1);
+                } => match action.as_str() {
+                    "create" | "set" => {
+                        let budget_amount = amount.unwrap_or(100.0);
+                        let alert_threshold = threshold.unwrap_or(80);
+                        let output = std::process::Command::new("az")
+                            .args([
+                                "consumption",
+                                "budget",
+                                "create",
+                                "--budget-name",
+                                &format!("azlin-budget-{}", resource_group),
+                                "--amount",
+                                &format!("{:.2}", budget_amount),
+                                "--time-grain",
+                                "Monthly",
+                                "--resource-group",
+                                &resource_group,
+                                "--category",
+                                "Cost",
+                                "--output",
+                                "json",
+                            ])
+                            .output()?;
+                        if output.status.success() {
+                            println!(
+                                "Budget set: ${:.2}/month for '{}' (alert at {}%)",
+                                budget_amount, resource_group, alert_threshold
+                            );
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            anyhow::bail!(
+                                "Failed to create budget: {}",
+                                azlin_core::sanitizer::sanitize(stderr.trim())
+                            );
                         }
                     }
-                }
+                    "show" | "list" => {
+                        let output = std::process::Command::new("az")
+                            .args([
+                                "consumption",
+                                "budget",
+                                "list",
+                                "--resource-group",
+                                &resource_group,
+                                "--output",
+                                "table",
+                            ])
+                            .output()?;
+                        if output.status.success() {
+                            let text = String::from_utf8_lossy(&output.stdout);
+                            if text.trim().is_empty() {
+                                println!("No budgets found for '{}'.", resource_group);
+                            } else {
+                                print!("{}", text);
+                            }
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            eprintln!(
+                                "Failed to list budgets: {}",
+                                azlin_core::sanitizer::sanitize(stderr.trim())
+                            );
+                        }
+                    }
+                    "delete" => {
+                        let output = std::process::Command::new("az")
+                            .args([
+                                "consumption",
+                                "budget",
+                                "delete",
+                                "--budget-name",
+                                &format!("azlin-budget-{}", resource_group),
+                                "--resource-group",
+                                &resource_group,
+                            ])
+                            .output()?;
+                        if output.status.success() {
+                            println!("Budget deleted for '{}'.", resource_group);
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            eprintln!(
+                                "Failed to delete budget: {}",
+                                azlin_core::sanitizer::sanitize(stderr.trim())
+                            );
+                        }
+                    }
+                    _ => {
+                        anyhow::bail!(
+                            "Unknown budget action '{}'. Use: create, show, delete",
+                            action
+                        );
+                    }
+                },
                 azlin_cli::CostsAction::Recommend {
                     resource_group,
                     priority,
@@ -5410,8 +5461,10 @@ async fn async_main() -> Result<()> {
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to list recommendations: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                        std::process::exit(1);
+                        anyhow::bail!(
+                            "Failed to list recommendations: {}",
+                            azlin_core::sanitizer::sanitize(stderr.trim())
+                        );
                     }
                 }
                 azlin_cli::CostsAction::Actions {
@@ -5503,9 +5556,7 @@ async fn async_main() -> Result<()> {
                                                         ])
                                                         .output()
                                                     {
-                                                        Ok(output)
-                                                            if output.status.success() =>
-                                                        {
+                                                        Ok(output) if output.status.success() => {
                                                             println!(
                                                                 "  ✓ Deallocated successfully"
                                                             );
@@ -5536,8 +5587,10 @@ async fn async_main() -> Result<()> {
                         }
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("Failed to list cost actions: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                        std::process::exit(1);
+                        anyhow::bail!(
+                            "Failed to list cost actions: {}",
+                            azlin_core::sanitizer::sanitize(stderr.trim())
+                        );
                     }
                 }
             }
@@ -5599,26 +5652,20 @@ async fn async_main() -> Result<()> {
                         println!("Deleted {} VMs with prefix '{}'", id_list.len(), prefix);
                     } else {
                         let stderr = String::from_utf8_lossy(&del.stderr);
-                        eprintln!("Failed to delete VMs: {}", azlin_core::sanitizer::sanitize(stderr.trim()));
-                        std::process::exit(1);
+                        anyhow::bail!(
+                            "Failed to delete VMs: {}",
+                            azlin_core::sanitizer::sanitize(stderr.trim())
+                        );
                     }
                 }
             } else {
                 pb.finish_and_clear();
-                eprintln!("Failed to list VMs.");
-                std::process::exit(1);
+                anyhow::bail!("Failed to list VMs.");
             }
         }
 
         // ── Cleanup / Prune ──────────────────────────────────────────
         azlin_cli::Commands::Cleanup {
-            resource_group,
-            dry_run,
-            force,
-            age_days,
-            ..
-        }
-        | azlin_cli::Commands::Prune {
             resource_group,
             dry_run,
             force,
@@ -5646,7 +5693,10 @@ async fn async_main() -> Result<()> {
                     .output()?;
                 if !output.status.success() {
                     let err = String::from_utf8_lossy(&output.stderr);
-                    anyhow::bail!("az command failed: {}", azlin_core::sanitizer::sanitize(err.trim()));
+                    anyhow::bail!(
+                        "az command failed: {}",
+                        azlin_core::sanitizer::sanitize(err.trim())
+                    );
                 }
                 Ok(String::from_utf8_lossy(&output.stdout).to_string())
             };
@@ -5654,90 +5704,91 @@ async fn async_main() -> Result<()> {
             let mut all_orphans: Vec<OrphanedResource> = Vec::new();
 
             // 1) Orphaned disks
-            if let Ok(json) = az_list(&["disk", "list"]) {
-                all_orphans.extend(find_orphaned_disks(&json));
-            }
+            let disk_json =
+                az_list(&["disk", "list"]).context("Failed to list disks for orphan detection")?;
+            all_orphans.extend(find_orphaned_disks(&disk_json)?);
 
             // 2) Orphaned NICs (no VM attached)
-            if let Ok(json) = az_list(&["network", "nic", "list"]) {
-                let nics: Vec<serde_json::Value> =
-                    serde_json::from_str(&json).unwrap_or_default();
-                for nic in &nics {
-                    let attached = nic
-                        .get("virtualMachine")
-                        .map(|v| !v.is_null())
-                        .unwrap_or(false);
-                    if !attached {
-                        if let Some(name) = nic.get("name").and_then(|n| n.as_str()) {
-                            let nic_rg = nic
-                                .get("resourceGroup")
-                                .and_then(|r| r.as_str())
-                                .unwrap_or("unknown");
-                            all_orphans.push(OrphanedResource {
-                                name: name.to_string(),
-                                resource_type: ResourceType::NetworkInterface,
-                                resource_group: nic_rg.to_string(),
-                                estimated_monthly_cost: 0.0,
-                            });
-                        }
+            let nic_json = az_list(&["network", "nic", "list"])
+                .context("Failed to list NICs for orphan detection")?;
+            let nics: Vec<serde_json::Value> =
+                serde_json::from_str(&nic_json).context("Failed to parse NIC list JSON")?;
+            for nic in &nics {
+                let attached = nic
+                    .get("virtualMachine")
+                    .map(|v| !v.is_null())
+                    .unwrap_or(false);
+                if !attached {
+                    if let Some(name) = nic.get("name").and_then(|n| n.as_str()) {
+                        let nic_rg = nic
+                            .get("resourceGroup")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("unknown");
+                        all_orphans.push(OrphanedResource {
+                            name: name.to_string(),
+                            resource_type: ResourceType::NetworkInterface,
+                            resource_group: nic_rg.to_string(),
+                            estimated_monthly_cost: 0.0,
+                        });
                     }
                 }
             }
 
             // 3) Orphaned public IPs (no ipConfiguration)
-            if let Ok(json) = az_list(&["network", "public-ip", "list"]) {
-                let ips: Vec<serde_json::Value> =
-                    serde_json::from_str(&json).unwrap_or_default();
-                for ip in &ips {
-                    let attached = ip
-                        .get("ipConfiguration")
-                        .map(|v| !v.is_null())
-                        .unwrap_or(false);
-                    if !attached {
-                        if let Some(name) = ip.get("name").and_then(|n| n.as_str()) {
-                            let ip_rg = ip
-                                .get("resourceGroup")
-                                .and_then(|r| r.as_str())
-                                .unwrap_or("unknown");
-                            all_orphans.push(OrphanedResource {
-                                name: name.to_string(),
-                                resource_type: ResourceType::PublicIp,
-                                resource_group: ip_rg.to_string(),
-                                estimated_monthly_cost: 3.65,
-                            });
-                        }
+            let pip_json = az_list(&["network", "public-ip", "list"])
+                .context("Failed to list public IPs for orphan detection")?;
+            let ips: Vec<serde_json::Value> =
+                serde_json::from_str(&pip_json).context("Failed to parse public IP list JSON")?;
+            for ip in &ips {
+                let attached = ip
+                    .get("ipConfiguration")
+                    .map(|v| !v.is_null())
+                    .unwrap_or(false);
+                if !attached {
+                    if let Some(name) = ip.get("name").and_then(|n| n.as_str()) {
+                        let ip_rg = ip
+                            .get("resourceGroup")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("unknown");
+                        all_orphans.push(OrphanedResource {
+                            name: name.to_string(),
+                            resource_type: ResourceType::PublicIp,
+                            resource_group: ip_rg.to_string(),
+                            // Azure Standard public IP ~$3.65/month
+                            estimated_monthly_cost: ORPHANED_PUBLIC_IP_MONTHLY_COST,
+                        });
                     }
                 }
             }
 
             // 4) Orphaned NSGs (no attached NICs or subnets)
-            if let Ok(json) = az_list(&["network", "nsg", "list"]) {
-                let nsgs: Vec<serde_json::Value> =
-                    serde_json::from_str(&json).unwrap_or_default();
-                for nsg in &nsgs {
-                    let has_nics = nsg
-                        .get("networkInterfaces")
-                        .and_then(|v| v.as_array())
-                        .map(|a| !a.is_empty())
-                        .unwrap_or(false);
-                    let has_subnets = nsg
-                        .get("subnets")
-                        .and_then(|v| v.as_array())
-                        .map(|a| !a.is_empty())
-                        .unwrap_or(false);
-                    if !has_nics && !has_subnets {
-                        if let Some(name) = nsg.get("name").and_then(|n| n.as_str()) {
-                            let nsg_rg = nsg
-                                .get("resourceGroup")
-                                .and_then(|r| r.as_str())
-                                .unwrap_or("unknown");
-                            all_orphans.push(OrphanedResource {
-                                name: name.to_string(),
-                                resource_type: ResourceType::NetworkSecurityGroup,
-                                resource_group: nsg_rg.to_string(),
-                                estimated_monthly_cost: 0.0,
-                            });
-                        }
+            let nsg_json = az_list(&["network", "nsg", "list"])
+                .context("Failed to list NSGs for orphan detection")?;
+            let nsgs: Vec<serde_json::Value> =
+                serde_json::from_str(&nsg_json).context("Failed to parse NSG list JSON")?;
+            for nsg in &nsgs {
+                let has_nics = nsg
+                    .get("networkInterfaces")
+                    .and_then(|v| v.as_array())
+                    .map(|a| !a.is_empty())
+                    .unwrap_or(false);
+                let has_subnets = nsg
+                    .get("subnets")
+                    .and_then(|v| v.as_array())
+                    .map(|a| !a.is_empty())
+                    .unwrap_or(false);
+                if !has_nics && !has_subnets {
+                    if let Some(name) = nsg.get("name").and_then(|n| n.as_str()) {
+                        let nsg_rg = nsg
+                            .get("resourceGroup")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("unknown");
+                        all_orphans.push(OrphanedResource {
+                            name: name.to_string(),
+                            resource_type: ResourceType::NetworkSecurityGroup,
+                            resource_group: nsg_rg.to_string(),
+                            estimated_monthly_cost: 0.0,
+                        });
                     }
                 }
             }
@@ -5794,16 +5845,50 @@ async fn async_main() -> Result<()> {
             for r in &all_orphans {
                 let result = match r.resource_type {
                     ResourceType::Disk => std::process::Command::new("az")
-                        .args(["disk", "delete", "--name", &r.name, "-g", &r.resource_group, "--yes", "--no-wait"])
+                        .args([
+                            "disk",
+                            "delete",
+                            "--name",
+                            &r.name,
+                            "-g",
+                            &r.resource_group,
+                            "--yes",
+                            "--no-wait",
+                        ])
                         .output(),
                     ResourceType::NetworkInterface => std::process::Command::new("az")
-                        .args(["network", "nic", "delete", "--name", &r.name, "-g", &r.resource_group, "--no-wait"])
+                        .args([
+                            "network",
+                            "nic",
+                            "delete",
+                            "--name",
+                            &r.name,
+                            "-g",
+                            &r.resource_group,
+                            "--no-wait",
+                        ])
                         .output(),
                     ResourceType::PublicIp => std::process::Command::new("az")
-                        .args(["network", "public-ip", "delete", "--name", &r.name, "-g", &r.resource_group])
+                        .args([
+                            "network",
+                            "public-ip",
+                            "delete",
+                            "--name",
+                            &r.name,
+                            "-g",
+                            &r.resource_group,
+                        ])
                         .output(),
                     ResourceType::NetworkSecurityGroup => std::process::Command::new("az")
-                        .args(["network", "nsg", "delete", "--name", &r.name, "-g", &r.resource_group])
+                        .args([
+                            "network",
+                            "nsg",
+                            "delete",
+                            "--name",
+                            &r.name,
+                            "-g",
+                            &r.resource_group,
+                        ])
                         .output(),
                 };
                 match result {
@@ -5813,10 +5898,18 @@ async fn async_main() -> Result<()> {
                     }
                     Ok(o) => {
                         let err = String::from_utf8_lossy(&o.stderr);
-                        eprintln!("  ✗ Failed to delete {} '{}': {}", r.resource_type, r.name, err.trim());
+                        eprintln!(
+                            "  ✗ Failed to delete {} '{}': {}",
+                            r.resource_type,
+                            r.name,
+                            err.trim()
+                        );
                     }
                     Err(e) => {
-                        eprintln!("  ✗ Failed to delete {} '{}': {}", r.resource_type, r.name, e);
+                        eprintln!(
+                            "  ✗ Failed to delete {} '{}': {}",
+                            r.resource_type, r.name, e
+                        );
                     }
                 }
             }
@@ -5840,11 +5933,13 @@ async fn async_main() -> Result<()> {
                 let output = cmd.output()?;
                 if !output.status.success() {
                     let err = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Error listing Bastion hosts: {}", azlin_core::sanitizer::sanitize(&err));
-                    std::process::exit(1);
+                    anyhow::bail!(
+                        "Error listing Bastion hosts: {}",
+                        azlin_core::sanitizer::sanitize(&err)
+                    );
                 }
-                let bastions: Vec<serde_json::Value> =
-                    serde_json::from_slice(&output.stdout).unwrap_or_default();
+                let bastions: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)
+                    .context("Failed to parse Bastion host list JSON")?;
                 if bastions.is_empty() {
                     if let Some(rg) = &resource_group {
                         println!("No Bastion hosts found in resource group: {}", rg);
@@ -5884,11 +5979,12 @@ async fn async_main() -> Result<()> {
                     .output()?;
                 if !output.status.success() {
                     let err = String::from_utf8_lossy(&output.stderr);
-                    eprintln!(
+                    anyhow::bail!(
                         "Bastion host not found: {} in {}: {}",
-                        name, resource_group, azlin_core::sanitizer::sanitize(&err)
+                        name,
+                        resource_group,
+                        azlin_core::sanitizer::sanitize(&err)
                     );
-                    std::process::exit(1);
                 }
                 let b: serde_json::Value = serde_json::from_slice(&output.stdout)?;
                 println!(
@@ -5925,9 +6021,7 @@ async fn async_main() -> Result<()> {
                 let vm_rg = resolve_resource_group(resource_group)?;
                 let bastion_rg = bastion_resource_group.unwrap_or_else(|| vm_rg.clone());
 
-                let config_dir = dirs::home_dir()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-                    .join(".azlin");
+                let config_dir = home_dir()?.join(".azlin");
                 std::fs::create_dir_all(&config_dir)?;
                 let config_path = config_dir.join("bastion_config.json");
 
@@ -5988,9 +6082,10 @@ async fn async_main() -> Result<()> {
 
 fn create_auth() -> Result<azlin_azure::AzureAuth> {
     azlin_azure::AzureAuth::new().map_err(|e| {
-        eprintln!("Azure authentication failed: {e}");
-        eprintln!("Run 'az login' to authenticate with Azure CLI.");
-        std::process::exit(1);
+        anyhow::anyhow!(
+            "Azure authentication failed: {e}\n\
+             Run 'az login' to authenticate with Azure CLI."
+        )
     })
 }
 
@@ -5998,14 +6093,18 @@ fn resolve_resource_group(explicit: Option<String>) -> Result<String> {
     if let Some(rg) = explicit {
         return Ok(rg);
     }
-    let config = azlin_core::AzlinConfig::load().ok();
-    match config.and_then(|c| c.default_resource_group) {
-        Some(rg) => Ok(rg),
-        None => {
-            eprintln!("No resource group specified. Use --resource-group or set in config.");
-            std::process::exit(1);
-        }
-    }
+    let config = azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
+    config.default_resource_group.ok_or_else(|| {
+        anyhow::anyhow!(
+            "No resource group specified. Use --resource-group or set via:\n  \
+             azlin config set default_resource_group <your-rg>"
+        )
+    })
+}
+
+/// Get the user's home directory, returning a clear error on failure.
+fn home_dir() -> Result<std::path::PathBuf> {
+    dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))
 }
 
 /// Escape a value for safe inclusion in a shell command.
@@ -6043,7 +6142,9 @@ async fn resolve_vm_ip(vm_name: &str, resource_group: Option<String>) -> Result<
                 .public_ip
                 .or(vm.private_ip)
                 .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm_name))?;
-            let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
+            let user = vm
+                .admin_username
+                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
             Ok((ip, user))
         }
         Err(_) => {
@@ -6052,14 +6153,14 @@ async fn resolve_vm_ip(vm_name: &str, resource_group: Option<String>) -> Result<
     }
 }
 
-/// Resolve VM IP: prefer --ip flag, fall back to Azure lookup.
+/// Resolve VM IP: use --ip flag if provided, otherwise look up via Azure.
 async fn resolve_vm_ip_or_flag(
     vm_name: &str,
     ip_flag: Option<&str>,
     resource_group: Option<String>,
 ) -> Result<(String, String)> {
     if let Some(ip) = ip_flag {
-        return Ok((ip.to_string(), "azureuser".to_string()));
+        return Ok((ip.to_string(), DEFAULT_ADMIN_USERNAME.to_string()));
     }
     resolve_vm_ip(vm_name, resource_group).await
 }
@@ -6076,7 +6177,7 @@ async fn resolve_vm_targets(
         return Ok(vec![(
             name.to_string(),
             ip.to_string(),
-            "azureuser".to_string(),
+            DEFAULT_ADMIN_USERNAME.to_string(),
         )]);
     }
     if let Some(vm_name) = vm_flag {
@@ -6097,7 +6198,9 @@ async fn resolve_vm_targets(
             Some(ip) => ip,
             None => continue,
         };
-        let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
+        let user = vm
+            .admin_username
+            .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
         targets.push((vm.name, ip, user));
     }
     if targets.is_empty() {
@@ -6263,7 +6366,6 @@ fn parse_cost_action_rows(data: &serde_json::Value) -> Vec<(String, String, Stri
 }
 
 /// Validate names used to construct filesystem paths (profiles, templates).
-#[allow(dead_code)]
 mod name_validation {
     /// Reject names containing path-traversal or null-byte characters.
     ///
@@ -6283,10 +6385,7 @@ mod name_validation {
             return Err(format!("Name '{}' contains a null byte", name));
         }
         if name.contains("..") {
-            return Err(format!(
-                "Name '{}' contains '..' (path traversal)",
-                name
-            ));
+            return Err(format!("Name '{}' contains '..' (path traversal)", name));
         }
         Ok(())
     }
@@ -6617,7 +6716,7 @@ mod env_helpers {
                 key
             ));
         }
-        if key.chars().next().unwrap().is_ascii_digit() {
+        if key.starts_with(|c: char| c.is_ascii_digit()) {
             return Err(format!(
                 "Environment variable key '{}' must not start with a digit",
                 key
@@ -6716,10 +6815,7 @@ mod sync_helpers {
         }
         // Reject path-traversal sequences that escape the intended directory
         if source.contains("/../") || source.ends_with("/..") || source == ".." {
-            return Err(format!(
-                "Sync source '{}' contains path traversal",
-                source
-            ));
+            return Err(format!("Sync source '{}' contains path traversal", source));
         }
         Ok(())
     }
@@ -6729,7 +6825,7 @@ mod sync_helpers {
         vec![
             "-az".to_string(),
             "-e".to_string(),
-            "ssh -o StrictHostKeyChecking=no".to_string(),
+            "ssh -o StrictHostKeyChecking=accept-new".to_string(),
             source.to_string(),
             format!("{}@{}:~/{}", user, ip, dest),
         ]
@@ -6874,7 +6970,10 @@ mod snapshot_helpers {
             snap["name"].as_str().unwrap_or("-").to_string(),
             snap["diskSizeGb"].to_string(),
             snap["timeCreated"].as_str().unwrap_or("-").to_string(),
-            snap["provisioningState"].as_str().unwrap_or("-").to_string(),
+            snap["provisioningState"]
+                .as_str()
+                .unwrap_or("-")
+                .to_string(),
         ]
     }
 }
@@ -6950,10 +7049,7 @@ mod vm_validation {
         if name.ends_with('-') {
             return Err(format!("VM name '{}' must not end with a hyphen", name));
         }
-        if !name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-')
-        {
+        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
             return Err(format!(
                 "VM name '{}' contains invalid characters; only [a-zA-Z0-9-] allowed",
                 name
@@ -6975,7 +7071,9 @@ mod mount_helpers {
             return Err(format!("Mount path '{}' must be absolute", path));
         }
         // Reject shell metacharacters
-        let bad_chars = [';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '!', '\n', '\0'];
+        let bad_chars = [
+            ';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '!', '\n', '\0',
+        ];
         for c in bad_chars {
             if path.contains(c) {
                 return Err(format!(
@@ -7032,7 +7130,10 @@ mod storage_helpers {
             acct["location"].as_str().unwrap_or("-").to_string(),
             acct["kind"].as_str().unwrap_or("-").to_string(),
             acct["sku"]["name"].as_str().unwrap_or("-").to_string(),
-            acct["provisioningState"].as_str().unwrap_or("-").to_string(),
+            acct["provisioningState"]
+                .as_str()
+                .unwrap_or("-")
+                .to_string(),
         ]
     }
 }
@@ -7058,8 +7159,7 @@ mod key_helpers {
     /// Determine whether a filename looks like an SSH key (without filesystem checks).
     /// Returns true for `.pub` files and known private key names.
     pub fn is_known_key_name(name: &str) -> bool {
-        name.ends_with(".pub")
-            || ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"].contains(&name)
+        name.ends_with(".pub") || ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"].contains(&name)
     }
 }
 
@@ -7087,10 +7187,7 @@ mod auth_helpers {
 mod cp_helpers {
     /// Check whether a path string refers to a remote VM (e.g. `vm-name:/path`).
     pub fn is_remote_path(s: &str) -> bool {
-        s.contains(':')
-            && !s.starts_with('/')
-            && s.len() > 2
-            && s.chars().nth(1) != Some(':')
+        s.contains(':') && !s.starts_with('/') && s.len() > 2 && s.chars().nth(1) != Some(':')
     }
 
     /// Classify the transfer direction based on source and destination strings.
@@ -7120,7 +7217,10 @@ mod bastion_helpers {
             b["resourceGroup"].as_str().unwrap_or("unknown").to_string(),
             b["location"].as_str().unwrap_or("unknown").to_string(),
             b["sku"]["name"].as_str().unwrap_or("Standard").to_string(),
-            b["provisioningState"].as_str().unwrap_or("unknown").to_string(),
+            b["provisioningState"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string(),
         )
     }
 
@@ -7330,7 +7430,9 @@ mod list_helpers {
 #[allow(dead_code)]
 mod repo_helpers {
     /// Shell metacharacters that must not appear in a repo URL.
-    const SHELL_META: &[char] = &[';', '|', '&', '$', '`', '(', ')', '\n', '\r', '\'', '"', '<', '>', '{', '}', ' '];
+    const SHELL_META: &[char] = &[
+        ';', '|', '&', '$', '`', '(', ')', '\n', '\r', '\'', '"', '<', '>', '{', '}', ' ',
+    ];
 
     /// Validate that a repository URL does not contain shell metacharacters.
     ///
@@ -7366,7 +7468,12 @@ mod repo_helpers {
 mod create_helpers {
     /// Generate a VM name. If a base name is given with pool > 1, appends index.
     /// If no base name, generates a timestamped name.
-    pub fn generate_vm_name(base: Option<&str>, index: usize, pool_count: usize, timestamp: &str) -> String {
+    pub fn generate_vm_name(
+        base: Option<&str>,
+        index: usize,
+        pool_count: usize,
+        timestamp: &str,
+    ) -> String {
         match base {
             Some(n) if pool_count > 1 => format!("{}-{}", n, index + 1),
             Some(n) => n.to_string(),
@@ -7404,7 +7511,7 @@ mod create_helpers {
     pub fn build_ssh_connect_args(user: &str, ip: &str) -> Vec<String> {
         vec![
             "-o".to_string(),
-            "StrictHostKeyChecking=no".to_string(),
+            "StrictHostKeyChecking=accept-new".to_string(),
             format!("{}@{}", user, ip),
         ]
     }
@@ -7431,7 +7538,10 @@ mod connect_helpers {
 
     /// Build SSH command arguments for connecting to a VM.
     pub fn build_ssh_args(username: &str, ip: &str, key: Option<&Path>) -> Vec<String> {
-        let mut args = vec!["-o".to_string(), "StrictHostKeyChecking=no".to_string()];
+        let mut args = vec![
+            "-o".to_string(),
+            "StrictHostKeyChecking=accept-new".to_string(),
+        ];
         if let Some(key_path) = key {
             args.push("-i".to_string());
             args.push(key_path.display().to_string());
@@ -7450,7 +7560,7 @@ mod connect_helpers {
     pub fn build_log_follow_args(username: &str, ip: &str, log_path: &str) -> Vec<String> {
         vec![
             "-o".to_string(),
-            "StrictHostKeyChecking=no".to_string(),
+            "StrictHostKeyChecking=accept-new".to_string(),
             "-o".to_string(),
             "ConnectTimeout=10".to_string(),
             format!("{}@{}", username, ip),
@@ -7459,10 +7569,15 @@ mod connect_helpers {
     }
 
     /// Build SSH args for fetching a specific number of log lines.
-    pub fn build_log_tail_args(username: &str, ip: &str, lines: u32, log_path: &str) -> Vec<String> {
+    pub fn build_log_tail_args(
+        username: &str,
+        ip: &str,
+        lines: u32,
+        log_path: &str,
+    ) -> Vec<String> {
         vec![
             "-o".to_string(),
-            "StrictHostKeyChecking=no".to_string(),
+            "StrictHostKeyChecking=accept-new".to_string(),
             "-o".to_string(),
             "ConnectTimeout=10".to_string(),
             format!("{}@{}", username, ip),
@@ -7549,11 +7664,23 @@ mod runner_helpers {
             ("pool".to_string(), toml::Value::String(pool.to_string())),
             ("repo".to_string(), toml::Value::String(repo.to_string())),
             ("count".to_string(), toml::Value::Integer(count as i64)),
-            ("labels".to_string(), toml::Value::String(labels.to_string())),
-            ("resource_group".to_string(), toml::Value::String(rg.to_string())),
-            ("vm_size".to_string(), toml::Value::String(vm_size.to_string())),
+            (
+                "labels".to_string(),
+                toml::Value::String(labels.to_string()),
+            ),
+            (
+                "resource_group".to_string(),
+                toml::Value::String(rg.to_string()),
+            ),
+            (
+                "vm_size".to_string(),
+                toml::Value::String(vm_size.to_string()),
+            ),
             ("enabled".to_string(), toml::Value::Boolean(true)),
-            ("created".to_string(), toml::Value::String(timestamp.to_string())),
+            (
+                "created".to_string(),
+                toml::Value::String(timestamp.to_string()),
+            ),
         ]
     }
 
@@ -7579,10 +7706,22 @@ mod autopilot_helpers {
         if let Some(b) = budget {
             config.insert("budget".to_string(), toml::Value::Integer(b as i64));
         }
-        config.insert("strategy".to_string(), toml::Value::String(strategy.to_string()));
-        config.insert("idle_threshold_minutes".to_string(), toml::Value::Integer(idle_threshold as i64));
-        config.insert("cpu_threshold_percent".to_string(), toml::Value::Integer(cpu_threshold as i64));
-        config.insert("updated".to_string(), toml::Value::String(timestamp.to_string()));
+        config.insert(
+            "strategy".to_string(),
+            toml::Value::String(strategy.to_string()),
+        );
+        config.insert(
+            "idle_threshold_minutes".to_string(),
+            toml::Value::Integer(idle_threshold as i64),
+        );
+        config.insert(
+            "cpu_threshold_percent".to_string(),
+            toml::Value::Integer(cpu_threshold as i64),
+        );
+        config.insert(
+            "updated".to_string(),
+            toml::Value::String(timestamp.to_string()),
+        );
         toml::Value::Table(config)
     }
 
@@ -7598,7 +7737,10 @@ mod autopilot_helpers {
 
     /// Build the cost management scope string.
     pub fn build_cost_scope(subscription_id: &str, resource_group: &str) -> String {
-        format!("/subscriptions/{}/resourceGroups/{}", subscription_id, resource_group)
+        format!(
+            "/subscriptions/{}/resourceGroups/{}",
+            subscription_id, resource_group
+        )
     }
 }
 
@@ -7682,7 +7824,9 @@ mod tag_helpers {
     /// Validate a list of tag strings, returning the first invalid one (if any).
     #[allow(dead_code)]
     pub fn find_invalid_tag(tags: &[String]) -> Option<&str> {
-        tags.iter().find(|t| parse_tag(t).is_none()).map(|t| t.as_str())
+        tags.iter()
+            .find(|t| parse_tag(t).is_none())
+            .map(|t| t.as_str())
     }
 }
 
@@ -8258,6 +8402,33 @@ created = \"2025-01-01T00:00:00Z\"\n";
         if let Ok((code, _, _)) = result {
             assert_ne!(code, 0, "should fail for unreachable host");
         }
+    }
+
+    #[test]
+    fn test_home_dir_returns_path() {
+        // On any real system, home_dir should return a valid path
+        let result = super::home_dir();
+        assert!(result.is_ok(), "home_dir should succeed on real system");
+        assert!(result.unwrap().is_absolute(), "home dir should be absolute");
+    }
+
+    #[test]
+    fn test_new_table_creates_table_with_headers() {
+        let table = super::new_table(&["Name", "Value", "Status"]);
+        let rendered = table.to_string();
+        assert!(rendered.contains("Name"), "should contain header 'Name'");
+        assert!(rendered.contains("Value"), "should contain header 'Value'");
+        assert!(
+            rendered.contains("Status"),
+            "should contain header 'Status'"
+        );
+    }
+
+    #[test]
+    fn test_new_table_empty_headers() {
+        // Should not panic with empty headers
+        let table = super::new_table(&[]);
+        let _rendered = table.to_string();
     }
 
     #[test]
@@ -11862,10 +12033,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_build_env_file() {
-        let vars = vec![
-            ("A".into(), "1".into()),
-            ("B".into(), "two".into()),
-        ];
+        let vars = vec![("A".into(), "1".into()), ("B".into(), "two".into())];
         let file = super::env_helpers::build_env_file(&vars);
         assert_eq!(file, "A=1\nB=two");
     }
@@ -11900,7 +12068,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
         let vars = super::env_helpers::parse_env_file(content);
         assert_eq!(vars.len(), 2);
         assert_eq!(vars[0].0, "KEY");
-        assert_eq!(vars[0].1, "value");  // line is trimmed, value after = is as-is
+        assert_eq!(vars[0].1, "value"); // line is trimmed, value after = is as-is
     }
 
     #[test]
@@ -11937,19 +12105,15 @@ created = \"2024-01-01T00:00:00Z\"\n";
         );
         assert_eq!(args[0], "-az");
         assert_eq!(args[1], "-e");
-        assert_eq!(args[2], "ssh -o StrictHostKeyChecking=no");
+        assert_eq!(args[2], "ssh -o StrictHostKeyChecking=accept-new");
         assert_eq!(args[3], "/home/me/.bashrc");
         assert_eq!(args[4], "azureuser@10.0.0.1:~/.bashrc");
     }
 
     #[test]
     fn test_build_rsync_args_special_chars_in_ip() {
-        let args = super::sync_helpers::build_rsync_args(
-            "/tmp/f",
-            "user",
-            "192.168.1.100",
-            ".vimrc",
-        );
+        let args =
+            super::sync_helpers::build_rsync_args("/tmp/f", "user", "192.168.1.100", ".vimrc");
         assert!(args[4].contains("192.168.1.100"));
     }
 
@@ -12050,9 +12214,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_filter_snapshots_no_match() {
-        let snaps: Vec<serde_json::Value> = vec![
-            serde_json::json!({"name": "alpha_snapshot_1"}),
-        ];
+        let snaps: Vec<serde_json::Value> = vec![serde_json::json!({"name": "alpha_snapshot_1"})];
         let filtered = super::snapshot_helpers::filter_snapshots(&snaps, "beta");
         assert!(filtered.is_empty());
     }
@@ -12103,10 +12265,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_format_as_csv_basic() {
         let headers = &["Name", "Value"];
-        let rows = vec![
-            vec!["A".into(), "1".into()],
-            vec!["B".into(), "2".into()],
-        ];
+        let rows = vec![vec!["A".into(), "1".into()], vec!["B".into(), "2".into()]];
         let csv = super::output_helpers::format_as_csv(headers, &rows);
         assert_eq!(csv, "Name,Value\nA,1\nB,2");
     }
@@ -12201,8 +12360,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_config_path_traversal_deep() {
-        let result =
-            super::config_path_helpers::validate_config_path("foo/../../../etc/shadow");
+        let result = super::config_path_helpers::validate_config_path("foo/../../../etc/shadow");
         assert!(result.is_err());
     }
 
@@ -12214,8 +12372,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_config_path_safe_nested() {
-        let result =
-            super::config_path_helpers::validate_config_path("subdir/config.toml");
+        let result = super::config_path_helpers::validate_config_path("subdir/config.toml");
         assert!(result.is_ok());
     }
 
@@ -12446,19 +12603,14 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_sync_rejects_traversal() {
-        let result =
-            super::sync_helpers::validate_sync_source("/home/user/../../../etc/passwd");
+        let result = super::sync_helpers::validate_sync_source("/home/user/../../../etc/passwd");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_sync_allows_home_dotfiles() {
-        assert!(
-            super::sync_helpers::validate_sync_source("/home/user/.bashrc").is_ok()
-        );
-        assert!(
-            super::sync_helpers::validate_sync_source(".bashrc").is_ok()
-        );
+        assert!(super::sync_helpers::validate_sync_source("/home/user/.bashrc").is_ok());
+        assert!(super::sync_helpers::validate_sync_source(".bashrc").is_ok());
     }
 
     // 7. Health helpers edge cases
@@ -12824,7 +12976,14 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_github_runner_enable_graceful_error_no_auth() {
-        assert_graceful_auth_error(&["github-runner", "enable", "--pool", "test-pool", "--count", "1"]);
+        assert_graceful_auth_error(&[
+            "github-runner",
+            "enable",
+            "--pool",
+            "test-pool",
+            "--count",
+            "1",
+        ]);
     }
 
     // Note: github-runner disable/status/scale are local filesystem operations
@@ -12859,7 +13018,14 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_storage_mount_graceful_error_no_auth() {
-        assert_graceful_auth_error(&["storage", "mount", "--storage-name", "teststorage", "--vm", "test-vm"]);
+        assert_graceful_auth_error(&[
+            "storage",
+            "mount",
+            "--storage-name",
+            "teststorage",
+            "--vm",
+            "test-vm",
+        ]);
     }
 
     #[test]
@@ -12941,7 +13107,14 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_costs_budget_graceful_error_no_auth() {
-        assert_graceful_auth_error(&["costs", "budget", "--resource-group", "test-rg", "--action", "show"]);
+        assert_graceful_auth_error(&[
+            "costs",
+            "budget",
+            "--resource-group",
+            "test-rg",
+            "--action",
+            "show",
+        ]);
     }
 
     #[test]
@@ -13103,24 +13276,42 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_storage_sku_from_tier_premium() {
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("premium"), "Premium_LRS");
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("premium"),
+            "Premium_LRS"
+        );
     }
 
     #[test]
     fn test_storage_sku_from_tier_standard() {
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("standard"), "Standard_LRS");
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("standard"),
+            "Standard_LRS"
+        );
     }
 
     #[test]
     fn test_storage_sku_from_tier_case_insensitive() {
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("Premium"), "Premium_LRS");
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("STANDARD"), "Standard_LRS");
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("Premium"),
+            "Premium_LRS"
+        );
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("STANDARD"),
+            "Standard_LRS"
+        );
     }
 
     #[test]
     fn test_storage_sku_from_tier_unknown_defaults_premium() {
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("hot"), "Premium_LRS");
-        assert_eq!(super::storage_helpers::storage_sku_from_tier(""), "Premium_LRS");
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("hot"),
+            "Premium_LRS"
+        );
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier(""),
+            "Premium_LRS"
+        );
     }
 
     #[test]
@@ -13133,7 +13324,16 @@ created = \"2024-01-01T00:00:00Z\"\n";
             "provisioningState": "Succeeded"
         });
         let row = super::storage_helpers::storage_account_row(&acct);
-        assert_eq!(row, vec!["mystorage", "eastus2", "FileStorage", "Premium_LRS", "Succeeded"]);
+        assert_eq!(
+            row,
+            vec![
+                "mystorage",
+                "eastus2",
+                "FileStorage",
+                "Premium_LRS",
+                "Succeeded"
+            ]
+        );
     }
 
     #[test]
@@ -13148,7 +13348,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_detect_key_type_ed25519() {
         assert_eq!(super::key_helpers::detect_key_type("id_ed25519"), "ed25519");
-        assert_eq!(super::key_helpers::detect_key_type("id_ed25519.pub"), "ed25519");
+        assert_eq!(
+            super::key_helpers::detect_key_type("id_ed25519.pub"),
+            "ed25519"
+        );
     }
 
     #[test]
@@ -13169,8 +13372,14 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_detect_key_type_unknown() {
-        assert_eq!(super::key_helpers::detect_key_type("my_custom_key"), "unknown");
-        assert_eq!(super::key_helpers::detect_key_type("authorized_keys"), "unknown");
+        assert_eq!(
+            super::key_helpers::detect_key_type("my_custom_key"),
+            "unknown"
+        );
+        assert_eq!(
+            super::key_helpers::detect_key_type("authorized_keys"),
+            "unknown"
+        );
     }
 
     #[test]
@@ -13200,19 +13409,28 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_mask_profile_value_plain_string() {
         let v = serde_json::Value::String("my-tenant".into());
-        assert_eq!(super::auth_helpers::mask_profile_value("tenant_id", &v), "my-tenant");
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("tenant_id", &v),
+            "my-tenant"
+        );
     }
 
     #[test]
     fn test_mask_profile_value_secret_masked() {
         let v = serde_json::Value::String("super-secret-123".into());
-        assert_eq!(super::auth_helpers::mask_profile_value("client_secret", &v), "********");
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("client_secret", &v),
+            "********"
+        );
     }
 
     #[test]
     fn test_mask_profile_value_password_masked() {
         let v = serde_json::Value::String("p@ssw0rd".into());
-        assert_eq!(super::auth_helpers::mask_profile_value("db_password", &v), "********");
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("db_password", &v),
+            "********"
+        );
     }
 
     #[test]
@@ -13224,14 +13442,19 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_mask_profile_value_boolean() {
         let v = serde_json::json!(true);
-        assert_eq!(super::auth_helpers::mask_profile_value("enabled", &v), "true");
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("enabled", &v),
+            "true"
+        );
     }
 
     // ── CP helpers tests ────────────────────────────────────────────
 
     #[test]
     fn test_is_remote_path_positive() {
-        assert!(super::cp_helpers::is_remote_path("myvm:/home/user/file.txt"));
+        assert!(super::cp_helpers::is_remote_path(
+            "myvm:/home/user/file.txt"
+        ));
         assert!(super::cp_helpers::is_remote_path("dev-vm-1:/tmp/data"));
     }
 
@@ -13278,7 +13501,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_resolve_scp_path_rewrites() {
-        let result = super::cp_helpers::resolve_scp_path("myvm:/home/data", "myvm", "azureuser", "10.0.0.5");
+        let result =
+            super::cp_helpers::resolve_scp_path("myvm:/home/data", "myvm", "azureuser", "10.0.0.5");
         assert_eq!(result, "azureuser@10.0.0.5:/home/data");
     }
 
@@ -13331,7 +13555,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_shorten_resource_id_simple() {
-        assert_eq!(super::bastion_helpers::shorten_resource_id("just-a-name"), "just-a-name");
+        assert_eq!(
+            super::bastion_helpers::shorten_resource_id("just-a-name"),
+            "just-a-name"
+        );
     }
 
     #[test]
@@ -13350,7 +13577,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
         });
         let configs = super::bastion_helpers::extract_ip_configs(&b);
         assert_eq!(configs.len(), 2);
-        assert_eq!(configs[0], ("AzureBastionSubnet".to_string(), "bastion-pip".to_string()));
+        assert_eq!(
+            configs[0],
+            ("AzureBastionSubnet".to_string(), "bastion-pip".to_string())
+        );
         assert_eq!(configs[1], ("N/A".to_string(), "N/A".to_string()));
     }
 
@@ -13479,13 +13709,19 @@ created = \"2024-01-01T00:00:00Z\"\n";
         super::templates::save_template(tmp.path(), "ci", &tpl).unwrap();
         let loaded = super::templates::load_template(tmp.path(), "ci").unwrap();
         assert_eq!(loaded["name"].as_str().unwrap(), "ci");
-        assert_eq!(loaded["cloud_init"].as_str().unwrap(), "#!/bin/bash\napt update");
+        assert_eq!(
+            loaded["cloud_init"].as_str().unwrap(),
+            "#!/bin/bash\napt update"
+        );
     }
 
     #[test]
     fn test_template_list_multiple_sorted_fields() {
         let tmp = TempDir::new().unwrap();
-        for (n, sz, rg) in &[("a", "Standard_A1", "westus"), ("b", "Standard_B2", "eastus")] {
+        for (n, sz, rg) in &[
+            ("a", "Standard_A1", "westus"),
+            ("b", "Standard_B2", "eastus"),
+        ] {
             let tpl = super::templates::build_template_toml(n, None, Some(sz), Some(rg), None);
             super::templates::save_template(tmp.path(), n, &tpl).unwrap();
         }
@@ -13642,7 +13878,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_context_build_toml_minimal() {
-        let toml_str = super::contexts::build_context_toml("dev", None, None, None, None, None).unwrap();
+        let toml_str =
+            super::contexts::build_context_toml("dev", None, None, None, None, None).unwrap();
         assert!(toml_str.contains("name = \"dev\""));
         assert!(!toml_str.contains("subscription_id"));
     }
@@ -13696,7 +13933,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
     fn test_context_list_marks_active_correctly() {
         let tmp = TempDir::new().unwrap();
         for name in &["dev", "staging", "prod"] {
-            let content = super::contexts::build_context_toml(name, None, None, None, None, None).unwrap();
+            let content =
+                super::contexts::build_context_toml(name, None, None, None, None, None).unwrap();
             fs::write(tmp.path().join(format!("{}.toml", name)), content).unwrap();
         }
         let list = super::contexts::list_contexts(tmp.path(), "staging").unwrap();
@@ -13723,7 +13961,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_context_rename_success() {
         let tmp = TempDir::new().unwrap();
-        let content = super::contexts::build_context_toml("old", None, None, None, None, None).unwrap();
+        let content =
+            super::contexts::build_context_toml("old", None, None, None, None, None).unwrap();
         fs::write(tmp.path().join("old.toml"), content).unwrap();
         super::contexts::rename_context_file(tmp.path(), "old", "new").unwrap();
         assert!(!tmp.path().join("old.toml").exists());
@@ -13831,10 +14070,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_build_env_file_multiple() {
-        let vars = vec![
-            ("K1".into(), "v1".into()),
-            ("K2".into(), "v2".into()),
-        ];
+        let vars = vec![("K1".into(), "v1".into()), ("K2".into(), "v2".into())];
         let file = super::env_helpers::build_env_file(&vars);
         assert_eq!(file, "K1=v1\nK2=v2");
     }
@@ -13914,14 +14150,15 @@ created = \"2024-01-01T00:00:00Z\"\n";
         let args = super::sync_helpers::build_rsync_args(".bashrc", "admin", "10.0.0.1", ".bashrc");
         assert_eq!(args[0], "-az");
         assert_eq!(args[1], "-e");
-        assert_eq!(args[2], "ssh -o StrictHostKeyChecking=no");
+        assert_eq!(args[2], "ssh -o StrictHostKeyChecking=accept-new");
         assert_eq!(args[3], ".bashrc");
         assert_eq!(args[4], "admin@10.0.0.1:~/.bashrc");
     }
 
     #[test]
     fn test_build_rsync_args_with_subpath() {
-        let args = super::sync_helpers::build_rsync_args("config/", "user", "192.168.1.1", "config/");
+        let args =
+            super::sync_helpers::build_rsync_args("config/", "user", "192.168.1.1", "config/");
         assert_eq!(args[4], "user@192.168.1.1:~/config/");
     }
 
@@ -14097,10 +14334,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_format_as_table_alignment() {
         let headers = &["Short", "LongerHeader"];
-        let rows = vec![
-            vec!["a".into(), "b".into()],
-            vec!["ccc".into(), "d".into()],
-        ];
+        let rows = vec![vec!["a".into(), "b".into()], vec!["ccc".into(), "d".into()]];
         let table = super::output_helpers::format_as_table(headers, &rows);
         let lines: Vec<&str> = table.lines().collect();
         assert_eq!(lines.len(), 3);
@@ -14312,24 +14546,42 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_storage_sku_premium() {
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("premium"), "Premium_LRS");
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("premium"),
+            "Premium_LRS"
+        );
     }
 
     #[test]
     fn test_storage_sku_standard() {
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("standard"), "Standard_LRS");
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("standard"),
+            "Standard_LRS"
+        );
     }
 
     #[test]
     fn test_storage_sku_mixed_case() {
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("PREMIUM"), "Premium_LRS");
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("StAnDaRd"), "Standard_LRS");
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("PREMIUM"),
+            "Premium_LRS"
+        );
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("StAnDaRd"),
+            "Standard_LRS"
+        );
     }
 
     #[test]
     fn test_storage_sku_unknown() {
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("unknown"), "Premium_LRS");
-        assert_eq!(super::storage_helpers::storage_sku_from_tier(""), "Premium_LRS");
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("unknown"),
+            "Premium_LRS"
+        );
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier(""),
+            "Premium_LRS"
+        );
     }
 
     #[test]
@@ -14342,7 +14594,16 @@ created = \"2024-01-01T00:00:00Z\"\n";
             "provisioningState": "Succeeded"
         });
         let row = super::storage_helpers::storage_account_row(&acct);
-        assert_eq!(row, vec!["mystorageacct", "westus2", "StorageV2", "Standard_LRS", "Succeeded"]);
+        assert_eq!(
+            row,
+            vec![
+                "mystorageacct",
+                "westus2",
+                "StorageV2",
+                "Standard_LRS",
+                "Succeeded"
+            ]
+        );
     }
 
     #[test]
@@ -14367,7 +14628,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_detect_key_type_filename_prefix() {
-        assert_eq!(super::key_helpers::detect_key_type("id_ed25519.pub"), "ed25519");
+        assert_eq!(
+            super::key_helpers::detect_key_type("id_ed25519.pub"),
+            "ed25519"
+        );
         assert_eq!(super::key_helpers::detect_key_type("id_ecdsa.pub"), "ecdsa");
         assert_eq!(super::key_helpers::detect_key_type("id_rsa.pub"), "rsa");
         assert_eq!(super::key_helpers::detect_key_type("id_dsa.pub"), "dsa");
@@ -14375,14 +14639,23 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_detect_key_type_custom_name() {
-        assert_eq!(super::key_helpers::detect_key_type("my_ed25519_key"), "ed25519");
+        assert_eq!(
+            super::key_helpers::detect_key_type("my_ed25519_key"),
+            "ed25519"
+        );
         assert_eq!(super::key_helpers::detect_key_type("backup_rsa"), "rsa");
     }
 
     #[test]
     fn test_detect_key_type_random_file() {
-        assert_eq!(super::key_helpers::detect_key_type("known_hosts"), "unknown");
-        assert_eq!(super::key_helpers::detect_key_type("authorized_keys"), "unknown");
+        assert_eq!(
+            super::key_helpers::detect_key_type("known_hosts"),
+            "unknown"
+        );
+        assert_eq!(
+            super::key_helpers::detect_key_type("authorized_keys"),
+            "unknown"
+        );
     }
 
     #[test]
@@ -14411,19 +14684,28 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_mask_profile_string_no_secret() {
         let v = serde_json::json!("my-tenant-id");
-        assert_eq!(super::auth_helpers::mask_profile_value("tenant_id", &v), "my-tenant-id");
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("tenant_id", &v),
+            "my-tenant-id"
+        );
     }
 
     #[test]
     fn test_mask_profile_secret_key() {
         let v = serde_json::json!("s3cr3t-value");
-        assert_eq!(super::auth_helpers::mask_profile_value("client_secret", &v), "********");
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("client_secret", &v),
+            "********"
+        );
     }
 
     #[test]
     fn test_mask_profile_password_key() {
         let v = serde_json::json!("pa$$word");
-        assert_eq!(super::auth_helpers::mask_profile_value("admin_password", &v), "********");
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("admin_password", &v),
+            "********"
+        );
     }
 
     #[test]
@@ -14435,7 +14717,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_mask_profile_bool_value() {
         let v = serde_json::json!(true);
-        assert_eq!(super::auth_helpers::mask_profile_value("enabled", &v), "true");
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("enabled", &v),
+            "true"
+        );
     }
 
     #[test]
@@ -14447,7 +14732,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_mask_profile_secret_in_key_substring() {
         let v = serde_json::json!("value123");
-        assert_eq!(super::auth_helpers::mask_profile_value("my_secret_key", &v), "********");
+        assert_eq!(
+            super::auth_helpers::mask_profile_value("my_secret_key", &v),
+            "********"
+        );
     }
 
     // ── NEW: cp_helpers additional tests ─────────────────────────
@@ -14509,7 +14797,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_resolve_scp_path_rewrite() {
-        let result = super::cp_helpers::resolve_scp_path("vm-1:/data/file.txt", "vm-1", "admin", "10.0.0.5");
+        let result =
+            super::cp_helpers::resolve_scp_path("vm-1:/data/file.txt", "vm-1", "admin", "10.0.0.5");
         assert_eq!(result, "admin@10.0.0.5:/data/file.txt");
     }
 
@@ -14552,12 +14841,18 @@ created = \"2024-01-01T00:00:00Z\"\n";
     #[test]
     fn test_shorten_resource_id_long() {
         let id = "/subscriptions/sub-123/resourceGroups/rg/providers/Microsoft.Network/bastionHosts/my-bastion";
-        assert_eq!(super::bastion_helpers::shorten_resource_id(id), "my-bastion");
+        assert_eq!(
+            super::bastion_helpers::shorten_resource_id(id),
+            "my-bastion"
+        );
     }
 
     #[test]
     fn test_shorten_resource_id_single_segment() {
-        assert_eq!(super::bastion_helpers::shorten_resource_id("just-a-name"), "just-a-name");
+        assert_eq!(
+            super::bastion_helpers::shorten_resource_id("just-a-name"),
+            "just-a-name"
+        );
     }
 
     #[test]
@@ -15091,8 +15386,14 @@ created = \"2024-01-01T00:00:00Z\"\n";
     fn test_context_rename_preserves_other_fields() {
         let tmp = TempDir::new().unwrap();
         let content = super::contexts::build_context_toml(
-            "old", Some("sub-1"), Some("tenant-1"), Some("rg-1"), Some("westus2"), Some("kv-1"),
-        ).unwrap();
+            "old",
+            Some("sub-1"),
+            Some("tenant-1"),
+            Some("rg-1"),
+            Some("westus2"),
+            Some("kv-1"),
+        )
+        .unwrap();
         fs::write(tmp.path().join("old.toml"), content).unwrap();
         super::contexts::rename_context_file(tmp.path(), "old", "new").unwrap();
         let loaded: toml::Value = fs::read_to_string(tmp.path().join("new.toml"))
@@ -15162,7 +15463,9 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_is_remote_path_long_vm_name() {
-        assert!(super::cp_helpers::is_remote_path("my-long-vm-name-123:/data/dir"));
+        assert!(super::cp_helpers::is_remote_path(
+            "my-long-vm-name-123:/data/dir"
+        ));
     }
 
     #[test]
@@ -15175,7 +15478,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_resolve_scp_path_multiple_colons() {
-        let result = super::cp_helpers::resolve_scp_path("vm:path:with:colons", "vm", "u", "1.1.1.1");
+        let result =
+            super::cp_helpers::resolve_scp_path("vm:path:with:colons", "vm", "u", "1.1.1.1");
         assert_eq!(result, "u@1.1.1.1:path:with:colons");
     }
 
@@ -15420,7 +15724,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_parse_cpu_stdout_non_zero_exit() {
-        assert_eq!(super::health_parse_helpers::parse_cpu_stdout(1, "23.4"), None);
+        assert_eq!(
+            super::health_parse_helpers::parse_cpu_stdout(1, "23.4"),
+            None
+        );
     }
 
     #[test]
@@ -15454,7 +15761,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_parse_mem_stdout_failure() {
-        assert_eq!(super::health_parse_helpers::parse_mem_stdout(127, "67.3"), None);
+        assert_eq!(
+            super::health_parse_helpers::parse_mem_stdout(127, "67.3"),
+            None
+        );
     }
 
     #[test]
@@ -15507,7 +15817,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_parse_load_stdout_empty() {
-        assert_eq!(super::health_parse_helpers::parse_load_stdout(0, "  \n"), None);
+        assert_eq!(
+            super::health_parse_helpers::parse_load_stdout(0, "  \n"),
+            None
+        );
     }
 
     #[test]
@@ -15577,8 +15890,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_format_output_text_show_output_empty_stdout() {
-        let text = super::fleet_helpers::format_output_text(0, "  \n", "fallback stderr", true);
-        assert_eq!(text, "fallback stderr");
+        let text = super::fleet_helpers::format_output_text(0, "  \n", "stderr output", true);
+        assert_eq!(text, "stderr output");
     }
 
     #[test]
@@ -15613,7 +15926,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
             location: "eastus".to_string(),
             vm_size: "Standard_B2s".to_string(),
             power_state: state,
-            provisioning_state: "Succeeded".to_string(),
+            provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
             os_type: azlin_core::models::OsType::Linux,
             public_ip: Some("10.0.0.1".to_string()),
             private_ip: None,
@@ -15623,10 +15936,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
         }
     }
 
-    fn make_tagged_vm(
-        name: &str,
-        tags: Vec<(&str, &str)>,
-    ) -> azlin_core::models::VmInfo {
+    fn make_tagged_vm(name: &str, tags: Vec<(&str, &str)>) -> azlin_core::models::VmInfo {
         let mut vm = make_vm(name, azlin_core::models::PowerState::Running);
         for (k, v) in tags {
             vm.tags.insert(k.to_string(), v.to_string());
@@ -15720,9 +16030,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_filter_by_pattern_no_match() {
-        let mut vms = vec![
-            make_vm("web-server", azlin_core::models::PowerState::Running),
-        ];
+        let mut vms = vec![make_vm(
+            "web-server",
+            azlin_core::models::PowerState::Running,
+        )];
         super::list_helpers::filter_by_pattern(&mut vms, "cache");
         assert!(vms.is_empty());
     }
@@ -15764,9 +16075,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_parse_vm_ids_normal() {
-        let ids = super::batch_helpers::parse_vm_ids(
-            "/sub/1/rg/test/vm/vm1\n/sub/1/rg/test/vm/vm2\n",
-        );
+        let ids =
+            super::batch_helpers::parse_vm_ids("/sub/1/rg/test/vm/vm1\n/sub/1/rg/test/vm/vm2\n");
         assert_eq!(ids.len(), 2);
         assert_eq!(ids[0], "/sub/1/rg/test/vm/vm1");
         assert_eq!(ids[1], "/sub/1/rg/test/vm/vm2");
@@ -15789,7 +16099,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
     fn test_build_batch_args_deallocate() {
         let ids = vec!["/sub/vm1", "/sub/vm2"];
         let args = super::batch_helpers::build_batch_args("deallocate", &ids);
-        assert_eq!(args, vec!["vm", "deallocate", "--ids", "/sub/vm1", "/sub/vm2"]);
+        assert_eq!(
+            args,
+            vec!["vm", "deallocate", "--ids", "/sub/vm1", "/sub/vm2"]
+        );
     }
 
     #[test]
@@ -15850,11 +16163,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
     fn test_read_context_resource_group_falls_back_to_filename() {
         let tmp = TempDir::new().unwrap();
         let ctx_path = tmp.path().join("staging.toml");
-        fs::write(
-            &ctx_path,
-            "resource_group = \"staging-rg\"\n",
-        )
-        .unwrap();
+        fs::write(&ctx_path, "resource_group = \"staging-rg\"\n").unwrap();
 
         let (name, rg) = super::contexts::read_context_resource_group(&ctx_path).unwrap();
         assert_eq!(name, "staging");
@@ -15917,7 +16226,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_build_clone_cmd_https() {
-        let cmd = super::create_helpers::build_clone_cmd("https://github.com/user/repo.git").unwrap();
+        let cmd =
+            super::create_helpers::build_clone_cmd("https://github.com/user/repo.git").unwrap();
         assert!(cmd.contains("git clone"));
         assert!(cmd.contains("https://github.com/user/repo.git"));
         assert!(cmd.contains("~/src/$(basename"));
@@ -15930,7 +16240,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
             args,
             vec![
                 "-o".to_string(),
-                "StrictHostKeyChecking=no".to_string(),
+                "StrictHostKeyChecking=accept-new".to_string(),
                 "azureuser@10.0.0.1".to_string(),
             ]
         );
@@ -15971,7 +16281,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
             args,
             vec![
                 "-o".to_string(),
-                "StrictHostKeyChecking=no".to_string(),
+                "StrictHostKeyChecking=accept-new".to_string(),
                 "azureuser@10.0.0.5".to_string(),
             ]
         );
@@ -15986,7 +16296,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
             args,
             vec![
                 "-o".to_string(),
-                "StrictHostKeyChecking=no".to_string(),
+                "StrictHostKeyChecking=accept-new".to_string(),
                 "-i".to_string(),
                 "/home/user/.ssh/id_ed25519".to_string(),
                 "admin@192.168.1.1".to_string(),
@@ -16441,7 +16751,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_parse_env_output_multiple() {
-        let result = super::env_helpers::parse_env_output("HOME=/home/user\nPATH=/usr/bin\nSHELL=/bin/bash");
+        let result =
+            super::env_helpers::parse_env_output("HOME=/home/user\nPATH=/usr/bin\nSHELL=/bin/bash");
         assert_eq!(result.len(), 3);
         assert_eq!(result[0], ("HOME".to_string(), "/home/user".to_string()));
         assert_eq!(result[1], ("PATH".to_string(), "/usr/bin".to_string()));
@@ -16549,10 +16860,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
     fn test_truncate_vm_name_exact_boundary() {
         let name = "exactly-twenty-chars";
         assert_eq!(name.len(), 20);
-        assert_eq!(
-            super::display_helpers::truncate_vm_name(name, 20),
-            name
-        );
+        assert_eq!(super::display_helpers::truncate_vm_name(name, 20), name);
     }
 
     #[test]
@@ -16847,8 +17155,7 @@ region = "eastus"
             created: "2024-01-15T10:00:00Z".to_string(),
         };
         let toml_str = toml::to_string_pretty(&schedule).unwrap();
-        let loaded: super::snapshot_helpers::SnapshotSchedule =
-            toml::from_str(&toml_str).unwrap();
+        let loaded: super::snapshot_helpers::SnapshotSchedule = toml::from_str(&toml_str).unwrap();
         assert_eq!(loaded.vm_name, "dev-vm");
         assert_eq!(loaded.resource_group, "my-rg");
         assert_eq!(loaded.every_hours, 6);
@@ -16869,8 +17176,7 @@ region = "eastus"
         };
         let toml_str = toml::to_string_pretty(&schedule).unwrap();
         assert!(toml_str.contains("enabled = false"));
-        let loaded: super::snapshot_helpers::SnapshotSchedule =
-            toml::from_str(&toml_str).unwrap();
+        let loaded: super::snapshot_helpers::SnapshotSchedule = toml::from_str(&toml_str).unwrap();
         assert!(!loaded.enabled);
     }
 
@@ -16890,8 +17196,7 @@ region = "eastus"
         fs::write(&path, &contents).unwrap();
 
         let read_back = fs::read_to_string(&path).unwrap();
-        let loaded: super::snapshot_helpers::SnapshotSchedule =
-            toml::from_str(&read_back).unwrap();
+        let loaded: super::snapshot_helpers::SnapshotSchedule = toml::from_str(&read_back).unwrap();
         assert_eq!(loaded.vm_name, "test-vm");
         assert_eq!(loaded.every_hours, 12);
     }
@@ -16961,17 +17266,17 @@ region = "eastus"
         assert!(tbl.get("key_vault_name").is_none());
     }
 
-    // ── contexts::read_context_resource_group — name fallback ───────
+    // ── contexts::read_context_resource_group — name from filestem ───────
 
     #[test]
-    fn test_context_read_resource_group_name_fallback_to_filestem() {
+    fn test_context_read_resource_group_name_from_filestem() {
         let tmp = TempDir::new().unwrap();
-        // A context TOML without a "name" field
-        let path = tmp.path().join("fallback-ctx.toml");
+        // A context TOML without a "name" field — name is derived from the filename
+        let path = tmp.path().join("my-ctx.toml");
         fs::write(&path, "resource_group = \"my-rg\"\n").unwrap();
 
         let (name, rg) = super::contexts::read_context_resource_group(&path).unwrap();
-        assert_eq!(name, "fallback-ctx");
+        assert_eq!(name, "my-ctx");
         assert_eq!(rg, Some("my-rg".to_string()));
     }
 
@@ -17001,7 +17306,7 @@ region = "eastus"
             super::connect_helpers::build_log_follow_args("admin", "10.0.0.5", "/var/log/syslog");
         assert_eq!(args.len(), 6);
         assert_eq!(args[0], "-o");
-        assert_eq!(args[1], "StrictHostKeyChecking=no");
+        assert_eq!(args[1], "StrictHostKeyChecking=accept-new");
         assert_eq!(args[4], "admin@10.0.0.5");
         assert!(args[5].contains("tail -f"));
         assert!(args[5].contains("/var/log/syslog"));
@@ -17137,8 +17442,7 @@ region = "eastus"
     #[test]
     fn test_context_rename_nonexistent_errors() {
         let tmp = TempDir::new().unwrap();
-        let result =
-            super::contexts::rename_context_file(tmp.path(), "no-such-ctx", "new-name");
+        let result = super::contexts::rename_context_file(tmp.path(), "no-such-ctx", "new-name");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -17190,13 +17494,9 @@ region = "eastus"
         let ctx_dir = tmp.path();
 
         for name in &["alpha", "beta", "gamma"] {
-            let toml_str = super::contexts::build_context_toml(
-                name,
-                None, None,
-                Some("rg-1"),
-                None, None,
-            )
-            .unwrap();
+            let toml_str =
+                super::contexts::build_context_toml(name, None, None, Some("rg-1"), None, None)
+                    .unwrap();
             fs::write(ctx_dir.join(format!("{}.toml", name)), &toml_str).unwrap();
         }
 
@@ -17213,10 +17513,9 @@ region = "eastus"
         let tmp = TempDir::new().unwrap();
         let ctx_dir = tmp.path();
 
-        let toml_str = super::contexts::build_context_toml(
-            "old-ctx", None, None, Some("myrg"), None, None,
-        )
-        .unwrap();
+        let toml_str =
+            super::contexts::build_context_toml("old-ctx", None, None, Some("myrg"), None, None)
+                .unwrap();
         fs::write(ctx_dir.join("old-ctx.toml"), &toml_str).unwrap();
 
         super::contexts::rename_context_file(ctx_dir, "old-ctx", "new-ctx").unwrap();
@@ -17323,9 +17622,7 @@ region = "eastus"
     fn test_template_list_multiple() {
         let tmp = TempDir::new().unwrap();
         for name in &["dev", "prod", "test"] {
-            let tpl = super::templates::build_template_toml(
-                name, None, None, None, None,
-            );
+            let tpl = super::templates::build_template_toml(name, None, None, None, None);
             super::templates::save_template(tmp.path(), name, &tpl).unwrap();
         }
 
@@ -17384,16 +17681,17 @@ custom_field = "extra"
         assert_eq!(table["strategy"].as_str(), Some("aggressive"));
         assert_eq!(table["idle_threshold_minutes"].as_integer(), Some(15));
         assert_eq!(table["cpu_threshold_percent"].as_integer(), Some(10));
-        assert_eq!(
-            table["updated"].as_str(),
-            Some("2024-01-15T10:00:00Z")
-        );
+        assert_eq!(table["updated"].as_str(), Some("2024-01-15T10:00:00Z"));
     }
 
     #[test]
     fn test_autopilot_config_serializes_to_valid_toml() {
         let config = super::autopilot_helpers::build_autopilot_config(
-            None, "conservative", 30, 5, "2024-06-01T00:00:00Z",
+            None,
+            "conservative",
+            30,
+            5,
+            "2024-06-01T00:00:00Z",
         );
         let toml_str = toml::to_string_pretty(&config).unwrap();
         let parsed: toml::Value = toml_str.parse().unwrap();
@@ -17493,7 +17791,13 @@ custom_field = "extra"
 
     #[test]
     fn test_validate_sync_source_forbidden_prefixes() {
-        for prefix in &["/etc/passwd", "/var/log", "/root/.ssh", "/proc/cpuinfo", "/sys/devices"] {
+        for prefix in &[
+            "/etc/passwd",
+            "/var/log",
+            "/root/.ssh",
+            "/proc/cpuinfo",
+            "/sys/devices",
+        ] {
             let result = super::sync_helpers::validate_sync_source(prefix);
             assert!(result.is_err(), "Expected error for prefix: {}", prefix);
         }
@@ -17501,12 +17805,11 @@ custom_field = "extra"
 
     #[test]
     fn test_build_rsync_args_correct_format() {
-        let args = super::sync_helpers::build_rsync_args(
-            ".bashrc", "azureuser", "10.0.0.1", ".bashrc",
-        );
+        let args =
+            super::sync_helpers::build_rsync_args(".bashrc", "azureuser", "10.0.0.1", ".bashrc");
         assert_eq!(args[0], "-az");
         assert_eq!(args[1], "-e");
-        assert!(args[2].contains("StrictHostKeyChecking=no"));
+        assert!(args[2].contains("StrictHostKeyChecking=accept-new"));
         assert_eq!(args[3], ".bashrc");
         assert_eq!(args[4], "azureuser@10.0.0.1:~/.bashrc");
     }
@@ -17600,8 +17903,7 @@ custom_field = "extra"
 
         // Read back and deserialize
         let content = fs::read_to_string(&path).unwrap();
-        let loaded: super::snapshot_helpers::SnapshotSchedule =
-            toml::from_str(&content).unwrap();
+        let loaded: super::snapshot_helpers::SnapshotSchedule = toml::from_str(&content).unwrap();
         assert_eq!(loaded.vm_name, "test-vm");
         assert_eq!(loaded.every_hours, 6);
         assert_eq!(loaded.keep_count, 10);
@@ -17614,8 +17916,16 @@ custom_field = "extra"
     fn test_format_as_table_multirow() {
         let headers = &["Name", "Size", "Status"];
         let rows = vec![
-            vec!["vm-1".to_string(), "Standard_B2s".to_string(), "Running".to_string()],
-            vec!["vm-2-long-name".to_string(), "Standard_D4s_v3".to_string(), "Stopped".to_string()],
+            vec![
+                "vm-1".to_string(),
+                "Standard_B2s".to_string(),
+                "Running".to_string(),
+            ],
+            vec![
+                "vm-2-long-name".to_string(),
+                "Standard_D4s_v3".to_string(),
+                "Stopped".to_string(),
+            ],
         ];
         let table = super::output_helpers::format_as_table(headers, &rows);
         assert!(table.contains("Name"));
@@ -17643,10 +17953,19 @@ custom_field = "extra"
     #[test]
     fn test_format_as_json_custom_structs() {
         #[derive(serde::Serialize)]
-        struct Item { name: String, value: i32 }
+        struct Item {
+            name: String,
+            value: i32,
+        }
         let items = vec![
-            Item { name: "a".to_string(), value: 1 },
-            Item { name: "b".to_string(), value: 2 },
+            Item {
+                name: "a".to_string(),
+                value: 1,
+            },
+            Item {
+                name: "b".to_string(),
+                value: 2,
+            },
         ];
         let json = super::output_helpers::format_as_json(&items);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
@@ -17699,7 +18018,13 @@ custom_field = "extra"
 
     #[test]
     fn test_validate_mount_path_shell_metacharacters() {
-        for path in &["/mnt;rm -rf /", "/mnt|cat", "/mnt&bg", "/mnt$(cmd)", "/mnt`cmd`"] {
+        for path in &[
+            "/mnt;rm -rf /",
+            "/mnt|cat",
+            "/mnt&bg",
+            "/mnt$(cmd)",
+            "/mnt`cmd`",
+        ] {
             assert!(
                 super::mount_helpers::validate_mount_path(path).is_err(),
                 "Expected error for path: {}",
@@ -17743,7 +18068,10 @@ custom_field = "extra"
     #[test]
     fn test_resolve_scp_path_replaces_vm_name() {
         let result = super::cp_helpers::resolve_scp_path(
-            "my-vm:/remote/path", "my-vm", "azureuser", "10.0.0.1",
+            "my-vm:/remote/path",
+            "my-vm",
+            "azureuser",
+            "10.0.0.1",
         );
         assert_eq!(result, "azureuser@10.0.0.1:/remote/path");
     }
@@ -17832,7 +18160,7 @@ custom_field = "extra"
     }
 
     #[test]
-    fn test_format_output_text_show_fallback_to_stderr() {
+    fn test_format_output_text_show_stderr_when_stdout_empty() {
         let text = super::fleet_helpers::format_output_text(1, "", "error msg", true);
         assert_eq!(text, "error msg");
     }
@@ -17847,7 +18175,7 @@ custom_field = "extra"
 
     #[test]
     fn test_filter_running_keeps_starting() {
-        use azlin_core::models::{PowerState, VmInfo, OsType};
+        use azlin_core::models::{OsType, PowerState, VmInfo};
         let mut vms = vec![
             VmInfo {
                 name: "running-vm".to_string(),
@@ -17855,10 +18183,13 @@ custom_field = "extra"
                 location: "eastus".to_string(),
                 vm_size: "B2s".to_string(),
                 power_state: PowerState::Running,
-                provisioning_state: "Succeeded".to_string(),
+                provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
                 os_type: OsType::Linux,
-                public_ip: None, private_ip: None, admin_username: None,
-                tags: Default::default(), created_time: None,
+                public_ip: None,
+                private_ip: None,
+                admin_username: None,
+                tags: Default::default(),
+                created_time: None,
             },
             VmInfo {
                 name: "starting-vm".to_string(),
@@ -17866,10 +18197,13 @@ custom_field = "extra"
                 location: "eastus".to_string(),
                 vm_size: "B2s".to_string(),
                 power_state: PowerState::Starting,
-                provisioning_state: "Succeeded".to_string(),
+                provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
                 os_type: OsType::Linux,
-                public_ip: None, private_ip: None, admin_username: None,
-                tags: Default::default(), created_time: None,
+                public_ip: None,
+                private_ip: None,
+                admin_username: None,
+                tags: Default::default(),
+                created_time: None,
             },
             VmInfo {
                 name: "stopped-vm".to_string(),
@@ -17877,20 +18211,27 @@ custom_field = "extra"
                 location: "eastus".to_string(),
                 vm_size: "B2s".to_string(),
                 power_state: PowerState::Stopped,
-                provisioning_state: "Succeeded".to_string(),
+                provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
                 os_type: OsType::Linux,
-                public_ip: None, private_ip: None, admin_username: None,
-                tags: Default::default(), created_time: None,
+                public_ip: None,
+                private_ip: None,
+                admin_username: None,
+                tags: Default::default(),
+                created_time: None,
             },
         ];
         super::list_helpers::filter_running(&mut vms);
         assert_eq!(vms.len(), 2);
-        assert!(vms.iter().all(|v| v.power_state == PowerState::Running || v.power_state == PowerState::Starting));
+        assert!(
+            vms.iter()
+                .all(|v| v.power_state == PowerState::Running
+                    || v.power_state == PowerState::Starting)
+        );
     }
 
     #[test]
     fn test_filter_by_tag_key_only_match() {
-        use azlin_core::models::{PowerState, VmInfo, OsType};
+        use azlin_core::models::{OsType, PowerState, VmInfo};
         let mut vms = vec![
             VmInfo {
                 name: "tagged".to_string(),
@@ -17898,10 +18239,14 @@ custom_field = "extra"
                 location: "eastus".to_string(),
                 vm_size: "B2s".to_string(),
                 power_state: PowerState::Running,
-                provisioning_state: "Succeeded".to_string(),
+                provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
                 os_type: OsType::Linux,
-                public_ip: None, private_ip: None, admin_username: None,
-                tags: [("env".to_string(), "prod".to_string())].into_iter().collect(),
+                public_ip: None,
+                private_ip: None,
+                admin_username: None,
+                tags: [("env".to_string(), "prod".to_string())]
+                    .into_iter()
+                    .collect(),
                 created_time: None,
             },
             VmInfo {
@@ -17910,9 +18255,11 @@ custom_field = "extra"
                 location: "eastus".to_string(),
                 vm_size: "B2s".to_string(),
                 power_state: PowerState::Running,
-                provisioning_state: "Succeeded".to_string(),
+                provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
                 os_type: OsType::Linux,
-                public_ip: None, private_ip: None, admin_username: None,
+                public_ip: None,
+                private_ip: None,
+                admin_username: None,
                 tags: Default::default(),
                 created_time: None,
             },
@@ -17925,21 +18272,21 @@ custom_field = "extra"
 
     #[test]
     fn test_apply_filters_include_all_skips_running_filter() {
-        use azlin_core::models::{PowerState, VmInfo, OsType};
-        let mut vms = vec![
-            VmInfo {
-                name: "stopped-vm".to_string(),
-                resource_group: "rg".to_string(),
-                location: "eastus".to_string(),
-                vm_size: "B2s".to_string(),
-                power_state: PowerState::Stopped,
-                provisioning_state: "Succeeded".to_string(),
-                os_type: OsType::Linux,
-                public_ip: None, private_ip: None, admin_username: None,
-                tags: Default::default(),
-                created_time: None,
-            },
-        ];
+        use azlin_core::models::{OsType, PowerState, VmInfo};
+        let mut vms = vec![VmInfo {
+            name: "stopped-vm".to_string(),
+            resource_group: "rg".to_string(),
+            location: "eastus".to_string(),
+            vm_size: "B2s".to_string(),
+            power_state: PowerState::Stopped,
+            provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
+            os_type: OsType::Linux,
+            public_ip: None,
+            private_ip: None,
+            admin_username: None,
+            tags: Default::default(),
+            created_time: None,
+        }];
         super::list_helpers::apply_filters(&mut vms, true, None, None);
         assert_eq!(vms.len(), 1); // stopped VM kept because include_all=true
     }
@@ -17948,21 +18295,15 @@ custom_field = "extra"
 
     #[test]
     fn test_generate_vm_name_pool_indexing() {
-        let name = super::create_helpers::generate_vm_name(
-            Some("worker"), 0, 3, "20240115",
-        );
+        let name = super::create_helpers::generate_vm_name(Some("worker"), 0, 3, "20240115");
         assert_eq!(name, "worker-1");
-        let name2 = super::create_helpers::generate_vm_name(
-            Some("worker"), 2, 3, "20240115",
-        );
+        let name2 = super::create_helpers::generate_vm_name(Some("worker"), 2, 3, "20240115");
         assert_eq!(name2, "worker-3");
     }
 
     #[test]
     fn test_generate_vm_name_single_pool_no_index() {
-        let name = super::create_helpers::generate_vm_name(
-            Some("myvm"), 0, 1, "20240115",
-        );
+        let name = super::create_helpers::generate_vm_name(Some("myvm"), 0, 1, "20240115");
         assert_eq!(name, "myvm");
     }
 
@@ -18008,9 +18349,8 @@ custom_field = "extra"
     #[test]
     fn test_build_ssh_args_with_key_path() {
         let key = std::path::PathBuf::from("/home/user/.ssh/id_ed25519");
-        let args = super::connect_helpers::build_ssh_args(
-            "azureuser", "10.0.0.1", Some(key.as_path()),
-        );
+        let args =
+            super::connect_helpers::build_ssh_args("azureuser", "10.0.0.1", Some(key.as_path()));
         assert!(args.contains(&"-i".to_string()));
         assert!(args.contains(&"/home/user/.ssh/id_ed25519".to_string()));
         assert!(args.contains(&"azureuser@10.0.0.1".to_string()));
@@ -18031,9 +18371,8 @@ custom_field = "extra"
 
     #[test]
     fn test_build_log_follow_args_has_tail_f() {
-        let args = super::connect_helpers::build_log_follow_args(
-            "user", "10.0.0.1", "/var/log/syslog",
-        );
+        let args =
+            super::connect_helpers::build_log_follow_args("user", "10.0.0.1", "/var/log/syslog");
         assert!(args.iter().any(|a| a.contains("tail -f")));
         assert!(args.iter().any(|a| a.contains("/var/log/syslog")));
     }
@@ -18041,7 +18380,10 @@ custom_field = "extra"
     #[test]
     fn test_build_log_tail_args_custom_lines() {
         let args = super::connect_helpers::build_log_tail_args(
-            "user", "10.0.0.1", 100, "/var/log/auth.log",
+            "user",
+            "10.0.0.1",
+            100,
+            "/var/log/auth.log",
         );
         assert!(args.iter().any(|a| a.contains("tail -n 100")));
     }
@@ -18067,13 +18409,34 @@ custom_field = "extra"
 
     #[test]
     fn test_log_type_to_path_all_variants() {
-        assert_eq!(super::update_helpers::log_type_to_path("cloud-init"), "/var/log/cloud-init-output.log");
-        assert_eq!(super::update_helpers::log_type_to_path("CloudInit"), "/var/log/cloud-init-output.log");
-        assert_eq!(super::update_helpers::log_type_to_path("syslog"), "/var/log/syslog");
-        assert_eq!(super::update_helpers::log_type_to_path("Syslog"), "/var/log/syslog");
-        assert_eq!(super::update_helpers::log_type_to_path("auth"), "/var/log/auth.log");
-        assert_eq!(super::update_helpers::log_type_to_path("Auth"), "/var/log/auth.log");
-        assert_eq!(super::update_helpers::log_type_to_path("other"), "/var/log/syslog");
+        assert_eq!(
+            super::update_helpers::log_type_to_path("cloud-init"),
+            "/var/log/cloud-init-output.log"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("CloudInit"),
+            "/var/log/cloud-init-output.log"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("syslog"),
+            "/var/log/syslog"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("Syslog"),
+            "/var/log/syslog"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("auth"),
+            "/var/log/auth.log"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("Auth"),
+            "/var/log/auth.log"
+        );
+        assert_eq!(
+            super::update_helpers::log_type_to_path("other"),
+            "/var/log/syslog"
+        );
     }
 
     // ── runner_helpers ──────────────────────────────────────────────
@@ -18101,8 +18464,13 @@ custom_field = "extra"
     #[test]
     fn test_build_runner_config_all_fields() {
         let config = super::runner_helpers::build_runner_config(
-            "ci", "org/repo", 3, "self-hosted,linux", "my-rg",
-            "Standard_D4s_v3", "2024-01-15T10:00:00Z",
+            "ci",
+            "org/repo",
+            3,
+            "self-hosted,linux",
+            "my-rg",
+            "Standard_D4s_v3",
+            "2024-01-15T10:00:00Z",
         );
         assert!(config.iter().any(|(k, _)| k == "pool"));
         assert!(config.iter().any(|(k, _)| k == "count"));
@@ -18219,7 +18587,10 @@ custom_field = "extra"
 
     #[test]
     fn test_parse_cpu_stdout_nonzero_exit() {
-        assert_eq!(super::health_parse_helpers::parse_cpu_stdout(1, "45.3"), None);
+        assert_eq!(
+            super::health_parse_helpers::parse_cpu_stdout(1, "45.3"),
+            None
+        );
     }
 
     #[test]
@@ -18246,7 +18617,10 @@ custom_field = "extra"
 
     #[test]
     fn test_parse_load_stdout_empty_returns_none() {
-        assert_eq!(super::health_parse_helpers::parse_load_stdout(0, "  "), None);
+        assert_eq!(
+            super::health_parse_helpers::parse_load_stdout(0, "  "),
+            None
+        );
     }
 
     #[test]
@@ -18345,11 +18719,26 @@ custom_field = "extra"
 
     #[test]
     fn test_storage_sku_from_tier_all_variants() {
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("premium"), "Premium_LRS");
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("PREMIUM"), "Premium_LRS");
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("standard"), "Standard_LRS");
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("STANDARD"), "Standard_LRS");
-        assert_eq!(super::storage_helpers::storage_sku_from_tier("anything"), "Premium_LRS");
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("premium"),
+            "Premium_LRS"
+        );
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("PREMIUM"),
+            "Premium_LRS"
+        );
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("standard"),
+            "Standard_LRS"
+        );
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("STANDARD"),
+            "Standard_LRS"
+        );
+        assert_eq!(
+            super::storage_helpers::storage_sku_from_tier("anything"),
+            "Premium_LRS"
+        );
     }
 
     #[test]
@@ -18372,12 +18761,21 @@ custom_field = "extra"
     #[test]
     fn test_detect_key_type_comprehensive() {
         assert_eq!(super::key_helpers::detect_key_type("id_ed25519"), "ed25519");
-        assert_eq!(super::key_helpers::detect_key_type("id_ed25519.pub"), "ed25519");
+        assert_eq!(
+            super::key_helpers::detect_key_type("id_ed25519.pub"),
+            "ed25519"
+        );
         assert_eq!(super::key_helpers::detect_key_type("id_ecdsa"), "ecdsa");
         assert_eq!(super::key_helpers::detect_key_type("id_rsa"), "rsa");
         assert_eq!(super::key_helpers::detect_key_type("id_dsa"), "dsa");
-        assert_eq!(super::key_helpers::detect_key_type("known_hosts"), "unknown");
-        assert_eq!(super::key_helpers::detect_key_type("authorized_keys"), "unknown");
+        assert_eq!(
+            super::key_helpers::detect_key_type("known_hosts"),
+            "unknown"
+        );
+        assert_eq!(
+            super::key_helpers::detect_key_type("authorized_keys"),
+            "unknown"
+        );
     }
 
     #[test]
@@ -18546,7 +18944,10 @@ custom_field = "extra"
         let output = super::format_cost_summary(
             &summary,
             &azlin_cli::OutputFormat::Csv,
-            &None, &None, false, false,
+            &None,
+            &None,
+            false,
+            false,
         );
         assert!(output.contains("Total Cost,Currency,Period Start,Period End"));
         assert!(output.contains("50.00,EUR"));
@@ -18565,7 +18966,10 @@ custom_field = "extra"
         let output = super::format_cost_summary(
             &summary,
             &azlin_cli::OutputFormat::Table,
-            &None, &None, true, false,
+            &None,
+            &None,
+            true,
+            false,
         );
         assert!(output.contains("Estimate"));
         assert!(output.contains("$200.00/month"));
@@ -18595,7 +18999,10 @@ custom_field = "extra"
         let output = super::format_cost_summary(
             &summary,
             &azlin_cli::OutputFormat::Table,
-            &None, &None, false, true,
+            &None,
+            &None,
+            false,
+            true,
         );
         assert!(output.contains("dev-vm"));
         assert!(output.contains("prod-vm"));
@@ -18615,7 +19022,10 @@ custom_field = "extra"
         let output = super::format_cost_summary(
             &summary,
             &azlin_cli::OutputFormat::Table,
-            &None, &None, false, true,
+            &None,
+            &None,
+            false,
+            true,
         );
         assert!(output.contains("No per-VM cost data"));
     }
@@ -18637,7 +19047,10 @@ custom_field = "extra"
         let output = super::format_cost_summary(
             &summary,
             &azlin_cli::OutputFormat::Csv,
-            &None, &None, false, true,
+            &None,
+            &None,
+            false,
+            true,
         );
         assert!(output.contains("VM Name,Cost,Currency"));
         assert!(output.contains("test-vm,100.00,USD"));
@@ -18700,7 +19113,8 @@ custom_field = "extra"
 
     #[test]
     fn test_build_clone_cmd_format() {
-        let cmd = super::create_helpers::build_clone_cmd("https://github.com/user/repo.git").unwrap();
+        let cmd =
+            super::create_helpers::build_clone_cmd("https://github.com/user/repo.git").unwrap();
         assert!(cmd.contains("git clone"));
         assert!(cmd.contains("https://github.com/user/repo.git"));
         assert!(cmd.contains("~/src/$(basename"));
@@ -18708,19 +19122,28 @@ custom_field = "extra"
 
     #[test]
     fn test_build_clone_name_format() {
-        assert_eq!(super::create_helpers::build_clone_name("myvm", 0), "myvm-clone-1");
-        assert_eq!(super::create_helpers::build_clone_name("myvm", 2), "myvm-clone-3");
+        assert_eq!(
+            super::create_helpers::build_clone_name("myvm", 0),
+            "myvm-clone-1"
+        );
+        assert_eq!(
+            super::create_helpers::build_clone_name("myvm", 2),
+            "myvm-clone-3"
+        );
     }
 
     #[test]
     fn test_build_disk_name_format() {
-        assert_eq!(super::create_helpers::build_disk_name("myvm"), "myvm_OsDisk");
+        assert_eq!(
+            super::create_helpers::build_disk_name("myvm"),
+            "myvm_OsDisk"
+        );
     }
 
     #[test]
     fn test_build_ssh_connect_args_format() {
         let args = super::create_helpers::build_ssh_connect_args("user", "10.0.0.1");
-        assert!(args.contains(&"StrictHostKeyChecking=no".to_string()));
+        assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_string()));
         assert!(args.contains(&"user@10.0.0.1".to_string()));
     }
 
@@ -18732,12 +19155,17 @@ custom_field = "extra"
 
     #[test]
     fn test_validate_repo_url_rejects_semicolon() {
-        assert!(super::repo_helpers::validate_repo_url("https://evil.com/repo.git; rm -rf /").is_err());
+        assert!(
+            super::repo_helpers::validate_repo_url("https://evil.com/repo.git; rm -rf /").is_err()
+        );
     }
 
     #[test]
     fn test_validate_repo_url_rejects_pipe() {
-        assert!(super::repo_helpers::validate_repo_url("https://evil.com/repo.git|cat /etc/passwd").is_err());
+        assert!(super::repo_helpers::validate_repo_url(
+            "https://evil.com/repo.git|cat /etc/passwd"
+        )
+        .is_err());
     }
 
     #[test]
@@ -18752,12 +19180,16 @@ custom_field = "extra"
 
     #[test]
     fn test_validate_repo_url_rejects_ampersand() {
-        assert!(super::repo_helpers::validate_repo_url("https://evil.com/repo.git&echo pwned").is_err());
+        assert!(
+            super::repo_helpers::validate_repo_url("https://evil.com/repo.git&echo pwned").is_err()
+        );
     }
 
     #[test]
     fn test_validate_repo_url_rejects_newline() {
-        assert!(super::repo_helpers::validate_repo_url("https://evil.com/repo.git\nrm -rf /").is_err());
+        assert!(
+            super::repo_helpers::validate_repo_url("https://evil.com/repo.git\nrm -rf /").is_err()
+        );
     }
 
     #[test]
@@ -18787,12 +19219,16 @@ custom_field = "extra"
 
     #[test]
     fn test_validate_repo_url_accepts_ssh_scheme() {
-        assert!(super::repo_helpers::validate_repo_url("ssh://git@github.com/user/repo.git").is_ok());
+        assert!(
+            super::repo_helpers::validate_repo_url("ssh://git@github.com/user/repo.git").is_ok()
+        );
     }
 
     #[test]
     fn test_build_clone_cmd_rejects_injection() {
-        assert!(super::create_helpers::build_clone_cmd("https://evil.com/repo.git; rm -rf /").is_err());
+        assert!(
+            super::create_helpers::build_clone_cmd("https://evil.com/repo.git; rm -rf /").is_err()
+        );
     }
 
     // ── validate_name (path traversal) ─────────────────────────────

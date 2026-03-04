@@ -156,7 +156,10 @@ fn test_keys_list_local() {
     // Should succeed or fail gracefully if ~/.ssh doesn't exist (CI runners)
     let combined = format!("{}{}", stdout, stderr);
     assert!(
-        code == 0 || combined.contains("SSH") || combined.contains("ssh") || combined.contains("No"),
+        code == 0
+            || combined.contains("SSH")
+            || combined.contains("ssh")
+            || combined.contains("No"),
         "keys list output unexpected (code {}): {}",
         code,
         combined,

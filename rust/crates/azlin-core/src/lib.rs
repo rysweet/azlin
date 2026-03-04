@@ -5,5 +5,5 @@ pub mod error;
 pub mod models;
 pub mod sanitizer;
 
-pub use config::AzlinConfig;
+pub use config::{AzlinConfig, SshSyncMethod};
 pub use error::{AzlinError, Result};

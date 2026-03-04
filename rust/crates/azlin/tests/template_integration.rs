@@ -186,10 +186,8 @@ fn test_template_save_delete_list() {
     assert_eq!(code, 0);
 
     // Delete with --force to skip prompt
-    let (stdout, _, code) = run_azlin_with_env(
-        &["template", "delete", "to-delete", "--force"],
-        &env,
-    );
+    let (stdout, _, code) =
+        run_azlin_with_env(&["template", "delete", "to-delete", "--force"], &env);
     assert_eq!(code, 0, "delete should succeed");
     assert!(
         stdout.contains("Deleted") || stdout.contains("to-delete"),
@@ -216,10 +214,8 @@ fn test_template_delete_nonexistent() {
     let tmp = tempfile::TempDir::new().unwrap();
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
-    let (stdout, stderr, code) = run_azlin_with_env(
-        &["template", "delete", "no-such-template", "--force"],
-        &env,
-    );
+    let (stdout, stderr, code) =
+        run_azlin_with_env(&["template", "delete", "no-such-template", "--force"], &env);
     let combined = format!("{}{}", stdout, stderr);
     assert_ne!(code, 0, "deleting nonexistent template should fail");
     assert!(
@@ -239,8 +235,7 @@ fn test_template_show_nonexistent_isolated() {
     let tmp = tempfile::TempDir::new().unwrap();
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
-    let (stdout, stderr, code) =
-        run_azlin_with_env(&["template", "show", "ghost-template"], &env);
+    let (stdout, stderr, code) = run_azlin_with_env(&["template", "show", "ghost-template"], &env);
     let combined = format!("{}{}", stdout, stderr);
     assert_ne!(code, 0, "showing nonexistent template should fail");
     assert!(
@@ -260,8 +255,7 @@ fn test_template_apply_nonexistent() {
     let tmp = tempfile::TempDir::new().unwrap();
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
-    let (stdout, stderr, code) =
-        run_azlin_with_env(&["template", "apply", "missing-tmpl"], &env);
+    let (stdout, stderr, code) = run_azlin_with_env(&["template", "apply", "missing-tmpl"], &env);
     let combined = format!("{}{}", stdout, stderr);
     assert_ne!(code, 0, "applying nonexistent template should fail");
     assert!(
@@ -301,10 +295,8 @@ fn test_template_save_multiple_list() {
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
     for name in &["alpha-tmpl", "beta-tmpl", "gamma-tmpl"] {
-        let (_, _, code) = run_azlin_with_env(
-            &["template", "save", name, "--region", "eastus"],
-            &env,
-        );
+        let (_, _, code) =
+            run_azlin_with_env(&["template", "save", name, "--region", "eastus"], &env);
         assert_eq!(code, 0, "save {} should succeed", name);
     }
 

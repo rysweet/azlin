@@ -72,7 +72,10 @@ fn test_config_show_fresh_dir_has_defaults() {
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
     let (stdout, _, code) = run_azlin_with_env(&["config", "show"], &env);
-    assert_eq!(code, 0, "config show on fresh dir should succeed with defaults");
+    assert_eq!(
+        code, 0,
+        "config show on fresh dir should succeed with defaults"
+    );
     assert!(
         stdout.contains("default_region"),
         "fresh config should contain default_region, got: {}",
@@ -118,8 +121,7 @@ fn test_config_get_unknown_key_fails() {
     let tmp = tempfile::TempDir::new().unwrap();
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
-    let (stdout, stderr, code) =
-        run_azlin_with_env(&["config", "get", "no_such_key_abc"], &env);
+    let (stdout, stderr, code) = run_azlin_with_env(&["config", "get", "no_such_key_abc"], &env);
     let combined = format!("{}{}", stdout, stderr);
     assert!(
         code != 0 || combined.contains("Unknown") || combined.contains("not found"),
@@ -140,19 +142,24 @@ fn test_config_multiple_set_get_roundtrips() {
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
     // Set region
-    let (_, _, code) =
-        run_azlin_with_env(&["config", "set", "default_region", "eastus"], &env);
+    let (_, _, code) = run_azlin_with_env(&["config", "set", "default_region", "eastus"], &env);
     assert_eq!(code, 0);
 
     // Set vm_size
-    let (_, _, code) =
-        run_azlin_with_env(&["config", "set", "default_vm_size", "Standard_D4s_v3"], &env);
+    let (_, _, code) = run_azlin_with_env(
+        &["config", "set", "default_vm_size", "Standard_D4s_v3"],
+        &env,
+    );
     assert_eq!(code, 0);
 
     // Get region back
     let (stdout, _, code) = run_azlin_with_env(&["config", "get", "default_region"], &env);
     assert_eq!(code, 0);
-    assert!(stdout.contains("eastus"), "expected eastus, got: {}", stdout);
+    assert!(
+        stdout.contains("eastus"),
+        "expected eastus, got: {}",
+        stdout
+    );
 
     // Get vm_size back
     let (stdout, _, code) = run_azlin_with_env(&["config", "get", "default_vm_size"], &env);
@@ -174,12 +181,10 @@ fn test_config_set_overwrites_value() {
     let tmp = tempfile::TempDir::new().unwrap();
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
-    let (_, _, c1) =
-        run_azlin_with_env(&["config", "set", "default_region", "westus"], &env);
+    let (_, _, c1) = run_azlin_with_env(&["config", "set", "default_region", "westus"], &env);
     assert_eq!(c1, 0);
 
-    let (_, _, c2) =
-        run_azlin_with_env(&["config", "set", "default_region", "centralus"], &env);
+    let (_, _, c2) = run_azlin_with_env(&["config", "set", "default_region", "centralus"], &env);
     assert_eq!(c2, 0);
 
     let (stdout, _, code) = run_azlin_with_env(&["config", "get", "default_region"], &env);

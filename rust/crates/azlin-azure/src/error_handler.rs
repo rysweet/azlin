@@ -17,17 +17,28 @@ pub fn parse_azure_error(body: &str) -> Option<AzureError> {
     Some(AzureError {
         code: error.get("code")?.as_str()?.to_string(),
         message: error.get("message")?.as_str()?.to_string(),
-        target: error.get("target").and_then(|t| t.as_str()).map(|s| s.to_string()),
-        details: error.get("details")
+        target: error
+            .get("target")
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string()),
+        details: error
+            .get("details")
             .and_then(|d| d.as_array())
-            .map(|arr| arr.iter().filter_map(|d| {
-                Some(AzureError {
-                    code: d.get("code")?.as_str()?.to_string(),
-                    message: d.get("message")?.as_str()?.to_string(),
-                    target: d.get("target").and_then(|t| t.as_str()).map(|s| s.to_string()),
-                    details: vec![],
-                })
-            }).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|d| {
+                        Some(AzureError {
+                            code: d.get("code")?.as_str()?.to_string(),
+                            message: d.get("message")?.as_str()?.to_string(),
+                            target: d
+                                .get("target")
+                                .and_then(|t| t.as_str())
+                                .map(|s| s.to_string()),
+                            details: vec![],
+                        })
+                    })
+                    .collect()
+            })
             .unwrap_or_default(),
     })
 }
@@ -39,7 +50,9 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
     match error.code.as_str() {
         "ResourceGroupNotFound" => {
             msg.push_str(&format!("❌ Resource group not found: {}\n", error.message));
-            msg.push_str("💡 Create it with: az group create --name <name> --location <location>\n");
+            msg.push_str(
+                "💡 Create it with: az group create --name <name> --location <location>\n",
+            );
         }
         "AuthorizationFailed" => {
             msg.push_str(&format!("🔒 Authorization failed: {}\n", error.message));
@@ -48,9 +61,13 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
         "Conflict" | "ResourceConflict" => {
             msg.push_str(&format!("⚠️ Resource conflict: {}\n", error.message));
             if error.message.contains("location") || error.message.contains("region") {
-                msg.push_str("💡 The resource exists in a different region. Use --location to match.\n");
+                msg.push_str(
+                    "💡 The resource exists in a different region. Use --location to match.\n",
+                );
             } else {
-                msg.push_str("💡 A resource with this name already exists. Use a different name.\n");
+                msg.push_str(
+                    "💡 A resource with this name already exists. Use a different name.\n",
+                );
             }
         }
         "OperationNotAllowed" => {
@@ -71,7 +88,10 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
             msg.push_str("💡 Then: azlin config set subscription_id <id>\n");
         }
         _ => {
-            msg.push_str(&format!("❌ Azure error [{}]: {}\n", error.code, error.message));
+            msg.push_str(&format!(
+                "❌ Azure error [{}]: {}\n",
+                error.code, error.message
+            ));
         }
     }
 
@@ -85,7 +105,10 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
     msg
 }
 
-/// Sanitize sensitive data from Azure CLI command strings for logging
+/// Sanitize sensitive data from Azure CLI command strings for logging.
+///
+/// Handles both `--param value` and `--param=value` forms, as well as
+/// quoted values (`--param "value with spaces"`).
 pub fn sanitize_command_for_logging(command: &str) -> String {
     let sensitive_params = [
         "--admin-password",
@@ -97,20 +120,57 @@ pub fn sanitize_command_for_logging(command: &str) -> String {
 
     let mut sanitized = command.to_string();
     for param in &sensitive_params {
-        if let Some(idx) = sanitized.find(param) {
+        let mut search_from = 0;
+        while let Some(rel_idx) = sanitized[search_from..].find(param) {
+            let idx = search_from + rel_idx;
             let param_end = idx + param.len();
-            // Skip the space between param and its value
-            let value_start = param_end + sanitized[param_end..].find(|c: char| !c.is_whitespace()).unwrap_or(0);
-            if let Some(space_idx) = sanitized[value_start..].find(' ') {
-                let value_end = value_start + space_idx;
+            let rest = &sanitized[param_end..];
+
+            if rest.starts_with('=') {
+                // --param=value form
+                let value_start = param_end + 1; // skip '='
+                let value_end = find_value_end(&sanitized, value_start);
+                sanitized.replace_range(param_end..value_end, "=***REDACTED***");
+                search_from = param_end + "=***REDACTED***".len();
+            } else if rest.starts_with(' ') || rest.starts_with('\t') {
+                // --param value form
+                let value_start = param_end
+                    + rest
+                        .find(|c: char| !c.is_whitespace())
+                        .unwrap_or(rest.len());
+                let value_end = find_value_end(&sanitized, value_start);
                 sanitized.replace_range(param_end..value_end, " ***REDACTED***");
+                search_from = param_end + " ***REDACTED***".len();
             } else {
-                sanitized.truncate(param_end);
-                sanitized.push_str(" ***REDACTED***");
+                // param is a prefix of a longer param name, skip past it
+                search_from = param_end;
             }
         }
     }
     sanitized
+}
+
+/// Find the end of a value, handling quoted strings.
+fn find_value_end(s: &str, start: usize) -> usize {
+    let rest = &s[start..];
+    if rest.is_empty() {
+        return start;
+    }
+
+    let first = rest.as_bytes()[0];
+    if first == b'"' || first == b'\'' {
+        // Quoted value: find matching close quote
+        let quote = first as char;
+        if let Some(end_quote) = rest[1..].find(quote) {
+            return start + end_quote + 2; // include both quotes
+        }
+    }
+
+    // Unquoted: find next whitespace
+    match rest.find(|c: char| c.is_whitespace()) {
+        Some(space_idx) => start + space_idx,
+        None => s.len(),
+    }
 }
 
 #[cfg(test)]
@@ -341,7 +401,8 @@ mod tests {
 
     #[test]
     fn test_parse_azure_error_with_target() {
-        let json = r#"{"error":{"code":"InvalidParameter","message":"bad param","target":"vmSize"}}"#;
+        let json =
+            r#"{"error":{"code":"InvalidParameter","message":"bad param","target":"vmSize"}}"#;
         let err = parse_azure_error(json).unwrap();
         assert_eq!(err.code, "InvalidParameter");
         assert_eq!(err.target, Some("vmSize".to_string()));
@@ -405,6 +466,30 @@ mod tests {
         let json = r#"{"error":{"code":"Test","message":"msg","details":[]}}"#;
         let err = parse_azure_error(json).unwrap();
         assert!(err.details.is_empty());
+    }
+
+    #[test]
+    fn test_sanitize_equals_form() {
+        let cmd = "az vm create --admin-password=MySecret123 --name test";
+        let sanitized = sanitize_command_for_logging(cmd);
+        assert!(!sanitized.contains("MySecret123"));
+        assert!(sanitized.contains("REDACTED"));
+    }
+
+    #[test]
+    fn test_sanitize_quoted_value() {
+        let cmd = r#"az vm create --admin-password "My Secret 123" --name test"#;
+        let sanitized = sanitize_command_for_logging(cmd);
+        assert!(!sanitized.contains("My Secret 123"));
+        assert!(sanitized.contains("REDACTED"));
+    }
+
+    #[test]
+    fn test_sanitize_value_at_end_of_string() {
+        let cmd = "az ad sp --client-secret FinalValue";
+        let sanitized = sanitize_command_for_logging(cmd);
+        assert!(!sanitized.contains("FinalValue"));
+        assert!(sanitized.contains("REDACTED"));
     }
 
     #[test]

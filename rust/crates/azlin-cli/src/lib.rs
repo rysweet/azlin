@@ -112,16 +112,9 @@ pub enum Commands {
         verbose: bool,
     },
 
-    /// Autonomous Azure infrastructure deployment (alias: do)
-    #[command(name = "doit")]
+    /// Autonomous Azure infrastructure deployment (alias: do, azdoit)
+    #[command(name = "doit", alias = "azdoit")]
     Doit {
-        #[command(subcommand)]
-        action: DoitAction,
-    },
-
-    /// Alias for doit
-    #[command(name = "azdoit", hide = true)]
-    AzDoit {
         #[command(subcommand)]
         action: DoitAction,
     },
@@ -682,6 +675,7 @@ pub enum Commands {
     },
 
     /// Find and remove orphaned resources (alias: prune)
+    #[command(alias = "prune")]
     Cleanup {
         /// Resource group
         #[arg(long, alias = "rg")]
@@ -712,27 +706,6 @@ pub enum Commands {
         include_running: bool,
 
         /// Include named sessions
-        #[arg(long)]
-        include_named: bool,
-    },
-
-    /// Alias for cleanup
-    #[command(hide = true)]
-    Prune {
-        #[arg(long, alias = "rg")]
-        resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
-        #[arg(long, default_value = "1")]
-        age_days: u32,
-        #[arg(long, default_value = "1")]
-        idle_days: u32,
-        #[arg(long)]
-        dry_run: bool,
-        #[arg(long)]
-        force: bool,
-        #[arg(long)]
-        include_running: bool,
         #[arg(long)]
         include_named: bool,
     },
@@ -1696,7 +1669,8 @@ pub enum GithubRunnerAction {
 
 #[derive(Subcommand, Debug)]
 pub enum TemplateAction {
-    /// Create a new VM template
+    /// Create a new VM template (alias: save)
+    #[command(alias = "save")]
     Create {
         /// Template name
         name: String,
@@ -1734,23 +1708,6 @@ pub enum TemplateAction {
     Import {
         /// Input file path
         input_file: PathBuf,
-    },
-    /// Save current VM config as a template (alias for create)
-    Save {
-        /// Template name
-        name: String,
-        /// Template description
-        #[arg(long)]
-        description: Option<String>,
-        /// Azure VM size
-        #[arg(long)]
-        vm_size: Option<String>,
-        /// Azure region
-        #[arg(long)]
-        region: Option<String>,
-        /// Path to cloud-init script file
-        #[arg(long)]
-        cloud_init: Option<PathBuf>,
     },
     /// Show template details
     Show {
@@ -1817,20 +1774,15 @@ pub enum ContextAction {
         #[arg(long)]
         config: Option<PathBuf>,
     },
-    /// Show current context
+    /// Show current context (alias: current)
+    #[command(alias = "current")]
     Show {
         #[arg(long)]
         config: Option<PathBuf>,
     },
-    /// Switch to a context
+    /// Switch to a context (alias: switch)
+    #[command(alias = "switch")]
     Use {
-        /// Context name
-        name: String,
-        #[arg(long)]
-        config: Option<PathBuf>,
-    },
-    /// Switch to a context (alias for use)
-    Switch {
         /// Context name
         name: String,
         #[arg(long)]
@@ -1884,12 +1836,6 @@ pub enum ContextAction {
         /// Force migration even if contexts exist
         #[arg(short, long)]
         force: bool,
-    },
-    /// Alias for show — display current active context
-    #[command(hide = true)]
-    Current {
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
 }
 
@@ -3045,7 +2991,15 @@ mod tests {
     #[test]
     fn test_show_command() {
         let cli = Cli::parse_from(["azlin", "show", "my-vm"]);
-        if let Commands::Show { name, output, resource_group, config, verbose, auth_profile } = cli.command {
+        if let Commands::Show {
+            name,
+            output,
+            resource_group,
+            config,
+            verbose,
+            auth_profile,
+        } = cli.command
+        {
             assert_eq!(name, "my-vm");
             assert!(matches!(output, OutputFormat::Table));
             assert!(resource_group.is_none());
@@ -3363,25 +3317,27 @@ mod tests {
     }
 
     #[test]
-    fn test_context_switch() {
+    fn test_context_switch_alias() {
+        // "switch" is now an alias for "use"
         let cli = Cli::parse_from(["azlin", "context", "switch", "staging"]);
         if let Commands::Context {
-            action: ContextAction::Switch { name, .. },
+            action: ContextAction::Use { name, .. },
         } = cli.command
         {
             assert_eq!(name, "staging");
         } else {
-            panic!("Expected Context Switch");
+            panic!("Expected Context Use (via switch alias)");
         }
     }
 
     #[test]
-    fn test_context_current() {
+    fn test_context_current_alias() {
+        // "current" is now an alias for "show"
         let cli = Cli::parse_from(["azlin", "context", "current"]);
         assert!(matches!(
             cli.command,
             Commands::Context {
-                action: ContextAction::Current { .. }
+                action: ContextAction::Show { .. }
             }
         ));
     }
@@ -3450,9 +3406,10 @@ mod tests {
             "--region",
             "eastus",
         ]);
+        // "save" is now an alias for "create"
         if let Commands::Template {
             action:
-                TemplateAction::Save {
+                TemplateAction::Create {
                     name,
                     vm_size,
                     region,
@@ -3464,7 +3421,7 @@ mod tests {
             assert_eq!(vm_size, Some("Standard_B2s".to_string()));
             assert_eq!(region, Some("eastus".to_string()));
         } else {
-            panic!("Expected Template Save");
+            panic!("Expected Template Create (via save alias)");
         }
     }
 
@@ -3522,7 +3479,11 @@ mod tests {
     fn test_sessions_delete() {
         let cli = Cli::parse_from(["azlin", "sessions", "delete", "old-session"]);
         if let Commands::Sessions {
-            action: SessionsAction::Delete { session_name, force },
+            action:
+                SessionsAction::Delete {
+                    session_name,
+                    force,
+                },
         } = cli.command
         {
             assert_eq!(session_name, "old-session");
@@ -4302,7 +4263,10 @@ mod tests {
     #[test]
     fn test_list_with_include_stopped() {
         let cli = Cli::parse_from(["azlin", "list", "--include-stopped"]);
-        if let Commands::List { include_stopped, .. } = cli.command {
+        if let Commands::List {
+            include_stopped, ..
+        } = cli.command
+        {
             assert!(include_stopped);
         } else {
             panic!("Expected List command");

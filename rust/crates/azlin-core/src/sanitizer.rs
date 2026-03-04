@@ -9,15 +9,31 @@ fn pem_begin_pattern() -> String {
 static PATTERNS: LazyLock<Vec<(Regex, &str)>> = LazyLock::new(|| {
     vec![
         // Azure storage keys (base64, 88 chars)
-        (Regex::new(r#"(?i)(key|password|secret|token|credential)[\s=:]+['""]?(\S{8,})"#).unwrap(), "$1=***REDACTED***"),
+        (
+            Regex::new(r#"(?i)(key|password|secret|token|credential)[\s=:]+['""]?(\S{8,})"#)
+                .unwrap(),
+            "$1=***REDACTED***",
+        ),
         // Connection strings
-        (Regex::new(r"(?i)AccountKey=[A-Za-z0-9+/=]+").unwrap(), "AccountKey=***REDACTED***"),
+        (
+            Regex::new(r"(?i)AccountKey=[A-Za-z0-9+/=]+").unwrap(),
+            "AccountKey=***REDACTED***",
+        ),
         // SAS tokens
-        (Regex::new(r"(?i)sig=[A-Za-z0-9%+/=]+").unwrap(), "sig=***REDACTED***"),
+        (
+            Regex::new(r"(?i)sig=[A-Za-z0-9%+/=]+").unwrap(),
+            "sig=***REDACTED***",
+        ),
         // Bearer tokens
-        (Regex::new(r#"(?i)Bearer\s+[A-Za-z0-9._-]+"#).unwrap(), "Bearer ***REDACTED***"),
+        (
+            Regex::new(r#"(?i)Bearer\s+[A-Za-z0-9._-]+"#).unwrap(),
+            "Bearer ***REDACTED***",
+        ),
         // SSH keys (PEM format)
-        (Regex::new(&pem_begin_pattern()).unwrap(), "***PEM_KEY_REDACTED***"),
+        (
+            Regex::new(&pem_begin_pattern()).unwrap(),
+            "***PEM_KEY_REDACTED***",
+        ),
     ]
 });
 

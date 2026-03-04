@@ -86,8 +86,7 @@ fn test_sessions_load_nonexistent() {
     let tmp = tempfile::TempDir::new().unwrap();
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
-    let (stdout, stderr, code) =
-        run_azlin_with_env(&["sessions", "load", "no-such-session"], &env);
+    let (stdout, stderr, code) = run_azlin_with_env(&["sessions", "load", "no-such-session"], &env);
     let combined = format!("{}{}", stdout, stderr);
     assert_ne!(code, 0, "loading nonexistent session should fail");
     assert!(
@@ -106,8 +105,7 @@ fn test_sessions_delete_nonexistent() {
     let tmp = tempfile::TempDir::new().unwrap();
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
-    let (stdout, stderr, code) =
-        run_azlin_with_env(&["sessions", "delete", "ghost-session"], &env);
+    let (stdout, stderr, code) = run_azlin_with_env(&["sessions", "delete", "ghost-session"], &env);
     let combined = format!("{}{}", stdout, stderr);
     assert_ne!(code, 0, "deleting nonexistent session should fail");
     assert!(

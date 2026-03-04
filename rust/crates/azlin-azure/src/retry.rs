@@ -27,14 +27,23 @@ pub fn exponential_backoff(attempt: u32, base_ms: u64, max_ms: u64) -> Duration 
     Duration::from_millis(final_ms)
 }
 
-/// Simple deterministic jitter for testing
+/// Cheap jitter factor in [0.0, 1.0) mixing time and thread identity.
+///
+/// Uses nanosecond timestamp XORed with the thread ID to reduce correlation
+/// between concurrent retries (thundering herd mitigation). Not
+/// cryptographically random, but sufficient for backoff jitter.
 fn rand_factor() -> f64 {
-    // Use system time nanoseconds as cheap randomness
+    use std::hash::{Hash, Hasher};
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    (nanos % 1000) as f64 / 1000.0
+        .unwrap_or(0) as u64;
+    // Mix in thread ID so concurrent threads get different jitter
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::thread::current().id().hash(&mut hasher);
+    let thread_hash = hasher.finish();
+    let mixed = nanos ^ thread_hash;
+    (mixed % 10000) as f64 / 10000.0
 }
 
 /// Parse Retry-After header value.

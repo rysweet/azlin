@@ -39,11 +39,19 @@ impl AnthropicClient {
     pub fn new() -> Result<Self> {
         let api_key = std::env::var("ANTHROPIC_API_KEY")
             .context("ANTHROPIC_API_KEY environment variable not set")?;
-        Ok(Self {
+        Ok(Self::with_key(api_key))
+    }
+
+    /// Create a client with an explicit API key (avoids env var dependency).
+    ///
+    /// Prefer this in tests to avoid `std::env::set_var` which is unsound
+    /// in multi-threaded contexts.
+    pub fn with_key(api_key: String) -> Self {
+        Self {
             client: reqwest::Client::new(),
             api_key,
             model: "claude-sonnet-4-20250514".to_string(),
-        })
+        }
     }
 
     /// Send a natural-language query with optional context to Claude.
@@ -97,6 +105,13 @@ impl AnthropicClient {
     }
 
     /// Parse a natural-language instruction into a list of az CLI commands.
+    ///
+    /// # Safety Warning
+    ///
+    /// The returned commands are **unsanitized LLM output**. Callers MUST
+    /// validate each command before execution (e.g., check allowed prefixes,
+    /// block dangerous patterns). See `azdoit::classify_command` for a
+    /// reference safety implementation.
     pub async fn execute(&self, instruction: &str) -> Result<Vec<String>> {
         let system = "You are an Azure CLI command generator. \
              Given a natural language instruction about Azure VMs, \
@@ -400,9 +415,7 @@ mod tests {
 
     #[test]
     fn test_client_default_model() {
-        let saved = std::env::var("ANTHROPIC_API_KEY").ok();
-        std::env::set_var("ANTHROPIC_API_KEY", "test-key");
-        let client = AnthropicClient::new().unwrap();
+        let client = AnthropicClient::with_key("test-key".to_string());
         assert!(
             client.model.contains("claude"),
             "default model should contain 'claude': {}",
@@ -413,22 +426,13 @@ mod tests {
             "default model should contain 'sonnet': {}",
             client.model
         );
-        match saved {
-            Some(v) => std::env::set_var("ANTHROPIC_API_KEY", v),
-            None => std::env::remove_var("ANTHROPIC_API_KEY"),
-        }
     }
 
     #[test]
-    fn test_client_stores_api_key() {
-        // Use a direct field check instead of env var manipulation
-        // which can race with other tests
-        let client = AnthropicClient {
-            client: reqwest::Client::new(),
-            api_key: "my-secret-key-abc".to_string(),
-            model: "claude-sonnet-4-20250514".to_string(),
-        };
+    fn test_client_with_key() {
+        let client = AnthropicClient::with_key("my-secret-key-abc".to_string());
         assert_eq!(client.api_key, "my-secret-key-abc");
+        assert!(client.model.contains("claude"));
     }
 
     #[test]
@@ -452,28 +456,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_ask_with_invalid_key_returns_error() {
-        let saved = std::env::var("ANTHROPIC_API_KEY").ok();
-        std::env::set_var("ANTHROPIC_API_KEY", "sk-invalid-test-key");
-        let client = AnthropicClient::new().unwrap();
+        let client = AnthropicClient::with_key("sk-invalid-test-key".to_string());
         let result = client.ask("test query", "test context").await;
         // Should fail at HTTP level (401 or network error)
         assert!(result.is_err());
-        match saved {
-            Some(v) => std::env::set_var("ANTHROPIC_API_KEY", v),
-            None => std::env::remove_var("ANTHROPIC_API_KEY"),
-        }
     }
 
     #[tokio::test]
     async fn test_execute_with_invalid_key_returns_error() {
-        let saved = std::env::var("ANTHROPIC_API_KEY").ok();
-        std::env::set_var("ANTHROPIC_API_KEY", "sk-invalid-test-key");
-        let client = AnthropicClient::new().unwrap();
+        let client = AnthropicClient::with_key("sk-invalid-test-key".to_string());
         let result = client.execute("list all VMs").await;
         assert!(result.is_err());
-        match saved {
-            Some(v) => std::env::set_var("ANTHROPIC_API_KEY", v),
-            None => std::env::remove_var("ANTHROPIC_API_KEY"),
-        }
     }
 }

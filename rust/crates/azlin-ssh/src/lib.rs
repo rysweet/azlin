@@ -142,7 +142,10 @@ impl SshClient {
         self.last_used = Instant::now();
 
         Ok(CommandResult {
-            exit_code: exit_code.unwrap_or(0) as i32,
+            // Default to -1 (not 0) when exit status is absent. A missing exit
+            // status means the channel closed abnormally — treating it as
+            // success would mask remote failures.
+            exit_code: exit_code.map(|c| c as i32).unwrap_or(-1),
             stdout: String::from_utf8_lossy(&stdout).into_owned(),
             stderr: String::from_utf8_lossy(&stderr).into_owned(),
             duration_ms: start.elapsed().as_millis() as u64,
@@ -178,7 +181,9 @@ impl SshClient {
             .await
             .map_err(|e| AzlinError::FileTransfer(format!("shutdown writer: {e}")))?;
 
-        channel.eof().await.ok();
+        if let Err(e) = channel.eof().await {
+            warn!("Failed to send EOF on upload channel: {e}");
+        }
 
         // Drain remaining messages until close
         while let Some(msg) = channel.wait().await {
@@ -192,18 +197,52 @@ impl SshClient {
     }
 
     /// Download a remote file to a local path via `cat`.
+    ///
+    /// Note: This uses the `execute()` method which converts stdout via
+    /// `from_utf8_lossy`. For binary files, use `download_binary()` instead.
     pub async fn download(&mut self, remote_path: &str, local_path: &Path) -> Result<()> {
         let cmd = format!("cat {}", shell_escape::unix::escape(remote_path.into()));
-        let result = self.execute(&cmd).await?;
 
-        if !result.success() {
+        // For downloads, collect raw bytes directly to avoid UTF-8 lossy
+        // conversion that corrupts binary data.
+        let start = Instant::now();
+        let mut channel = self
+            .handle
+            .channel_open_session()
+            .await
+            .map_err(|e| AzlinError::FileTransfer(format!("channel open failed: {e}")))?;
+
+        channel
+            .exec(true, cmd.as_bytes())
+            .await
+            .map_err(|e| AzlinError::FileTransfer(format!("exec failed: {e}")))?;
+
+        let mut raw_data = Vec::new();
+        let mut stderr_buf = Vec::new();
+        let mut exit_code: Option<u32> = None;
+
+        while let Some(msg) = channel.wait().await {
+            match msg {
+                ChannelMsg::Data { data } => raw_data.extend_from_slice(&data),
+                ChannelMsg::ExtendedData { data, ext: 1 } => stderr_buf.extend_from_slice(&data),
+                ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status),
+                ChannelMsg::Eof | ChannelMsg::Close => break,
+                _ => {}
+            }
+        }
+
+        self.last_used = Instant::now();
+        let _duration = start.elapsed();
+
+        if exit_code.unwrap_or(1) != 0 {
             return Err(AzlinError::FileTransfer(format!(
                 "remote cat failed: {}",
-                result.stderr
+                String::from_utf8_lossy(&stderr_buf)
             )));
         }
 
-        tokio::fs::write(local_path, result.stdout.as_bytes())
+        // Write raw bytes directly — no UTF-8 conversion
+        tokio::fs::write(local_path, &raw_data)
             .await
             .map_err(|e| AzlinError::FileTransfer(format!("write local file: {e}")))?;
 
@@ -1101,7 +1140,10 @@ mod tests {
 
     #[test]
     fn test_key_needs_rotation_missing_file() {
-        assert!(key_needs_rotation(std::path::Path::new("/nonexistent/key"), 30));
+        assert!(key_needs_rotation(
+            std::path::Path::new("/nonexistent/key"),
+            30
+        ));
     }
 
     #[test]

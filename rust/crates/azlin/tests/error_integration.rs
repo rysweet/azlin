@@ -54,15 +54,17 @@ fn test_no_azure_auth_graceful_error() {
 fn test_azure_error_shows_login_suggestion() {
     let (stdout, stderr, code) = run_azlin(&["list", "--resource-group", "test-rg"]);
     let combined = format!("{}{}", stdout, stderr);
-    // With az CLI fallback, the command may succeed (exit 0) if az is logged in,
-    // or fail with a helpful message if not. Either behavior is acceptable.
+    // When auth fails, must show a clear error (not silently succeed with empty data).
+    // When auth succeeds (az CLI logged in), exit 0 is fine.
     if code != 0 {
         assert!(
-            combined.contains("az login") || combined.contains("error") || combined.contains("Error"),
-            "should suggest 'az login' or show error when auth fails, got: {combined}"
+            combined.contains("az login")
+                || combined.contains("error")
+                || combined.contains("Error")
+                || combined.contains("Failed"),
+            "should show a clear error when auth fails, got: {combined}"
         );
     }
-    // Must never panic regardless
     assert!(
         !combined.contains("panicked"),
         "should not panic: {combined}"
@@ -96,32 +98,38 @@ fn test_unknown_flag_rejected() {
 
 #[test]
 fn test_empty_vm_name_no_panic() {
-    let (stdout, stderr, _) = run_azlin(&["start", ""]);
+    let (stdout, stderr, code) = run_azlin(&["start", ""]);
     let combined = format!("{}{}", stdout, stderr);
     assert!(
         !combined.contains("panicked"),
         "empty VM name should not panic"
     );
+    assert_ne!(code, 0, "empty VM name should fail with non-zero exit");
 }
 
 #[test]
 fn test_empty_template_name_no_panic() {
-    let (stdout, stderr, _) = run_azlin(&["template", "show", ""]);
+    let (stdout, stderr, code) = run_azlin(&["template", "show", ""]);
     let combined = format!("{}{}", stdout, stderr);
     assert!(
         !combined.contains("panicked"),
         "empty template name should not panic"
     );
+    assert_ne!(
+        code, 0,
+        "empty template name should fail with non-zero exit"
+    );
 }
 
 #[test]
 fn test_empty_session_name_no_panic() {
-    let (stdout, stderr, _) = run_azlin(&["sessions", "load", ""]);
+    let (stdout, stderr, code) = run_azlin(&["sessions", "load", ""]);
     let combined = format!("{}{}", stdout, stderr);
     assert!(
         !combined.contains("panicked"),
         "empty session name should not panic"
     );
+    assert_ne!(code, 0, "empty session name should fail with non-zero exit");
 }
 
 // ---------------------------------------------------------------------------
@@ -132,12 +140,13 @@ fn test_empty_session_name_no_panic() {
 #[test]
 fn test_long_vm_name_no_panic() {
     let long_name = "a".repeat(300);
-    let (stdout, stderr, _) = run_azlin(&["start", &long_name]);
+    let (stdout, stderr, code) = run_azlin(&["start", &long_name]);
     let combined = format!("{}{}", stdout, stderr);
     assert!(
         !combined.contains("panicked"),
         "very long VM name should not panic"
     );
+    assert_ne!(code, 0, "very long VM name should fail with non-zero exit");
 }
 
 #[test]
@@ -146,8 +155,7 @@ fn test_long_config_key_no_panic() {
     let env = [("HOME", tmp.path().to_str().unwrap())];
     let long_key = "k".repeat(500);
 
-    let (stdout, stderr, _) =
-        run_azlin_with_env(&["config", "get", &long_key], &env);
+    let (stdout, stderr, _) = run_azlin_with_env(&["config", "get", &long_key], &env);
     let combined = format!("{}{}", stdout, stderr);
     assert!(
         !combined.contains("panicked"),
@@ -162,11 +170,15 @@ fn test_long_config_key_no_panic() {
 
 #[test]
 fn test_special_chars_vm_name_no_panic() {
-    let (stdout, stderr, _) = run_azlin(&["start", "test@#$%^&*!"]);
+    let (stdout, stderr, code) = run_azlin(&["start", "test@#$%^&*!"]);
     let combined = format!("{}{}", stdout, stderr);
     assert!(
         !combined.contains("panicked"),
         "special chars in VM name should not panic"
+    );
+    assert_ne!(
+        code, 0,
+        "special chars in VM name should fail with non-zero exit"
     );
 }
 

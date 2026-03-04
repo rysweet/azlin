@@ -202,10 +202,7 @@ fn test_template_list_json_is_valid_json() {
     );
     assert_eq!(code, 0);
 
-    let (stdout, _, code) = run_azlin_with_env(
-        &["--output", "json", "template", "list"],
-        &env,
-    );
+    let (stdout, _, code) = run_azlin_with_env(&["--output", "json", "template", "list"], &env);
     assert_eq!(code, 0);
     let trimmed = stdout.trim();
     // Should be a valid JSON array
@@ -222,10 +219,7 @@ fn test_sessions_list_json_empty_is_valid() {
     let tmp = tempfile::TempDir::new().unwrap();
     let env = [("HOME", tmp.path().to_str().unwrap())];
 
-    let (stdout, _, code) = run_azlin_with_env(
-        &["--output", "json", "sessions", "list"],
-        &env,
-    );
+    let (stdout, _, code) = run_azlin_with_env(&["--output", "json", "sessions", "list"], &env);
     assert_eq!(code, 0);
     let trimmed = stdout.trim();
     // Empty list produces either [] or a "No saved" message
@@ -260,10 +254,7 @@ fn test_template_list_csv_with_data() {
     );
     assert_eq!(code, 0);
 
-    let (stdout, _, code) = run_azlin_with_env(
-        &["--output", "csv", "template", "list"],
-        &env,
-    );
+    let (stdout, _, code) = run_azlin_with_env(&["--output", "csv", "template", "list"], &env);
     assert_eq!(code, 0);
     assert!(
         stdout.contains("csv-test"),

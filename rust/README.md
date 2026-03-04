@@ -29,7 +29,7 @@ RUST_MIN_STACK=8388608 cargo test
 | `azlin-ai` | Anthropic API client | 89% |
 | `azlin` | Main binary + azdoit, all command handlers | 74%+ |
 
-Overall: **80%+ line coverage** across 930+ tests.
+Overall: **80%+ line coverage** across 1,870+ tests.
 
 ## Key Features
 

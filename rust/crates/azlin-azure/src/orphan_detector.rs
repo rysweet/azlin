@@ -29,13 +29,20 @@ impl std::fmt::Display for ResourceType {
 }
 
 /// Parse Azure disk list output to find unattached disks
-pub fn find_orphaned_disks(disk_json: &str) -> Vec<OrphanedResource> {
-    let disks: Vec<serde_json::Value> = serde_json::from_str(disk_json).unwrap_or_default();
-    disks
+pub fn find_orphaned_disks(disk_json: &str) -> anyhow::Result<Vec<OrphanedResource>> {
+    let disks: Vec<serde_json::Value> = serde_json::from_str(disk_json)
+        .map_err(|e| anyhow::anyhow!("Failed to parse disk list JSON: {e}"))?;
+    Ok(disks
         .iter()
         .filter(|d| {
-            d.get("diskState").and_then(|s| s.as_str()) == Some("Unattached")
-                || d.get("managedBy").map(|m| m.is_null()).unwrap_or(true)
+            // A disk is orphaned only if BOTH conditions are true:
+            // 1. diskState is "Unattached" (not in use by any VM)
+            // 2. managedBy is null/missing (no VM owns it)
+            // Using AND prevents false positives during provisioning transitions
+            // where diskState might be "Attached" but managedBy is temporarily null.
+            let is_unattached = d.get("diskState").and_then(|s| s.as_str()) == Some("Unattached");
+            let no_manager = d.get("managedBy").map(|m| m.is_null()).unwrap_or(true);
+            is_unattached && no_manager
         })
         .filter_map(|d| {
             let name = d.get("name")?.as_str()?.to_string();
@@ -54,7 +61,7 @@ pub fn find_orphaned_disks(disk_json: &str) -> Vec<OrphanedResource> {
                 estimated_monthly_cost: cost,
             })
         })
-        .collect()
+        .collect())
 }
 
 /// Calculate total estimated savings from cleaning up orphaned resources
@@ -92,20 +99,49 @@ mod tests {
             {"name": "disk1", "diskState": "Unattached", "resourceGroup": "rg1", "diskSizeGb": 128},
             {"name": "disk2", "diskState": "Attached", "managedBy": "/subscriptions/.../vms/vm1", "resourceGroup": "rg1", "diskSizeGb": 64}
         ]"#;
-        let orphans = find_orphaned_disks(json);
+        let orphans = find_orphaned_disks(json).unwrap();
         assert_eq!(orphans.len(), 1);
         assert_eq!(orphans[0].name, "disk1");
         assert!((orphans[0].estimated_monthly_cost - 5.12).abs() < 0.01);
     }
 
     #[test]
+    fn test_attached_disk_with_null_managed_by_not_orphaned() {
+        // Regression test: a disk in "Attached" state with null managedBy
+        // (which can happen during provisioning transitions) should NOT
+        // be flagged as orphaned. The AND logic fix prevents this.
+        let json = r#"[
+            {"name": "transitioning-disk", "diskState": "Attached", "managedBy": null, "resourceGroup": "rg1", "diskSizeGb": 64}
+        ]"#;
+        let orphans = find_orphaned_disks(json).unwrap();
+        assert!(
+            orphans.is_empty(),
+            "Attached disk with null managedBy should NOT be flagged as orphaned"
+        );
+    }
+
+    #[test]
+    fn test_unattached_disk_with_valid_manager_not_orphaned() {
+        // A disk that is "Unattached" but still has a managedBy reference
+        // (e.g., being detached but not yet cleaned up) should not be orphaned.
+        let json = r#"[
+            {"name": "detaching-disk", "diskState": "Unattached", "managedBy": "/subscriptions/.../vms/vm1", "resourceGroup": "rg1", "diskSizeGb": 64}
+        ]"#;
+        let orphans = find_orphaned_disks(json).unwrap();
+        assert!(
+            orphans.is_empty(),
+            "Unattached disk with valid managedBy should NOT be flagged as orphaned"
+        );
+    }
+
+    #[test]
     fn test_find_orphaned_disks_empty() {
-        assert!(find_orphaned_disks("[]").is_empty());
+        assert!(find_orphaned_disks("[]").unwrap().is_empty());
     }
 
     #[test]
     fn test_find_orphaned_disks_invalid_json() {
-        assert!(find_orphaned_disks("not json").is_empty());
+        assert!(find_orphaned_disks("not json").is_err());
     }
 
     #[test]

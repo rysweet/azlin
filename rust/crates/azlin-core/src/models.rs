@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 ///
 /// ```
-/// use azlin_core::models::{VmInfo, PowerState, OsType};
+/// use azlin_core::models::{VmInfo, PowerState, OsType, ProvisioningState};
 /// use std::collections::HashMap;
 ///
 /// let vm = VmInfo {
@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 ///     location: "westus2".to_string(),
 ///     vm_size: "Standard_D2s_v3".to_string(),
 ///     power_state: PowerState::Running,
-///     provisioning_state: "Succeeded".to_string(),
+///     provisioning_state: ProvisioningState::Succeeded,
 ///     os_type: OsType::Linux,
 ///     public_ip: Some("1.2.3.4".to_string()),
 ///     private_ip: Some("10.0.0.4".to_string()),
@@ -38,7 +38,7 @@ pub struct VmInfo {
     pub location: String,
     pub vm_size: String,
     pub power_state: PowerState,
-    pub provisioning_state: String,
+    pub provisioning_state: ProvisioningState,
     pub os_type: OsType,
     pub public_ip: Option<String>,
     pub private_ip: Option<String>,
@@ -76,6 +76,49 @@ impl std::fmt::Display for PowerState {
 pub enum OsType {
     Linux,
     Windows,
+}
+
+/// Azure VM provisioning state — the lifecycle of the ARM deployment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProvisioningState {
+    #[default]
+    Succeeded,
+    Failed,
+    Creating,
+    Deleting,
+    Updating,
+    Migrating,
+    /// Any state not in the known set — preserves the raw string.
+    #[serde(untagged)]
+    Other(String),
+}
+
+impl std::fmt::Display for ProvisioningState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Succeeded => write!(f, "Succeeded"),
+            Self::Failed => write!(f, "Failed"),
+            Self::Creating => write!(f, "Creating"),
+            Self::Deleting => write!(f, "Deleting"),
+            Self::Updating => write!(f, "Updating"),
+            Self::Migrating => write!(f, "Migrating"),
+            Self::Other(s) => write!(f, "{s}"),
+        }
+    }
+}
+
+impl From<&str> for ProvisioningState {
+    fn from(s: &str) -> Self {
+        match s {
+            "Succeeded" => Self::Succeeded,
+            "Failed" => Self::Failed,
+            "Creating" => Self::Creating,
+            "Deleting" => Self::Deleting,
+            "Updating" => Self::Updating,
+            "Migrating" => Self::Migrating,
+            other => Self::Other(other.to_string()),
+        }
+    }
 }
 
 /// Represents a tmux session on a remote VM.
@@ -294,7 +337,7 @@ mod tests {
             location: "westus2".to_string(),
             vm_size: "Standard_E16as_v5".to_string(),
             power_state: PowerState::Running,
-            provisioning_state: "Succeeded".to_string(),
+            provisioning_state: ProvisioningState::Succeeded,
             os_type: OsType::Linux,
             public_ip: Some("1.2.3.4".to_string()),
             private_ip: Some("10.0.0.4".to_string()),
@@ -514,7 +557,7 @@ mod tests {
             location: "eastus".to_string(),
             vm_size: "Standard_D2s_v3".to_string(),
             power_state: PowerState::Running,
-            provisioning_state: "Succeeded".to_string(),
+            provisioning_state: ProvisioningState::Succeeded,
             os_type: OsType::Linux,
             public_ip: None,
             private_ip: None,
@@ -535,7 +578,7 @@ mod tests {
             location: "westus2".to_string(),
             vm_size: "Standard_D2s_v3".to_string(),
             power_state: state,
-            provisioning_state: "Succeeded".to_string(),
+            provisioning_state: ProvisioningState::Succeeded,
             os_type: OsType::Linux,
             public_ip: None,
             private_ip: None,
@@ -774,7 +817,7 @@ mod tests {
             location: "eastus".to_string(),
             vm_size: "Standard_D2s_v3".to_string(),
             power_state: PowerState::Running,
-            provisioning_state: "Succeeded".to_string(),
+            provisioning_state: ProvisioningState::Succeeded,
             os_type: OsType::Windows,
             public_ip: Some("1.2.3.4".to_string()),
             private_ip: Some("10.0.0.5".to_string()),
@@ -784,5 +827,68 @@ mod tests {
         };
         assert_eq!(vm.os_type, OsType::Windows);
         assert!(vm.created_time.is_some());
+    }
+
+    // ── ProvisioningState tests ────────────────────────────────────────
+
+    #[test]
+    fn test_provisioning_state_from_known_strings() {
+        assert_eq!(
+            ProvisioningState::from("Succeeded"),
+            ProvisioningState::Succeeded
+        );
+        assert_eq!(ProvisioningState::from("Failed"), ProvisioningState::Failed);
+        assert_eq!(
+            ProvisioningState::from("Creating"),
+            ProvisioningState::Creating
+        );
+        assert_eq!(
+            ProvisioningState::from("Deleting"),
+            ProvisioningState::Deleting
+        );
+        assert_eq!(
+            ProvisioningState::from("Updating"),
+            ProvisioningState::Updating
+        );
+        assert_eq!(
+            ProvisioningState::from("Migrating"),
+            ProvisioningState::Migrating
+        );
+    }
+
+    #[test]
+    fn test_provisioning_state_from_unknown() {
+        let state = ProvisioningState::from("SomethingNew");
+        assert_eq!(state, ProvisioningState::Other("SomethingNew".to_string()));
+    }
+
+    #[test]
+    fn test_provisioning_state_display() {
+        assert_eq!(ProvisioningState::Succeeded.to_string(), "Succeeded");
+        assert_eq!(ProvisioningState::Failed.to_string(), "Failed");
+        assert_eq!(ProvisioningState::Creating.to_string(), "Creating");
+        assert_eq!(
+            ProvisioningState::Other("Custom".to_string()).to_string(),
+            "Custom"
+        );
+    }
+
+    #[test]
+    fn test_provisioning_state_default() {
+        assert_eq!(ProvisioningState::default(), ProvisioningState::Succeeded);
+    }
+
+    #[test]
+    fn test_provisioning_state_serde_roundtrip() {
+        let states = vec![
+            ProvisioningState::Succeeded,
+            ProvisioningState::Failed,
+            ProvisioningState::Creating,
+        ];
+        for state in states {
+            let json = serde_json::to_string(&state).unwrap();
+            let deserialized: ProvisioningState = serde_json::from_str(&json).unwrap();
+            assert_eq!(state, deserialized);
+        }
     }
 }

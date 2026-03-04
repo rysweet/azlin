@@ -70,15 +70,40 @@ fn test_create_alias_help() {
 
 #[test]
 fn test_list_without_auth_no_panic() {
-    let (stdout, stderr, _) = run_azlin(&["list"]);
+    let (stdout, stderr, code) = run_azlin(&["list"]);
     let combined = format!("{}{}", stdout, stderr);
-    assert!(!combined.contains("panicked"));
+    assert!(
+        !combined.contains("panicked"),
+        "should not panic: {combined}"
+    );
+    // Without auth, should either succeed (if az is logged in) or fail gracefully
+    if code != 0 {
+        assert!(
+            combined.contains("error")
+                || combined.contains("Error")
+                || combined.contains("failed")
+                || combined.contains("az login"),
+            "should show clear error without auth: {combined}"
+        );
+    }
 }
 
 #[test]
 fn test_new_dry_run_no_panic() {
     // new without any Azure auth should fail gracefully
-    let (stdout, stderr, _) = run_azlin(&["new", "--name", "test-lifecycle-vm"]);
+    let (stdout, stderr, code) = run_azlin(&["new", "--name", "test-lifecycle-vm"]);
     let combined = format!("{}{}", stdout, stderr);
-    assert!(!combined.contains("panicked"));
+    assert!(
+        !combined.contains("panicked"),
+        "should not panic: {combined}"
+    );
+    if code != 0 {
+        assert!(
+            combined.contains("error")
+                || combined.contains("Error")
+                || combined.contains("failed")
+                || combined.contains("az login"),
+            "should show clear error without auth: {combined}"
+        );
+    }
 }

@@ -185,7 +185,7 @@ mod tests {
             location: "westus2".to_string(),
             vm_size: "Standard_E16as_v5".to_string(),
             power_state: state,
-            provisioning_state: "Succeeded".to_string(),
+            provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
             os_type: azlin_core::models::OsType::Linux,
             public_ip: ip.map(String::from),
             private_ip: Some("10.0.0.4".to_string()),

@@ -52,7 +52,7 @@ impl RateLimiter {
     /// assert!(limiter.try_acquire().is_some());
     /// ```
     pub fn try_acquire(&self) -> Option<Duration> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.refill();
         if inner.tokens >= 1.0 {
             inner.tokens -= 1.0;
@@ -76,7 +76,7 @@ impl RateLimiter {
     /// assert!((limiter.available_tokens() - 9.0).abs() < 0.1);
     /// ```
     pub fn available_tokens(&self) -> f64 {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.refill();
         inner.tokens
     }

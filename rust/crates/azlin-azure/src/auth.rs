@@ -4,6 +4,7 @@ use azure_identity::DefaultAzureCredential;
 use std::process::Command;
 use std::sync::Arc;
 use tracing::debug;
+use wait_timeout::ChildExt;
 
 /// Handles Azure authentication via DefaultAzureCredential chain.
 ///
@@ -70,22 +71,57 @@ impl AzureAuth {
     }
 
     /// Read subscription and tenant from `az account show`.
+    ///
+    /// Includes a 120-second timeout to prevent hangs on unresponsive
+    /// Azure CLI (e.g. network issues, auth prompts on Windows/WSL).
     fn read_account_info() -> Result<(String, String)> {
-        let output = Command::new("az")
+        let mut child = Command::new("az")
             .args(["account", "show", "--output", "json"])
-            .output()
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
             .context("Failed to run `az account show` — is Azure CLI installed?")?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        let timeout = std::time::Duration::from_secs(120);
+        let status = match child.wait_timeout(timeout) {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                anyhow::bail!("`az account show` timed out after 120s");
+            }
+            Err(e) => anyhow::bail!("Failed to wait for `az account show`: {e}"),
+        };
+
+        let stdout = child
+            .stdout
+            .take()
+            .map(|mut s| {
+                let mut buf = Vec::new();
+                std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                buf
+            })
+            .unwrap_or_default();
+        let stderr = child
+            .stderr
+            .take()
+            .map(|mut s| {
+                let mut buf = Vec::new();
+                std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                buf
+            })
+            .unwrap_or_default();
+
+        if !status.success() {
+            let stderr_str = String::from_utf8_lossy(&stderr);
             anyhow::bail!(
                 "`az account show` failed (exit {}): {}",
-                output.status,
-                azlin_core::sanitizer::sanitize(stderr.trim())
+                status,
+                azlin_core::sanitizer::sanitize(stderr_str.trim())
             );
         }
 
-        let account: serde_json::Value = serde_json::from_slice(&output.stdout)
+        let account: serde_json::Value = serde_json::from_slice(&stdout)
             .context("Failed to parse `az account show` JSON output")?;
 
         let subscription_id = account["id"]
@@ -156,8 +192,24 @@ mod tests {
     #[test]
     fn test_new_without_cli_does_not_panic() {
         // AzureAuth::new() depends on `az account show`; it should return
-        // Err rather than panic when CLI is unavailable.
-        let _result = AzureAuth::new();
+        // Ok or Err — never panic.
+        let result = AzureAuth::new();
+        // Verify it returns a meaningful result either way
+        match result {
+            Ok(auth) => {
+                assert!(
+                    !auth.subscription_id().is_empty(),
+                    "subscription_id should not be empty on success"
+                );
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("az") || msg.contains("account") || msg.contains("timed out"),
+                    "error should mention az CLI: {msg}"
+                );
+            }
+        }
     }
 
     // ── Subscription ID parsing tests ───────────────────────────────

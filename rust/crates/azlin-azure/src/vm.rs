@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use tracing::{debug, warn};
+use wait_timeout::ChildExt;
 
 use azlin_core::models::{CreateVmParams, OsType, PowerState, VmInfo};
 
@@ -36,9 +37,12 @@ impl azure_core_old::auth::TokenCredential for CredentialAdapter {
             .await
             .map_err(|e| azure_core_old::Error::GetToken(Box::new(e)))?;
 
+        // Use a conservative 5-minute expiry since we cannot extract the real
+        // expiry from the new SDK's AccessToken. This forces frequent refreshes
+        // but avoids using stale tokens — the credential provider caches internally.
         Ok(azure_core_old::auth::TokenResponse::new(
             oauth2::AccessToken::new(token.token.secret().to_string()),
-            chrono::Utc::now() + chrono::Duration::hours(1),
+            chrono::Utc::now() + chrono::Duration::minutes(5),
         ))
     }
 }
@@ -48,11 +52,24 @@ pub struct VmManager {
     compute_client: azure_mgmt_compute::Client,
     network_client: azure_mgmt_network::Client,
     subscription_id: String,
+    /// Timeout for `az` CLI subprocess calls, in seconds.
+    az_cli_timeout: u64,
 }
 
 impl VmManager {
     /// Create a new `VmManager` from an `AzureAuth`.
+    ///
+    /// Uses default az CLI timeout (120s). For custom timeouts, use
+    /// [`VmManager::with_timeout`].
     pub fn new(auth: &AzureAuth) -> Self {
+        Self::with_timeout(auth, AZ_CLI_DEFAULT_TIMEOUT_SECS)
+    }
+
+    /// Create a new `VmManager` with a custom az CLI timeout.
+    ///
+    /// The timeout applies to all `az` CLI subprocess calls. Increase on
+    /// Windows/WSL where Azure CLI operations are slower.
+    pub fn with_timeout(auth: &AzureAuth, az_cli_timeout: u64) -> Self {
         let adapter = Arc::new(CredentialAdapter {
             inner: auth.credential_arc(),
         });
@@ -71,6 +88,7 @@ impl VmManager {
             compute_client,
             network_client,
             subscription_id,
+            az_cli_timeout,
         }
     }
 
@@ -78,65 +96,55 @@ impl VmManager {
     pub async fn list_vms(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
         debug!(resource_group, "Listing VMs");
 
-        match self
+        let result = self
             .compute_client
             .virtual_machines()
             .list(resource_group, &self.subscription_id)
             .into_future()
             .await
-        {
-            Ok(result) => {
-                let mut vms = Vec::new();
-                for vm in &result.value {
-                    match self.convert_vm(vm, resource_group).await {
-                        Ok(info) => vms.push(info),
-                        Err(e) => {
-                            let name = vm.resource.name.as_deref().unwrap_or("unknown");
-                            warn!(vm_name = name, error = %e, "Failed to convert VM, skipping");
-                        }
-                    }
+            .context(format!(
+                "Failed to list VMs in resource group '{resource_group}'"
+            ))?;
+
+        let mut vms = Vec::new();
+        for vm in &result.value {
+            match self.convert_vm(vm, resource_group).await {
+                Ok(info) => vms.push(info),
+                Err(e) => {
+                    let name = vm.resource.name.as_deref().unwrap_or("unknown");
+                    warn!(vm_name = name, error = %e, "Failed to convert VM, skipping");
                 }
-                debug!(count = vms.len(), "Listed VMs");
-                Ok(vms)
-            }
-            Err(e) => {
-                debug!(error = %e, "Azure SDK deserialization failed, falling back to az CLI");
-                list_vms_via_cli(Some(resource_group)).await
             }
         }
+        debug!(count = vms.len(), "Listed VMs");
+        Ok(vms)
     }
 
     /// List all VMs across the entire subscription.
     pub async fn list_all_vms(&self) -> Result<Vec<VmInfo>> {
         debug!("Listing all VMs in subscription");
 
-        match self
+        let result = self
             .compute_client
             .virtual_machines()
             .list_all(&self.subscription_id)
             .into_future()
             .await
-        {
-            Ok(result) => {
-                let mut vms = Vec::new();
-                for vm in &result.value {
-                    let rg = extract_resource_group(vm.resource.id.as_deref().unwrap_or(""));
-                    match self.convert_vm(vm, &rg).await {
-                        Ok(info) => vms.push(info),
-                        Err(e) => {
-                            let name = vm.resource.name.as_deref().unwrap_or("unknown");
-                            warn!(vm_name = name, error = %e, "Failed to convert VM, skipping");
-                        }
-                    }
+            .context("Failed to list all VMs in subscription")?;
+
+        let mut vms = Vec::new();
+        for vm in &result.value {
+            let rg = extract_resource_group(vm.resource.id.as_deref().unwrap_or(""));
+            match self.convert_vm(vm, &rg).await {
+                Ok(info) => vms.push(info),
+                Err(e) => {
+                    let name = vm.resource.name.as_deref().unwrap_or("unknown");
+                    warn!(vm_name = name, error = %e, "Failed to convert VM, skipping");
                 }
-                debug!(count = vms.len(), "Listed all VMs");
-                Ok(vms)
-            }
-            Err(e) => {
-                debug!(error = %e, "Azure SDK deserialization failed, falling back to az CLI");
-                list_vms_via_cli(None).await
             }
         }
+        debug!(count = vms.len(), "Listed all VMs");
+        Ok(vms)
     }
 
     /// Convert an Azure SDK VM to our VmInfo model.
@@ -160,10 +168,10 @@ impl VmManager {
         // Extract power state from instance view statuses
         let power_state = extract_power_state(props.and_then(|p| p.instance_view.as_ref()));
 
-        let provisioning_state = props
+        let provisioning_state: azlin_core::models::ProvisioningState = props
             .and_then(|p| p.provisioning_state.as_deref())
             .unwrap_or("Unknown")
-            .to_string();
+            .into();
 
         // Detect OS type from OS profile
         let has_linux = props
@@ -184,10 +192,13 @@ impl VmManager {
         let tags = extract_tags(vm.resource.tags.as_ref());
 
         // Extract IPs from network interfaces
-        let (public_ip, private_ip) = self
-            .get_vm_ips(props, resource_group)
-            .await
-            .unwrap_or((None, None));
+        let (public_ip, private_ip) = match self.get_vm_ips(props, resource_group).await {
+            Ok(ips) => ips,
+            Err(e) => {
+                tracing::warn!(vm = %name, error = %e, "Failed to resolve VM IP addresses");
+                (None, None)
+            }
+        };
 
         // Extract created time
         let created_time = parse_created_time(props.and_then(|p| p.time_created.as_deref()));
@@ -245,30 +256,21 @@ impl VmManager {
     }
 
     /// Get details for a single VM (with instance view for power state).
-    ///
-    /// Tries the Azure SDK first; on failure falls back to `az vm show` CLI.
     pub async fn get_vm(&self, resource_group: &str, name: &str) -> Result<VmInfo> {
         debug!(resource_group, name, "Getting VM details");
 
-        match self
+        let vm = self
             .compute_client
             .virtual_machines()
             .get(resource_group, name, &self.subscription_id)
             .expand("instanceView")
             .into_future()
             .await
-        {
-            Ok(vm) => self.convert_vm(&vm, resource_group).await,
-            Err(e) => {
-                warn!(
-                    resource_group,
-                    name,
-                    error = %e,
-                    "Azure SDK failed for get_vm, falling back to az CLI"
-                );
-                get_vm_via_cli(resource_group, name).await
-            }
-        }
+            .context(format!(
+                "Failed to get VM '{name}' in resource group '{resource_group}'"
+            ))?;
+
+        self.convert_vm(&vm, resource_group).await
     }
 
     /// Add a tag to a VM, preserving existing tags.
@@ -361,6 +363,10 @@ impl VmManager {
         let location = &params.region;
         let vm_name = &params.name;
         let names = build_vm_resource_names(vm_name);
+        let timeout = self.az_cli_timeout;
+
+        // Local helper using the configured timeout
+        let az = |args: &[&str]| -> Result<String> { az_cli_with_timeout(args, timeout) };
 
         // Read SSH public key
         let ssh_pub_key = std::fs::read_to_string(&params.ssh_key_path).context(format!(
@@ -370,12 +376,12 @@ impl VmManager {
 
         // 1. Create or verify resource group
         debug!(rg, location, "Creating/verifying resource group");
-        az_cli(&["group", "create", "--name", rg, "--location", location])
+        az(&["group", "create", "--name", rg, "--location", location])
             .context(format!("Failed to create resource group '{rg}'"))?;
 
         // 2. Create NSG with SSH + HTTPS rules
         debug!(nsg_name = %names.nsg, "Creating NSG");
-        az_cli(&[
+        az(&[
             "network",
             "nsg",
             "create",
@@ -388,7 +394,7 @@ impl VmManager {
         ])
         .context(format!("Failed to create NSG '{}'", names.nsg))?;
 
-        az_cli(&[
+        az(&[
             "network",
             "nsg",
             "rule",
@@ -412,7 +418,7 @@ impl VmManager {
         ])
         .context("Failed to create SSH NSG rule")?;
 
-        az_cli(&[
+        az(&[
             "network",
             "nsg",
             "rule",
@@ -438,7 +444,7 @@ impl VmManager {
 
         // 3. Create VNet + subnet
         debug!(vnet_name = %names.vnet, subnet_name = %names.subnet, "Creating VNet and subnet");
-        az_cli(&[
+        az(&[
             "network",
             "vnet",
             "create",
@@ -461,7 +467,7 @@ impl VmManager {
 
         // 4. Create public IP
         debug!(pip_name = %names.pip, "Creating public IP");
-        az_cli(&[
+        az(&[
             "network",
             "public-ip",
             "create",
@@ -480,7 +486,7 @@ impl VmManager {
 
         // 5. Create NIC
         debug!(nic_name = %names.nic, "Creating NIC");
-        az_cli(&[
+        az(&[
             "network",
             "nic",
             "create",
@@ -505,7 +511,7 @@ impl VmManager {
         debug!(%vm_name, "Creating VM");
         let image_urn = params.image.to_string();
 
-        let cloud_init_file = create_cloud_init_file()?;
+        let cloud_init_file = create_cloud_init_file(&params.admin_username)?;
         let cloud_init_path = cloud_init_file.path().to_string_lossy().to_string();
         let mut az_args = vec![
             "vm",
@@ -538,7 +544,7 @@ impl VmManager {
             }
         }
 
-        az_cli(&az_args).context(format!("Failed to create VM '{vm_name}'"))?;
+        az(&az_args).context(format!("Failed to create VM '{vm_name}'"))?;
 
         // cloud_init_file is dropped here, which auto-deletes the temp file
 
@@ -650,24 +656,73 @@ impl VmManager {
     }
 }
 
-/// Run an `az` CLI command, returning Ok(stdout) on success.
+/// Default timeout for `az` CLI subprocess calls (120 seconds).
+/// Overridden by `AzlinConfig.az_cli_timeout` when available.
+const AZ_CLI_DEFAULT_TIMEOUT_SECS: u64 = 120;
+
+/// Run an `az` CLI command with the default timeout, returning Ok(stdout) on success.
+///
+/// For custom timeouts (e.g., Windows/WSL), use [`az_cli_with_timeout`].
+#[cfg_attr(not(test), allow(dead_code))]
 fn az_cli(args: &[&str]) -> Result<String> {
+    az_cli_with_timeout(args, AZ_CLI_DEFAULT_TIMEOUT_SECS)
+}
+
+/// Run an `az` CLI command with an explicit timeout in seconds.
+fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
     debug!(args = ?args, "Running az CLI command");
-    let output = std::process::Command::new("az")
+    let mut child = std::process::Command::new("az")
         .args(args)
         .arg("--output")
         .arg("json")
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .context("Failed to execute 'az' CLI. Is Azure CLI installed?")?;
 
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(anyhow::anyhow!(
-            "az CLI failed: {}",
-            azlin_core::sanitizer::sanitize(stderr.trim())
-        ))
+    let timeout = std::time::Duration::from_secs(timeout_secs);
+    match child.wait_timeout(timeout) {
+        Ok(Some(status)) => {
+            let stdout = child
+                .stdout
+                .take()
+                .map(|mut s| {
+                    let mut buf = Vec::new();
+                    std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                    buf
+                })
+                .unwrap_or_default();
+            let stderr = child
+                .stderr
+                .take()
+                .map(|mut s| {
+                    let mut buf = Vec::new();
+                    std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                    buf
+                })
+                .unwrap_or_default();
+
+            if status.success() {
+                Ok(String::from_utf8_lossy(&stdout).to_string())
+            } else {
+                let stderr_str = String::from_utf8_lossy(&stderr);
+                Err(anyhow::anyhow!(
+                    "az CLI failed: {}",
+                    azlin_core::sanitizer::sanitize(stderr_str.trim())
+                ))
+            }
+        }
+        Ok(None) => {
+            // Timed out — kill the child process
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(anyhow::anyhow!(
+                "az CLI command timed out after {}s. Args: {:?}",
+                timeout_secs,
+                args
+            ))
+        }
+        Err(e) => Err(anyhow::anyhow!("Failed to wait for az CLI: {e}")),
     }
 }
 
@@ -676,21 +731,38 @@ fn az_cli(args: &[&str]) -> Result<String> {
 /// The caller must keep the returned `NamedTempFile` alive until the file is no
 /// longer needed (e.g. until the `az vm create` command has finished). Dropping
 /// the handle deletes the file automatically.
-fn create_cloud_init_file() -> Result<tempfile::NamedTempFile> {
+fn create_cloud_init_file(admin_username: &str) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
     let mut tmp = tempfile::Builder::new()
         .prefix("azlin-cloud-init-")
         .suffix(".sh")
         .tempfile()
         .context("Failed to create cloud-init temp file")?;
-    tmp.write_all(CLOUD_INIT_SCRIPT.as_bytes())
+    let script = cloud_init_script(admin_username);
+    tmp.write_all(script.as_bytes())
         .context("Failed to write cloud-init temp file")?;
-    tmp.flush().context("Failed to flush cloud-init temp file")?;
+    tmp.flush()
+        .context("Failed to flush cloud-init temp file")?;
     Ok(tmp)
 }
 
-/// Cloud-init script for basic VM setup.
-const CLOUD_INIT_SCRIPT: &str = r#"#!/bin/bash
+/// Generate the cloud-init script with the given admin username.
+///
+/// Uses the admin_username for docker group membership instead of
+/// hardcoding "azureuser".
+fn cloud_init_script(admin_username: &str) -> String {
+    // Validate username to prevent injection into the shell script
+    let safe_username = if admin_username
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        && !admin_username.is_empty()
+    {
+        admin_username
+    } else {
+        "azureuser"
+    };
+    format!(
+        r#"#!/bin/bash
 set -euo pipefail
 
 apt-get update -qq
@@ -704,10 +776,13 @@ apt-get install -y -qq \
 
 systemctl enable docker
 systemctl start docker
-usermod -aG docker azureuser
+usermod -aG docker {username}
 
 echo "cloud-init provisioning complete"
-"#;
+"#,
+        username = safe_username
+    )
+}
 
 /// Struct holding derived resource names for VM provisioning.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -749,158 +824,6 @@ fn parse_public_ip_resource_id(resource_id: &str) -> Option<(&str, &str)> {
 /// Extract NIC name from a full Azure resource ID.
 fn extract_nic_name_from_id(nic_id: &str) -> Option<&str> {
     nic_id.rsplit('/').next().filter(|s| !s.is_empty())
-}
-
-/// Fallback: list VMs via the `az` CLI when the Azure SDK fails to deserialize.
-///
-/// When `resource_group` is `Some`, scopes to that resource group; otherwise lists
-/// all VMs in the subscription.
-async fn list_vms_via_cli(resource_group: Option<&str>) -> Result<Vec<VmInfo>> {
-    let mut cmd = tokio::process::Command::new("az");
-    cmd.arg("vm").arg("list").arg("--show-details").arg("--output").arg("json");
-    if let Some(rg) = resource_group {
-        cmd.arg("--resource-group").arg(rg);
-    }
-
-    let output = cmd
-        .output()
-        .await
-        .context("Failed to run 'az vm list' CLI command")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!(
-            "az vm list failed: {}",
-            azlin_core::sanitizer::sanitize(stderr.trim())
-        );
-    }
-
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).context("Failed to parse az CLI JSON output")?;
-
-    let arr = json.as_array().context("Expected JSON array from az vm list")?;
-
-    let mut vms = Vec::with_capacity(arr.len());
-    for entry in arr {
-        match parse_az_vm_json(entry) {
-            Ok(vm) => vms.push(vm),
-            Err(e) => {
-                let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                warn!(vm_name = name, error = %e, "Failed to parse CLI VM entry, skipping");
-            }
-        }
-    }
-
-    debug!(count = vms.len(), "Listed VMs via az CLI fallback");
-    Ok(vms)
-}
-
-/// Fallback: get a single VM via `az vm show` when the Azure SDK fails.
-async fn get_vm_via_cli(resource_group: &str, name: &str) -> Result<VmInfo> {
-    let output = tokio::process::Command::new("az")
-        .arg("vm")
-        .arg("show")
-        .arg("--name")
-        .arg(name)
-        .arg("--resource-group")
-        .arg(resource_group)
-        .arg("--show-details")
-        .arg("--output")
-        .arg("json")
-        .output()
-        .await
-        .context("Failed to run 'az vm show' CLI command")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!(
-            "az vm show failed: {}",
-            azlin_core::sanitizer::sanitize(stderr.trim())
-        );
-    }
-
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).context("Failed to parse az vm show JSON output")?;
-
-    parse_az_vm_json(&json).context(format!("Failed to parse az vm show output for '{name}'"))
-}
-
-/// Parse a single VM JSON object from `az vm list --show-details` output.
-fn parse_az_vm_json(v: &serde_json::Value) -> Result<VmInfo> {
-    let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let id = v.get("id").and_then(|n| n.as_str()).unwrap_or("");
-    let resource_group = extract_resource_group(id);
-    let location = v.get("location").and_then(|n| n.as_str()).unwrap_or("").to_string();
-
-    let vm_size = v
-        .get("hardwareProfile")
-        .and_then(|hp| hp.get("vmSize"))
-        .and_then(|s| s.as_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    let power_state_str = v.get("powerState").and_then(|s| s.as_str()).unwrap_or("");
-    let power_state = match power_state_str.to_lowercase().as_str() {
-        s if s.contains("running") => PowerState::Running,
-        s if s.contains("deallocat") => PowerState::Deallocated,
-        s if s.contains("stopped") => PowerState::Stopped,
-        s if s.contains("starting") => PowerState::Starting,
-        s if s.contains("stopping") => PowerState::Stopping,
-        _ => PowerState::Unknown,
-    };
-
-    let provisioning_state = v
-        .get("provisioningState")
-        .and_then(|s| s.as_str())
-        .unwrap_or("Unknown")
-        .to_string();
-
-    let public_ip = v
-        .get("publicIps")
-        .and_then(|s| s.as_str())
-        .filter(|s| !s.is_empty())
-        .map(String::from);
-
-    let private_ip = v
-        .get("privateIps")
-        .and_then(|s| s.as_str())
-        .filter(|s| !s.is_empty())
-        .map(String::from);
-
-    let admin_username = v
-        .get("osProfile")
-        .and_then(|o| o.get("adminUsername"))
-        .and_then(|s| s.as_str())
-        .map(String::from);
-
-    let os_type_str = v
-        .get("storageProfile")
-        .and_then(|sp| sp.get("osDisk"))
-        .and_then(|od| od.get("osType"))
-        .and_then(|s| s.as_str())
-        .unwrap_or("");
-    let os_type = if os_type_str.eq_ignore_ascii_case("windows") {
-        OsType::Windows
-    } else {
-        OsType::Linux
-    };
-
-    let tags = extract_tags(v.get("tags"));
-
-    Ok(VmInfo {
-        name,
-        resource_group,
-        location,
-        vm_size,
-        power_state,
-        provisioning_state,
-        os_type,
-        public_ip,
-        private_ip,
-        admin_username,
-        tags,
-        created_time: None,
-    })
 }
 
 /// Detect OS type from OS profile flags.
@@ -1220,9 +1143,9 @@ mod tests {
 
     #[test]
     fn test_cloud_init_script_is_valid_shell() {
-        assert!(CLOUD_INIT_SCRIPT.starts_with("#!/bin/bash"));
-        assert!(CLOUD_INIT_SCRIPT.contains("apt-get"));
-        assert!(CLOUD_INIT_SCRIPT.contains("docker"));
+        assert!(cloud_init_script("azureuser").starts_with("#!/bin/bash"));
+        assert!(cloud_init_script("azureuser").contains("apt-get"));
+        assert!(cloud_init_script("azureuser").contains("docker"));
     }
 
     #[test]
@@ -1236,7 +1159,7 @@ mod tests {
 
     #[test]
     fn test_create_cloud_init_file_creates_file() {
-        let tmp = create_cloud_init_file().expect("should create cloud-init file");
+        let tmp = create_cloud_init_file("azureuser").expect("should create cloud-init file");
         let path = tmp.path();
         assert!(path.exists(), "cloud-init temp file should exist");
         let content = std::fs::read_to_string(path).expect("should read temp file");
@@ -1248,7 +1171,7 @@ mod tests {
 
     #[test]
     fn test_create_cloud_init_file_path_is_in_temp() {
-        let tmp = create_cloud_init_file().unwrap();
+        let tmp = create_cloud_init_file("azureuser").unwrap();
         let path = tmp.path().to_string_lossy().to_string();
         let temp_dir = std::env::temp_dir();
         assert!(
@@ -1257,12 +1180,12 @@ mod tests {
         );
     }
 
-    // ── CLOUD_INIT_SCRIPT content tests ─────────────────────────────
+    // ── cloud_init_script("azureuser") content tests ─────────────────────────────
 
     #[test]
     fn test_cloud_init_script_has_set_options() {
         assert!(
-            CLOUD_INIT_SCRIPT.contains("set -euo pipefail"),
+            cloud_init_script("azureuser").contains("set -euo pipefail"),
             "cloud-init should use strict bash options"
         );
     }
@@ -1271,7 +1194,7 @@ mod tests {
     fn test_cloud_init_script_installs_essential_tools() {
         for tool in &["git", "curl", "wget", "jq", "tmux", "ripgrep"] {
             assert!(
-                CLOUD_INIT_SCRIPT.contains(tool),
+                cloud_init_script("azureuser").contains(tool),
                 "cloud-init should install {tool}"
             );
         }
@@ -1279,15 +1202,30 @@ mod tests {
 
     #[test]
     fn test_cloud_init_script_enables_docker() {
-        assert!(CLOUD_INIT_SCRIPT.contains("systemctl enable docker"));
-        assert!(CLOUD_INIT_SCRIPT.contains("systemctl start docker"));
-        assert!(CLOUD_INIT_SCRIPT.contains("usermod -aG docker"));
+        assert!(cloud_init_script("azureuser").contains("systemctl enable docker"));
+        assert!(cloud_init_script("azureuser").contains("systemctl start docker"));
+        assert!(cloud_init_script("azureuser").contains("usermod -aG docker"));
+    }
+
+    #[test]
+    fn test_cloud_init_script_uses_custom_username() {
+        let script = cloud_init_script("devadmin");
+        assert!(script.contains("usermod -aG docker devadmin"));
+        assert!(!script.contains("azureuser"));
+    }
+
+    #[test]
+    fn test_cloud_init_script_rejects_invalid_username() {
+        // Invalid username should fall back to "azureuser"
+        let script = cloud_init_script("evil;user");
+        assert!(script.contains("usermod -aG docker azureuser"));
+        assert!(!script.contains("evil"));
     }
 
     #[test]
     fn test_cloud_init_script_completion_marker() {
         assert!(
-            CLOUD_INIT_SCRIPT.contains("cloud-init provisioning complete"),
+            cloud_init_script("azureuser").contains("cloud-init provisioning complete"),
             "cloud-init should have a completion marker"
         );
     }
@@ -1576,12 +1514,26 @@ mod tests {
         } // Error also acceptable
     }
 
+    #[test]
+    fn test_az_cli_with_timeout_invalid_command() {
+        let result = az_cli_with_timeout(&["this-is-not-a-real-command-xyz"], 30);
+        assert!(result.is_err(), "invalid command should error with timeout");
+    }
+
+    #[test]
+    fn test_az_cli_with_timeout_zero_still_works() {
+        // Even with 0 timeout, the function should not panic
+        let result = az_cli_with_timeout(&["version"], 0);
+        // May succeed quickly or timeout — both are acceptable, no panic
+        let _ = result;
+    }
+
     // ── create_cloud_init_file path test ────────────────────────────
 
     #[test]
     fn test_create_cloud_init_file_unique_paths() {
-        let tmp1 = create_cloud_init_file().unwrap();
-        let tmp2 = create_cloud_init_file().unwrap();
+        let tmp1 = create_cloud_init_file("azureuser").unwrap();
+        let tmp2 = create_cloud_init_file("azureuser").unwrap();
         assert_ne!(
             tmp1.path(),
             tmp2.path(),
@@ -1877,6 +1829,7 @@ mod tests {
             compute_client: azure_mgmt_compute::ClientBuilder::new(cred.clone()).build(),
             network_client: azure_mgmt_network::ClientBuilder::new(cred).build(),
             subscription_id: "test-subscription-id".to_string(),
+            az_cli_timeout: AZ_CLI_DEFAULT_TIMEOUT_SECS,
         }
     }
 
@@ -1904,7 +1857,10 @@ mod tests {
         assert_eq!(info.resource_group, "test-rg");
         assert_eq!(info.vm_size, "unknown");
         assert_eq!(info.power_state, PowerState::Unknown);
-        assert_eq!(info.provisioning_state, "Unknown");
+        assert_eq!(
+            info.provisioning_state,
+            azlin_core::models::ProvisioningState::Other("Unknown".to_string())
+        );
         assert_eq!(info.os_type, OsType::Linux);
         assert!(info.public_ip.is_none());
         assert!(info.private_ip.is_none());
@@ -1981,7 +1937,10 @@ mod tests {
         };
         let vm = make_test_vm(Some("vm"), "westus2", Some(props), None);
         let info = mgr.convert_vm(&vm, "rg").await.unwrap();
-        assert_eq!(info.provisioning_state, "Succeeded");
+        assert_eq!(
+            info.provisioning_state,
+            azlin_core::models::ProvisioningState::Succeeded
+        );
     }
 
     #[tokio::test]
@@ -1993,7 +1952,10 @@ mod tests {
         };
         let vm = make_test_vm(Some("vm"), "westus2", Some(props), None);
         let info = mgr.convert_vm(&vm, "rg").await.unwrap();
-        assert_eq!(info.provisioning_state, "Updating");
+        assert_eq!(
+            info.provisioning_state,
+            azlin_core::models::ProvisioningState::Updating
+        );
     }
 
     #[tokio::test]
@@ -2100,7 +2062,10 @@ mod tests {
         assert_eq!(info.name, "full-vm");
         assert_eq!(info.location, "westus2");
         assert_eq!(info.resource_group, "my-rg");
-        assert_eq!(info.provisioning_state, "Succeeded");
+        assert_eq!(
+            info.provisioning_state,
+            azlin_core::models::ProvisioningState::Succeeded
+        );
         assert_eq!(info.os_type, OsType::Linux);
         assert_eq!(info.admin_username, Some("azureuser".to_string()));
         assert_eq!(info.power_state, PowerState::Running);
@@ -2161,33 +2126,21 @@ mod tests {
     async fn test_list_vms_returns_error_with_dummy_cred() {
         let mgr = create_test_vm_manager();
         let result = mgr.list_vms("nonexistent-rg").await;
-        // With fallback, the CLI may also fail for a nonexistent RG,
-        // or succeed if az CLI has valid auth. Either outcome is acceptable.
-        if let Err(err) = &result {
-            let msg = err.to_string();
-            assert!(
-                msg.contains("Failed") || msg.contains("error") || msg.contains("az vm list"),
-                "error should be descriptive: {msg}"
-            );
-        }
+        assert!(result.is_err(), "should fail with dummy credentials");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("Failed") || msg.contains("error"),
+            "error should be descriptive: {msg}"
+        );
     }
 
     #[tokio::test]
     async fn test_list_all_vms_returns_error_with_dummy_cred() {
         let mgr = create_test_vm_manager();
         let result = mgr.list_all_vms().await;
-        // With fallback, list_all_vms may succeed via az CLI if CLI auth is valid.
-        // We only verify it doesn't panic; both Ok and Err are acceptable.
-        match &result {
-            Ok(vms) => {
-                // Verify we get a valid list (empty is fine, just not a panic)
-                let _ = vms.len();
-            }
-            Err(err) => {
-                let msg = err.to_string();
-                assert!(!msg.is_empty(), "error should be descriptive");
-            }
-        }
+        assert!(result.is_err(), "should fail with dummy credentials");
+        let msg = result.unwrap_err().to_string();
+        assert!(!msg.is_empty(), "error should be descriptive");
     }
 
     #[tokio::test]
@@ -2300,65 +2253,5 @@ mod tests {
             let result = cred.get_token(resource).await;
             assert!(result.is_ok());
         }
-    }
-
-    #[test]
-    fn test_parse_az_vm_json_full() {
-        let json = serde_json::json!({
-            "name": "test-vm",
-            "id": "/subscriptions/sub-1/resourceGroups/test-rg/providers/Microsoft.Compute/virtualMachines/test-vm",
-            "location": "eastus",
-            "hardwareProfile": { "vmSize": "Standard_D2s_v3" },
-            "powerState": "VM running",
-            "provisioningState": "Succeeded",
-            "publicIps": "1.2.3.4",
-            "privateIps": "10.0.0.5",
-            "osProfile": { "adminUsername": "azureuser" },
-            "storageProfile": { "osDisk": { "osType": "Linux" } },
-            "tags": { "env": "dev" }
-        });
-        let vm = parse_az_vm_json(&json).unwrap();
-        assert_eq!(vm.name, "test-vm");
-        assert_eq!(vm.resource_group, "test-rg");
-        assert_eq!(vm.location, "eastus");
-        assert_eq!(vm.vm_size, "Standard_D2s_v3");
-        assert_eq!(vm.power_state, PowerState::Running);
-        assert_eq!(vm.provisioning_state, "Succeeded");
-        assert_eq!(vm.public_ip, Some("1.2.3.4".to_string()));
-        assert_eq!(vm.private_ip, Some("10.0.0.5".to_string()));
-        assert_eq!(vm.admin_username, Some("azureuser".to_string()));
-        assert_eq!(vm.os_type, OsType::Linux);
-        assert_eq!(vm.tags.get("env").unwrap(), "dev");
-    }
-
-    #[test]
-    fn test_parse_az_vm_json_deallocated() {
-        let json = serde_json::json!({
-            "name": "stopped-vm",
-            "id": "/subscriptions/s/resourceGroups/rg2/providers/Microsoft.Compute/virtualMachines/stopped-vm",
-            "location": "westus2",
-            "hardwareProfile": { "vmSize": "Standard_B1s" },
-            "powerState": "VM deallocated",
-            "provisioningState": "Succeeded",
-            "publicIps": "",
-            "privateIps": "",
-            "storageProfile": { "osDisk": { "osType": "Windows" } },
-            "tags": {}
-        });
-        let vm = parse_az_vm_json(&json).unwrap();
-        assert_eq!(vm.power_state, PowerState::Deallocated);
-        assert_eq!(vm.os_type, OsType::Windows);
-        assert_eq!(vm.public_ip, None);
-        assert_eq!(vm.private_ip, None);
-        assert_eq!(vm.admin_username, None);
-    }
-
-    #[test]
-    fn test_parse_az_vm_json_minimal() {
-        let json = serde_json::json!({});
-        let vm = parse_az_vm_json(&json).unwrap();
-        assert_eq!(vm.name, "");
-        assert_eq!(vm.power_state, PowerState::Unknown);
-        assert_eq!(vm.os_type, OsType::Linux);
     }
 }

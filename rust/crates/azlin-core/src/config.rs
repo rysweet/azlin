@@ -52,6 +52,26 @@ const VALID_AZURE_REGIONS: &[&str] = &[
     "italynorth",
 ];
 
+/// SSH key synchronization method.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SshSyncMethod {
+    #[default]
+    Auto,
+    Rsync,
+    Scp,
+}
+
+impl std::fmt::Display for SshSyncMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => write!(f, "auto"),
+            Self::Rsync => write!(f, "rsync"),
+            Self::Scp => write!(f, "scp"),
+        }
+    }
+}
+
 /// Main azlin configuration, stored at ~/.azlin/config.toml
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -67,14 +87,16 @@ pub struct AzlinConfig {
     pub github_runner_fleets: Option<HashMap<String, serde_json::Value>>,
     pub ssh_auto_sync_keys: bool,
     pub ssh_sync_timeout: u64,
-    pub ssh_sync_method: String,
+    pub ssh_sync_method: SshSyncMethod,
     pub ssh_auto_sync_age_threshold: u64,
     pub ssh_auto_sync_skip_new_vms: bool,
     pub resource_group_auto_detect: bool,
     pub resource_group_cache_ttl: u64,
     pub resource_group_query_timeout: u64,
-    pub resource_group_fallback_to_default: bool,
     pub bastion_detection_timeout: u64,
+    /// Timeout in seconds for `az` CLI subprocess calls.
+    /// Default: 120 seconds. Increase on Windows/WSL where Azure CLI is slower.
+    pub az_cli_timeout: u64,
 }
 
 impl Default for AzlinConfig {
@@ -91,14 +113,14 @@ impl Default for AzlinConfig {
             github_runner_fleets: None,
             ssh_auto_sync_keys: true,
             ssh_sync_timeout: 30,
-            ssh_sync_method: "auto".to_string(),
+            ssh_sync_method: SshSyncMethod::Auto,
             ssh_auto_sync_age_threshold: 600,
             ssh_auto_sync_skip_new_vms: true,
             resource_group_auto_detect: true,
             resource_group_cache_ttl: 900,
             resource_group_query_timeout: 30,
-            resource_group_fallback_to_default: true,
             bastion_detection_timeout: 60,
+            az_cli_timeout: 120,
         }
     }
 }
@@ -165,17 +187,31 @@ impl AzlinConfig {
         let path = Self::config_path()?;
         let contents = toml::to_string_pretty(self)
             .map_err(|e| crate::AzlinError::Config(format!("Failed to serialize config: {e}")))?;
-        std::fs::write(&path, contents)
-            .map_err(|e| crate::AzlinError::Config(format!("Failed to write config: {e}")))?;
 
-        // Set file permissions to 600 on Unix
+        // Atomic write: write to temp file, set permissions, then rename.
+        // This prevents config corruption if the process is interrupted mid-write,
+        // and avoids a brief window where the file is world-readable.
+        let tmp_path = path.with_extension("toml.tmp");
+        std::fs::write(&tmp_path, &contents)
+            .map_err(|e| crate::AzlinError::Config(format!("Failed to write temp config: {e}")))?;
+
+        // Set file permissions to 600 on Unix BEFORE the rename
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).map_err(
-                |e| crate::AzlinError::Config(format!("Failed to set permissions: {e}")),
+            std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600)).map_err(
+                |e| {
+                    let _ = std::fs::remove_file(&tmp_path);
+                    crate::AzlinError::Config(format!("Failed to set permissions: {e}"))
+                },
             )?;
         }
+
+        // Atomic rename (on same filesystem, this is atomic on Unix)
+        std::fs::rename(&tmp_path, &path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp_path);
+            crate::AzlinError::Config(format!("Failed to rename config: {e}"))
+        })?;
 
         Ok(())
     }
@@ -185,7 +221,6 @@ impl AzlinConfig {
         "ssh_auto_sync_keys",
         "ssh_auto_sync_skip_new_vms",
         "resource_group_auto_detect",
-        "resource_group_fallback_to_default",
     ];
 
     /// Integer (u64) field names in the config.
@@ -195,6 +230,7 @@ impl AzlinConfig {
         "resource_group_cache_ttl",
         "resource_group_query_timeout",
         "bastion_detection_timeout",
+        "az_cli_timeout",
     ];
 
     /// Validate a key/value pair before setting it.
@@ -258,6 +294,20 @@ impl AzlinConfig {
             return Ok(serde_json::Value::String(value.to_string()));
         }
 
+        if key == "ssh_sync_method" {
+            match value.to_lowercase().as_str() {
+                "auto" | "rsync" | "scp" => {
+                    return Ok(serde_json::Value::String(value.to_lowercase()));
+                }
+                _ => {
+                    return Err(crate::AzlinError::Config(format!(
+                        "ssh_sync_method must be 'auto', 'rsync', or 'scp', got '{}'",
+                        value
+                    )));
+                }
+            }
+        }
+
         if Self::BOOL_FIELDS.contains(&key) {
             match value {
                 "true" => return Ok(serde_json::Value::Bool(true)),
@@ -281,7 +331,29 @@ impl AzlinConfig {
             return Ok(serde_json::json!(parsed));
         }
 
-        // Default: pass through as string
+        // Warn on unknown keys — helps catch typos like "defualt_region"
+        const KNOWN_STRING_FIELDS: &[&str] = &[
+            "default_resource_group",
+            "default_region",
+            "default_vm_size",
+            "last_vm_name",
+            "notification_command",
+            "default_nfs_storage",
+            "ssh_sync_method",
+        ];
+        if !KNOWN_STRING_FIELDS.contains(&key)
+            && !Self::BOOL_FIELDS.contains(&key)
+            && !Self::U64_FIELDS.contains(&key)
+        {
+            tracing::warn!(
+                key,
+                "Unknown config key — will be ignored. Known keys: default_region, \
+                 default_vm_size, default_resource_group, ssh_auto_sync_keys, \
+                 ssh_sync_timeout, ssh_sync_method, etc."
+            );
+        }
+
+        // Pass through as string
         Ok(serde_json::Value::String(value.to_string()))
     }
 }
@@ -436,14 +508,58 @@ mod tests {
         assert!(config.vm_storage.is_none());
         assert!(config.default_nfs_storage.is_none());
         assert!(config.github_runner_fleets.is_none());
-        assert_eq!(config.ssh_sync_method, "auto");
+        assert_eq!(config.ssh_sync_method, SshSyncMethod::Auto);
         assert_eq!(config.ssh_auto_sync_age_threshold, 600);
         assert!(config.ssh_auto_sync_skip_new_vms);
         assert!(config.resource_group_auto_detect);
         assert_eq!(config.resource_group_cache_ttl, 900);
         assert_eq!(config.resource_group_query_timeout, 30);
-        assert!(config.resource_group_fallback_to_default);
         assert_eq!(config.bastion_detection_timeout, 60);
+        assert_eq!(config.az_cli_timeout, 120);
+    }
+
+    #[test]
+    fn test_validate_ssh_sync_method_valid() {
+        for method in ["auto", "rsync", "scp"] {
+            let result = AzlinConfig::validate_field("ssh_sync_method", method);
+            assert!(result.is_ok(), "should accept '{method}'");
+        }
+    }
+
+    #[test]
+    fn test_validate_ssh_sync_method_invalid() {
+        let result = AzlinConfig::validate_field("ssh_sync_method", "ftp");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_az_cli_timeout() {
+        let result = AzlinConfig::validate_field("az_cli_timeout", "300");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), serde_json::json!(300));
+    }
+
+    #[test]
+    fn test_validate_unknown_key_passes_through() {
+        // Unknown keys still pass through as strings (with a warning logged)
+        let result = AzlinConfig::validate_field("totally_unknown_key", "value");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ssh_sync_method_serde_roundtrip() {
+        // Test that SshSyncMethod serializes/deserializes correctly in TOML
+        let config = AzlinConfig {
+            ssh_sync_method: SshSyncMethod::Rsync,
+            ..Default::default()
+        };
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        assert!(
+            toml_str.contains("rsync"),
+            "should serialize as lowercase: {toml_str}"
+        );
+        let loaded: AzlinConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(loaded.ssh_sync_method, SshSyncMethod::Rsync);
     }
 
     #[test]
@@ -456,6 +572,24 @@ mod tests {
         let config: AzlinConfig = toml::from_str(contents).unwrap();
         assert_eq!(config.default_region, "westus2");
         assert_eq!(config.default_vm_size, "Standard_E16as_v5");
+    }
+
+    #[test]
+    fn test_config_malformed_toml_returns_error() {
+        let bad_toml = "this is not [valid toml {{{{";
+        let result: Result<AzlinConfig, _> = toml::from_str(bad_toml);
+        assert!(result.is_err(), "malformed TOML should fail to parse");
+    }
+
+    #[test]
+    fn test_config_partial_toml_uses_defaults() {
+        let partial = r#"default_region = "japaneast""#;
+        let config: AzlinConfig = toml::from_str(partial).unwrap();
+        assert_eq!(config.default_region, "japaneast");
+        // All other fields should have defaults
+        assert_eq!(config.default_vm_size, "Standard_E16as_v5");
+        assert_eq!(config.az_cli_timeout, 120);
+        assert_eq!(config.ssh_sync_method, SshSyncMethod::Auto);
     }
 
     #[test]
@@ -475,13 +609,12 @@ mod tests {
             session_names: Some(session_names),
             ssh_auto_sync_keys: false,
             ssh_sync_timeout: 60,
-            ssh_sync_method: "rsync".to_string(),
+            ssh_sync_method: SshSyncMethod::Rsync,
             ssh_auto_sync_age_threshold: 1200,
             ssh_auto_sync_skip_new_vms: false,
             resource_group_auto_detect: false,
             resource_group_cache_ttl: 1800,
             resource_group_query_timeout: 60,
-            resource_group_fallback_to_default: false,
             bastion_detection_timeout: 120,
             ..Default::default()
         };
@@ -498,7 +631,7 @@ mod tests {
         assert_eq!(loaded.notification_command, Some("notify-send".to_string()));
         assert!(!loaded.ssh_auto_sync_keys);
         assert_eq!(loaded.ssh_sync_timeout, 60);
-        assert_eq!(loaded.ssh_sync_method, "rsync");
+        assert_eq!(loaded.ssh_sync_method, SshSyncMethod::Rsync);
         assert!(!loaded.resource_group_auto_detect);
         assert_eq!(loaded.bastion_detection_timeout, 120);
     }
