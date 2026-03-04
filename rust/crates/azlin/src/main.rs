@@ -768,13 +768,7 @@ async fn async_main() -> Result<()> {
                         let session = vm.tags.get("azlin-session").map(|s| s.as_str()).unwrap_or("-");
                         let tmux = tmux_sessions
                             .get(&vm.name)
-                            .map(|s| {
-                                if s.len() <= 3 {
-                                    s.join(", ")
-                                } else {
-                                    format!("{}, +{} more", s[..3].join(", "), s.len() - 3)
-                                }
-                            })
+                            .map(|s| display_helpers::format_tmux_sessions(s, 3))
                             .unwrap_or_else(|| "-".to_string());
                         let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("-");
                         let state_color = match vm.power_state {
@@ -1221,7 +1215,7 @@ async fn async_main() -> Result<()> {
             let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
 
             println!("Running OS updates on '{}'...", vm_identifier);
-            let cmd = "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq".to_string();
+            let cmd = update_helpers::build_os_update_cmd().to_string();
             let (code, stdout, stderr) = ssh_exec(&ip, &user, &cmd)?;
             if code == 0 {
                 let green = Style::new().green();
@@ -3247,20 +3241,7 @@ async fn async_main() -> Result<()> {
             let user = vm.admin_username.unwrap_or_else(|| "azureuser".to_string());
 
             println!("Updating development tools on '{}'...", vm_identifier);
-            let update_script = concat!(
-                "#!/bin/bash\n",
-                "set -e\n",
-                "echo 'Updating system packages...'\n",
-                "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq\n",
-                "sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq\n",
-                "echo 'Updating Rust toolchain...'\n",
-                "if command -v rustup &>/dev/null; then rustup update 2>/dev/null || true; fi\n",
-                "echo 'Updating Python packages...'\n",
-                "if command -v pip3 &>/dev/null; then pip3 install --upgrade pip 2>/dev/null || true; fi\n",
-                "echo 'Updating Node.js packages...'\n",
-                "if command -v npm &>/dev/null; then sudo npm install -g npm 2>/dev/null || true; fi\n",
-                "echo 'Development tools updated.'\n",
-            );
+            let update_script = update_helpers::build_dev_update_script();
             let (code, stdout, stderr) = ssh_exec(&ip, &user, update_script)?;
             if code == 0 {
                 let green = Style::new().green();
@@ -3815,7 +3796,7 @@ async fn async_main() -> Result<()> {
                 }
 
                 let escaped_f = shlex::try_quote(&f).unwrap_or_else(|_| f.clone().into());
-                let cmd = format!("docker compose -f {} up -d", escaped_f);
+                let cmd = compose_helpers::build_compose_cmd("up -d", &escaped_f);
                 println!("Running 'docker compose up' on {} VM(s)...", vms.len());
                 run_on_fleet(&vms, &cmd, true);
             }
@@ -3838,7 +3819,7 @@ async fn async_main() -> Result<()> {
                 }
 
                 let escaped_f = shlex::try_quote(&f).unwrap_or_else(|_| f.clone().into());
-                let cmd = format!("docker compose -f {} down", escaped_f);
+                let cmd = compose_helpers::build_compose_cmd("down", &escaped_f);
                 println!("Running 'docker compose down' on {} VM(s)...", vms.len());
                 run_on_fleet(&vms, &cmd, true);
             }
@@ -3861,7 +3842,7 @@ async fn async_main() -> Result<()> {
                 }
 
                 let escaped_f = shlex::try_quote(&f).unwrap_or_else(|_| f.clone().into());
-                let cmd = format!("docker compose -f {} ps", escaped_f);
+                let cmd = compose_helpers::build_compose_cmd("ps", &escaped_f);
                 println!("Docker compose status on {} VM(s):", vms.len());
                 run_on_fleet(&vms, &cmd, true);
             }
@@ -5141,15 +5122,9 @@ async fn async_main() -> Result<()> {
             if follow {
                 // Stream logs via SSH tail -f
                 println!("Following {} on {}...", log_path, vm_identifier);
+                let follow_args = connect_helpers::build_log_follow_args(username, &ip, log_path);
                 let status = std::process::Command::new("ssh")
-                    .args([
-                        "-o",
-                        "StrictHostKeyChecking=no",
-                        "-o",
-                        "ConnectTimeout=10",
-                        &format!("{}@{}", username, ip),
-                        &format!("sudo tail -f {}", log_path),
-                    ])
+                    .args(&follow_args)
                     .status()?;
                 if !status.success() {
                     std::process::exit(status.code().unwrap_or(1));
@@ -5162,15 +5137,9 @@ async fn async_main() -> Result<()> {
                 ));
                 pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
+                let tail_args = connect_helpers::build_log_tail_args(username, &ip, lines, log_path);
                 let output = std::process::Command::new("ssh")
-                    .args([
-                        "-o",
-                        "StrictHostKeyChecking=no",
-                        "-o",
-                        "ConnectTimeout=10",
-                        &format!("{}@{}", username, ip),
-                        &format!("sudo tail -n {} {}", lines, log_path),
-                    ])
+                    .args(&tail_args)
                     .output()?;
 
                 pb.finish_and_clear();
@@ -7478,7 +7447,6 @@ mod connect_helpers {
     }
 
     /// Build SSH args for streaming logs via `tail -f`.
-    #[allow(dead_code)]
     pub fn build_log_follow_args(username: &str, ip: &str, log_path: &str) -> Vec<String> {
         vec![
             "-o".to_string(),
@@ -7491,7 +7459,6 @@ mod connect_helpers {
     }
 
     /// Build SSH args for fetching a specific number of log lines.
-    #[allow(dead_code)]
     pub fn build_log_tail_args(username: &str, ip: &str, lines: u32, log_path: &str) -> Vec<String> {
         vec![
             "-o".to_string(),
@@ -7505,7 +7472,6 @@ mod connect_helpers {
 }
 
 /// Pure helpers for update/os-update commands: script generation.
-#[allow(dead_code)]
 mod update_helpers {
     /// Build the full development tools update script.
     pub fn build_dev_update_script() -> &'static str {
@@ -7531,6 +7497,7 @@ mod update_helpers {
     }
 
     /// Map a log type name to its file path on the remote VM.
+    #[allow(dead_code)]
     pub fn log_type_to_path(log_type: &str) -> &'static str {
         match log_type {
             "cloud-init" | "CloudInit" => "/var/log/cloud-init-output.log",
@@ -7542,9 +7509,9 @@ mod update_helpers {
 }
 
 /// Pure helpers for compose commands: command building, file resolution.
-#[allow(dead_code)]
 mod compose_helpers {
     /// Resolve the compose file path, defaulting to "docker-compose.yml".
+    #[allow(dead_code)]
     pub fn resolve_compose_file(file: Option<&str>) -> String {
         file.unwrap_or("docker-compose.yml").to_string()
     }
@@ -7675,7 +7642,6 @@ mod display_helpers {
     /// Format a list of tmux session names for display, collapsing long lists.
     /// If the list has more than `max_show` entries, the remainder is summarised
     /// as `"+N more"`.
-    #[allow(dead_code)]
     pub fn format_tmux_sessions(sessions: &[String], max_show: usize) -> String {
         if sessions.is_empty() {
             "-".to_string()
