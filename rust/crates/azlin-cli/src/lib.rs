@@ -65,6 +65,10 @@ pub enum Commands {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
+        /// Config file path
+        #[arg(long)]
+        config: Option<String>,
+
         /// Show query plan without executing
         #[arg(long)]
         dry_run: bool,
@@ -76,6 +80,10 @@ pub enum Commands {
         /// Maximum results to display
         #[arg(long, default_value = "10")]
         max_results: u32,
+
+        /// Service principal authentication profile to use
+        #[arg(long)]
+        auth_profile: Option<String>,
     },
 
     /// Execute commands using natural language
@@ -120,6 +128,7 @@ pub enum Commands {
 
     // ── VM Lifecycle ───────────────────────────────────────────────────
     /// Provision a new VM
+    #[command(alias = "vm", alias = "create")]
     New {
         /// GitHub repository URL to clone
         #[arg(long)]
@@ -174,64 +183,6 @@ pub enum Commands {
         bastion_name: Option<String>,
 
         /// Create VM without public IP (Bastion-only)
-        #[arg(long)]
-        private: bool,
-    },
-
-    /// Alias for new
-    #[command(name = "vm", hide = true)]
-    Vm {
-        #[arg(long)]
-        repo: Option<String>,
-        #[arg(long)]
-        vm_size: Option<String>,
-        #[arg(long)]
-        region: Option<String>,
-        #[arg(long, alias = "rg")]
-        resource_group: Option<String>,
-        #[arg(long)]
-        name: Option<String>,
-        #[arg(long)]
-        pool: Option<u32>,
-        #[arg(long)]
-        no_auto_connect: bool,
-        #[arg(long)]
-        config: Option<PathBuf>,
-        #[arg(long)]
-        template: Option<String>,
-        #[arg(long)]
-        nfs_storage: Option<String>,
-        #[arg(long)]
-        bastion_name: Option<String>,
-        #[arg(long)]
-        private: bool,
-    },
-
-    /// Alias for new
-    #[command(name = "create", hide = true)]
-    Create {
-        #[arg(long)]
-        repo: Option<String>,
-        #[arg(long)]
-        vm_size: Option<String>,
-        #[arg(long)]
-        region: Option<String>,
-        #[arg(long, alias = "rg")]
-        resource_group: Option<String>,
-        #[arg(long)]
-        name: Option<String>,
-        #[arg(long)]
-        pool: Option<u32>,
-        #[arg(long)]
-        no_auto_connect: bool,
-        #[arg(long)]
-        config: Option<PathBuf>,
-        #[arg(long)]
-        template: Option<String>,
-        #[arg(long)]
-        nfs_storage: Option<String>,
-        #[arg(long)]
-        bastion_name: Option<String>,
         #[arg(long)]
         private: bool,
     },
@@ -911,6 +862,10 @@ pub enum Commands {
         /// Config file path
         #[arg(long)]
         config: Option<PathBuf>,
+
+        /// Service principal authentication profile to use
+        #[arg(long)]
+        auth_profile: Option<String>,
     },
 
     /// Manage multi-subscription contexts
@@ -1006,9 +961,21 @@ pub enum Commands {
     Show {
         /// VM name
         name: String,
+        /// Resource group
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+        /// Config file path
+        #[arg(long)]
+        config: Option<String>,
         /// Output format
         #[arg(short, long, default_value = "table")]
         output: OutputFormat,
+        /// Enable verbose output
+        #[arg(short, long)]
+        verbose: bool,
+        /// Service principal authentication profile to use
+        #[arg(long)]
+        auth_profile: Option<String>,
     },
 
     /// Manage Azure Bastion hosts for secure VM connections
@@ -3078,9 +3045,13 @@ mod tests {
     #[test]
     fn test_show_command() {
         let cli = Cli::parse_from(["azlin", "show", "my-vm"]);
-        if let Commands::Show { name, output } = cli.command {
+        if let Commands::Show { name, output, resource_group, config, verbose, auth_profile } = cli.command {
             assert_eq!(name, "my-vm");
             assert!(matches!(output, OutputFormat::Table));
+            assert!(resource_group.is_none());
+            assert!(config.is_none());
+            assert!(!verbose);
+            assert!(auth_profile.is_none());
         } else {
             panic!("Expected Show command");
         }

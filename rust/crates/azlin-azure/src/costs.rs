@@ -18,8 +18,9 @@ pub async fn get_cost_summary(auth: &AzureAuth, resource_group: &str) -> Result<
         resource_group, "Fetching cost summary"
     );
 
-    // TODO: Wire up azure_mgmt_costmanagement SDK client once auth adapter
-    // issues are resolved. For now, return a stub summary.
+    // Stub: the azure_mgmt_costmanagement SDK cannot be wired up until the
+    // auth adapter supports the Cost Management token audience.  Returns
+    // zeroed data so callers always get a valid CostSummary.
     let now = Utc::now();
     let period_start = now - chrono::Duration::days(30);
 

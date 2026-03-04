@@ -245,18 +245,30 @@ impl VmManager {
     }
 
     /// Get details for a single VM (with instance view for power state).
+    ///
+    /// Tries the Azure SDK first; on failure falls back to `az vm show` CLI.
     pub async fn get_vm(&self, resource_group: &str, name: &str) -> Result<VmInfo> {
         debug!(resource_group, name, "Getting VM details");
-        let vm = self
+
+        match self
             .compute_client
             .virtual_machines()
             .get(resource_group, name, &self.subscription_id)
             .expand("instanceView")
             .into_future()
             .await
-            .context(format!("Failed to get VM '{name}'"))?;
-
-        self.convert_vm(&vm, resource_group).await
+        {
+            Ok(vm) => self.convert_vm(&vm, resource_group).await,
+            Err(e) => {
+                warn!(
+                    resource_group,
+                    name,
+                    error = %e,
+                    "Azure SDK failed for get_vm, falling back to az CLI"
+                );
+                get_vm_via_cli(resource_group, name).await
+            }
+        }
     }
 
     /// Add a tag to a VM, preserving existing tags.
@@ -652,7 +664,10 @@ fn az_cli(args: &[&str]) -> Result<String> {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(anyhow::anyhow!("az CLI failed: {}", stderr.trim()))
+        Err(anyhow::anyhow!(
+            "az CLI failed: {}",
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        ))
     }
 }
 
@@ -754,7 +769,10 @@ async fn list_vms_via_cli(resource_group: Option<&str>) -> Result<Vec<VmInfo>> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("az vm list failed: {}", stderr);
+        anyhow::bail!(
+            "az vm list failed: {}",
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        );
     }
 
     let json: serde_json::Value =
@@ -775,6 +793,36 @@ async fn list_vms_via_cli(resource_group: Option<&str>) -> Result<Vec<VmInfo>> {
 
     debug!(count = vms.len(), "Listed VMs via az CLI fallback");
     Ok(vms)
+}
+
+/// Fallback: get a single VM via `az vm show` when the Azure SDK fails.
+async fn get_vm_via_cli(resource_group: &str, name: &str) -> Result<VmInfo> {
+    let output = tokio::process::Command::new("az")
+        .arg("vm")
+        .arg("show")
+        .arg("--name")
+        .arg(name)
+        .arg("--resource-group")
+        .arg(resource_group)
+        .arg("--show-details")
+        .arg("--output")
+        .arg("json")
+        .output()
+        .await
+        .context("Failed to run 'az vm show' CLI command")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "az vm show failed: {}",
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        );
+    }
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).context("Failed to parse az vm show JSON output")?;
+
+    parse_az_vm_json(&json).context(format!("Failed to parse az vm show output for '{name}'"))
 }
 
 /// Parse a single VM JSON object from `az vm list --show-details` output.

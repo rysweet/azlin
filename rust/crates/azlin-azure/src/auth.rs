@@ -81,7 +81,7 @@ impl AzureAuth {
             anyhow::bail!(
                 "`az account show` failed (exit {}): {}",
                 output.status,
-                stderr.trim()
+                azlin_core::sanitizer::sanitize(stderr.trim())
             );
         }
 

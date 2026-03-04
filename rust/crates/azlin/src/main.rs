@@ -782,10 +782,8 @@ async fn async_main() -> Result<()> {
 
                         let vm_name_display = if wide {
                             vm.name.clone()
-                        } else if vm.name.len() > 20 {
-                            format!("{}...", &vm.name[..17])
                         } else {
-                            vm.name.clone()
+                            display_helpers::truncate_vm_name(&vm.name, 20)
                         };
 
                         let mut row = vec![
@@ -878,12 +876,7 @@ async fn async_main() -> Result<()> {
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            let action = if deallocate {
-                "Deallocating"
-            } else {
-                "Stopping"
-            };
-            let done = if deallocate { "Deallocated" } else { "Stopped" };
+            let (action, done) = stop_helpers::stop_action_labels(deallocate);
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
             pb.set_prefix(format!("{:>20}", vm_name));
@@ -892,17 +885,17 @@ async fn async_main() -> Result<()> {
             vm_manager.stop_vm(&rg, &vm_name, deallocate).await?;
             pb.finish_with_message(format!("✓ {} {}", done, vm_name));
         }
-        azlin_cli::Commands::Show { name, output } => {
+        azlin_cli::Commands::Show {
+            name,
+            resource_group,
+            config: _,
+            output,
+            verbose: _,
+            auth_profile: _,
+        } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
-            let config = azlin_core::AzlinConfig::load().ok();
-            let rg = config
-                .and_then(|c| c.default_resource_group)
-                .unwrap_or_default();
-            if rg.is_empty() {
-                eprintln!("No resource group specified. Set default_resource_group in config.");
-                std::process::exit(1);
-            }
+            let rg = resolve_resource_group(resource_group)?;
 
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Fetching {}...", name));
@@ -1009,16 +1002,11 @@ async fn async_main() -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", name))?;
             let username = vm.admin_username.unwrap_or_else(|| user.clone());
 
-            let mut ssh_args = vec!["-o".to_string(), "StrictHostKeyChecking=no".to_string()];
-            if let Some(key_path) = &key {
-                ssh_args.push("-i".to_string());
-                ssh_args.push(key_path.display().to_string());
-            }
+            let mut ssh_args = connect_helpers::build_ssh_args(&username, &ip, key.as_deref());
 
             if !no_tmux {
                 let sess = tmux_session.as_deref().unwrap_or("azlin");
                 // Wrap SSH in tmux attach-or-create
-                ssh_args.push(format!("{}@{}", username, ip));
                 if remote_command.is_empty() {
                     ssh_args.push("-t".to_string());
                     ssh_args.push(format!(
@@ -1028,11 +1016,8 @@ async fn async_main() -> Result<()> {
                 } else {
                     ssh_args.extend(remote_command.iter().cloned());
                 }
-            } else {
-                ssh_args.push(format!("{}@{}", username, ip));
-                if !remote_command.is_empty() {
-                    ssh_args.extend(remote_command.iter().cloned());
-                }
+            } else if !remote_command.is_empty() {
+                ssh_args.extend(remote_command.iter().cloned());
             }
 
             let mut attempt = 0u32;
@@ -1068,15 +1053,17 @@ async fn async_main() -> Result<()> {
                 } => {
                     let rg = resolve_resource_group(resource_group)?;
                     for tag in &tags {
-                        let parts: Vec<&str> = tag.splitn(2, '=').collect();
-                        if parts.len() != 2 {
-                            eprintln!("Invalid tag format '{}'. Use key=value.", tag);
-                            std::process::exit(1);
-                        }
+                        let (key, value) = match tag_helpers::parse_tag(tag) {
+                            Some(kv) => kv,
+                            None => {
+                                eprintln!("Invalid tag format '{}'. Use key=value.", tag);
+                                std::process::exit(1);
+                            }
+                        };
                         vm_manager
-                            .add_tag(&rg, &vm_name, parts[0], parts[1])
+                            .add_tag(&rg, &vm_name, key, value)
                             .await?;
-                        println!("Added tag {}={} to VM '{}'", parts[0], parts[1], vm_name);
+                        println!("Added tag {}={} to VM '{}'", key, value, vm_name);
                     }
                 }
                 azlin_cli::TagAction::Remove {
@@ -1353,6 +1340,10 @@ async fn async_main() -> Result<()> {
                     resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let escaped = shell_escape(value);
                 let cmd = env_helpers::build_env_set_cmd(key, &escaped);
+                if cmd == "true" {
+                    eprintln!("Invalid environment variable key: {}", key);
+                    std::process::exit(1);
+                }
                 ssh_exec_checked(&addr, &user, &cmd).await?;
                 println!("Set {}={} on VM '{}'", key, value, vm_identifier);
             }
@@ -1424,6 +1415,10 @@ async fn async_main() -> Result<()> {
                 for (key, value) in env_helpers::parse_env_file(&content) {
                     let escaped = shell_escape(&value);
                     let cmd = env_helpers::build_env_set_cmd(&key, &escaped);
+                    if cmd == "true" {
+                        eprintln!("Skipping invalid environment variable key: {}", key);
+                        continue;
+                    }
                     ssh_exec_checked(&addr, &user, &cmd).await?;
                 }
                 println!(
@@ -2264,10 +2259,13 @@ async fn async_main() -> Result<()> {
                 let unc = format!("//{}.file.core.windows.net/{}", account, share);
                 let mount_str = mount_dir.display().to_string();
 
-                // Create mount point and mount
-                let _ = std::process::Command::new("sudo")
+                // Create mount point (best-effort; mount will fail if this fails)
+                let mkdir_status = std::process::Command::new("sudo")
                     .args(["mkdir", "-p", &mount_str])
-                    .status();
+                    .status()?;
+                if !mkdir_status.success() {
+                    eprintln!("Warning: failed to create mount point {}", mount_str);
+                }
 
                 // Write credentials to a temp file instead of passing on CLI
                 // to avoid exposing the storage key in process listings.
@@ -2723,7 +2721,9 @@ async fn async_main() -> Result<()> {
         azlin_cli::Commands::Ask {
             query,
             resource_group,
+            config: _,
             dry_run,
+            auth_profile: _,
             ..
         } => {
             let query_text = query.unwrap_or_else(|| {
@@ -2824,12 +2824,12 @@ async fn async_main() -> Result<()> {
                     print!("{}", stdout);
                 }
                 if verbose && !stderr.is_empty() {
-                    eprint!("{}", stderr);
+                    eprint!("{}", azlin_core::sanitizer::sanitize(&stderr));
                 }
                 if !output.status.success() {
                     eprintln!("Command failed with exit code: {:?}", output.status.code());
                     if !verbose && !stderr.is_empty() {
-                        eprint!("{}", stderr);
+                        eprint!("{}", azlin_core::sanitizer::sanitize(&stderr));
                     }
                 }
             }
@@ -3038,28 +3038,6 @@ async fn async_main() -> Result<()> {
 
         // ── VM Lifecycle (New/Vm/Create aliases) ─────────────────────
         azlin_cli::Commands::New {
-            repo,
-            vm_size,
-            region,
-            resource_group,
-            name,
-            pool,
-            no_auto_connect,
-            template,
-            ..
-        }
-        | azlin_cli::Commands::Vm {
-            repo,
-            vm_size,
-            region,
-            resource_group,
-            name,
-            pool,
-            no_auto_connect,
-            template,
-            ..
-        }
-        | azlin_cli::Commands::Create {
             repo,
             vm_size,
             region,
@@ -3494,6 +3472,7 @@ async fn async_main() -> Result<()> {
         azlin_cli::Commands::Code {
             vm_identifier,
             resource_group,
+            auth_profile: _,
             ..
         } => {
             let name = vm_identifier.unwrap_or_else(|| {
@@ -3962,7 +3941,13 @@ async fn async_main() -> Result<()> {
                                     println!("Deleting {} runner VM(s)...", id_list.len());
                                     let mut args = vec!["vm", "delete", "--yes", "--ids"];
                                     args.extend(id_list.iter().copied());
-                                    let _ = std::process::Command::new("az").args(&args).output()?;
+                                    let del_output = std::process::Command::new("az").args(&args).output()?;
+                                    if !del_output.status.success() {
+                                        eprintln!(
+                                            "Warning: VM deletion may have failed (exit {})",
+                                            del_output.status.code().unwrap_or(-1)
+                                        );
+                                    }
                                 }
                             }
                         } else {
@@ -4344,11 +4329,11 @@ async fn async_main() -> Result<()> {
                                     .unwrap_or(0.0);
                                 let idle_mins = idle_threshold as f64;
                                 if cpu_pct < 5.0 && uptime_secs > idle_mins * 60.0 {
-                                    println!("  ⚠ {} — CPU {:.1}% for {:.0}min — IDLE (recommend deallocate)",
-                                             vm.name, cpu_pct, uptime_secs / 60.0);
+                                    println!("  ⚠ {} — CPU {} for {:.0}min — IDLE (recommend deallocate)",
+                                             vm.name, health_helpers::format_percentage(cpu_pct as f32), uptime_secs / 60.0);
                                     actions.push((vm.name.clone(), "deallocate".to_string()));
                                 } else {
-                                    println!("  ✓ {} — CPU {:.1}% — active", vm.name, cpu_pct);
+                                    println!("  ✓ {} — CPU {} — active", vm.name, health_helpers::format_percentage(cpu_pct as f32));
                                 }
                             } else {
                                 println!("  ? {} — could not check (SSH failed)", vm.name);
@@ -6736,9 +6721,9 @@ mod sync_helpers {
 }
 
 /// Helpers for health-metric display — pure functions over numeric data.
-#[allow(dead_code)]
 mod health_helpers {
     /// Pick a colour name for a utilisation percentage.
+    #[allow(dead_code)]
     pub fn metric_color(pct: f32) -> &'static str {
         if pct > 80.0 {
             "red"
@@ -6750,6 +6735,7 @@ mod health_helpers {
     }
 
     /// Pick a colour name for a VM power-state string.
+    #[allow(dead_code)]
     pub fn state_color(state: &str) -> &'static str {
         match state {
             "running" => "green",
@@ -6765,6 +6751,7 @@ mod health_helpers {
     }
 
     /// Return a status emoji summarising overall health.
+    #[allow(dead_code)]
     pub fn status_emoji(cpu: f32, mem: f32, disk: f32) -> &'static str {
         if cpu > 90.0 || mem > 90.0 || disk > 90.0 {
             "🔴"
@@ -7423,7 +7410,6 @@ mod create_helpers {
 }
 
 /// Pure helpers for the connect handler: SSH arg building, VS Code URI construction.
-#[allow(dead_code)]
 mod connect_helpers {
     use std::path::Path;
 
@@ -7439,11 +7425,13 @@ mod connect_helpers {
     }
 
     /// Build a VS Code remote SSH URI for a VM.
+    #[allow(dead_code)]
     pub fn build_vscode_remote_uri(user: &str, ip: &str) -> String {
         format!("ssh-remote+{}@{}", user, ip)
     }
 
     /// Build SSH args for streaming logs via `tail -f`.
+    #[allow(dead_code)]
     pub fn build_log_follow_args(username: &str, ip: &str, log_path: &str) -> Vec<String> {
         vec![
             "-o".to_string(),
@@ -7456,6 +7444,7 @@ mod connect_helpers {
     }
 
     /// Build SSH args for fetching a specific number of log lines.
+    #[allow(dead_code)]
     pub fn build_log_tail_args(username: &str, ip: &str, lines: u32, log_path: &str) -> Vec<String> {
         vec![
             "-o".to_string(),
@@ -7600,7 +7589,6 @@ mod autopilot_helpers {
 }
 
 /// Pure helpers for VM lifecycle action labelling.
-#[allow(dead_code)]
 mod stop_helpers {
     /// Return the (in-progress, completed) label pair for a stop/deallocate action.
     /// E.g. `("Deallocating", "Deallocated")` or `("Stopping", "Stopped")`.
@@ -7614,10 +7602,10 @@ mod stop_helpers {
 }
 
 /// Pure helpers for display-formatting inline values.
-#[allow(dead_code)]
 mod display_helpers {
     /// Render a serde_json::Value as a user-friendly string for config display.
     /// `Null` → `"null"`, `String` → the raw string, everything else → its JSON representation.
+    #[allow(dead_code)]
     pub fn config_value_display(v: &serde_json::Value) -> String {
         match v {
             serde_json::Value::String(s) => s.clone(),
@@ -7630,7 +7618,8 @@ mod display_helpers {
     /// Returns the name unchanged if it fits within `max_len`.
     pub fn truncate_vm_name(name: &str, max_len: usize) -> String {
         if name.len() > max_len && max_len > 3 {
-            format!("{}...", &name[..max_len - 3])
+            let truncated: String = name.chars().take(max_len.saturating_sub(3)).collect();
+            format!("{}...", truncated)
         } else {
             name.to_string()
         }
@@ -7639,6 +7628,7 @@ mod display_helpers {
     /// Format a list of tmux session names for display, collapsing long lists.
     /// If the list has more than `max_show` entries, the remainder is summarised
     /// as `"+N more"`.
+    #[allow(dead_code)]
     pub fn format_tmux_sessions(sessions: &[String], max_show: usize) -> String {
         if sessions.is_empty() {
             "-".to_string()
@@ -7654,6 +7644,7 @@ mod display_helpers {
     }
 
     /// Format the reconnect prompt message for SSH auto-reconnect.
+    #[allow(dead_code)]
     pub fn reconnect_prompt(attempt: u32, max_retries: u32) -> String {
         format!(
             "SSH disconnected. Reconnect? (attempt {}/{}) [Y/n] ",
@@ -7663,7 +7654,6 @@ mod display_helpers {
 }
 
 /// Pure helpers for tag parsing and validation.
-#[allow(dead_code)]
 mod tag_helpers {
     /// Split a `key=value` tag string. Returns `None` if the format is invalid
     /// (missing `=`, empty key, or fewer than 2 parts).
@@ -7677,6 +7667,7 @@ mod tag_helpers {
     }
 
     /// Validate a list of tag strings, returning the first invalid one (if any).
+    #[allow(dead_code)]
     pub fn find_invalid_tag(tags: &[String]) -> Option<&str> {
         tags.iter().find(|t| parse_tag(t).is_none()).map(|t| t.as_str())
     }
