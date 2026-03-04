@@ -611,9 +611,13 @@ async fn async_main() -> Result<()> {
                     }
                     let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
                     if let Some(ip) = ip {
+                        let addr = match format!("{}:22", ip).parse() {
+                            Ok(addr) => addr,
+                            Err(_) => continue,
+                        };
                         let start = std::time::Instant::now();
                         let _ = std::net::TcpStream::connect_timeout(
-                            &format!("{}:22", ip).parse().unwrap(),
+                            &addr,
                             std::time::Duration::from_secs(5),
                         );
                         latencies.insert(vm.name.clone(), start.elapsed().as_millis() as u64);
@@ -1006,6 +1010,9 @@ async fn async_main() -> Result<()> {
 
             if !no_tmux {
                 let sess = tmux_session.as_deref().unwrap_or("azlin");
+                if !sess.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+                    anyhow::bail!("Invalid tmux session name: must be alphanumeric, underscore, or hyphen");
+                }
                 // Wrap SSH in tmux attach-or-create
                 if remote_command.is_empty() {
                     ssh_args.push("-t".to_string());
@@ -1767,6 +1774,10 @@ async fn async_main() -> Result<()> {
                     keep,
                     ..
                 } => {
+                    if let Err(e) = name_validation::validate_name(&vm_name) {
+                        eprintln!("Invalid VM name: {}", e);
+                        std::process::exit(1);
+                    }
                     let schedule = snapshot_helpers::SnapshotSchedule {
                         vm_name: vm_name.clone(),
                         resource_group: rg.clone(),
@@ -1782,6 +1793,10 @@ async fn async_main() -> Result<()> {
                     );
                 }
                 azlin_cli::SnapshotAction::Disable { vm_name, .. } => {
+                    if let Err(e) = name_validation::validate_name(&vm_name) {
+                        eprintln!("Invalid VM name: {}", e);
+                        std::process::exit(1);
+                    }
                     let path = snapshot_helpers::schedule_path(&vm_name);
                     if let Some(mut sched) = snapshot_helpers::load_schedule(&vm_name) {
                         sched.enabled = false;
@@ -2108,6 +2123,11 @@ async fn async_main() -> Result<()> {
                 let user = vm_info
                     .admin_username
                     .unwrap_or_else(|| "azureuser".to_string());
+
+                // Validate storage_name: Azure storage accounts allow only [a-zA-Z0-9-]
+                if !storage_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                    anyhow::bail!("Invalid storage name: contains disallowed characters");
+                }
 
                 let mp = mount_point.unwrap_or_else(|| format!("/mnt/{}", storage_name));
 
@@ -2964,7 +2984,7 @@ async fn async_main() -> Result<()> {
                     } else {
                         eprintln!(
                             "Failed to show resource: {}",
-                            String::from_utf8_lossy(&output.stderr)
+                            azlin_core::sanitizer::sanitize(&String::from_utf8_lossy(&output.stderr))
                         );
                     }
                 }
@@ -3794,7 +3814,8 @@ async fn async_main() -> Result<()> {
                     return Ok(());
                 }
 
-                let cmd = format!("docker compose -f {} up -d", f);
+                let escaped_f = shlex::try_quote(&f).unwrap_or_else(|_| f.clone().into());
+                let cmd = format!("docker compose -f {} up -d", escaped_f);
                 println!("Running 'docker compose up' on {} VM(s)...", vms.len());
                 run_on_fleet(&vms, &cmd, true);
             }
@@ -3816,7 +3837,8 @@ async fn async_main() -> Result<()> {
                     return Ok(());
                 }
 
-                let cmd = format!("docker compose -f {} down", f);
+                let escaped_f = shlex::try_quote(&f).unwrap_or_else(|_| f.clone().into());
+                let cmd = format!("docker compose -f {} down", escaped_f);
                 println!("Running 'docker compose down' on {} VM(s)...", vms.len());
                 run_on_fleet(&vms, &cmd, true);
             }
@@ -3838,7 +3860,8 @@ async fn async_main() -> Result<()> {
                     return Ok(());
                 }
 
-                let cmd = format!("docker compose -f {} ps", f);
+                let escaped_f = shlex::try_quote(&f).unwrap_or_else(|_| f.clone().into());
+                let cmd = format!("docker compose -f {} ps", escaped_f);
                 println!("Docker compose status on {} VM(s):", vms.len());
                 run_on_fleet(&vms, &cmd, true);
             }
@@ -3863,6 +3886,10 @@ async fn async_main() -> Result<()> {
                     ..
                 } => {
                     let rg = resolve_resource_group(resource_group)?;
+                    if let Err(e) = name_validation::validate_name(&pool) {
+                        eprintln!("Invalid pool name: {}", e);
+                        std::process::exit(1);
+                    }
                     let repo_name = repo.unwrap_or_else(|| "<not set>".to_string());
                     let label_str = labels.unwrap_or_else(|| "self-hosted".to_string());
                     let size = vm_size.unwrap_or_else(|| "Standard_B2s".to_string());
@@ -4430,6 +4457,10 @@ async fn async_main() -> Result<()> {
                 }
                 azlin_cli::ContextAction::Use { name, .. }
                 | azlin_cli::ContextAction::Switch { name, .. } => {
+                    if let Err(e) = name_validation::validate_name(&name) {
+                        eprintln!("Invalid context name: {}", e);
+                        std::process::exit(1);
+                    }
                     let ctx_path = ctx_dir.join(format!("{}.toml", name));
                     if !ctx_path.exists() {
                         eprintln!("Context '{}' not found.", name);
@@ -4447,6 +4478,10 @@ async fn async_main() -> Result<()> {
                     key_vault_name,
                     ..
                 } => {
+                    if let Err(e) = name_validation::validate_name(&name) {
+                        eprintln!("Invalid context name: {}", e);
+                        std::process::exit(1);
+                    }
                     let toml_str = contexts::build_context_toml(
                         &name,
                         subscription_id.as_deref(),
@@ -4460,6 +4495,10 @@ async fn async_main() -> Result<()> {
                     println!("Created context '{}'", name);
                 }
                 azlin_cli::ContextAction::Delete { name, force, .. } => {
+                    if let Err(e) = name_validation::validate_name(&name) {
+                        eprintln!("Invalid context name: {}", e);
+                        std::process::exit(1);
+                    }
                     let path = ctx_dir.join(format!("{}.toml", name));
                     if !path.exists() {
                         eprintln!("Context '{}' not found.", name);
@@ -4487,6 +4526,14 @@ async fn async_main() -> Result<()> {
                 azlin_cli::ContextAction::Rename {
                     old_name, new_name, ..
                 } => {
+                    if let Err(e) = name_validation::validate_name(&old_name) {
+                        eprintln!("Invalid context name: {}", e);
+                        std::process::exit(1);
+                    }
+                    if let Err(e) = name_validation::validate_name(&new_name) {
+                        eprintln!("Invalid context name: {}", e);
+                        std::process::exit(1);
+                    }
                     contexts::rename_context_file(&ctx_dir, &old_name, &new_name)?;
                     // Update active context if it was the renamed one
                     if let Ok(active) = std::fs::read_to_string(&active_ctx_path) {
@@ -5630,7 +5677,7 @@ async fn async_main() -> Result<()> {
                     .output()?;
                 if !output.status.success() {
                     let err = String::from_utf8_lossy(&output.stderr);
-                    anyhow::bail!("az command failed: {}", err.trim());
+                    anyhow::bail!("az command failed: {}", azlin_core::sanitizer::sanitize(err.trim()));
                 }
                 Ok(String::from_utf8_lossy(&output.stdout).to_string())
             };
@@ -5824,7 +5871,7 @@ async fn async_main() -> Result<()> {
                 let output = cmd.output()?;
                 if !output.status.success() {
                     let err = String::from_utf8_lossy(&output.stderr);
-                    eprintln!("Error listing Bastion hosts: {}", err);
+                    eprintln!("Error listing Bastion hosts: {}", azlin_core::sanitizer::sanitize(&err));
                     std::process::exit(1);
                 }
                 let bastions: Vec<serde_json::Value> =
@@ -5870,7 +5917,7 @@ async fn async_main() -> Result<()> {
                     let err = String::from_utf8_lossy(&output.stderr);
                     eprintln!(
                         "Bastion host not found: {} in {}: {}",
-                        name, resource_group, err
+                        name, resource_group, azlin_core::sanitizer::sanitize(&err)
                     );
                     std::process::exit(1);
                 }

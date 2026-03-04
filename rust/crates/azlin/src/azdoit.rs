@@ -89,10 +89,16 @@ async fn main() -> Result<()> {
     }
 
     let allowed_prefixes = ["az ", "echo ", "azlin "];
+    let dangerous_patterns = ["run-command", "extension set", "extension delete", "vm user", "vm secret"];
     for (i, cmd) in commands.iter().enumerate() {
-        let is_allowed = allowed_prefixes.iter().any(|p| cmd.starts_with(p));
+        let trimmed = cmd.trim();
+        let is_allowed = allowed_prefixes.iter().any(|p| trimmed.starts_with(p));
         if !is_allowed {
-            eprintln!("⚠ Skipping disallowed command: {}", cmd);
+            eprintln!("⚠ Skipping disallowed command: {}", trimmed);
+            continue;
+        }
+        if trimmed.starts_with("az ") && dangerous_patterns.iter().any(|d| trimmed.contains(d)) {
+            eprintln!("⚠ Blocked potentially dangerous command: {}", trimmed);
             continue;
         }
         println!("→ [{}/{}] {}", i + 1, commands.len(), cmd);
@@ -112,7 +118,7 @@ async fn main() -> Result<()> {
                 output.status.code().unwrap_or(-1)
             );
             if !output.stderr.is_empty() {
-                eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                eprintln!("{}", azlin_core::sanitizer::sanitize(&String::from_utf8_lossy(&output.stderr)));
             }
         }
     }
