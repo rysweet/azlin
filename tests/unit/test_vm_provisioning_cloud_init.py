@@ -328,3 +328,273 @@ class TestVersionLogging:
             assert not isinstance(entry, dict), (
                 f"runcmd[{i}] is a dict (YAML colon-space in unquoted string?): {entry}"
             )
+
+
+class TestTmuxConfMerge:
+    """Test tmux.conf merge behavior during cloud-init generation."""
+
+    def test_cloud_init_includes_azlin_tmux_defaults(self):
+        """Cloud-init includes azlin tmux defaults when no user config exists.
+
+        Given: No user .tmux.conf on the local machine
+        When: _generate_cloud_init is called
+        Then: Cloud-init contains azlin default status bar settings
+        """
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+
+        assert "AZLIN DEFAULTS" in cloud_init
+        assert "set -g status-left-length 50" in cloud_init
+        assert "set -g status-bg black" in cloud_init
+
+    def test_cloud_init_without_user_tmux_conf(self, tmp_path, monkeypatch):
+        """Cloud-init has no USER SETTINGS section when no user config exists.
+
+        Given: No user .tmux.conf files
+        When: _generate_cloud_init is called
+        Then: Cloud-init does NOT contain the user settings marker
+        """
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+
+        assert "USER SETTINGS" not in cloud_init
+
+    def test_build_tmux_conf_defaults_only(self):
+        """_build_tmux_conf_content returns only defaults when no user config provided.
+
+        Given: No user config (None)
+        When: _build_tmux_conf_content is called
+        Then: Returns azlin defaults without user section
+        """
+        provisioner = VMProvisioner()
+        result = provisioner._build_tmux_conf_content(None)
+
+        assert "AZLIN DEFAULTS" in result
+        assert "set -g status-left-length 50" in result
+        assert "USER SETTINGS" not in result
+
+    def test_build_tmux_conf_with_user_settings(self):
+        """_build_tmux_conf_content merges user settings after azlin defaults.
+
+        Given: User tmux.conf content
+        When: _build_tmux_conf_content is called
+        Then: Returns azlin defaults followed by user settings
+        """
+        provisioner = VMProvisioner()
+        user_conf = "set -g mouse on\nset -g history-limit 50000"
+        result = provisioner._build_tmux_conf_content(user_conf)
+
+        assert "AZLIN DEFAULTS" in result
+        assert "USER SETTINGS" in result
+        assert "set -g mouse on" in result
+        assert "set -g history-limit 50000" in result
+
+        # Azlin defaults come before user settings
+        defaults_pos = result.find("AZLIN DEFAULTS")
+        user_pos = result.find("USER SETTINGS")
+        assert defaults_pos < user_pos
+
+    def test_build_tmux_conf_user_overrides_take_effect(self):
+        """User settings placed after defaults so tmux last-wins applies.
+
+        Given: User config that overrides a default setting
+        When: _build_tmux_conf_content is called
+        Then: User's override appears after the default
+        """
+        provisioner = VMProvisioner()
+        user_conf = "set -g status-bg red"
+        result = provisioner._build_tmux_conf_content(user_conf)
+
+        default_bg_pos = result.find("set -g status-bg black")
+        user_bg_pos = result.find("set -g status-bg red")
+        assert default_bg_pos < user_bg_pos
+
+    def test_build_tmux_conf_strips_trailing_whitespace(self):
+        """Trailing whitespace in user config is stripped.
+
+        Given: User config with trailing newlines
+        When: _build_tmux_conf_content is called
+        Then: Trailing whitespace is removed
+        """
+        provisioner = VMProvisioner()
+        user_conf = "set -g mouse on\n\n\n"
+        result = provisioner._build_tmux_conf_content(user_conf)
+
+        assert result.endswith("set -g mouse on")
+
+    def test_get_user_tmux_conf_returns_none_when_no_files(self, tmp_path, monkeypatch):
+        """_get_user_tmux_conf returns None when no user tmux.conf exists.
+
+        Given: Neither ~/.azlin/home/.tmux.conf nor ~/.tmux.conf exist
+        When: _get_user_tmux_conf is called
+        Then: Returns None
+        """
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        provisioner = VMProvisioner()
+
+        assert provisioner._get_user_tmux_conf() is None
+
+    def test_get_user_tmux_conf_prefers_azlin_home(self, tmp_path, monkeypatch):
+        """_get_user_tmux_conf prefers ~/.azlin/home/.tmux.conf over ~/.tmux.conf.
+
+        Given: Both ~/.azlin/home/.tmux.conf and ~/.tmux.conf exist
+        When: _get_user_tmux_conf is called
+        Then: Returns content from ~/.azlin/home/.tmux.conf
+        """
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+
+        # Create both files with different content
+        azlin_dir = tmp_path / ".azlin" / "home"
+        azlin_dir.mkdir(parents=True)
+        (azlin_dir / ".tmux.conf").write_text("# azlin home version")
+        (tmp_path / ".tmux.conf").write_text("# home version")
+
+        provisioner = VMProvisioner()
+        result = provisioner._get_user_tmux_conf()
+
+        assert result == "# azlin home version"
+
+    def test_get_user_tmux_conf_falls_back_to_home(self, tmp_path, monkeypatch):
+        """_get_user_tmux_conf falls back to ~/.tmux.conf when azlin dir absent.
+
+        Given: Only ~/.tmux.conf exists (no ~/.azlin/home/.tmux.conf)
+        When: _get_user_tmux_conf is called
+        Then: Returns content from ~/.tmux.conf
+        """
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        (tmp_path / ".tmux.conf").write_text("# home version")
+
+        provisioner = VMProvisioner()
+        result = provisioner._get_user_tmux_conf()
+
+        assert result == "# home version"
+
+    def test_get_user_tmux_conf_warns_on_large_file(self, tmp_path, monkeypatch, caplog):
+        """_get_user_tmux_conf logs warning for large files.
+
+        Given: A .tmux.conf larger than 8KB
+        When: _get_user_tmux_conf is called
+        Then: Warning is logged about cloud-init size limit
+        """
+        import logging
+
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        (tmp_path / ".tmux.conf").write_text("x" * 9000)
+
+        provisioner = VMProvisioner()
+        with caplog.at_level(logging.WARNING):
+            result = provisioner._get_user_tmux_conf()
+
+        assert result is not None
+        assert "large" in caplog.text.lower() or "9000" in caplog.text
+
+    def test_cloud_init_with_user_tmux_is_valid_yaml(self, tmp_path, monkeypatch):
+        """Cloud-init with merged tmux.conf is still valid YAML.
+
+        Given: A user .tmux.conf with various settings
+        When: _generate_cloud_init is called
+        Then: The output is valid YAML with proper runcmd entries
+        """
+        import yaml
+
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        (tmp_path / ".tmux.conf").write_text(
+            "set -g mouse on\nset -g history-limit 50000\nbind r source-file ~/.tmux.conf"
+        )
+
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+
+        data = yaml.safe_load(cloud_init)
+        runcmd = data.get("runcmd", [])
+        assert len(runcmd) > 0
+        for i, entry in enumerate(runcmd):
+            assert not isinstance(entry, dict), f"runcmd[{i}] is a dict (YAML mapping bug): {entry}"
+
+    def test_cloud_init_merged_tmux_contains_both_sections(self, tmp_path, monkeypatch):
+        """Cloud-init with user config has both AZLIN DEFAULTS and USER SETTINGS.
+
+        Given: A user .tmux.conf exists
+        When: _generate_cloud_init is called
+        Then: Cloud-init contains both section markers and user content
+        """
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        (tmp_path / ".tmux.conf").write_text("set -g mouse on")
+
+        provisioner = VMProvisioner()
+        cloud_init = provisioner._generate_cloud_init()
+
+        assert "AZLIN DEFAULTS" in cloud_init
+        assert "USER SETTINGS" in cloud_init
+        assert "set -g mouse on" in cloud_init
+
+    def test_get_user_tmux_conf_rejects_symlink_outside_home(self, tmp_path, monkeypatch, caplog):
+        """Symlinks pointing outside home directory are rejected.
+
+        Given: .tmux.conf is a symlink to /etc/passwd
+        When: _get_user_tmux_conf is called
+        Then: Returns None and logs a warning
+        """
+        import logging
+
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        tmux_link = tmp_path / ".tmux.conf"
+        tmux_link.symlink_to("/etc/passwd")
+
+        provisioner = VMProvisioner()
+        with caplog.at_level(logging.WARNING):
+            result = provisioner._get_user_tmux_conf()
+
+        assert result is None
+        assert "symlink" in caplog.text.lower()
+
+    def test_get_user_tmux_conf_handles_non_utf8(self, tmp_path, monkeypatch, caplog):
+        """Non-UTF8 files are skipped gracefully.
+
+        Given: .tmux.conf contains binary data
+        When: _get_user_tmux_conf is called
+        Then: Returns None and logs a warning
+        """
+        import logging
+
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        (tmp_path / ".tmux.conf").write_bytes(b"\xff\xfe binary content")
+
+        provisioner = VMProvisioner()
+        with caplog.at_level(logging.WARNING):
+            result = provisioner._get_user_tmux_conf()
+
+        assert result is None
+        assert "failed to read" in caplog.text.lower()
+
+    def test_build_tmux_conf_ignores_whitespace_only_user_conf(self):
+        """Whitespace-only user config is treated as no config.
+
+        Given: User config with only whitespace
+        When: _build_tmux_conf_content is called
+        Then: Returns azlin defaults without user section
+        """
+        provisioner = VMProvisioner()
+        result = provisioner._build_tmux_conf_content("   \n\n  ")
+
+        assert "AZLIN DEFAULTS" in result
+        assert "USER SETTINGS" not in result
+
+    def test_get_user_tmux_conf_allows_symlink_within_home(self, tmp_path, monkeypatch):
+        """Symlinks within home directory are allowed.
+
+        Given: .tmux.conf is a symlink to another file under ~/
+        When: _get_user_tmux_conf is called
+        Then: Returns the file content
+        """
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        real_conf = tmp_path / "dotfiles" / "tmux.conf"
+        real_conf.parent.mkdir()
+        real_conf.write_text("set -g mouse on")
+        (tmp_path / ".tmux.conf").symlink_to(real_conf)
+
+        provisioner = VMProvisioner()
+        result = provisioner._get_user_tmux_conf()
+
+        assert result == "set -g mouse on"
