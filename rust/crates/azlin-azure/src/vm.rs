@@ -93,9 +93,27 @@ impl VmManager {
     }
 
     /// List VMs in a specific resource group.
+    ///
+    /// Tries the Azure SDK first, then falls back to `az vm list` CLI if the
+    /// SDK call fails (common when DefaultAzureCredential can't authenticate
+    /// via the Rust SDK but `az` CLI works fine).
     pub async fn list_vms(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
         debug!(resource_group, "Listing VMs");
 
+        match self.list_vms_sdk(resource_group).await {
+            Ok(vms) => Ok(vms),
+            Err(sdk_err) => {
+                debug!(error = %sdk_err, "SDK list failed, trying az CLI fallback");
+                self.list_vms_cli(resource_group).map_err(|cli_err| {
+                    // Return the original SDK error with CLI error as context
+                    anyhow::anyhow!("SDK error: {sdk_err}\naz CLI fallback also failed: {cli_err}")
+                })
+            }
+        }
+    }
+
+    /// List VMs via the Azure SDK.
+    async fn list_vms_sdk(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
         let result = self
             .compute_client
             .virtual_machines()
@@ -116,8 +134,77 @@ impl VmManager {
                 }
             }
         }
-        debug!(count = vms.len(), "Listed VMs");
+        debug!(count = vms.len(), "Listed VMs via SDK");
         Ok(vms)
+    }
+
+    /// List VMs via `az vm list` CLI fallback.
+    ///
+    /// Used when the Rust Azure SDK's DefaultAzureCredential fails to
+    /// authenticate (e.g., on platforms where the Rust SDK's CLI credential
+    /// provider doesn't work correctly).
+    fn list_vms_cli(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
+        debug!(resource_group, "Listing VMs via az CLI fallback");
+        let timeout = self.az_cli_timeout;
+        let json =
+            az_cli_with_timeout(&["vm", "list", "--resource-group", resource_group], timeout)?;
+
+        let vms: Vec<serde_json::Value> =
+            serde_json::from_str(&json).context("Failed to parse az vm list JSON")?;
+
+        let mut result = Vec::new();
+        for vm in &vms {
+            let name = vm["name"].as_str().unwrap_or("").to_string();
+            let location = vm["location"].as_str().unwrap_or("").to_string();
+            let vm_size = vm["hardwareProfile"]["vmSize"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+
+            // Parse power state from instanceView or powerState field
+            // Without --show-details, powerState and IPs are not available
+            // from `az vm list`. We parse provisioningState instead.
+            let provisioning_state: azlin_core::models::ProvisioningState =
+                vm["provisioningState"].as_str().unwrap_or("Unknown").into();
+
+            // Detect OS type from osProfile
+            let os_type = if vm["osProfile"]["windowsConfiguration"].is_object() {
+                azlin_core::models::OsType::Windows
+            } else {
+                azlin_core::models::OsType::Linux
+            };
+
+            let admin_username = vm["osProfile"]["adminUsername"].as_str().map(String::from);
+
+            let tags = vm["tags"]
+                .as_object()
+                .map(|obj| {
+                    obj.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            // Power state requires --show-details or instanceView; mark as
+            // unknown for fast list (user can run `azlin status <vm>` for details)
+            result.push(VmInfo {
+                name,
+                resource_group: resource_group.to_string(),
+                location,
+                vm_size,
+                power_state: azlin_core::models::PowerState::Unknown,
+                provisioning_state,
+                os_type,
+                public_ip: None,
+                private_ip: None,
+                admin_username,
+                tags,
+                created_time: None,
+            });
+        }
+
+        debug!(count = result.len(), "Listed VMs via az CLI");
+        Ok(result)
     }
 
     /// List all VMs across the entire subscription.
@@ -256,9 +343,24 @@ impl VmManager {
     }
 
     /// Get details for a single VM (with instance view for power state).
+    ///
+    /// Tries SDK first, falls back to `az vm show` CLI.
     pub async fn get_vm(&self, resource_group: &str, name: &str) -> Result<VmInfo> {
         debug!(resource_group, name, "Getting VM details");
 
+        match self.get_vm_sdk(resource_group, name).await {
+            Ok(vm) => Ok(vm),
+            Err(sdk_err) => {
+                debug!(error = %sdk_err, "SDK get_vm failed, trying az CLI fallback");
+                self.get_vm_cli(resource_group, name).map_err(|cli_err| {
+                    anyhow::anyhow!("SDK error: {sdk_err}\naz CLI fallback also failed: {cli_err}")
+                })
+            }
+        }
+    }
+
+    /// Get VM via SDK.
+    async fn get_vm_sdk(&self, resource_group: &str, name: &str) -> Result<VmInfo> {
         let vm = self
             .compute_client
             .virtual_machines()
@@ -271,6 +373,92 @@ impl VmManager {
             ))?;
 
         self.convert_vm(&vm, resource_group).await
+    }
+
+    /// Get VM via `az vm show` CLI fallback.
+    fn get_vm_cli(&self, resource_group: &str, name: &str) -> Result<VmInfo> {
+        debug!(resource_group, name, "Getting VM via az CLI fallback");
+        let json = az_cli_with_timeout(
+            &[
+                "vm",
+                "show",
+                "--resource-group",
+                resource_group,
+                "--name",
+                name,
+                "--show-details",
+            ],
+            self.az_cli_timeout,
+        )?;
+
+        let vm: serde_json::Value =
+            serde_json::from_str(&json).context("Failed to parse az vm show JSON")?;
+
+        let vm_name = vm["name"].as_str().unwrap_or("").to_string();
+        let location = vm["location"].as_str().unwrap_or("").to_string();
+        let vm_size = vm["hardwareProfile"]["vmSize"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
+
+        let power_state = vm["powerState"]
+            .as_str()
+            .map(|s| match s.to_lowercase().as_str() {
+                "vm running" => azlin_core::models::PowerState::Running,
+                "vm deallocated" => azlin_core::models::PowerState::Deallocated,
+                "vm stopped" => azlin_core::models::PowerState::Stopped,
+                "vm starting" => azlin_core::models::PowerState::Starting,
+                "vm stopping" | "vm deallocating" => azlin_core::models::PowerState::Stopping,
+                _ => azlin_core::models::PowerState::Unknown,
+            })
+            .unwrap_or(azlin_core::models::PowerState::Unknown);
+
+        let provisioning_state: azlin_core::models::ProvisioningState =
+            vm["provisioningState"].as_str().unwrap_or("Unknown").into();
+
+        let os_type = if vm["storageProfile"]["osDisk"]["osType"]
+            .as_str()
+            .is_some_and(|s| s.eq_ignore_ascii_case("Windows"))
+        {
+            azlin_core::models::OsType::Windows
+        } else {
+            azlin_core::models::OsType::Linux
+        };
+
+        let public_ip = vm["publicIps"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+        let private_ip = vm["privateIps"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+
+        let admin_username = vm["osProfile"]["adminUsername"].as_str().map(String::from);
+
+        let tags = vm["tags"]
+            .as_object()
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(VmInfo {
+            name: vm_name,
+            resource_group: resource_group.to_string(),
+            location,
+            vm_size,
+            power_state,
+            provisioning_state,
+            os_type,
+            public_ip,
+            private_ip,
+            admin_username,
+            tags,
+            created_time: None,
+        })
     }
 
     /// Add a tag to a VM, preserving existing tags.
@@ -680,26 +868,32 @@ fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
         .spawn()
         .context("Failed to execute 'az' CLI. Is Azure CLI installed?")?;
 
+    // Drain stdout and stderr in background threads to prevent pipe deadlock.
+    // Without this, the child can block on writing to a full pipe buffer while
+    // we block waiting for the child to exit — a classic deadlock.
+    let stdout_handle = child.stdout.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
+            buf
+        })
+    });
+    let stderr_handle = child.stderr.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
+            buf
+        })
+    });
+
     let timeout = std::time::Duration::from_secs(timeout_secs);
     match child.wait_timeout(timeout) {
         Ok(Some(status)) => {
-            let stdout = child
-                .stdout
-                .take()
-                .map(|mut s| {
-                    let mut buf = Vec::new();
-                    std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                    buf
-                })
+            let stdout = stdout_handle
+                .and_then(|h| h.join().ok())
                 .unwrap_or_default();
-            let stderr = child
-                .stderr
-                .take()
-                .map(|mut s| {
-                    let mut buf = Vec::new();
-                    std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                    buf
-                })
+            let stderr = stderr_handle
+                .and_then(|h| h.join().ok())
                 .unwrap_or_default();
 
             if status.success() {
