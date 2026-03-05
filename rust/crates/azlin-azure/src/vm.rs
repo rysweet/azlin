@@ -94,25 +94,16 @@ impl VmManager {
 
     /// List VMs in a specific resource group.
     ///
-    /// Tries the Azure SDK first, then falls back to `az vm list` CLI if the
-    /// SDK call fails (common when DefaultAzureCredential can't authenticate
-    /// via the Rust SDK but `az` CLI works fine).
-    pub async fn list_vms(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
-        debug!(resource_group, "Listing VMs");
-
-        match self.list_vms_sdk(resource_group).await {
-            Ok(vms) => Ok(vms),
-            Err(sdk_err) => {
-                debug!(error = %sdk_err, "SDK list failed, trying az CLI fallback");
-                self.list_vms_cli(resource_group).map_err(|cli_err| {
-                    // Return the original SDK error with CLI error as context
-                    anyhow::anyhow!("SDK error: {sdk_err}\naz CLI fallback also failed: {cli_err}")
-                })
-            }
-        }
+    /// Uses `az vm list` CLI directly. The Rust Azure SDK's
+    /// `DefaultAzureCredential` is unreliable across platforms, while
+    /// `az` CLI works consistently wherever `az login` succeeds.
+    pub fn list_vms(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
+        self.list_vms_cli(resource_group)
     }
 
-    /// List VMs via the Azure SDK.
+    /// List VMs via the Azure SDK (retained for future use when SDK auth
+    /// is more reliable).
+    #[allow(dead_code)]
     async fn list_vms_sdk(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
         let result = self
             .compute_client
@@ -345,21 +336,15 @@ impl VmManager {
     /// Get details for a single VM (with instance view for power state).
     ///
     /// Tries SDK first, falls back to `az vm show` CLI.
-    pub async fn get_vm(&self, resource_group: &str, name: &str) -> Result<VmInfo> {
-        debug!(resource_group, name, "Getting VM details");
-
-        match self.get_vm_sdk(resource_group, name).await {
-            Ok(vm) => Ok(vm),
-            Err(sdk_err) => {
-                debug!(error = %sdk_err, "SDK get_vm failed, trying az CLI fallback");
-                self.get_vm_cli(resource_group, name).map_err(|cli_err| {
-                    anyhow::anyhow!("SDK error: {sdk_err}\naz CLI fallback also failed: {cli_err}")
-                })
-            }
-        }
+    /// Get details for a single VM.
+    ///
+    /// Uses `az vm show --show-details` CLI directly for reliable
+    /// cross-platform authentication.
+    pub fn get_vm(&self, resource_group: &str, name: &str) -> Result<VmInfo> {
+        self.get_vm_cli(resource_group, name)
     }
 
-    /// Get VM via SDK.
+    /// Get VM via SDK (retained for future use when SDK auth is more reliable).
     async fn get_vm_sdk(&self, resource_group: &str, name: &str) -> Result<VmInfo> {
         let vm = self
             .compute_client
@@ -470,7 +455,7 @@ impl VmManager {
         value: &str,
     ) -> Result<()> {
         debug!(resource_group, name, key, value, "Adding tag to VM");
-        let vm = self.get_vm(resource_group, name).await?;
+        let vm = self.get_vm(resource_group, name)?;
         let mut tags = vm.tags.clone();
         tags.insert(key.to_string(), value.to_string());
 
@@ -495,7 +480,7 @@ impl VmManager {
     /// Remove a tag from a VM, preserving other tags.
     pub async fn remove_tag(&self, resource_group: &str, name: &str, key: &str) -> Result<()> {
         debug!(resource_group, name, key, "Removing tag from VM");
-        let vm = self.get_vm(resource_group, name).await?;
+        let vm = self.get_vm(resource_group, name)?;
         let mut tags = vm.tags.clone();
         tags.remove(key);
 
@@ -524,7 +509,7 @@ impl VmManager {
         name: &str,
     ) -> Result<HashMap<String, String>> {
         debug!(resource_group, name, "Listing tags on VM");
-        let vm = self.get_vm(resource_group, name).await?;
+        let vm = self.get_vm(resource_group, name)?;
         Ok(vm.tags)
     }
 
@@ -738,7 +723,7 @@ impl VmManager {
 
         // 7. Fetch and return VM info (includes IP lookup via SDK)
         debug!(%vm_name, "Fetching created VM details");
-        let vm_info = self.get_vm(rg, vm_name).await?;
+        let vm_info = self.get_vm(rg, vm_name)?;
         Ok(vm_info)
     }
     async fn get_vm_ips(
@@ -2316,16 +2301,24 @@ mod tests {
 
     // ── VmManager error path tests ──────────────────────────────────
 
-    #[tokio::test]
-    async fn test_list_vms_returns_error_with_dummy_cred() {
+    #[test]
+    fn test_list_vms_nonexistent_rg_returns_error_or_empty() {
         let mgr = create_test_vm_manager();
-        let result = mgr.list_vms("nonexistent-rg").await;
-        assert!(result.is_err(), "should fail with dummy credentials");
-        let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("Failed") || msg.contains("error"),
-            "error should be descriptive: {msg}"
-        );
+        let result = mgr.list_vms("nonexistent-rg-xyz-12345");
+        // With az CLI: either errors (no login) or returns empty list (logged in, RG doesn't exist)
+        match result {
+            Ok(vms) => assert!(vms.is_empty(), "nonexistent RG should have no VMs"),
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("az")
+                        || msg.contains("CLI")
+                        || msg.contains("error")
+                        || msg.contains("failed"),
+                    "error should mention az CLI: {msg}"
+                );
+            }
+        }
     }
 
     #[tokio::test]
@@ -2366,7 +2359,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_vm_returns_error_with_dummy_cred() {
         let mgr = create_test_vm_manager();
-        let result = mgr.get_vm("rg", "nonexistent-vm").await;
+        let result = mgr.get_vm("rg", "nonexistent-vm");
         assert!(result.is_err());
     }
 

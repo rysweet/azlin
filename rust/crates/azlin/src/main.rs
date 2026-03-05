@@ -316,7 +316,7 @@ async fn get_running_vms_with_ips(
     vm_manager: &azlin_azure::VmManager,
     rg: &str,
 ) -> Result<Vec<(String, String, String)>> {
-    let vms = vm_manager.list_vms(rg).await?;
+    let vms = vm_manager.list_vms(rg)?;
     let mut results = Vec::new();
     for vm in &vms {
         if vm.power_state == azlin_core::models::PowerState::Running {
@@ -512,7 +512,7 @@ async fn async_main() -> Result<()> {
                     for entry in entries {
                         match contexts::read_context_resource_group(&entry.path()) {
                             Ok((ctx_name, Some(rg))) => {
-                                match vm_manager.list_vms(&rg).await {
+                                match vm_manager.list_vms(&rg) {
                                     Ok(vms) => {
                                         println!("── context: {} (rg: {}) ──", ctx_name, rg);
                                         aggregated.extend(vms);
@@ -544,12 +544,12 @@ async fn async_main() -> Result<()> {
                         ctx_dir
                     );
                     match &resource_group {
-                        Some(rg) => vm_manager.list_vms(rg).await?,
+                        Some(rg) => vm_manager.list_vms(rg)?,
                         None => {
                             let config = azlin_core::AzlinConfig::load()
                                 .context("Failed to load azlin config")?;
                             match config.default_resource_group {
-                                Some(rg) => vm_manager.list_vms(&rg).await?,
+                                Some(rg) => vm_manager.list_vms(&rg)?,
                                 None => {
                                     anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
                                 }
@@ -561,12 +561,12 @@ async fn async_main() -> Result<()> {
                 vm_manager.list_all_vms().await?
             } else {
                 match &resource_group {
-                    Some(rg) => vm_manager.list_vms(rg).await?,
+                    Some(rg) => vm_manager.list_vms(rg)?,
                     None => {
                         let config = azlin_core::AzlinConfig::load()
                             .context("Failed to load azlin config")?;
                         match config.default_resource_group {
-                            Some(rg) => vm_manager.list_vms(&rg).await?,
+                            Some(rg) => vm_manager.list_vms(&rg)?,
                             None => {
                                 anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
                             }
@@ -953,7 +953,7 @@ async fn async_main() -> Result<()> {
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Fetching {}...", name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            let vm = vm_manager.get_vm(&rg, &name).await?;
+            let vm = vm_manager.get_vm(&rg, &name)?;
             pb.finish_and_clear();
 
             match output {
@@ -1046,7 +1046,7 @@ async fn async_main() -> Result<()> {
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Looking up {}...", name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            let vm = vm_manager.get_vm(&rg, &name).await?;
+            let vm = vm_manager.get_vm(&rg, &name)?;
             pb.finish_and_clear();
 
             let ip = vm
@@ -1218,7 +1218,7 @@ async fn async_main() -> Result<()> {
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
             let metrics: Vec<HealthMetrics> = if let Some(vm_name) = vm {
-                let vm_info = vm_manager.get_vm(&rg, &vm_name).await?;
+                let vm_info = vm_manager.get_vm(&rg, &vm_name)?;
                 let ip = vm_info
                     .public_ip
                     .or(vm_info.private_ip)
@@ -1229,7 +1229,7 @@ async fn async_main() -> Result<()> {
                 let state = vm_info.power_state.to_string();
                 vec![collect_health_metrics(&vm_name, &ip, &user, &state)]
             } else {
-                let vms = vm_manager.list_vms(&rg).await?;
+                let vms = vm_manager.list_vms(&rg)?;
                 vms.iter()
                     .filter_map(|vm_info| {
                         let ip = vm_info.public_ip.as_ref().or(vm_info.private_ip.as_ref())?;
@@ -1266,7 +1266,7 @@ async fn async_main() -> Result<()> {
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Looking up {}...", vm_identifier));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            let vm = vm_manager.get_vm(&rg, &vm_identifier).await?;
+            let vm = vm_manager.get_vm(&rg, &vm_identifier)?;
             pb.finish_and_clear();
 
             let ip = vm
@@ -2191,7 +2191,7 @@ async fn async_main() -> Result<()> {
                 let pb = indicatif::ProgressBar::new_spinner();
                 pb.set_message(format!("Looking up VM {}...", vm));
                 pb.enable_steady_tick(std::time::Duration::from_millis(100));
-                let vm_info = vm_manager.get_vm(&rg, &vm).await?;
+                let vm_info = vm_manager.get_vm(&rg, &vm)?;
                 pb.finish_and_clear();
 
                 let ip = vm_info
@@ -2242,7 +2242,7 @@ async fn async_main() -> Result<()> {
                 let pb = indicatif::ProgressBar::new_spinner();
                 pb.set_message(format!("Looking up VM {}...", vm));
                 pb.enable_steady_tick(std::time::Duration::from_millis(100));
-                let vm_info = vm_manager.get_vm(&rg, &vm).await?;
+                let vm_info = vm_manager.get_vm(&rg, &vm)?;
                 pb.finish_and_clear();
 
                 let ip = vm_info
@@ -2971,7 +2971,7 @@ async fn async_main() -> Result<()> {
                     let rg = resolve_resource_group(None)?;
                     let auth = create_auth()?;
                     let vm_manager = azlin_azure::VmManager::new(&auth);
-                    let vms = vm_manager.list_vms(&rg).await?;
+                    let vms = vm_manager.list_vms(&rg)?;
                     let doit_vms: Vec<_> = vms
                         .iter()
                         .filter(|vm| vm.tags.get("created_by").is_some_and(|v| v == "azlin-doit"))
@@ -2996,7 +2996,7 @@ async fn async_main() -> Result<()> {
                     let pb = indicatif::ProgressBar::new_spinner();
                     pb.set_message("Listing doit-created resources...");
                     pb.enable_steady_tick(std::time::Duration::from_millis(100));
-                    let vms = vm_manager.list_vms(&rg).await?;
+                    let vms = vm_manager.list_vms(&rg)?;
                     pb.finish_and_clear();
                     let filtered: Vec<_> = vms
                         .iter()
@@ -3044,7 +3044,7 @@ async fn async_main() -> Result<()> {
                     let pb = indicatif::ProgressBar::new_spinner();
                     pb.set_message("Finding doit-created resources...");
                     pb.enable_steady_tick(std::time::Duration::from_millis(100));
-                    let vms = vm_manager.list_vms(&rg).await?;
+                    let vms = vm_manager.list_vms(&rg)?;
                     pb.finish_and_clear();
 
                     let to_delete: Vec<_> = vms
@@ -3288,7 +3288,7 @@ async fn async_main() -> Result<()> {
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Looking up {}...", vm_identifier));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            let vm = vm_manager.get_vm(&rg, &vm_identifier).await?;
+            let vm = vm_manager.get_vm(&rg, &vm_identifier)?;
             pb.finish_and_clear();
 
             let ip = vm
@@ -3498,7 +3498,7 @@ async fn async_main() -> Result<()> {
             pb.set_message("Fetching VM status...");
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-            let vms = vm_manager.list_vms(&rg).await?;
+            let vms = vm_manager.list_vms(&rg)?;
             pb.finish_and_clear();
 
             let filtered: Vec<_> = match &vm {
@@ -3544,7 +3544,7 @@ async fn async_main() -> Result<()> {
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Looking up {}...", name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            let vm = vm_manager.get_vm(&rg, &name).await?;
+            let vm = vm_manager.get_vm(&rg, &name)?;
             pb.finish_and_clear();
 
             let ip = vm
@@ -4339,7 +4339,7 @@ async fn async_main() -> Result<()> {
                 let rg = resolve_resource_group(None)?;
                 let auth = create_auth()?;
                 let vm_manager = azlin_azure::VmManager::new(&auth);
-                let vms = vm_manager.list_vms(&rg).await?;
+                let vms = vm_manager.list_vms(&rg)?;
                 let ap_path = home_dir()?.join(".azlin").join("autopilot.toml");
                 let (idle_threshold, cost_limit) = if ap_path.exists() {
                     let content = std::fs::read_to_string(&ap_path)?;
@@ -4702,7 +4702,7 @@ async fn async_main() -> Result<()> {
                 if let Some(name) = vm_identifier {
                     let auth = create_auth()?;
                     let vm_manager = azlin_azure::VmManager::new(&auth);
-                    let vm = vm_manager.get_vm(&rg, &name).await?;
+                    let vm = vm_manager.get_vm(&rg, &name)?;
 
                     let ip = vm.public_ip.or(vm.private_ip);
                     match ip {
@@ -4827,7 +4827,7 @@ async fn async_main() -> Result<()> {
             // Find running VMs with session tags
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
-            let vms = vm_manager.list_vms(&rg).await?;
+            let vms = vm_manager.list_vms(&rg)?;
             let running: Vec<_> = vms
                 .iter()
                 .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
@@ -4960,7 +4960,7 @@ async fn async_main() -> Result<()> {
             } else {
                 let auth = create_auth()?;
                 let vm_manager = azlin_azure::VmManager::new(&auth);
-                let vms = vm_manager.list_vms(&rg).await?;
+                let vms = vm_manager.list_vms(&rg)?;
                 let running_vms: Vec<_> = vms
                     .iter()
                     .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
@@ -5095,7 +5095,7 @@ async fn async_main() -> Result<()> {
                     };
                     let auth = create_auth()?;
                     let vm_manager = azlin_azure::VmManager::new(&auth);
-                    let vm = vm_manager.get_vm(&rg, vm_part).await?;
+                    let vm = vm_manager.get_vm(&rg, vm_part)?;
                     let ip = vm
                         .public_ip
                         .or(vm.private_ip)
@@ -5156,7 +5156,7 @@ async fn async_main() -> Result<()> {
             // Get VM IP for SSH
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
-            let vm = vm_manager.get_vm(&rg, &vm_identifier).await?;
+            let vm = vm_manager.get_vm(&rg, &vm_identifier)?;
             let ip = vm
                 .public_ip
                 .or(vm.private_ip)
@@ -6137,7 +6137,7 @@ async fn resolve_vm_ip(vm_name: &str, resource_group: Option<String>) -> Result<
         Ok(auth) => {
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
-            let vm = vm_manager.get_vm(&rg, vm_name).await?;
+            let vm = vm_manager.get_vm(&rg, vm_name)?;
             let ip = vm
                 .public_ip
                 .or(vm.private_ip)
@@ -6188,7 +6188,7 @@ async fn resolve_vm_targets(
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
     let rg = resolve_resource_group(resource_group)?;
-    let vms = vm_manager.list_vms(&rg).await?;
+    let vms = vm_manager.list_vms(&rg)?;
     let mut targets = Vec::new();
     for vm in vms {
         if vm.power_state != azlin_core::models::PowerState::Running {
