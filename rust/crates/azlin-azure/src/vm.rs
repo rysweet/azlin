@@ -129,13 +129,9 @@ impl VmManager {
         Ok(vms)
     }
 
-    /// List VMs via `az vm list` CLI fallback.
-    ///
-    /// Used when the Rust Azure SDK's DefaultAzureCredential fails to
-    /// authenticate (e.g., on platforms where the Rust SDK's CLI credential
-    /// provider doesn't work correctly).
+    /// List VMs via `az vm list` CLI.
     fn list_vms_cli(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
-        debug!(resource_group, "Listing VMs via az CLI fallback");
+        debug!(resource_group, "Listing VMs via az CLI");
         let timeout = self.az_cli_timeout;
         let json =
             az_cli_with_timeout(&["vm", "list", "--resource-group", resource_group], timeout)?;
@@ -360,9 +356,9 @@ impl VmManager {
         self.convert_vm(&vm, resource_group).await
     }
 
-    /// Get VM via `az vm show` CLI fallback.
+    /// Get VM via `az vm show` CLI.
     fn get_vm_cli(&self, resource_group: &str, name: &str) -> Result<VmInfo> {
-        debug!(resource_group, name, "Getting VM via az CLI fallback");
+        debug!(resource_group, name, "Getting VM via az CLI");
         let json = az_cli_with_timeout(
             &[
                 "vm",
