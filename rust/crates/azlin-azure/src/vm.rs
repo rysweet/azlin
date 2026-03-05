@@ -129,12 +129,20 @@ impl VmManager {
         Ok(vms)
     }
 
-    /// List VMs via `az vm list` CLI.
+    /// List VMs via `az vm list --show-details` CLI.
     fn list_vms_cli(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
         debug!(resource_group, "Listing VMs via az CLI");
         let timeout = self.az_cli_timeout;
-        let json =
-            az_cli_with_timeout(&["vm", "list", "--resource-group", resource_group], timeout)?;
+        let json = az_cli_with_timeout(
+            &[
+                "vm",
+                "list",
+                "--resource-group",
+                resource_group,
+                "--show-details",
+            ],
+            timeout,
+        )?;
 
         let vms: Vec<serde_json::Value> =
             serde_json::from_str(&json).context("Failed to parse az vm list JSON")?;
@@ -148,18 +156,28 @@ impl VmManager {
                 .unwrap_or("unknown")
                 .to_string();
 
-            // Parse power state from instanceView or powerState field
-            // Without --show-details, powerState and IPs are not available
-            // from `az vm list`. We parse provisioningState instead.
+            let power_state = parse_az_power_state(vm["powerState"].as_str());
+
             let provisioning_state: azlin_core::models::ProvisioningState =
                 vm["provisioningState"].as_str().unwrap_or("Unknown").into();
 
-            // Detect OS type from osProfile
-            let os_type = if vm["osProfile"]["windowsConfiguration"].is_object() {
+            let os_type = if vm["storageProfile"]["osDisk"]["osType"]
+                .as_str()
+                .is_some_and(|s| s.eq_ignore_ascii_case("Windows"))
+            {
                 azlin_core::models::OsType::Windows
             } else {
                 azlin_core::models::OsType::Linux
             };
+
+            let public_ip = vm["publicIps"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(String::from);
+            let private_ip = vm["privateIps"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(String::from);
 
             let admin_username = vm["osProfile"]["adminUsername"].as_str().map(String::from);
 
@@ -172,18 +190,16 @@ impl VmManager {
                 })
                 .unwrap_or_default();
 
-            // Power state requires --show-details or instanceView; mark as
-            // unknown for fast list (user can run `azlin status <vm>` for details)
             result.push(VmInfo {
                 name,
                 resource_group: resource_group.to_string(),
                 location,
                 vm_size,
-                power_state: azlin_core::models::PowerState::Unknown,
+                power_state,
                 provisioning_state,
                 os_type,
-                public_ip: None,
-                private_ip: None,
+                public_ip,
+                private_ip,
                 admin_username,
                 tags,
                 created_time: None,
@@ -382,17 +398,7 @@ impl VmManager {
             .unwrap_or("unknown")
             .to_string();
 
-        let power_state = vm["powerState"]
-            .as_str()
-            .map(|s| match s.to_lowercase().as_str() {
-                "vm running" => azlin_core::models::PowerState::Running,
-                "vm deallocated" => azlin_core::models::PowerState::Deallocated,
-                "vm stopped" => azlin_core::models::PowerState::Stopped,
-                "vm starting" => azlin_core::models::PowerState::Starting,
-                "vm stopping" | "vm deallocating" => azlin_core::models::PowerState::Stopping,
-                _ => azlin_core::models::PowerState::Unknown,
-            })
-            .unwrap_or(azlin_core::models::PowerState::Unknown);
+        let power_state = parse_az_power_state(vm["powerState"].as_str());
 
         let provisioning_state: azlin_core::models::ProvisioningState =
             vm["provisioningState"].as_str().unwrap_or("Unknown").into();
@@ -828,6 +834,20 @@ impl VmManager {
 /// Default timeout for `az` CLI subprocess calls (120 seconds).
 /// Overridden by `AzlinConfig.az_cli_timeout` when available.
 const AZ_CLI_DEFAULT_TIMEOUT_SECS: u64 = 120;
+
+/// Parse Azure power state string from `az vm list --show-details` or `az vm show`.
+///
+/// Azure returns values like "VM running", "VM deallocated", "VM stopped".
+fn parse_az_power_state(s: Option<&str>) -> PowerState {
+    match s.map(|s| s.to_lowercase()).as_deref() {
+        Some("vm running") => PowerState::Running,
+        Some("vm deallocated") => PowerState::Deallocated,
+        Some("vm stopped") => PowerState::Stopped,
+        Some("vm starting") => PowerState::Starting,
+        Some("vm stopping") | Some("vm deallocating") => PowerState::Stopping,
+        _ => PowerState::Unknown,
+    }
+}
 
 /// Run an `az` CLI command with the default timeout, returning Ok(stdout) on success.
 ///
