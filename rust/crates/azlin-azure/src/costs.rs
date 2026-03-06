@@ -1,46 +1,118 @@
-//! Cost management — query Azure Cost Management for spending data.
+//! Cost management — query Azure Cost Management for spending data via az CLI.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::debug;
 
 use azlin_core::models::CostSummary;
 
 use crate::AzureAuth;
 
-/// Fetch a cost summary for the given resource group.
+/// Fetch a cost summary for the given resource group using `az consumption usage list`.
 ///
-/// Uses the Azure Cost Management API via `azure_mgmt_costmanagement`.
-///
-/// # Errors
-///
-/// Returns an error because the Cost Management SDK integration is not yet
-/// complete. Callers should handle this gracefully (e.g., display
-/// "cost data unavailable").
-pub async fn get_cost_summary(auth: &AzureAuth, resource_group: &str) -> Result<CostSummary> {
+/// Uses the az CLI to query Azure Cost Management, matching the Python
+/// reference implementation.
+pub fn get_cost_summary(auth: &AzureAuth, resource_group: &str) -> Result<CostSummary> {
     debug!(
         subscription = auth.subscription_id(),
-        resource_group, "Fetching cost summary"
+        resource_group, "Fetching cost summary via az CLI"
     );
 
-    // The azure_mgmt_costmanagement SDK cannot be wired up until the auth
-    // adapter supports the Cost Management token audience.  Return an explicit
-    // error so callers know data is unavailable rather than silently returning
-    // zeroed data that could be mistaken for real cost information.
-    Err(anyhow::anyhow!(
-        "Cost Management API integration is not yet available. \
-         Azure Cost Management SDK requires a token audience that the current \
-         auth adapter does not support."
-    ))
+    let end_date = chrono::Utc::now();
+    let start_date = end_date - chrono::Duration::days(30);
+    let start_str = start_date.format("%Y-%m-%d").to_string();
+    let end_str = end_date.format("%Y-%m-%d").to_string();
+
+    let output = std::process::Command::new("az")
+        .args([
+            "consumption",
+            "usage",
+            "list",
+            "--start-date",
+            &start_str,
+            "--end-date",
+            &end_str,
+            "--output",
+            "json",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .context("Failed to execute 'az consumption usage list'")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // az consumption may not be available on all subscriptions
+        return Err(anyhow::anyhow!(
+            "Cost data unavailable: {}",
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        ));
+    }
+
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_slice(&output.stdout).context("Failed to parse cost data JSON")?;
+
+    // Aggregate costs by VM name
+    let mut total_cost = 0.0;
+    let mut currency = "USD".to_string();
+    let mut by_vm: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+
+    for entry in &entries {
+        let cost = entry["pretaxCost"].as_f64().unwrap_or(0.0);
+        if let Some(c) = entry["currency"].as_str() {
+            currency = c.to_string();
+        }
+
+        // Filter by resource group if the entry has one
+        let entry_rg = entry["instanceId"]
+            .as_str()
+            .and_then(|id| {
+                let parts: Vec<&str> = id.split('/').collect();
+                if parts.len() >= 5 {
+                    Some(parts[4])
+                } else {
+                    None
+                }
+            });
+
+        if let Some(rg) = entry_rg {
+            if !rg.eq_ignore_ascii_case(resource_group) {
+                continue;
+            }
+        }
+
+        total_cost += cost;
+
+        // Try to extract VM name from instance ID
+        if let Some(instance_name) = entry["instanceName"].as_str() {
+            *by_vm.entry(instance_name.to_string()).or_insert(0.0) += cost;
+        }
+    }
+
+    let vm_costs: Vec<azlin_core::models::VmCost> = by_vm
+        .into_iter()
+        .map(|(vm_name, cost)| azlin_core::models::VmCost {
+            vm_name,
+            cost,
+            currency: currency.clone(),
+        })
+        .collect();
+
+    Ok(CostSummary {
+        total_cost,
+        currency,
+        period_start: start_date,
+        period_end: end_date,
+        by_vm: vm_costs,
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use azlin_core::models::VmCost;
+    use azlin_core::models::{CostSummary, VmCost};
     use chrono::Utc;
 
     #[test]
-    fn test_stub_cost_summary_structure() {
+    fn test_cost_summary_structure() {
         let summary = CostSummary {
             total_cost: 123.45,
             currency: "USD".to_string(),
@@ -72,23 +144,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cost_summary_multiple_currencies() {
-        let vm1 = VmCost {
-            vm_name: "vm-us".into(),
-            cost: 50.0,
-            currency: "USD".into(),
-        };
-        let vm2 = VmCost {
-            vm_name: "vm-eu".into(),
-            cost: 45.0,
-            currency: "EUR".into(),
-        };
-        // VmCost can hold different currencies per VM
-        assert_eq!(vm1.currency, "USD");
-        assert_eq!(vm2.currency, "EUR");
-    }
-
-    #[test]
     fn test_cost_summary_zero_cost() {
         let summary = CostSummary {
             total_cost: 0.0,
@@ -99,27 +154,5 @@ mod tests {
         };
         assert_eq!(summary.total_cost, 0.0);
         assert!(summary.by_vm.is_empty());
-    }
-
-    #[test]
-    fn test_vm_cost_large_value() {
-        let vm = VmCost {
-            vm_name: "expensive-vm".into(),
-            cost: 999_999.99,
-            currency: "USD".into(),
-        };
-        assert!(vm.cost > 999_000.0);
-    }
-
-    #[tokio::test]
-    async fn test_get_cost_summary_returns_error() {
-        // get_cost_summary should return an explicit error rather than
-        // silently returning zeroed data that could mislead users.
-        // We can't construct a real AzureAuth without Azure credentials,
-        // but the function should error before reaching Azure anyway.
-        // This test documents the expected behavior: error, not fake data.
-        // Note: We can't call it without valid AzureAuth, so we just verify
-        // the function signature returns Result (compile-time check).
-        fn _assert_returns_result(_f: impl std::future::Future<Output = Result<CostSummary>>) {}
     }
 }

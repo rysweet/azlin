@@ -1685,7 +1685,7 @@ async fn async_main() -> Result<()> {
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message("Fetching cost data...");
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            match azlin_azure::get_cost_summary(&auth, &rg).await {
+            match azlin_azure::get_cost_summary(&auth, &rg) {
                 Ok(summary) => {
                     pb.finish_and_clear();
                     println!(
@@ -5359,7 +5359,7 @@ async fn async_main() -> Result<()> {
             match action {
                 azlin_cli::CostsAction::Dashboard { resource_group, .. } => {
                     let auth = create_auth()?;
-                    match azlin_azure::get_cost_summary(&auth, &resource_group).await {
+                    match azlin_azure::get_cost_summary(&auth, &resource_group) {
                         Ok(summary) => {
                             println!("Cost Dashboard for '{}':", resource_group);
                             println!("  Total: ${:.2} {}", summary.total_cost, summary.currency);
