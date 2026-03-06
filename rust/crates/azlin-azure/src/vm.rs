@@ -1283,6 +1283,189 @@ mod tests {
 
     // ── VmManager construction tests ────────────────────────────────
 
+    // ── validate_tag_key tests ─────────────────────────────────────
+
+    #[test]
+    fn test_validate_tag_key_valid_alphanumeric() {
+        assert!(validate_tag_key("environment").is_ok());
+        assert!(validate_tag_key("Environment1").is_ok());
+    }
+
+    #[test]
+    fn test_validate_tag_key_valid_with_special_chars() {
+        assert!(validate_tag_key("my-tag").is_ok());
+        assert!(validate_tag_key("my_tag").is_ok());
+        assert!(validate_tag_key("my.tag").is_ok());
+        assert!(validate_tag_key("a-b_c.d").is_ok());
+    }
+
+    #[test]
+    fn test_validate_tag_key_empty_rejected() {
+        let result = validate_tag_key("");
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("Invalid tag key"));
+    }
+
+    #[test]
+    fn test_validate_tag_key_space_rejected() {
+        assert!(validate_tag_key("my tag").is_err());
+    }
+
+    #[test]
+    fn test_validate_tag_key_special_chars_rejected() {
+        assert!(validate_tag_key("key=value").is_err());
+        assert!(validate_tag_key("key;drop").is_err());
+        assert!(validate_tag_key("key$env").is_err());
+        assert!(validate_tag_key("key/path").is_err());
+    }
+
+    #[test]
+    fn test_validate_tag_key_unicode_alphanumeric_accepted() {
+        // Rust's is_alphanumeric() accepts Unicode letters, so accented chars are valid
+        assert!(validate_tag_key("caf\u{00e9}").is_ok());
+    }
+
+    // ── validate_tag_value tests ────────────────────────────────────
+
+    #[test]
+    fn test_validate_tag_value_valid_normal_text() {
+        assert!(validate_tag_value("production").is_ok());
+        assert!(validate_tag_value("value with spaces").is_ok());
+        assert!(validate_tag_value("key=value").is_ok());
+        assert!(validate_tag_value("").is_ok()); // empty is allowed
+    }
+
+    #[test]
+    fn test_validate_tag_value_valid_special_chars() {
+        assert!(validate_tag_value("hello world! @#$%^&*()").is_ok());
+        assert!(validate_tag_value("2025-01-15T10:30:00Z").is_ok());
+    }
+
+    #[test]
+    fn test_validate_tag_value_control_char_rejected() {
+        assert!(validate_tag_value("line1\nline2").is_err());
+        assert!(validate_tag_value("tab\there").is_err());
+        assert!(validate_tag_value("null\0byte").is_err());
+    }
+
+    #[test]
+    fn test_validate_tag_value_control_char_error_message() {
+        let result = validate_tag_value("bad\x01value");
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("control characters"));
+    }
+
+    // ── Additional parse_vm_from_az_json edge cases ─────────────────
+
+    #[test]
+    fn test_parse_vm_from_az_json_no_fallback_rg() {
+        let json = serde_json::json!({ "name": "vm1" });
+        let vm = parse_vm_from_az_json(&json, None);
+        assert_eq!(vm.resource_group, "");
+    }
+
+    #[test]
+    fn test_parse_vm_from_az_json_null_values() {
+        let json = serde_json::json!({
+            "name": null,
+            "location": null,
+            "hardwareProfile": { "vmSize": null },
+            "powerState": null,
+            "provisioningState": null,
+            "publicIps": null,
+            "privateIps": null,
+            "tags": null,
+            "timeCreated": null
+        });
+        let vm = parse_vm_from_az_json(&json, Some("rg"));
+        assert_eq!(vm.name, "");
+        assert_eq!(vm.location, "");
+        assert_eq!(vm.vm_size, "unknown");
+        assert_eq!(vm.power_state, PowerState::Unknown);
+        assert!(vm.public_ip.is_none());
+        assert!(vm.private_ip.is_none());
+        assert!(vm.tags.is_empty());
+        assert!(vm.created_time.is_none());
+    }
+
+    #[test]
+    fn test_parse_vm_from_az_json_windows_case_insensitive() {
+        let json = serde_json::json!({
+            "name": "win-vm",
+            "storageProfile": { "osDisk": { "osType": "WINDOWS" } }
+        });
+        let vm = parse_vm_from_az_json(&json, Some("rg"));
+        assert_eq!(vm.os_type, OsType::Windows);
+    }
+
+    #[test]
+    fn test_parse_vm_from_az_json_os_offer_extracted() {
+        let json = serde_json::json!({
+            "name": "vm1",
+            "storageProfile": {
+                "osDisk": { "osType": "Linux" },
+                "imageReference": { "offer": "UbuntuServer" }
+            }
+        });
+        let vm = parse_vm_from_az_json(&json, Some("rg"));
+        assert_eq!(vm.os_offer.as_deref(), Some("UbuntuServer"));
+    }
+
+    #[test]
+    fn test_parse_vm_from_az_json_created_time_with_offset() {
+        let json = serde_json::json!({
+            "name": "vm1",
+            "timeCreated": "2025-06-15T14:30:00+05:30"
+        });
+        let vm = parse_vm_from_az_json(&json, Some("rg"));
+        assert!(vm.created_time.is_some());
+    }
+
+    #[test]
+    fn test_parse_vm_from_az_json_empty_tags_object() {
+        let json = serde_json::json!({
+            "name": "vm1",
+            "tags": {}
+        });
+        let vm = parse_vm_from_az_json(&json, Some("rg"));
+        assert!(vm.tags.is_empty());
+    }
+
+    // ── parse_created_time edge cases ───────────────────────────────
+
+    #[test]
+    fn test_parse_created_time_z_suffix() {
+        let result = parse_created_time(Some("2025-01-15T10:30:00Z"));
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_parse_created_time_empty_string() {
+        assert!(parse_created_time(Some("")).is_none());
+    }
+
+    // ── cloud_init_script edge cases ────────────────────────────────
+
+    #[test]
+    fn test_cloud_init_script_empty_username_falls_back() {
+        let script = cloud_init_script("");
+        assert!(script.contains("usermod -aG docker azureuser"));
+    }
+
+    #[test]
+    fn test_cloud_init_script_hyphen_username_allowed() {
+        let script = cloud_init_script("my-user");
+        assert!(script.contains("usermod -aG docker my-user"));
+    }
+
+    #[test]
+    fn test_cloud_init_script_underscore_username_allowed() {
+        let script = cloud_init_script("my_user");
+        assert!(script.contains("usermod -aG docker my_user"));
+    }
+
     #[test]
     fn test_list_vms_nonexistent_rg_returns_error_or_empty() {
         // This test requires `az` CLI to be logged in.
