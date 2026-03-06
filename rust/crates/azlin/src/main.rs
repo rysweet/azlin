@@ -624,38 +624,91 @@ async fn async_main() -> Result<()> {
             let mut tmux_sessions: std::collections::HashMap<String, Vec<String>> =
                 std::collections::HashMap::new();
             if !no_tmux {
+                // Build bastion name map (region -> bastion_name) for private VMs
+                let bastion_map: std::collections::HashMap<String, String> =
+                    if matches!(&cli.output, azlin_cli::OutputFormat::Table) {
+                        if let Ok(bastions) = list_helpers::detect_bastion_hosts(effective_rg) {
+                            bastions.into_iter().map(|(name, location, _)| (location, name)).collect()
+                        } else {
+                            std::collections::HashMap::new()
+                        }
+                    } else {
+                        std::collections::HashMap::new()
+                    };
+
+                // Resolve SSH key path
+                let ssh_key = home_dir()
+                    .ok()
+                    .map(|h| h.join(".ssh").join("azlin_key"))
+                    .filter(|p| p.exists())
+                    .or_else(|| {
+                        home_dir()
+                            .ok()
+                            .map(|h| h.join(".ssh").join("id_rsa"))
+                            .filter(|p| p.exists())
+                    });
+
                 for vm in &all_vms {
                     if vm.power_state != azlin_core::models::PowerState::Running {
                         continue;
                     }
-                    let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
-                    if let Some(ip) = ip {
-                        let user = vm
-                            .admin_username
-                            .as_deref()
-                            .unwrap_or(DEFAULT_ADMIN_USERNAME);
-                        let output = std::process::Command::new("ssh")
+                    let user = vm
+                        .admin_username
+                        .as_deref()
+                        .unwrap_or(DEFAULT_ADMIN_USERNAME);
+                    let tmux_cmd = "tmux list-sessions -F '#{session_name}' 2>/dev/null || true";
+
+                    let output = if let Some(ip) = &vm.public_ip {
+                        // Direct SSH for VMs with public IPs
+                        std::process::Command::new("ssh")
                             .args([
-                                "-o",
-                                "StrictHostKeyChecking=accept-new",
-                                "-o",
-                                "ConnectTimeout=10",
-                                "-o",
-                                "BatchMode=yes",
+                                "-o", "StrictHostKeyChecking=accept-new",
+                                "-o", "ConnectTimeout=5",
+                                "-o", "BatchMode=yes",
                                 &format!("{}@{}", user, ip),
-                                "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
+                                tmux_cmd,
                             ])
-                            .output();
-                        if let Ok(out) = output {
-                            if out.status.success() {
-                                let sessions: Vec<String> = String::from_utf8_lossy(&out.stdout)
-                                    .lines()
-                                    .filter(|l| !l.is_empty())
-                                    .map(|l| l.to_string())
-                                    .collect();
-                                if !sessions.is_empty() {
-                                    tmux_sessions.insert(vm.name.clone(), sessions);
-                                }
+                            .output()
+                    } else if let Some(bastion_name) = bastion_map.get(&vm.location) {
+                        // Use az network bastion ssh for private-only VMs
+                        let vm_id = format!(
+                            "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+                            vm_manager.subscription_id(), vm.resource_group, vm.name
+                        );
+                        let mut args = vec![
+                            "network".to_string(), "bastion".to_string(), "ssh".to_string(),
+                            "--name".to_string(), bastion_name.clone(),
+                            "--resource-group".to_string(), vm.resource_group.clone(),
+                            "--target-resource-id".to_string(), vm_id,
+                            "--auth-type".to_string(), "ssh-key".to_string(),
+                            "--username".to_string(), user.to_string(),
+                        ];
+                        if let Some(ref key) = ssh_key {
+                            args.push("--ssh-key".to_string());
+                            args.push(key.to_string_lossy().to_string());
+                        }
+                        args.push("--".to_string());
+                        args.push(tmux_cmd.to_string());
+
+                        let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                        std::process::Command::new("az")
+                            .args(&str_args)
+                            .stdout(std::process::Stdio::piped())
+                            .stderr(std::process::Stdio::piped())
+                            .output()
+                    } else {
+                        continue; // No bastion available for this region
+                    };
+
+                    if let Ok(out) = output {
+                        if out.status.success() {
+                            let sessions: Vec<String> = String::from_utf8_lossy(&out.stdout)
+                                .lines()
+                                .filter(|l| !l.is_empty() && !l.starts_with('{'))
+                                .map(|l| l.to_string())
+                                .collect();
+                            if !sessions.is_empty() {
+                                tmux_sessions.insert(vm.name.clone(), sessions);
                             }
                         }
                     }
