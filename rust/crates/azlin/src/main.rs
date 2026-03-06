@@ -492,6 +492,7 @@ async fn async_main() -> Result<()> {
             vm_pattern,
             include_stopped,
             all_contexts,
+            restore,
             ..
         } => {
             let auth = create_auth()?;
@@ -1073,6 +1074,21 @@ async fn async_main() -> Result<()> {
                         );
                     }
                 }
+            }
+
+            // Restore tmux sessions if requested (connect to each VM with active tmux)
+            if restore && !tmux_sessions.is_empty() {
+                println!("\nRestoring tmux sessions...");
+                for (vm_name, sessions) in &tmux_sessions {
+                    if let Some(first_session) = sessions.first() {
+                        println!("  Connecting to {} (session: {})", vm_name, first_session);
+                        // Open in a new terminal tab/window using the connect logic
+                        let _ = std::process::Command::new("azlin")
+                            .args(["connect", vm_name, "--tmux-session", first_session])
+                            .spawn();
+                    }
+                }
+                println!("Session restore initiated. Check your terminal tabs.");
             }
 
             // Show quota summary if requested
