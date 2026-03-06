@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// // Check if VM is running via power_state
 /// assert_eq!(vm.power_state, PowerState::Running);
-/// assert_eq!(vm.power_state.to_string(), "running");
+/// assert_eq!(vm.power_state.to_string(), "Running");
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VmInfo {
@@ -65,12 +65,12 @@ pub enum PowerState {
 impl std::fmt::Display for PowerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PowerState::Running => write!(f, "running"),
-            PowerState::Stopped => write!(f, "stopped"),
-            PowerState::Deallocated => write!(f, "deallocated"),
-            PowerState::Starting => write!(f, "starting"),
-            PowerState::Stopping => write!(f, "stopping"),
-            PowerState::Unknown => write!(f, "unknown"),
+            PowerState::Running => write!(f, "Running"),
+            PowerState::Stopped => write!(f, "Stopped"),
+            PowerState::Deallocated => write!(f, "Deallocated"),
+            PowerState::Starting => write!(f, "Starting"),
+            PowerState::Stopping => write!(f, "Stopping"),
+            PowerState::Unknown => write!(f, "Unknown"),
         }
     }
 }
@@ -310,8 +310,8 @@ mod tests {
 
     #[test]
     fn test_power_state_display() {
-        assert_eq!(PowerState::Running.to_string(), "running");
-        assert_eq!(PowerState::Deallocated.to_string(), "deallocated");
+        assert_eq!(PowerState::Running.to_string(), "Running");
+        assert_eq!(PowerState::Deallocated.to_string(), "Deallocated");
     }
 
     #[test]
@@ -507,12 +507,12 @@ mod tests {
 
     #[test]
     fn test_power_state_all_variants_display() {
-        assert_eq!(PowerState::Running.to_string(), "running");
-        assert_eq!(PowerState::Stopped.to_string(), "stopped");
-        assert_eq!(PowerState::Deallocated.to_string(), "deallocated");
-        assert_eq!(PowerState::Starting.to_string(), "starting");
-        assert_eq!(PowerState::Stopping.to_string(), "stopping");
-        assert_eq!(PowerState::Unknown.to_string(), "unknown");
+        assert_eq!(PowerState::Running.to_string(), "Running");
+        assert_eq!(PowerState::Stopped.to_string(), "Stopped");
+        assert_eq!(PowerState::Deallocated.to_string(), "Deallocated");
+        assert_eq!(PowerState::Starting.to_string(), "Starting");
+        assert_eq!(PowerState::Stopping.to_string(), "Stopping");
+        assert_eq!(PowerState::Unknown.to_string(), "Unknown");
     }
 
     #[test]

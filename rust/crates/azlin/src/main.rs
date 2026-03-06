@@ -584,6 +584,42 @@ async fn async_main() -> Result<()> {
                 vm_pattern.as_deref(),
             );
 
+            // Sort VMs by session name (matching Python order)
+            all_vms.sort_by(|a, b| {
+                let sa = a.tags.get("azlin-session").map(|s| s.as_str()).unwrap_or("");
+                let sb = b.tags.get("azlin-session").map(|s| s.as_str()).unwrap_or("");
+                sa.cmp(sb)
+            });
+
+            // Detect and display bastion hosts (matching Python: shown above VM table)
+            // Use the resolved resource group from the VMs themselves
+            let effective_rg = all_vms.first().map(|v| v.resource_group.as_str()).unwrap_or("");
+            if matches!(&cli.output, azlin_cli::OutputFormat::Table) && !effective_rg.is_empty() {
+                if let Ok(bastions) = list_helpers::detect_bastion_hosts(effective_rg) {
+                    if !bastions.is_empty() {
+                        let mut bastion_table = Table::new();
+                        bastion_table
+                            .load_preset(UTF8_FULL)
+                            .apply_modifier(UTF8_ROUND_CORNERS);
+                        bastion_table.set_header(vec![
+                            Cell::new("Name").add_attribute(Attribute::Bold),
+                            Cell::new("Location").add_attribute(Attribute::Bold),
+                            Cell::new("SKU").add_attribute(Attribute::Bold),
+                        ]);
+                        for (name, location, sku) in &bastions {
+                            bastion_table.add_row(vec![
+                                Cell::new(name),
+                                Cell::new(location),
+                                Cell::new(sku),
+                            ]);
+                        }
+                        println!("Azure Bastion Hosts");
+                        println!("{bastion_table}");
+                        println!();
+                    }
+                }
+            }
+
             // Collect tmux sessions if not disabled
             let mut tmux_sessions: std::collections::HashMap<String, Vec<String>> =
                 std::collections::HashMap::new();
@@ -718,7 +754,11 @@ async fn async_main() -> Result<()> {
             }
 
             // Build and render table
-            let mut headers = vec!["Session", "Tmux"];
+            let show_tmux_col = !no_tmux;
+            let mut headers = vec!["Session"];
+            if show_tmux_col {
+                headers.push("Tmux");
+            }
             if wide {
                 headers.push("VM Name");
             }
@@ -870,10 +910,10 @@ async fn async_main() -> Result<()> {
                             display_helpers::truncate_vm_name(&vm.name, 20)
                         };
 
-                        let mut row = vec![
-                            Cell::new(session),
-                            Cell::new(&tmux),
-                        ];
+                        let mut row = vec![Cell::new(session)];
+                        if show_tmux_col {
+                            row.push(Cell::new(&tmux));
+                        }
                         if wide {
                             row.push(Cell::new(&vm_name_display));
                         }
@@ -967,7 +1007,13 @@ async fn async_main() -> Result<()> {
                             "  azlin list -w        Wide mode (show VM Name, SKU columns)"
                         );
                         println!(
+                            "  azlin list -r        Restore all tmux sessions in new terminal window"
+                        );
+                        println!(
                             "  azlin list -q        Show quota usage (slower)"
+                        );
+                        println!(
+                            "  azlin list -v        Verbose mode (show tunnel/SSH details)"
                         );
                     }
                 }
@@ -7528,6 +7574,33 @@ mod list_helpers {
             filter_by_pattern(vms, p);
         }
     }
+
+    /// Detect Azure Bastion hosts for a resource group.
+    /// Returns Vec of (name, location, sku).
+    pub fn detect_bastion_hosts(resource_group: &str) -> anyhow::Result<Vec<(String, String, String)>> {
+        let output = std::process::Command::new("az")
+            .args(["network", "bastion", "list", "--resource-group", resource_group, "--output", "json"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()?;
+
+        if !output.status.success() {
+            return Ok(Vec::new()); // Bastion not available, not an error
+        }
+
+        let bastions: Vec<serde_json::Value> =
+            serde_json::from_slice(&output.stdout).unwrap_or_default();
+
+        Ok(bastions
+            .iter()
+            .map(|b| {
+                let name = b["name"].as_str().unwrap_or("").to_string();
+                let location = b["location"].as_str().unwrap_or("").to_string();
+                let sku = b["sku"]["name"].as_str().unwrap_or("Basic").to_string();
+                (name, location, sku)
+            })
+            .collect())
+    }
 }
 
 /// Pure helpers for validating repository URLs against shell injection.
@@ -7951,27 +8024,59 @@ mod display_helpers {
     }
 
     /// Parse Ubuntu offer strings into human-readable format.
-    /// e.g. "ubuntu-24_04-lts" -> "Ubuntu 24.04 LTS"
+    /// Handles multiple Azure offer formats:
+    ///   "ubuntu-24_04-lts" -> "Ubuntu 24.04 LTS"
+    ///   "ubuntu-25_10" -> "Ubuntu 25.10"
+    ///   "0001-com-ubuntu-server-jammy" -> "Ubuntu 22.04 LTS"
     fn format_ubuntu_offer(offer: &str) -> String {
         let lower = offer.to_lowercase();
-        let stripped = lower.strip_prefix("ubuntu-").unwrap_or(&lower);
+
+        // Try version format: ubuntu-XX_YY[-lts]
+        // Strip common prefixes
+        let stripped = lower
+            .strip_prefix("ubuntu-")
+            .or_else(|| {
+                // Handle 0001-com-ubuntu-* format
+                lower.find("ubuntu-").map(|i| &lower[i + 7..])
+            })
+            .unwrap_or(&lower);
+
         let is_lts = stripped.contains("lts");
-        let version_part = stripped.replace("-lts", "").replace("_lts", "");
+        let version_part = stripped
+            .replace("-lts", "")
+            .replace("_lts", "")
+            .replace("-gen1", "")
+            .replace("-gen2", "");
+
         // Parse XX_YY -> XX.YY
         if let Some((major, minor)) = version_part.split_once('_') {
-            let suffix = if is_lts { " LTS" } else { "" };
-            return format!("Ubuntu {}.{}{}", major, minor, suffix);
+            if major.chars().all(|c| c.is_numeric()) {
+                let suffix = if is_lts { " LTS" } else { "" };
+                return format!("Ubuntu {}.{}{}", major, minor, suffix);
+            }
         }
-        // Codename fallback
-        match stripped.split('-').next().unwrap_or(stripped) {
-            s if s.contains("plucky") => "Ubuntu 25.04".to_string(),
-            s if s.contains("oracular") => "Ubuntu 24.10".to_string(),
-            s if s.contains("noble") => "Ubuntu 24.04 LTS".to_string(),
-            s if s.contains("jammy") => "Ubuntu 22.04 LTS".to_string(),
-            s if s.contains("focal") => "Ubuntu 20.04 LTS".to_string(),
-            s if s.contains("bionic") => "Ubuntu 18.04 LTS".to_string(),
-            _ => format!("Ubuntu ({})", offer),
+
+        // Codename fallback — search the ENTIRE offer string for codenames
+        if lower.contains("plucky") {
+            return "Ubuntu 25.04".to_string();
         }
+        if lower.contains("oracular") {
+            return "Ubuntu 24.10".to_string();
+        }
+        if lower.contains("noble") {
+            return "Ubuntu 24.04 LTS".to_string();
+        }
+        if lower.contains("jammy") {
+            return "Ubuntu 22.04 LTS".to_string();
+        }
+        if lower.contains("focal") {
+            return "Ubuntu 20.04 LTS".to_string();
+        }
+        if lower.contains("bionic") {
+            return "Ubuntu 18.04 LTS".to_string();
+        }
+
+        format!("Ubuntu ({})", offer)
     }
 
     /// Format IP display with annotation (Pub/Bast/N/A).
