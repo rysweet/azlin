@@ -658,7 +658,13 @@ async fn async_main() -> Result<()> {
         .init();
 
     let cli = azlin_cli::Cli::parse();
+    dispatch_command(cli).await
+}
 
+/// Dispatch a parsed CLI command. Separated from async_main for testability —
+/// tests can construct a Cli struct and call this directly (in-process coverage).
+#[cfg_attr(test, allow(dead_code))]
+async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
     if cli.verbose {
         tracing::info!("Verbose mode enabled");
     }
