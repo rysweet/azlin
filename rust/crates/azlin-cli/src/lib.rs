@@ -276,6 +276,14 @@ pub enum Commands {
         #[arg(long)]
         all_contexts: bool,
 
+        /// Filter contexts by glob pattern (e.g., "prod*")
+        #[arg(long)]
+        contexts: Option<String>,
+
+        /// Restore tmux sessions after listing
+        #[arg(long, short = 'R')]
+        restore: bool,
+
         /// Config file path
         #[arg(long)]
         config: Option<PathBuf>,
