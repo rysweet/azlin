@@ -839,7 +839,10 @@ async fn async_main() -> Result<()> {
                             &vm.os_type,
                         );
                         let (cpu, mem) = display_helpers::parse_vm_size_specs(&vm.vm_size);
-                        let mut row = format!("{},{}", session, tmux);
+                        let mut row = format!("{}", session);
+                        if show_tmux_col {
+                            row.push_str(&format!(",{}", tmux));
+                        }
                         if wide {
                             row.push_str(&format!(",{}", vm.name));
                         }
