@@ -13,8 +13,6 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-azure_identity = { workspace = true }
-azure_core = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 openssl = { workspace = true }

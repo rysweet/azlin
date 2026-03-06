@@ -1,38 +1,22 @@
 use anyhow::{Context, Result};
-use azure_core::credentials::TokenCredential;
-use azure_identity::DefaultAzureCredential;
 use std::process::Command;
-use std::sync::Arc;
 use tracing::debug;
 use wait_timeout::ChildExt;
 
-/// Handles Azure authentication via DefaultAzureCredential chain.
-///
-/// Mirrors the Python `AzureAuthenticator` / `CredentialFactory`:
-///   1. AzureCliCredential (most common for dev)
-///   2. ManagedIdentityCredential
-///   3. Environment / workload credentials
-///
-/// `DefaultAzureCredential` from the `azure_identity` crate walks through
-/// these sources automatically, so we delegate to it.
+/// Handles Azure authentication by reading subscription and tenant info
+/// from `az account show`. All VM operations use the `az` CLI directly,
+/// so no SDK credential object is needed.
 pub struct AzureAuth {
-    credential: Arc<dyn TokenCredential>,
     subscription_id: String,
     tenant_id: Option<String>,
 }
 
 impl AzureAuth {
-    /// Create a new `AzureAuth` using `DefaultAzureCredential`.
-    ///
-    /// The subscription ID is read from `az account show`.
+    /// Create a new `AzureAuth` by reading subscription info from `az account show`.
     pub fn new() -> Result<Self> {
-        let credential =
-            DefaultAzureCredential::new().context("Failed to create DefaultAzureCredential")?;
-
         let (subscription_id, tenant_id) = Self::read_account_info()?;
 
         Ok(Self {
-            credential,
             subscription_id,
             tenant_id: Some(tenant_id),
         })
@@ -40,11 +24,7 @@ impl AzureAuth {
 
     /// Create a new `AzureAuth` with an explicit subscription ID.
     pub fn new_with_subscription(subscription_id: &str) -> Result<Self> {
-        let credential =
-            DefaultAzureCredential::new().context("Failed to create DefaultAzureCredential")?;
-
         Ok(Self {
-            credential,
             subscription_id: subscription_id.to_string(),
             tenant_id: None,
         })
@@ -53,16 +33,6 @@ impl AzureAuth {
     /// Return the subscription ID.
     pub fn subscription_id(&self) -> &str {
         &self.subscription_id
-    }
-
-    /// Return a reference to the underlying credential for SDK calls.
-    pub fn credential(&self) -> &dyn TokenCredential {
-        self.credential.as_ref()
-    }
-
-    /// Return the credential wrapped in an `Arc` (useful for SDK clients).
-    pub fn credential_arc(&self) -> Arc<dyn TokenCredential> {
-        Arc::clone(&self.credential)
     }
 
     /// Return the tenant ID, if known.
@@ -145,48 +115,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_with_subscription_compiles() {
-        // DefaultAzureCredential may fail without Azure CLI login,
-        // so we just verify the code path compiles and returns an error
-        // rather than panicking.
-        let result = AzureAuth::new_with_subscription("00000000-0000-0000-0000-000000000000");
-        // In CI without Azure login this will be Err; that's fine.
-        match result {
-            Ok(auth) => {
-                assert_eq!(
-                    auth.subscription_id(),
-                    "00000000-0000-0000-0000-000000000000"
-                );
-                assert!(auth.tenant_id().is_none());
-            }
-            Err(e) => {
-                // Expected in environments without Azure CLI login
-                let msg = format!("{e}");
-                assert!(
-                    msg.contains("Credential")
-                        || msg.contains("credential")
-                        || msg.contains("Azure"),
-                    "Unexpected error: {msg}"
-                );
-            }
-        }
+    fn test_new_with_subscription() {
+        let auth = AzureAuth::new_with_subscription("00000000-0000-0000-0000-000000000000")
+            .expect("new_with_subscription should not fail");
+        assert_eq!(
+            auth.subscription_id(),
+            "00000000-0000-0000-0000-000000000000"
+        );
+        assert!(auth.tenant_id().is_none());
     }
 
     #[test]
     fn test_subscription_id_accessor() {
-        // If credential creation succeeds, verify accessor works.
-        if let Ok(auth) = AzureAuth::new_with_subscription("test-sub-id") {
-            assert_eq!(auth.subscription_id(), "test-sub-id");
-        }
-    }
-
-    #[test]
-    fn test_credential_accessor() {
-        // Verify credential() returns a trait object (compilation check).
-        if let Ok(auth) = AzureAuth::new_with_subscription("test-sub-id") {
-            let _cred: &dyn TokenCredential = auth.credential();
-            let _arc: Arc<dyn TokenCredential> = auth.credential_arc();
-        }
+        let auth =
+            AzureAuth::new_with_subscription("test-sub-id").expect("should not fail");
+        assert_eq!(auth.subscription_id(), "test-sub-id");
     }
 
     #[test]
@@ -194,7 +137,6 @@ mod tests {
         // AzureAuth::new() depends on `az account show`; it should return
         // Ok or Err — never panic.
         let result = AzureAuth::new();
-        // Verify it returns a meaningful result either way
         match result {
             Ok(auth) => {
                 assert!(
@@ -212,12 +154,8 @@ mod tests {
         }
     }
 
-    // ── Subscription ID parsing tests ───────────────────────────────
-
     #[test]
     fn test_read_account_info_produces_result() {
-        // read_account_info runs `az account show`; it either succeeds or
-        // returns an error with a descriptive message. It should never panic.
         let result = AzureAuth::read_account_info();
         match result {
             Ok((sub, tenant)) => {
@@ -241,7 +179,6 @@ mod tests {
 
     #[test]
     fn test_subscription_id_parsing_from_json() {
-        // Simulate the JSON parsing logic from read_account_info
         let json_str = r#"{"id": "12345678-1234-1234-1234-123456789abc", "tenantId": "abcdef00-0000-0000-0000-000000000001"}"#;
         let account: serde_json::Value = serde_json::from_str(json_str).unwrap();
         let sub = account["id"].as_str().unwrap();
@@ -266,43 +203,20 @@ mod tests {
 
     #[test]
     fn test_tenant_id_accessor_returns_none_for_explicit_sub() {
-        if let Ok(auth) = AzureAuth::new_with_subscription("test-sub") {
-            assert!(
-                auth.tenant_id().is_none(),
-                "new_with_subscription should have no tenant_id"
-            );
-        }
+        let auth = AzureAuth::new_with_subscription("test-sub").expect("should not fail");
+        assert!(
+            auth.tenant_id().is_none(),
+            "new_with_subscription should have no tenant_id"
+        );
     }
 
     #[test]
     fn test_new_with_various_subscription_ids() {
-        let ids = vec![
-            "00000000-0000-0000-0000-000000000000",
-            "ffffffff-ffff-ffff-ffff-ffffffffffff",
-            "test-sub-id",
-            "",
-        ];
-        for id in ids {
-            let result = AzureAuth::new_with_subscription(id);
-            if let Ok(auth) = result {
-                assert_eq!(auth.subscription_id(), id);
-            } // Azure credential may not be available
+        for id in ["00000000-0000-0000-0000-000000000000", "test-sub-id", ""] {
+            let auth = AzureAuth::new_with_subscription(id).expect("should not fail");
+            assert_eq!(auth.subscription_id(), id);
         }
     }
-
-    #[test]
-    fn test_credential_arc_returns_clone() {
-        if let Ok(auth) = AzureAuth::new_with_subscription("test-sub") {
-            let arc1 = auth.credential_arc();
-            let arc2 = auth.credential_arc();
-            // Both should be valid Arc pointers
-            assert!(std::sync::Arc::strong_count(&arc1) >= 2);
-            drop(arc2);
-            assert!(std::sync::Arc::strong_count(&arc1) >= 1);
-        }
-    }
-
-    // ── JSON parsing edge cases ─────────────────────────────────────
 
     #[test]
     fn test_account_json_parsing_extra_fields() {
@@ -343,13 +257,5 @@ mod tests {
         let sub = account["id"].as_str().unwrap();
         assert!(sub.contains('-'));
         assert_eq!(sub.len(), 36);
-    }
-
-    #[test]
-    fn test_new_with_subscription_empty_string() {
-        let result = AzureAuth::new_with_subscription("");
-        if let Ok(auth) = result {
-            assert_eq!(auth.subscription_id(), "");
-        } // Azure credential may not be available
     }
 }

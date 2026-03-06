@@ -429,14 +429,6 @@ fn test_shell_escape_with_spaces_and_special_chars() {
     assert_eq!(escaped, "'foo bar $HOME'");
 }
 
-#[tokio::test]
-async fn test_resolve_vm_ip_or_flag_uses_ip_flag() {
-    let (ip, user) = super::resolve_vm_ip_or_flag("ignored", Some("1.2.3.4"), None)
-        .await
-        .unwrap();
-    assert_eq!(ip, "1.2.3.4");
-    assert_eq!(user, "azureuser");
-}
 
 #[test]
 fn test_health_metrics_non_running_vm() {
@@ -610,34 +602,6 @@ fn test_resolve_resource_group_explicit_with_special_chars() {
     assert_eq!(result.unwrap(), "my-rg_123");
 }
 
-// ── resolve_vm_ip_or_flag tests ──────────────────────────────
-
-#[tokio::test]
-async fn test_resolve_vm_ip_or_flag_returns_provided_ip() {
-    let (ip, user) = super::resolve_vm_ip_or_flag("any-vm", Some("10.0.0.5"), None)
-        .await
-        .unwrap();
-    assert_eq!(ip, "10.0.0.5");
-    assert_eq!(user, "azureuser");
-}
-
-#[tokio::test]
-async fn test_resolve_vm_ip_or_flag_ipv6() {
-    let (ip, user) = super::resolve_vm_ip_or_flag("vm", Some("::1"), None)
-        .await
-        .unwrap();
-    assert_eq!(ip, "::1");
-    assert_eq!(user, "azureuser");
-}
-
-#[tokio::test]
-async fn test_resolve_vm_ip_or_flag_localhost() {
-    let (ip, user) = super::resolve_vm_ip_or_flag("vm", Some("127.0.0.1"), None)
-        .await
-        .unwrap();
-    assert_eq!(ip, "127.0.0.1");
-    assert_eq!(user, "azureuser");
-}
 
 // ── HealthMetrics tests ──────────────────────────────────────
 
@@ -1216,14 +1180,6 @@ async fn test_resolve_vm_targets_ip_only_no_vm_name() {
     assert!(targets[0].bastion.is_none());
 }
 
-// ── ssh_exec_checked tests ───────────────────────────────────
-
-#[tokio::test]
-async fn test_ssh_exec_checked_unreachable_returns_error() {
-    let result = super::ssh_exec_checked("192.0.2.1", "user", "echo hello").await;
-    // Unreachable host should fail (either connection refused or timeout)
-    assert!(result.is_err());
-}
 
 #[test]
 fn test_completions_bash() {
@@ -11391,12 +11347,6 @@ fn test_build_vm_list_query_rejects_injection_in_tag_key() {
 
 // ── OnceLock bastion pool flag ─────────────────────────────────
 
-#[test]
-fn test_is_bastion_pool_disabled_default() {
-    // OnceLock may or may not be set from other tests, so just verify it
-    // returns a bool without panicking
-    let _result = super::is_bastion_pool_disabled();
-}
 
 // ── format_os_display tests ─────────────────────────────────────
 
@@ -11700,7 +11650,7 @@ fn test_build_ssh_target_public_ip_no_bastion() {
         created_time: None,
     };
     let bastion_map = std::collections::HashMap::new();
-    let target = super::build_ssh_target(&vm, "sub-123", &bastion_map);
+    let target = super::build_ssh_target(&vm, "sub-123", &bastion_map, &None);
     assert_eq!(target.ip, "52.1.2.3");
     assert_eq!(target.user, "testuser");
     assert!(target.bastion.is_none(), "Public IP VMs should not route through bastion");
@@ -11725,14 +11675,14 @@ fn test_build_ssh_target_private_ip_with_bastion() {
     };
     let mut bastion_map = std::collections::HashMap::new();
     bastion_map.insert("eastus".to_string(), "my-bastion".to_string());
-    let target = super::build_ssh_target(&vm, "sub-123", &bastion_map);
+    let target = super::build_ssh_target(&vm, "sub-123", &bastion_map, &None);
     assert_eq!(target.ip, "10.0.0.4");
     assert!(target.bastion.is_some(), "Private-IP-only VM should route through bastion");
-    let (bast_name, bast_rg, bast_rid, _) = target.bastion.unwrap();
-    assert_eq!(bast_name, "my-bastion");
-    assert_eq!(bast_rg, "rg");
-    assert!(bast_rid.contains("my-vm"));
-    assert!(bast_rid.contains("sub-123"));
+    let b = target.bastion.unwrap();
+    assert_eq!(b.bastion_name, "my-bastion");
+    assert_eq!(b.resource_group, "rg");
+    assert!(b.vm_resource_id.contains("my-vm"));
+    assert!(b.vm_resource_id.contains("sub-123"));
 }
 
 #[test]
@@ -11753,7 +11703,7 @@ fn test_build_ssh_target_private_ip_no_bastion_available() {
         created_time: None,
     };
     let bastion_map = std::collections::HashMap::new();
-    let target = super::build_ssh_target(&vm, "sub-123", &bastion_map);
+    let target = super::build_ssh_target(&vm, "sub-123", &bastion_map, &None);
     assert_eq!(target.ip, "10.0.0.4");
     assert_eq!(target.user, "azureuser", "Should fall back to DEFAULT_ADMIN_USERNAME");
     assert!(target.bastion.is_none(), "No bastion in map, so should be None");
@@ -11778,7 +11728,7 @@ fn test_build_ssh_target_bastion_wrong_location() {
     };
     let mut bastion_map = std::collections::HashMap::new();
     bastion_map.insert("eastus".to_string(), "east-bastion".to_string());
-    let target = super::build_ssh_target(&vm, "sub-456", &bastion_map);
+    let target = super::build_ssh_target(&vm, "sub-456", &bastion_map, &None);
     assert!(target.bastion.is_none(), "Bastion in different location should not match");
 }
 
@@ -11800,7 +11750,7 @@ fn test_build_ssh_target_no_ips() {
         created_time: None,
     };
     let bastion_map = std::collections::HashMap::new();
-    let target = super::build_ssh_target(&vm, "sub-1", &bastion_map);
+    let target = super::build_ssh_target(&vm, "sub-1", &bastion_map, &None);
     assert_eq!(target.ip, "", "No IPs at all should result in empty string");
 }
 

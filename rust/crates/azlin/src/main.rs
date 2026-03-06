@@ -35,21 +35,11 @@ use ratatui::{
 };
 use tracing_subscriber::EnvFilter;
 
-/// Thread-safe flag to disable bastion pool, replacing the unsound
-/// `std::env::set_var` call in an async/multi-threaded context.
-static DISABLE_BASTION_POOL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-
 /// Estimated monthly cost for an orphaned Azure Standard public IP address.
 const ORPHANED_PUBLIC_IP_MONTHLY_COST: f64 = 3.65;
 
 /// Default admin username for Azure VMs.
 const DEFAULT_ADMIN_USERNAME: &str = "azureuser";
-
-/// Check whether bastion pool is disabled.
-#[allow(dead_code)]
-fn is_bastion_pool_disabled() -> bool {
-    *DISABLE_BASTION_POOL.get().unwrap_or(&false)
-}
 
 /// Health metrics collected from a VM via SSH.
 struct HealthMetrics {
@@ -154,13 +144,20 @@ fn bastion_ssh_exec(
     }
 }
 
+/// Named bastion routing info, replacing the opaque 4-tuple.
+struct BastionRoute {
+    bastion_name: String,
+    resource_group: String,
+    vm_resource_id: String,
+    ssh_key_path: Option<std::path::PathBuf>,
+}
+
 /// Encapsulates SSH connection info for a VM, supporting both direct and bastion routes.
 struct VmSshTarget {
     vm_name: String,
     ip: String,
     user: String,
-    /// If Some, route through bastion (bastion_name, resource_group, vm_resource_id, ssh_key_path)
-    bastion: Option<(String, String, String, Option<std::path::PathBuf>)>,
+    bastion: Option<BastionRoute>,
 }
 
 impl VmSshTarget {
@@ -175,9 +172,9 @@ impl VmSshTarget {
                     let pub_key = std::fs::read_to_string(&pub_key_path).unwrap_or_default();
                     if !pub_key.is_empty() {
                         // For bastion targets we have RG + VM name; for direct SSH we have vm_name
-                        let (rg, vm_name) = if let Some((_, ref rg, ref vm_rid, _)) = self.bastion {
-                            let name = vm_rid.rsplit('/').next().unwrap_or(&self.vm_name);
-                            (rg.clone(), name.to_string())
+                        let (rg, vm_name) = if let Some(ref b) = self.bastion {
+                            let name = b.vm_resource_id.rsplit('/').next().unwrap_or(&self.vm_name);
+                            (b.resource_group.clone(), name.to_string())
                         } else {
                             // Direct SSH — vm_name is set by the caller
                             // We don't have the RG here, so skip auto-sync for direct targets
@@ -222,8 +219,8 @@ impl VmSshTarget {
     }
 
     fn exec_inner(&self, cmd: &str) -> Result<(i32, String, String)> {
-        if let Some((ref bastion_name, ref rg, ref vm_rid, ref ssh_key)) = self.bastion {
-            bastion_ssh_exec(bastion_name, rg, vm_rid, &self.user, ssh_key.as_deref(), cmd)
+        if let Some(ref b) = self.bastion {
+            bastion_ssh_exec(&b.bastion_name, &b.resource_group, &b.vm_resource_id, &self.user, b.ssh_key_path.as_deref(), cmd)
         } else {
             ssh_exec(&self.ip, &self.user, cmd)
         }
@@ -239,10 +236,13 @@ impl VmSshTarget {
 }
 
 /// Build a `VmSshTarget` from a `VmInfo`, routing through bastion when the VM has no public IP.
+///
+/// `ssh_key` is resolved once by the caller and passed in to avoid redundant filesystem lookups.
 fn build_ssh_target(
     vm: &azlin_core::models::VmInfo,
     subscription_id: &str,
     bastion_map: &std::collections::HashMap<String, String>,
+    ssh_key: &Option<std::path::PathBuf>,
 ) -> VmSshTarget {
     let ip = vm
         .public_ip
@@ -262,13 +262,12 @@ fn build_ssh_target(
                 "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                 subscription_id, vm.resource_group, vm.name
             );
-            let ssh_key = resolve_ssh_key();
-            (
-                bastion_name.clone(),
-                vm.resource_group.clone(),
-                vm_rid,
-                ssh_key,
-            )
+            BastionRoute {
+                bastion_name: bastion_name.clone(),
+                resource_group: vm.resource_group.clone(),
+                vm_resource_id: vm_rid,
+                ssh_key_path: ssh_key.clone(),
+            }
         })
     } else {
         None
@@ -1531,14 +1530,9 @@ async fn async_main() -> Result<()> {
             no_reconnect,
             max_retries,
             yes,
-            disable_bastion_pool,
             remote_command,
             ..
         } => {
-            if disable_bastion_pool {
-                let _ = DISABLE_BASTION_POOL.set(true);
-            }
-
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
@@ -5754,17 +5748,17 @@ async fn async_main() -> Result<()> {
             if follow {
                 // Stream logs interactively
                 println!("Following {} on {}...", log_path, vm_identifier);
-                if let Some((ref bastion_name, ref rg, ref vm_rid, ref ssh_key)) = target.bastion {
+                if let Some(ref b) = target.bastion {
                     // Interactive follow through bastion
                     let mut args = vec![
                         "network".to_string(), "bastion".to_string(), "ssh".to_string(),
-                        "--name".to_string(), bastion_name.clone(),
-                        "--resource-group".to_string(), rg.clone(),
-                        "--target-resource-id".to_string(), vm_rid.clone(),
+                        "--name".to_string(), b.bastion_name.clone(),
+                        "--resource-group".to_string(), b.resource_group.clone(),
+                        "--target-resource-id".to_string(), b.vm_resource_id.clone(),
                         "--auth-type".to_string(), "ssh-key".to_string(),
                         "--username".to_string(), target.user.clone(),
                     ];
-                    if let Some(key) = ssh_key {
+                    if let Some(ref key) = b.ssh_key_path {
                         args.push("--ssh-key".to_string());
                         args.push(key.to_string_lossy().to_string());
                     }
@@ -6732,52 +6726,6 @@ fn shell_escape(s: &str) -> String {
     escaped
 }
 
-/// Execute a command on a remote host via SSH, returning stdout on success.
-#[allow(dead_code)]
-async fn ssh_exec_checked(ip: &str, username: &str, command: &str) -> Result<String> {
-    let (code, stdout, stderr) = ssh_exec(ip, username, command)?;
-    if code != 0 {
-        anyhow::bail!("SSH command failed (exit {}): {}", code, stderr);
-    }
-    Ok(stdout)
-}
-
-/// Resolve a VM identifier to (ip, username) — uses --ip flag if provided, else Azure lookup.
-#[allow(dead_code)]
-async fn resolve_vm_ip(vm_name: &str, resource_group: Option<String>) -> Result<(String, String)> {
-    match create_auth() {
-        Ok(auth) => {
-            let vm_manager = azlin_azure::VmManager::new(&auth);
-            let rg = resolve_resource_group(resource_group)?;
-            let vm = vm_manager.get_vm(&rg, vm_name)?;
-            let ip = vm
-                .public_ip
-                .or(vm.private_ip)
-                .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm_name))?;
-            let user = vm
-                .admin_username
-                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
-            Ok((ip, user))
-        }
-        Err(_) => {
-            anyhow::bail!("Azure auth not available. Use --ip flag to specify VM IP directly.")
-        }
-    }
-}
-
-/// Resolve VM IP: use --ip flag if provided, otherwise look up via Azure.
-#[allow(dead_code)]
-async fn resolve_vm_ip_or_flag(
-    vm_name: &str,
-    ip_flag: Option<&str>,
-    resource_group: Option<String>,
-) -> Result<(String, String)> {
-    if let Some(ip) = ip_flag {
-        return Ok((ip.to_string(), DEFAULT_ADMIN_USERNAME.to_string()));
-    }
-    resolve_vm_ip(vm_name, resource_group).await
-}
-
 /// Resolve a single VM to a `VmSshTarget`, using --ip flag if provided.
 /// Routes through bastion automatically for private-IP-only VMs.
 async fn resolve_vm_ssh_target(
@@ -6803,7 +6751,8 @@ async fn resolve_vm_ssh_target(
             .into_iter()
             .map(|(name, location, _)| (location, name))
             .collect();
-    let target = build_ssh_target(&vm, vm_manager.subscription_id(), &bastion_map);
+    let ssh_key = resolve_ssh_key();
+    let target = build_ssh_target(&vm, vm_manager.subscription_id(), &bastion_map, &ssh_key);
     if target.ip.is_empty() {
         anyhow::bail!("No IP address found for VM '{}'", vm_name);
     }
@@ -6837,7 +6786,8 @@ async fn resolve_vm_targets(
                 .into_iter()
                 .map(|(name, location, _)| (location, name))
                 .collect();
-        let target = build_ssh_target(&vm, vm_manager.subscription_id(), &bastion_map);
+        let ssh_key = resolve_ssh_key();
+        let target = build_ssh_target(&vm, vm_manager.subscription_id(), &bastion_map, &ssh_key);
         if target.ip.is_empty() {
             anyhow::bail!("No IP address found for VM '{}'", vm_name);
         }
@@ -6854,6 +6804,7 @@ async fn resolve_vm_targets(
             .map(|(name, location, _)| (location, name))
             .collect();
     let sub_id = vm_manager.subscription_id().to_string();
+    let ssh_key = resolve_ssh_key();
     let vms = vm_manager.list_vms(&rg)?;
     let mut targets = Vec::new();
     for vm in vms {
@@ -6863,7 +6814,7 @@ async fn resolve_vm_targets(
         if vm.public_ip.is_none() && vm.private_ip.is_none() {
             continue;
         }
-        targets.push(build_ssh_target(&vm, &sub_id, &bastion_map));
+        targets.push(build_ssh_target(&vm, &sub_id, &bastion_map, &ssh_key));
     }
     if targets.is_empty() {
         anyhow::bail!("No running VMs found. Use --vm or --ip to target a specific VM.");
