@@ -121,6 +121,91 @@ fn bastion_ssh_exec(
     ))
 }
 
+/// Encapsulates SSH connection info for a VM, supporting both direct and bastion routes.
+struct VmSshTarget {
+    vm_name: String,
+    ip: String,
+    user: String,
+    /// If Some, route through bastion (bastion_name, resource_group, vm_resource_id, ssh_key_path)
+    bastion: Option<(String, String, String, Option<std::path::PathBuf>)>,
+}
+
+impl VmSshTarget {
+    fn exec(&self, cmd: &str) -> Result<(i32, String, String)> {
+        if let Some((ref bastion_name, ref rg, ref vm_rid, ref ssh_key)) = self.bastion {
+            bastion_ssh_exec(bastion_name, rg, vm_rid, &self.user, ssh_key.as_deref(), cmd)
+        } else {
+            ssh_exec(&self.ip, &self.user, cmd)
+        }
+    }
+
+    fn exec_checked(&self, cmd: &str) -> Result<String> {
+        let (code, stdout, stderr) = self.exec(cmd)?;
+        if code != 0 {
+            anyhow::bail!("SSH command failed (exit {}): {}", code, stderr);
+        }
+        Ok(stdout)
+    }
+}
+
+/// Build a `VmSshTarget` from a `VmInfo`, routing through bastion when the VM has no public IP.
+fn build_ssh_target(
+    vm: &azlin_core::models::VmInfo,
+    subscription_id: &str,
+    bastion_map: &std::collections::HashMap<String, String>,
+) -> VmSshTarget {
+    let ip = vm
+        .public_ip
+        .as_deref()
+        .or(vm.private_ip.as_deref())
+        .unwrap_or("")
+        .to_string();
+    let user = vm
+        .admin_username
+        .clone()
+        .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
+
+    let bastion = if vm.public_ip.is_none() {
+        // Private IP only — need bastion
+        bastion_map.get(&vm.location).map(|bastion_name| {
+            let vm_rid = format!(
+                "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+                subscription_id, vm.resource_group, vm.name
+            );
+            let ssh_key = resolve_ssh_key();
+            (
+                bastion_name.clone(),
+                vm.resource_group.clone(),
+                vm_rid,
+                ssh_key,
+            )
+        })
+    } else {
+        None
+    };
+
+    VmSshTarget {
+        vm_name: vm.name.clone(),
+        ip,
+        user,
+        bastion,
+    }
+}
+
+/// Resolve an SSH key for bastion tunnelling: prefer ~/.ssh/azlin_key, fall back to ~/.ssh/id_rsa.
+fn resolve_ssh_key() -> Option<std::path::PathBuf> {
+    let h = dirs::home_dir()?;
+    let azlin_key = h.join(".ssh").join("azlin_key");
+    if azlin_key.exists() {
+        return Some(azlin_key);
+    }
+    let id_rsa = h.join(".ssh").join("id_rsa");
+    if id_rsa.exists() {
+        return Some(id_rsa);
+    }
+    None
+}
+
 /// Collect health metrics from a single VM via SSH (direct or through Bastion).
 fn collect_health_metrics(
     vm_name: &str,
@@ -1422,9 +1507,9 @@ async fn async_main() -> Result<()> {
             ..
         } => {
             let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
-            for (name, addr, user) in &targets {
-                println!("── {} ──", name);
-                match ssh_exec_checked(addr, user, "w").await {
+            for target in &targets {
+                println!("── {} ──", target.vm_name);
+                match target.exec_checked("w") {
                     Ok(output) => print!("{}", output),
                     Err(e) => eprintln!("  Error: {}", e),
                 }
@@ -1437,9 +1522,9 @@ async fn async_main() -> Result<()> {
             ..
         } => {
             let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
-            for (name, addr, user) in &targets {
-                println!("── {} ──", name);
-                match ssh_exec_checked(addr, user, "ps aux --sort=-%mem | head -20").await {
+            for target in &targets {
+                println!("── {} ──", target.vm_name);
+                match target.exec_checked("ps aux --sort=-%mem | head -20") {
                     Ok(output) => print!("{}", output),
                     Err(e) => eprintln!("  Error: {}", e),
                 }
@@ -1452,9 +1537,9 @@ async fn async_main() -> Result<()> {
             ..
         } => {
             let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
-            for (name, addr, user) in &targets {
-                println!("── {} ──", name);
-                match ssh_exec_checked(addr, user, "top -b -n 1 | head -30").await {
+            for target in &targets {
+                println!("── {} ──", target.vm_name);
+                match target.exec_checked("top -b -n 1 | head -30") {
                     Ok(output) => print!("{}", output),
                     Err(e) => eprintln!("  Error: {}", e),
                 }
@@ -1725,14 +1810,14 @@ async fn async_main() -> Result<()> {
                         anyhow::bail!("Invalid format. Use KEY=VALUE");
                     }
                 };
-                let (addr, user) =
-                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let target =
+                    resolve_vm_ssh_target(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let escaped = shell_escape(value);
                 let cmd = env_helpers::build_env_set_cmd(key, &escaped);
                 if cmd == "true" {
                     anyhow::bail!("Invalid environment variable key: {}", key);
                 }
-                ssh_exec_checked(&addr, &user, &cmd).await?;
+                target.exec_checked(&cmd)?;
                 println!("Set {}={} on VM '{}'", key, value, vm_identifier);
             }
             azlin_cli::EnvAction::List {
@@ -1741,9 +1826,9 @@ async fn async_main() -> Result<()> {
                 ip,
                 ..
             } => {
-                let (addr, user) =
-                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
-                let output = ssh_exec_checked(&addr, &user, env_helpers::env_list_cmd()).await?;
+                let target =
+                    resolve_vm_ssh_target(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let output = target.exec_checked(env_helpers::env_list_cmd())?;
                 let mut table = Table::new();
                 table
                     .load_preset(UTF8_FULL)
@@ -1763,10 +1848,10 @@ async fn async_main() -> Result<()> {
                 ip,
                 ..
             } => {
-                let (addr, user) =
-                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let target =
+                    resolve_vm_ssh_target(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let cmd = env_helpers::build_env_delete_cmd(&key);
-                ssh_exec_checked(&addr, &user, &cmd).await?;
+                target.exec_checked(&cmd)?;
                 println!("Deleted '{}' from VM '{}'", key, vm_identifier);
             }
             azlin_cli::EnvAction::Export {
@@ -1776,9 +1861,9 @@ async fn async_main() -> Result<()> {
                 ip,
                 ..
             } => {
-                let (addr, user) =
-                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
-                let output = ssh_exec_checked(&addr, &user, env_helpers::env_list_cmd()).await?;
+                let target =
+                    resolve_vm_ssh_target(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let output = target.exec_checked(env_helpers::env_list_cmd())?;
                 match output_file {
                     Some(path) => {
                         std::fs::write(&path, &output)?;
@@ -1797,8 +1882,8 @@ async fn async_main() -> Result<()> {
                 ip,
                 ..
             } => {
-                let (addr, user) =
-                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let target =
+                    resolve_vm_ssh_target(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let content = std::fs::read_to_string(&env_file)?;
                 for (key, value) in env_helpers::parse_env_file(&content) {
                     let escaped = shell_escape(&value);
@@ -1807,7 +1892,7 @@ async fn async_main() -> Result<()> {
                         eprintln!("Skipping invalid environment variable key: {}", key);
                         continue;
                     }
-                    ssh_exec_checked(&addr, &user, &cmd).await?;
+                    target.exec_checked(&cmd)?;
                 }
                 println!(
                     "Imported env vars from '{}' to VM '{}'",
@@ -1835,10 +1920,10 @@ async fn async_main() -> Result<()> {
                         return Ok(());
                     }
                 }
-                let (addr, user) =
-                    resolve_vm_ip_or_flag(&vm_identifier, ip.as_deref(), resource_group).await?;
+                let target =
+                    resolve_vm_ssh_target(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let cmd = env_helpers::env_clear_cmd();
-                ssh_exec_checked(&addr, &user, cmd).await?;
+                target.exec_checked(cmd)?;
                 println!(
                     "Cleared all custom environment variables on VM '{}'",
                     vm_identifier
@@ -5468,8 +5553,6 @@ async fn async_main() -> Result<()> {
             resource_group,
             ..
         } => {
-            let rg = resolve_resource_group(resource_group)?;
-
             // Map log types to file paths
             let log_path = match log_type {
                 azlin_cli::LogType::CloudInit => "/var/log/cloud-init-output.log",
@@ -5477,28 +5560,42 @@ async fn async_main() -> Result<()> {
                 azlin_cli::LogType::Auth => "/var/log/auth.log",
             };
 
-            // Get VM IP for SSH
-            let auth = create_auth()?;
-            let vm_manager = azlin_azure::VmManager::new(&auth);
-            let vm = vm_manager.get_vm(&rg, &vm_identifier)?;
-            let ip = vm
-                .public_ip
-                .or(vm.private_ip)
-                .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm_identifier))?;
-            let username = vm
-                .admin_username
-                .as_deref()
-                .unwrap_or(DEFAULT_ADMIN_USERNAME);
+            let target =
+                resolve_vm_ssh_target(&vm_identifier, None, resource_group).await?;
 
             if follow {
-                // Stream logs via SSH tail -f
+                // Stream logs interactively
                 println!("Following {} on {}...", log_path, vm_identifier);
-                let follow_args = connect_helpers::build_log_follow_args(username, &ip, log_path);
-                let status = std::process::Command::new("ssh")
-                    .args(&follow_args)
-                    .status()?;
-                if !status.success() {
-                    std::process::exit(status.code().unwrap_or(1));
+                if let Some((ref bastion_name, ref rg, ref vm_rid, ref ssh_key)) = target.bastion {
+                    // Interactive follow through bastion
+                    let mut args = vec![
+                        "network".to_string(), "bastion".to_string(), "ssh".to_string(),
+                        "--name".to_string(), bastion_name.clone(),
+                        "--resource-group".to_string(), rg.clone(),
+                        "--target-resource-id".to_string(), vm_rid.clone(),
+                        "--auth-type".to_string(), "ssh-key".to_string(),
+                        "--username".to_string(), target.user.clone(),
+                    ];
+                    if let Some(key) = ssh_key {
+                        args.push("--ssh-key".to_string());
+                        args.push(key.to_string_lossy().to_string());
+                    }
+                    args.push("--".to_string());
+                    args.push(format!("sudo tail -f {}", log_path));
+                    let status = std::process::Command::new("az")
+                        .args(&args)
+                        .status()?;
+                    if !status.success() {
+                        std::process::exit(status.code().unwrap_or(1));
+                    }
+                } else {
+                    let follow_args = connect_helpers::build_log_follow_args(&target.user, &target.ip, log_path);
+                    let status = std::process::Command::new("ssh")
+                        .args(&follow_args)
+                        .status()?;
+                    if !status.success() {
+                        std::process::exit(status.code().unwrap_or(1));
+                    }
                 }
             } else {
                 let pb = indicatif::ProgressBar::new_spinner();
@@ -5508,22 +5605,23 @@ async fn async_main() -> Result<()> {
                 ));
                 pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-                let tail_args =
-                    connect_helpers::build_log_tail_args(username, &ip, lines, log_path);
-                let output = std::process::Command::new("ssh")
-                    .args(&tail_args)
-                    .output()?;
+                let tail_cmd = format!("sudo tail -n {} {}", lines, log_path);
+                let result = target.exec(&tail_cmd);
 
                 pb.finish_and_clear();
-                if output.status.success() {
-                    let log_text = String::from_utf8_lossy(&output.stdout);
-                    print!("{}", log_text);
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    anyhow::bail!(
-                        "Failed to fetch logs via SSH: {}",
-                        azlin_core::sanitizer::sanitize(stderr.trim())
-                    );
+                match result {
+                    Ok((code, stdout, stderr)) if code == 0 => {
+                        print!("{}", stdout);
+                    }
+                    Ok((_, _, stderr)) => {
+                        anyhow::bail!(
+                            "Failed to fetch logs via SSH: {}",
+                            azlin_core::sanitizer::sanitize(stderr.trim())
+                        );
+                    }
+                    Err(e) => {
+                        anyhow::bail!("Failed to fetch logs via SSH: {}", e);
+                    }
                 }
             }
         }
@@ -6447,6 +6545,7 @@ fn shell_escape(s: &str) -> String {
 }
 
 /// Execute a command on a remote host via SSH, returning stdout on success.
+#[allow(dead_code)]
 async fn ssh_exec_checked(ip: &str, username: &str, command: &str) -> Result<String> {
     let (code, stdout, stderr) = ssh_exec(ip, username, command)?;
     if code != 0 {
@@ -6456,6 +6555,7 @@ async fn ssh_exec_checked(ip: &str, username: &str, command: &str) -> Result<Str
 }
 
 /// Resolve a VM identifier to (ip, username) — uses --ip flag if provided, else Azure lookup.
+#[allow(dead_code)]
 async fn resolve_vm_ip(vm_name: &str, resource_group: Option<String>) -> Result<(String, String)> {
     match create_auth() {
         Ok(auth) => {
@@ -6478,6 +6578,7 @@ async fn resolve_vm_ip(vm_name: &str, resource_group: Option<String>) -> Result<
 }
 
 /// Resolve VM IP: use --ip flag if provided, otherwise look up via Azure.
+#[allow(dead_code)]
 async fn resolve_vm_ip_or_flag(
     vm_name: &str,
     ip_flag: Option<&str>,
@@ -6489,43 +6590,92 @@ async fn resolve_vm_ip_or_flag(
     resolve_vm_ip(vm_name, resource_group).await
 }
 
+/// Resolve a single VM to a `VmSshTarget`, using --ip flag if provided.
+/// Routes through bastion automatically for private-IP-only VMs.
+async fn resolve_vm_ssh_target(
+    vm_name: &str,
+    ip_flag: Option<&str>,
+    resource_group: Option<String>,
+) -> Result<VmSshTarget> {
+    if let Some(ip) = ip_flag {
+        return Ok(VmSshTarget {
+            vm_name: vm_name.to_string(),
+            ip: ip.to_string(),
+            user: DEFAULT_ADMIN_USERNAME.to_string(),
+            bastion: None,
+        });
+    }
+    let auth = create_auth()?;
+    let vm_manager = azlin_azure::VmManager::new(&auth);
+    let rg = resolve_resource_group(resource_group)?;
+    let vm = vm_manager.get_vm(&rg, vm_name)?;
+    let bastion_map: std::collections::HashMap<String, String> =
+        list_helpers::detect_bastion_hosts(&rg)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(name, location, _)| (location, name))
+            .collect();
+    let target = build_ssh_target(&vm, vm_manager.subscription_id(), &bastion_map);
+    if target.ip.is_empty() {
+        anyhow::bail!("No IP address found for VM '{}'", vm_name);
+    }
+    Ok(target)
+}
+
 /// Resolve targets for W/Ps/Top: single VM (--vm/--ip) or all VMs via Azure.
-/// Returns Vec<(display_name, ip, username)>.
+/// Returns `Vec<VmSshTarget>` with bastion routing for private-IP-only VMs.
 async fn resolve_vm_targets(
     vm_flag: Option<&str>,
     ip_flag: Option<&str>,
     resource_group: Option<String>,
-) -> Result<Vec<(String, String, String)>> {
+) -> Result<Vec<VmSshTarget>> {
     if let Some(ip) = ip_flag {
         let name = vm_flag.unwrap_or(ip);
-        return Ok(vec![(
-            name.to_string(),
-            ip.to_string(),
-            DEFAULT_ADMIN_USERNAME.to_string(),
-        )]);
+        return Ok(vec![VmSshTarget {
+            vm_name: name.to_string(),
+            ip: ip.to_string(),
+            user: DEFAULT_ADMIN_USERNAME.to_string(),
+            bastion: None,
+        }]);
     }
     if let Some(vm_name) = vm_flag {
-        let (ip, user) = resolve_vm_ip(vm_name, resource_group).await?;
-        return Ok(vec![(vm_name.to_string(), ip, user)]);
+        let auth = create_auth()?;
+        let vm_manager = azlin_azure::VmManager::new(&auth);
+        let rg = resolve_resource_group(resource_group)?;
+        let vm = vm_manager.get_vm(&rg, vm_name)?;
+        let bastion_map: std::collections::HashMap<String, String> =
+            list_helpers::detect_bastion_hosts(&rg)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(name, location, _)| (location, name))
+                .collect();
+        let target = build_ssh_target(&vm, vm_manager.subscription_id(), &bastion_map);
+        if target.ip.is_empty() {
+            anyhow::bail!("No IP address found for VM '{}'", vm_name);
+        }
+        return Ok(vec![target]);
     }
     // List all running VMs
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
     let rg = resolve_resource_group(resource_group)?;
+    let bastion_map: std::collections::HashMap<String, String> =
+        list_helpers::detect_bastion_hosts(&rg)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(name, location, _)| (location, name))
+            .collect();
+    let sub_id = vm_manager.subscription_id().to_string();
     let vms = vm_manager.list_vms(&rg)?;
     let mut targets = Vec::new();
     for vm in vms {
         if vm.power_state != azlin_core::models::PowerState::Running {
             continue;
         }
-        let ip = match vm.public_ip.or(vm.private_ip) {
-            Some(ip) => ip,
-            None => continue,
-        };
-        let user = vm
-            .admin_username
-            .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
-        targets.push((vm.name, ip, user));
+        if vm.public_ip.is_none() && vm.private_ip.is_none() {
+            continue;
+        }
+        targets.push(build_ssh_target(&vm, &sub_id, &bastion_map));
     }
     if targets.is_empty() {
         anyhow::bail!("No running VMs found. Use --vm or --ip to target a specific VM.");
@@ -7920,6 +8070,7 @@ mod connect_helpers {
     }
 
     /// Build SSH args for fetching a specific number of log lines.
+    #[allow(dead_code)]
     pub fn build_log_tail_args(
         username: &str,
         ip: &str,
@@ -9617,9 +9768,10 @@ created = \"2024-01-01T00:00:00Z\"\n";
             .await
             .unwrap();
         assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].0, "my-vm");
-        assert_eq!(targets[0].1, "192.168.1.1");
-        assert_eq!(targets[0].2, "azureuser");
+        assert_eq!(targets[0].vm_name, "my-vm");
+        assert_eq!(targets[0].ip, "192.168.1.1");
+        assert_eq!(targets[0].user, "azureuser");
+        assert!(targets[0].bastion.is_none());
     }
 
     #[tokio::test]
@@ -9628,8 +9780,9 @@ created = \"2024-01-01T00:00:00Z\"\n";
             .await
             .unwrap();
         assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].0, "10.0.0.1"); // uses IP as display name
-        assert_eq!(targets[0].1, "10.0.0.1");
+        assert_eq!(targets[0].vm_name, "10.0.0.1"); // uses IP as display name
+        assert_eq!(targets[0].ip, "10.0.0.1");
+        assert!(targets[0].bastion.is_none());
     }
 
     // ── ssh_exec_checked tests ───────────────────────────────────
