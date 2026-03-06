@@ -109,17 +109,49 @@ fn bastion_ssh_exec(
     args.push("--");
     args.push(cmd);
 
-    let output = std::process::Command::new("az")
+    use wait_timeout::ChildExt;
+
+    let mut child = std::process::Command::new("az")
         .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .output()?;
+        .spawn()
+        .context("Failed to spawn az network bastion ssh")?;
 
-    Ok((
-        output.status.code().unwrap_or(-1),
-        String::from_utf8_lossy(&output.stdout).to_string(),
-        String::from_utf8_lossy(&output.stderr).to_string(),
-    ))
+    // Drain pipes in background threads to prevent deadlock
+    let stdout_handle = child.stdout.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
+            buf
+        })
+    });
+    let stderr_handle = child.stderr.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
+            buf
+        })
+    });
+
+    let timeout = std::time::Duration::from_secs(60);
+    match child.wait_timeout(timeout) {
+        Ok(Some(status)) => {
+            let stdout = stdout_handle.and_then(|h| h.join().ok()).unwrap_or_default();
+            let stderr = stderr_handle.and_then(|h| h.join().ok()).unwrap_or_default();
+            Ok((
+                status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&stdout).to_string(),
+                String::from_utf8_lossy(&stderr).to_string(),
+            ))
+        }
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(anyhow::anyhow!("Bastion SSH timed out after 60s"))
+        }
+        Err(e) => Err(anyhow::anyhow!("Failed to wait for bastion SSH: {e}")),
+    }
 }
 
 /// Encapsulates SSH connection info for a VM, supporting both direct and bastion routes.

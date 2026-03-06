@@ -31,6 +31,10 @@ RUST_MIN_STACK=8388608 cargo test
 
 Overall: **80%+ line coverage** across 1,870+ tests.
 
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for crate layout, Azure operation design, SSH routing, and caching.
+
 ## Key Features
 
 - **~52x faster startup** than Python version (14ms vs 730ms)

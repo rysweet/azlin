@@ -588,7 +588,7 @@ fn az_cli(args: &[&str]) -> Result<String> {
 }
 
 /// Run an `az` CLI command with an explicit timeout in seconds.
-fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
+pub fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
     debug!(args = ?args, "Running az CLI command");
     let mut child = std::process::Command::new("az")
         .args(args)

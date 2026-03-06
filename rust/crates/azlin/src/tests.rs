@@ -11397,3 +11397,506 @@ fn test_is_bastion_pool_disabled_default() {
     // returns a bool without panicking
     let _result = super::is_bastion_pool_disabled();
 }
+
+// ── format_os_display tests ─────────────────────────────────────
+
+#[test]
+fn test_format_os_display_ubuntu_version_lts() {
+    let result = super::display_helpers::format_os_display(
+        Some("ubuntu-24_04-lts"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu 24.04 LTS");
+}
+
+#[test]
+fn test_format_os_display_ubuntu_version_no_lts() {
+    let result = super::display_helpers::format_os_display(
+        Some("ubuntu-25_10"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu 25.10");
+}
+
+#[test]
+fn test_format_os_display_ubuntu_com_prefix_jammy() {
+    let result = super::display_helpers::format_os_display(
+        Some("0001-com-ubuntu-server-jammy"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu 22.04 LTS");
+}
+
+#[test]
+fn test_format_os_display_ubuntu_com_prefix_focal() {
+    let result = super::display_helpers::format_os_display(
+        Some("0001-com-ubuntu-server-focal"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu 20.04 LTS");
+}
+
+#[test]
+fn test_format_os_display_ubuntu_noble_codename() {
+    let result = super::display_helpers::format_os_display(
+        Some("0001-com-ubuntu-server-noble"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu 24.04 LTS");
+}
+
+#[test]
+fn test_format_os_display_ubuntu_bionic_codename() {
+    let result = super::display_helpers::format_os_display(
+        Some("0001-com-ubuntu-server-bionic"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu 18.04 LTS");
+}
+
+#[test]
+fn test_format_os_display_ubuntu_oracular() {
+    let result = super::display_helpers::format_os_display(
+        Some("0001-com-ubuntu-server-oracular"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu 24.10");
+}
+
+#[test]
+fn test_format_os_display_ubuntu_plucky() {
+    let result = super::display_helpers::format_os_display(
+        Some("0001-com-ubuntu-server-plucky"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu 25.04");
+}
+
+#[test]
+fn test_format_os_display_ubuntu_gen2_suffix() {
+    let result = super::display_helpers::format_os_display(
+        Some("ubuntu-24_04-lts-gen2"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu 24.04 LTS");
+}
+
+#[test]
+fn test_format_os_display_ubuntu_unknown_falls_back() {
+    let result = super::display_helpers::format_os_display(
+        Some("UbuntuWeird"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu (UbuntuWeird)");
+}
+
+#[test]
+fn test_format_os_display_debian() {
+    let result = super::display_helpers::format_os_display(
+        Some("debian-11"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Debian");
+}
+
+#[test]
+fn test_format_os_display_rhel() {
+    let result = super::display_helpers::format_os_display(
+        Some("RHEL"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "RHEL");
+}
+
+#[test]
+fn test_format_os_display_centos() {
+    let result = super::display_helpers::format_os_display(
+        Some("CentOS-7"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "CentOS");
+}
+
+#[test]
+fn test_format_os_display_suse() {
+    let result = super::display_helpers::format_os_display(
+        Some("sles-15"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "SUSE");
+}
+
+#[test]
+fn test_format_os_display_almalinux() {
+    let result = super::display_helpers::format_os_display(
+        Some("almalinux-9"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "AlmaLinux");
+}
+
+#[test]
+fn test_format_os_display_rocky() {
+    let result = super::display_helpers::format_os_display(
+        Some("rockylinux-9"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Rocky Linux");
+}
+
+#[test]
+fn test_format_os_display_windows_offer() {
+    let result = super::display_helpers::format_os_display(
+        Some("WindowsServer"),
+        &azlin_core::models::OsType::Windows,
+    );
+    assert_eq!(result, "Windows");
+}
+
+#[test]
+fn test_format_os_display_unknown_offer_passthrough() {
+    let result = super::display_helpers::format_os_display(
+        Some("CustomImage"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "CustomImage");
+}
+
+#[test]
+fn test_format_os_display_none_linux() {
+    let result = super::display_helpers::format_os_display(
+        None,
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Linux");
+}
+
+#[test]
+fn test_format_os_display_none_windows() {
+    let result = super::display_helpers::format_os_display(
+        None,
+        &azlin_core::models::OsType::Windows,
+    );
+    assert_eq!(result, "Windows");
+}
+
+// ── format_ip_display tests ─────────────────────────────────────
+
+#[test]
+fn test_format_ip_display_public_ip() {
+    let result = super::display_helpers::format_ip_display(Some("52.1.2.3"), Some("10.0.0.4"));
+    assert_eq!(result, "52.1.2.3 (Pub)");
+}
+
+#[test]
+fn test_format_ip_display_private_only() {
+    let result = super::display_helpers::format_ip_display(None, Some("10.0.0.4"));
+    assert_eq!(result, "10.0.0.4 (Bast)");
+}
+
+#[test]
+fn test_format_ip_display_no_ip() {
+    let result = super::display_helpers::format_ip_display(None, None);
+    assert_eq!(result, "N/A");
+}
+
+#[test]
+fn test_format_ip_display_public_takes_precedence() {
+    // When both exist, public IP should be shown
+    let result = super::display_helpers::format_ip_display(Some("1.2.3.4"), Some("10.0.0.1"));
+    assert!(result.contains("(Pub)"));
+    assert!(result.contains("1.2.3.4"));
+}
+
+// ── parse_vm_size_specs tests ───────────────────────────────────
+
+#[test]
+fn test_parse_vm_size_specs_d4s_v3() {
+    let (vcpus, mem) = super::display_helpers::parse_vm_size_specs("Standard_D4s_v3");
+    assert_eq!(vcpus, "4");
+    assert_eq!(mem, "16 GB"); // D-series: 4 vcpus * 4 GB
+}
+
+#[test]
+fn test_parse_vm_size_specs_e16as() {
+    let (vcpus, mem) = super::display_helpers::parse_vm_size_specs("Standard_E16as_v5");
+    assert_eq!(vcpus, "16");
+    assert_eq!(mem, "128 GB"); // E-series: 16 vcpus * 8 GB
+}
+
+#[test]
+fn test_parse_vm_size_specs_f2s() {
+    let (vcpus, mem) = super::display_helpers::parse_vm_size_specs("Standard_F2s_v2");
+    assert_eq!(vcpus, "2");
+    assert_eq!(mem, "4 GB"); // F-series: 2 vcpus * 2 GB
+}
+
+#[test]
+fn test_parse_vm_size_specs_b1s() {
+    let (vcpus, mem) = super::display_helpers::parse_vm_size_specs("Standard_B1s");
+    assert_eq!(vcpus, "1");
+    assert_eq!(mem, "4 GB"); // B-series: 1 * 4 GB
+}
+
+#[test]
+fn test_parse_vm_size_specs_m32() {
+    let (vcpus, mem) = super::display_helpers::parse_vm_size_specs("Standard_M32ms_v2");
+    assert_eq!(vcpus, "32");
+    assert_eq!(mem, "512 GB"); // M-series: 32 * 16 GB
+}
+
+#[test]
+fn test_parse_vm_size_specs_n6() {
+    let (vcpus, mem) = super::display_helpers::parse_vm_size_specs("Standard_N6s_v3");
+    assert_eq!(vcpus, "6");
+    assert_eq!(mem, "36 GB"); // N-series: 6 * 6 GB
+}
+
+#[test]
+fn test_parse_vm_size_specs_l8s() {
+    let (vcpus, mem) = super::display_helpers::parse_vm_size_specs("Standard_L8s_v3");
+    assert_eq!(vcpus, "8");
+    assert_eq!(mem, "64 GB"); // L-series: 8 * 8 GB
+}
+
+#[test]
+fn test_parse_vm_size_specs_invalid_format() {
+    let (vcpus, mem) = super::display_helpers::parse_vm_size_specs("NotAVmSize");
+    assert_eq!(vcpus, "-");
+    assert_eq!(mem, "-");
+}
+
+#[test]
+fn test_parse_vm_size_specs_empty() {
+    let (vcpus, mem) = super::display_helpers::parse_vm_size_specs("");
+    assert_eq!(vcpus, "-");
+    assert_eq!(mem, "-");
+}
+
+#[test]
+fn test_parse_vm_size_specs_no_number() {
+    let (vcpus, mem) = super::display_helpers::parse_vm_size_specs("Standard_Ds_v3");
+    assert_eq!(vcpus, "-");
+    assert_eq!(mem, "-");
+}
+
+// ── build_ssh_target tests ──────────────────────────────────────
+
+#[test]
+fn test_build_ssh_target_public_ip_no_bastion() {
+    let vm = azlin_core::models::VmInfo {
+        name: "my-vm".to_string(),
+        resource_group: "rg".to_string(),
+        location: "eastus".to_string(),
+        vm_size: "Standard_D4s_v3".to_string(),
+        power_state: azlin_core::models::PowerState::Running,
+        provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
+        os_type: azlin_core::models::OsType::Linux,
+        os_offer: None,
+        public_ip: Some("52.1.2.3".to_string()),
+        private_ip: Some("10.0.0.4".to_string()),
+        admin_username: Some("testuser".to_string()),
+        tags: Default::default(),
+        created_time: None,
+    };
+    let bastion_map = std::collections::HashMap::new();
+    let target = super::build_ssh_target(&vm, "sub-123", &bastion_map);
+    assert_eq!(target.ip, "52.1.2.3");
+    assert_eq!(target.user, "testuser");
+    assert!(target.bastion.is_none(), "Public IP VMs should not route through bastion");
+}
+
+#[test]
+fn test_build_ssh_target_private_ip_with_bastion() {
+    let vm = azlin_core::models::VmInfo {
+        name: "my-vm".to_string(),
+        resource_group: "rg".to_string(),
+        location: "eastus".to_string(),
+        vm_size: "Standard_D4s_v3".to_string(),
+        power_state: azlin_core::models::PowerState::Running,
+        provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
+        os_type: azlin_core::models::OsType::Linux,
+        os_offer: None,
+        public_ip: None,
+        private_ip: Some("10.0.0.4".to_string()),
+        admin_username: Some("azureuser".to_string()),
+        tags: Default::default(),
+        created_time: None,
+    };
+    let mut bastion_map = std::collections::HashMap::new();
+    bastion_map.insert("eastus".to_string(), "my-bastion".to_string());
+    let target = super::build_ssh_target(&vm, "sub-123", &bastion_map);
+    assert_eq!(target.ip, "10.0.0.4");
+    assert!(target.bastion.is_some(), "Private-IP-only VM should route through bastion");
+    let (bast_name, bast_rg, bast_rid, _) = target.bastion.unwrap();
+    assert_eq!(bast_name, "my-bastion");
+    assert_eq!(bast_rg, "rg");
+    assert!(bast_rid.contains("my-vm"));
+    assert!(bast_rid.contains("sub-123"));
+}
+
+#[test]
+fn test_build_ssh_target_private_ip_no_bastion_available() {
+    let vm = azlin_core::models::VmInfo {
+        name: "my-vm".to_string(),
+        resource_group: "rg".to_string(),
+        location: "eastus".to_string(),
+        vm_size: "Standard_D4s_v3".to_string(),
+        power_state: azlin_core::models::PowerState::Running,
+        provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
+        os_type: azlin_core::models::OsType::Linux,
+        os_offer: None,
+        public_ip: None,
+        private_ip: Some("10.0.0.4".to_string()),
+        admin_username: None,
+        tags: Default::default(),
+        created_time: None,
+    };
+    let bastion_map = std::collections::HashMap::new();
+    let target = super::build_ssh_target(&vm, "sub-123", &bastion_map);
+    assert_eq!(target.ip, "10.0.0.4");
+    assert_eq!(target.user, "azureuser", "Should fall back to DEFAULT_ADMIN_USERNAME");
+    assert!(target.bastion.is_none(), "No bastion in map, so should be None");
+}
+
+#[test]
+fn test_build_ssh_target_bastion_wrong_location() {
+    let vm = azlin_core::models::VmInfo {
+        name: "vm1".to_string(),
+        resource_group: "rg".to_string(),
+        location: "westus2".to_string(),
+        vm_size: "Standard_D4s_v3".to_string(),
+        power_state: azlin_core::models::PowerState::Running,
+        provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
+        os_type: azlin_core::models::OsType::Linux,
+        os_offer: None,
+        public_ip: None,
+        private_ip: Some("10.0.0.5".to_string()),
+        admin_username: Some("user1".to_string()),
+        tags: Default::default(),
+        created_time: None,
+    };
+    let mut bastion_map = std::collections::HashMap::new();
+    bastion_map.insert("eastus".to_string(), "east-bastion".to_string());
+    let target = super::build_ssh_target(&vm, "sub-456", &bastion_map);
+    assert!(target.bastion.is_none(), "Bastion in different location should not match");
+}
+
+#[test]
+fn test_build_ssh_target_no_ips() {
+    let vm = azlin_core::models::VmInfo {
+        name: "orphan-vm".to_string(),
+        resource_group: "rg".to_string(),
+        location: "eastus".to_string(),
+        vm_size: "Standard_D4s_v3".to_string(),
+        power_state: azlin_core::models::PowerState::Running,
+        provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
+        os_type: azlin_core::models::OsType::Linux,
+        os_offer: None,
+        public_ip: None,
+        private_ip: None,
+        admin_username: None,
+        tags: Default::default(),
+        created_time: None,
+    };
+    let bastion_map = std::collections::HashMap::new();
+    let target = super::build_ssh_target(&vm, "sub-1", &bastion_map);
+    assert_eq!(target.ip, "", "No IPs at all should result in empty string");
+}
+
+// ── context glob filtering tests ────────────────────────────────
+
+/// Helper: apply the same glob logic used in list handler for --contexts
+fn context_glob_matches(ctx_name: &str, pattern: &str) -> bool {
+    let pat = pattern.replace('*', "");
+    if pattern.contains('*') {
+        ctx_name.contains(&pat)
+    } else {
+        ctx_name == pattern
+    }
+}
+
+#[test]
+fn test_context_glob_exact_match() {
+    assert!(context_glob_matches("dev", "dev"));
+    assert!(!context_glob_matches("dev-pool", "dev"));
+}
+
+#[test]
+fn test_context_glob_wildcard_prefix() {
+    assert!(context_glob_matches("my-dev-pool", "*dev*"));
+    assert!(context_glob_matches("dev-pool", "*dev*"));
+    assert!(context_glob_matches("dev", "*dev*"));
+    assert!(!context_glob_matches("staging", "*dev*"));
+}
+
+#[test]
+fn test_context_glob_wildcard_suffix() {
+    assert!(context_glob_matches("dev-pool", "dev*"));
+    assert!(context_glob_matches("dev", "dev*"));
+    // Note: the implementation uses substring match (contains), not prefix match
+    // so "my-dev" DOES match "dev*" because it contains "dev"
+    assert!(context_glob_matches("my-dev", "dev*"));
+}
+
+#[test]
+fn test_context_glob_empty_pattern() {
+    // "*" pattern means "match everything" — empty substring after removing *
+    assert!(context_glob_matches("anything", "*"));
+    assert!(context_glob_matches("", "*"));
+}
+
+// ── apply_filters combined tests ────────────────────────────────
+
+fn make_vm_for_filter(name: &str, state: azlin_core::models::PowerState) -> azlin_core::models::VmInfo {
+    azlin_core::models::VmInfo {
+        name: name.to_string(),
+        resource_group: "rg".to_string(),
+        location: "eastus".to_string(),
+        vm_size: "Standard_D4s_v3".to_string(),
+        power_state: state,
+        provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
+        os_type: azlin_core::models::OsType::Linux,
+        os_offer: None,
+        public_ip: None,
+        private_ip: None,
+        admin_username: None,
+        tags: Default::default(),
+        created_time: None,
+    }
+}
+
+#[test]
+fn test_apply_filters_include_all_keeps_stopped() {
+    let mut vms = vec![
+        make_vm_for_filter("vm1", azlin_core::models::PowerState::Running),
+        make_vm_for_filter("vm2", azlin_core::models::PowerState::Deallocated),
+    ];
+    super::list_helpers::apply_filters(&mut vms, true, None, None);
+    assert_eq!(vms.len(), 2, "include_all=true should keep stopped VMs");
+}
+
+#[test]
+fn test_apply_filters_not_include_all_removes_stopped() {
+    let mut vms = vec![
+        make_vm_for_filter("vm1", azlin_core::models::PowerState::Running),
+        make_vm_for_filter("vm2", azlin_core::models::PowerState::Deallocated),
+    ];
+    super::list_helpers::apply_filters(&mut vms, false, None, None);
+    assert_eq!(vms.len(), 1);
+    assert_eq!(vms[0].name, "vm1");
+}
+
+#[test]
+fn test_apply_filters_combined_tag_and_pattern() {
+    let mut vm1 = make_vm_for_filter("web-server-1", azlin_core::models::PowerState::Running);
+    vm1.tags.insert("env".to_string(), "prod".to_string());
+    let mut vm2 = make_vm_for_filter("web-server-2", azlin_core::models::PowerState::Running);
+    vm2.tags.insert("env".to_string(), "dev".to_string());
+    let mut vm3 = make_vm_for_filter("db-server", azlin_core::models::PowerState::Running);
+    vm3.tags.insert("env".to_string(), "prod".to_string());
+    let mut vms = vec![vm1, vm2, vm3];
+    super::list_helpers::apply_filters(&mut vms, true, Some("env=prod"), Some("web*"));
+    assert_eq!(vms.len(), 1);
+    assert_eq!(vms[0].name, "web-server-1");
+}

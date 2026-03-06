@@ -22,34 +22,23 @@ pub fn get_cost_summary(auth: &AzureAuth, resource_group: &str) -> Result<CostSu
     let start_str = start_date.format("%Y-%m-%d").to_string();
     let end_str = end_date.format("%Y-%m-%d").to_string();
 
-    let output = std::process::Command::new("az")
-        .args([
-            "consumption",
-            "usage",
-            "list",
-            "--start-date",
-            &start_str,
-            "--end-date",
-            &end_str,
-            "--output",
-            "json",
-        ])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .context("Failed to execute 'az consumption usage list'")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        // az consumption may not be available on all subscriptions
-        return Err(anyhow::anyhow!(
-            "Cost data unavailable: {}",
-            azlin_core::sanitizer::sanitize(stderr.trim())
-        ));
-    }
+    // Use the shared az_cli_with_timeout to prevent pipe deadlocks and hangs
+    let json = match crate::vm::az_cli_with_timeout(
+        &[
+            "consumption", "usage", "list",
+            "--start-date", &start_str,
+            "--end-date", &end_str,
+        ],
+        120, // 2 minute timeout for cost queries
+    ) {
+        Ok(json) => json,
+        Err(e) => {
+            return Err(anyhow::anyhow!("Cost data unavailable: {}", e));
+        }
+    };
 
     let entries: Vec<serde_json::Value> =
-        serde_json::from_slice(&output.stdout).context("Failed to parse cost data JSON")?;
+        serde_json::from_str(&json).context("Failed to parse cost data JSON")?;
 
     // Aggregate costs by VM name
     let mut total_cost = 0.0;

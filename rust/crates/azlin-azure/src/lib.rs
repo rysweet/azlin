@@ -13,4 +13,5 @@ pub mod vm;
 
 pub use auth::AzureAuth;
 pub use costs::get_cost_summary;
+pub use vm::az_cli_with_timeout;
 pub use vm::VmManager;
