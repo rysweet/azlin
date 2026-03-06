@@ -187,6 +187,7 @@ mod tests {
             power_state: state,
             provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
             os_type: azlin_core::models::OsType::Linux,
+            os_offer: None,
             public_ip: ip.map(String::from),
             private_ip: Some("10.0.0.4".to_string()),
             admin_username: Some("azureuser".to_string()),

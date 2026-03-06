@@ -558,7 +558,7 @@ async fn async_main() -> Result<()> {
                     }
                 }
             } else if show_all_vms {
-                vm_manager.list_all_vms().await?
+                vm_manager.list_all_vms()?
             } else {
                 match &resource_group {
                     Some(rg) => vm_manager.list_vms(rg)?,
@@ -718,9 +718,15 @@ async fn async_main() -> Result<()> {
             }
 
             // Build and render table
-            let mut headers = vec![
-                "Session", "VM Name", "Tmux", "Status", "IP", "Region", "SKU",
-            ];
+            let mut headers = vec!["Session", "Tmux"];
+            if wide {
+                headers.push("VM Name");
+            }
+            headers.extend_from_slice(&["OS", "Status", "IP", "Region"]);
+            if wide {
+                headers.push("SKU");
+            }
+            headers.extend_from_slice(&["CPU", "Mem"]);
             if with_latency {
                 headers.push("Latency");
             }
@@ -736,13 +742,28 @@ async fn async_main() -> Result<()> {
                     let json_vms: Vec<serde_json::Value> = all_vms
                         .iter()
                         .map(|vm| {
+                            let ip_display = display_helpers::format_ip_display(
+                                vm.public_ip.as_deref(),
+                                vm.private_ip.as_deref(),
+                            );
+                            let os_display = display_helpers::format_os_display(
+                                vm.os_offer.as_deref(),
+                                &vm.os_type,
+                            );
+                            let (cpu, mem) = display_helpers::parse_vm_size_specs(&vm.vm_size);
                             let mut obj = serde_json::json!({
                                 "name": vm.name,
                                 "resource_group": vm.resource_group,
                                 "power_state": vm.power_state.to_string(),
-                                "ip": vm.public_ip.as_deref().or(vm.private_ip.as_deref()).unwrap_or("-"),
+                                "ip": ip_display,
+                                "public_ip": vm.public_ip,
+                                "private_ip": vm.private_ip,
                                 "location": vm.location,
                                 "vm_size": vm.vm_size,
+                                "os": os_display,
+                                "os_offer": vm.os_offer,
+                                "cpu": cpu,
+                                "mem": mem,
                                 "session": vm.tags.get("azlin-session").unwrap_or(&"-".to_string()),
                                 "tmux_sessions": tmux_sessions.get(&vm.name).cloned().unwrap_or_default(),
                             });
@@ -769,15 +790,27 @@ async fn async_main() -> Result<()> {
                             .get(&vm.name)
                             .map(|s| s.join(";"))
                             .unwrap_or_default();
-                        let ip = vm
-                            .public_ip
-                            .as_deref()
-                            .or(vm.private_ip.as_deref())
-                            .unwrap_or("-");
-                        let mut row = format!(
-                            "{},{},{},{},{},{},{}",
-                            session, vm.name, tmux, vm.power_state, ip, vm.location, vm.vm_size
+                        let ip_display = display_helpers::format_ip_display(
+                            vm.public_ip.as_deref(),
+                            vm.private_ip.as_deref(),
                         );
+                        let os_display = display_helpers::format_os_display(
+                            vm.os_offer.as_deref(),
+                            &vm.os_type,
+                        );
+                        let (cpu, mem) = display_helpers::parse_vm_size_specs(&vm.vm_size);
+                        let mut row = format!("{},{}", session, tmux);
+                        if wide {
+                            row.push_str(&format!(",{}", vm.name));
+                        }
+                        row.push_str(&format!(
+                            ",{},{},{},{}",
+                            os_display, vm.power_state, ip_display, vm.location
+                        ));
+                        if wide {
+                            row.push_str(&format!(",{}", vm.vm_size));
+                        }
+                        row.push_str(&format!(",{},{}", cpu, mem));
                         if with_latency {
                             row.push_str(&format!(
                                 ",{}",
@@ -815,11 +848,15 @@ async fn async_main() -> Result<()> {
                             .get(&vm.name)
                             .map(|s| display_helpers::format_tmux_sessions(s, 3))
                             .unwrap_or_else(|| "-".to_string());
-                        let ip = vm
-                            .public_ip
-                            .as_deref()
-                            .or(vm.private_ip.as_deref())
-                            .unwrap_or("-");
+                        let ip_display = display_helpers::format_ip_display(
+                            vm.public_ip.as_deref(),
+                            vm.private_ip.as_deref(),
+                        );
+                        let os_display = display_helpers::format_os_display(
+                            vm.os_offer.as_deref(),
+                            &vm.os_type,
+                        );
+                        let (cpu, mem) = display_helpers::parse_vm_size_specs(&vm.vm_size);
                         let state_color = match vm.power_state {
                             azlin_core::models::PowerState::Running => Color::Green,
                             azlin_core::models::PowerState::Stopped
@@ -835,13 +872,24 @@ async fn async_main() -> Result<()> {
 
                         let mut row = vec![
                             Cell::new(session),
-                            Cell::new(&vm_name_display),
                             Cell::new(&tmux),
-                            Cell::new(vm.power_state.to_string()).fg(state_color),
-                            Cell::new(ip),
-                            Cell::new(&vm.location),
-                            Cell::new(&vm.vm_size),
                         ];
+                        if wide {
+                            row.push(Cell::new(&vm_name_display));
+                        }
+                        row.extend_from_slice(&[
+                            Cell::new(&os_display),
+                            Cell::new(vm.power_state.to_string()).fg(state_color),
+                            Cell::new(&ip_display),
+                            Cell::new(&vm.location),
+                        ]);
+                        if wide {
+                            row.push(Cell::new(&vm.vm_size));
+                        }
+                        row.extend_from_slice(&[
+                            Cell::new(&cpu),
+                            Cell::new(&mem),
+                        ]);
                         if with_latency {
                             let lat = latencies
                                 .get(&vm.name)
@@ -866,6 +914,62 @@ async fn async_main() -> Result<()> {
                         table.add_row(row);
                     }
                     println!("{table}");
+
+                    // Summary footer
+                    let total = all_vms.len();
+                    let running = all_vms
+                        .iter()
+                        .filter(|vm| {
+                            vm.power_state == azlin_core::models::PowerState::Running
+                        })
+                        .count();
+                    let total_vcpus: u32 = all_vms
+                        .iter()
+                        .filter(|vm| {
+                            vm.power_state == azlin_core::models::PowerState::Running
+                        })
+                        .map(|vm| {
+                            display_helpers::parse_vm_size_specs(&vm.vm_size)
+                                .0
+                                .parse::<u32>()
+                                .unwrap_or(0)
+                        })
+                        .sum();
+                    let total_mem: u32 = all_vms
+                        .iter()
+                        .filter(|vm| {
+                            vm.power_state == azlin_core::models::PowerState::Running
+                        })
+                        .map(|vm| {
+                            display_helpers::parse_vm_size_specs(&vm.vm_size)
+                                .1
+                                .trim_end_matches(" GB")
+                                .parse::<u32>()
+                                .unwrap_or(0)
+                        })
+                        .sum();
+                    let total_tmux: usize =
+                        tmux_sessions.values().map(|v| v.len()).sum();
+
+                    println!();
+                    println!(
+                        "Total: {} VMs | {} running | {} vCPUs in use | {} GB memory in use | {} tmux sessions",
+                        total, running, total_vcpus, total_mem, total_tmux
+                    );
+
+                    if !show_all_vms {
+                        println!();
+                        println!("Hints:");
+                        println!(
+                            "  azlin list -a        Show all VMs across all resource groups"
+                        );
+                        println!(
+                            "  azlin list -w        Wide mode (show VM Name, SKU columns)"
+                        );
+                        println!(
+                            "  azlin list -q        Show quota usage (slower)"
+                        );
+                    }
                 }
             }
 
@@ -916,7 +1020,7 @@ async fn async_main() -> Result<()> {
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Starting {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            vm_manager.start_vm(&rg, &vm_name).await?;
+            vm_manager.start_vm(&rg, &vm_name)?;
             pb.finish_with_message(format!("✓ Started {}", vm_name));
         }
         azlin_cli::Commands::Stop {
@@ -935,7 +1039,7 @@ async fn async_main() -> Result<()> {
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("{} {}...", action, vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            vm_manager.stop_vm(&rg, &vm_name, deallocate).await?;
+            vm_manager.stop_vm(&rg, &vm_name, deallocate)?;
             pb.finish_with_message(format!("✓ {} {}", done, vm_name));
         }
         azlin_cli::Commands::Show {
@@ -1125,7 +1229,7 @@ async fn async_main() -> Result<()> {
                                 anyhow::bail!("Invalid tag format '{}'. Use key=value.", tag);
                             }
                         };
-                        vm_manager.add_tag(&rg, &vm_name, key, value).await?;
+                        vm_manager.add_tag(&rg, &vm_name, key, value)?;
                         println!("Added tag {}={} to VM '{}'", key, value, vm_name);
                     }
                 }
@@ -1136,7 +1240,7 @@ async fn async_main() -> Result<()> {
                 } => {
                     let rg = resolve_resource_group(resource_group)?;
                     for key in &tag_keys {
-                        vm_manager.remove_tag(&rg, &vm_name, key).await?;
+                        vm_manager.remove_tag(&rg, &vm_name, key)?;
                         println!("Removed tag '{}' from VM '{}'", key, vm_name);
                     }
                 }
@@ -1145,7 +1249,7 @@ async fn async_main() -> Result<()> {
                     resource_group,
                 } => {
                     let rg = resolve_resource_group(resource_group)?;
-                    let tags = vm_manager.list_tags(&rg, &vm_name).await?;
+                    let tags = vm_manager.list_tags(&rg, &vm_name)?;
                     azlin_cli::table::render_tags_table(&vm_name, &tags);
                 }
             }
@@ -1329,7 +1433,7 @@ async fn async_main() -> Result<()> {
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Deleting {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            vm_manager.delete_vm(&rg, &vm_name).await?;
+            vm_manager.delete_vm(&rg, &vm_name)?;
             pb.finish_with_message(format!("✓ Deleted {}", vm_name));
         }
         azlin_cli::Commands::Kill {
@@ -1346,7 +1450,7 @@ async fn async_main() -> Result<()> {
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Killing {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            vm_manager.delete_vm(&rg, &vm_name).await?;
+            vm_manager.delete_vm(&rg, &vm_name)?;
             pb.finish_with_message(format!("✓ Killed {}", vm_name));
         }
         azlin_cli::Commands::Destroy {
@@ -1384,7 +1488,7 @@ async fn async_main() -> Result<()> {
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Destroying {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            vm_manager.delete_vm(&rg, &vm_name).await?;
+            vm_manager.delete_vm(&rg, &vm_name)?;
             pb.finish_with_message(format!("✓ Destroyed {}", vm_name));
         }
         azlin_cli::Commands::Env { action } => match action {
@@ -3086,7 +3190,7 @@ async fn async_main() -> Result<()> {
 
                     for vm in &to_delete {
                         println!("Deleting '{}'...", vm.name);
-                        vm_manager.delete_vm(&rg, &vm.name).await?;
+                        vm_manager.delete_vm(&rg, &vm.name)?;
                     }
                     println!("Cleanup complete.");
                 }
@@ -3208,7 +3312,7 @@ async fn async_main() -> Result<()> {
                 let pb = indicatif::ProgressBar::new_spinner();
                 pb.set_message(format!("Creating VM '{}'...", vm_name));
                 pb.enable_steady_tick(std::time::Duration::from_millis(100));
-                let vm = vm_manager.create_vm(&params).await?;
+                let vm = vm_manager.create_vm(&params)?;
                 pb.finish_and_clear();
 
                 println!("VM '{}' created successfully!", vm.name);
@@ -4425,7 +4529,7 @@ async fn async_main() -> Result<()> {
                     for (name, action) in &actions {
                         if action == "deallocate" {
                             print!("  Deallocating {}...", name);
-                            let result = vm_manager.stop_vm(&rg, name, true).await;
+                            let result = vm_manager.stop_vm(&rg, name, true);
                             match result {
                                 Ok(_) => println!(" ✓ done"),
                                 Err(e) => println!(" ✗ failed: {}", e),
@@ -7805,6 +7909,113 @@ mod display_helpers {
             "SSH disconnected. Reconnect? (attempt {}/{}) [Y/n] ",
             attempt, max_retries,
         )
+    }
+
+    /// Format OS offer string into a human-readable distro name.
+    pub fn format_os_display(
+        os_offer: Option<&str>,
+        os_type: &azlin_core::models::OsType,
+    ) -> String {
+        if let Some(offer) = os_offer {
+            let lower = offer.to_lowercase();
+            if lower.contains("ubuntu") {
+                return format_ubuntu_offer(offer);
+            }
+            if lower.contains("debian") {
+                return "Debian".to_string();
+            }
+            if lower.contains("rhel") {
+                return "RHEL".to_string();
+            }
+            if lower.contains("centos") {
+                return "CentOS".to_string();
+            }
+            if lower.contains("sles") || lower.contains("suse") {
+                return "SUSE".to_string();
+            }
+            if lower.contains("alma") {
+                return "AlmaLinux".to_string();
+            }
+            if lower.contains("rocky") {
+                return "Rocky Linux".to_string();
+            }
+            if lower.contains("windowsserver") || lower.contains("windows") {
+                return "Windows".to_string();
+            }
+            return offer.to_string();
+        }
+        match os_type {
+            azlin_core::models::OsType::Windows => "Windows".to_string(),
+            _ => "Linux".to_string(),
+        }
+    }
+
+    /// Parse Ubuntu offer strings into human-readable format.
+    /// e.g. "ubuntu-24_04-lts" -> "Ubuntu 24.04 LTS"
+    fn format_ubuntu_offer(offer: &str) -> String {
+        let lower = offer.to_lowercase();
+        let stripped = lower.strip_prefix("ubuntu-").unwrap_or(&lower);
+        let is_lts = stripped.contains("lts");
+        let version_part = stripped.replace("-lts", "").replace("_lts", "");
+        // Parse XX_YY -> XX.YY
+        if let Some((major, minor)) = version_part.split_once('_') {
+            let suffix = if is_lts { " LTS" } else { "" };
+            return format!("Ubuntu {}.{}{}", major, minor, suffix);
+        }
+        // Codename fallback
+        match stripped.split('-').next().unwrap_or(stripped) {
+            s if s.contains("plucky") => "Ubuntu 25.04".to_string(),
+            s if s.contains("oracular") => "Ubuntu 24.10".to_string(),
+            s if s.contains("noble") => "Ubuntu 24.04 LTS".to_string(),
+            s if s.contains("jammy") => "Ubuntu 22.04 LTS".to_string(),
+            s if s.contains("focal") => "Ubuntu 20.04 LTS".to_string(),
+            s if s.contains("bionic") => "Ubuntu 18.04 LTS".to_string(),
+            _ => format!("Ubuntu ({})", offer),
+        }
+    }
+
+    /// Format IP display with annotation (Pub/Bast/N/A).
+    pub fn format_ip_display(public_ip: Option<&str>, private_ip: Option<&str>) -> String {
+        if let Some(pub_ip) = public_ip {
+            format!("{} (Pub)", pub_ip)
+        } else if let Some(priv_ip) = private_ip {
+            format!("{} (Bast)", priv_ip)
+        } else {
+            "N/A".to_string()
+        }
+    }
+
+    /// Extract vCPU count and estimated memory from Azure VM size name.
+    /// e.g. "Standard_D4s_v3" -> ("4", "16 GB")
+    pub fn parse_vm_size_specs(vm_size: &str) -> (String, String) {
+        let parts: Vec<&str> = vm_size.split('_').collect();
+        if parts.len() >= 2 {
+            let size_part = parts[1]; // e.g., "D4s" or "E16as"
+            let vcpus: String = size_part
+                .chars()
+                .skip_while(|c| c.is_alphabetic())
+                .take_while(|c| c.is_numeric())
+                .collect();
+            if let Ok(cpu_count) = vcpus.parse::<u32>() {
+                let mem_gb = estimate_memory_gb(size_part, cpu_count);
+                return (format!("{}", cpu_count), format!("{} GB", mem_gb));
+            }
+        }
+        ("-".to_string(), "-".to_string())
+    }
+
+    /// Estimate memory in GB based on VM family letter and vCPU count.
+    fn estimate_memory_gb(size_part: &str, vcpus: u32) -> u32 {
+        let family = size_part.chars().next().unwrap_or('D');
+        match family.to_ascii_uppercase() {
+            'E' => vcpus * 8,          // E-series: memory optimized
+            'M' => vcpus * 16,         // M-series: memory optimized (large)
+            'F' => (vcpus * 2).max(1), // F-series: compute optimized
+            'L' => vcpus * 8,          // L-series: storage optimized
+            'N' => vcpus * 6,          // N-series: GPU
+            'B' => (vcpus * 4).max(1), // B-series: burstable
+            _ => vcpus * 4,            // D-series and default
+        }
     }
 }
 
@@ -15928,6 +16139,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
             power_state: state,
             provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
             os_type: azlin_core::models::OsType::Linux,
+            os_offer: None,
             public_ip: Some("10.0.0.1".to_string()),
             private_ip: None,
             admin_username: Some("azureuser".to_string()),
@@ -18185,6 +18397,7 @@ custom_field = "extra"
                 power_state: PowerState::Running,
                 provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
                 os_type: OsType::Linux,
+                os_offer: None,
                 public_ip: None,
                 private_ip: None,
                 admin_username: None,
@@ -18199,6 +18412,7 @@ custom_field = "extra"
                 power_state: PowerState::Starting,
                 provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
                 os_type: OsType::Linux,
+                os_offer: None,
                 public_ip: None,
                 private_ip: None,
                 admin_username: None,
@@ -18213,6 +18427,7 @@ custom_field = "extra"
                 power_state: PowerState::Stopped,
                 provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
                 os_type: OsType::Linux,
+                os_offer: None,
                 public_ip: None,
                 private_ip: None,
                 admin_username: None,
@@ -18241,6 +18456,7 @@ custom_field = "extra"
                 power_state: PowerState::Running,
                 provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
                 os_type: OsType::Linux,
+                os_offer: None,
                 public_ip: None,
                 private_ip: None,
                 admin_username: None,
@@ -18257,6 +18473,7 @@ custom_field = "extra"
                 power_state: PowerState::Running,
                 provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
                 os_type: OsType::Linux,
+                os_offer: None,
                 public_ip: None,
                 private_ip: None,
                 admin_username: None,
@@ -18281,6 +18498,7 @@ custom_field = "extra"
             power_state: PowerState::Stopped,
             provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
             os_type: OsType::Linux,
+            os_offer: None,
             public_ip: None,
             private_ip: None,
             admin_username: None,

@@ -8,7 +8,6 @@ description = "Azure SDK integration for azlin - VM management, auth, networking
 
 [dependencies]
 azlin-core = { path = "../azlin-core" }
-tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
@@ -16,20 +15,11 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 azure_identity = { workspace = true }
 azure_core = { workspace = true }
-azure_mgmt_compute = { workspace = true }
-azure_mgmt_network = { workspace = true }
-azure_mgmt_resources = { workspace = true }
-azure_mgmt_storage = { workspace = true }
-azure_security_keyvault_secrets = { workspace = true }
-azure_mgmt_costmanagement = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
-# Old azure_core required by azure_mgmt_* crates (0.2.x series)
-azure_core_old = { package = "azure_core", version = "0.2" }
-async-trait = "0.1"
-oauth2 = { version = "4", default-features = false }
 openssl = { workspace = true }
 tempfile = { workspace = true }
 wait-timeout = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
