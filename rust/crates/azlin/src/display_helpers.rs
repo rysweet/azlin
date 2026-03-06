@@ -196,7 +196,7 @@ pub fn query_vm_size_specs(vm_size: &str, location: &str) -> (String, String) {
     let mut cache = VM_SIZE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
 
     if !cache.contains_key(location) {
-        if let Ok(output) = std::process::Command::new("az")
+        if let Ok(mut child) = std::process::Command::new("az")
             .args([
                 "vm",
                 "list-sizes",
@@ -207,22 +207,55 @@ pub fn query_vm_size_specs(vm_size: &str, location: &str) -> (String, String) {
             ])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .output()
+            .spawn()
         {
-            if output.status.success() {
-                if let Ok(sizes) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout)
-                {
-                    let entries: Vec<(String, u32, u32)> = sizes
-                        .iter()
-                        .filter_map(|s| {
-                            let name = s["name"].as_str()?.to_string();
-                            let cores = s["numberOfCores"].as_u64()? as u32;
-                            let mem_mb = s["memoryInMB"].as_u64()? as u32;
-                            Some((name, cores, mem_mb))
-                        })
-                        .collect();
-                    cache.insert(location.to_string(), entries);
+            // Drain stdout/stderr in background threads before waiting
+            // to prevent pipe deadlock on large output.
+            let stdout_handle = child.stdout.take().map(|mut pipe| {
+                std::thread::spawn(move || {
+                    let mut buf = Vec::new();
+                    std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
+                    buf
+                })
+            });
+            let stderr_handle = child.stderr.take().map(|mut pipe| {
+                std::thread::spawn(move || {
+                    let mut buf = Vec::new();
+                    std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
+                    buf
+                })
+            });
+
+            use wait_timeout::ChildExt;
+            let timeout = std::time::Duration::from_secs(30);
+            if let Ok(Some(status)) = child.wait_timeout(timeout) {
+                let stdout = stdout_handle
+                    .and_then(|h| h.join().ok())
+                    .unwrap_or_default();
+                // Join stderr thread to avoid leak (output unused on success)
+                if let Some(h) = stderr_handle {
+                    let _ = h.join();
                 }
+                if status.success() {
+                    if let Ok(sizes) =
+                        serde_json::from_slice::<Vec<serde_json::Value>>(&stdout)
+                    {
+                        let entries: Vec<(String, u32, u32)> = sizes
+                            .iter()
+                            .filter_map(|s| {
+                                let name = s["name"].as_str()?.to_string();
+                                let cores = s["numberOfCores"].as_u64()? as u32;
+                                let mem_mb = s["memoryInMB"].as_u64()? as u32;
+                                Some((name, cores, mem_mb))
+                            })
+                            .collect();
+                        cache.insert(location.to_string(), entries);
+                    }
+                }
+            } else {
+                // Timed out or wait error — kill and move on
+                let _ = child.kill();
+                let _ = child.wait();
             }
         }
     }

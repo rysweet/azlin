@@ -52,61 +52,66 @@ impl AzureAuth {
             .spawn()
             .context("Failed to run `az account show` — is Azure CLI installed?")?;
 
+        // Drain stdout and stderr in background threads BEFORE waiting,
+        // to prevent pipe deadlock when the child fills the OS pipe buffer.
+        let stdout_handle = child.stdout.take().map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
+                buf
+            })
+        });
+        let stderr_handle = child.stderr.take().map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
+                buf
+            })
+        });
+
         let timeout = std::time::Duration::from_secs(120);
-        let status = match child.wait_timeout(timeout) {
-            Ok(Some(s)) => s,
+        match child.wait_timeout(timeout) {
+            Ok(Some(status)) => {
+                let stdout = stdout_handle
+                    .and_then(|h| h.join().ok())
+                    .unwrap_or_default();
+                let stderr = stderr_handle
+                    .and_then(|h| h.join().ok())
+                    .unwrap_or_default();
+
+                if !status.success() {
+                    let stderr_str = String::from_utf8_lossy(&stderr);
+                    anyhow::bail!(
+                        "`az account show` failed (exit {}): {}",
+                        status,
+                        azlin_core::sanitizer::sanitize(stderr_str.trim())
+                    );
+                }
+
+                let account: serde_json::Value = serde_json::from_slice(&stdout)
+                    .context("Failed to parse `az account show` JSON output")?;
+
+                let subscription_id = account["id"]
+                    .as_str()
+                    .context("Missing 'id' in az account show output")?
+                    .to_string();
+
+                let tenant_id = account["tenantId"]
+                    .as_str()
+                    .context("Missing 'tenantId' in az account show output")?
+                    .to_string();
+
+                debug!(subscription_id = %subscription_id, "Read subscription from az CLI");
+
+                Ok((subscription_id, tenant_id))
+            }
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
                 anyhow::bail!("`az account show` timed out after 120s");
             }
             Err(e) => anyhow::bail!("Failed to wait for `az account show`: {e}"),
-        };
-
-        let stdout = child
-            .stdout
-            .take()
-            .map(|mut s| {
-                let mut buf = Vec::new();
-                std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                buf
-            })
-            .unwrap_or_default();
-        let stderr = child
-            .stderr
-            .take()
-            .map(|mut s| {
-                let mut buf = Vec::new();
-                std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                buf
-            })
-            .unwrap_or_default();
-
-        if !status.success() {
-            let stderr_str = String::from_utf8_lossy(&stderr);
-            anyhow::bail!(
-                "`az account show` failed (exit {}): {}",
-                status,
-                azlin_core::sanitizer::sanitize(stderr_str.trim())
-            );
         }
-
-        let account: serde_json::Value = serde_json::from_slice(&stdout)
-            .context("Failed to parse `az account show` JSON output")?;
-
-        let subscription_id = account["id"]
-            .as_str()
-            .context("Missing 'id' in az account show output")?
-            .to_string();
-
-        let tenant_id = account["tenantId"]
-            .as_str()
-            .context("Missing 'tenantId' in az account show output")?
-            .to_string();
-
-        debug!(subscription_id = %subscription_id, "Read subscription from az CLI");
-
-        Ok((subscription_id, tenant_id))
     }
 }
 

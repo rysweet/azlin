@@ -318,6 +318,8 @@ impl VmManager {
 
     /// Add a tag to a VM, preserving existing tags.
     pub fn add_tag(&self, resource_group: &str, name: &str, key: &str, value: &str) -> Result<()> {
+        validate_tag_key(key)?;
+        validate_tag_value(value)?;
         debug!(resource_group, name, key, value, "Adding tag to VM");
         let tag_arg = format!("tags.{}={}", key, value);
         az_cli_with_timeout(
@@ -339,6 +341,7 @@ impl VmManager {
 
     /// Remove a tag from a VM, preserving other tags.
     pub fn remove_tag(&self, resource_group: &str, name: &str, key: &str) -> Result<()> {
+        validate_tag_key(key)?;
         debug!(resource_group, name, key, "Removing tag from VM");
         let tag_arg = format!("tags.{}", key);
         az_cli_with_timeout(
@@ -656,6 +659,31 @@ fn parse_az_power_state(s: Option<&str>) -> PowerState {
         Some("vm stopping") | Some("vm deallocating") => PowerState::Stopping,
         _ => PowerState::Unknown,
     }
+}
+
+/// Validate that a tag key contains only safe characters: alphanumeric, hyphen, underscore, dot.
+fn validate_tag_key(key: &str) -> Result<()> {
+    if key.is_empty()
+        || !key
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        anyhow::bail!(
+            "Invalid tag key '{}': must be non-empty and contain only alphanumeric, hyphen, underscore, dot",
+            key
+        );
+    }
+    Ok(())
+}
+
+/// Validate that a tag value contains no control characters.
+fn validate_tag_value(value: &str) -> Result<()> {
+    if value.chars().any(|c| c.is_control()) {
+        anyhow::bail!(
+            "Invalid tag value: must not contain control characters"
+        );
+    }
+    Ok(())
 }
 
 /// Run an `az` CLI command with the default timeout, returning Ok(stdout) on success.
