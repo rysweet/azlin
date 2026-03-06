@@ -60,7 +60,6 @@ struct HealthMetrics {
     cpu_percent: f32,
     mem_percent: f32,
     disk_percent: f32,
-    load_avg: String,
 }
 
 /// Run an SSH command on a remote host and return (exit_code, stdout, stderr).
@@ -305,12 +304,6 @@ fn collect_health_metrics(
         .and_then(|(code, out, _)| health_parse_helpers::parse_disk_stdout(code, &out))
         .unwrap_or(0.0);
 
-    // Load average from uptime
-    let load = exec("uptime | awk -F'load average:' '{print $2}' | xargs")
-        .ok()
-        .and_then(|(code, out, _)| health_parse_helpers::parse_load_stdout(code, &out))
-        .unwrap_or_else(|| "-".to_string());
-
     // Agent status from walinuxagent service
     let agent = exec("systemctl is-active walinuxagent 2>/dev/null || echo \"N/A\"")
         .ok()
@@ -340,7 +333,6 @@ fn collect_health_metrics(
         cpu_percent: cpu,
         mem_percent: mem,
         disk_percent: disk,
-        load_avg: load,
     }
 }
 
@@ -754,6 +746,9 @@ async fn async_main() -> Result<()> {
             };
 
             // Resolve resource group(s)
+            if cli.verbose {
+                eprintln!("[VERBOSE] Fetching VMs from resource group: {}", resource_group.as_deref().unwrap_or("(default)"));
+            }
             let mut all_vms = if all_contexts {
                 // Read all context files from ~/.azlin/contexts/ and aggregate VMs
                 let ctx_dir = home_dir()?.join(".azlin").join("contexts");
@@ -841,6 +836,10 @@ async fn async_main() -> Result<()> {
                 }
             };
 
+            if cli.verbose {
+                eprintln!("[VERBOSE] Fetched {} VMs", all_vms.len());
+            }
+
             // Filter stopped VMs unless --all/--include-stopped,
             // then by tag and name pattern.
             list_helpers::apply_filters(
@@ -852,6 +851,9 @@ async fn async_main() -> Result<()> {
 
             // Preserve Azure's natural ordering (matches Python behavior)
 
+            if cli.verbose {
+                eprintln!("[VERBOSE] Detecting bastion hosts...");
+            }
             // Detect and display bastion hosts (matching Python: shown above VM table)
             // Use the resolved resource group from the VMs themselves
             let effective_rg = all_vms.first().map(|v| v.resource_group.as_str()).unwrap_or("");
@@ -881,6 +883,9 @@ async fn async_main() -> Result<()> {
                 }
             }
 
+            if cli.verbose {
+                eprintln!("[VERBOSE] Collecting tmux sessions via bastion SSH...");
+            }
             // Collect tmux sessions if not disabled
             let mut tmux_sessions: std::collections::HashMap<String, Vec<String>> =
                 std::collections::HashMap::new();
@@ -968,6 +973,9 @@ async fn async_main() -> Result<()> {
                                 .filter(|l| !l.is_empty() && !l.starts_with('{'))
                                 .map(|l| l.to_string())
                                 .collect();
+                            if cli.verbose {
+                                eprintln!("[VERBOSE] {} -> {} sessions", vm.name, sessions.len());
+                            }
                             if !sessions.is_empty() {
                                 tmux_sessions.insert(vm.name.clone(), sessions);
                             }
@@ -1309,16 +1317,26 @@ async fn async_main() -> Result<()> {
             // Restore tmux sessions if requested (connect to each VM with active tmux)
             if restore && !tmux_sessions.is_empty() {
                 println!("\nRestoring tmux sessions...");
+                let use_wt = std::env::var("WT_SESSION").is_ok();
                 for (vm_name, sessions) in &tmux_sessions {
                     if let Some(first_session) = sessions.first() {
-                        println!("  Connecting to {} (session: {})", vm_name, first_session);
-                        // Open in a new terminal tab/window using the connect logic
-                        let _ = std::process::Command::new("azlin")
-                            .args(["connect", vm_name, "--tmux-session", first_session])
-                            .spawn();
+                        if use_wt {
+                            println!("  Opening tab: {} (session: {})", vm_name, first_session);
+                            let _ = std::process::Command::new("wt.exe")
+                                .args([
+                                    "-w", "0", "new-tab", "azlin", "connect", vm_name,
+                                    "--tmux-session", first_session,
+                                ])
+                                .spawn();
+                        } else {
+                            println!("  Connecting to {} (session: {})", vm_name, first_session);
+                            let _ = std::process::Command::new("azlin")
+                                .args(["connect", vm_name, "--tmux-session", first_session])
+                                .spawn();
+                        }
                     }
                 }
-                println!("Session restore initiated. Check your terminal tabs.");
+                println!("Session restore initiated.");
             }
 
             // Show quota summary if requested
@@ -1485,8 +1503,6 @@ async fn async_main() -> Result<()> {
             remote_command,
             ..
         } => {
-            let name = vm_identifier.ok_or_else(|| anyhow::anyhow!("VM name is required."))?;
-
             if disable_bastion_pool {
                 let _ = DISABLE_BASTION_POOL.set(true);
             }
@@ -1494,6 +1510,44 @@ async fn async_main() -> Result<()> {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
+
+            // If no VM specified, show interactive picker of running VMs
+            let name = if let Some(id) = vm_identifier {
+                id
+            } else {
+                let vms = vm_manager.list_vms(&rg)?;
+                let running: Vec<_> = vms
+                    .iter()
+                    .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
+                    .collect();
+                if running.is_empty() {
+                    anyhow::bail!("No running VMs found in resource group '{}'", rg);
+                }
+                println!("Select a VM to connect to:");
+                for (i, vm) in running.iter().enumerate() {
+                    let ip = vm
+                        .public_ip
+                        .as_deref()
+                        .or(vm.private_ip.as_deref())
+                        .unwrap_or("-");
+                    println!("  [{}] {} ({})", i + 1, vm.name, ip);
+                }
+                print!("> ");
+                use std::io::Write;
+                std::io::stdout().flush()?;
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                let idx: usize = input
+                    .trim()
+                    .parse::<usize>()
+                    .context("Invalid selection")?
+                    .checked_sub(1)
+                    .context("Selection out of range")?;
+                if idx >= running.len() {
+                    anyhow::bail!("Selection out of range");
+                }
+                running[idx].name.clone()
+            };
 
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Looking up {}...", name));
@@ -7883,21 +7937,6 @@ mod health_parse_helpers {
         }
     }
 
-    /// Parse load average string from the stdout of
-    /// `uptime | awk -F'load average:' '{print $2}' | xargs`.
-    pub fn parse_load_stdout(exit_code: i32, stdout: &str) -> Option<String> {
-        if exit_code == 0 {
-            let trimmed = stdout.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        } else {
-            None
-        }
-    }
-
     /// Build a complete set of default (zero) metrics for a non-running VM.
     pub fn default_metrics(vm_name: &str, power_state: &str) -> super::HealthMetrics {
         super::HealthMetrics {
@@ -7908,7 +7947,6 @@ mod health_parse_helpers {
             cpu_percent: 0.0,
             mem_percent: 0.0,
             disk_percent: 0.0,
-            load_avg: "-".to_string(),
         }
     }
 }
@@ -9194,7 +9232,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
         assert_eq!(m.cpu_percent, 0.0);
         assert_eq!(m.mem_percent, 0.0);
         assert_eq!(m.disk_percent, 0.0);
-        assert_eq!(m.load_avg, "-");
+
     }
 
     #[test]
@@ -9244,7 +9282,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
                 cpu_percent: 25.5,
                 mem_percent: 60.0,
                 disk_percent: 45.0,
-                load_avg: "0.50, 0.30, 0.20".to_string(),
+
             },
             super::HealthMetrics {
                 vm_name: "vm2".to_string(),
@@ -9254,7 +9292,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
                 cpu_percent: 0.0,
                 mem_percent: 0.0,
                 disk_percent: 0.0,
-                load_avg: "-".to_string(),
+
             },
             super::HealthMetrics {
                 vm_name: "vm3".to_string(),
@@ -9264,7 +9302,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
                 cpu_percent: 95.0,
                 mem_percent: 85.0,
                 disk_percent: 92.0,
-                load_avg: "4.00, 3.50, 3.00".to_string(),
+
             },
         ];
         // Should not panic; just renders to stdout
@@ -9397,7 +9435,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
         assert_eq!(m.cpu_percent, 0.0);
         assert_eq!(m.mem_percent, 0.0);
         assert_eq!(m.disk_percent, 0.0);
-        assert_eq!(m.load_avg, "-");
+
     }
 
     #[test]
@@ -9412,7 +9450,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
         let m = super::collect_health_metrics("vm-x", "10.0.0.1", "user", "unknown", None);
         assert_eq!(m.power_state, "unknown");
         assert_eq!(m.cpu_percent, 0.0);
-        assert_eq!(m.load_avg, "-");
+
     }
 
     // ── render_health_table tests ────────────────────────────────
@@ -9434,7 +9472,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
             cpu_percent: 50.0,
             mem_percent: 40.0,
             disk_percent: 30.0,
-            load_avg: "1.00, 0.50, 0.25".to_string(),
+
         }];
         super::render_health_table(&metrics);
     }
@@ -9449,7 +9487,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
             cpu_percent: 99.9,
             mem_percent: 95.0,
             disk_percent: 98.0,
-            load_avg: "16.00, 12.00, 8.00".to_string(),
+
         }];
         super::render_health_table(&metrics);
     }
@@ -9464,7 +9502,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
             cpu_percent: 0.0,
             mem_percent: 0.0,
             disk_percent: 0.0,
-            load_avg: "0.00, 0.00, 0.00".to_string(),
+
         }];
         super::render_health_table(&metrics);
     }
@@ -9480,7 +9518,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
                 cpu_percent: 10.0,
                 mem_percent: 20.0,
                 disk_percent: 30.0,
-                load_avg: "0.10".to_string(),
+
             },
             super::HealthMetrics {
                 vm_name: "vm-b".to_string(),
@@ -9490,7 +9528,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
                 cpu_percent: 0.0,
                 mem_percent: 0.0,
                 disk_percent: 0.0,
-                load_avg: "-".to_string(),
+
             },
             super::HealthMetrics {
                 vm_name: "vm-c".to_string(),
@@ -9500,7 +9538,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
                 cpu_percent: 0.0,
                 mem_percent: 0.0,
                 disk_percent: 0.0,
-                load_avg: "-".to_string(),
+
             },
         ];
         super::render_health_table(&metrics);
@@ -10932,7 +10970,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
     fn test_health_metrics_deallocating_vm() {
         let m = super::collect_health_metrics("vm-x", "10.0.0.1", "user", "VM deallocating", None);
         assert_eq!(m.power_state, "VM deallocating");
-        assert_eq!(m.load_avg, "-");
+
     }
 
     // ── Unit tests: render_health_table edge cases ───────────────
@@ -10948,7 +10986,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
                 cpu_percent: i as f32 * 5.0,
                 mem_percent: i as f32 * 3.0,
                 disk_percent: i as f32 * 2.0,
-                load_avg: format!("{:.2}", i as f32 * 0.5),
+
             })
             .collect();
         // Should not panic with many entries
@@ -10965,7 +11003,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
             cpu_percent: 100.0,
             mem_percent: 100.0,
             disk_percent: 100.0,
-            load_avg: "99.99".to_string(),
+
         }];
         // Should not panic
         super::render_health_table(&metrics);
@@ -16533,7 +16571,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
             cpu_percent: 45.0,
             mem_percent: 60.0,
             disk_percent: 30.0,
-            load_avg: "1.5 2.0 1.8".to_string(),
+
         };
         assert_eq!(m.vm_name, "test-vm");
         assert_eq!(m.power_state, "running");
@@ -16627,29 +16665,6 @@ created = \"2024-01-01T00:00:00Z\"\n";
         );
     }
 
-    #[test]
-    fn test_parse_load_stdout_valid() {
-        assert_eq!(
-            super::health_parse_helpers::parse_load_stdout(0, " 1.23, 0.45, 0.67 \n"),
-            Some("1.23, 0.45, 0.67".to_string())
-        );
-    }
-
-    #[test]
-    fn test_parse_load_stdout_failure() {
-        assert_eq!(
-            super::health_parse_helpers::parse_load_stdout(1, "1.23, 0.45, 0.67"),
-            None
-        );
-    }
-
-    #[test]
-    fn test_parse_load_stdout_empty() {
-        assert_eq!(
-            super::health_parse_helpers::parse_load_stdout(0, "  \n"),
-            None
-        );
-    }
 
     #[test]
     fn test_default_metrics() {
@@ -16659,7 +16674,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
         assert_eq!(m.cpu_percent, 0.0);
         assert_eq!(m.mem_percent, 0.0);
         assert_eq!(m.disk_percent, 0.0);
-        assert_eq!(m.load_avg, "-");
+
     }
 
     // ── fleet_helpers tests ─────────────────────────────────────
@@ -19444,19 +19459,6 @@ custom_field = "extra"
         );
     }
 
-    #[test]
-    fn test_parse_load_stdout_trimmed() {
-        let result = super::health_parse_helpers::parse_load_stdout(0, " 1.2, 0.8, 0.5 ");
-        assert_eq!(result, Some("1.2, 0.8, 0.5".to_string()));
-    }
-
-    #[test]
-    fn test_parse_load_stdout_empty_returns_none() {
-        assert_eq!(
-            super::health_parse_helpers::parse_load_stdout(0, "  "),
-            None
-        );
-    }
 
     #[test]
     fn test_default_metrics_values() {
@@ -19466,7 +19468,7 @@ custom_field = "extra"
         assert_eq!(m.cpu_percent, 0.0);
         assert_eq!(m.mem_percent, 0.0);
         assert_eq!(m.disk_percent, 0.0);
-        assert_eq!(m.load_avg, "-");
+
     }
 
     // ── tag_helpers edge cases ──────────────────────────────────────

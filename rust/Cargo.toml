@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     "crates/azlin-core",
     "crates/azlin-azure",
-    "crates/azlin-ssh",
     "crates/azlin-ai",
     "crates/azlin-cli",
     "crates/azlin",
@@ -36,7 +35,7 @@ comfy-table = "7"
 indicatif = "0.17"
 dialoguer = "0.11"
 console = "0.15"
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = "0.29"
 
 # Azure SDK
@@ -48,10 +47,6 @@ azure_mgmt_resources = "0.2"
 azure_mgmt_storage = "0.2"
 azure_security_keyvault_secrets = "0.2"
 azure_mgmt_costmanagement = "0.2"
-
-# SSH
-russh = "0.48"
-russh-keys = "0.48"
 
 # HTTP (for Anthropic API)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }

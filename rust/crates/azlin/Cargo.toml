@@ -17,7 +17,6 @@ path = "src/azdoit.rs"
 [dependencies]
 azlin-core = { path = "../azlin-core" }
 azlin-azure = { path = "../azlin-azure" }
-azlin-ssh = { path = "../azlin-ssh" }
 azlin-ai = { path = "../azlin-ai" }
 azlin-cli = { path = "../azlin-cli" }
 tokio = { workspace = true }

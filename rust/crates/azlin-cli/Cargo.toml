@@ -9,7 +9,6 @@ description = "CLI command definitions and terminal UI for azlin"
 [dependencies]
 azlin-core = { path = "../azlin-core" }
 azlin-azure = { path = "../azlin-azure" }
-azlin-ssh = { path = "../azlin-ssh" }
 azlin-ai = { path = "../azlin-ai" }
 tokio = { workspace = true }
 clap = { workspace = true }
