@@ -134,6 +134,63 @@ struct VmSshTarget {
 
 impl VmSshTarget {
     fn exec(&self, cmd: &str) -> Result<(i32, String, String)> {
+        let result = self.exec_inner(cmd)?;
+
+        // Auto-sync SSH key on "Permission denied" — retry once after key push
+        if result.0 == 255 && result.2.contains("Permission denied") {
+            if let Some(key_path) = resolve_ssh_key() {
+                let pub_key_path = key_path.with_extension("pub");
+                if pub_key_path.exists() {
+                    let pub_key = std::fs::read_to_string(&pub_key_path).unwrap_or_default();
+                    if !pub_key.is_empty() {
+                        // For bastion targets we have RG + VM name; for direct SSH we have vm_name
+                        let (rg, vm_name) = if let Some((_, ref rg, ref vm_rid, _)) = self.bastion {
+                            let name = vm_rid.rsplit('/').next().unwrap_or(&self.vm_name);
+                            (rg.clone(), name.to_string())
+                        } else {
+                            // Direct SSH — vm_name is set by the caller
+                            // We don't have the RG here, so skip auto-sync for direct targets
+                            // (they typically work because the key was deployed at create time)
+                            return Ok(result);
+                        };
+
+                        eprintln!(
+                            "SSH auth failed for {}, syncing key via az vm user update...",
+                            vm_name
+                        );
+                        let status = std::process::Command::new("az")
+                            .args([
+                                "vm",
+                                "user",
+                                "update",
+                                "--resource-group",
+                                &rg,
+                                "--name",
+                                &vm_name,
+                                "--username",
+                                &self.user,
+                                "--ssh-key-value",
+                                pub_key.trim(),
+                            ])
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status();
+
+                        if status.is_ok_and(|s| s.success()) {
+                            eprintln!("Key synced, retrying SSH...");
+                            return self.exec_inner(cmd);
+                        } else {
+                            eprintln!("Warning: az vm user update failed, returning original error");
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn exec_inner(&self, cmd: &str) -> Result<(i32, String, String)> {
         if let Some((ref bastion_name, ref rg, ref vm_rid, ref ssh_key)) = self.bastion {
             bastion_ssh_exec(bastion_name, rg, vm_rid, &self.user, ssh_key.as_deref(), cmd)
         } else {
@@ -230,8 +287,8 @@ fn collect_health_metrics(
         }
     };
 
-    // CPU usage from top (idle percentage -> used)
-    let cpu = exec("top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'")
+    // CPU usage from top (extract idle% before "id" regardless of field position)
+    let cpu = exec("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'")
         .ok()
         .and_then(|(code, out, _)| health_parse_helpers::parse_cpu_stdout(code, &out))
         .unwrap_or(0.0);
@@ -680,11 +737,21 @@ async fn async_main() -> Result<()> {
             include_stopped,
             all_contexts,
             restore,
+            contexts,
+            no_cache,
             ..
         } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let include_all = all || include_stopped;
+
+            // Select cached or uncached list methods based on --no-cache flag
+            let list_vms = |mgr: &azlin_azure::VmManager, rg: &str| -> Result<Vec<azlin_core::models::VmInfo>> {
+                if no_cache { mgr.list_vms_no_cache(rg) } else { mgr.list_vms(rg) }
+            };
+            let list_all = |mgr: &azlin_azure::VmManager| -> Result<Vec<azlin_core::models::VmInfo>> {
+                if no_cache { mgr.list_all_vms_no_cache() } else { mgr.list_all_vms() }
+            };
 
             // Resolve resource group(s)
             let mut all_vms = if all_contexts {
@@ -700,7 +767,18 @@ async fn async_main() -> Result<()> {
                     for entry in entries {
                         match contexts::read_context_resource_group(&entry.path()) {
                             Ok((ctx_name, Some(rg))) => {
-                                match vm_manager.list_vms(&rg) {
+                                // If --contexts pattern provided, filter context names
+                                if let Some(ref pattern) = contexts {
+                                    let pat = pattern.replace('*', "");
+                                    // Simple glob: if pattern contains *, do substring match
+                                    // Otherwise exact match
+                                    if pattern.contains('*') {
+                                        if !ctx_name.contains(&pat) { continue; }
+                                    } else if ctx_name != *pattern {
+                                        continue;
+                                    }
+                                }
+                                match list_vms(&vm_manager, &rg) {
                                     Ok(vms) => {
                                         println!("── context: {} (rg: {}) ──", ctx_name, rg);
                                         aggregated.extend(vms);
@@ -732,12 +810,12 @@ async fn async_main() -> Result<()> {
                         ctx_dir
                     );
                     match &resource_group {
-                        Some(rg) => vm_manager.list_vms(rg)?,
+                        Some(rg) => list_vms(&vm_manager, rg)?,
                         None => {
                             let config = azlin_core::AzlinConfig::load()
                                 .context("Failed to load azlin config")?;
                             match config.default_resource_group {
-                                Some(rg) => vm_manager.list_vms(&rg)?,
+                                Some(rg) => list_vms(&vm_manager, &rg)?,
                                 None => {
                                     anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
                                 }
@@ -746,15 +824,15 @@ async fn async_main() -> Result<()> {
                     }
                 }
             } else if show_all_vms {
-                vm_manager.list_all_vms()?
+                list_all(&vm_manager)?
             } else {
                 match &resource_group {
-                    Some(rg) => vm_manager.list_vms(rg)?,
+                    Some(rg) => list_vms(&vm_manager, rg)?,
                     None => {
                         let config = azlin_core::AzlinConfig::load()
                             .context("Failed to load azlin config")?;
                         match config.default_resource_group {
-                            Some(rg) => vm_manager.list_vms(&rg)?,
+                            Some(rg) => list_vms(&vm_manager, &rg)?,
                             None => {
                                 anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
                             }
@@ -942,7 +1020,7 @@ async fn async_main() -> Result<()> {
                                 "-o", "ConnectTimeout=10",
                                 "-o", "BatchMode=yes",
                                 &format!("{}@{}", user, ip),
-                                "echo \"CPU:$(top -bn1 | grep 'Cpu(s)' | awk '{print $2}')% MEM:$(free -m | awk '/Mem:/{printf \"%.0f%%\", $3/$2*100}') DISK:$(df -h / | awk 'NR==2{print $5}')\"",
+                                "echo \"CPU:$(top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{printf \"%.1f\", 100 - $1}')% MEM:$(free -m | awk '/Mem:/{printf \"%.0f%%\", $3/$2*100}') DISK:$(df -h / | awk 'NR==2{print $5}')\"",
                             ])
                             .output();
                         if let Ok(out) = output {
@@ -1026,7 +1104,7 @@ async fn async_main() -> Result<()> {
                                 vm.os_offer.as_deref(),
                                 &vm.os_type,
                             );
-                            let (cpu, mem) = display_helpers::parse_vm_size_specs(&vm.vm_size);
+                            let (cpu, mem) = display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
                             let mut obj = serde_json::json!({
                                 "name": vm.name,
                                 "resource_group": vm.resource_group,
@@ -1074,7 +1152,7 @@ async fn async_main() -> Result<()> {
                             vm.os_offer.as_deref(),
                             &vm.os_type,
                         );
-                        let (cpu, mem) = display_helpers::parse_vm_size_specs(&vm.vm_size);
+                        let (cpu, mem) = display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
                         let mut row = format!("{}", session);
                         if show_tmux_col {
                             row.push_str(&format!(",{}", tmux));
@@ -1135,7 +1213,7 @@ async fn async_main() -> Result<()> {
                             vm.os_offer.as_deref(),
                             &vm.os_type,
                         );
-                        let (cpu, mem) = display_helpers::parse_vm_size_specs(&vm.vm_size);
+                        let (cpu, mem) = display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
                         let state_color = match vm.power_state {
                             azlin_core::models::PowerState::Running => Color::Green,
                             azlin_core::models::PowerState::Stopped
@@ -1196,45 +1274,15 @@ async fn async_main() -> Result<()> {
 
                     // Summary footer
                     let total = all_vms.len();
-                    let running = all_vms
-                        .iter()
-                        .filter(|vm| {
-                            vm.power_state == azlin_core::models::PowerState::Running
-                        })
-                        .count();
-                    let total_vcpus: u32 = all_vms
-                        .iter()
-                        .filter(|vm| {
-                            vm.power_state == azlin_core::models::PowerState::Running
-                        })
-                        .map(|vm| {
-                            display_helpers::parse_vm_size_specs(&vm.vm_size)
-                                .0
-                                .parse::<u32>()
-                                .unwrap_or(0)
-                        })
-                        .sum();
-                    let total_mem: u32 = all_vms
-                        .iter()
-                        .filter(|vm| {
-                            vm.power_state == azlin_core::models::PowerState::Running
-                        })
-                        .map(|vm| {
-                            display_helpers::parse_vm_size_specs(&vm.vm_size)
-                                .1
-                                .trim_end_matches(" GB")
-                                .parse::<u32>()
-                                .unwrap_or(0)
-                        })
-                        .sum();
                     let total_tmux: usize =
                         tmux_sessions.values().map(|v| v.len()).sum();
 
                     println!();
-                    println!(
-                        "Total: {} VMs | {} running | {} vCPUs in use | {} GB memory in use | {} tmux sessions",
-                        total, running, total_vcpus, total_mem, total_tmux
-                    );
+                    if total_tmux > 0 {
+                        println!("Total: {} VMs | {} tmux sessions", total, total_tmux);
+                    } else {
+                        println!("Total: {} VMs", total);
+                    }
 
                     if !show_all_vms {
                         println!();
@@ -7805,7 +7853,7 @@ mod auth_test_helpers {
 /// making it testable without SSH.
 mod health_parse_helpers {
     /// Parse CPU percentage from the stdout of
-    /// `top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'`.
+    /// `top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\([0-9.]*\)%* id.*/\1/' | awk '{print 100 - $1}'`.
     /// Returns `None` if the output cannot be parsed.
     pub fn parse_cpu_stdout(exit_code: i32, stdout: &str) -> Option<f32> {
         if exit_code == 0 {
@@ -8473,6 +8521,7 @@ mod display_helpers {
 
     /// Extract vCPU count and estimated memory from Azure VM size name.
     /// e.g. "Standard_D4s_v3" -> ("4", "16 GB")
+    /// This is the fallback used when `az vm list-sizes` is unavailable.
     pub fn parse_vm_size_specs(vm_size: &str) -> (String, String) {
         let parts: Vec<&str> = vm_size.split('_').collect();
         if parts.len() >= 2 {
@@ -8502,6 +8551,62 @@ mod display_helpers {
             'B' => (vcpus * 4).max(1), // B-series: burstable
             _ => vcpus * 4,            // D-series and default
         }
+    }
+
+    /// Per-location cache of VM size specs: Vec<(name, cores, mem_mb)>.
+    static VM_SIZE_CACHE: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, Vec<(String, u32, u32)>>>,
+    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+    /// Query exact vCPU and memory specs via `az vm list-sizes`.
+    /// Results are cached per location. Falls back to `parse_vm_size_specs`
+    /// if the az CLI query fails or the size is not found.
+    pub fn query_vm_size_specs(vm_size: &str, location: &str) -> (String, String) {
+        let mut cache = VM_SIZE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+
+        if !cache.contains_key(location) {
+            if let Ok(output) = std::process::Command::new("az")
+                .args([
+                    "vm",
+                    "list-sizes",
+                    "--location",
+                    location,
+                    "--output",
+                    "json",
+                ])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(sizes) =
+                        serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout)
+                    {
+                        let entries: Vec<(String, u32, u32)> = sizes
+                            .iter()
+                            .filter_map(|s| {
+                                let name = s["name"].as_str()?.to_string();
+                                let cores = s["numberOfCores"].as_u64()? as u32;
+                                let mem_mb = s["memoryInMB"].as_u64()? as u32;
+                                Some((name, cores, mem_mb))
+                            })
+                            .collect();
+                        cache.insert(location.to_string(), entries);
+                    }
+                }
+            }
+        }
+
+        // Look up the specific size in cached data
+        if let Some(sizes) = cache.get(location) {
+            if let Some((_, cores, mem_mb)) = sizes.iter().find(|(name, _, _)| name == vm_size) {
+                let mem_gb = mem_mb / 1024;
+                return (format!("{}", cores), format!("{} GB", mem_gb));
+            }
+        }
+
+        // Fallback to heuristic estimate if query fails
+        parse_vm_size_specs(vm_size)
     }
 }
 

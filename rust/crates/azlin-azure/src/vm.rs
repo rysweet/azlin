@@ -5,6 +5,8 @@
 //! azure_mgmt_* (0.2) which requires a fragile CredentialAdapter bridge.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use tracing::debug;
@@ -13,6 +15,21 @@ use wait_timeout::ChildExt;
 use azlin_core::models::{CreateVmParams, OsType, PowerState, VmInfo};
 
 use crate::AzureAuth;
+
+// ── VM list cache ─────────────────────────────────────────────────────
+
+/// Cached VM list entry with timestamp for TTL expiry.
+struct CacheEntry {
+    data: Vec<VmInfo>,
+    timestamp: Instant,
+}
+
+/// Global VM list cache keyed by resource group (or "__all__" for subscription-wide).
+static VM_CACHE: std::sync::LazyLock<Mutex<HashMap<String, CacheEntry>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Cache TTL: 60 minutes, matching the Python reference implementation.
+const CACHE_TTL: Duration = Duration::from_secs(3600);
 
 /// Manages Azure VM operations via the `az` CLI.
 ///
@@ -52,8 +69,59 @@ impl VmManager {
 
     // ── List operations ────────────────────────────────────────────────
 
-    /// List VMs in a specific resource group.
+    /// List VMs in a specific resource group, returning cached data if fresh.
+    ///
+    /// Results are cached for 60 minutes (matching Python). Use
+    /// [`list_vms_no_cache`] to bypass the cache.
     pub fn list_vms(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
+        let cache_key = resource_group.to_string();
+
+        // Check cache
+        if let Ok(cache) = VM_CACHE.lock() {
+            if let Some(entry) = cache.get(&cache_key) {
+                if entry.timestamp.elapsed() < CACHE_TTL {
+                    debug!(resource_group, "Returning cached VM list");
+                    return Ok(entry.data.clone());
+                }
+            }
+        }
+
+        let result = self.fetch_vms(resource_group)?;
+
+        // Store in cache
+        if let Ok(mut cache) = VM_CACHE.lock() {
+            cache.insert(
+                cache_key,
+                CacheEntry {
+                    data: result.clone(),
+                    timestamp: Instant::now(),
+                },
+            );
+        }
+
+        Ok(result)
+    }
+
+    /// List VMs in a resource group, bypassing the cache entirely.
+    pub fn list_vms_no_cache(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
+        let result = self.fetch_vms(resource_group)?;
+
+        // Update cache with fresh data
+        if let Ok(mut cache) = VM_CACHE.lock() {
+            cache.insert(
+                resource_group.to_string(),
+                CacheEntry {
+                    data: result.clone(),
+                    timestamp: Instant::now(),
+                },
+            );
+        }
+
+        Ok(result)
+    }
+
+    /// Fetch VMs from az CLI for a specific resource group (no cache logic).
+    fn fetch_vms(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
         debug!(resource_group, "Listing VMs via az CLI");
         let json = az_cli_with_timeout(
             &[
@@ -78,8 +146,55 @@ impl VmManager {
         Ok(result)
     }
 
-    /// List all VMs across the entire subscription.
+    /// List all VMs across the entire subscription, returning cached data if fresh.
     pub fn list_all_vms(&self) -> Result<Vec<VmInfo>> {
+        let cache_key = "__all__".to_string();
+
+        // Check cache
+        if let Ok(cache) = VM_CACHE.lock() {
+            if let Some(entry) = cache.get(&cache_key) {
+                if entry.timestamp.elapsed() < CACHE_TTL {
+                    debug!("Returning cached all-VMs list");
+                    return Ok(entry.data.clone());
+                }
+            }
+        }
+
+        let result = self.fetch_all_vms()?;
+
+        // Store in cache
+        if let Ok(mut cache) = VM_CACHE.lock() {
+            cache.insert(
+                cache_key,
+                CacheEntry {
+                    data: result.clone(),
+                    timestamp: Instant::now(),
+                },
+            );
+        }
+
+        Ok(result)
+    }
+
+    /// List all VMs across the subscription, bypassing the cache.
+    pub fn list_all_vms_no_cache(&self) -> Result<Vec<VmInfo>> {
+        let result = self.fetch_all_vms()?;
+
+        if let Ok(mut cache) = VM_CACHE.lock() {
+            cache.insert(
+                "__all__".to_string(),
+                CacheEntry {
+                    data: result.clone(),
+                    timestamp: Instant::now(),
+                },
+            );
+        }
+
+        Ok(result)
+    }
+
+    /// Fetch all VMs from az CLI across the subscription (no cache logic).
+    fn fetch_all_vms(&self) -> Result<Vec<VmInfo>> {
         debug!("Listing all VMs in subscription via az CLI");
         let json = az_cli_with_timeout(
             &["vm", "list", "--show-details"],
@@ -96,6 +211,14 @@ impl VmManager {
 
         debug!(count = result.len(), "Listed all VMs via az CLI");
         Ok(result)
+    }
+
+    /// Invalidate all cached VM lists.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn invalidate_cache() {
+        if let Ok(mut cache) = VM_CACHE.lock() {
+            cache.clear();
+        }
     }
 
     // ── Single VM operations ───────────────────────────────────────────
