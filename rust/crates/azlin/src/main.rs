@@ -106,53 +106,7 @@ fn bastion_ssh_exec(
     args.push("--");
     args.push(cmd);
 
-    use wait_timeout::ChildExt;
-
-    let mut child = std::process::Command::new("az")
-        .args(&args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .context("Failed to spawn az network bastion ssh")?;
-
-    // Drain pipes in background threads to prevent deadlock
-    let stdout_handle = child.stdout.take().map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
-            buf
-        })
-    });
-    let stderr_handle = child.stderr.take().map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
-            buf
-        })
-    });
-
-    let timeout = std::time::Duration::from_secs(60);
-    match child.wait_timeout(timeout) {
-        Ok(Some(status)) => {
-            let stdout = stdout_handle
-                .and_then(|h| h.join().ok())
-                .unwrap_or_default();
-            let stderr = stderr_handle
-                .and_then(|h| h.join().ok())
-                .unwrap_or_default();
-            Ok((
-                status.code().unwrap_or(-1),
-                String::from_utf8_lossy(&stdout).to_string(),
-                String::from_utf8_lossy(&stderr).to_string(),
-            ))
-        }
-        Ok(None) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            Err(anyhow::anyhow!("Bastion SSH timed out after 60s"))
-        }
-        Err(e) => Err(anyhow::anyhow!("Failed to wait for bastion SSH: {e}")),
-    }
+    azlin_azure::run_with_timeout("az", &args, 60)
 }
 
 /// Named bastion routing info, replacing the opaque 4-tuple.
@@ -2172,11 +2126,14 @@ async fn async_main() -> Result<()> {
         } => {
             let auth = create_auth()?;
             let rg = resolve_resource_group(resource_group)?;
+            let cost_timeout = azlin_core::AzlinConfig::load()
+                .map(|c| c.az_cli_timeout)
+                .unwrap_or(120);
 
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message("Fetching cost data...");
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            match azlin_azure::get_cost_summary(&auth, &rg) {
+            match azlin_azure::get_cost_summary(&auth, &rg, cost_timeout) {
                 Ok(summary) => {
                     pb.finish_and_clear();
                     println!(
@@ -5868,7 +5825,10 @@ async fn async_main() -> Result<()> {
             match action {
                 azlin_cli::CostsAction::Dashboard { resource_group, .. } => {
                     let auth = create_auth()?;
-                    match azlin_azure::get_cost_summary(&auth, &resource_group) {
+                    let cost_timeout = azlin_core::AzlinConfig::load()
+                        .map(|c| c.az_cli_timeout)
+                        .unwrap_or(120);
+                    match azlin_azure::get_cost_summary(&auth, &resource_group, cost_timeout) {
                         Ok(summary) => {
                             println!("Cost Dashboard for '{}':", resource_group);
                             println!("  Total: ${:.2} {}", summary.total_cost, summary.currency);

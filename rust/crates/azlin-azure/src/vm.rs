@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use tracing::debug;
-use wait_timeout::ChildExt;
 
 use azlin_core::models::{CreateVmParams, OsType, PowerState, VmInfo};
 
@@ -697,64 +696,21 @@ fn az_cli(args: &[&str]) -> Result<String> {
 /// Run an `az` CLI command with an explicit timeout in seconds.
 pub fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
     debug!(args = ?args, "Running az CLI command");
-    let mut child = std::process::Command::new("az")
-        .args(args)
-        .arg("--output")
-        .arg("json")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .context("Failed to execute 'az' CLI. Is Azure CLI installed?")?;
+    let mut full_args: Vec<&str> = args.to_vec();
+    full_args.push("--output");
+    full_args.push("json");
 
-    // Drain stdout and stderr in background threads to prevent pipe deadlock.
-    // Without this, the child can block on writing to a full pipe buffer while
-    // we block waiting for the child to exit — a classic deadlock.
-    let stdout_handle = child.stdout.take().map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
-            buf
-        })
-    });
-    let stderr_handle = child.stderr.take().map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            std::io::Read::read_to_end(&mut pipe, &mut buf).ok();
-            buf
-        })
-    });
+    let (code, stdout, stderr) =
+        crate::subprocess::run_with_timeout("az", &full_args, timeout_secs)
+            .context("Failed to execute 'az' CLI. Is Azure CLI installed?")?;
 
-    let timeout = std::time::Duration::from_secs(timeout_secs);
-    match child.wait_timeout(timeout) {
-        Ok(Some(status)) => {
-            let stdout = stdout_handle
-                .and_then(|h| h.join().ok())
-                .unwrap_or_default();
-            let stderr = stderr_handle
-                .and_then(|h| h.join().ok())
-                .unwrap_or_default();
-
-            if status.success() {
-                Ok(String::from_utf8_lossy(&stdout).to_string())
-            } else {
-                let stderr_str = String::from_utf8_lossy(&stderr);
-                Err(anyhow::anyhow!(
-                    "az CLI failed: {}",
-                    azlin_core::sanitizer::sanitize(stderr_str.trim())
-                ))
-            }
-        }
-        Ok(None) => {
-            // Timed out — kill the child process
-            let _ = child.kill();
-            let _ = child.wait();
-            Err(anyhow::anyhow!(
-                "az CLI command timed out after {}s. Args: {:?}",
-                timeout_secs,
-                args
-            ))
-        }
-        Err(e) => Err(anyhow::anyhow!("Failed to wait for az CLI: {e}")),
+    if code == 0 {
+        Ok(stdout)
+    } else {
+        Err(anyhow::anyhow!(
+            "az CLI failed: {}",
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        ))
     }
 }
 
@@ -842,6 +798,9 @@ fn build_vm_resource_names(vm_name: &str) -> VmResourceNames {
 }
 
 /// Format a tag map into CLI args suitable for `az ... --tags key=value`.
+///
+/// Values containing `=` are safe: the `az` CLI splits on the **first** `=`
+/// only, so `key=a=b` is parsed as key `key` with value `a=b`.
 fn format_tag_cli_args(tags: &HashMap<String, String>) -> Vec<String> {
     tags.iter().map(|(k, v)| format!("{k}={v}")).collect()
 }
@@ -1307,6 +1266,19 @@ mod tests {
         tags.insert("key".to_string(), "".to_string());
         let args = format_tag_cli_args(&tags);
         assert_eq!(args[0], "key=");
+    }
+
+    #[test]
+    fn test_format_tag_cli_args_value_with_equals() {
+        // az CLI splits on the first `=`, so `key=a=b` is key="key", value="a=b".
+        let mut tags = HashMap::new();
+        tags.insert("config".to_string(), "mode=debug".to_string());
+        let args = format_tag_cli_args(&tags);
+        assert_eq!(args[0], "config=mode=debug");
+        // Verify the key can be recovered by splitting on first '='
+        let (k, v) = args[0].split_once('=').unwrap();
+        assert_eq!(k, "config");
+        assert_eq!(v, "mode=debug");
     }
 
     // ── VmManager construction tests ────────────────────────────────

@@ -10,8 +10,13 @@ use crate::AzureAuth;
 /// Fetch a cost summary for the given resource group using `az consumption usage list`.
 ///
 /// Uses the az CLI to query Azure Cost Management, matching the Python
-/// reference implementation.
-pub fn get_cost_summary(auth: &AzureAuth, resource_group: &str) -> Result<CostSummary> {
+/// reference implementation. `timeout_secs` controls the subprocess timeout
+/// (pass the configured `az_cli_timeout` from `AzlinConfig`).
+pub fn get_cost_summary(
+    auth: &AzureAuth,
+    resource_group: &str,
+    timeout_secs: u64,
+) -> Result<CostSummary> {
     debug!(
         subscription = auth.subscription_id(),
         resource_group, "Fetching cost summary via az CLI"
@@ -33,7 +38,7 @@ pub fn get_cost_summary(auth: &AzureAuth, resource_group: &str) -> Result<CostSu
             "--end-date",
             &end_str,
         ],
-        120, // 2 minute timeout for cost queries
+        timeout_secs,
     ) {
         Ok(json) => json,
         Err(e) => {
@@ -65,8 +70,16 @@ pub fn get_cost_summary(auth: &AzureAuth, resource_group: &str) -> Result<CostSu
             }
         });
 
-        if let Some(rg) = entry_rg {
-            if !rg.eq_ignore_ascii_case(resource_group) {
+        match entry_rg {
+            Some(rg) if rg.eq_ignore_ascii_case(resource_group) => {
+                // Matches the target resource group — include it.
+            }
+            Some(_) => {
+                // Different resource group — skip.
+                continue;
+            }
+            None => {
+                // No resource group on entry — skip when filtering by RG.
                 continue;
             }
         }
