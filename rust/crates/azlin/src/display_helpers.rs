@@ -198,13 +198,18 @@ pub fn query_vm_size_specs(vm_size: &str, location: &str) -> (String, String) {
     if !cache.contains_key(location) {
         if let Ok((code, stdout, _stderr)) = azlin_azure::run_with_timeout(
             "az",
-            &["vm", "list-sizes", "--location", location, "--output", "json"],
+            &[
+                "vm",
+                "list-sizes",
+                "--location",
+                location,
+                "--output",
+                "json",
+            ],
             30,
         ) {
             if code == 0 {
-                if let Ok(sizes) =
-                    serde_json::from_str::<Vec<serde_json::Value>>(&stdout)
-                {
+                if let Ok(sizes) = serde_json::from_str::<Vec<serde_json::Value>>(&stdout) {
                     let entries: Vec<(String, u32, u32)> = sizes
                         .iter()
                         .filter_map(|s| {

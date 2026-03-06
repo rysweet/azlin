@@ -678,9 +678,7 @@ fn validate_tag_key(key: &str) -> Result<()> {
 /// Validate that a tag value contains no control characters.
 fn validate_tag_value(value: &str) -> Result<()> {
     if value.chars().any(|c| c.is_control()) {
-        anyhow::bail!(
-            "Invalid tag value: must not contain control characters"
-        );
+        anyhow::bail!("Invalid tag value: must not contain control characters");
     }
     Ok(())
 }

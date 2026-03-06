@@ -94,10 +94,7 @@ mod tests {
         match result {
             Ok((code, _stdout, stderr)) => {
                 assert_ne!(code, 0);
-                assert!(
-                    !stderr.is_empty(),
-                    "stderr should contain error message"
-                );
+                assert!(!stderr.is_empty(), "stderr should contain error message");
             }
             Err(_) => {
                 // Some systems may not have `ls`, that's fine

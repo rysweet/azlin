@@ -237,14 +237,12 @@ mod tests {
 
     #[test]
     fn test_aggregate_costs_non_matching_rg_filtered() {
-        let entries = vec![
-            serde_json::json!({
-                "pretaxCost": 10.0,
-                "currency": "USD",
-                "instanceId": "/subscriptions/sub/resourceGroups/other-rg/providers/Microsoft.Compute/virtualMachines/vm1",
-                "instanceName": "vm1"
-            }),
-        ];
+        let entries = vec![serde_json::json!({
+            "pretaxCost": 10.0,
+            "currency": "USD",
+            "instanceId": "/subscriptions/sub/resourceGroups/other-rg/providers/Microsoft.Compute/virtualMachines/vm1",
+            "instanceName": "vm1"
+        })];
 
         let (total, _currency, by_vm) = aggregate_costs(&entries, "my-rg");
         assert_eq!(total, 0.0);
@@ -253,14 +251,12 @@ mod tests {
 
     #[test]
     fn test_aggregate_costs_rg_case_insensitive() {
-        let entries = vec![
-            serde_json::json!({
-                "pretaxCost": 7.0,
-                "currency": "EUR",
-                "instanceId": "/subscriptions/sub/resourceGroups/My-RG/providers/Microsoft.Compute/virtualMachines/vm1",
-                "instanceName": "vm1"
-            }),
-        ];
+        let entries = vec![serde_json::json!({
+            "pretaxCost": 7.0,
+            "currency": "EUR",
+            "instanceId": "/subscriptions/sub/resourceGroups/My-RG/providers/Microsoft.Compute/virtualMachines/vm1",
+            "instanceName": "vm1"
+        })];
 
         let (total, currency, by_vm) = aggregate_costs(&entries, "my-rg");
         assert!((total - 7.0).abs() < 0.001);
@@ -271,12 +267,10 @@ mod tests {
 
     #[test]
     fn test_aggregate_costs_no_instance_id_skipped() {
-        let entries = vec![
-            serde_json::json!({
-                "pretaxCost": 99.0,
-                "currency": "GBP",
-            }),
-        ];
+        let entries = vec![serde_json::json!({
+            "pretaxCost": 99.0,
+            "currency": "GBP",
+        })];
 
         let (total, _currency, by_vm) = aggregate_costs(&entries, "my-rg");
         assert_eq!(total, 0.0);
@@ -285,13 +279,11 @@ mod tests {
 
     #[test]
     fn test_aggregate_costs_short_instance_id_skipped() {
-        let entries = vec![
-            serde_json::json!({
-                "pretaxCost": 5.0,
-                "currency": "USD",
-                "instanceId": "/short/path"
-            }),
-        ];
+        let entries = vec![serde_json::json!({
+            "pretaxCost": 5.0,
+            "currency": "USD",
+            "instanceId": "/short/path"
+        })];
 
         let (total, _currency, by_vm) = aggregate_costs(&entries, "my-rg");
         assert_eq!(total, 0.0);
@@ -322,14 +314,12 @@ mod tests {
 
     #[test]
     fn test_aggregate_costs_zero_cost_entries_included() {
-        let entries = vec![
-            serde_json::json!({
-                "pretaxCost": 0.0,
-                "currency": "USD",
-                "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p",
-                "instanceName": "vm-free"
-            }),
-        ];
+        let entries = vec![serde_json::json!({
+            "pretaxCost": 0.0,
+            "currency": "USD",
+            "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p",
+            "instanceName": "vm-free"
+        })];
 
         let (total, _currency, by_vm) = aggregate_costs(&entries, "rg");
         assert_eq!(total, 0.0);
@@ -340,13 +330,11 @@ mod tests {
 
     #[test]
     fn test_aggregate_costs_missing_pretax_cost_defaults_zero() {
-        let entries = vec![
-            serde_json::json!({
-                "currency": "USD",
-                "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p",
-                "instanceName": "vm1"
-            }),
-        ];
+        let entries = vec![serde_json::json!({
+            "currency": "USD",
+            "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p",
+            "instanceName": "vm1"
+        })];
 
         let (total, _currency, by_vm) = aggregate_costs(&entries, "rg");
         assert_eq!(total, 0.0);
@@ -356,13 +344,11 @@ mod tests {
 
     #[test]
     fn test_aggregate_costs_no_instance_name_not_in_by_vm() {
-        let entries = vec![
-            serde_json::json!({
-                "pretaxCost": 50.0,
-                "currency": "USD",
-                "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p"
-            }),
-        ];
+        let entries = vec![serde_json::json!({
+            "pretaxCost": 50.0,
+            "currency": "USD",
+            "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p"
+        })];
 
         let (total, _currency, by_vm) = aggregate_costs(&entries, "rg");
         assert!((total - 50.0).abs() < 0.001);
@@ -425,13 +411,11 @@ mod tests {
 
     #[test]
     fn test_aggregate_costs_no_currency_field_defaults_usd() {
-        let entries = vec![
-            serde_json::json!({
-                "pretaxCost": 1.0,
-                "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p",
-                "instanceName": "vm1"
-            }),
-        ];
+        let entries = vec![serde_json::json!({
+            "pretaxCost": 1.0,
+            "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p",
+            "instanceName": "vm1"
+        })];
 
         let (_total, currency, _by_vm) = aggregate_costs(&entries, "rg");
         assert_eq!(currency, "USD");
