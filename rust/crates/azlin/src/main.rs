@@ -82,47 +82,90 @@ fn ssh_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
     ))
 }
 
-/// Collect health metrics from a single VM via SSH.
-fn collect_health_metrics(vm_name: &str, ip: &str, user: &str, power_state: &str) -> HealthMetrics {
-    if power_state != "running" {
+/// Run a command on a VM through Azure Bastion and return (exit_code, stdout, stderr).
+fn bastion_ssh_exec(
+    bastion_name: &str,
+    resource_group: &str,
+    vm_resource_id: &str,
+    user: &str,
+    ssh_key: Option<&std::path::Path>,
+    cmd: &str,
+) -> Result<(i32, String, String)> {
+    let mut args = vec![
+        "network", "bastion", "ssh",
+        "--name", bastion_name,
+        "--resource-group", resource_group,
+        "--target-resource-id", vm_resource_id,
+        "--auth-type", "ssh-key",
+        "--username", user,
+    ];
+    let key_str;
+    if let Some(key) = ssh_key {
+        key_str = key.to_string_lossy().to_string();
+        args.push("--ssh-key");
+        args.push(&key_str);
+    }
+    args.push("--");
+    args.push(cmd);
+
+    let output = std::process::Command::new("az")
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()?;
+
+    Ok((
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    ))
+}
+
+/// Collect health metrics from a single VM via SSH (direct or through Bastion).
+fn collect_health_metrics(
+    vm_name: &str,
+    ip: &str,
+    user: &str,
+    power_state: &str,
+    bastion_info: Option<(&str, &str, &str, Option<&std::path::Path>)>,
+) -> HealthMetrics {
+    if power_state != "Running" {
         return health_parse_helpers::default_metrics(vm_name, power_state);
     }
 
+    // Helper closure: route through Bastion when bastion_info is provided,
+    // otherwise use direct SSH.
+    let exec = |cmd: &str| -> Result<(i32, String, String)> {
+        if let Some((bastion_name, rg, vm_rid, ssh_key)) = bastion_info {
+            bastion_ssh_exec(bastion_name, rg, vm_rid, user, ssh_key, cmd)
+        } else {
+            ssh_exec(ip, user, cmd)
+        }
+    };
+
     // CPU usage from top (idle percentage -> used)
-    let cpu = ssh_exec(
-        ip,
-        user,
-        "top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'",
-    )
-    .ok()
-    .and_then(|(code, out, _)| health_parse_helpers::parse_cpu_stdout(code, &out))
-    .unwrap_or(0.0);
+    let cpu = exec("top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'")
+        .ok()
+        .and_then(|(code, out, _)| health_parse_helpers::parse_cpu_stdout(code, &out))
+        .unwrap_or(0.0);
 
     // Memory usage from free
-    let mem = ssh_exec(
-        ip,
-        user,
-        "free | awk '/Mem:/{printf \"%.1f\", $3/$2 * 100}'",
-    )
-    .ok()
-    .and_then(|(code, out, _)| health_parse_helpers::parse_mem_stdout(code, &out))
-    .unwrap_or(0.0);
+    let mem = exec("free | awk '/Mem:/{printf \"%.1f\", $3/$2 * 100}'")
+        .ok()
+        .and_then(|(code, out, _)| health_parse_helpers::parse_mem_stdout(code, &out))
+        .unwrap_or(0.0);
 
     // Disk usage from df
-    let disk = ssh_exec(ip, user, "df / --output=pcent | tail -1 | tr -d ' %'")
+    let disk = exec("df / --output=pcent | tail -1 | tr -d ' %'")
         .ok()
         .and_then(|(code, out, _)| health_parse_helpers::parse_disk_stdout(code, &out))
         .unwrap_or(0.0);
 
     // Load average from uptime
-    let load = ssh_exec(
-        ip,
-        user,
-        "uptime | awk -F'load average:' '{print $2}' | xargs",
-    )
-    .ok()
-    .and_then(|(code, out, _)| health_parse_helpers::parse_load_stdout(code, &out))
-    .unwrap_or_else(|| "-".to_string());
+    let load = exec("uptime | awk -F'load average:' '{print $2}' | xargs")
+        .ok()
+        .and_then(|(code, out, _)| health_parse_helpers::parse_load_stdout(code, &out))
+        .unwrap_or_else(|| "-".to_string());
 
     HealthMetrics {
         vm_name: vm_name.to_string(),
@@ -1439,17 +1482,58 @@ async fn async_main() -> Result<()> {
             pb.set_message("Collecting health metrics...");
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
+            // Detect bastion hosts for private-IP-only VMs
+            let bastion_map: std::collections::HashMap<String, String> =
+                list_helpers::detect_bastion_hosts(&rg)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(name, location, _)| (location, name))
+                    .collect();
+
+            // Resolve SSH key path for bastion tunnelling
+            let ssh_key_path = home_dir()
+                .ok()
+                .map(|h| h.join(".ssh").join("azlin_key"))
+                .filter(|p| p.exists())
+                .or_else(|| {
+                    home_dir()
+                        .ok()
+                        .map(|h| h.join(".ssh").join("id_rsa"))
+                        .filter(|p| p.exists())
+                });
+
+            let sub_id = vm_manager.subscription_id().to_string();
+
             let metrics: Vec<HealthMetrics> = if let Some(vm_name) = vm {
                 let vm_info = vm_manager.get_vm(&rg, &vm_name)?;
                 let ip = vm_info
                     .public_ip
-                    .or(vm_info.private_ip)
+                    .clone()
+                    .or(vm_info.private_ip.clone())
                     .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_name))?;
                 let user = vm_info
                     .admin_username
                     .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
                 let state = vm_info.power_state.to_string();
-                vec![collect_health_metrics(&vm_name, &ip, &user, &state)]
+
+                // Use bastion when there is no public IP
+                let bastion_info_owned: Option<(String, String, String, Option<std::path::PathBuf>)> =
+                    if vm_info.public_ip.is_none() {
+                        bastion_map.get(&vm_info.location).map(|bn| {
+                            let vm_rid = format!(
+                                "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+                                sub_id, vm_info.resource_group, vm_info.name
+                            );
+                            (bn.clone(), vm_info.resource_group.clone(), vm_rid, ssh_key_path.clone())
+                        })
+                    } else {
+                        None
+                    };
+                let bastion_ref = bastion_info_owned.as_ref().map(|(bn, rg_b, rid, key)| {
+                    (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref())
+                });
+
+                vec![collect_health_metrics(&vm_name, &ip, &user, &state, bastion_ref)]
             } else {
                 let vms = vm_manager.list_vms(&rg)?;
                 vms.iter()
@@ -1460,7 +1544,25 @@ async fn async_main() -> Result<()> {
                             .clone()
                             .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
                         let state = vm_info.power_state.to_string();
-                        Some(collect_health_metrics(&vm_info.name, ip, &user, &state))
+
+                        // Use bastion when there is no public IP
+                        let bastion_info_owned: Option<(String, String, String, Option<std::path::PathBuf>)> =
+                            if vm_info.public_ip.is_none() {
+                                bastion_map.get(&vm_info.location).map(|bn| {
+                                    let vm_rid = format!(
+                                        "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+                                        sub_id, vm_info.resource_group, vm_info.name
+                                    );
+                                    (bn.clone(), vm_info.resource_group.clone(), vm_rid, ssh_key_path.clone())
+                                })
+                            } else {
+                                None
+                            };
+                        let bastion_ref = bastion_info_owned.as_ref().map(|(bn, rg_b, rid, key)| {
+                            (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref())
+                        });
+
+                        Some(collect_health_metrics(&vm_info.name, ip, &user, &state, bastion_ref))
                     })
                     .collect()
             };
@@ -8774,7 +8876,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_health_metrics_non_running_vm() {
-        let m = super::collect_health_metrics("test-vm", "10.0.0.1", "azureuser", "deallocated");
+        let m = super::collect_health_metrics("test-vm", "10.0.0.1", "azureuser", "deallocated", None);
         assert_eq!(m.vm_name, "test-vm");
         assert_eq!(m.power_state, "deallocated");
         assert_eq!(m.cpu_percent, 0.0);
@@ -8971,7 +9073,7 @@ created = \"2025-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_health_metrics_stopped_vm() {
-        let m = super::collect_health_metrics("vm-stop", "10.0.0.1", "user", "stopped");
+        let m = super::collect_health_metrics("vm-stop", "10.0.0.1", "user", "stopped", None);
         assert_eq!(m.vm_name, "vm-stop");
         assert_eq!(m.power_state, "stopped");
         assert_eq!(m.cpu_percent, 0.0);
@@ -8982,14 +9084,14 @@ created = \"2025-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_health_metrics_starting_vm() {
-        let m = super::collect_health_metrics("vm-start", "10.0.0.1", "user", "starting");
+        let m = super::collect_health_metrics("vm-start", "10.0.0.1", "user", "starting", None);
         assert_eq!(m.power_state, "starting");
         assert_eq!(m.cpu_percent, 0.0);
     }
 
     #[test]
     fn test_health_metrics_unknown_state() {
-        let m = super::collect_health_metrics("vm-x", "10.0.0.1", "user", "unknown");
+        let m = super::collect_health_metrics("vm-x", "10.0.0.1", "user", "unknown", None);
         assert_eq!(m.power_state, "unknown");
         assert_eq!(m.cpu_percent, 0.0);
         assert_eq!(m.load_avg, "-");
@@ -10487,7 +10589,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_health_metrics_deallocated_vm() {
-        let m = super::collect_health_metrics("vm-dealloc", "10.0.0.1", "user", "VM deallocated");
+        let m = super::collect_health_metrics("vm-dealloc", "10.0.0.1", "user", "VM deallocated", None);
         assert_eq!(m.vm_name, "vm-dealloc");
         assert_eq!(m.cpu_percent, 0.0);
         assert_eq!(m.mem_percent, 0.0);
@@ -10496,7 +10598,7 @@ created = \"2024-01-01T00:00:00Z\"\n";
 
     #[test]
     fn test_health_metrics_deallocating_vm() {
-        let m = super::collect_health_metrics("vm-x", "10.0.0.1", "user", "VM deallocating");
+        let m = super::collect_health_metrics("vm-x", "10.0.0.1", "user", "VM deallocating", None);
         assert_eq!(m.power_state, "VM deallocating");
         assert_eq!(m.load_avg, "-");
     }
