@@ -6,6 +6,7 @@ pub mod auth;
 pub mod cloud_init;
 pub mod costs;
 pub mod error_handler;
+pub mod ops;
 pub mod orphan_detector;
 pub mod rate_limiter;
 pub mod retry;
@@ -14,6 +15,7 @@ pub mod vm;
 
 pub use auth::AzureAuth;
 pub use costs::get_cost_summary;
+pub use ops::AzureOps;
 pub use subprocess::run_with_timeout;
 pub use vm::az_cli_with_timeout;
 pub use vm::VmManager;

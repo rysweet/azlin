@@ -1417,8 +1417,8 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Starting {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            vm_manager.start_vm(&rg, &vm_name)?;
-            pb.finish_with_message(format!("✓ Started {}", vm_name));
+            let msg = handlers::handle_start(&vm_manager, &rg, &vm_name)?;
+            pb.finish_with_message(format!("✓ {}", msg));
         }
         azlin_cli::Commands::Stop {
             vm_name,
@@ -1430,14 +1430,14 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            let (action, done) = stop_helpers::stop_action_labels(deallocate);
+            let (action, _done) = stop_helpers::stop_action_labels(deallocate);
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("{} {}...", action, vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            vm_manager.stop_vm(&rg, &vm_name, deallocate)?;
-            pb.finish_with_message(format!("✓ {} {}", done, vm_name));
+            let msg = handlers::handle_stop(&vm_manager, &rg, &vm_name, deallocate)?;
+            pb.finish_with_message(format!("✓ {}", msg));
         }
         azlin_cli::Commands::Show {
             name,
@@ -1454,69 +1454,18 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Fetching {}...", name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            let vm = vm_manager.get_vm(&rg, &name)?;
+            let vm = handlers::handle_show(&vm_manager, &rg, &name)?;
             pb.finish_and_clear();
 
             match output {
                 azlin_cli::OutputFormat::Json => {
-                    let json = serde_json::json!({
-                        "name": vm.name,
-                        "resource_group": vm.resource_group,
-                        "location": vm.location,
-                        "vm_size": vm.vm_size,
-                        "os_type": format!("{:?}", vm.os_type),
-                        "power_state": vm.power_state.to_string(),
-                        "provisioning_state": vm.provisioning_state,
-                        "public_ip": vm.public_ip,
-                        "private_ip": vm.private_ip,
-                        "admin_username": vm.admin_username,
-                        "tags": vm.tags,
-                        "created_time": vm.created_time.map(|t| t.format("%Y-%m-%d %H:%M:%S UTC").to_string()),
-                    });
-                    println!("{}", serde_json::to_string_pretty(&json)?);
+                    println!("{}", handlers::format_show_json(&vm)?);
                 }
                 azlin_cli::OutputFormat::Csv => {
-                    println!("Field,Value");
-                    println!("name,{}", vm.name);
-                    println!("resource_group,{}", vm.resource_group);
-                    println!("location,{}", vm.location);
-                    println!("vm_size,{}", vm.vm_size);
-                    println!("os_type,{:?}", vm.os_type);
-                    println!("power_state,{}", vm.power_state);
-                    println!("provisioning_state,{}", vm.provisioning_state);
-                    println!("public_ip,{}", vm.public_ip.as_deref().unwrap_or(""));
-                    println!("private_ip,{}", vm.private_ip.as_deref().unwrap_or(""));
-                    println!(
-                        "admin_username,{}",
-                        vm.admin_username.as_deref().unwrap_or("")
-                    );
+                    print!("{}", handlers::format_show_csv(&vm));
                 }
                 azlin_cli::OutputFormat::Table => {
-                    println!("Name:               {}", vm.name);
-                    println!("Resource Group:     {}", vm.resource_group);
-                    println!("Location:           {}", vm.location);
-                    println!("VM Size:            {}", vm.vm_size);
-                    println!("OS Type:            {:?}", vm.os_type);
-                    println!("Power State:        {}", vm.power_state);
-                    println!("Provisioning State: {}", vm.provisioning_state);
-                    if let Some(ip) = &vm.public_ip {
-                        println!("Public IP:          {}", ip);
-                    }
-                    if let Some(ip) = &vm.private_ip {
-                        println!("Private IP:         {}", ip);
-                    }
-                    if let Some(user) = &vm.admin_username {
-                        println!("Admin User:         {}", user);
-                    }
-                    if !vm.tags.is_empty() {
-                        println!("Tags:");
-                        for (k, v) in &vm.tags {
-                            println!("  {}: {}", k, v);
-                        }
-                    }
-                    if let Some(t) = &vm.created_time {
-                        println!("Created:            {}", t.format("%Y-%m-%d %H:%M:%S UTC"));
-                    }
+                    print!("{}", handlers::format_show_table(&vm));
                 }
             }
         }
@@ -1650,15 +1599,16 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     resource_group,
                 } => {
                     let rg = resolve_resource_group(resource_group)?;
-                    for tag in &tags {
-                        let (key, value) = match tag_helpers::parse_tag(tag) {
-                            Some(kv) => kv,
-                            None => {
-                                anyhow::bail!("Invalid tag format '{}'. Use key=value.", tag);
-                            }
-                        };
-                        vm_manager.add_tag(&rg, &vm_name, key, value)?;
-                        println!("Added tag {}={} to VM '{}'", key, value, vm_name);
+                    let parsed: Vec<(String, String)> = tags
+                        .iter()
+                        .map(|tag| match tag_helpers::parse_tag(tag) {
+                            Some((k, v)) => Ok((k.to_string(), v.to_string())),
+                            None => anyhow::bail!("Invalid tag format '{}'. Use key=value.", tag),
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let msgs = handlers::handle_tag_add(&vm_manager, &rg, &vm_name, &parsed)?;
+                    for msg in msgs {
+                        println!("{}", msg);
                     }
                 }
                 azlin_cli::TagAction::Remove {
@@ -1667,9 +1617,9 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     resource_group,
                 } => {
                     let rg = resolve_resource_group(resource_group)?;
-                    for key in &tag_keys {
-                        vm_manager.remove_tag(&rg, &vm_name, key)?;
-                        println!("Removed tag '{}' from VM '{}'", key, vm_name);
+                    let msgs = handlers::handle_tag_remove(&vm_manager, &rg, &vm_name, &tag_keys)?;
+                    for msg in msgs {
+                        println!("{}", msg);
                     }
                 }
                 azlin_cli::TagAction::List {
@@ -1677,7 +1627,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     resource_group,
                 } => {
                     let rg = resolve_resource_group(resource_group)?;
-                    let tags = vm_manager.list_tags(&rg, &vm_name)?;
+                    let tags = handlers::handle_tag_list(&vm_manager, &rg, &vm_name)?;
                     azlin_cli::table::render_tags_table(&vm_name, &tags);
                 }
             }
@@ -1930,8 +1880,8 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Deleting {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            vm_manager.delete_vm(&rg, &vm_name)?;
-            pb.finish_with_message(format!("✓ Deleted {}", vm_name));
+            let msg = handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
+            pb.finish_with_message(format!("✓ {}", msg));
         }
         azlin_cli::Commands::Kill {
             vm_name,
@@ -1947,7 +1897,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Killing {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            vm_manager.delete_vm(&rg, &vm_name)?;
+            let _msg = handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
             pb.finish_with_message(format!("✓ Killed {}", vm_name));
         }
         azlin_cli::Commands::Destroy {
@@ -1960,9 +1910,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             let rg = resolve_resource_group(resource_group)?;
 
             if dry_run {
-                println!("Dry run — would delete:");
-                println!("  VM: {}", vm_name);
-                println!("  Resource group: {}", rg);
+                println!("{}", handlers::format_destroy_dry_run(&vm_name, &rg));
                 return Ok(());
             }
 
@@ -1985,7 +1933,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(format!("Destroying {}...", vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            vm_manager.delete_vm(&rg, &vm_name)?;
+            handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
             pb.finish_with_message(format!("✓ Destroyed {}", vm_name));
         }
         azlin_cli::Commands::Env { action } => match action {
@@ -6998,6 +6946,9 @@ fn parse_cost_action_rows(data: &serde_json::Value) -> Vec<(String, String, Stri
     }
     result
 }
+
+#[allow(dead_code)]
+mod handlers;
 
 /// Validate names used to construct filesystem paths (profiles, templates).
 mod name_validation {
