@@ -55,6 +55,8 @@ fn is_bastion_pool_disabled() -> bool {
 struct HealthMetrics {
     vm_name: String,
     power_state: String,
+    agent_status: String,
+    error_count: u32,
     cpu_percent: f32,
     mem_percent: f32,
     disk_percent: f32,
@@ -252,9 +254,32 @@ fn collect_health_metrics(
         .and_then(|(code, out, _)| health_parse_helpers::parse_load_stdout(code, &out))
         .unwrap_or_else(|| "-".to_string());
 
+    // Agent status from walinuxagent service
+    let agent = exec("systemctl is-active walinuxagent 2>/dev/null || echo \"N/A\"")
+        .ok()
+        .map(|(_, out, _)| {
+            let trimmed = out.trim();
+            if trimmed == "active" {
+                "OK".to_string()
+            } else if trimmed == "inactive" {
+                "Down".to_string()
+            } else {
+                "N/A".to_string()
+            }
+        })
+        .unwrap_or_else(|| "N/A".to_string());
+
+    // Error count from journalctl (last hour)
+    let errors = exec("journalctl -p err --since '1 hour ago' --no-pager -q 2>/dev/null | wc -l")
+        .ok()
+        .and_then(|(_, out, _)| out.trim().parse::<u32>().ok())
+        .unwrap_or(0);
+
     HealthMetrics {
         vm_name: vm_name.to_string(),
         power_state: power_state.to_string(),
+        agent_status: agent,
+        error_count: errors,
         cpu_percent: cpu,
         mem_percent: mem,
         disk_percent: disk,
@@ -266,11 +291,12 @@ fn collect_health_metrics(
 fn render_health_table(metrics: &[HealthMetrics]) {
     let mut table = new_table(&[
         "VM Name",
-        "Power State",
+        "State",
+        "Agent",
+        "Errors",
         "CPU %",
         "Memory %",
         "Disk %",
-        "Load Average",
     ]);
 
     for m in metrics {
@@ -279,23 +305,35 @@ fn render_health_table(metrics: &[HealthMetrics]) {
             "stopped" | "deallocated" => Color::Red,
             _ => Color::Yellow,
         };
-        let cpu_color = if m.cpu_percent > 80.0 {
+        let agent_color = match m.agent_status.as_str() {
+            "OK" => Color::Green,
+            "Down" => Color::Red,
+            _ => Color::Yellow,
+        };
+        let error_color = if m.error_count > 10 {
             Color::Red
-        } else if m.cpu_percent > 50.0 {
+        } else if m.error_count > 0 {
             Color::Yellow
         } else {
             Color::Green
         };
-        let mem_color = if m.mem_percent > 80.0 {
+        let cpu_color = if m.cpu_percent > 90.0 {
             Color::Red
-        } else if m.mem_percent > 50.0 {
+        } else if m.cpu_percent > 70.0 {
             Color::Yellow
         } else {
             Color::Green
         };
-        let disk_color = if m.disk_percent > 80.0 {
+        let mem_color = if m.mem_percent > 90.0 {
             Color::Red
-        } else if m.disk_percent > 50.0 {
+        } else if m.mem_percent > 70.0 {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
+        let disk_color = if m.disk_percent > 90.0 {
+            Color::Red
+        } else if m.disk_percent > 70.0 {
             Color::Yellow
         } else {
             Color::Green
@@ -304,13 +342,17 @@ fn render_health_table(metrics: &[HealthMetrics]) {
         table.add_row(vec![
             Cell::new(&m.vm_name),
             Cell::new(&m.power_state).fg(state_color),
+            Cell::new(&m.agent_status).fg(agent_color),
+            Cell::new(m.error_count.to_string()).fg(error_color),
             Cell::new(format!("{:.1}", m.cpu_percent)).fg(cpu_color),
             Cell::new(format!("{:.1}", m.mem_percent)).fg(mem_color),
             Cell::new(format!("{:.1}", m.disk_percent)).fg(disk_color),
-            Cell::new(&m.load_avg),
         ]);
     }
     println!("{table}");
+    println!();
+    println!("Signals: Latency=Agent | Traffic=State | Errors=Agent fails | Saturation=CPU/Mem/Disk");
+    println!("Thresholds: <70% 70-90% >90%");
 }
 
 /// Run an interactive TUI dashboard showing health metrics.
@@ -342,11 +384,12 @@ fn run_health_tui(metrics: &[HealthMetrics]) -> Result<()> {
                 // Table
                 let header_row = Row::new(vec![
                     RatCell::from("VM Name").style(RatStyle::default().fg(RatColor::Yellow)),
-                    RatCell::from("Power State").style(RatStyle::default().fg(RatColor::Yellow)),
+                    RatCell::from("State").style(RatStyle::default().fg(RatColor::Yellow)),
+                    RatCell::from("Agent").style(RatStyle::default().fg(RatColor::Yellow)),
+                    RatCell::from("Errors").style(RatStyle::default().fg(RatColor::Yellow)),
                     RatCell::from("CPU %").style(RatStyle::default().fg(RatColor::Yellow)),
                     RatCell::from("Memory %").style(RatStyle::default().fg(RatColor::Yellow)),
                     RatCell::from("Disk %").style(RatStyle::default().fg(RatColor::Yellow)),
-                    RatCell::from("Load Avg").style(RatStyle::default().fg(RatColor::Yellow)),
                 ]);
 
                 let rows: Vec<Row> = metrics
@@ -378,17 +421,32 @@ fn run_health_tui(metrics: &[HealthMetrics]) -> Result<()> {
                         } else {
                             RatColor::Green
                         };
+                        let agent_color = match m.agent_status.as_str() {
+                            "OK" => RatColor::Green,
+                            "Down" => RatColor::Red,
+                            _ => RatColor::Yellow,
+                        };
+                        let error_color = if m.error_count > 10 {
+                            RatColor::Red
+                        } else if m.error_count > 0 {
+                            RatColor::Yellow
+                        } else {
+                            RatColor::Green
+                        };
                         Row::new(vec![
                             RatCell::from(m.vm_name.as_str()),
                             RatCell::from(m.power_state.as_str())
                                 .style(RatStyle::default().fg(state_color)),
+                            RatCell::from(m.agent_status.as_str())
+                                .style(RatStyle::default().fg(agent_color)),
+                            RatCell::from(format!("{}", m.error_count))
+                                .style(RatStyle::default().fg(error_color)),
                             RatCell::from(format!("{:.1}", m.cpu_percent))
                                 .style(RatStyle::default().fg(cpu_color)),
                             RatCell::from(format!("{:.1}", m.mem_percent))
                                 .style(RatStyle::default().fg(mem_color)),
                             RatCell::from(format!("{:.1}", m.disk_percent))
                                 .style(RatStyle::default().fg(disk_color)),
-                            RatCell::from(m.load_avg.as_str()),
                         ])
                     })
                     .collect();
@@ -396,9 +454,10 @@ fn run_health_tui(metrics: &[HealthMetrics]) -> Result<()> {
                 let table = RatTable::new(
                     rows,
                     [
-                        Constraint::Percentage(25),
-                        Constraint::Percentage(15),
-                        Constraint::Percentage(15),
+                        Constraint::Percentage(22),
+                        Constraint::Percentage(13),
+                        Constraint::Percentage(10),
+                        Constraint::Percentage(10),
                         Constraint::Percentage(15),
                         Constraint::Percentage(15),
                         Constraint::Percentage(15),
@@ -713,12 +772,7 @@ async fn async_main() -> Result<()> {
                 vm_pattern.as_deref(),
             );
 
-            // Sort VMs by session name (matching Python order)
-            all_vms.sort_by(|a, b| {
-                let sa = a.tags.get("azlin-session").map(|s| s.as_str()).unwrap_or("");
-                let sb = b.tags.get("azlin-session").map(|s| s.as_str()).unwrap_or("");
-                sa.cmp(sb)
-            });
+            // Preserve Azure's natural ordering (matches Python behavior)
 
             // Detect and display bastion hosts (matching Python: shown above VM table)
             // Use the resolved resource group from the VMs themselves
@@ -7801,6 +7855,8 @@ mod health_parse_helpers {
         super::HealthMetrics {
             vm_name: vm_name.to_string(),
             power_state: power_state.to_string(),
+            agent_status: "-".to_string(),
+            error_count: 0,
             cpu_percent: 0.0,
             mem_percent: 0.0,
             disk_percent: 0.0,
@@ -9078,6 +9134,8 @@ created = \"2025-01-01T00:00:00Z\"\n";
             super::HealthMetrics {
                 vm_name: "vm1".to_string(),
                 power_state: "running".to_string(),
+                agent_status: "OK".to_string(),
+                error_count: 0,
                 cpu_percent: 25.5,
                 mem_percent: 60.0,
                 disk_percent: 45.0,
@@ -9086,6 +9144,8 @@ created = \"2025-01-01T00:00:00Z\"\n";
             super::HealthMetrics {
                 vm_name: "vm2".to_string(),
                 power_state: "stopped".to_string(),
+                agent_status: "OK".to_string(),
+                error_count: 0,
                 cpu_percent: 0.0,
                 mem_percent: 0.0,
                 disk_percent: 0.0,
@@ -9094,6 +9154,8 @@ created = \"2025-01-01T00:00:00Z\"\n";
             super::HealthMetrics {
                 vm_name: "vm3".to_string(),
                 power_state: "running".to_string(),
+                agent_status: "OK".to_string(),
+                error_count: 0,
                 cpu_percent: 95.0,
                 mem_percent: 85.0,
                 disk_percent: 92.0,
@@ -9262,6 +9324,8 @@ created = \"2025-01-01T00:00:00Z\"\n";
         let metrics = vec![super::HealthMetrics {
             vm_name: "solo-vm".to_string(),
             power_state: "running".to_string(),
+            agent_status: "OK".to_string(),
+            error_count: 0,
             cpu_percent: 50.0,
             mem_percent: 40.0,
             disk_percent: 30.0,
@@ -9275,6 +9339,8 @@ created = \"2025-01-01T00:00:00Z\"\n";
         let metrics = vec![super::HealthMetrics {
             vm_name: "hot-vm".to_string(),
             power_state: "running".to_string(),
+            agent_status: "OK".to_string(),
+            error_count: 0,
             cpu_percent: 99.9,
             mem_percent: 95.0,
             disk_percent: 98.0,
@@ -9288,6 +9354,8 @@ created = \"2025-01-01T00:00:00Z\"\n";
         let metrics = vec![super::HealthMetrics {
             vm_name: "idle-vm".to_string(),
             power_state: "running".to_string(),
+            agent_status: "OK".to_string(),
+            error_count: 0,
             cpu_percent: 0.0,
             mem_percent: 0.0,
             disk_percent: 0.0,
@@ -9302,6 +9370,8 @@ created = \"2025-01-01T00:00:00Z\"\n";
             super::HealthMetrics {
                 vm_name: "vm-a".to_string(),
                 power_state: "running".to_string(),
+                agent_status: "OK".to_string(),
+                error_count: 0,
                 cpu_percent: 10.0,
                 mem_percent: 20.0,
                 disk_percent: 30.0,
@@ -9310,6 +9380,8 @@ created = \"2025-01-01T00:00:00Z\"\n";
             super::HealthMetrics {
                 vm_name: "vm-b".to_string(),
                 power_state: "deallocated".to_string(),
+                agent_status: "OK".to_string(),
+                error_count: 0,
                 cpu_percent: 0.0,
                 mem_percent: 0.0,
                 disk_percent: 0.0,
@@ -9318,6 +9390,8 @@ created = \"2025-01-01T00:00:00Z\"\n";
             super::HealthMetrics {
                 vm_name: "vm-c".to_string(),
                 power_state: "stopping".to_string(),
+                agent_status: "OK".to_string(),
+                error_count: 0,
                 cpu_percent: 0.0,
                 mem_percent: 0.0,
                 disk_percent: 0.0,
@@ -10764,6 +10838,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
             .map(|i| super::HealthMetrics {
                 vm_name: format!("vm-{}", i),
                 power_state: "VM running".to_string(),
+                agent_status: "OK".to_string(),
+                error_count: 0,
                 cpu_percent: i as f32 * 5.0,
                 mem_percent: i as f32 * 3.0,
                 disk_percent: i as f32 * 2.0,
@@ -10779,6 +10855,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
         let metrics = vec![super::HealthMetrics {
             vm_name: "vm-full".to_string(),
             power_state: "VM running".to_string(),
+            agent_status: "OK".to_string(),
+            error_count: 0,
             cpu_percent: 100.0,
             mem_percent: 100.0,
             disk_percent: 100.0,
@@ -16345,6 +16423,8 @@ created = \"2024-01-01T00:00:00Z\"\n";
         let m = super::HealthMetrics {
             vm_name: "test-vm".to_string(),
             power_state: "running".to_string(),
+            agent_status: "OK".to_string(),
+            error_count: 0,
             cpu_percent: 45.0,
             mem_percent: 60.0,
             disk_percent: 30.0,
