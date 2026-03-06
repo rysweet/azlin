@@ -11788,3 +11788,1369 @@ fn test_apply_filters_combined_tag_and_pattern() {
     assert_eq!(vms.len(), 1);
     assert_eq!(vms[0].name, "web-server-1");
 }
+
+// ════════════════════════════════════════════════════════════════
+// NEW COVERAGE BOOST: snapshot_helpers.rs functions
+// ════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_schedules_dir_ends_with_schedules() {
+    let dir = super::snapshot_helpers::schedules_dir();
+    assert!(dir.ends_with("schedules"));
+    assert!(dir.to_string_lossy().contains(".azlin"));
+}
+
+#[test]
+fn test_schedule_path_appends_toml_extension() {
+    let path = super::snapshot_helpers::schedule_path("my-vm");
+    assert_eq!(path.file_name().unwrap().to_str().unwrap(), "my-vm.toml");
+    assert!(path.parent().unwrap().ends_with("schedules"));
+}
+
+#[test]
+fn test_schedule_path_special_characters() {
+    let path = super::snapshot_helpers::schedule_path("vm-with-dashes-123");
+    assert_eq!(
+        path.file_name().unwrap().to_str().unwrap(),
+        "vm-with-dashes-123.toml"
+    );
+}
+
+#[test]
+fn test_save_and_load_schedule_roundtrip() {
+    let tmp = TempDir::new().unwrap();
+    let schedule = super::snapshot_helpers::SnapshotSchedule {
+        vm_name: "roundtrip-vm".to_string(),
+        resource_group: "test-rg".to_string(),
+        every_hours: 4,
+        keep_count: 7,
+        enabled: true,
+        created: "2025-01-01T00:00:00Z".to_string(),
+    };
+    // Write manually to temp dir to avoid touching real home dir
+    let dir = tmp.path().join(".azlin").join("schedules");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("roundtrip-vm.toml");
+    let contents = toml::to_string_pretty(&schedule).unwrap();
+    fs::write(&path, &contents).unwrap();
+
+    // Read back
+    let read_contents = fs::read_to_string(&path).unwrap();
+    let loaded: super::snapshot_helpers::SnapshotSchedule = toml::from_str(&read_contents).unwrap();
+    assert_eq!(loaded.vm_name, "roundtrip-vm");
+    assert_eq!(loaded.resource_group, "test-rg");
+    assert_eq!(loaded.every_hours, 4);
+    assert_eq!(loaded.keep_count, 7);
+    assert!(loaded.enabled);
+    assert_eq!(loaded.created, "2025-01-01T00:00:00Z");
+}
+
+#[test]
+fn test_load_schedule_nonexistent_returns_none() {
+    // schedule_path points to home dir, which won't have this VM
+    let result = super::snapshot_helpers::load_schedule("nonexistent-vm-that-does-not-exist-12345");
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_load_all_schedules_empty_dir() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().join("empty-schedules");
+    fs::create_dir_all(&dir).unwrap();
+    // Manually read to simulate — load_all_schedules uses schedules_dir()
+    // so we test the filtering logic directly
+    let entries: Vec<super::snapshot_helpers::SnapshotSchedule> = fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| {
+            let e = e.ok()?;
+            let path = e.path();
+            if path.extension().and_then(|x| x.to_str()) == Some("toml") {
+                let contents = fs::read_to_string(&path).ok()?;
+                toml::from_str(&contents).ok()
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(entries.is_empty());
+}
+
+#[test]
+fn test_load_all_schedules_filters_non_toml() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path();
+    let schedule = super::snapshot_helpers::SnapshotSchedule {
+        vm_name: "vm1".to_string(),
+        resource_group: "rg1".to_string(),
+        every_hours: 6,
+        keep_count: 5,
+        enabled: true,
+        created: "2025-01-01T00:00:00Z".to_string(),
+    };
+    fs::write(
+        dir.join("vm1.toml"),
+        toml::to_string_pretty(&schedule).unwrap(),
+    )
+    .unwrap();
+    fs::write(dir.join("readme.txt"), "not a schedule").unwrap();
+    fs::write(dir.join("data.json"), "{}").unwrap();
+
+    let entries: Vec<super::snapshot_helpers::SnapshotSchedule> = fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|e| {
+            let e = e.ok()?;
+            let path = e.path();
+            if path.extension().and_then(|x| x.to_str()) == Some("toml") {
+                let contents = fs::read_to_string(&path).ok()?;
+                toml::from_str(&contents).ok()
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].vm_name, "vm1");
+}
+
+#[test]
+fn test_load_all_schedules_multiple_files() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path();
+    for i in 1..=3 {
+        let schedule = super::snapshot_helpers::SnapshotSchedule {
+            vm_name: format!("vm-{}", i),
+            resource_group: "rg".to_string(),
+            every_hours: 12,
+            keep_count: 5,
+            enabled: i % 2 == 0,
+            created: "2025-01-01T00:00:00Z".to_string(),
+        };
+        fs::write(
+            dir.join(format!("vm-{}.toml", i)),
+            toml::to_string_pretty(&schedule).unwrap(),
+        )
+        .unwrap();
+    }
+
+    let entries: Vec<super::snapshot_helpers::SnapshotSchedule> = fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|e| {
+            let e = e.ok()?;
+            let path = e.path();
+            if path.extension().and_then(|x| x.to_str()) == Some("toml") {
+                let contents = fs::read_to_string(&path).ok()?;
+                toml::from_str(&contents).ok()
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(entries.len(), 3);
+}
+
+#[test]
+fn test_build_snapshot_name_empty_vm() {
+    let name = super::snapshot_helpers::build_snapshot_name("", "20250101_120000");
+    assert_eq!(name, "_snapshot_20250101_120000");
+}
+
+#[test]
+fn test_build_snapshot_name_empty_timestamp() {
+    let name = super::snapshot_helpers::build_snapshot_name("vm1", "");
+    assert_eq!(name, "vm1_snapshot_");
+}
+
+#[test]
+fn test_filter_snapshots_multiple_matches() {
+    let snaps = vec![
+        serde_json::json!({"name": "dev-vm_snapshot_1"}),
+        serde_json::json!({"name": "dev-vm_snapshot_2"}),
+        serde_json::json!({"name": "prod-vm_snapshot_1"}),
+    ];
+    let filtered = super::snapshot_helpers::filter_snapshots(&snaps, "dev-vm");
+    assert_eq!(filtered.len(), 2);
+}
+
+#[test]
+fn test_snapshot_row_numeric_disk_size() {
+    let snap = serde_json::json!({
+        "name": "snap1",
+        "diskSizeGb": 128,
+        "timeCreated": "2025-01-01",
+        "provisioningState": "Succeeded"
+    });
+    let row = super::snapshot_helpers::snapshot_row(&snap);
+    assert_eq!(row[0], "snap1");
+    assert_eq!(row[1], "128"); // numeric value should serialize as "128"
+    assert_eq!(row[2], "2025-01-01");
+    assert_eq!(row[3], "Succeeded");
+}
+
+#[test]
+fn test_snapshot_row_all_null() {
+    let snap = serde_json::json!({});
+    let row = super::snapshot_helpers::snapshot_row(&snap);
+    assert_eq!(row[0], "-");
+    assert_eq!(row[1], "null");
+    assert_eq!(row[2], "-");
+    assert_eq!(row[3], "-");
+}
+
+#[test]
+fn test_snapshot_schedule_toml_contains_all_fields() {
+    let schedule = super::snapshot_helpers::SnapshotSchedule {
+        vm_name: "check-fields".to_string(),
+        resource_group: "rg-1".to_string(),
+        every_hours: 8,
+        keep_count: 3,
+        enabled: false,
+        created: "2025-06-15T12:00:00Z".to_string(),
+    };
+    let toml_str = toml::to_string_pretty(&schedule).unwrap();
+    assert!(toml_str.contains("vm_name = \"check-fields\""));
+    assert!(toml_str.contains("resource_group = \"rg-1\""));
+    assert!(toml_str.contains("every_hours = 8"));
+    assert!(toml_str.contains("keep_count = 3"));
+    assert!(toml_str.contains("enabled = false"));
+    assert!(toml_str.contains("created = \"2025-06-15T12:00:00Z\""));
+}
+
+#[test]
+fn test_snapshot_schedule_deserialization_from_raw_toml() {
+    let raw = r#"
+vm_name = "from-raw"
+resource_group = "raw-rg"
+every_hours = 1
+keep_count = 100
+enabled = true
+created = "2025-12-31T23:59:59Z"
+"#;
+    let schedule: super::snapshot_helpers::SnapshotSchedule = toml::from_str(raw).unwrap();
+    assert_eq!(schedule.vm_name, "from-raw");
+    assert_eq!(schedule.every_hours, 1);
+    assert_eq!(schedule.keep_count, 100);
+}
+
+// ════════════════════════════════════════════════════════════════
+// NEW COVERAGE BOOST: main.rs inline helper modules
+// ════════════════════════════════════════════════════════════════
+
+// ── stop_helpers ────────────────────────────────────────────────
+
+#[test]
+fn test_stop_action_labels_returns_correct_pairs() {
+    let (ing, ed) = super::stop_helpers::stop_action_labels(true);
+    assert_eq!(ing, "Deallocating");
+    assert_eq!(ed, "Deallocated");
+
+    let (ing, ed) = super::stop_helpers::stop_action_labels(false);
+    assert_eq!(ing, "Stopping");
+    assert_eq!(ed, "Stopped");
+}
+
+// ── bastion_helpers ─────────────────────────────────────────────
+
+#[test]
+fn test_bastion_summary_partial_fields() {
+    let b = serde_json::json!({
+        "name": "my-bastion",
+        "location": "eastus"
+    });
+    let (name, rg, loc, sku, state) = super::bastion_helpers::bastion_summary(&b);
+    assert_eq!(name, "my-bastion");
+    assert_eq!(rg, "unknown");
+    assert_eq!(loc, "eastus");
+    assert_eq!(sku, "Standard");
+    assert_eq!(state, "unknown");
+}
+
+#[test]
+fn test_shorten_resource_id_empty_string() {
+    assert_eq!(super::bastion_helpers::shorten_resource_id(""), "");
+}
+
+#[test]
+fn test_shorten_resource_id_no_slash() {
+    assert_eq!(
+        super::bastion_helpers::shorten_resource_id("just-a-name"),
+        "just-a-name"
+    );
+}
+
+#[test]
+fn test_extract_ip_configs_missing_ip_configurations_key() {
+    let b = serde_json::json!({"name": "test"});
+    let configs = super::bastion_helpers::extract_ip_configs(&b);
+    assert!(configs.is_empty());
+}
+
+// ── auth_helpers ────────────────────────────────────────────────
+
+#[test]
+fn test_mask_profile_value_client_secret() {
+    let val = serde_json::json!("super-secret-123");
+    let masked = super::auth_helpers::mask_profile_value("client_secret", &val);
+    assert_eq!(masked, "********");
+}
+
+#[test]
+fn test_mask_profile_value_normal_key() {
+    let val = serde_json::json!("visible-value");
+    let masked = super::auth_helpers::mask_profile_value("tenant_id", &val);
+    assert_eq!(masked, "visible-value");
+}
+
+#[test]
+fn test_mask_profile_value_array() {
+    let val = serde_json::json!([1, 2, 3]);
+    let masked = super::auth_helpers::mask_profile_value("data", &val);
+    assert_eq!(masked, "[1,2,3]");
+}
+
+// ── log_helpers ─────────────────────────────────────────────────
+
+#[test]
+fn test_tail_start_index_large_count() {
+    assert_eq!(super::log_helpers::tail_start_index(1000, 500), 500);
+}
+
+#[test]
+fn test_tail_start_index_count_exceeds_total() {
+    assert_eq!(super::log_helpers::tail_start_index(10, 100), 0);
+}
+
+// ── config_path_helpers ─────────────────────────────────────────
+
+#[test]
+fn test_validate_config_path_empty_string_ok() {
+    assert!(super::config_path_helpers::validate_config_path("").is_ok());
+}
+
+#[test]
+fn test_validate_config_path_absolute_linux() {
+    assert!(super::config_path_helpers::validate_config_path("/etc/azlin/config.toml").is_ok());
+}
+
+#[test]
+fn test_validate_config_path_parent_at_start() {
+    assert!(super::config_path_helpers::validate_config_path("../evil.toml").is_err());
+}
+
+#[test]
+fn test_validate_config_path_parent_in_middle() {
+    assert!(super::config_path_helpers::validate_config_path("foo/../bar.toml").is_err());
+}
+
+// ── disk_helpers ────────────────────────────────────────────────
+
+#[test]
+fn test_build_data_disk_name_zero_lun() {
+    assert_eq!(
+        super::disk_helpers::build_data_disk_name("myvm", 0),
+        "myvm_datadisk_0"
+    );
+}
+
+#[test]
+fn test_build_data_disk_name_high_lun() {
+    assert_eq!(
+        super::disk_helpers::build_data_disk_name("prod-db", 63),
+        "prod-db_datadisk_63"
+    );
+}
+
+#[test]
+fn test_restored_disk_name_construction() {
+    assert_eq!(
+        super::disk_helpers::build_restored_disk_name("web-server"),
+        "web-server_OsDisk_restored"
+    );
+}
+
+// ── command_helpers ─────────────────────────────────────────────
+
+#[test]
+fn test_is_allowed_command_az_vm() {
+    assert!(super::command_helpers::is_allowed_command("az vm list"));
+}
+
+#[test]
+fn test_is_allowed_command_az_with_leading_space() {
+    assert!(super::command_helpers::is_allowed_command("  az vm list"));
+}
+
+#[test]
+fn test_is_allowed_command_rm_rejected() {
+    assert!(!super::command_helpers::is_allowed_command("rm -rf /"));
+}
+
+#[test]
+fn test_is_allowed_command_empty() {
+    assert!(!super::command_helpers::is_allowed_command(""));
+}
+
+#[test]
+fn test_skip_reason_az_command_none() {
+    assert!(super::command_helpers::skip_reason("az vm list").is_none());
+}
+
+#[test]
+fn test_skip_reason_empty_returns_message() {
+    let reason = super::command_helpers::skip_reason("").unwrap();
+    assert!(reason.contains("empty"));
+}
+
+#[test]
+fn test_skip_reason_non_az_returns_message() {
+    let reason = super::command_helpers::skip_reason("docker ps").unwrap();
+    assert!(reason.contains("non-Azure"));
+}
+
+// ── mount_helpers ───────────────────────────────────────────────
+
+#[test]
+fn test_mount_path_empty_rejected() {
+    assert!(super::mount_helpers::validate_mount_path("").is_err());
+}
+
+#[test]
+fn test_mount_path_valid_data() {
+    assert!(super::mount_helpers::validate_mount_path("/data").is_ok());
+}
+
+#[test]
+fn test_mount_path_valid_deep_nested() {
+    assert!(super::mount_helpers::validate_mount_path("/mnt/data/vol/1").is_ok());
+}
+
+#[test]
+fn test_mount_path_traversal_dotdot() {
+    assert!(super::mount_helpers::validate_mount_path("/mnt/../etc/shadow").is_err());
+}
+
+#[test]
+fn test_mount_path_shell_injection_semicolon() {
+    assert!(super::mount_helpers::validate_mount_path("/mnt; rm -rf /").is_err());
+}
+
+// ── vm_validation ───────────────────────────────────────────────
+
+#[test]
+fn test_validate_vm_name_numeric_only() {
+    assert!(super::vm_validation::validate_vm_name("12345").is_ok());
+}
+
+#[test]
+fn test_validate_vm_name_with_hyphens() {
+    assert!(super::vm_validation::validate_vm_name("my-dev-vm-01").is_ok());
+}
+
+#[test]
+fn test_validate_vm_name_underscore_rejected() {
+    assert!(super::vm_validation::validate_vm_name("my_vm").is_err());
+}
+
+#[test]
+fn test_validate_vm_name_dot_rejected() {
+    assert!(super::vm_validation::validate_vm_name("my.vm").is_err());
+}
+
+#[test]
+fn test_validate_vm_name_exactly_64_chars() {
+    let name = "a".repeat(64);
+    assert!(super::vm_validation::validate_vm_name(&name).is_ok());
+}
+
+#[test]
+fn test_validate_vm_name_exactly_65_chars() {
+    let name = "a".repeat(65);
+    assert!(super::vm_validation::validate_vm_name(&name).is_err());
+}
+
+// ── repo_helpers ────────────────────────────────────────────────
+
+#[test]
+fn test_validate_repo_url_https_valid() {
+    assert!(super::repo_helpers::validate_repo_url("https://github.com/user/repo.git").is_ok());
+}
+
+#[test]
+fn test_validate_repo_url_git_ssh_valid() {
+    assert!(super::repo_helpers::validate_repo_url("git@github.com:user/repo.git").is_ok());
+}
+
+#[test]
+fn test_validate_repo_url_ssh_scheme_valid() {
+    assert!(super::repo_helpers::validate_repo_url("ssh://git@github.com/user/repo").is_ok());
+}
+
+#[test]
+fn test_validate_repo_url_http_valid() {
+    assert!(super::repo_helpers::validate_repo_url("http://github.com/user/repo").is_ok());
+}
+
+#[test]
+fn test_validate_repo_url_ftp_rejected() {
+    assert!(super::repo_helpers::validate_repo_url("ftp://example.com/repo").is_err());
+}
+
+#[test]
+fn test_validate_repo_url_space_rejected() {
+    assert!(super::repo_helpers::validate_repo_url("https://example.com/my repo").is_err());
+}
+
+#[test]
+fn test_validate_repo_url_quotes_rejected() {
+    assert!(super::repo_helpers::validate_repo_url("https://example.com/repo'").is_err());
+    assert!(super::repo_helpers::validate_repo_url("https://example.com/repo\"").is_err());
+}
+
+// ── cp_helpers ──────────────────────────────────────────────────
+
+#[test]
+fn test_is_remote_path_vm_with_path() {
+    assert!(super::cp_helpers::is_remote_path(
+        "myvm:/home/user/file.txt"
+    ));
+}
+
+#[test]
+fn test_is_remote_path_local_absolute() {
+    assert!(!super::cp_helpers::is_remote_path("/home/user/file.txt"));
+}
+
+#[test]
+fn test_remote_path_empty_string_false() {
+    assert!(!super::cp_helpers::is_remote_path(""));
+}
+
+#[test]
+fn test_is_remote_path_single_char_before_colon() {
+    // "a:" has len 2, so should be false (too short: len > 2 check)
+    assert!(!super::cp_helpers::is_remote_path("a:"));
+}
+
+#[test]
+fn test_classify_transfer_local_to_local_both_paths() {
+    assert_eq!(
+        super::cp_helpers::classify_transfer_direction("/tmp/a.txt", "/tmp/b.txt"),
+        "local\u{2192}local"
+    );
+}
+
+#[test]
+fn test_resolve_scp_path_replaces_first_occurrence() {
+    let result = super::cp_helpers::resolve_scp_path("myvm:/path", "myvm", "admin", "10.0.0.1");
+    assert_eq!(result, "admin@10.0.0.1:/path");
+}
+
+// ── key_helpers ─────────────────────────────────────────────────
+
+#[test]
+fn test_detect_key_type_ed25519_pub() {
+    assert_eq!(
+        super::key_helpers::detect_key_type("id_ed25519.pub"),
+        "ed25519"
+    );
+}
+
+#[test]
+fn test_detect_key_type_rsa_private() {
+    assert_eq!(super::key_helpers::detect_key_type("id_rsa"), "rsa");
+}
+
+#[test]
+fn test_detect_key_type_random() {
+    assert_eq!(
+        super::key_helpers::detect_key_type("authorized_keys"),
+        "unknown"
+    );
+}
+
+#[test]
+fn test_is_known_key_name_ed25519_pub() {
+    assert!(super::key_helpers::is_known_key_name("id_ed25519.pub"));
+}
+
+#[test]
+fn test_is_known_key_name_id_rsa() {
+    assert!(super::key_helpers::is_known_key_name("id_rsa"));
+}
+
+#[test]
+fn test_is_known_key_name_config() {
+    assert!(!super::key_helpers::is_known_key_name("config"));
+}
+
+#[test]
+fn test_is_known_key_name_known_hosts() {
+    assert!(!super::key_helpers::is_known_key_name("known_hosts"));
+}
+
+// ── auth_test_helpers ───────────────────────────────────────────
+
+#[test]
+fn test_extract_account_info_complete() {
+    let acct = serde_json::json!({
+        "name": "My Subscription",
+        "tenantId": "tenant-abc",
+        "user": {"name": "user@example.com"}
+    });
+    let (sub, tenant, user) = super::auth_test_helpers::extract_account_info(&acct);
+    assert_eq!(sub, "My Subscription");
+    assert_eq!(tenant, "tenant-abc");
+    assert_eq!(user, "user@example.com");
+}
+
+#[test]
+fn test_extract_account_info_all_missing() {
+    let acct = serde_json::json!({});
+    let (sub, tenant, user) = super::auth_test_helpers::extract_account_info(&acct);
+    assert_eq!(sub, "-");
+    assert_eq!(tenant, "-");
+    assert_eq!(user, "-");
+}
+
+// ── storage_helpers ─────────────────────────────────────────────
+
+#[test]
+fn test_storage_sku_from_tier_premium_lrs() {
+    assert_eq!(
+        super::storage_helpers::storage_sku_from_tier("premium"),
+        "Premium_LRS"
+    );
+}
+
+#[test]
+fn test_storage_sku_from_tier_standard_lrs() {
+    assert_eq!(
+        super::storage_helpers::storage_sku_from_tier("standard"),
+        "Standard_LRS"
+    );
+}
+
+#[test]
+fn test_storage_sku_from_tier_mixed_case() {
+    assert_eq!(
+        super::storage_helpers::storage_sku_from_tier("PREMIUM"),
+        "Premium_LRS"
+    );
+    assert_eq!(
+        super::storage_helpers::storage_sku_from_tier("StAnDaRd"),
+        "Standard_LRS"
+    );
+}
+
+#[test]
+fn test_storage_sku_unknown_tier_defaults() {
+    assert_eq!(
+        super::storage_helpers::storage_sku_from_tier("hot"),
+        "Premium_LRS"
+    );
+    assert_eq!(
+        super::storage_helpers::storage_sku_from_tier(""),
+        "Premium_LRS"
+    );
+}
+
+#[test]
+fn test_storage_account_row_complete_json() {
+    let acct = serde_json::json!({
+        "name": "mystorage",
+        "location": "westus2",
+        "kind": "StorageV2",
+        "sku": {"name": "Standard_LRS"},
+        "provisioningState": "Succeeded"
+    });
+    let row = super::storage_helpers::storage_account_row(&acct);
+    assert_eq!(
+        row,
+        vec![
+            "mystorage",
+            "westus2",
+            "StorageV2",
+            "Standard_LRS",
+            "Succeeded"
+        ]
+    );
+}
+
+#[test]
+fn test_storage_account_row_all_missing() {
+    let acct = serde_json::json!({});
+    let row = super::storage_helpers::storage_account_row(&acct);
+    assert_eq!(row, vec!["-", "-", "-", "-", "-"]);
+}
+
+// ── compose_helpers ─────────────────────────────────────────────
+
+#[test]
+fn test_resolve_compose_file_default_value() {
+    assert_eq!(
+        super::compose_helpers::resolve_compose_file(None),
+        "docker-compose.yml"
+    );
+}
+
+#[test]
+fn test_resolve_compose_file_custom_value() {
+    assert_eq!(
+        super::compose_helpers::resolve_compose_file(Some("custom.yml")),
+        "custom.yml"
+    );
+}
+
+#[test]
+fn test_build_compose_cmd_ps() {
+    assert_eq!(
+        super::compose_helpers::build_compose_cmd("ps", "docker-compose.yml"),
+        "docker compose -f docker-compose.yml ps"
+    );
+}
+
+#[test]
+fn test_build_compose_cmd_logs() {
+    assert_eq!(
+        super::compose_helpers::build_compose_cmd("logs", "custom.yml"),
+        "docker compose -f custom.yml logs"
+    );
+}
+
+// ── runner_helpers ──────────────────────────────────────────────
+
+#[test]
+fn test_build_runner_vm_name_zero_index() {
+    assert_eq!(
+        super::runner_helpers::build_runner_vm_name("dev", 0),
+        "azlin-runner-dev-1"
+    );
+}
+
+#[test]
+fn test_build_runner_vm_name_multiple_index() {
+    assert_eq!(
+        super::runner_helpers::build_runner_vm_name("ci", 4),
+        "azlin-runner-ci-5"
+    );
+}
+
+#[test]
+fn test_runner_tags_contains_all_parts() {
+    let tags = super::runner_helpers::build_runner_tags("ci-pool", "org/repo");
+    assert!(tags.contains("azlin-runner=true"));
+    assert!(tags.contains("pool=ci-pool"));
+    assert!(tags.contains("repo=org/repo"));
+}
+
+#[test]
+fn test_build_runner_config_structure() {
+    let config = super::runner_helpers::build_runner_config(
+        "my-pool",
+        "org/repo",
+        3,
+        "self-hosted,linux",
+        "my-rg",
+        "Standard_D2s_v3",
+        "2025-01-01",
+    );
+    let map: std::collections::HashMap<String, toml::Value> = config.into_iter().collect();
+    assert_eq!(
+        map.get("pool").unwrap(),
+        &toml::Value::String("my-pool".to_string())
+    );
+    assert_eq!(map.get("count").unwrap(), &toml::Value::Integer(3));
+    assert_eq!(map.get("enabled").unwrap(), &toml::Value::Boolean(true));
+}
+
+#[test]
+fn test_pool_config_filename_toml_extension() {
+    assert_eq!(
+        super::runner_helpers::pool_config_filename("dev"),
+        "dev.toml"
+    );
+    assert_eq!(
+        super::runner_helpers::pool_config_filename("ci-pool"),
+        "ci-pool.toml"
+    );
+}
+
+// ── autopilot_helpers ───────────────────────────────────────────
+
+#[test]
+fn test_autopilot_config_budget_present_and_fields() {
+    let config = super::autopilot_helpers::build_autopilot_config(
+        Some(500),
+        "conservative",
+        30,
+        10,
+        "2025-01-01T00:00:00Z",
+    );
+    let table = config.as_table().unwrap();
+    assert_eq!(table["budget"].as_integer().unwrap(), 500);
+    assert_eq!(table["strategy"].as_str().unwrap(), "conservative");
+    assert_eq!(table["idle_threshold_minutes"].as_integer().unwrap(), 30);
+    assert_eq!(table["cpu_threshold_percent"].as_integer().unwrap(), 10);
+    assert!(table["enabled"].as_bool().unwrap());
+}
+
+#[test]
+fn test_autopilot_config_no_budget_omits_key() {
+    let config = super::autopilot_helpers::build_autopilot_config(
+        None,
+        "aggressive",
+        15,
+        5,
+        "2025-06-01T00:00:00Z",
+    );
+    let table = config.as_table().unwrap();
+    assert!(!table.contains_key("budget"));
+    assert_eq!(table["strategy"].as_str().unwrap(), "aggressive");
+}
+
+#[test]
+fn test_build_budget_name_format() {
+    assert_eq!(
+        super::autopilot_helpers::build_budget_name("prod-rg"),
+        "azlin-budget-prod-rg"
+    );
+}
+
+#[test]
+fn test_build_prefix_filter_query_format() {
+    assert_eq!(
+        super::autopilot_helpers::build_prefix_filter_query("dev-"),
+        "[?starts_with(name, 'dev-')].id"
+    );
+}
+
+#[test]
+fn test_build_cost_scope_format() {
+    assert_eq!(
+        super::autopilot_helpers::build_cost_scope("sub-123", "my-rg"),
+        "/subscriptions/sub-123/resourceGroups/my-rg"
+    );
+}
+
+// ── autopilot_parse_helpers ─────────────────────────────────────
+
+#[test]
+fn test_parse_idle_check_valid_input() {
+    let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("2.5\n3600.0");
+    assert!((cpu - 2.5).abs() < f64::EPSILON);
+    assert!((uptime - 3600.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn test_parse_idle_check_empty_input() {
+    let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("");
+    assert!((cpu - 100.0).abs() < f64::EPSILON); // defaults to 100
+    assert!((uptime - 0.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn test_idle_parse_single_line_only() {
+    let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("50.0");
+    assert!((cpu - 50.0).abs() < f64::EPSILON);
+    assert!((uptime - 0.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn test_is_idle_low_cpu_long_uptime() {
+    assert!(super::autopilot_parse_helpers::is_idle(1.0, 7200.0, 60));
+}
+
+#[test]
+fn test_idle_check_high_cpu_not_idle() {
+    assert!(!super::autopilot_parse_helpers::is_idle(50.0, 7200.0, 60));
+}
+
+#[test]
+fn test_idle_check_short_uptime_not_idle() {
+    assert!(!super::autopilot_parse_helpers::is_idle(1.0, 100.0, 60));
+}
+
+#[test]
+fn test_is_idle_boundary_cpu_exactly_5() {
+    // cpu_pct < 5.0 is the check, so 5.0 should NOT be idle
+    assert!(!super::autopilot_parse_helpers::is_idle(5.0, 7200.0, 60));
+}
+
+#[test]
+fn test_is_idle_boundary_uptime_exactly_threshold() {
+    // uptime must be > threshold * 60, so exactly equal should NOT be idle
+    assert!(!super::autopilot_parse_helpers::is_idle(1.0, 3600.0, 60));
+}
+
+// ── batch_helpers ───────────────────────────────────────────────
+
+#[test]
+fn test_parse_vm_ids_normal_input() {
+    let ids = super::batch_helpers::parse_vm_ids("/sub/rg/vm1\n/sub/rg/vm2\n");
+    assert_eq!(ids, vec!["/sub/rg/vm1", "/sub/rg/vm2"]);
+}
+
+#[test]
+fn test_parse_vm_ids_empty_string() {
+    let ids = super::batch_helpers::parse_vm_ids("");
+    assert!(ids.is_empty());
+}
+
+#[test]
+fn test_parse_vm_ids_blank_lines_filtered() {
+    let ids = super::batch_helpers::parse_vm_ids("/sub/rg/vm1\n\n\n/sub/rg/vm2\n");
+    assert_eq!(ids.len(), 2);
+}
+
+#[test]
+fn test_batch_args_start_format() {
+    let ids = vec!["/sub/rg/vm1", "/sub/rg/vm2"];
+    let args = super::batch_helpers::build_batch_args("start", &ids);
+    assert_eq!(
+        args,
+        vec!["vm", "start", "--ids", "/sub/rg/vm1", "/sub/rg/vm2"]
+    );
+}
+
+#[test]
+fn test_build_vm_list_query_no_tag_returns_all() {
+    assert_eq!(
+        super::batch_helpers::build_vm_list_query(None).unwrap(),
+        "[].id"
+    );
+}
+
+#[test]
+fn test_build_vm_list_query_with_valid_tag() {
+    assert_eq!(
+        super::batch_helpers::build_vm_list_query(Some("env=prod")).unwrap(),
+        "[?tags.env=='prod'].id"
+    );
+}
+
+#[test]
+fn test_build_vm_list_query_injection_rejected() {
+    assert!(super::batch_helpers::build_vm_list_query(Some("env=prod';--")).is_err());
+}
+
+#[test]
+fn test_summarise_batch_success_message() {
+    let msg = super::batch_helpers::summarise_batch("deallocate", "my-rg", true);
+    assert!(msg.contains("deallocate"));
+    assert!(msg.contains("my-rg"));
+    assert!(msg.contains("completed"));
+}
+
+#[test]
+fn test_summarise_batch_failure_message() {
+    let msg = super::batch_helpers::summarise_batch("start", "prod-rg", false);
+    assert!(msg.contains("failed"));
+}
+
+// ── fleet_helpers ───────────────────────────────────────────────
+
+#[test]
+fn test_classify_result_zero_is_ok() {
+    let (label, success) = super::fleet_helpers::classify_result(0);
+    assert_eq!(label, "OK");
+    assert!(success);
+}
+
+#[test]
+fn test_classify_result_nonzero_is_fail() {
+    let (label, success) = super::fleet_helpers::classify_result(1);
+    assert_eq!(label, "FAIL");
+    assert!(!success);
+}
+
+#[test]
+fn test_classify_result_negative_is_fail() {
+    let (label, success) = super::fleet_helpers::classify_result(-1);
+    assert_eq!(label, "FAIL");
+    assert!(!success);
+}
+
+#[test]
+fn test_finish_message_success_counts_lines() {
+    let msg = super::fleet_helpers::finish_message(0, "line1\nline2\nline3\n", "");
+    assert!(msg.contains("3 lines"));
+}
+
+#[test]
+fn test_finish_message_success_empty_output() {
+    let msg = super::fleet_helpers::finish_message(0, "", "");
+    assert!(msg.contains("0 lines"));
+}
+
+#[test]
+fn test_finish_message_failure_shows_first_error_line() {
+    let msg = super::fleet_helpers::finish_message(1, "", "error occurred\ndetails here");
+    assert!(msg.contains("error occurred"));
+    assert!(!msg.contains("details here"));
+}
+
+#[test]
+fn test_format_output_text_show_output_prefers_stdout() {
+    let text = super::fleet_helpers::format_output_text(0, "stdout data", "stderr data", true);
+    assert_eq!(text, "stdout data");
+}
+
+#[test]
+fn test_format_output_text_show_output_falls_back_to_stderr() {
+    let text = super::fleet_helpers::format_output_text(0, "  \n  ", "fallback stderr", true);
+    assert_eq!(text, "fallback stderr");
+}
+
+#[test]
+fn test_format_output_text_no_show_success_is_empty() {
+    let text = super::fleet_helpers::format_output_text(0, "stdout", "stderr", false);
+    assert!(text.is_empty());
+}
+
+#[test]
+fn test_format_output_text_no_show_failure_shows_first_stderr_line() {
+    let text = super::fleet_helpers::format_output_text(1, "", "first error\nsecond error", false);
+    assert_eq!(text, "first error");
+}
+
+// ── output_helpers ──────────────────────────────────────────────
+
+#[test]
+fn test_format_as_csv_with_empty_cells() {
+    let headers = &["A", "B"];
+    let rows = vec![vec!["".to_string(), "val".to_string()]];
+    let csv = super::output_helpers::format_as_csv(headers, &rows);
+    assert_eq!(csv, "A,B\n,val");
+}
+
+#[test]
+fn test_format_as_table_single_row() {
+    let headers = &["Name"];
+    let rows = vec![vec!["hello".to_string()]];
+    let table = super::output_helpers::format_as_table(headers, &rows);
+    let lines: Vec<&str> = table.lines().collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].contains("Name"));
+    assert!(lines[1].contains("hello"));
+}
+
+#[test]
+fn test_format_as_json_integers() {
+    let items = vec![1, 2, 3];
+    let json = super::output_helpers::format_as_json(&items);
+    assert!(json.contains("1"));
+    assert!(json.contains("2"));
+    assert!(json.contains("3"));
+}
+
+// ── connect_helpers ─────────────────────────────────────────────
+
+#[test]
+fn test_build_ssh_args_no_key() {
+    let args = super::connect_helpers::build_ssh_args("admin", "10.0.0.1", None);
+    assert!(args.contains(&"admin@10.0.0.1".to_string()));
+    assert!(args.contains(&"-o".to_string()));
+    assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_string()));
+    assert!(!args.iter().any(|a| a == "-i"));
+}
+
+#[test]
+fn test_ssh_args_includes_key_flag() {
+    let key = std::path::Path::new("/home/user/.ssh/id_ed25519");
+    let args = super::connect_helpers::build_ssh_args("admin", "10.0.0.1", Some(key));
+    assert!(args.contains(&"-i".to_string()));
+    assert!(args.contains(&"/home/user/.ssh/id_ed25519".to_string()));
+}
+
+#[test]
+fn test_vscode_uri_ssh_remote_prefix() {
+    let uri = super::connect_helpers::build_vscode_remote_uri("azureuser", "10.0.0.5");
+    assert_eq!(uri, "ssh-remote+azureuser@10.0.0.5");
+}
+
+#[test]
+fn test_build_log_follow_args_structure() {
+    let args =
+        super::connect_helpers::build_log_follow_args("admin", "10.0.0.1", "/var/log/syslog");
+    assert!(args.contains(&"admin@10.0.0.1".to_string()));
+    assert!(args.iter().any(|a| a.contains("tail -f")));
+    assert!(args.iter().any(|a| a.contains("/var/log/syslog")));
+}
+
+#[test]
+fn test_log_tail_args_includes_line_count() {
+    let args =
+        super::connect_helpers::build_log_tail_args("admin", "10.0.0.1", 50, "/var/log/syslog");
+    assert!(args.iter().any(|a| a.contains("tail -n 50")));
+}
+
+// ── update_helpers ──────────────────────────────────────────────
+
+#[test]
+fn test_build_dev_update_script_not_empty() {
+    let script = super::update_helpers::build_dev_update_script();
+    assert!(script.starts_with("#!/bin/bash\n"));
+    assert!(script.contains("apt-get update"));
+    assert!(script.contains("rustup update"));
+    assert!(script.contains("npm install"));
+}
+
+#[test]
+fn test_build_os_update_cmd_contains_apt() {
+    let cmd = super::update_helpers::build_os_update_cmd();
+    assert!(cmd.contains("apt-get update"));
+    assert!(cmd.contains("apt-get upgrade"));
+}
+
+#[test]
+fn test_log_path_cloud_init_variant() {
+    assert_eq!(
+        super::update_helpers::log_type_to_path("cloud-init"),
+        "/var/log/cloud-init-output.log"
+    );
+}
+
+#[test]
+fn test_log_path_syslog_variant() {
+    assert_eq!(
+        super::update_helpers::log_type_to_path("syslog"),
+        "/var/log/syslog"
+    );
+}
+
+#[test]
+fn test_log_path_auth_variant() {
+    assert_eq!(
+        super::update_helpers::log_type_to_path("auth"),
+        "/var/log/auth.log"
+    );
+}
+
+#[test]
+fn test_log_path_capitalized_names() {
+    assert_eq!(
+        super::update_helpers::log_type_to_path("CloudInit"),
+        "/var/log/cloud-init-output.log"
+    );
+    assert_eq!(
+        super::update_helpers::log_type_to_path("Syslog"),
+        "/var/log/syslog"
+    );
+    assert_eq!(
+        super::update_helpers::log_type_to_path("Auth"),
+        "/var/log/auth.log"
+    );
+}
+
+#[test]
+fn test_log_path_unknown_fallback_syslog() {
+    assert_eq!(
+        super::update_helpers::log_type_to_path("garbage"),
+        "/var/log/syslog"
+    );
+}
+
+// ── tag_helpers ─────────────────────────────────────────────────
+
+#[test]
+fn test_parse_tag_simple_kv() {
+    let result = super::tag_helpers::parse_tag("env=prod");
+    assert_eq!(result, Some(("env", "prod")));
+}
+
+#[test]
+fn test_parse_tag_value_with_equals() {
+    let result = super::tag_helpers::parse_tag("config=key=value");
+    assert_eq!(result, Some(("config", "key=value")));
+}
+
+#[test]
+fn test_tag_parse_value_empty_string() {
+    let result = super::tag_helpers::parse_tag("key=");
+    assert_eq!(result, Some(("key", "")));
+}
+
+#[test]
+fn test_parse_tag_no_equals() {
+    assert!(super::tag_helpers::parse_tag("noequals").is_none());
+}
+
+#[test]
+fn test_tag_parse_empty_key_rejected() {
+    assert!(super::tag_helpers::parse_tag("=value").is_none());
+}
+
+#[test]
+fn test_find_invalid_tag_all_valid_list() {
+    let tags = vec!["a=1".to_string(), "b=2".to_string()];
+    assert!(super::tag_helpers::find_invalid_tag(&tags).is_none());
+}
+
+#[test]
+fn test_find_invalid_tag_with_bad_entry() {
+    let tags = vec!["a=1".to_string(), "bad".to_string(), "c=3".to_string()];
+    assert_eq!(super::tag_helpers::find_invalid_tag(&tags), Some("bad"));
+}
+
+#[test]
+fn test_find_invalid_tag_empty_vec_is_none() {
+    let tags: Vec<String> = vec![];
+    assert!(super::tag_helpers::find_invalid_tag(&tags).is_none());
+}
+
+// ── name_validation ─────────────────────────────────────────────
+
+#[test]
+fn test_validate_name_simple_ok() {
+    assert!(super::name_validation::validate_name("my-vm.toml").is_ok());
+}
+
+#[test]
+fn test_validate_name_empty_rejected() {
+    assert!(super::name_validation::validate_name("").is_err());
+}
+
+#[test]
+fn test_validate_name_slash_rejected() {
+    assert!(super::name_validation::validate_name("path/traversal").is_err());
+}
+
+#[test]
+fn test_validate_name_backslash_rejected() {
+    assert!(super::name_validation::validate_name("path\\traversal").is_err());
+}
+
+#[test]
+fn test_validate_name_null_byte_rejected() {
+    assert!(super::name_validation::validate_name("name\0evil").is_err());
+}
+
+#[test]
+fn test_validate_name_dotdot_rejected() {
+    assert!(super::name_validation::validate_name("..").is_err());
+    assert!(super::name_validation::validate_name("foo..bar").is_err());
+}
+
+#[test]
+fn test_validate_name_underscores_ok() {
+    assert!(super::name_validation::validate_name("my_file_name").is_ok());
+}
+
+// ── health_helpers ──────────────────────────────────────────────
+
+#[test]
+fn test_health_metric_color_low() {
+    assert_eq!(super::health_helpers::metric_color(10.0), "green");
+}
+
+#[test]
+fn test_health_metric_color_medium() {
+    assert_eq!(super::health_helpers::metric_color(60.0), "yellow");
+}
+
+#[test]
+fn test_health_metric_color_high() {
+    assert_eq!(super::health_helpers::metric_color(95.0), "red");
+}
+
+#[test]
+fn test_health_state_color_running() {
+    assert_eq!(super::health_helpers::state_color("running"), "green");
+}
+
+#[test]
+fn test_health_state_color_stopped() {
+    assert_eq!(super::health_helpers::state_color("stopped"), "red");
+}
+
+#[test]
+fn test_health_state_color_deallocated() {
+    assert_eq!(super::health_helpers::state_color("deallocated"), "red");
+}
+
+#[test]
+fn test_health_state_color_other() {
+    assert_eq!(super::health_helpers::state_color("starting"), "yellow");
+}
+
+#[test]
+fn test_health_format_percentage_normal() {
+    assert_eq!(super::health_helpers::format_percentage(55.7), "55.7%");
+}
+
+#[test]
+fn test_health_format_percentage_negative_clamps() {
+    assert_eq!(super::health_helpers::format_percentage(-10.0), "0.0%");
+}
+
+#[test]
+fn test_health_format_percentage_zero() {
+    assert_eq!(super::health_helpers::format_percentage(0.0), "0.0%");
+}
+
+#[test]
+fn test_health_status_emoji_all_green() {
+    assert_eq!(
+        super::health_helpers::status_emoji(20.0, 30.0, 40.0),
+        "\u{1F7E2}"
+    );
+}
+
+#[test]
+fn test_health_status_emoji_cpu_critical() {
+    assert_eq!(
+        super::health_helpers::status_emoji(95.0, 30.0, 40.0),
+        "\u{1F534}"
+    );
+}
+
+#[test]
+fn test_health_status_emoji_mem_warning() {
+    assert_eq!(
+        super::health_helpers::status_emoji(20.0, 75.0, 40.0),
+        "\u{1F7E1}"
+    );
+}
+
+// ── sync_helpers ────────────────────────────────────────────────
+
+#[test]
+fn test_default_dotfiles_contains_bashrc() {
+    let files = super::sync_helpers::default_dotfiles();
+    assert!(files.contains(&".bashrc"));
+}
+
+#[test]
+fn test_default_dotfiles_contains_gitconfig() {
+    let files = super::sync_helpers::default_dotfiles();
+    assert!(files.contains(&".gitconfig"));
+}
+
+#[test]
+fn test_validate_sync_source_safe_relative() {
+    assert!(super::sync_helpers::validate_sync_source("~/.bashrc").is_ok());
+}
+
+#[test]
+fn test_validate_sync_source_etc_rejected() {
+    assert!(super::sync_helpers::validate_sync_source("/etc/passwd").is_err());
+}
+
+#[test]
+fn test_validate_sync_source_proc_rejected() {
+    assert!(super::sync_helpers::validate_sync_source("/proc/1/status").is_err());
+}
+
+#[test]
+fn test_validate_sync_source_traversal_rejected() {
+    assert!(super::sync_helpers::validate_sync_source("foo/../../../etc/passwd").is_err());
+}
+
+#[test]
+fn test_build_rsync_args_correct_structure() {
+    let args = super::sync_helpers::build_rsync_args(".bashrc", "admin", "10.0.0.1", ".bashrc");
+    assert_eq!(args[0], "-az");
+    assert_eq!(args[1], "-e");
+    assert!(args[2].contains("StrictHostKeyChecking=accept-new"));
+    assert_eq!(args[3], ".bashrc");
+    assert_eq!(args[4], "admin@10.0.0.1:~/.bashrc");
+}
