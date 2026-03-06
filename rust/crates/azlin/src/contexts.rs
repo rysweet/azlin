@@ -41,10 +41,7 @@ pub fn build_context_toml(
 }
 
 /// List contexts in a directory. Returns Vec of (name, is_active).
-pub fn list_contexts(
-    ctx_dir: &Path,
-    active: &str,
-) -> Result<Vec<(String, bool)>, anyhow::Error> {
+pub fn list_contexts(ctx_dir: &Path, active: &str) -> Result<Vec<(String, bool)>, anyhow::Error> {
     let mut entries: Vec<_> = std::fs::read_dir(ctx_dir)?.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|e| e.file_name());
     let mut result = Vec::new();

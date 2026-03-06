@@ -83,12 +83,19 @@ fn bastion_ssh_exec(
     cmd: &str,
 ) -> Result<(i32, String, String)> {
     let mut args = vec![
-        "network", "bastion", "ssh",
-        "--name", bastion_name,
-        "--resource-group", resource_group,
-        "--target-resource-id", vm_resource_id,
-        "--auth-type", "ssh-key",
-        "--username", user,
+        "network",
+        "bastion",
+        "ssh",
+        "--name",
+        bastion_name,
+        "--resource-group",
+        resource_group,
+        "--target-resource-id",
+        vm_resource_id,
+        "--auth-type",
+        "ssh-key",
+        "--username",
+        user,
     ];
     let key_str;
     if let Some(key) = ssh_key {
@@ -127,8 +134,12 @@ fn bastion_ssh_exec(
     let timeout = std::time::Duration::from_secs(60);
     match child.wait_timeout(timeout) {
         Ok(Some(status)) => {
-            let stdout = stdout_handle.and_then(|h| h.join().ok()).unwrap_or_default();
-            let stderr = stderr_handle.and_then(|h| h.join().ok()).unwrap_or_default();
+            let stdout = stdout_handle
+                .and_then(|h| h.join().ok())
+                .unwrap_or_default();
+            let stderr = stderr_handle
+                .and_then(|h| h.join().ok())
+                .unwrap_or_default();
             Ok((
                 status.code().unwrap_or(-1),
                 String::from_utf8_lossy(&stdout).to_string(),
@@ -208,7 +219,9 @@ impl VmSshTarget {
                             eprintln!("Key synced, retrying SSH...");
                             return self.exec_inner(cmd);
                         } else {
-                            eprintln!("Warning: az vm user update failed, returning original error");
+                            eprintln!(
+                                "Warning: az vm user update failed, returning original error"
+                            );
                         }
                     }
                 }
@@ -220,7 +233,14 @@ impl VmSshTarget {
 
     fn exec_inner(&self, cmd: &str) -> Result<(i32, String, String)> {
         if let Some(ref b) = self.bastion {
-            bastion_ssh_exec(&b.bastion_name, &b.resource_group, &b.vm_resource_id, &self.user, b.ssh_key_path.as_deref(), cmd)
+            bastion_ssh_exec(
+                &b.bastion_name,
+                &b.resource_group,
+                &b.vm_resource_id,
+                &self.user,
+                b.ssh_key_path.as_deref(),
+                cmd,
+            )
         } else {
             ssh_exec(&self.ip, &self.user, cmd)
         }
@@ -370,13 +390,7 @@ fn collect_health_metrics(
 /// Render a health metrics table.
 fn render_health_table(metrics: &[HealthMetrics]) {
     let mut table = new_table(&[
-        "VM Name",
-        "State",
-        "Agent",
-        "Errors",
-        "CPU %",
-        "Memory %",
-        "Disk %",
+        "VM Name", "State", "Agent", "Errors", "CPU %", "Memory %", "Disk %",
     ]);
 
     for m in metrics {
@@ -431,7 +445,9 @@ fn render_health_table(metrics: &[HealthMetrics]) {
     }
     println!("{table}");
     println!();
-    println!("Signals: Latency=Agent | Traffic=State | Errors=Agent fails | Saturation=CPU/Mem/Disk");
+    println!(
+        "Signals: Latency=Agent | Traffic=State | Errors=Agent fails | Saturation=CPU/Mem/Disk"
+    );
     println!("Thresholds: <70% 70-90% >90%");
 }
 
@@ -769,16 +785,30 @@ async fn async_main() -> Result<()> {
             let include_all = all || include_stopped;
 
             // Select cached or uncached list methods based on --no-cache flag
-            let list_vms = |mgr: &azlin_azure::VmManager, rg: &str| -> Result<Vec<azlin_core::models::VmInfo>> {
-                if no_cache { mgr.list_vms_no_cache(rg) } else { mgr.list_vms(rg) }
+            let list_vms = |mgr: &azlin_azure::VmManager,
+                            rg: &str|
+             -> Result<Vec<azlin_core::models::VmInfo>> {
+                if no_cache {
+                    mgr.list_vms_no_cache(rg)
+                } else {
+                    mgr.list_vms(rg)
+                }
             };
-            let list_all = |mgr: &azlin_azure::VmManager| -> Result<Vec<azlin_core::models::VmInfo>> {
-                if no_cache { mgr.list_all_vms_no_cache() } else { mgr.list_all_vms() }
-            };
+            let list_all =
+                |mgr: &azlin_azure::VmManager| -> Result<Vec<azlin_core::models::VmInfo>> {
+                    if no_cache {
+                        mgr.list_all_vms_no_cache()
+                    } else {
+                        mgr.list_all_vms()
+                    }
+                };
 
             // Resolve resource group(s)
             if cli.verbose {
-                eprintln!("[VERBOSE] Fetching VMs from resource group: {}", resource_group.as_deref().unwrap_or("(default)"));
+                eprintln!(
+                    "[VERBOSE] Fetching VMs from resource group: {}",
+                    resource_group.as_deref().unwrap_or("(default)")
+                );
             }
             let mut all_vms = if all_contexts {
                 // Read all context files from ~/.azlin/contexts/ and aggregate VMs
@@ -799,7 +829,9 @@ async fn async_main() -> Result<()> {
                                     // Simple glob: if pattern contains *, do substring match
                                     // Otherwise exact match
                                     if pattern.contains('*') {
-                                        if !ctx_name.contains(&pat) { continue; }
+                                        if !ctx_name.contains(&pat) {
+                                            continue;
+                                        }
                                     } else if ctx_name != *pattern {
                                         continue;
                                     }
@@ -887,7 +919,10 @@ async fn async_main() -> Result<()> {
             }
             // Detect and display bastion hosts (matching Python: shown above VM table)
             // Use the resolved resource group from the VMs themselves
-            let effective_rg = all_vms.first().map(|v| v.resource_group.as_str()).unwrap_or("");
+            let effective_rg = all_vms
+                .first()
+                .map(|v| v.resource_group.as_str())
+                .unwrap_or("");
             if matches!(&cli.output, azlin_cli::OutputFormat::Table) && !effective_rg.is_empty() {
                 if let Ok(bastions) = list_helpers::detect_bastion_hosts(effective_rg) {
                     if !bastions.is_empty() {
@@ -925,7 +960,10 @@ async fn async_main() -> Result<()> {
                 let bastion_map: std::collections::HashMap<String, String> =
                     if matches!(&cli.output, azlin_cli::OutputFormat::Table) {
                         if let Ok(bastions) = list_helpers::detect_bastion_hosts(effective_rg) {
-                            bastions.into_iter().map(|(name, location, _)| (location, name)).collect()
+                            bastions
+                                .into_iter()
+                                .map(|(name, location, _)| (location, name))
+                                .collect()
                         } else {
                             std::collections::HashMap::new()
                         }
@@ -959,9 +997,12 @@ async fn async_main() -> Result<()> {
                         // Direct SSH for VMs with public IPs
                         std::process::Command::new("ssh")
                             .args([
-                                "-o", "StrictHostKeyChecking=accept-new",
-                                "-o", "ConnectTimeout=5",
-                                "-o", "BatchMode=yes",
+                                "-o",
+                                "StrictHostKeyChecking=accept-new",
+                                "-o",
+                                "ConnectTimeout=5",
+                                "-o",
+                                "BatchMode=yes",
                                 &format!("{}@{}", user, ip),
                                 tmux_cmd,
                             ])
@@ -973,12 +1014,19 @@ async fn async_main() -> Result<()> {
                             vm_manager.subscription_id(), vm.resource_group, vm.name
                         );
                         let mut args = vec![
-                            "network".to_string(), "bastion".to_string(), "ssh".to_string(),
-                            "--name".to_string(), bastion_name.clone(),
-                            "--resource-group".to_string(), vm.resource_group.clone(),
-                            "--target-resource-id".to_string(), vm_id,
-                            "--auth-type".to_string(), "ssh-key".to_string(),
-                            "--username".to_string(), user.to_string(),
+                            "network".to_string(),
+                            "bastion".to_string(),
+                            "ssh".to_string(),
+                            "--name".to_string(),
+                            bastion_name.clone(),
+                            "--resource-group".to_string(),
+                            vm.resource_group.clone(),
+                            "--target-resource-id".to_string(),
+                            vm_id,
+                            "--auth-type".to_string(),
+                            "ssh-key".to_string(),
+                            "--username".to_string(),
+                            user.to_string(),
                         ];
                         if let Some(ref key) = ssh_key {
                             args.push("--ssh-key".to_string());
@@ -1187,12 +1235,11 @@ async fn async_main() -> Result<()> {
                             vm.public_ip.as_deref(),
                             vm.private_ip.as_deref(),
                         );
-                        let os_display = display_helpers::format_os_display(
-                            vm.os_offer.as_deref(),
-                            &vm.os_type,
-                        );
-                        let (cpu, mem) = display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
-                        let mut row = format!("{}", session);
+                        let os_display =
+                            display_helpers::format_os_display(vm.os_offer.as_deref(), &vm.os_type);
+                        let (cpu, mem) =
+                            display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
+                        let mut row = session.to_string();
                         if show_tmux_col {
                             row.push_str(&format!(",{}", tmux));
                         }
@@ -1248,11 +1295,10 @@ async fn async_main() -> Result<()> {
                             vm.public_ip.as_deref(),
                             vm.private_ip.as_deref(),
                         );
-                        let os_display = display_helpers::format_os_display(
-                            vm.os_offer.as_deref(),
-                            &vm.os_type,
-                        );
-                        let (cpu, mem) = display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
+                        let os_display =
+                            display_helpers::format_os_display(vm.os_offer.as_deref(), &vm.os_type);
+                        let (cpu, mem) =
+                            display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
                         let state_color = match vm.power_state {
                             azlin_core::models::PowerState::Running => Color::Green,
                             azlin_core::models::PowerState::Stopped
@@ -1282,10 +1328,7 @@ async fn async_main() -> Result<()> {
                         if wide {
                             row.push(Cell::new(&vm.vm_size));
                         }
-                        row.extend_from_slice(&[
-                            Cell::new(&cpu),
-                            Cell::new(&mem),
-                        ]);
+                        row.extend_from_slice(&[Cell::new(&cpu), Cell::new(&mem)]);
                         if with_latency {
                             let lat = latencies
                                 .get(&vm.name)
@@ -1313,8 +1356,7 @@ async fn async_main() -> Result<()> {
 
                     // Summary footer
                     let total = all_vms.len();
-                    let total_tmux: usize =
-                        tmux_sessions.values().map(|v| v.len()).sum();
+                    let total_tmux: usize = tmux_sessions.values().map(|v| v.len()).sum();
 
                     println!();
                     if total_tmux > 0 {
@@ -1326,21 +1368,13 @@ async fn async_main() -> Result<()> {
                     if !show_all_vms {
                         println!();
                         println!("Hints:");
-                        println!(
-                            "  azlin list -a        Show all VMs across all resource groups"
-                        );
-                        println!(
-                            "  azlin list -w        Wide mode (show VM Name, SKU columns)"
-                        );
+                        println!("  azlin list -a        Show all VMs across all resource groups");
+                        println!("  azlin list -w        Wide mode (show VM Name, SKU columns)");
                         println!(
                             "  azlin list -r        Restore all tmux sessions in new terminal window"
                         );
-                        println!(
-                            "  azlin list -q        Show quota usage (slower)"
-                        );
-                        println!(
-                            "  azlin list -v        Verbose mode (show tunnel/SSH details)"
-                        );
+                        println!("  azlin list -q        Show quota usage (slower)");
+                        println!("  azlin list -v        Verbose mode (show tunnel/SSH details)");
                     }
                 }
             }
@@ -1355,8 +1389,14 @@ async fn async_main() -> Result<()> {
                             println!("  Opening tab: {} (session: {})", vm_name, first_session);
                             let _ = std::process::Command::new("wt.exe")
                                 .args([
-                                    "-w", "0", "new-tab", "azlin", "connect", vm_name,
-                                    "--tmux-session", first_session,
+                                    "-w",
+                                    "0",
+                                    "new-tab",
+                                    "azlin",
+                                    "connect",
+                                    vm_name,
+                                    "--tmux-session",
+                                    first_session,
                                 ])
                                 .spawn();
                         } else {
@@ -1784,23 +1824,33 @@ async fn async_main() -> Result<()> {
                 let state = vm_info.power_state.to_string();
 
                 // Use bastion when there is no public IP
-                let bastion_info_owned: Option<(String, String, String, Option<std::path::PathBuf>)> =
-                    if vm_info.public_ip.is_none() {
-                        bastion_map.get(&vm_info.location).map(|bn| {
+                let bastion_info_owned: Option<(
+                    String,
+                    String,
+                    String,
+                    Option<std::path::PathBuf>,
+                )> = if vm_info.public_ip.is_none() {
+                    bastion_map.get(&vm_info.location).map(|bn| {
                             let vm_rid = format!(
                                 "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                                 sub_id, vm_info.resource_group, vm_info.name
                             );
                             (bn.clone(), vm_info.resource_group.clone(), vm_rid, ssh_key_path.clone())
                         })
-                    } else {
-                        None
-                    };
+                } else {
+                    None
+                };
                 let bastion_ref = bastion_info_owned.as_ref().map(|(bn, rg_b, rid, key)| {
                     (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref())
                 });
 
-                vec![collect_health_metrics(&vm_name, &ip, &user, &state, bastion_ref)]
+                vec![collect_health_metrics(
+                    &vm_name,
+                    &ip,
+                    &user,
+                    &state,
+                    bastion_ref,
+                )]
             } else {
                 let vms = vm_manager.list_vms(&rg)?;
                 vms.iter()
@@ -5742,8 +5792,7 @@ async fn async_main() -> Result<()> {
                 azlin_cli::LogType::Auth => "/var/log/auth.log",
             };
 
-            let target =
-                resolve_vm_ssh_target(&vm_identifier, None, resource_group).await?;
+            let target = resolve_vm_ssh_target(&vm_identifier, None, resource_group).await?;
 
             if follow {
                 // Stream logs interactively
@@ -5751,12 +5800,19 @@ async fn async_main() -> Result<()> {
                 if let Some(ref b) = target.bastion {
                     // Interactive follow through bastion
                     let mut args = vec![
-                        "network".to_string(), "bastion".to_string(), "ssh".to_string(),
-                        "--name".to_string(), b.bastion_name.clone(),
-                        "--resource-group".to_string(), b.resource_group.clone(),
-                        "--target-resource-id".to_string(), b.vm_resource_id.clone(),
-                        "--auth-type".to_string(), "ssh-key".to_string(),
-                        "--username".to_string(), target.user.clone(),
+                        "network".to_string(),
+                        "bastion".to_string(),
+                        "ssh".to_string(),
+                        "--name".to_string(),
+                        b.bastion_name.clone(),
+                        "--resource-group".to_string(),
+                        b.resource_group.clone(),
+                        "--target-resource-id".to_string(),
+                        b.vm_resource_id.clone(),
+                        "--auth-type".to_string(),
+                        "ssh-key".to_string(),
+                        "--username".to_string(),
+                        target.user.clone(),
                     ];
                     if let Some(ref key) = b.ssh_key_path {
                         args.push("--ssh-key".to_string());
@@ -5764,14 +5820,13 @@ async fn async_main() -> Result<()> {
                     }
                     args.push("--".to_string());
                     args.push(format!("sudo tail -f {}", log_path));
-                    let status = std::process::Command::new("az")
-                        .args(&args)
-                        .status()?;
+                    let status = std::process::Command::new("az").args(&args).status()?;
                     if !status.success() {
                         std::process::exit(status.code().unwrap_or(1));
                     }
                 } else {
-                    let follow_args = connect_helpers::build_log_follow_args(&target.user, &target.ip, log_path);
+                    let follow_args =
+                        connect_helpers::build_log_follow_args(&target.user, &target.ip, log_path);
                     let status = std::process::Command::new("ssh")
                         .args(&follow_args)
                         .status()?;
@@ -5792,7 +5847,7 @@ async fn async_main() -> Result<()> {
 
                 pb.finish_and_clear();
                 match result {
-                    Ok((code, stdout, stderr)) if code == 0 => {
+                    Ok((0, stdout, _stderr)) => {
                         print!("{}", stdout);
                     }
                     Ok((_, _, stderr)) => {

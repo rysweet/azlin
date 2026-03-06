@@ -46,7 +46,15 @@ pub fn apply_filters(
 /// Returns Vec of (name, location, sku).
 pub fn detect_bastion_hosts(resource_group: &str) -> anyhow::Result<Vec<(String, String, String)>> {
     let output = std::process::Command::new("az")
-        .args(["network", "bastion", "list", "--resource-group", resource_group, "--output", "json"])
+        .args([
+            "network",
+            "bastion",
+            "list",
+            "--resource-group",
+            resource_group,
+            "--output",
+            "json",
+        ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()?;

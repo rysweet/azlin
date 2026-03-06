@@ -25,9 +25,13 @@ pub fn get_cost_summary(auth: &AzureAuth, resource_group: &str) -> Result<CostSu
     // Use the shared az_cli_with_timeout to prevent pipe deadlocks and hangs
     let json = match crate::vm::az_cli_with_timeout(
         &[
-            "consumption", "usage", "list",
-            "--start-date", &start_str,
-            "--end-date", &end_str,
+            "consumption",
+            "usage",
+            "list",
+            "--start-date",
+            &start_str,
+            "--end-date",
+            &end_str,
         ],
         120, // 2 minute timeout for cost queries
     ) {
@@ -52,16 +56,14 @@ pub fn get_cost_summary(auth: &AzureAuth, resource_group: &str) -> Result<CostSu
         }
 
         // Filter by resource group if the entry has one
-        let entry_rg = entry["instanceId"]
-            .as_str()
-            .and_then(|id| {
-                let parts: Vec<&str> = id.split('/').collect();
-                if parts.len() >= 5 {
-                    Some(parts[4])
-                } else {
-                    None
-                }
-            });
+        let entry_rg = entry["instanceId"].as_str().and_then(|id| {
+            let parts: Vec<&str> = id.split('/').collect();
+            if parts.len() >= 5 {
+                Some(parts[4])
+            } else {
+                None
+            }
+        });
 
         if let Some(rg) = entry_rg {
             if !rg.eq_ignore_ascii_case(resource_group) {

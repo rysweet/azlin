@@ -127,8 +127,7 @@ mod tests {
 
     #[test]
     fn test_subscription_id_accessor() {
-        let auth =
-            AzureAuth::new_with_subscription("test-sub-id").expect("should not fail");
+        let auth = AzureAuth::new_with_subscription("test-sub-id").expect("should not fail");
         assert_eq!(auth.subscription_id(), "test-sub-id");
     }
 

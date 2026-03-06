@@ -429,7 +429,6 @@ fn test_shell_escape_with_spaces_and_special_chars() {
     assert_eq!(escaped, "'foo bar $HOME'");
 }
 
-
 #[test]
 fn test_health_metrics_non_running_vm() {
     let m = super::collect_health_metrics("test-vm", "10.0.0.1", "azureuser", "deallocated", None);
@@ -438,7 +437,6 @@ fn test_health_metrics_non_running_vm() {
     assert_eq!(m.cpu_percent, 0.0);
     assert_eq!(m.mem_percent, 0.0);
     assert_eq!(m.disk_percent, 0.0);
-
 }
 
 #[test]
@@ -488,7 +486,6 @@ fn test_render_health_table_does_not_panic() {
             cpu_percent: 25.5,
             mem_percent: 60.0,
             disk_percent: 45.0,
-
         },
         super::HealthMetrics {
             vm_name: "vm2".to_string(),
@@ -498,7 +495,6 @@ fn test_render_health_table_does_not_panic() {
             cpu_percent: 0.0,
             mem_percent: 0.0,
             disk_percent: 0.0,
-
         },
         super::HealthMetrics {
             vm_name: "vm3".to_string(),
@@ -508,7 +504,6 @@ fn test_render_health_table_does_not_panic() {
             cpu_percent: 95.0,
             mem_percent: 85.0,
             disk_percent: 92.0,
-
         },
     ];
     // Should not panic; just renders to stdout
@@ -602,7 +597,6 @@ fn test_resolve_resource_group_explicit_with_special_chars() {
     assert_eq!(result.unwrap(), "my-rg_123");
 }
 
-
 // ── HealthMetrics tests ──────────────────────────────────────
 
 #[test]
@@ -613,7 +607,6 @@ fn test_health_metrics_stopped_vm() {
     assert_eq!(m.cpu_percent, 0.0);
     assert_eq!(m.mem_percent, 0.0);
     assert_eq!(m.disk_percent, 0.0);
-
 }
 
 #[test]
@@ -628,7 +621,6 @@ fn test_health_metrics_unknown_state() {
     let m = super::collect_health_metrics("vm-x", "10.0.0.1", "user", "unknown", None);
     assert_eq!(m.power_state, "unknown");
     assert_eq!(m.cpu_percent, 0.0);
-
 }
 
 // ── render_health_table tests ────────────────────────────────
@@ -650,7 +642,6 @@ fn test_render_health_table_single_entry() {
         cpu_percent: 50.0,
         mem_percent: 40.0,
         disk_percent: 30.0,
-
     }];
     super::render_health_table(&metrics);
 }
@@ -665,7 +656,6 @@ fn test_render_health_table_high_usage_values() {
         cpu_percent: 99.9,
         mem_percent: 95.0,
         disk_percent: 98.0,
-
     }];
     super::render_health_table(&metrics);
 }
@@ -680,7 +670,6 @@ fn test_render_health_table_zero_usage() {
         cpu_percent: 0.0,
         mem_percent: 0.0,
         disk_percent: 0.0,
-
     }];
     super::render_health_table(&metrics);
 }
@@ -696,7 +685,6 @@ fn test_render_health_table_mixed_states() {
             cpu_percent: 10.0,
             mem_percent: 20.0,
             disk_percent: 30.0,
-
         },
         super::HealthMetrics {
             vm_name: "vm-b".to_string(),
@@ -706,7 +694,6 @@ fn test_render_health_table_mixed_states() {
             cpu_percent: 0.0,
             mem_percent: 0.0,
             disk_percent: 0.0,
-
         },
         super::HealthMetrics {
             vm_name: "vm-c".to_string(),
@@ -716,7 +703,6 @@ fn test_render_health_table_mixed_states() {
             cpu_percent: 0.0,
             mem_percent: 0.0,
             disk_percent: 0.0,
-
         },
     ];
     super::render_health_table(&metrics);
@@ -1179,7 +1165,6 @@ async fn test_resolve_vm_targets_ip_only_no_vm_name() {
     assert_eq!(targets[0].ip, "10.0.0.1");
     assert!(targets[0].bastion.is_none());
 }
-
 
 #[test]
 fn test_completions_bash() {
@@ -2140,7 +2125,6 @@ fn test_health_metrics_deallocated_vm() {
 fn test_health_metrics_deallocating_vm() {
     let m = super::collect_health_metrics("vm-x", "10.0.0.1", "user", "VM deallocating", None);
     assert_eq!(m.power_state, "VM deallocating");
-
 }
 
 // ── Unit tests: render_health_table edge cases ───────────────
@@ -2156,7 +2140,6 @@ fn test_render_health_table_many_entries() {
             cpu_percent: i as f32 * 5.0,
             mem_percent: i as f32 * 3.0,
             disk_percent: i as f32 * 2.0,
-
         })
         .collect();
     // Should not panic with many entries
@@ -2173,7 +2156,6 @@ fn test_render_health_table_100_percent() {
         cpu_percent: 100.0,
         mem_percent: 100.0,
         disk_percent: 100.0,
-
     }];
     // Should not panic
     super::render_health_table(&metrics);
@@ -3780,10 +3762,8 @@ fn test_templates_list_empty() {
 fn test_templates_list_with_entries() {
     let tmp = TempDir::new().unwrap();
     let dir = tmp.path();
-    let tpl1 =
-        super::templates::build_template_toml("a", None, Some("small"), Some("west"), None);
-    let tpl2 =
-        super::templates::build_template_toml("b", None, Some("large"), Some("east"), None);
+    let tpl1 = super::templates::build_template_toml("a", None, Some("small"), Some("west"), None);
+    let tpl2 = super::templates::build_template_toml("b", None, Some("large"), Some("east"), None);
     super::templates::save_template(dir, "a", &tpl1).unwrap();
     super::templates::save_template(dir, "b", &tpl2).unwrap();
 
@@ -3830,11 +3810,8 @@ fn test_templates_import_missing_name() {
 
 #[test]
 fn test_sessions_build_toml() {
-    let val = super::sessions::build_session_toml(
-        "s1",
-        "rg1",
-        &["vm1".to_string(), "vm2".to_string()],
-    );
+    let val =
+        super::sessions::build_session_toml("s1", "rg1", &["vm1".to_string(), "vm2".to_string()]);
     let tbl = val.as_table().unwrap();
     assert_eq!(tbl["name"].as_str().unwrap(), "s1");
     assert_eq!(tbl["resource_group"].as_str().unwrap(), "rg1");
@@ -3855,7 +3832,8 @@ fn test_sessions_parse_toml() {
 
 #[test]
 fn test_sessions_parse_toml_empty_vms() {
-    let content = "name = \"empty\"\nresource_group = \"rg\"\nvms = []\ncreated = \"2024-01-01T00:00:00Z\"\n";
+    let content =
+        "name = \"empty\"\nresource_group = \"rg\"\nvms = []\ncreated = \"2024-01-01T00:00:00Z\"\n";
     let (rg, vms, _) = super::sessions::parse_session_toml(content).unwrap();
     assert_eq!(rg, "rg");
     assert!(vms.is_empty());
@@ -3900,8 +3878,7 @@ fn test_sessions_list_names_with_entries() {
 
 #[test]
 fn test_contexts_build_toml_minimal() {
-    let result =
-        super::contexts::build_context_toml("ctx1", None, None, None, None, None).unwrap();
+    let result = super::contexts::build_context_toml("ctx1", None, None, None, None, None).unwrap();
     assert!(result.contains("name = \"ctx1\""));
 }
 
@@ -4146,8 +4123,7 @@ fn test_build_rsync_args_structure() {
 
 #[test]
 fn test_build_rsync_args_special_chars_in_ip() {
-    let args =
-        super::sync_helpers::build_rsync_args("/tmp/f", "user", "192.168.1.100", ".vimrc");
+    let args = super::sync_helpers::build_rsync_args("/tmp/f", "user", "192.168.1.100", ".vimrc");
     assert!(args[4].contains("192.168.1.100"));
 }
 
@@ -5578,7 +5554,8 @@ fn test_bastion_summary_defaults() {
 
 #[test]
 fn test_shorten_resource_id_full_path() {
-    let id = "/subscriptions/abc/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/my-pip";
+    let id =
+        "/subscriptions/abc/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/my-pip";
     assert_eq!(super::bastion_helpers::shorten_resource_id(id), "my-pip");
 }
 
@@ -5995,8 +5972,7 @@ fn test_context_list_ignores_non_toml() {
 #[test]
 fn test_context_rename_success() {
     let tmp = TempDir::new().unwrap();
-    let content =
-        super::contexts::build_context_toml("old", None, None, None, None, None).unwrap();
+    let content = super::contexts::build_context_toml("old", None, None, None, None, None).unwrap();
     fs::write(tmp.path().join("old.toml"), content).unwrap();
     super::contexts::rename_context_file(tmp.path(), "old", "new").unwrap();
     assert!(!tmp.path().join("old.toml").exists());
@@ -6191,8 +6167,7 @@ fn test_build_rsync_args_format() {
 
 #[test]
 fn test_build_rsync_args_with_subpath() {
-    let args =
-        super::sync_helpers::build_rsync_args("config/", "user", "192.168.1.1", "config/");
+    let args = super::sync_helpers::build_rsync_args("config/", "user", "192.168.1.1", "config/");
     assert_eq!(args[4], "user@192.168.1.1:~/config/");
 }
 
@@ -7377,7 +7352,8 @@ fn test_template_import_overwrites_existing() {
     let tmp = TempDir::new().unwrap();
     let tpl = super::templates::build_template_toml("imp", Some("old"), None, None, None);
     super::templates::save_template(tmp.path(), "imp", &tpl).unwrap();
-    let content = "name = \"imp\"\ndescription = \"new\"\nvm_size = \"Standard_A1\"\nregion = \"westus\"\n";
+    let content =
+        "name = \"imp\"\ndescription = \"new\"\nvm_size = \"Standard_A1\"\nregion = \"westus\"\n";
     super::templates::import_template(tmp.path(), content).unwrap();
     let loaded = super::templates::load_template(tmp.path(), "imp").unwrap();
     assert_eq!(loaded["description"].as_str().unwrap(), "new");
@@ -7512,8 +7488,7 @@ fn test_classify_both_remote() {
 
 #[test]
 fn test_resolve_scp_path_multiple_colons() {
-    let result =
-        super::cp_helpers::resolve_scp_path("vm:path:with:colons", "vm", "u", "1.1.1.1");
+    let result = super::cp_helpers::resolve_scp_path("vm:path:with:colons", "vm", "u", "1.1.1.1");
     assert_eq!(result, "u@1.1.1.1:path:with:colons");
 }
 
@@ -7741,7 +7716,6 @@ fn test_health_metrics_struct() {
         cpu_percent: 45.0,
         mem_percent: 60.0,
         disk_percent: 30.0,
-
     };
     assert_eq!(m.vm_name, "test-vm");
     assert_eq!(m.power_state, "running");
@@ -7835,7 +7809,6 @@ fn test_parse_disk_stdout_not_numeric() {
     );
 }
 
-
 #[test]
 fn test_default_metrics() {
     let m = super::health_parse_helpers::default_metrics("my-vm", "deallocated");
@@ -7844,7 +7817,6 @@ fn test_default_metrics() {
     assert_eq!(m.cpu_percent, 0.0);
     assert_eq!(m.mem_percent, 0.0);
     assert_eq!(m.disk_percent, 0.0);
-
 }
 
 // ── fleet_helpers tests ─────────────────────────────────────
@@ -7896,8 +7868,7 @@ fn test_finish_message_failure_empty_stderr() {
 
 #[test]
 fn test_format_output_text_show_output_with_stdout() {
-    let text =
-        super::fleet_helpers::format_output_text(0, "hello world\n", "some warning", true);
+    let text = super::fleet_helpers::format_output_text(0, "hello world\n", "some warning", true);
     assert_eq!(text, "hello world");
 }
 
@@ -8089,8 +8060,7 @@ fn test_apply_filters_combined() {
 
 #[test]
 fn test_parse_vm_ids_normal() {
-    let ids =
-        super::batch_helpers::parse_vm_ids("/sub/1/rg/test/vm/vm1\n/sub/1/rg/test/vm/vm2\n");
+    let ids = super::batch_helpers::parse_vm_ids("/sub/1/rg/test/vm/vm1\n/sub/1/rg/test/vm/vm2\n");
     assert_eq!(ids.len(), 2);
     assert_eq!(ids[0], "/sub/1/rg/test/vm/vm1");
     assert_eq!(ids[1], "/sub/1/rg/test/vm/vm2");
@@ -8240,8 +8210,7 @@ fn test_resolve_with_template_default_no_template() {
 
 #[test]
 fn test_build_clone_cmd_https() {
-    let cmd =
-        super::create_helpers::build_clone_cmd("https://github.com/user/repo.git").unwrap();
+    let cmd = super::create_helpers::build_clone_cmd("https://github.com/user/repo.git").unwrap();
     assert!(cmd.contains("git clone"));
     assert!(cmd.contains("https://github.com/user/repo.git"));
     assert!(cmd.contains("~/src/$(basename"));
@@ -8326,11 +8295,8 @@ fn test_build_vscode_remote_uri() {
 
 #[test]
 fn test_build_log_follow_args() {
-    let args = super::connect_helpers::build_log_follow_args(
-        "azureuser",
-        "10.0.0.5",
-        "/var/log/syslog",
-    );
+    let args =
+        super::connect_helpers::build_log_follow_args("azureuser", "10.0.0.5", "/var/log/syslog");
     assert_eq!(args.len(), 6);
     assert_eq!(args[4], "azureuser@10.0.0.5");
     assert_eq!(args[5], "sudo tail -f /var/log/syslog");
@@ -8338,12 +8304,8 @@ fn test_build_log_follow_args() {
 
 #[test]
 fn test_build_log_tail_args() {
-    let args = super::connect_helpers::build_log_tail_args(
-        "admin",
-        "10.0.0.1",
-        100,
-        "/var/log/auth.log",
-    );
+    let args =
+        super::connect_helpers::build_log_tail_args("admin", "10.0.0.1", 100, "/var/log/auth.log");
     assert_eq!(args.len(), 6);
     assert!(args[5].contains("tail -n 100"));
     assert!(args[5].contains("/var/log/auth.log"));
@@ -8563,9 +8525,7 @@ fn test_validate_config_path_safe() {
 #[test]
 fn test_validate_config_path_traversal_rejected() {
     assert!(super::config_path_helpers::validate_config_path("../etc/passwd").is_err());
-    assert!(
-        super::config_path_helpers::validate_config_path("subdir/../../etc/shadow").is_err()
-    );
+    assert!(super::config_path_helpers::validate_config_path("subdir/../../etc/shadow").is_err());
 }
 
 // ── snapshot_helpers additional tests ────────────────────────────
@@ -9228,11 +9188,8 @@ fn test_session_build_write_list_roundtrip() {
         "dev-rg",
         &["vm-1".to_string(), "vm-2".to_string()],
     );
-    let session2 = super::sessions::build_session_toml(
-        "staging-session",
-        "staging-rg",
-        &["vm-3".to_string()],
-    );
+    let session2 =
+        super::sessions::build_session_toml("staging-session", "staging-rg", &["vm-3".to_string()]);
 
     fs::write(
         dir.join("dev-session.toml"),
@@ -9819,8 +9776,7 @@ fn test_validate_sync_source_forbidden_prefixes() {
 
 #[test]
 fn test_build_rsync_args_correct_format() {
-    let args =
-        super::sync_helpers::build_rsync_args(".bashrc", "azureuser", "10.0.0.1", ".bashrc");
+    let args = super::sync_helpers::build_rsync_args(".bashrc", "azureuser", "10.0.0.1", ".bashrc");
     assert_eq!(args[0], "-az");
     assert_eq!(args[1], "-e");
     assert!(args[2].contains("StrictHostKeyChecking=accept-new"));
@@ -10081,12 +10037,8 @@ fn test_classify_transfer_direction_all_cases() {
 
 #[test]
 fn test_resolve_scp_path_replaces_vm_name() {
-    let result = super::cp_helpers::resolve_scp_path(
-        "my-vm:/remote/path",
-        "my-vm",
-        "azureuser",
-        "10.0.0.1",
-    );
+    let result =
+        super::cp_helpers::resolve_scp_path("my-vm:/remote/path", "my-vm", "azureuser", "10.0.0.1");
     assert_eq!(result, "azureuser@10.0.0.1:/remote/path");
 }
 
@@ -10158,11 +10110,8 @@ fn test_finish_message_multiline_stdout() {
 
 #[test]
 fn test_finish_message_error_first_line() {
-    let msg = super::fleet_helpers::finish_message(
-        1,
-        "",
-        "Error: connection refused\ndetailed trace\n",
-    );
+    let msg =
+        super::fleet_helpers::finish_message(1, "", "Error: connection refused\ndetailed trace\n");
     assert!(msg.contains("Error: connection refused"));
     assert!(!msg.contains("detailed trace"));
 }
@@ -10239,11 +10188,9 @@ fn test_filter_running_keeps_starting() {
     ];
     super::list_helpers::filter_running(&mut vms);
     assert_eq!(vms.len(), 2);
-    assert!(
-        vms.iter()
-            .all(|v| v.power_state == PowerState::Running
-                || v.power_state == PowerState::Starting)
-    );
+    assert!(vms
+        .iter()
+        .all(|v| v.power_state == PowerState::Running || v.power_state == PowerState::Starting));
 }
 
 #[test]
@@ -10356,11 +10303,8 @@ fn test_resolve_with_template_user_override() {
 
 #[test]
 fn test_resolve_with_template_sentinel_no_template_keeps_default() {
-    let result = super::create_helpers::resolve_with_template_default(
-        "Standard_B2s",
-        "Standard_B2s",
-        None,
-    );
+    let result =
+        super::create_helpers::resolve_with_template_default("Standard_B2s", "Standard_B2s", None);
     assert_eq!(result, "Standard_B2s");
 }
 
@@ -10369,8 +10313,7 @@ fn test_resolve_with_template_sentinel_no_template_keeps_default() {
 #[test]
 fn test_build_ssh_args_with_key_path() {
     let key = std::path::PathBuf::from("/home/user/.ssh/id_ed25519");
-    let args =
-        super::connect_helpers::build_ssh_args("azureuser", "10.0.0.1", Some(key.as_path()));
+    let args = super::connect_helpers::build_ssh_args("azureuser", "10.0.0.1", Some(key.as_path()));
     assert!(args.contains(&"-i".to_string()));
     assert!(args.contains(&"/home/user/.ssh/id_ed25519".to_string()));
     assert!(args.contains(&"azureuser@10.0.0.1".to_string()));
@@ -10391,20 +10334,15 @@ fn test_build_vscode_remote_uri_format() {
 
 #[test]
 fn test_build_log_follow_args_has_tail_f() {
-    let args =
-        super::connect_helpers::build_log_follow_args("user", "10.0.0.1", "/var/log/syslog");
+    let args = super::connect_helpers::build_log_follow_args("user", "10.0.0.1", "/var/log/syslog");
     assert!(args.iter().any(|a| a.contains("tail -f")));
     assert!(args.iter().any(|a| a.contains("/var/log/syslog")));
 }
 
 #[test]
 fn test_build_log_tail_args_custom_lines() {
-    let args = super::connect_helpers::build_log_tail_args(
-        "user",
-        "10.0.0.1",
-        100,
-        "/var/log/auth.log",
-    );
+    let args =
+        super::connect_helpers::build_log_tail_args("user", "10.0.0.1", 100, "/var/log/auth.log");
     assert!(args.iter().any(|a| a.contains("tail -n 100")));
 }
 
@@ -10629,7 +10567,6 @@ fn test_parse_disk_stdout_integer() {
     );
 }
 
-
 #[test]
 fn test_default_metrics_values() {
     let m = super::health_parse_helpers::default_metrics("vm1", "stopped");
@@ -10638,7 +10575,6 @@ fn test_default_metrics_values() {
     assert_eq!(m.cpu_percent, 0.0);
     assert_eq!(m.mem_percent, 0.0);
     assert_eq!(m.disk_percent, 0.0);
-
 }
 
 // ── tag_helpers edge cases ──────────────────────────────────────
@@ -11120,8 +11056,7 @@ fn test_snapshot_row_empty_json_defaults() {
 
 #[test]
 fn test_build_clone_cmd_format() {
-    let cmd =
-        super::create_helpers::build_clone_cmd("https://github.com/user/repo.git").unwrap();
+    let cmd = super::create_helpers::build_clone_cmd("https://github.com/user/repo.git").unwrap();
     assert!(cmd.contains("git clone"));
     assert!(cmd.contains("https://github.com/user/repo.git"));
     assert!(cmd.contains("~/src/$(basename"));
@@ -11162,17 +11097,15 @@ fn test_build_ssh_connect_args_format() {
 
 #[test]
 fn test_validate_repo_url_rejects_semicolon() {
-    assert!(
-        super::repo_helpers::validate_repo_url("https://evil.com/repo.git; rm -rf /").is_err()
-    );
+    assert!(super::repo_helpers::validate_repo_url("https://evil.com/repo.git; rm -rf /").is_err());
 }
 
 #[test]
 fn test_validate_repo_url_rejects_pipe() {
-    assert!(super::repo_helpers::validate_repo_url(
-        "https://evil.com/repo.git|cat /etc/passwd"
-    )
-    .is_err());
+    assert!(
+        super::repo_helpers::validate_repo_url("https://evil.com/repo.git|cat /etc/passwd")
+            .is_err()
+    );
 }
 
 #[test]
@@ -11194,9 +11127,7 @@ fn test_validate_repo_url_rejects_ampersand() {
 
 #[test]
 fn test_validate_repo_url_rejects_newline() {
-    assert!(
-        super::repo_helpers::validate_repo_url("https://evil.com/repo.git\nrm -rf /").is_err()
-    );
+    assert!(super::repo_helpers::validate_repo_url("https://evil.com/repo.git\nrm -rf /").is_err());
 }
 
 #[test]
@@ -11226,16 +11157,12 @@ fn test_validate_repo_url_accepts_git_ssh() {
 
 #[test]
 fn test_validate_repo_url_accepts_ssh_scheme() {
-    assert!(
-        super::repo_helpers::validate_repo_url("ssh://git@github.com/user/repo.git").is_ok()
-    );
+    assert!(super::repo_helpers::validate_repo_url("ssh://git@github.com/user/repo.git").is_ok());
 }
 
 #[test]
 fn test_build_clone_cmd_rejects_injection() {
-    assert!(
-        super::create_helpers::build_clone_cmd("https://evil.com/repo.git; rm -rf /").is_err()
-    );
+    assert!(super::create_helpers::build_clone_cmd("https://evil.com/repo.git; rm -rf /").is_err());
 }
 
 // ── validate_name (path traversal) ─────────────────────────────
@@ -11347,7 +11274,6 @@ fn test_build_vm_list_query_rejects_injection_in_tag_key() {
 
 // ── OnceLock bastion pool flag ─────────────────────────────────
 
-
 // ── format_os_display tests ─────────────────────────────────────
 
 #[test]
@@ -11451,10 +11377,8 @@ fn test_format_os_display_debian() {
 
 #[test]
 fn test_format_os_display_rhel() {
-    let result = super::display_helpers::format_os_display(
-        Some("RHEL"),
-        &azlin_core::models::OsType::Linux,
-    );
+    let result =
+        super::display_helpers::format_os_display(Some("RHEL"), &azlin_core::models::OsType::Linux);
     assert_eq!(result, "RHEL");
 }
 
@@ -11514,19 +11438,15 @@ fn test_format_os_display_unknown_offer_passthrough() {
 
 #[test]
 fn test_format_os_display_none_linux() {
-    let result = super::display_helpers::format_os_display(
-        None,
-        &azlin_core::models::OsType::Linux,
-    );
+    let result =
+        super::display_helpers::format_os_display(None, &azlin_core::models::OsType::Linux);
     assert_eq!(result, "Linux");
 }
 
 #[test]
 fn test_format_os_display_none_windows() {
-    let result = super::display_helpers::format_os_display(
-        None,
-        &azlin_core::models::OsType::Windows,
-    );
+    let result =
+        super::display_helpers::format_os_display(None, &azlin_core::models::OsType::Windows);
     assert_eq!(result, "Windows");
 }
 
@@ -11653,7 +11573,10 @@ fn test_build_ssh_target_public_ip_no_bastion() {
     let target = super::build_ssh_target(&vm, "sub-123", &bastion_map, &None);
     assert_eq!(target.ip, "52.1.2.3");
     assert_eq!(target.user, "testuser");
-    assert!(target.bastion.is_none(), "Public IP VMs should not route through bastion");
+    assert!(
+        target.bastion.is_none(),
+        "Public IP VMs should not route through bastion"
+    );
 }
 
 #[test]
@@ -11677,7 +11600,10 @@ fn test_build_ssh_target_private_ip_with_bastion() {
     bastion_map.insert("eastus".to_string(), "my-bastion".to_string());
     let target = super::build_ssh_target(&vm, "sub-123", &bastion_map, &None);
     assert_eq!(target.ip, "10.0.0.4");
-    assert!(target.bastion.is_some(), "Private-IP-only VM should route through bastion");
+    assert!(
+        target.bastion.is_some(),
+        "Private-IP-only VM should route through bastion"
+    );
     let b = target.bastion.unwrap();
     assert_eq!(b.bastion_name, "my-bastion");
     assert_eq!(b.resource_group, "rg");
@@ -11705,8 +11631,14 @@ fn test_build_ssh_target_private_ip_no_bastion_available() {
     let bastion_map = std::collections::HashMap::new();
     let target = super::build_ssh_target(&vm, "sub-123", &bastion_map, &None);
     assert_eq!(target.ip, "10.0.0.4");
-    assert_eq!(target.user, "azureuser", "Should fall back to DEFAULT_ADMIN_USERNAME");
-    assert!(target.bastion.is_none(), "No bastion in map, so should be None");
+    assert_eq!(
+        target.user, "azureuser",
+        "Should fall back to DEFAULT_ADMIN_USERNAME"
+    );
+    assert!(
+        target.bastion.is_none(),
+        "No bastion in map, so should be None"
+    );
 }
 
 #[test]
@@ -11729,7 +11661,10 @@ fn test_build_ssh_target_bastion_wrong_location() {
     let mut bastion_map = std::collections::HashMap::new();
     bastion_map.insert("eastus".to_string(), "east-bastion".to_string());
     let target = super::build_ssh_target(&vm, "sub-456", &bastion_map, &None);
-    assert!(target.bastion.is_none(), "Bastion in different location should not match");
+    assert!(
+        target.bastion.is_none(),
+        "Bastion in different location should not match"
+    );
 }
 
 #[test]
@@ -11798,7 +11733,10 @@ fn test_context_glob_empty_pattern() {
 
 // ── apply_filters combined tests ────────────────────────────────
 
-fn make_vm_for_filter(name: &str, state: azlin_core::models::PowerState) -> azlin_core::models::VmInfo {
+fn make_vm_for_filter(
+    name: &str,
+    state: azlin_core::models::PowerState,
+) -> azlin_core::models::VmInfo {
     azlin_core::models::VmInfo {
         name: name.to_string(),
         resource_group: "rg".to_string(),

@@ -10,8 +10,7 @@ pub fn build_session_toml(name: &str, resource_group: &str, vms: &[String]) -> t
         "resource_group".to_string(),
         toml::Value::String(resource_group.to_string()),
     );
-    let vm_array: Vec<toml::Value> =
-        vms.iter().map(|v| toml::Value::String(v.clone())).collect();
+    let vm_array: Vec<toml::Value> = vms.iter().map(|v| toml::Value::String(v.clone())).collect();
     session.insert("vms".to_string(), toml::Value::Array(vm_array));
     session.insert(
         "created".to_string(),
@@ -21,9 +20,7 @@ pub fn build_session_toml(name: &str, resource_group: &str, vms: &[String]) -> t
 }
 
 /// Parse a session TOML and return (resource_group, vms, created).
-pub fn parse_session_toml(
-    content: &str,
-) -> Result<(String, Vec<String>, String), anyhow::Error> {
+pub fn parse_session_toml(content: &str) -> Result<(String, Vec<String>, String), anyhow::Error> {
     let session: toml::Value = content.parse()?;
     let default_tbl = toml::map::Map::new();
     let tbl = session.as_table().unwrap_or(&default_tbl);

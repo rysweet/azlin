@@ -31,11 +31,7 @@ pub fn build_template_toml(
 }
 
 /// Save a template TOML value to the given directory.
-pub fn save_template(
-    dir: &Path,
-    name: &str,
-    tpl: &toml::Value,
-) -> Result<PathBuf, anyhow::Error> {
+pub fn save_template(dir: &Path, name: &str, tpl: &toml::Value) -> Result<PathBuf, anyhow::Error> {
     super::name_validation::validate_name(name)
         .map_err(|e| anyhow::anyhow!("Invalid template name: {}", e))?;
     std::fs::create_dir_all(dir)?;

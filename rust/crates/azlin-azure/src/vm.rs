@@ -196,10 +196,7 @@ impl VmManager {
     /// Fetch all VMs from az CLI across the subscription (no cache logic).
     fn fetch_all_vms(&self) -> Result<Vec<VmInfo>> {
         debug!("Listing all VMs in subscription via az CLI");
-        let json = az_cli_with_timeout(
-            &["vm", "list", "--show-details"],
-            self.az_cli_timeout,
-        )?;
+        let json = az_cli_with_timeout(&["vm", "list", "--show-details"], self.az_cli_timeout)?;
 
         let vms: Vec<serde_json::Value> =
             serde_json::from_str(&json).context("Failed to parse az vm list JSON")?;
@@ -251,7 +248,14 @@ impl VmManager {
     pub fn start_vm(&self, resource_group: &str, name: &str) -> Result<()> {
         debug!(resource_group, name, "Starting VM");
         az_cli_with_timeout(
-            &["vm", "start", "--resource-group", resource_group, "--name", name],
+            &[
+                "vm",
+                "start",
+                "--resource-group",
+                resource_group,
+                "--name",
+                name,
+            ],
             self.az_cli_timeout,
         )?;
         debug!(name, "VM started");
@@ -264,12 +268,26 @@ impl VmManager {
         debug!(resource_group, name, deallocate, "Stopping VM");
         if deallocate {
             az_cli_with_timeout(
-                &["vm", "deallocate", "--resource-group", resource_group, "--name", name],
+                &[
+                    "vm",
+                    "deallocate",
+                    "--resource-group",
+                    resource_group,
+                    "--name",
+                    name,
+                ],
                 self.az_cli_timeout,
             )?;
         } else {
             az_cli_with_timeout(
-                &["vm", "stop", "--resource-group", resource_group, "--name", name],
+                &[
+                    "vm",
+                    "stop",
+                    "--resource-group",
+                    resource_group,
+                    "--name",
+                    name,
+                ],
                 self.az_cli_timeout,
             )?;
         }
@@ -282,9 +300,12 @@ impl VmManager {
         debug!(resource_group, name, "Deleting VM");
         az_cli_with_timeout(
             &[
-                "vm", "delete",
-                "--resource-group", resource_group,
-                "--name", name,
+                "vm",
+                "delete",
+                "--resource-group",
+                resource_group,
+                "--name",
+                name,
                 "--yes",
             ],
             self.az_cli_timeout,
@@ -296,21 +317,19 @@ impl VmManager {
     // ── Tag operations ─────────────────────────────────────────────────
 
     /// Add a tag to a VM, preserving existing tags.
-    pub fn add_tag(
-        &self,
-        resource_group: &str,
-        name: &str,
-        key: &str,
-        value: &str,
-    ) -> Result<()> {
+    pub fn add_tag(&self, resource_group: &str, name: &str, key: &str, value: &str) -> Result<()> {
         debug!(resource_group, name, key, value, "Adding tag to VM");
         let tag_arg = format!("tags.{}={}", key, value);
         az_cli_with_timeout(
             &[
-                "vm", "update",
-                "--resource-group", resource_group,
-                "--name", name,
-                "--set", &tag_arg,
+                "vm",
+                "update",
+                "--resource-group",
+                resource_group,
+                "--name",
+                name,
+                "--set",
+                &tag_arg,
             ],
             self.az_cli_timeout,
         )?;
@@ -324,10 +343,14 @@ impl VmManager {
         let tag_arg = format!("tags.{}", key);
         az_cli_with_timeout(
             &[
-                "vm", "update",
-                "--resource-group", resource_group,
-                "--name", name,
-                "--remove", &tag_arg,
+                "vm",
+                "update",
+                "--resource-group",
+                resource_group,
+                "--name",
+                name,
+                "--remove",
+                &tag_arg,
             ],
             self.az_cli_timeout,
         )?;
@@ -336,11 +359,7 @@ impl VmManager {
     }
 
     /// List tags on a VM.
-    pub fn list_tags(
-        &self,
-        resource_group: &str,
-        name: &str,
-    ) -> Result<HashMap<String, String>> {
+    pub fn list_tags(&self, resource_group: &str, name: &str) -> Result<HashMap<String, String>> {
         debug!(resource_group, name, "Listing tags on VM");
         let vm = self.get_vm(resource_group, name)?;
         Ok(vm.tags)
@@ -374,76 +393,128 @@ impl VmManager {
         // 2. Create NSG with SSH + HTTPS rules
         debug!(nsg_name = %names.nsg, "Creating NSG");
         az(&[
-            "network", "nsg", "create",
-            "--resource-group", rg,
-            "--name", &names.nsg,
-            "--location", location,
+            "network",
+            "nsg",
+            "create",
+            "--resource-group",
+            rg,
+            "--name",
+            &names.nsg,
+            "--location",
+            location,
         ])
         .context(format!("Failed to create NSG '{}'", names.nsg))?;
 
         az(&[
-            "network", "nsg", "rule", "create",
-            "--resource-group", rg,
-            "--nsg-name", &names.nsg,
-            "--name", "AllowSSH",
-            "--priority", "1000",
-            "--protocol", "Tcp",
-            "--destination-port-ranges", "22",
-            "--access", "Allow",
-            "--direction", "Inbound",
+            "network",
+            "nsg",
+            "rule",
+            "create",
+            "--resource-group",
+            rg,
+            "--nsg-name",
+            &names.nsg,
+            "--name",
+            "AllowSSH",
+            "--priority",
+            "1000",
+            "--protocol",
+            "Tcp",
+            "--destination-port-ranges",
+            "22",
+            "--access",
+            "Allow",
+            "--direction",
+            "Inbound",
         ])
         .context("Failed to create SSH NSG rule")?;
 
         az(&[
-            "network", "nsg", "rule", "create",
-            "--resource-group", rg,
-            "--nsg-name", &names.nsg,
-            "--name", "AllowHTTPS",
-            "--priority", "1001",
-            "--protocol", "Tcp",
-            "--destination-port-ranges", "443",
-            "--access", "Allow",
-            "--direction", "Inbound",
+            "network",
+            "nsg",
+            "rule",
+            "create",
+            "--resource-group",
+            rg,
+            "--nsg-name",
+            &names.nsg,
+            "--name",
+            "AllowHTTPS",
+            "--priority",
+            "1001",
+            "--protocol",
+            "Tcp",
+            "--destination-port-ranges",
+            "443",
+            "--access",
+            "Allow",
+            "--direction",
+            "Inbound",
         ])
         .context("Failed to create HTTPS NSG rule")?;
 
         // 3. Create VNet + subnet
         debug!(vnet_name = %names.vnet, subnet_name = %names.subnet, "Creating VNet and subnet");
         az(&[
-            "network", "vnet", "create",
-            "--resource-group", rg,
-            "--name", &names.vnet,
-            "--address-prefix", "10.0.0.0/16",
-            "--subnet-name", &names.subnet,
-            "--subnet-prefix", "10.0.0.0/24",
-            "--location", location,
-            "--network-security-group", &names.nsg,
+            "network",
+            "vnet",
+            "create",
+            "--resource-group",
+            rg,
+            "--name",
+            &names.vnet,
+            "--address-prefix",
+            "10.0.0.0/16",
+            "--subnet-name",
+            &names.subnet,
+            "--subnet-prefix",
+            "10.0.0.0/24",
+            "--location",
+            location,
+            "--network-security-group",
+            &names.nsg,
         ])
         .context(format!("Failed to create VNet '{}'", names.vnet))?;
 
         // 4. Create public IP
         debug!(pip_name = %names.pip, "Creating public IP");
         az(&[
-            "network", "public-ip", "create",
-            "--resource-group", rg,
-            "--name", &names.pip,
-            "--sku", "Standard",
-            "--allocation-method", "Static",
-            "--location", location,
+            "network",
+            "public-ip",
+            "create",
+            "--resource-group",
+            rg,
+            "--name",
+            &names.pip,
+            "--sku",
+            "Standard",
+            "--allocation-method",
+            "Static",
+            "--location",
+            location,
         ])
         .context(format!("Failed to create public IP '{}'", names.pip))?;
 
         // 5. Create NIC
         debug!(nic_name = %names.nic, "Creating NIC");
         az(&[
-            "network", "nic", "create",
-            "--resource-group", rg,
-            "--name", &names.nic,
-            "--vnet-name", &names.vnet,
-            "--subnet", &names.subnet,
-            "--public-ip-address", &names.pip,
-            "--network-security-group", &names.nsg,
-            "--location", location,
+            "network",
+            "nic",
+            "create",
+            "--resource-group",
+            rg,
+            "--name",
+            &names.nic,
+            "--vnet-name",
+            &names.vnet,
+            "--subnet",
+            &names.subnet,
+            "--public-ip-address",
+            &names.pip,
+            "--network-security-group",
+            &names.nsg,
+            "--location",
+            location,
         ])
         .context(format!("Failed to create NIC '{}'", names.nic))?;
 
@@ -454,16 +525,26 @@ impl VmManager {
         let cloud_init_file = create_cloud_init_file(&params.admin_username)?;
         let cloud_init_path = cloud_init_file.path().to_string_lossy().to_string();
         let mut az_args = vec![
-            "vm", "create",
-            "--resource-group", rg,
-            "--name", vm_name,
-            "--nics", &names.nic,
-            "--image", &image_urn,
-            "--size", &params.vm_size,
-            "--admin-username", &params.admin_username,
-            "--ssh-key-value", ssh_pub_key.trim(),
-            "--authentication-type", "ssh",
-            "--custom-data", &cloud_init_path,
+            "vm",
+            "create",
+            "--resource-group",
+            rg,
+            "--name",
+            vm_name,
+            "--nics",
+            &names.nic,
+            "--image",
+            &image_urn,
+            "--size",
+            &params.vm_size,
+            "--admin-username",
+            &params.admin_username,
+            "--ssh-key-value",
+            ssh_pub_key.trim(),
+            "--authentication-type",
+            "ssh",
+            "--custom-data",
+            &cloud_init_path,
         ];
 
         let tag_strs = format_tag_cli_args(&params.tags);
@@ -538,9 +619,7 @@ fn parse_vm_from_az_json(vm: &serde_json::Value, fallback_rg: Option<&str>) -> V
         })
         .unwrap_or_default();
 
-    let created_time = parse_created_time(
-        vm["timeCreated"].as_str()
-    );
+    let created_time = parse_created_time(vm["timeCreated"].as_str());
 
     VmInfo {
         name,
@@ -768,44 +847,71 @@ mod tests {
 
     #[test]
     fn test_parse_az_power_state_running() {
-        assert_eq!(parse_az_power_state(Some("VM running")), PowerState::Running);
+        assert_eq!(
+            parse_az_power_state(Some("VM running")),
+            PowerState::Running
+        );
     }
 
     #[test]
     fn test_parse_az_power_state_deallocated() {
-        assert_eq!(parse_az_power_state(Some("VM deallocated")), PowerState::Deallocated);
+        assert_eq!(
+            parse_az_power_state(Some("VM deallocated")),
+            PowerState::Deallocated
+        );
     }
 
     #[test]
     fn test_parse_az_power_state_stopped() {
-        assert_eq!(parse_az_power_state(Some("VM stopped")), PowerState::Stopped);
+        assert_eq!(
+            parse_az_power_state(Some("VM stopped")),
+            PowerState::Stopped
+        );
     }
 
     #[test]
     fn test_parse_az_power_state_starting() {
-        assert_eq!(parse_az_power_state(Some("VM starting")), PowerState::Starting);
+        assert_eq!(
+            parse_az_power_state(Some("VM starting")),
+            PowerState::Starting
+        );
     }
 
     #[test]
     fn test_parse_az_power_state_stopping() {
-        assert_eq!(parse_az_power_state(Some("VM stopping")), PowerState::Stopping);
+        assert_eq!(
+            parse_az_power_state(Some("VM stopping")),
+            PowerState::Stopping
+        );
     }
 
     #[test]
     fn test_parse_az_power_state_deallocating() {
-        assert_eq!(parse_az_power_state(Some("VM deallocating")), PowerState::Stopping);
+        assert_eq!(
+            parse_az_power_state(Some("VM deallocating")),
+            PowerState::Stopping
+        );
     }
 
     #[test]
     fn test_parse_az_power_state_unknown() {
-        assert_eq!(parse_az_power_state(Some("VM whatever")), PowerState::Unknown);
+        assert_eq!(
+            parse_az_power_state(Some("VM whatever")),
+            PowerState::Unknown
+        );
         assert_eq!(parse_az_power_state(None), PowerState::Unknown);
     }
 
     #[test]
     fn test_parse_az_power_state_case_insensitive() {
-        assert_eq!(parse_az_power_state(Some("VM Running")), PowerState::Running);
-        assert_eq!(parse_az_power_state(Some("VM STOPPED")), PowerState::Stopped);
+        assert_eq!(
+            parse_az_power_state(Some("VM Running")),
+            PowerState::Running
+        );
+        assert_eq!(
+            parse_az_power_state(Some("VM STOPPED")),
+            PowerState::Stopped
+        );
     }
 
     // ── parse_vm_from_az_json tests ─────────────────────────────────
@@ -925,7 +1031,10 @@ mod tests {
     fn test_extract_resource_group_various_paths() {
         let cases = vec![
             ("/subscriptions/s/resourceGroups/rg1/providers/p", "rg1"),
-            ("/subscriptions/s/resourceGroups/MY-RG/providers/p/type/name", "MY-RG"),
+            (
+                "/subscriptions/s/resourceGroups/MY-RG/providers/p/type/name",
+                "MY-RG",
+            ),
         ];
         for (input, expected) in cases {
             assert_eq!(extract_resource_group(input), expected, "input: {input}");
@@ -1022,7 +1131,11 @@ mod tests {
     fn test_create_cloud_init_file_unique_paths() {
         let f1 = create_cloud_init_file("u").unwrap();
         let f2 = create_cloud_init_file("u").unwrap();
-        assert_ne!(f1.path(), f2.path(), "Each call should create a unique file");
+        assert_ne!(
+            f1.path(),
+            f2.path(),
+            "Each call should create a unique file"
+        );
     }
 
     // ── az_cli tests ────────────────────────────────────────────────
@@ -1062,7 +1175,7 @@ mod tests {
         let result = az_cli(&[]);
         // It may succeed (az with no args shows help) or fail - either is OK
         match result {
-            Ok(_) => {} // az showed help as JSON
+            Ok(_) => {}  // az showed help as JSON
             Err(_) => {} // az failed - also fine
         }
     }
@@ -1185,7 +1298,9 @@ mod tests {
             Err(e) => {
                 let msg = format!("{e}");
                 assert!(
-                    msg.contains("az") || msg.contains("CLI") || msg.contains("not found")
+                    msg.contains("az")
+                        || msg.contains("CLI")
+                        || msg.contains("not found")
                         || msg.contains("could not be found"),
                     "Unexpected error: {msg}"
                 );

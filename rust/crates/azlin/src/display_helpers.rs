@@ -47,10 +47,7 @@ pub fn reconnect_prompt(attempt: u32, max_retries: u32) -> String {
 }
 
 /// Format OS offer string into a human-readable distro name.
-pub fn format_os_display(
-    os_offer: Option<&str>,
-    os_type: &azlin_core::models::OsType,
-) -> String {
+pub fn format_os_display(os_offer: Option<&str>, os_type: &azlin_core::models::OsType) -> String {
     if let Some(offer) = os_offer {
         let lower = offer.to_lowercase();
         if lower.contains("ubuntu") {
@@ -187,9 +184,10 @@ fn estimate_memory_gb(size_part: &str, vcpus: u32) -> u32 {
 }
 
 /// Per-location cache of VM size specs: Vec<(name, cores, mem_mb)>.
-static VM_SIZE_CACHE: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashMap<String, Vec<(String, u32, u32)>>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+type VmSizeEntry = (String, u32, u32);
+type VmSizeCacheMap = std::collections::HashMap<String, Vec<VmSizeEntry>>;
+static VM_SIZE_CACHE: std::sync::LazyLock<std::sync::Mutex<VmSizeCacheMap>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 /// Query exact vCPU and memory specs via `az vm list-sizes`.
 /// Results are cached per location. Falls back to `parse_vm_size_specs`
@@ -212,8 +210,7 @@ pub fn query_vm_size_specs(vm_size: &str, location: &str) -> (String, String) {
             .output()
         {
             if output.status.success() {
-                if let Ok(sizes) =
-                    serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout)
+                if let Ok(sizes) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout)
                 {
                     let entries: Vec<(String, u32, u32)> = sizes
                         .iter()
