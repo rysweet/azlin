@@ -737,6 +737,699 @@ pub fn estimate_orphan_costs(orphan_count: usize, cost_per_ip: f64) -> String {
     )
 }
 
+// ── Health metric classification ─────────────────────────────────────
+
+/// Severity level for metric thresholds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Ok,
+    Warning,
+    Critical,
+}
+
+/// Classify a percentage metric (CPU, memory, disk) by threshold.
+pub fn classify_percent_metric(value: f32, warn: f32, crit: f32) -> Severity {
+    if value > crit {
+        Severity::Critical
+    } else if value > warn {
+        Severity::Warning
+    } else {
+        Severity::Ok
+    }
+}
+
+/// Classify an error count metric.
+pub fn classify_error_count(count: u32) -> Severity {
+    if count > 10 {
+        Severity::Critical
+    } else if count > 0 {
+        Severity::Warning
+    } else {
+        Severity::Ok
+    }
+}
+
+/// Classify a power state string.
+pub fn classify_power_state(state: &str) -> Severity {
+    let lower = state.to_lowercase();
+    match lower.as_str() {
+        "running" => Severity::Ok,
+        "stopped" | "deallocated" => Severity::Critical,
+        _ => Severity::Warning,
+    }
+}
+
+/// Classify agent status.
+pub fn classify_agent_status(status: &str) -> Severity {
+    match status {
+        "OK" => Severity::Ok,
+        "Down" => Severity::Critical,
+        _ => Severity::Warning,
+    }
+}
+
+// ── Snapshot schedule formatting ────────────────────────────────────
+
+/// Snapshot schedule info for display.
+pub struct SnapshotScheduleInfo {
+    pub vm_name: String,
+    pub resource_group: String,
+    pub every_hours: u32,
+    pub keep_count: u32,
+    pub enabled: bool,
+    pub created: String,
+}
+
+/// Format snapshot schedule status as a string.
+pub fn format_snapshot_status(info: &SnapshotScheduleInfo) -> String {
+    let mut out = format!("Snapshot schedule for VM '{}':\n", info.vm_name);
+    out.push_str(&format!("  Resource group: {}\n", info.resource_group));
+    out.push_str(&format!(
+        "  Interval:       every {} hours\n",
+        info.every_hours
+    ));
+    out.push_str(&format!("  Keep count:     {}\n", info.keep_count));
+    out.push_str(&format!("  Enabled:        {}\n", info.enabled));
+    out.push_str(&format!("  Created:        {}", info.created));
+    out
+}
+
+/// Format a "no schedule" status message.
+pub fn format_snapshot_no_schedule(vm_name: &str) -> String {
+    format!(
+        "Snapshot schedule status for VM '{}': no schedule configured",
+        vm_name
+    )
+}
+
+// ── Cost summary formatting ─────────────────────────────────────────
+
+/// Format a cost summary for display. Supports JSON, CSV, and table output.
+pub fn format_cost_summary(
+    summary: &azlin_core::models::CostSummary,
+    output_format: &str,
+    from: &Option<String>,
+    to: &Option<String>,
+    estimate: bool,
+    by_vm: bool,
+) -> String {
+    let mut out = String::new();
+    if output_format == "json" {
+        match serde_json::to_string_pretty(summary) {
+            Ok(json) => out.push_str(&json),
+            Err(e) => out.push_str(&format!("Failed to serialize cost data: {e}")),
+        }
+        return out;
+    }
+
+    let is_csv = output_format == "csv";
+
+    if is_csv {
+        out.push_str("Total Cost,Currency,Period Start,Period End\n");
+        out.push_str(&format!(
+            "{:.2},{},{},{}",
+            summary.total_cost,
+            summary.currency,
+            summary.period_start.format("%Y-%m-%d"),
+            summary.period_end.format("%Y-%m-%d")
+        ));
+    } else {
+        out.push_str(&format!(
+            "Total Cost: ${:.2} {}",
+            summary.total_cost, summary.currency
+        ));
+        out.push_str(&format!(
+            "\nPeriod: {} to {}",
+            summary.period_start.format("%Y-%m-%d"),
+            summary.period_end.format("%Y-%m-%d")
+        ));
+
+        if let Some(ref f) = from {
+            out.push_str(&format!("\nFrom filter: {}", f));
+        }
+        if let Some(ref t) = to {
+            out.push_str(&format!("\nTo filter: {}", t));
+        }
+        if estimate {
+            out.push_str(&format!(
+                "\nEstimate: ${:.2}/month (projected)",
+                summary.total_cost
+            ));
+        }
+    }
+
+    if by_vm && !summary.by_vm.is_empty() {
+        if is_csv {
+            out.push_str("\nVM Name,Cost,Currency");
+            for vc in &summary.by_vm {
+                out.push_str(&format!("\n{},{:.2},{}", vc.vm_name, vc.cost, vc.currency));
+            }
+        } else {
+            out.push('\n');
+            for vc in &summary.by_vm {
+                out.push_str(&format!(
+                    "\n{:<20} ${:.2} {}",
+                    vc.vm_name, vc.cost, vc.currency
+                ));
+            }
+        }
+    } else if by_vm {
+        out.push_str("\n\nNo per-VM cost data available.");
+    }
+
+    out
+}
+
+// ── Cost data parsing ───────────────────────────────────────────────
+
+/// Parse cost history rows from JSON data into (date, cost) pairs.
+pub fn parse_cost_history_rows(data: &serde_json::Value) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    if let Some(rows) = data.get("rows").and_then(|r| r.as_array()) {
+        for row in rows {
+            if let Some(arr) = row.as_array() {
+                let cost = arr
+                    .first()
+                    .and_then(|v| v.as_f64())
+                    .map(|v| format!("${:.2}", v))
+                    .unwrap_or_else(|| "-".to_string());
+                let date = arr
+                    .get(1)
+                    .and_then(|v| v.as_str().or_else(|| v.as_i64().map(|_| "")))
+                    .map(|s| s.to_string())
+                    .or_else(|| arr.get(1).and_then(|v| v.as_i64()).map(|v| v.to_string()))
+                    .unwrap_or_else(|| "-".to_string());
+                result.push((date, cost));
+            }
+        }
+    }
+    result
+}
+
+/// Parse recommendation entries from JSON array.
+pub fn parse_recommendation_rows(data: &serde_json::Value) -> Vec<(String, String, String)> {
+    let mut result = Vec::new();
+    if let Some(recs) = data.as_array() {
+        for rec in recs {
+            let category = rec
+                .get("category")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            let impact = rec
+                .get("impact")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            let problem = rec
+                .get("shortDescription")
+                .and_then(|v| v.get("problem"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            result.push((category, impact, problem));
+        }
+    }
+    result
+}
+
+/// Parse cost action entries from JSON array.
+pub fn parse_cost_action_rows(data: &serde_json::Value) -> Vec<(String, String, String)> {
+    let mut result = Vec::new();
+    if let Some(recs) = data.as_array() {
+        for rec in recs {
+            let resource = rec
+                .get("impactedField")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            let impact = rec
+                .get("impact")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            let problem = rec
+                .get("shortDescription")
+                .and_then(|v| v.get("problem"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("-")
+                .to_string();
+            result.push((resource, impact, problem));
+        }
+    }
+    result
+}
+
+// ── Create VM result formatting ─────────────────────────────────────
+
+/// Build property rows for a newly created VM (for table display).
+pub fn build_create_vm_rows(
+    vm: &VmInfo,
+    resource_group: &str,
+    vm_size: &str,
+    region: &str,
+) -> Vec<(String, String)> {
+    let mut rows = vec![
+        ("Name".to_string(), vm.name.clone()),
+        ("Resource Group".to_string(), resource_group.to_string()),
+        ("Size".to_string(), vm_size.to_string()),
+        ("Region".to_string(), region.to_string()),
+        ("State".to_string(), vm.power_state.to_string()),
+    ];
+    if let Some(ref ip) = vm.public_ip {
+        rows.push(("Public IP".to_string(), ip.clone()));
+    }
+    if let Some(ref ip) = vm.private_ip {
+        rows.push(("Private IP".to_string(), ip.clone()));
+    }
+    rows
+}
+
+// ── Doit VM filtering ───────────────────────────────────────────────
+
+/// Filter VMs tagged as doit-created, optionally by username.
+pub fn filter_doit_vms<'a>(vms: &'a [VmInfo], username: Option<&str>) -> Vec<&'a VmInfo> {
+    vms.iter()
+        .filter(|vm| {
+            let has_tag = vm.tags.get("created_by").is_some_and(|v| v == "azlin-doit");
+            let user_match = username.is_none_or(|u| vm.admin_username.as_deref() == Some(u));
+            has_tag && user_match
+        })
+        .collect()
+}
+
+// ── SSH args building ───────────────────────────────────────────────
+
+/// Build SSH connection arguments for connecting to a VM.
+pub fn build_ssh_connect_args(
+    username: &str,
+    ip: &str,
+    key: Option<&str>,
+    tmux_session: Option<&str>,
+    remote_commands: &[String],
+) -> Result<Vec<String>> {
+    let mut args = vec![
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+    ];
+    if let Some(key_path) = key {
+        args.push("-i".to_string());
+        args.push(key_path.to_string());
+    }
+    args.push(format!("{}@{}", username, ip));
+
+    if let Some(sess) = tmux_session {
+        if !sess
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        {
+            anyhow::bail!("Invalid tmux session name: must be alphanumeric, underscore, or hyphen");
+        }
+        if remote_commands.is_empty() {
+            args.push("-t".to_string());
+            args.push(format!("tmux new-session -A -s {}", sess));
+        } else {
+            args.extend(remote_commands.iter().cloned());
+        }
+    } else if !remote_commands.is_empty() {
+        args.extend(remote_commands.iter().cloned());
+    }
+
+    Ok(args)
+}
+
+// ── VM picker formatting ────────────────────────────────────────────
+
+/// Format the VM selection list for interactive connect.
+pub fn format_vm_picker(vms: &[VmInfo]) -> String {
+    let mut out = String::from("Select a VM to connect to:\n");
+    for (i, vm) in vms.iter().enumerate() {
+        let ip = vm
+            .public_ip
+            .as_deref()
+            .or(vm.private_ip.as_deref())
+            .unwrap_or("-");
+        out.push_str(&format!("  [{}] {} ({})\n", i + 1, vm.name, ip));
+    }
+    out
+}
+
+// ── Help handler ──────────────────────────────────────────────────────
+
+/// Build extended help text for a given command (or general help if None).
+pub fn build_extended_help(command_name: Option<&str>) -> String {
+    match command_name {
+        Some(cmd) => {
+            let mut out = format!("azlin {} -- Extended help\n\n", cmd);
+            out.push_str(&format!("Run 'azlin {} --help' for usage details.", cmd));
+            out
+        }
+        None => {
+            let mut out = String::from("azlin -- Azure VM fleet management CLI\n\n");
+            out.push_str("Run 'azlin --help' for a list of commands.\n");
+            out.push_str("Run 'azlin <command> --help' for command-specific help.");
+            out
+        }
+    }
+}
+
+// ── List footer builder ──────────────────────────────────────────────
+
+/// Build the footer text for the list command (total + tmux count).
+pub fn format_list_footer(total: usize, tmux_count: usize) -> String {
+    if tmux_count > 0 {
+        format!("Total: {} VMs | {} tmux sessions", total, tmux_count)
+    } else {
+        format!("Total: {} VMs", total)
+    }
+}
+
+/// Build full JSON output for the list command (alternative to table/CSV).
+pub fn build_list_json(
+    vms: &[VmInfo],
+    tmux_sessions: &HashMap<String, Vec<String>>,
+) -> serde_json::Value {
+    let json_vms: Vec<serde_json::Value> = vms
+        .iter()
+        .map(|vm| {
+            let ip_display = format_ip_display(vm.public_ip.as_deref(), vm.private_ip.as_deref());
+            serde_json::json!({
+                "name": vm.name,
+                "resource_group": vm.resource_group,
+                "power_state": vm.power_state.to_string(),
+                "ip": ip_display,
+                "public_ip": vm.public_ip,
+                "private_ip": vm.private_ip,
+                "location": vm.location,
+                "vm_size": vm.vm_size,
+                "session": vm.tags.get("azlin-session").unwrap_or(&"-".to_string()),
+                "tmux_sessions": tmux_sessions.get(&vm.name).cloned().unwrap_or_default(),
+            })
+        })
+        .collect();
+    serde_json::Value::Array(json_vms)
+}
+
+// ── Snapshot formatting helpers ──────────────────────────────────────
+
+/// Format a list of snapshot JSON values as rows for table display.
+/// Returns Vec of (name, disk_size, time_created, state) tuples.
+pub fn format_snapshot_rows(
+    snapshots: &[serde_json::Value],
+) -> Vec<(String, String, String, String)> {
+    snapshots
+        .iter()
+        .map(|snap| {
+            (
+                snap["name"].as_str().unwrap_or("-").to_string(),
+                snap["diskSizeGb"].to_string(),
+                snap["timeCreated"].as_str().unwrap_or("-").to_string(),
+                snap["provisioningState"]
+                    .as_str()
+                    .unwrap_or("-")
+                    .to_string(),
+            )
+        })
+        .collect()
+}
+
+/// Build the snapshot name from a VM name and timestamp.
+pub fn build_snapshot_name(vm_name: &str, timestamp: &str) -> String {
+    format!("{}_snapshot_{}", vm_name, timestamp)
+}
+
+/// Build a snapshot schedule info struct from parameters.
+pub fn build_snapshot_schedule_info(
+    vm_name: &str,
+    resource_group: &str,
+    every_hours: u32,
+    keep_count: u32,
+    enabled: bool,
+    created: &str,
+) -> SnapshotScheduleInfo {
+    SnapshotScheduleInfo {
+        vm_name: vm_name.to_string(),
+        resource_group: resource_group.to_string(),
+        every_hours,
+        keep_count,
+        enabled,
+        created: created.to_string(),
+    }
+}
+
+// ── Storage formatting helpers ───────────────────────────────────────
+
+/// Format a storage account's key details for display.
+/// Returns a list of (key, value) pairs.
+pub fn format_storage_status(acct: &serde_json::Value) -> Vec<(String, String)> {
+    vec![
+        (
+            "Name".to_string(),
+            acct["name"].as_str().unwrap_or("-").to_string(),
+        ),
+        (
+            "Location".to_string(),
+            acct["location"].as_str().unwrap_or("-").to_string(),
+        ),
+        (
+            "Kind".to_string(),
+            acct["kind"].as_str().unwrap_or("-").to_string(),
+        ),
+        (
+            "SKU".to_string(),
+            acct["sku"]["name"].as_str().unwrap_or("-").to_string(),
+        ),
+        (
+            "State".to_string(),
+            acct["provisioningState"]
+                .as_str()
+                .unwrap_or("-")
+                .to_string(),
+        ),
+        (
+            "Primary Endpoint".to_string(),
+            acct["primaryEndpoints"]["file"]
+                .as_str()
+                .unwrap_or("-")
+                .to_string(),
+        ),
+    ]
+}
+
+/// Build the NFS mount command string for a storage account.
+pub fn build_nfs_mount_command(storage_name: &str, mount_point: &str) -> String {
+    format!(
+        "sudo mkdir -p {mp} && sudo mount -t nfs {name}.file.core.windows.net:/{name}/home {mp} -o vers=3,sec=sys",
+        name = storage_name,
+        mp = mount_point,
+    )
+}
+
+/// Build the CIFS mount options string.
+pub fn build_cifs_mount_options(credentials_path: &str) -> String {
+    format!(
+        "vers=3.0,credentials={},serverino,nosharesock,actimeo=30",
+        credentials_path
+    )
+}
+
+/// Build the UNC path for an Azure Files share.
+pub fn build_azure_files_unc(account: &str, share: &str) -> String {
+    format!("//{}.file.core.windows.net/{}", account, share)
+}
+
+// ── Cost dashboard formatting ────────────────────────────────────────
+
+/// Format the cost dashboard output for a resource group.
+pub fn format_cost_dashboard(
+    resource_group: &str,
+    total_cost: f64,
+    currency: &str,
+    period_start: &str,
+    period_end: &str,
+) -> String {
+    let mut out = format!("Cost Dashboard for '{}':\n", resource_group);
+    out.push_str(&format!("  Total: ${:.2} {}\n", total_cost, currency));
+    out.push_str(&format!("  Period: {} to {}", period_start, period_end));
+    out
+}
+
+/// Build the scope string for Azure Cost Management queries.
+pub fn build_cost_management_scope(subscription_id: &str, resource_group: &str) -> String {
+    format!(
+        "/subscriptions/{}/resourceGroups/{}",
+        subscription_id, resource_group
+    )
+}
+
+/// Build the budget name for a resource group.
+pub fn build_budget_name(resource_group: &str) -> String {
+    format!("azlin-budget-{}", resource_group)
+}
+
+/// Format the budget creation result message.
+pub fn format_budget_created(amount: f64, resource_group: &str, threshold: u32) -> String {
+    format!(
+        "Budget set: ${:.2}/month for '{}' (alert at {}%)",
+        amount, resource_group, threshold
+    )
+}
+
+/// Determine the date range for cost history queries.
+pub fn build_cost_history_dates(days: u32) -> (String, String) {
+    let now = chrono::Utc::now();
+    let start = (now - chrono::Duration::days(days as i64))
+        .format("%Y-%m-%dT00:00:00+00:00")
+        .to_string();
+    let end = now.format("%Y-%m-%dT23:59:59+00:00").to_string();
+    (start, end)
+}
+
+// ── Cleanup / orphan detection helpers ───────────────────────────────
+
+/// Parse NIC JSON array and classify orphaned NICs (no VM attached).
+pub fn classify_orphaned_nics(nics: &[serde_json::Value]) -> Vec<OrphanedResourceInfo> {
+    nics.iter()
+        .filter(|nic| {
+            let attached = nic
+                .get("virtualMachine")
+                .map(|v| !v.is_null())
+                .unwrap_or(false);
+            !attached
+        })
+        .filter_map(|nic| {
+            let name = nic.get("name")?.as_str()?.to_string();
+            let rg = nic
+                .get("resourceGroup")
+                .and_then(|r| r.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            Some(OrphanedResourceInfo {
+                name,
+                resource_type: "NIC".to_string(),
+                resource_group: rg,
+                estimated_monthly_cost: 0.0,
+            })
+        })
+        .collect()
+}
+
+/// Parse public IP JSON array and classify orphaned IPs (no ipConfiguration).
+pub fn classify_orphaned_ips(
+    ips: &[serde_json::Value],
+    cost_per_ip: f64,
+) -> Vec<OrphanedResourceInfo> {
+    ips.iter()
+        .filter(|ip| {
+            let attached = ip
+                .get("ipConfiguration")
+                .map(|v| !v.is_null())
+                .unwrap_or(false);
+            !attached
+        })
+        .filter_map(|ip| {
+            let name = ip.get("name")?.as_str()?.to_string();
+            let rg = ip
+                .get("resourceGroup")
+                .and_then(|r| r.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            Some(OrphanedResourceInfo {
+                name,
+                resource_type: "Public IP".to_string(),
+                resource_group: rg,
+                estimated_monthly_cost: cost_per_ip,
+            })
+        })
+        .collect()
+}
+
+/// Parse NSG JSON array and classify orphaned NSGs (no NICs or subnets attached).
+pub fn classify_orphaned_nsgs(nsgs: &[serde_json::Value]) -> Vec<OrphanedResourceInfo> {
+    nsgs.iter()
+        .filter(|nsg| {
+            let has_nics = nsg
+                .get("networkInterfaces")
+                .and_then(|v| v.as_array())
+                .map(|a| !a.is_empty())
+                .unwrap_or(false);
+            let has_subnets = nsg
+                .get("subnets")
+                .and_then(|v| v.as_array())
+                .map(|a| !a.is_empty())
+                .unwrap_or(false);
+            !has_nics && !has_subnets
+        })
+        .filter_map(|nsg| {
+            let name = nsg.get("name")?.as_str()?.to_string();
+            let rg = nsg
+                .get("resourceGroup")
+                .and_then(|r| r.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            Some(OrphanedResourceInfo {
+                name,
+                resource_type: "NSG".to_string(),
+                resource_group: rg,
+                estimated_monthly_cost: 0.0,
+            })
+        })
+        .collect()
+}
+
+/// Lightweight orphaned resource info for handler-level logic.
+/// Uses String resource_type to avoid coupling to azlin_azure types.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrphanedResourceInfo {
+    pub name: String,
+    pub resource_type: String,
+    pub resource_group: String,
+    pub estimated_monthly_cost: f64,
+}
+
+/// Build a cleanup plan: list of resources to delete, with dry_run annotation.
+pub fn build_cleanup_plan(resources: &[OrphanedResourceInfo], dry_run: bool) -> Vec<CleanupAction> {
+    resources
+        .iter()
+        .map(|r| CleanupAction {
+            resource_name: r.name.clone(),
+            resource_type: r.resource_type.clone(),
+            resource_group: r.resource_group.clone(),
+            action: if dry_run {
+                "would delete".to_string()
+            } else {
+                "delete".to_string()
+            },
+        })
+        .collect()
+}
+
+/// A planned cleanup action.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CleanupAction {
+    pub resource_name: String,
+    pub resource_type: String,
+    pub resource_group: String,
+    pub action: String,
+}
+
+/// Format an orphan report from a list of orphaned resources.
+pub fn format_orphan_report(resources: &[OrphanedResourceInfo]) -> String {
+    if resources.is_empty() {
+        return "No orphaned resources found.".to_string();
+    }
+    let mut out = format!("Found {} orphaned resource(s):\n", resources.len());
+    let total_cost: f64 = resources.iter().map(|r| r.estimated_monthly_cost).sum();
+    for r in resources {
+        out.push_str(&format!(
+            "  {} '{}' ({}) - ${:.2}/mo\n",
+            r.resource_type, r.name, r.resource_group, r.estimated_monthly_cost
+        ));
+    }
+    out.push_str(&format!("Estimated savings: ${:.2}/month", total_cost));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1931,5 +2624,601 @@ mod tests {
         let msg = estimate_orphan_costs(5, 3.65);
         assert!(msg.contains("5 orphaned"));
         assert!(msg.contains("$18.25"));
+    }
+
+    // ── Health metric classification tests ──────────────────────────
+
+    #[test]
+    fn test_classify_percent_ok() {
+        assert_eq!(classify_percent_metric(50.0, 70.0, 90.0), Severity::Ok);
+    }
+
+    #[test]
+    fn test_classify_percent_warning() {
+        assert_eq!(classify_percent_metric(75.0, 70.0, 90.0), Severity::Warning);
+    }
+
+    #[test]
+    fn test_classify_percent_critical() {
+        assert_eq!(
+            classify_percent_metric(95.0, 70.0, 90.0),
+            Severity::Critical
+        );
+    }
+
+    #[test]
+    fn test_classify_error_count_levels() {
+        assert_eq!(classify_error_count(0), Severity::Ok);
+        assert_eq!(classify_error_count(5), Severity::Warning);
+        assert_eq!(classify_error_count(15), Severity::Critical);
+    }
+
+    #[test]
+    fn test_classify_power_state_levels() {
+        assert_eq!(classify_power_state("running"), Severity::Ok);
+        assert_eq!(classify_power_state("stopped"), Severity::Critical);
+        assert_eq!(classify_power_state("starting"), Severity::Warning);
+    }
+
+    #[test]
+    fn test_classify_agent_status_levels() {
+        assert_eq!(classify_agent_status("OK"), Severity::Ok);
+        assert_eq!(classify_agent_status("Down"), Severity::Critical);
+        assert_eq!(classify_agent_status("N/A"), Severity::Warning);
+    }
+
+    // ── Snapshot schedule formatting tests ──────────────────────────
+
+    #[test]
+    fn test_format_snapshot_status_output() {
+        let info = SnapshotScheduleInfo {
+            vm_name: "my-vm".to_string(),
+            resource_group: "my-rg".to_string(),
+            every_hours: 6,
+            keep_count: 10,
+            enabled: true,
+            created: "2026-01-01".to_string(),
+        };
+        let out = format_snapshot_status(&info);
+        assert!(out.contains("my-vm"));
+        assert!(out.contains("every 6 hours"));
+    }
+
+    #[test]
+    fn test_format_snapshot_no_schedule_output() {
+        let out = format_snapshot_no_schedule("missing-vm");
+        assert!(out.contains("no schedule configured"));
+    }
+
+    // ── Cost summary formatting tests ───────────────────────────────
+
+    fn make_cost_summary() -> azlin_core::models::CostSummary {
+        azlin_core::models::CostSummary {
+            total_cost: 123.45,
+            currency: "USD".to_string(),
+            period_start: chrono::NaiveDate::from_ymd_opt(2026, 1, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc(),
+            period_end: chrono::NaiveDate::from_ymd_opt(2026, 1, 31)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc(),
+            by_vm: vec![],
+        }
+    }
+
+    #[test]
+    fn test_cost_summary_table() {
+        let s = make_cost_summary();
+        let out = format_cost_summary(&s, "table", &None, &None, false, false);
+        assert!(out.contains("$123.45"));
+        assert!(out.contains("USD"));
+    }
+
+    #[test]
+    fn test_cost_summary_json() {
+        let s = make_cost_summary();
+        let out = format_cost_summary(&s, "json", &None, &None, false, false);
+        let _parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+    }
+
+    #[test]
+    fn test_cost_summary_csv() {
+        let s = make_cost_summary();
+        let out = format_cost_summary(&s, "csv", &None, &None, false, false);
+        assert!(out.starts_with("Total Cost,Currency"));
+    }
+
+    #[test]
+    fn test_cost_summary_with_estimate() {
+        let s = make_cost_summary();
+        let out = format_cost_summary(&s, "table", &None, &None, true, false);
+        assert!(out.contains("Estimate:"));
+    }
+
+    #[test]
+    fn test_cost_summary_with_filters() {
+        let s = make_cost_summary();
+        let out = format_cost_summary(
+            &s,
+            "table",
+            &Some("2026-01-01".to_string()),
+            &Some("2026-01-15".to_string()),
+            false,
+            false,
+        );
+        assert!(out.contains("From filter:"));
+        assert!(out.contains("To filter:"));
+    }
+
+    #[test]
+    fn test_cost_summary_by_vm() {
+        let mut s = make_cost_summary();
+        s.by_vm = vec![azlin_core::models::VmCost {
+            vm_name: "vm-1".to_string(),
+            cost: 50.0,
+            currency: "USD".to_string(),
+        }];
+        let out = format_cost_summary(&s, "table", &None, &None, false, true);
+        assert!(out.contains("vm-1"));
+        assert!(out.contains("$50.00"));
+    }
+
+    #[test]
+    fn test_cost_summary_by_vm_empty() {
+        let s = make_cost_summary();
+        let out = format_cost_summary(&s, "table", &None, &None, false, true);
+        assert!(out.contains("No per-VM cost data"));
+    }
+
+    // ── Cost data parsing tests ─────────────────────────────────────
+
+    #[test]
+    fn test_parse_cost_history_rows_basic() {
+        let data = serde_json::json!({"rows": [[42.5, "2026-01-01"]]});
+        let rows = parse_cost_history_rows(&data);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1, "$42.50");
+    }
+
+    #[test]
+    fn test_parse_cost_history_rows_empty() {
+        let data = serde_json::json!({"rows": []});
+        assert!(parse_cost_history_rows(&data).is_empty());
+    }
+
+    #[test]
+    fn test_parse_recommendation_rows_basic() {
+        let data = serde_json::json!([{
+            "category": "Cost",
+            "impact": "High",
+            "shortDescription": {"problem": "Unused VM"}
+        }]);
+        let rows = parse_recommendation_rows(&data);
+        assert_eq!(rows[0].0, "Cost");
+        assert_eq!(rows[0].2, "Unused VM");
+    }
+
+    #[test]
+    fn test_parse_recommendation_rows_empty() {
+        assert!(parse_recommendation_rows(&serde_json::json!([])).is_empty());
+    }
+
+    #[test]
+    fn test_parse_cost_action_rows_basic() {
+        let data = serde_json::json!([{
+            "impactedField": "VMs",
+            "impact": "Medium",
+            "shortDescription": {"problem": "Resize"}
+        }]);
+        let rows = parse_cost_action_rows(&data);
+        assert_eq!(rows[0].0, "VMs");
+    }
+
+    // ── Create VM result formatting tests ───────────────────────────
+
+    #[test]
+    fn test_build_create_vm_rows_basic() {
+        let vm = make_test_vm("new-vm", PowerState::Running);
+        let rows = build_create_vm_rows(&vm, "rg", "Standard_D4s_v3", "eastus");
+        assert!(rows.iter().any(|(k, v)| k == "Name" && v == "new-vm"));
+        assert!(rows.iter().any(|(k, _)| k == "Public IP"));
+    }
+
+    #[test]
+    fn test_build_create_vm_rows_no_ips() {
+        let mut vm = make_test_vm("bare", PowerState::Running);
+        vm.public_ip = None;
+        vm.private_ip = None;
+        let rows = build_create_vm_rows(&vm, "rg", "D2s", "westus");
+        assert_eq!(rows.len(), 5);
+    }
+
+    // ── Doit VM filter tests ────────────────────────────────────────
+
+    #[test]
+    fn test_filter_doit_vms_with_tag() {
+        let mut vm1 = make_test_vm("doit-vm", PowerState::Running);
+        vm1.tags
+            .insert("created_by".to_string(), "azlin-doit".to_string());
+        let vm2 = make_test_vm("regular-vm", PowerState::Running);
+        let vms = vec![vm1, vm2];
+        let filtered = filter_doit_vms(&vms, None);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "doit-vm");
+    }
+
+    #[test]
+    fn test_filter_doit_vms_by_username() {
+        let mut vm1 = make_test_vm("doit-1", PowerState::Running);
+        vm1.tags
+            .insert("created_by".to_string(), "azlin-doit".to_string());
+        vm1.admin_username = Some("alice".to_string());
+        let mut vm2 = make_test_vm("doit-2", PowerState::Running);
+        vm2.tags
+            .insert("created_by".to_string(), "azlin-doit".to_string());
+        vm2.admin_username = Some("bob".to_string());
+        let vms = vec![vm1, vm2];
+        let filtered = filter_doit_vms(&vms, Some("alice"));
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_doit_vms_none_match() {
+        let vms = vec![make_test_vm("regular-vm", PowerState::Running)];
+        let filtered = filter_doit_vms(&vms, None);
+        assert!(filtered.is_empty());
+    }
+
+    // ── SSH args building tests ─────────────────────────────────────
+
+    #[test]
+    fn test_ssh_connect_args_basic() {
+        let args = build_ssh_connect_args("user", "1.2.3.4", None, None, &[]).unwrap();
+        assert!(args.contains(&"user@1.2.3.4".to_string()));
+    }
+
+    #[test]
+    fn test_ssh_connect_args_with_key() {
+        let args = build_ssh_connect_args("user", "1.2.3.4", Some("/tmp/key"), None, &[]).unwrap();
+        assert!(args.contains(&"-i".to_string()));
+    }
+
+    #[test]
+    fn test_ssh_connect_args_with_tmux() {
+        let args = build_ssh_connect_args("user", "1.2.3.4", None, Some("azlin"), &[]).unwrap();
+        assert!(args.contains(&"-t".to_string()));
+    }
+
+    #[test]
+    fn test_ssh_connect_args_invalid_tmux() {
+        let err =
+            build_ssh_connect_args("user", "1.2.3.4", None, Some("bad;name"), &[]).unwrap_err();
+        assert!(err.to_string().contains("Invalid tmux"));
+    }
+
+    // ── VM picker formatting tests ──────────────────────────────────
+
+    #[test]
+    fn test_format_vm_picker_basic() {
+        let vms = vec![
+            make_test_vm("vm-1", PowerState::Running),
+            make_test_vm("vm-2", PowerState::Running),
+        ];
+        let out = format_vm_picker(&vms);
+        assert!(out.contains("[1] vm-1"));
+        assert!(out.contains("[2] vm-2"));
+    }
+
+    #[test]
+    fn test_format_vm_picker_no_ip() {
+        let mut vm = make_test_vm("no-ip", PowerState::Running);
+        vm.public_ip = None;
+        vm.private_ip = None;
+        let out = format_vm_picker(&[vm]);
+        assert!(out.contains("no-ip (-)"));
+    }
+
+    // ── Help handler tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_build_extended_help_with_command() {
+        let out = build_extended_help(Some("list"));
+        assert!(out.contains("azlin list"));
+        assert!(out.contains("Extended help"));
+        assert!(out.contains("--help"));
+    }
+
+    #[test]
+    fn test_build_extended_help_general() {
+        let out = build_extended_help(None);
+        assert!(out.contains("azlin"));
+        assert!(out.contains("Azure VM fleet management CLI"));
+        assert!(out.contains("<command> --help"));
+    }
+
+    // ── List footer tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_format_list_footer_no_tmux() {
+        let out = format_list_footer(5, 0);
+        assert_eq!(out, "Total: 5 VMs");
+        assert!(!out.contains("tmux"));
+    }
+
+    #[test]
+    fn test_format_list_footer_with_tmux() {
+        let out = format_list_footer(3, 7);
+        assert!(out.contains("3 VMs"));
+        assert!(out.contains("7 tmux sessions"));
+    }
+
+    #[test]
+    fn test_build_list_json_basic() {
+        let vms = vec![make_test_vm("vm-1", PowerState::Running)];
+        let tmux = HashMap::from([("vm-1".to_string(), vec!["main".to_string()])]);
+        let json = build_list_json(&vms, &tmux);
+        let arr = json.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["name"], "vm-1");
+        assert_eq!(arr[0]["tmux_sessions"][0], "main");
+    }
+
+    #[test]
+    fn test_build_list_json_empty() {
+        let json = build_list_json(&[], &HashMap::new());
+        assert!(json.as_array().unwrap().is_empty());
+    }
+
+    // ── Snapshot formatting tests ───────────────────────────────────
+
+    #[test]
+    fn test_format_snapshot_rows_basic() {
+        let snaps = vec![serde_json::json!({
+            "name": "vm1_snapshot_20260301",
+            "diskSizeGb": 128,
+            "timeCreated": "2026-03-01T10:00:00Z",
+            "provisioningState": "Succeeded"
+        })];
+        let rows = format_snapshot_rows(&snaps);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "vm1_snapshot_20260301");
+        assert_eq!(rows[0].1, "128");
+        assert!(rows[0].2.contains("2026-03-01"));
+        assert_eq!(rows[0].3, "Succeeded");
+    }
+
+    #[test]
+    fn test_format_snapshot_rows_empty() {
+        assert!(format_snapshot_rows(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_build_snapshot_name() {
+        let name = build_snapshot_name("my-vm", "20260301_120000");
+        assert_eq!(name, "my-vm_snapshot_20260301_120000");
+    }
+
+    #[test]
+    fn test_build_snapshot_schedule_info() {
+        let info = build_snapshot_schedule_info("vm-1", "rg-1", 6, 10, true, "2026-03-01");
+        assert_eq!(info.vm_name, "vm-1");
+        assert_eq!(info.every_hours, 6);
+        assert_eq!(info.keep_count, 10);
+        assert!(info.enabled);
+    }
+
+    // ── Storage formatting tests ────────────────────────────────────
+
+    #[test]
+    fn test_format_storage_status_basic() {
+        let acct = serde_json::json!({
+            "name": "mystorage",
+            "location": "westus2",
+            "kind": "FileStorage",
+            "sku": {"name": "Premium_LRS"},
+            "provisioningState": "Succeeded",
+            "primaryEndpoints": {"file": "https://mystorage.file.core.windows.net/"}
+        });
+        let rows = format_storage_status(&acct);
+        assert_eq!(rows.len(), 6);
+        assert_eq!(rows[0], ("Name".to_string(), "mystorage".to_string()));
+        assert_eq!(rows[1], ("Location".to_string(), "westus2".to_string()));
+        assert!(rows[5].1.contains("mystorage.file.core.windows.net"));
+    }
+
+    #[test]
+    fn test_format_storage_status_missing_fields() {
+        let acct = serde_json::json!({});
+        let rows = format_storage_status(&acct);
+        assert_eq!(rows.len(), 6);
+        // All values should be "-"
+        for (_, v) in &rows {
+            assert_eq!(v, "-");
+        }
+    }
+
+    #[test]
+    fn test_build_nfs_mount_command() {
+        let cmd = build_nfs_mount_command("mystorage", "/mnt/data");
+        assert!(cmd.contains("sudo mkdir -p /mnt/data"));
+        assert!(cmd.contains("mystorage.file.core.windows.net"));
+        assert!(cmd.contains("mount -t nfs"));
+    }
+
+    #[test]
+    fn test_build_cifs_mount_options() {
+        let opts = build_cifs_mount_options("/home/user/.azlin/.mount_creds_acct");
+        assert!(opts.contains("vers=3.0"));
+        assert!(opts.contains("credentials=/home/user/.azlin/.mount_creds_acct"));
+    }
+
+    #[test]
+    fn test_build_azure_files_unc() {
+        let unc = build_azure_files_unc("mystorage", "myshare");
+        assert_eq!(unc, "//mystorage.file.core.windows.net/myshare");
+    }
+
+    // ── Cost dashboard tests ────────────────────────────────────────
+
+    #[test]
+    fn test_format_cost_dashboard() {
+        let out = format_cost_dashboard("my-rg", 123.45, "USD", "2026-03-01", "2026-03-07");
+        assert!(out.contains("Cost Dashboard for 'my-rg':"));
+        assert!(out.contains("$123.45 USD"));
+        assert!(out.contains("2026-03-01 to 2026-03-07"));
+    }
+
+    #[test]
+    fn test_build_cost_management_scope() {
+        let scope = build_cost_management_scope("sub-123", "my-rg");
+        assert_eq!(scope, "/subscriptions/sub-123/resourceGroups/my-rg");
+    }
+
+    #[test]
+    fn test_build_budget_name() {
+        assert_eq!(build_budget_name("my-rg"), "azlin-budget-my-rg");
+    }
+
+    #[test]
+    fn test_format_budget_created() {
+        let msg = format_budget_created(100.0, "my-rg", 80);
+        assert!(msg.contains("$100.00/month"));
+        assert!(msg.contains("my-rg"));
+        assert!(msg.contains("80%"));
+    }
+
+    #[test]
+    fn test_build_cost_history_dates() {
+        let (start, end) = build_cost_history_dates(7);
+        // Both should be valid date strings with T separator
+        assert!(start.contains("T00:00:00"));
+        assert!(end.contains("T23:59:59"));
+    }
+
+    // ── Cleanup / orphan classification tests ───────────────────────
+
+    #[test]
+    fn test_classify_orphaned_nics_finds_unattached() {
+        let nics = vec![
+            serde_json::json!({"name": "nic-orphan", "resourceGroup": "rg1", "virtualMachine": null}),
+            serde_json::json!({"name": "nic-attached", "resourceGroup": "rg1", "virtualMachine": {"id": "/sub/vm"}}),
+        ];
+        let orphans = classify_orphaned_nics(&nics);
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].name, "nic-orphan");
+        assert_eq!(orphans[0].resource_type, "NIC");
+    }
+
+    #[test]
+    fn test_classify_orphaned_nics_empty() {
+        assert!(classify_orphaned_nics(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_classify_orphaned_ips_finds_unattached() {
+        let ips = vec![
+            serde_json::json!({"name": "ip-orphan", "resourceGroup": "rg1", "ipConfiguration": null}),
+            serde_json::json!({"name": "ip-attached", "resourceGroup": "rg1", "ipConfiguration": {"id": "/sub/nic"}}),
+        ];
+        let orphans = classify_orphaned_ips(&ips, 3.65);
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].name, "ip-orphan");
+        assert_eq!(orphans[0].resource_type, "Public IP");
+        assert!((orphans[0].estimated_monthly_cost - 3.65).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_classify_orphaned_ips_empty() {
+        assert!(classify_orphaned_ips(&[], 3.65).is_empty());
+    }
+
+    #[test]
+    fn test_classify_orphaned_nsgs_finds_unattached() {
+        let nsgs = vec![
+            serde_json::json!({"name": "nsg-orphan", "resourceGroup": "rg1", "networkInterfaces": [], "subnets": []}),
+            serde_json::json!({"name": "nsg-used", "resourceGroup": "rg1", "networkInterfaces": [{"id": "/sub/nic"}], "subnets": []}),
+        ];
+        let orphans = classify_orphaned_nsgs(&nsgs);
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].name, "nsg-orphan");
+        assert_eq!(orphans[0].resource_type, "NSG");
+    }
+
+    #[test]
+    fn test_classify_orphaned_nsgs_with_subnets() {
+        let nsgs = vec![
+            serde_json::json!({"name": "nsg-subnet", "resourceGroup": "rg1", "networkInterfaces": [], "subnets": [{"id": "/sub/subnet"}]}),
+        ];
+        let orphans = classify_orphaned_nsgs(&nsgs);
+        assert!(orphans.is_empty());
+    }
+
+    #[test]
+    fn test_build_cleanup_plan_dry_run() {
+        let resources = vec![OrphanedResourceInfo {
+            name: "nic-1".to_string(),
+            resource_type: "NIC".to_string(),
+            resource_group: "rg1".to_string(),
+            estimated_monthly_cost: 0.0,
+        }];
+        let plan = build_cleanup_plan(&resources, true);
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].action, "would delete");
+        assert_eq!(plan[0].resource_name, "nic-1");
+    }
+
+    #[test]
+    fn test_build_cleanup_plan_real() {
+        let resources = vec![
+            OrphanedResourceInfo {
+                name: "disk-1".to_string(),
+                resource_type: "Disk".to_string(),
+                resource_group: "rg1".to_string(),
+                estimated_monthly_cost: 5.12,
+            },
+            OrphanedResourceInfo {
+                name: "ip-1".to_string(),
+                resource_type: "Public IP".to_string(),
+                resource_group: "rg1".to_string(),
+                estimated_monthly_cost: 3.65,
+            },
+        ];
+        let plan = build_cleanup_plan(&resources, false);
+        assert_eq!(plan.len(), 2);
+        assert_eq!(plan[0].action, "delete");
+        assert_eq!(plan[1].action, "delete");
+    }
+
+    #[test]
+    fn test_format_orphan_report_empty() {
+        let out = format_orphan_report(&[]);
+        assert!(out.contains("No orphaned resources found"));
+    }
+
+    #[test]
+    fn test_format_orphan_report_with_resources() {
+        let resources = vec![
+            OrphanedResourceInfo {
+                name: "disk-old".to_string(),
+                resource_type: "Disk".to_string(),
+                resource_group: "rg1".to_string(),
+                estimated_monthly_cost: 5.12,
+            },
+            OrphanedResourceInfo {
+                name: "ip-old".to_string(),
+                resource_type: "Public IP".to_string(),
+                resource_group: "rg1".to_string(),
+                estimated_monthly_cost: 3.65,
+            },
+        ];
+        let out = format_orphan_report(&resources);
+        assert!(out.contains("2 orphaned resource(s)"));
+        assert!(out.contains("disk-old"));
+        assert!(out.contains("ip-old"));
+        assert!(out.contains("$8.77/month"));
     }
 }

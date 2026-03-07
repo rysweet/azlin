@@ -2090,9 +2090,16 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             match azlin_azure::get_cost_summary(&auth, &rg, cost_timeout) {
                 Ok(summary) => {
                     pb.finish_and_clear();
+                    let fmt_str = match &cli.output {
+                        azlin_cli::OutputFormat::Json => "json",
+                        azlin_cli::OutputFormat::Csv => "csv",
+                        azlin_cli::OutputFormat::Table => "table",
+                    };
                     println!(
                         "{}",
-                        format_cost_summary(&summary, &cli.output, &from, &to, estimate, by_vm)
+                        handlers::format_cost_summary(
+                            &summary, fmt_str, &from, &to, estimate, by_vm
+                        )
                     );
                 }
                 Err(e) => {
@@ -2560,18 +2567,18 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                 azlin_cli::SnapshotAction::Status { vm_name, .. } => {
                     match snapshot_helpers::load_schedule(&vm_name) {
                         Some(sched) => {
-                            println!("Snapshot schedule for VM '{}':", vm_name);
-                            println!("  Resource group: {}", sched.resource_group);
-                            println!("  Interval:       every {} hours", sched.every_hours);
-                            println!("  Keep count:     {}", sched.keep_count);
-                            println!("  Enabled:        {}", sched.enabled);
-                            println!("  Created:        {}", sched.created);
+                            let info = handlers::SnapshotScheduleInfo {
+                                vm_name: sched.vm_name.clone(),
+                                resource_group: sched.resource_group.clone(),
+                                every_hours: sched.every_hours,
+                                keep_count: sched.keep_count,
+                                enabled: sched.enabled,
+                                created: sched.created.clone(),
+                            };
+                            println!("{}", handlers::format_snapshot_status(&info));
                         }
                         None => {
-                            println!(
-                                "Snapshot schedule status for VM '{}': no schedule configured",
-                                vm_name
-                            );
+                            println!("{}", handlers::format_snapshot_no_schedule(&vm_name));
                         }
                     }
                 }
@@ -2692,36 +2699,9 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     let acct: serde_json::Value = serde_json::from_slice(&output.stdout)
                         .context("Failed to parse storage account JSON")?;
                     let key_style = Style::new().cyan().bold();
-                    println!(
-                        "{}: {}",
-                        key_style.apply_to("Name"),
-                        acct["name"].as_str().unwrap_or("-")
-                    );
-                    println!(
-                        "{}: {}",
-                        key_style.apply_to("Location"),
-                        acct["location"].as_str().unwrap_or("-")
-                    );
-                    println!(
-                        "{}: {}",
-                        key_style.apply_to("Kind"),
-                        acct["kind"].as_str().unwrap_or("-")
-                    );
-                    println!(
-                        "{}: {}",
-                        key_style.apply_to("SKU"),
-                        acct["sku"]["name"].as_str().unwrap_or("-")
-                    );
-                    println!(
-                        "{}: {}",
-                        key_style.apply_to("State"),
-                        acct["provisioningState"].as_str().unwrap_or("-")
-                    );
-                    println!(
-                        "{}: {}",
-                        key_style.apply_to("Primary Endpoint"),
-                        acct["primaryEndpoints"]["file"].as_str().unwrap_or("-")
-                    );
+                    for (key, value) in handlers::format_storage_status(&acct) {
+                        println!("{}: {}", key_style.apply_to(&key), value);
+                    }
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     anyhow::bail!(
@@ -2768,9 +2748,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                 mount_helpers::validate_mount_path(&mp)
                     .map_err(|e| anyhow::anyhow!("Invalid mount path: {}", e))?;
 
-                let mount_cmd = format!(
-                        "sudo mkdir -p {mp} && sudo mount -t nfs {storage_name}.file.core.windows.net:/{storage_name}/home {mp} -o vers=3,sec=sys"
-                    );
+                let mount_cmd = handlers::build_nfs_mount_command(&storage_name, &mp);
                 let status = std::process::Command::new("ssh")
                     .args([
                         "-o",
@@ -2908,7 +2886,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                 let key = String::from_utf8_lossy(&key_output.stdout)
                     .trim()
                     .to_string();
-                let unc = format!("//{}.file.core.windows.net/{}", account, share);
+                let unc = handlers::build_azure_files_unc(&account, &share);
                 let mount_str = mount_dir.display().to_string();
 
                 // Create mount point (best-effort; mount will fail if this fails)
@@ -2939,10 +2917,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                         &unc,
                         &mount_str,
                         "-o",
-                        &format!(
-                            "vers=3.0,credentials={},serverino,nosharesock,actimeo=30",
-                            creds_path.display()
-                        ),
+                        &handlers::build_cifs_mount_options(&creds_path.display().to_string()),
                     ])
                     .status()?;
 
@@ -5784,12 +5759,15 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                         .unwrap_or(120);
                     match azlin_azure::get_cost_summary(&auth, &resource_group, cost_timeout) {
                         Ok(summary) => {
-                            println!("Cost Dashboard for '{}':", resource_group);
-                            println!("  Total: ${:.2} {}", summary.total_cost, summary.currency);
                             println!(
-                                "  Period: {} to {}",
-                                summary.period_start.format("%Y-%m-%d"),
-                                summary.period_end.format("%Y-%m-%d")
+                                "{}",
+                                handlers::format_cost_dashboard(
+                                    &resource_group,
+                                    summary.total_cost,
+                                    &summary.currency,
+                                    &summary.period_start.format("%Y-%m-%d").to_string(),
+                                    &summary.period_end.format("%Y-%m-%d").to_string(),
+                                )
                             );
                         }
                         Err(e) => {
@@ -5804,12 +5782,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     resource_group,
                     days,
                 } => {
-                    let start_date = (chrono::Utc::now() - chrono::Duration::days(days as i64))
-                        .format("%Y-%m-%dT00:00:00+00:00")
-                        .to_string();
-                    let end_date = chrono::Utc::now()
-                        .format("%Y-%m-%dT23:59:59+00:00")
-                        .to_string();
+                    let (start_date, end_date) = handlers::build_cost_history_dates(days);
 
                     // Get subscription ID first
                     let sub_output = std::process::Command::new("az")
@@ -5822,10 +5795,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                         anyhow::bail!("Could not determine subscription ID. Run 'az login' first.");
                     }
 
-                    let scope = format!(
-                        "/subscriptions/{}/resourceGroups/{}",
-                        sub_id, resource_group
-                    );
+                    let scope = handlers::build_cost_management_scope(&sub_id, &resource_group);
                     let output = std::process::Command::new("az")
                         .args([
                             "costmanagement",
@@ -5856,7 +5826,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                                         Cell::new("Cost (USD)").add_attribute(Attribute::Bold),
                                     ]);
 
-                                for (date, cost) in parse_cost_history_rows(&data) {
+                                for (date, cost) in handlers::parse_cost_history_rows(&data) {
                                     table.add_row(vec![Cell::new(&date), Cell::new(&cost)]);
                                 }
                                 println!(
@@ -5887,13 +5857,14 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     "create" | "set" => {
                         let budget_amount = amount.unwrap_or(100.0);
                         let alert_threshold = threshold.unwrap_or(80);
+                        let budget_name = handlers::build_budget_name(&resource_group);
                         let output = std::process::Command::new("az")
                             .args([
                                 "consumption",
                                 "budget",
                                 "create",
                                 "--budget-name",
-                                &format!("azlin-budget-{}", resource_group),
+                                &budget_name,
                                 "--amount",
                                 &format!("{:.2}", budget_amount),
                                 "--time-grain",
@@ -5908,8 +5879,12 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             .output()?;
                         if output.status.success() {
                             println!(
-                                "Budget set: ${:.2}/month for '{}' (alert at {}%)",
-                                budget_amount, resource_group, alert_threshold
+                                "{}",
+                                handlers::format_budget_created(
+                                    budget_amount,
+                                    &resource_group,
+                                    alert_threshold,
+                                )
                             );
                         } else {
                             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -5947,13 +5922,14 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                         }
                     }
                     "delete" => {
+                        let budget_name = handlers::build_budget_name(&resource_group);
                         let output = std::process::Command::new("az")
                             .args([
                                 "consumption",
                                 "budget",
                                 "delete",
                                 "--budget-name",
-                                &format!("azlin-budget-{}", resource_group),
+                                &budget_name,
                                 "--resource-group",
                                 &resource_group,
                             ])
@@ -6017,7 +5993,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                                                 Cell::new("Problem").add_attribute(Attribute::Bold),
                                             ]);
                                         for (category, impact, problem) in
-                                            parse_recommendation_rows(&data)
+                                            handlers::parse_recommendation_rows(&data)
                                         {
                                             table.add_row(vec![
                                                 Cell::new(&category),
@@ -6080,7 +6056,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                                                     .add_attribute(Attribute::Bold),
                                             ]);
                                         for (resource, impact, problem) in
-                                            parse_cost_action_rows(&data)
+                                            handlers::parse_cost_action_rows(&data)
                                         {
                                             table.add_row(vec![
                                                 Cell::new(&resource),
@@ -6635,19 +6611,9 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             let mut cmd = azlin_cli::Cli::command();
             clap_complete::generate(shell, &mut cmd, "azlin", &mut std::io::stdout());
         }
-        azlin_cli::Commands::AzlinHelp { command_name } => match command_name.as_deref() {
-            Some(cmd) => {
-                println!("azlin {} — Extended help", cmd);
-                println!();
-                println!("Run 'azlin {} --help' for usage details.", cmd);
-            }
-            None => {
-                println!("azlin — Azure VM fleet management CLI");
-                println!();
-                println!("Run 'azlin --help' for a list of commands.");
-                println!("Run 'azlin <command> --help' for command-specific help.");
-            }
-        },
+        azlin_cli::Commands::AzlinHelp { command_name } => {
+            println!("{}", handlers::build_extended_help(command_name.as_deref()));
+        }
     }
 
     Ok(())
@@ -6791,9 +6757,10 @@ async fn resolve_vm_targets(
     Ok(targets)
 }
 
-// ── Extracted helpers for testability ────────────────────────────────
+mod handlers;
 
-/// Format a cost summary for display. Returns the formatted string.
+/// Wrapper for backward compatibility with tests that pass OutputFormat enum.
+#[cfg(test)]
 fn format_cost_summary(
     summary: &azlin_core::models::CostSummary,
     output: &azlin_cli::OutputFormat,
@@ -6802,153 +6769,31 @@ fn format_cost_summary(
     estimate: bool,
     by_vm: bool,
 ) -> String {
-    let mut out = String::new();
-    if let azlin_cli::OutputFormat::Json = output {
-        match serde_json::to_string_pretty(summary) {
-            Ok(json) => out.push_str(&json),
-            Err(e) => out.push_str(&format!("Failed to serialize cost data: {e}")),
-        }
-        return out;
-    }
-
-    let is_csv = matches!(output, azlin_cli::OutputFormat::Csv);
-
-    if is_csv {
-        out.push_str("Total Cost,Currency,Period Start,Period End\n");
-        out.push_str(&format!(
-            "{:.2},{},{},{}",
-            summary.total_cost,
-            summary.currency,
-            summary.period_start.format("%Y-%m-%d"),
-            summary.period_end.format("%Y-%m-%d")
-        ));
-    } else {
-        out.push_str(&format!(
-            "Total Cost: ${:.2} {}",
-            summary.total_cost, summary.currency
-        ));
-        out.push_str(&format!(
-            "\nPeriod: {} to {}",
-            summary.period_start.format("%Y-%m-%d"),
-            summary.period_end.format("%Y-%m-%d")
-        ));
-
-        if let Some(ref f) = from {
-            out.push_str(&format!("\nFrom filter: {}", f));
-        }
-        if let Some(ref t) = to {
-            out.push_str(&format!("\nTo filter: {}", t));
-        }
-        if estimate {
-            out.push_str(&format!(
-                "\nEstimate: ${:.2}/month (projected)",
-                summary.total_cost
-            ));
-        }
-    }
-
-    if by_vm && !summary.by_vm.is_empty() {
-        if is_csv {
-            out.push_str("\nVM Name,Cost,Currency");
-            for vc in &summary.by_vm {
-                out.push_str(&format!("\n{},{:.2},{}", vc.vm_name, vc.cost, vc.currency));
-            }
-        } else {
-            out.push('\n');
-            for vc in &summary.by_vm {
-                out.push_str(&format!(
-                    "\n{:<20} ${:.2} {}",
-                    vc.vm_name, vc.cost, vc.currency
-                ));
-            }
-        }
-    } else if by_vm {
-        out.push_str("\n\nNo per-VM cost data available.");
-    }
-
-    out
+    let fmt_str = match output {
+        azlin_cli::OutputFormat::Json => "json",
+        azlin_cli::OutputFormat::Csv => "csv",
+        azlin_cli::OutputFormat::Table => "table",
+    };
+    handlers::format_cost_summary(summary, fmt_str, from, to, estimate, by_vm)
 }
 
-/// Parse cost history rows from JSON data into (date, cost) pairs.
+/// Wrapper for backward compatibility with tests.
+#[cfg(test)]
 fn parse_cost_history_rows(data: &serde_json::Value) -> Vec<(String, String)> {
-    let mut result = Vec::new();
-    if let Some(rows) = data.get("rows").and_then(|r| r.as_array()) {
-        for row in rows {
-            if let Some(arr) = row.as_array() {
-                let cost = arr
-                    .first()
-                    .and_then(|v| v.as_f64())
-                    .map(|v| format!("${:.2}", v))
-                    .unwrap_or_else(|| "-".to_string());
-                let date = arr
-                    .get(1)
-                    .and_then(|v| v.as_str().or_else(|| v.as_i64().map(|_| "")))
-                    .map(|s| s.to_string())
-                    .or_else(|| arr.get(1).and_then(|v| v.as_i64()).map(|v| v.to_string()))
-                    .unwrap_or_else(|| "-".to_string());
-                result.push((date, cost));
-            }
-        }
-    }
-    result
+    handlers::parse_cost_history_rows(data)
 }
 
-/// Parse recommendation entries from JSON array into (category, impact, problem) triples.
+/// Wrapper for backward compatibility with tests.
+#[cfg(test)]
 fn parse_recommendation_rows(data: &serde_json::Value) -> Vec<(String, String, String)> {
-    let mut result = Vec::new();
-    if let Some(recs) = data.as_array() {
-        for rec in recs {
-            let category = rec
-                .get("category")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            let impact = rec
-                .get("impact")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            let problem = rec
-                .get("shortDescription")
-                .and_then(|v| v.get("problem"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            result.push((category, impact, problem));
-        }
-    }
-    result
+    handlers::parse_recommendation_rows(data)
 }
 
-/// Parse cost action entries from JSON array into (resource, impact, recommendation) triples.
+/// Wrapper for backward compatibility with tests.
+#[cfg(test)]
 fn parse_cost_action_rows(data: &serde_json::Value) -> Vec<(String, String, String)> {
-    let mut result = Vec::new();
-    if let Some(recs) = data.as_array() {
-        for rec in recs {
-            let resource = rec
-                .get("impactedField")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            let impact = rec
-                .get("impact")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            let problem = rec
-                .get("shortDescription")
-                .and_then(|v| v.get("problem"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            result.push((resource, impact, problem));
-        }
-    }
-    result
+    handlers::parse_cost_action_rows(data)
 }
-
-#[allow(dead_code)]
-mod handlers;
 
 /// Validate names used to construct filesystem paths (profiles, templates).
 mod name_validation {
