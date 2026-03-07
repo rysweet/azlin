@@ -13168,7 +13168,7 @@ fn make_cli(args: &[&str]) -> azlin_cli::Cli {
 
 async fn run_dispatch(args: &[&str]) -> Result<()> {
     let cli = make_cli(args);
-    super::dispatch_command(cli).await
+    super::dispatch::dispatch_command(cli).await
 }
 
 #[tokio::test]
