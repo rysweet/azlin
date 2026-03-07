@@ -96,3 +96,102 @@ pub fn snapshot_row(snap: &serde_json::Value) -> Vec<String> {
             .to_string(),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_snapshot_name() {
+        assert_eq!(
+            build_snapshot_name("my-vm", "20260301_120000"),
+            "my-vm_snapshot_20260301_120000"
+        );
+    }
+
+    #[test]
+    fn test_filter_snapshots_matching() {
+        let snaps = vec![
+            serde_json::json!({"name": "my-vm_snapshot_1"}),
+            serde_json::json!({"name": "other-vm_snapshot_1"}),
+            serde_json::json!({"name": "my-vm_snapshot_2"}),
+        ];
+        let filtered = filter_snapshots(&snaps, "my-vm");
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_snapshots_none_match() {
+        let snaps = vec![serde_json::json!({"name": "other-vm_snap"})];
+        let filtered = filter_snapshots(&snaps, "my-vm");
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_filter_snapshots_empty() {
+        let filtered = filter_snapshots(&[], "my-vm");
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_snapshot_row_complete() {
+        let snap = serde_json::json!({
+            "name": "snap-1",
+            "diskSizeGb": 128,
+            "timeCreated": "2026-03-01T12:00:00Z",
+            "provisioningState": "Succeeded"
+        });
+        let row = snapshot_row(&snap);
+        assert_eq!(row[0], "snap-1");
+        assert_eq!(row[1], "128");
+        assert_eq!(row[2], "2026-03-01T12:00:00Z");
+        assert_eq!(row[3], "Succeeded");
+    }
+
+    #[test]
+    fn test_snapshot_row_missing_fields() {
+        let snap = serde_json::json!({});
+        let row = snapshot_row(&snap);
+        assert_eq!(row[0], "-");
+        assert_eq!(row[2], "-");
+        assert_eq!(row[3], "-");
+    }
+
+    #[test]
+    fn test_schedule_path() {
+        let path = schedule_path("my-vm");
+        assert!(path.ends_with("my-vm.toml"));
+        assert!(path.to_string_lossy().contains("schedules"));
+    }
+
+    #[test]
+    fn test_save_and_load_schedule() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Override the schedules dir by saving directly
+        let schedule = SnapshotSchedule {
+            vm_name: "test-vm".to_string(),
+            resource_group: "test-rg".to_string(),
+            every_hours: 6,
+            keep_count: 3,
+            enabled: true,
+            created: "2026-03-01".to_string(),
+        };
+        let path = tmp.path().join("test-vm.toml");
+        let contents = toml::to_string_pretty(&schedule).unwrap();
+        std::fs::write(&path, &contents).unwrap();
+
+        let loaded: SnapshotSchedule =
+            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(loaded.vm_name, "test-vm");
+        assert_eq!(loaded.every_hours, 6);
+        assert_eq!(loaded.keep_count, 3);
+        assert!(loaded.enabled);
+    }
+
+    #[test]
+    fn test_schedules_dir_exists() {
+        let dir = schedules_dir();
+        // Just verify it returns a path containing .azlin/schedules
+        assert!(dir.to_string_lossy().contains("schedules"));
+    }
+}

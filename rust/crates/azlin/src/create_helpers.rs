@@ -64,3 +64,84 @@ pub fn build_clone_name(source_vm: &str, index: usize) -> String {
 pub fn build_disk_name(vm_name: &str) -> String {
     format!("{}_OsDisk", vm_name)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_vm_name_with_base_single() {
+        assert_eq!(generate_vm_name(Some("myvm"), 0, 1, "20260101"), "myvm");
+    }
+
+    #[test]
+    fn test_generate_vm_name_with_base_pool() {
+        assert_eq!(generate_vm_name(Some("myvm"), 0, 3, "20260101"), "myvm-1");
+        assert_eq!(generate_vm_name(Some("myvm"), 2, 3, "20260101"), "myvm-3");
+    }
+
+    #[test]
+    fn test_generate_vm_name_no_base() {
+        let name = generate_vm_name(None, 0, 1, "20260101");
+        assert_eq!(name, "azlin-vm-20260101");
+    }
+
+    #[test]
+    fn test_resolve_with_template_default_user_value() {
+        assert_eq!(
+            resolve_with_template_default(
+                "Standard_D8s_v3",
+                "Standard_D4s_v3",
+                Some("Standard_E4s_v3".to_string())
+            ),
+            "Standard_D8s_v3"
+        );
+    }
+
+    #[test]
+    fn test_resolve_with_template_default_uses_template() {
+        assert_eq!(
+            resolve_with_template_default(
+                "Standard_D4s_v3",
+                "Standard_D4s_v3",
+                Some("Standard_E4s_v3".to_string())
+            ),
+            "Standard_E4s_v3"
+        );
+    }
+
+    #[test]
+    fn test_resolve_with_template_default_no_template() {
+        assert_eq!(
+            resolve_with_template_default("Standard_D4s_v3", "Standard_D4s_v3", None),
+            "Standard_D4s_v3"
+        );
+    }
+
+    #[test]
+    fn test_build_ssh_connect_args() {
+        let args = build_ssh_connect_args("azureuser", "1.2.3.4");
+        assert!(args.contains(&"-o".to_string()));
+        assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_string()));
+        assert!(args.contains(&"azureuser@1.2.3.4".to_string()));
+    }
+
+    #[test]
+    fn test_build_snapshot_name() {
+        assert_eq!(
+            build_snapshot_name("my-vm", "20260301"),
+            "my-vm_clone_snap_20260301"
+        );
+    }
+
+    #[test]
+    fn test_build_clone_name() {
+        assert_eq!(build_clone_name("source-vm", 0), "source-vm-clone-1");
+        assert_eq!(build_clone_name("source-vm", 2), "source-vm-clone-3");
+    }
+
+    #[test]
+    fn test_build_disk_name() {
+        assert_eq!(build_disk_name("my-vm"), "my-vm_OsDisk");
+    }
+}

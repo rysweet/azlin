@@ -104,3 +104,103 @@ pub fn read_context_resource_group(
         .map(|s| s.to_string());
     Ok((name, rg))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_build_context_toml_minimal() {
+        let toml_str = build_context_toml("test", None, None, None, None, None).unwrap();
+        assert!(toml_str.contains("name = \"test\""));
+    }
+
+    #[test]
+    fn test_build_context_toml_full() {
+        let toml_str = build_context_toml(
+            "prod",
+            Some("sub-123"),
+            Some("tenant-456"),
+            Some("rg-prod"),
+            Some("westus2"),
+            Some("my-kv"),
+        )
+        .unwrap();
+        assert!(toml_str.contains("name = \"prod\""));
+        assert!(toml_str.contains("subscription_id = \"sub-123\""));
+        assert!(toml_str.contains("tenant_id = \"tenant-456\""));
+        assert!(toml_str.contains("resource_group = \"rg-prod\""));
+        assert!(toml_str.contains("region = \"westus2\""));
+        assert!(toml_str.contains("key_vault_name = \"my-kv\""));
+    }
+
+    #[test]
+    fn test_list_contexts_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let contexts = list_contexts(tmp.path(), "default").unwrap();
+        assert!(contexts.is_empty());
+    }
+
+    #[test]
+    fn test_list_contexts_with_files() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("default.toml"), "name = \"default\"").unwrap();
+        std::fs::write(tmp.path().join("staging.toml"), "name = \"staging\"").unwrap();
+        std::fs::write(tmp.path().join("README.md"), "not a context").unwrap();
+
+        let contexts = list_contexts(tmp.path(), "default").unwrap();
+        assert_eq!(contexts.len(), 2);
+
+        // One should be active
+        let active_count = contexts.iter().filter(|(_, is_active)| *is_active).count();
+        assert_eq!(active_count, 1);
+
+        let default_entry = contexts.iter().find(|(n, _)| n == "default").unwrap();
+        assert!(default_entry.1); // is_active
+    }
+
+    #[test]
+    fn test_rename_context_file() {
+        let tmp = TempDir::new().unwrap();
+        let content = "name = \"old-ctx\"\nresource_group = \"rg1\"\n";
+        std::fs::write(tmp.path().join("old-ctx.toml"), content).unwrap();
+
+        rename_context_file(tmp.path(), "old-ctx", "new-ctx").unwrap();
+
+        assert!(!tmp.path().join("old-ctx.toml").exists());
+        assert!(tmp.path().join("new-ctx.toml").exists());
+
+        let new_content = std::fs::read_to_string(tmp.path().join("new-ctx.toml")).unwrap();
+        assert!(new_content.contains("\"new-ctx\""));
+    }
+
+    #[test]
+    fn test_rename_context_file_not_found() {
+        let tmp = TempDir::new().unwrap();
+        let err = rename_context_file(tmp.path(), "nonexistent", "new").unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_read_context_resource_group() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("ctx.toml");
+        std::fs::write(&path, "name = \"my-ctx\"\nresource_group = \"my-rg\"\n").unwrap();
+
+        let (name, rg) = read_context_resource_group(&path).unwrap();
+        assert_eq!(name, "my-ctx");
+        assert_eq!(rg, Some("my-rg".to_string()));
+    }
+
+    #[test]
+    fn test_read_context_resource_group_no_rg() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("ctx.toml");
+        std::fs::write(&path, "name = \"my-ctx\"\n").unwrap();
+
+        let (name, rg) = read_context_resource_group(&path).unwrap();
+        assert_eq!(name, "my-ctx");
+        assert_eq!(rg, None);
+    }
+}
