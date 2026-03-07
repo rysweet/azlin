@@ -152,16 +152,15 @@ jobs:
 
             Pre-built binaries and Python wheels for the Rust port of azlin.
 
-            ### Install via pip/uvx (recommended)
+            ### Install via cargo (always-latest)
             ```bash
-            pip install azlin-rs
-            # or
-            uvx azlin-rs
+            cargo install --git https://github.com/rysweet/azlin
+            # Re-run with --force to update
             ```
 
-            ### Install via cargo
+            ### Install via pip (from wheel)
             ```bash
-            cargo install --git https://github.com/rysweet/azlin --branch main
+            pip install azlin-rs --find-links https://github.com/rysweet/azlin/releases/latest
             ```
 
             ### Download binary directly
