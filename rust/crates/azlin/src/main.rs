@@ -117,6 +117,80 @@ struct BastionRoute {
     ssh_key_path: Option<std::path::PathBuf>,
 }
 
+/// A running `az network bastion tunnel` subprocess bound to a local port.
+struct BastionTunnel {
+    local_port: u16,
+    child: std::process::Child,
+}
+
+/// Pool of bastion tunnels keyed by VM name.  Re-uses an existing tunnel when
+/// the same VM is queried twice, and tears down all tunnels on drop.
+struct BastionTunnelPool {
+    tunnels: std::collections::HashMap<String, BastionTunnel>,
+    next_port: u16,
+}
+
+impl BastionTunnelPool {
+    fn new() -> Self {
+        Self {
+            tunnels: std::collections::HashMap::new(),
+            next_port: 50100,
+        }
+    }
+
+    fn get_or_create(
+        &mut self,
+        vm_name: &str,
+        bastion_name: &str,
+        rg: &str,
+        vm_rid: &str,
+    ) -> Result<u16> {
+        if let Some(tunnel) = self.tunnels.get(vm_name) {
+            return Ok(tunnel.local_port);
+        }
+        let port = self.next_port;
+        self.next_port += 1;
+        let child = std::process::Command::new("az")
+            .args([
+                "network",
+                "bastion",
+                "tunnel",
+                "--name",
+                bastion_name,
+                "--resource-group",
+                rg,
+                "--target-resource-id",
+                vm_rid,
+                "--resource-port",
+                "22",
+                "--port",
+                &port.to_string(),
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
+        // Wait briefly for tunnel to establish
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        self.tunnels.insert(
+            vm_name.to_string(),
+            BastionTunnel {
+                local_port: port,
+                child,
+            },
+        );
+        Ok(port)
+    }
+}
+
+impl Drop for BastionTunnelPool {
+    fn drop(&mut self) {
+        for (_, mut tunnel) in self.tunnels.drain() {
+            let _ = tunnel.child.kill();
+            let _ = tunnel.child.wait();
+        }
+    }
+}
+
 /// Encapsulates SSH connection info for a VM, supporting both direct and bastion routes.
 struct VmSshTarget {
     vm_name: String,
@@ -634,7 +708,8 @@ fn main() {
 
     if let Err(e) = result {
         let msg = format!("{e:?}");
-        eprintln!("Error: {e}");
+        // Use {e:#} to show the full error chain (not just the outermost context)
+        eprintln!("Error: {e:#}");
 
         if msg.contains("az login") || msg.contains("authentication") || msg.contains("Azure") {
             eprintln!("\n💡 Suggestion: Run 'az login' to authenticate with Azure");
@@ -943,6 +1018,8 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             .filter(|p| p.exists())
                     });
 
+                let mut tunnel_pool = BastionTunnelPool::new();
+
                 for vm in &all_vms {
                     if vm.power_state != azlin_core::models::PowerState::Running {
                         continue;
@@ -968,39 +1045,53 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             ])
                             .output()
                     } else if let Some(bastion_name) = bastion_map.get(&vm.location) {
-                        // Use az network bastion ssh for private-only VMs
+                        // Use bastion tunnel pooling: first VM sets up the tunnel (~2s),
+                        // subsequent VMs in the same region reuse it (~0s overhead).
                         let vm_id = format!(
                             "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                             vm_manager.subscription_id(), vm.resource_group, vm.name
                         );
-                        let mut args = vec![
-                            "network".to_string(),
-                            "bastion".to_string(),
-                            "ssh".to_string(),
-                            "--name".to_string(),
-                            bastion_name.clone(),
-                            "--resource-group".to_string(),
-                            vm.resource_group.clone(),
-                            "--target-resource-id".to_string(),
-                            vm_id,
-                            "--auth-type".to_string(),
-                            "ssh-key".to_string(),
-                            "--username".to_string(),
-                            user.to_string(),
-                        ];
-                        if let Some(ref key) = ssh_key {
-                            args.push("--ssh-key".to_string());
-                            args.push(key.to_string_lossy().to_string());
+                        match tunnel_pool.get_or_create(
+                            &vm.name,
+                            bastion_name,
+                            &vm.resource_group,
+                            &vm_id,
+                        ) {
+                            Ok(port) => {
+                                let mut ssh_args = vec![
+                                    "-o".to_string(),
+                                    "StrictHostKeyChecking=accept-new".to_string(),
+                                    "-o".to_string(),
+                                    "ConnectTimeout=5".to_string(),
+                                    "-o".to_string(),
+                                    "BatchMode=yes".to_string(),
+                                    "-p".to_string(),
+                                    port.to_string(),
+                                ];
+                                if let Some(ref key) = ssh_key {
+                                    ssh_args.push("-i".to_string());
+                                    ssh_args.push(key.to_string_lossy().to_string());
+                                }
+                                ssh_args.push(format!("{}@127.0.0.1", user));
+                                ssh_args.push(tmux_cmd.to_string());
+                                let str_args: Vec<&str> =
+                                    ssh_args.iter().map(|s| s.as_str()).collect();
+                                std::process::Command::new("ssh")
+                                    .args(&str_args)
+                                    .stdout(std::process::Stdio::piped())
+                                    .stderr(std::process::Stdio::piped())
+                                    .output()
+                            }
+                            Err(e) => {
+                                if cli.verbose {
+                                    eprintln!(
+                                        "[VERBOSE] Failed to create bastion tunnel for {}: {}",
+                                        vm.name, e
+                                    );
+                                }
+                                continue;
+                            }
                         }
-                        args.push("--".to_string());
-                        args.push(tmux_cmd.to_string());
-
-                        let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                        std::process::Command::new("az")
-                            .args(&str_args)
-                            .stdout(std::process::Stdio::piped())
-                            .stderr(std::process::Stdio::piped())
-                            .output()
                     } else {
                         continue; // No bastion available for this region
                     };
@@ -1561,7 +1652,10 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             std::collections::HashMap::new()
                         };
                     let bastion_name = bastion_map.get(&vm.location).ok_or_else(|| {
-                        anyhow::anyhow!("No bastion host found for region '{}'. Cannot connect to private VM.", vm.location)
+                        anyhow::anyhow!(
+                            "No bastion host found for region '{}'. Cannot connect to private VM.",
+                            vm.location
+                        )
                     })?;
                     let vm_rid = format!(
                         "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
@@ -1569,12 +1663,19 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     );
                     let ssh_key = resolve_ssh_key();
                     let mut args = vec![
-                        "network".to_string(), "bastion".to_string(), "ssh".to_string(),
-                        "--name".to_string(), bastion_name.clone(),
-                        "--resource-group".to_string(), rg.clone(),
-                        "--target-resource-id".to_string(), vm_rid,
-                        "--auth-type".to_string(), "ssh-key".to_string(),
-                        "--username".to_string(), username.clone(),
+                        "network".to_string(),
+                        "bastion".to_string(),
+                        "ssh".to_string(),
+                        "--name".to_string(),
+                        bastion_name.clone(),
+                        "--resource-group".to_string(),
+                        rg.clone(),
+                        "--target-resource-id".to_string(),
+                        vm_rid,
+                        "--auth-type".to_string(),
+                        "ssh-key".to_string(),
+                        "--username".to_string(),
+                        username.clone(),
                     ];
                     if let Some(ref k) = ssh_key {
                         args.push("--ssh-key".to_string());
@@ -1596,7 +1697,8 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                 } else {
                     // Direct SSH for VMs with public IPs
                     let ip = vm.public_ip.as_deref().unwrap();
-                    let mut ssh_args = connect_helpers::build_ssh_args(&username, ip, key.as_deref());
+                    let mut ssh_args =
+                        connect_helpers::build_ssh_args(&username, ip, key.as_deref());
                     if let Some(ref sess) = tmux_sess {
                         if remote_command.is_empty() {
                             ssh_args.push("-t".to_string());
@@ -3136,8 +3238,16 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             Ok(o) if o.status.success() => {
                                 println!("  Deployed key to VM '{}'", name);
                             }
-                            _ => {
-                                eprintln!("  Failed to deploy key to VM '{}'", name);
+                            Ok(o) => {
+                                let stderr = String::from_utf8_lossy(&o.stderr);
+                                eprintln!(
+                                    "  Failed to deploy key to VM '{}': {}",
+                                    name,
+                                    stderr.trim()
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!("  Failed to deploy key to VM '{}': {}", name, e);
                             }
                         }
                     }
@@ -3695,10 +3805,20 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             let size = vm_size.unwrap_or_else(|| config_defaults.default_vm_size.clone());
             let loc = region.unwrap_or_else(|| config_defaults.default_region.clone());
             let admin_user = DEFAULT_ADMIN_USERNAME.to_string();
-            let ssh_key_path = dirs::home_dir()
-                .unwrap_or_default()
-                .join(".ssh")
-                .join("id_rsa.pub");
+            let ssh_key_path = {
+                let ssh_dir = dirs::home_dir().unwrap_or_default().join(".ssh");
+                // Same fallback order as resolve_ssh_key: azlin_key > id_rsa
+                [
+                    "azlin_key.pub",
+                    "id_ed25519_azlin.pub",
+                    "id_ed25519.pub",
+                    "id_rsa.pub",
+                ]
+                .iter()
+                .map(|f| ssh_dir.join(f))
+                .find(|p| p.exists())
+                .unwrap_or_else(|| ssh_dir.join("id_rsa.pub"))
+            };
 
             // Load template defaults if specified
             let (tmpl_size, tmpl_region) = if let Some(ref tmpl_name) = template {
@@ -6640,8 +6760,13 @@ fn resolve_resource_group(explicit: Option<String>) -> Result<String> {
     let config = azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
     config.default_resource_group.ok_or_else(|| {
         anyhow::anyhow!(
-            "No resource group specified. Use --resource-group or set via:\n  \
-             azlin config set default_resource_group <your-rg>"
+            "No resource group configured.\n\n\
+             Quick setup:\n\
+             1. azlin context create <name> --subscription-id <sub> --tenant-id <tenant>\n\
+             2. azlin context use <name>\n\
+             3. azlin config set default_resource_group <rg-name>\n\n\
+             Or pass --resource-group <name> to any command.\n\
+             Run 'az account show' to find your subscription and tenant IDs."
         )
     })
 }
