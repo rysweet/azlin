@@ -1434,6 +1434,496 @@ pub fn format_orphan_report(resources: &[OrphanedResourceInfo]) -> String {
     out
 }
 
+// ── Snapshot enable/disable/status handlers ─────────────────────────────
+
+/// Build a SnapshotScheduleInfo from raw schedule parameters.
+pub fn build_snapshot_enable_output(
+    vm_name: &str,
+    resource_group: &str,
+    every_hours: u32,
+    keep_count: u32,
+) -> String {
+    format!(
+        "Scheduled snapshots enabled for VM '{}': every {}h, keep {}",
+        vm_name, every_hours, keep_count
+    )
+}
+
+/// Build the disable output message based on schedule state.
+pub fn build_snapshot_disable_output(vm_name: &str, had_schedule: bool) -> String {
+    if had_schedule {
+        format!("Scheduled snapshots disabled for VM '{}'", vm_name)
+    } else {
+        format!("No schedule configured for VM '{}'", vm_name)
+    }
+}
+
+/// Determine whether a snapshot sync is needed based on the most recent snapshot age.
+/// Returns (needs_snapshot, skip_message) where skip_message is Some if skipping.
+pub fn check_snapshot_sync_needed(
+    snapshots: &[&serde_json::Value],
+    vm_name: &str,
+    every_hours: u32,
+    now: chrono::DateTime<chrono::Utc>,
+) -> (bool, Option<String>) {
+    let newest = snapshots
+        .iter()
+        .filter_map(|s| {
+            s["timeCreated"]
+                .as_str()
+                .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+        })
+        .max();
+    if let Some(latest) = newest {
+        let age = now.signed_duration_since(latest.with_timezone(&chrono::Utc));
+        if age.num_hours() < every_hours as i64 {
+            return (
+                false,
+                Some(format!(
+                    "VM '{}': latest snapshot is {}h old (interval {}h), skipping",
+                    vm_name,
+                    age.num_hours(),
+                    every_hours
+                )),
+            );
+        }
+    }
+    (true, None)
+}
+
+/// Format sync completion message.
+pub fn format_snapshot_sync_complete(vm_name: Option<&str>) -> String {
+    match vm_name {
+        Some(name) => format!("Snapshot sync completed for VM '{}'", name),
+        None => "Snapshot sync completed for all VMs".to_string(),
+    }
+}
+
+// ── Storage formatting handlers ─────────────────────────────────────────
+
+/// Format the output message for a successful storage account creation.
+pub fn format_storage_created(name: &str, size: u32, tier: &str) -> String {
+    format!("Created storage account '{}' ({} GB, {})", name, size, tier)
+}
+
+/// Format the output message for a successful storage account deletion.
+pub fn format_storage_deleted(name: &str) -> String {
+    format!("Deleted storage account '{}'", name)
+}
+
+/// Format the mount success message.
+pub fn format_storage_mounted(storage_name: &str, vm: &str, mount_point: &str) -> String {
+    format!(
+        "Mounted '{}' on VM '{}' at {}",
+        storage_name, vm, mount_point
+    )
+}
+
+/// Format the unmount success message.
+pub fn format_storage_unmounted(vm: &str) -> String {
+    format!("Unmounted NFS storage from VM '{}'", vm)
+}
+
+/// Validate a storage account name (Azure allows only [a-zA-Z0-9-]).
+pub fn validate_storage_name(name: &str) -> Result<()> {
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        anyhow::bail!("Invalid storage name: contains disallowed characters");
+    }
+    Ok(())
+}
+
+/// Determine the default mount point for NFS storage.
+pub fn default_nfs_mount_point(storage_name: &str) -> String {
+    format!("/mnt/{}", storage_name)
+}
+
+// ── Costs formatting handlers ───────────────────────────────────────────
+
+/// Format cost history table header text.
+pub fn format_cost_history_header(resource_group: &str, days: u32) -> String {
+    format!(
+        "Cost history for '{}' (last {} days):",
+        resource_group, days
+    )
+}
+
+/// Format recommendation display header.
+pub fn format_recommendations_header(resource_group: &str) -> String {
+    format!("Cost recommendations for '{}':", resource_group)
+}
+
+/// Format the "no recommendations" message.
+pub fn format_no_recommendations(resource_group: &str, priority: &str) -> String {
+    format!(
+        "No cost recommendations found for '{}' (priority: {})",
+        resource_group, priority
+    )
+}
+
+/// Format the budget list empty message.
+pub fn format_no_budgets(resource_group: &str) -> String {
+    format!("No budgets found for '{}'.", resource_group)
+}
+
+/// Format the budget deleted message.
+pub fn format_budget_deleted(resource_group: &str) -> String {
+    format!("Budget deleted for '{}'.", resource_group)
+}
+
+/// Format "no pending cost actions" message.
+pub fn format_no_cost_actions(resource_group: &str) -> String {
+    format!("No pending cost actions in '{}'", resource_group)
+}
+
+/// Format cost actions header (with or without dry_run).
+pub fn format_cost_actions_header(action: &str, resource_group: &str, dry_run: bool) -> String {
+    if dry_run {
+        format!(
+            "Would {} the following cost actions in '{}':",
+            action, resource_group
+        )
+    } else {
+        format!("Cost actions ({}) in '{}':", action, resource_group)
+    }
+}
+
+/// Build advisor recommendation query args with optional priority filter.
+pub fn build_advisor_args(resource_group: &str, priority: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "advisor".to_string(),
+        "recommendation".to_string(),
+        "list".to_string(),
+        "--resource-group".to_string(),
+        resource_group.to_string(),
+        "-o".to_string(),
+        "json".to_string(),
+    ];
+    if let Some(pri) = priority {
+        args.push("--query".to_string());
+        args.push(format!("[?impact=='{}']", pri));
+    }
+    args
+}
+
+// ── Cleanup/orphan classification handlers ──────────────────────────────
+
+/// Classify NICs as orphaned if they have no virtual machine attached.
+/// Pure function over parsed JSON — no CLI calls.
+pub fn find_orphaned_nics(nics: &[serde_json::Value]) -> Vec<OrphanedResourceInfo> {
+    nics.iter()
+        .filter(|nic| {
+            !nic.get("virtualMachine")
+                .map(|v| !v.is_null())
+                .unwrap_or(false)
+        })
+        .filter_map(|nic| {
+            let name = nic.get("name")?.as_str()?;
+            let rg = nic
+                .get("resourceGroup")
+                .and_then(|r| r.as_str())
+                .unwrap_or("unknown");
+            Some(OrphanedResourceInfo {
+                name: name.to_string(),
+                resource_type: "NetworkInterface".to_string(),
+                resource_group: rg.to_string(),
+                estimated_monthly_cost: 0.0,
+            })
+        })
+        .collect()
+}
+
+/// Classify public IPs as orphaned if they have no ipConfiguration.
+pub fn find_orphaned_public_ips(
+    ips: &[serde_json::Value],
+    cost_per_ip: f64,
+) -> Vec<OrphanedResourceInfo> {
+    ips.iter()
+        .filter(|ip| {
+            !ip.get("ipConfiguration")
+                .map(|v| !v.is_null())
+                .unwrap_or(false)
+        })
+        .filter_map(|ip| {
+            let name = ip.get("name")?.as_str()?;
+            let rg = ip
+                .get("resourceGroup")
+                .and_then(|r| r.as_str())
+                .unwrap_or("unknown");
+            Some(OrphanedResourceInfo {
+                name: name.to_string(),
+                resource_type: "PublicIp".to_string(),
+                resource_group: rg.to_string(),
+                estimated_monthly_cost: cost_per_ip,
+            })
+        })
+        .collect()
+}
+
+/// Classify NSGs as orphaned if they have no attached NICs or subnets.
+pub fn find_orphaned_nsgs(nsgs: &[serde_json::Value]) -> Vec<OrphanedResourceInfo> {
+    nsgs.iter()
+        .filter(|nsg| {
+            let has_nics = nsg
+                .get("networkInterfaces")
+                .and_then(|v| v.as_array())
+                .map(|a| !a.is_empty())
+                .unwrap_or(false);
+            let has_subnets = nsg
+                .get("subnets")
+                .and_then(|v| v.as_array())
+                .map(|a| !a.is_empty())
+                .unwrap_or(false);
+            !has_nics && !has_subnets
+        })
+        .filter_map(|nsg| {
+            let name = nsg.get("name")?.as_str()?;
+            let rg = nsg
+                .get("resourceGroup")
+                .and_then(|r| r.as_str())
+                .unwrap_or("unknown");
+            Some(OrphanedResourceInfo {
+                name: name.to_string(),
+                resource_type: "NetworkSecurityGroup".to_string(),
+                resource_group: rg.to_string(),
+                estimated_monthly_cost: 0.0,
+            })
+        })
+        .collect()
+}
+
+/// Format a cleanup summary line.
+pub fn format_cleanup_complete(deleted: usize, total: usize) -> String {
+    format!(
+        "Cleanup complete. Deleted {}/{} orphaned resources.",
+        deleted, total
+    )
+}
+
+/// Format the scan header for cleanup.
+pub fn format_cleanup_scan_header(resource_group: &str, age_days: u32, dry_run: bool) -> String {
+    format!(
+        "{}Scanning for orphaned resources in '{}' (older than {} days)...",
+        if dry_run { "Dry run — " } else { "" },
+        resource_group,
+        age_days
+    )
+}
+
+// ── Autopilot handlers ──────────────────────────────────────────────────
+
+/// Build the autopilot TOML config table.
+pub fn build_autopilot_config(
+    budget: Option<u32>,
+    strategy: &str,
+    idle_threshold: u32,
+    cpu_threshold: u32,
+    timestamp: &str,
+) -> toml::Value {
+    let mut config = toml::map::Map::new();
+    config.insert("enabled".to_string(), toml::Value::Boolean(true));
+    if let Some(b) = budget {
+        config.insert("budget".to_string(), toml::Value::Integer(b as i64));
+    }
+    config.insert(
+        "strategy".to_string(),
+        toml::Value::String(strategy.to_string()),
+    );
+    config.insert(
+        "idle_threshold_minutes".to_string(),
+        toml::Value::Integer(idle_threshold as i64),
+    );
+    config.insert(
+        "cpu_threshold_percent".to_string(),
+        toml::Value::Integer(cpu_threshold as i64),
+    );
+    config.insert(
+        "updated".to_string(),
+        toml::Value::String(timestamp.to_string()),
+    );
+    toml::Value::Table(config)
+}
+
+/// Format the autopilot enable output message.
+pub fn format_autopilot_enabled(
+    budget: Option<u32>,
+    strategy: &str,
+    idle_threshold: u32,
+    cpu_threshold: u32,
+) -> String {
+    let mut out = "Autopilot enabled:\n".to_string();
+    if let Some(b) = budget {
+        out.push_str(&format!("  Budget:         ${}/month\n", b));
+    }
+    out.push_str(&format!("  Strategy:       {}\n", strategy));
+    out.push_str(&format!("  Idle threshold: {} min\n", idle_threshold));
+    out.push_str(&format!("  CPU threshold:  {}%", cpu_threshold));
+    out
+}
+
+/// Format the autopilot status output from a parsed TOML value.
+pub fn format_autopilot_status(config: Option<&toml::Value>) -> String {
+    match config {
+        Some(val) => {
+            if let Some(t) = val.as_table() {
+                let enabled = t.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                let mut out = format!(
+                    "Autopilot: {}",
+                    if enabled { "ENABLED" } else { "DISABLED" }
+                );
+                for (k, v) in t {
+                    if k != "enabled" {
+                        out.push_str(&format!("\n  {}: {}", k, v));
+                    }
+                }
+                out
+            } else {
+                "Autopilot: invalid configuration".to_string()
+            }
+        }
+        None => "Autopilot: not configured\nEnable with: azlin autopilot enable".to_string(),
+    }
+}
+
+/// Parse autopilot config to get thresholds.
+pub fn parse_autopilot_thresholds(config: Option<&toml::Value>) -> (u32, f64) {
+    match config {
+        Some(val) => {
+            let thresh = val
+                .as_table()
+                .and_then(|t| t.get("idle_threshold_minutes"))
+                .and_then(|v| v.as_integer())
+                .unwrap_or(30) as u32;
+            let limit = val
+                .as_table()
+                .and_then(|t| t.get("cost_limit_usd"))
+                .and_then(|v| v.as_float())
+                .unwrap_or(0.0);
+            (thresh, limit)
+        }
+        None => (30, 0.0),
+    }
+}
+
+/// Classify a VM's CPU/uptime into an autopilot action recommendation.
+/// Returns Some(action_name) if an action is recommended, None if VM is active.
+pub fn classify_autopilot_vm(
+    cpu_pct: f64,
+    uptime_secs: f64,
+    idle_threshold_minutes: u32,
+) -> Option<String> {
+    let idle_mins = idle_threshold_minutes as f64;
+    if cpu_pct < 5.0 && uptime_secs > idle_mins * 60.0 {
+        Some("deallocate".to_string())
+    } else {
+        None
+    }
+}
+
+/// Format autopilot dry-run report.
+pub fn format_autopilot_dry_run(actions: &[(String, String)]) -> String {
+    let mut out = format!("\nDry run — {} action(s) would be taken:", actions.len());
+    for (name, action) in actions {
+        out.push_str(&format!("\n  {} -> {}", name, action));
+    }
+    out
+}
+
+// ── Context handlers ────────────────────────────────────────────────────
+
+/// Format context list output for table display.
+pub fn format_context_list_table(contexts: &[(String, bool)]) -> String {
+    let mut out = String::new();
+    for (name, is_active) in contexts {
+        if *is_active {
+            out.push_str(&format!("* {}\n", name));
+        } else {
+            out.push_str(&format!("  {}\n", name));
+        }
+    }
+    out
+}
+
+/// Format the "no contexts" message.
+pub fn format_no_contexts() -> &'static str {
+    "No contexts found. Create one with: azlin context create <name>"
+}
+
+/// Format the context show output.
+pub fn format_context_show(name: &str, content: Option<&str>) -> String {
+    let mut out = format!("Current context: {}", name);
+    if let Some(c) = content {
+        out.push_str(&format!("\n{}", c.trim()));
+    }
+    out
+}
+
+/// Format the context switch message.
+pub fn format_context_switched(name: &str) -> String {
+    format!("Switched to context '{}'", name)
+}
+
+/// Format the context create message.
+pub fn format_context_created(name: &str) -> String {
+    format!("Created context '{}'", name)
+}
+
+/// Format the context delete message.
+pub fn format_context_deleted(name: &str) -> String {
+    format!("Deleted context '{}'", name)
+}
+
+/// Format the context rename message.
+pub fn format_context_renamed(old_name: &str, new_name: &str) -> String {
+    format!("Renamed context '{}' -> '{}'", old_name, new_name)
+}
+
+// ── Keys handlers ───────────────────────────────────────────────────────
+
+/// Build rows for the keys list table from directory entries.
+/// Each row: [filename, key_type, size_bytes, modified_date]
+pub fn build_key_list_row(name: &str, size: u64, modified: &str) -> Vec<String> {
+    let key_type = if name.contains("ed25519") {
+        "ed25519"
+    } else if name.contains("ecdsa") {
+        "ecdsa"
+    } else if name.contains("rsa") {
+        "rsa"
+    } else if name.contains("dsa") {
+        "dsa"
+    } else {
+        "unknown"
+    };
+    vec![
+        name.to_string(),
+        key_type.to_string(),
+        size.to_string(),
+        modified.to_string(),
+    ]
+}
+
+/// Determine if a file looks like an SSH key based on its name and
+/// whether its .pub companion exists.
+pub fn is_ssh_key_file(name: &str, has_pub_companion: bool) -> bool {
+    name.ends_with(".pub")
+        || ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"].contains(&name)
+        || (!name.starts_with('.') && !name.ends_with(".pub") && has_pub_companion)
+}
+
+/// Format the key export success message.
+pub fn format_key_exported(source_name: &str, dest: &str) -> String {
+    format!("Exported {} to {}", source_name, dest)
+}
+
+/// Format the key backup success message.
+pub fn format_key_backup(count: u32, dest: &str) -> String {
+    format!("Backed up {} key files to {}", count, dest)
+}
+
+/// Format the key rotation complete message.
+pub fn format_key_rotation_complete() -> &'static str {
+    "Key rotation complete."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3224,5 +3714,476 @@ mod tests {
         assert!(out.contains("disk-old"));
         assert!(out.contains("ip-old"));
         assert!(out.contains("$8.77/month"));
+    }
+
+    // ── Snapshot handler tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_build_snapshot_enable_output() {
+        let out = build_snapshot_enable_output("dev-vm-1", "test-rg", 6, 3);
+        assert!(out.contains("dev-vm-1"));
+        assert!(out.contains("every 6h"));
+        assert!(out.contains("keep 3"));
+    }
+
+    #[test]
+    fn test_build_snapshot_disable_output_had_schedule() {
+        let out = build_snapshot_disable_output("dev-vm-1", true);
+        assert!(out.contains("disabled"));
+        assert!(out.contains("dev-vm-1"));
+    }
+
+    #[test]
+    fn test_build_snapshot_disable_output_no_schedule() {
+        let out = build_snapshot_disable_output("dev-vm-1", false);
+        assert!(out.contains("No schedule configured"));
+    }
+
+    #[test]
+    fn test_check_snapshot_sync_needed_recent() {
+        let now = chrono::Utc::now();
+        let recent = now - chrono::Duration::hours(2);
+        let snap = serde_json::json!({
+            "timeCreated": recent.to_rfc3339(),
+        });
+        let snaps = vec![&snap];
+        let (needs, msg) = check_snapshot_sync_needed(&snaps, "vm1", 6, now);
+        assert!(!needs);
+        assert!(msg.unwrap().contains("skipping"));
+    }
+
+    #[test]
+    fn test_check_snapshot_sync_needed_old() {
+        let now = chrono::Utc::now();
+        let old = now - chrono::Duration::hours(12);
+        let snap = serde_json::json!({
+            "timeCreated": old.to_rfc3339(),
+        });
+        let snaps = vec![&snap];
+        let (needs, msg) = check_snapshot_sync_needed(&snaps, "vm1", 6, now);
+        assert!(needs);
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn test_check_snapshot_sync_needed_empty() {
+        let now = chrono::Utc::now();
+        let empty: Vec<&serde_json::Value> = vec![];
+        let (needs, msg) = check_snapshot_sync_needed(&empty, "vm1", 6, now);
+        assert!(needs);
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn test_format_snapshot_sync_complete_single() {
+        let out = format_snapshot_sync_complete(Some("vm1"));
+        assert!(out.contains("vm1"));
+    }
+
+    #[test]
+    fn test_format_snapshot_sync_complete_all() {
+        let out = format_snapshot_sync_complete(None);
+        assert!(out.contains("all VMs"));
+    }
+
+    // ── Storage handler tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_format_storage_created() {
+        let out = format_storage_created("mystorage", 100, "premium");
+        assert!(out.contains("mystorage"));
+        assert!(out.contains("100 GB"));
+        assert!(out.contains("premium"));
+    }
+
+    #[test]
+    fn test_format_storage_deleted() {
+        let out = format_storage_deleted("mystorage");
+        assert!(out.contains("Deleted"));
+        assert!(out.contains("mystorage"));
+    }
+
+    #[test]
+    fn test_format_storage_mounted() {
+        let out = format_storage_mounted("share1", "vm1", "/mnt/share1");
+        assert!(out.contains("share1"));
+        assert!(out.contains("vm1"));
+        assert!(out.contains("/mnt/share1"));
+    }
+
+    #[test]
+    fn test_validate_storage_name_valid() {
+        assert!(validate_storage_name("my-storage-1").is_ok());
+    }
+
+    #[test]
+    fn test_validate_storage_name_invalid() {
+        assert!(validate_storage_name("my_storage!").is_err());
+    }
+
+    #[test]
+    fn test_default_nfs_mount_point() {
+        assert_eq!(default_nfs_mount_point("share1"), "/mnt/share1");
+    }
+
+    // ── Costs handler tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_format_cost_history_header() {
+        let out = format_cost_history_header("my-rg", 30);
+        assert!(out.contains("my-rg"));
+        assert!(out.contains("30 days"));
+    }
+
+    #[test]
+    fn test_format_no_recommendations() {
+        let out = format_no_recommendations("my-rg", "High");
+        assert!(out.contains("my-rg"));
+        assert!(out.contains("High"));
+    }
+
+    #[test]
+    fn test_format_no_budgets() {
+        let out = format_no_budgets("my-rg");
+        assert!(out.contains("No budgets"));
+        assert!(out.contains("my-rg"));
+    }
+
+    #[test]
+    fn test_format_budget_deleted_msg() {
+        let out = format_budget_deleted("my-rg");
+        assert!(out.contains("Budget deleted"));
+    }
+
+    #[test]
+    fn test_format_cost_actions_header_dry_run() {
+        let out = format_cost_actions_header("apply", "my-rg", true);
+        assert!(out.contains("Would apply"));
+    }
+
+    #[test]
+    fn test_format_cost_actions_header_live() {
+        let out = format_cost_actions_header("apply", "my-rg", false);
+        assert!(out.contains("Cost actions (apply)"));
+    }
+
+    #[test]
+    fn test_build_advisor_args_no_priority() {
+        let args = build_advisor_args("my-rg", None);
+        assert!(args.contains(&"my-rg".to_string()));
+        assert!(!args.contains(&"--query".to_string()));
+    }
+
+    #[test]
+    fn test_build_advisor_args_with_priority() {
+        let args = build_advisor_args("my-rg", Some("High"));
+        assert!(args.contains(&"--query".to_string()));
+        let query_idx = args.iter().position(|a| a == "--query").unwrap();
+        assert!(args[query_idx + 1].contains("High"));
+    }
+
+    // ── Cleanup/orphan tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_find_orphaned_nics_mixed() {
+        let nics = vec![
+            serde_json::json!({
+                "name": "orphan-nic",
+                "resourceGroup": "rg1",
+                "virtualMachine": null
+            }),
+            serde_json::json!({
+                "name": "attached-nic",
+                "resourceGroup": "rg1",
+                "virtualMachine": {"id": "/some/vm"}
+            }),
+        ];
+        let orphans = find_orphaned_nics(&nics);
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].name, "orphan-nic");
+        assert_eq!(orphans[0].resource_type, "NetworkInterface");
+    }
+
+    #[test]
+    fn test_find_orphaned_nics_empty() {
+        let orphans = find_orphaned_nics(&[]);
+        assert!(orphans.is_empty());
+    }
+
+    #[test]
+    fn test_find_orphaned_public_ips() {
+        let ips = vec![
+            serde_json::json!({
+                "name": "orphan-ip",
+                "resourceGroup": "rg1",
+                "ipConfiguration": null
+            }),
+            serde_json::json!({
+                "name": "used-ip",
+                "resourceGroup": "rg1",
+                "ipConfiguration": {"id": "/some/config"}
+            }),
+        ];
+        let orphans = find_orphaned_public_ips(&ips, 3.65);
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].name, "orphan-ip");
+        assert_eq!(orphans[0].estimated_monthly_cost, 3.65);
+    }
+
+    #[test]
+    fn test_find_orphaned_nsgs() {
+        let nsgs = vec![
+            serde_json::json!({
+                "name": "orphan-nsg",
+                "resourceGroup": "rg1",
+                "networkInterfaces": [],
+                "subnets": []
+            }),
+            serde_json::json!({
+                "name": "used-nsg",
+                "resourceGroup": "rg1",
+                "networkInterfaces": [{"id": "/some/nic"}],
+                "subnets": []
+            }),
+        ];
+        let orphans = find_orphaned_nsgs(&nsgs);
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].name, "orphan-nsg");
+        assert_eq!(orphans[0].resource_type, "NetworkSecurityGroup");
+    }
+
+    #[test]
+    fn test_find_orphaned_nsgs_with_subnets() {
+        let nsgs = vec![serde_json::json!({
+            "name": "subnet-nsg",
+            "resourceGroup": "rg1",
+            "networkInterfaces": [],
+            "subnets": [{"id": "/some/subnet"}]
+        })];
+        let orphans = find_orphaned_nsgs(&nsgs);
+        assert!(orphans.is_empty());
+    }
+
+    #[test]
+    fn test_format_cleanup_complete() {
+        let out = format_cleanup_complete(3, 5);
+        assert!(out.contains("3/5"));
+    }
+
+    #[test]
+    fn test_format_cleanup_scan_header_dry_run() {
+        let out = format_cleanup_scan_header("rg1", 30, true);
+        assert!(out.contains("Dry run"));
+        assert!(out.contains("rg1"));
+        assert!(out.contains("30 days"));
+    }
+
+    #[test]
+    fn test_format_cleanup_scan_header_live() {
+        let out = format_cleanup_scan_header("rg1", 30, false);
+        assert!(!out.contains("Dry run"));
+    }
+
+    // ── Autopilot handler tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_build_autopilot_config() {
+        let val = build_autopilot_config(Some(100), "conservative", 30, 10, "2026-01-01T00:00:00Z");
+        let t = val.as_table().unwrap();
+        assert_eq!(t["enabled"].as_bool(), Some(true));
+        assert_eq!(t["budget"].as_integer(), Some(100));
+        assert_eq!(t["strategy"].as_str(), Some("conservative"));
+        assert_eq!(t["idle_threshold_minutes"].as_integer(), Some(30));
+        assert_eq!(t["cpu_threshold_percent"].as_integer(), Some(10));
+    }
+
+    #[test]
+    fn test_build_autopilot_config_no_budget() {
+        let val = build_autopilot_config(None, "aggressive", 60, 5, "2026-01-01T00:00:00Z");
+        let t = val.as_table().unwrap();
+        assert!(!t.contains_key("budget"));
+    }
+
+    #[test]
+    fn test_format_autopilot_enabled_with_budget() {
+        let out = format_autopilot_enabled(Some(200), "conservative", 30, 10);
+        assert!(out.contains("$200/month"));
+        assert!(out.contains("conservative"));
+        assert!(out.contains("30 min"));
+        assert!(out.contains("10%"));
+    }
+
+    #[test]
+    fn test_format_autopilot_enabled_no_budget() {
+        let out = format_autopilot_enabled(None, "aggressive", 60, 5);
+        assert!(!out.contains("Budget"));
+    }
+
+    #[test]
+    fn test_format_autopilot_status_enabled() {
+        let val: toml::Value = toml::from_str(
+            r#"
+            enabled = true
+            strategy = "conservative"
+            idle_threshold_minutes = 30
+            "#,
+        )
+        .unwrap();
+        let out = format_autopilot_status(Some(&val));
+        assert!(out.contains("ENABLED"));
+        assert!(out.contains("conservative"));
+    }
+
+    #[test]
+    fn test_format_autopilot_status_disabled() {
+        let val: toml::Value = toml::from_str("enabled = false").unwrap();
+        let out = format_autopilot_status(Some(&val));
+        assert!(out.contains("DISABLED"));
+    }
+
+    #[test]
+    fn test_format_autopilot_status_none() {
+        let out = format_autopilot_status(None);
+        assert!(out.contains("not configured"));
+    }
+
+    #[test]
+    fn test_parse_autopilot_thresholds_with_config() {
+        let val: toml::Value = toml::from_str(
+            r#"
+            idle_threshold_minutes = 45
+            cost_limit_usd = 50.0
+            "#,
+        )
+        .unwrap();
+        let (thresh, limit) = parse_autopilot_thresholds(Some(&val));
+        assert_eq!(thresh, 45);
+        assert!((limit - 50.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_autopilot_thresholds_defaults() {
+        let (thresh, limit) = parse_autopilot_thresholds(None);
+        assert_eq!(thresh, 30);
+        assert!((limit - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_classify_autopilot_vm_idle() {
+        let action = classify_autopilot_vm(2.0, 3600.0, 30);
+        assert_eq!(action, Some("deallocate".to_string()));
+    }
+
+    #[test]
+    fn test_classify_autopilot_vm_active() {
+        let action = classify_autopilot_vm(50.0, 3600.0, 30);
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn test_classify_autopilot_vm_low_cpu_short_uptime() {
+        // Low CPU but uptime below threshold — should NOT recommend action
+        let action = classify_autopilot_vm(2.0, 60.0, 30);
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn test_format_autopilot_dry_run() {
+        let actions = vec![
+            ("vm1".to_string(), "deallocate".to_string()),
+            ("vm2".to_string(), "deallocate".to_string()),
+        ];
+        let out = format_autopilot_dry_run(&actions);
+        assert!(out.contains("2 action(s)"));
+        assert!(out.contains("vm1"));
+        assert!(out.contains("vm2"));
+    }
+
+    // ── Context handler tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_format_context_list_table() {
+        let contexts = vec![
+            ("default".to_string(), true),
+            ("staging".to_string(), false),
+        ];
+        let out = format_context_list_table(&contexts);
+        assert!(out.contains("* default"));
+        assert!(out.contains("  staging"));
+    }
+
+    #[test]
+    fn test_format_context_show_with_content() {
+        let out = format_context_show("prod", Some("subscription_id = \"abc\""));
+        assert!(out.contains("Current context: prod"));
+        assert!(out.contains("subscription_id"));
+    }
+
+    #[test]
+    fn test_format_context_show_no_content() {
+        let out = format_context_show("prod", None);
+        assert!(out.contains("Current context: prod"));
+        assert!(!out.contains("subscription_id"));
+    }
+
+    #[test]
+    fn test_format_context_messages() {
+        assert!(format_context_switched("prod").contains("prod"));
+        assert!(format_context_created("staging").contains("staging"));
+        assert!(format_context_deleted("old").contains("old"));
+        assert!(format_context_renamed("a", "b").contains("a"));
+        assert!(format_context_renamed("a", "b").contains("b"));
+    }
+
+    // ── Keys handler tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_build_key_list_row() {
+        let row = build_key_list_row("id_ed25519.pub", 256, "2026-01-01 00:00");
+        assert_eq!(row[0], "id_ed25519.pub");
+        assert_eq!(row[1], "ed25519");
+        assert_eq!(row[2], "256");
+        assert_eq!(row[3], "2026-01-01 00:00");
+    }
+
+    #[test]
+    fn test_build_key_list_row_rsa() {
+        let row = build_key_list_row("id_rsa", 1024, "2026-01-01 00:00");
+        assert_eq!(row[1], "rsa");
+    }
+
+    #[test]
+    fn test_is_ssh_key_file_pub() {
+        assert!(is_ssh_key_file("id_ed25519.pub", false));
+    }
+
+    #[test]
+    fn test_is_ssh_key_file_private() {
+        assert!(is_ssh_key_file("id_rsa", false));
+    }
+
+    #[test]
+    fn test_is_ssh_key_file_with_companion() {
+        assert!(is_ssh_key_file("my_custom_key", true));
+    }
+
+    #[test]
+    fn test_is_ssh_key_file_hidden() {
+        // Hidden files are not SSH keys
+        assert!(!is_ssh_key_file(".config", true));
+    }
+
+    #[test]
+    fn test_format_key_exported() {
+        let out = format_key_exported("id_ed25519.pub", "/tmp/mykey.pub");
+        assert!(out.contains("id_ed25519.pub"));
+        assert!(out.contains("/tmp/mykey.pub"));
+    }
+
+    #[test]
+    fn test_format_key_backup() {
+        let out = format_key_backup(3, "/tmp/backup");
+        assert!(out.contains("3 key files"));
+        assert!(out.contains("/tmp/backup"));
     }
 }

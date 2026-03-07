@@ -2416,8 +2416,8 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     };
                     snapshot_helpers::save_schedule(&schedule)?;
                     println!(
-                        "Scheduled snapshots enabled for VM '{}': every {}h, keep {}",
-                        vm_name, every, keep
+                        "{}",
+                        handlers::build_snapshot_enable_output(&vm_name, &rg, every, keep)
                     );
                 }
                 azlin_cli::SnapshotAction::Disable { vm_name, .. } => {
@@ -2428,12 +2428,21 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     if let Some(mut sched) = snapshot_helpers::load_schedule(&vm_name) {
                         sched.enabled = false;
                         snapshot_helpers::save_schedule(&sched)?;
-                        println!("Scheduled snapshots disabled for VM '{}'", vm_name);
+                        println!(
+                            "{}",
+                            handlers::build_snapshot_disable_output(&vm_name, true)
+                        );
                     } else if path.exists() {
                         std::fs::remove_file(&path)?;
-                        println!("Scheduled snapshots disabled for VM '{}'", vm_name);
+                        println!(
+                            "{}",
+                            handlers::build_snapshot_disable_output(&vm_name, true)
+                        );
                     } else {
-                        println!("No schedule configured for VM '{}'", vm_name);
+                        println!(
+                            "{}",
+                            handlers::build_snapshot_disable_output(&vm_name, false)
+                        );
                     }
                 }
                 azlin_cli::SnapshotAction::Sync { vm, .. } => {
@@ -2466,27 +2475,15 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                                     serde_json::from_slice(&list_output.stdout).unwrap_or_default();
                                 let filtered =
                                     snapshot_helpers::filter_snapshots(&all_snaps, &sched.vm_name);
-                                // Find the most recent snapshot by timeCreated
-                                let newest = filtered
-                                    .iter()
-                                    .filter_map(|s| {
-                                        s["timeCreated"].as_str().and_then(|t| {
-                                            chrono::DateTime::parse_from_rfc3339(t).ok()
-                                        })
-                                    })
-                                    .max();
-                                if let Some(latest) = newest {
-                                    let age = chrono::Utc::now()
-                                        .signed_duration_since(latest.with_timezone(&chrono::Utc));
-                                    if age.num_hours() < sched.every_hours as i64 {
-                                        needs_snapshot = false;
-                                        println!(
-                                            "VM '{}': latest snapshot is {}h old (interval {}h), skipping",
-                                            sched.vm_name,
-                                            age.num_hours(),
-                                            sched.every_hours
-                                        );
-                                    }
+                                let (needed, skip_msg) = handlers::check_snapshot_sync_needed(
+                                    &filtered,
+                                    &sched.vm_name,
+                                    sched.every_hours,
+                                    chrono::Utc::now(),
+                                );
+                                needs_snapshot = needed;
+                                if let Some(msg) = skip_msg {
+                                    println!("{}", msg);
                                 }
                             }
 
@@ -2558,10 +2555,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                                 }
                             }
                         }
-                        match &vm {
-                            Some(name) => println!("Snapshot sync completed for VM '{}'", name),
-                            None => println!("Snapshot sync completed for all VMs"),
-                        }
+                        println!("{}", handlers::format_snapshot_sync_complete(vm.as_deref()));
                     }
                 }
                 azlin_cli::SnapshotAction::Status { vm_name, .. } => {
@@ -2625,7 +2619,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
 
                 pb.finish_and_clear();
                 if output.status.success() {
-                    println!("Created storage account '{}' ({} GB, {})", name, size, tier);
+                    println!("{}", handlers::format_storage_created(&name, size, &tier));
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     anyhow::bail!(
@@ -2734,15 +2728,10 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     .admin_username
                     .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
-                // Validate storage_name: Azure storage accounts allow only [a-zA-Z0-9-]
-                if !storage_name
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '-')
-                {
-                    anyhow::bail!("Invalid storage name: contains disallowed characters");
-                }
+                handlers::validate_storage_name(&storage_name)?;
 
-                let mp = mount_point.unwrap_or_else(|| format!("/mnt/{}", storage_name));
+                let mp =
+                    mount_point.unwrap_or_else(|| handlers::default_nfs_mount_point(&storage_name));
 
                 // Validate mount path to prevent command injection
                 mount_helpers::validate_mount_path(&mp)
@@ -2759,7 +2748,10 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     .status()?;
 
                 if status.success() {
-                    println!("Mounted '{}' on VM '{}' at {}", storage_name, vm, mp);
+                    println!(
+                        "{}",
+                        handlers::format_storage_mounted(&storage_name, &vm, &mp)
+                    );
                 } else {
                     anyhow::bail!("Failed to mount storage on VM.");
                 }
@@ -2793,7 +2785,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     .status()?;
 
                 if status.success() {
-                    println!("Unmounted NFS storage from VM '{}'", vm);
+                    println!("{}", handlers::format_storage_unmounted(&vm));
                 } else {
                     anyhow::bail!("Failed to unmount storage from VM.");
                 }
@@ -2838,7 +2830,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
 
                 pb.finish_and_clear();
                 if output.status.success() {
-                    println!("Deleted storage account '{}'", name);
+                    println!("{}", handlers::format_storage_deleted(&name));
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     anyhow::bail!(
@@ -3105,7 +3097,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     }
                 }
 
-                println!("Key rotation complete.");
+                println!("{}", handlers::format_key_rotation_complete());
             }
             azlin_cli::KeysAction::Export { output } => {
                 let ssh_dir = home_dir()?.join(".ssh");
@@ -3122,7 +3114,10 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             .file_name()
                             .map(|f| f.to_string_lossy().into_owned())
                             .unwrap_or_else(|| src.display().to_string());
-                        println!("Exported {} to {}", fname, output.display());
+                        println!(
+                            "{}",
+                            handlers::format_key_exported(&fname, &output.display().to_string())
+                        );
                     }
                     None => {
                         anyhow::bail!("No SSH public key found in {}", ssh_dir.display());
@@ -3149,7 +3144,10 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                         count += 1;
                     }
                 }
-                println!("Backed up {} key files to {}", count, backup_dir.display());
+                println!(
+                    "{}",
+                    handlers::format_key_backup(count, &backup_dir.display().to_string())
+                );
             }
         },
         azlin_cli::Commands::Auth { action } => {
@@ -4755,38 +4753,24 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                 let azlin_home = home_dir()?.join(".azlin");
                 std::fs::create_dir_all(&azlin_home)?;
                 let ap_path = azlin_home.join("autopilot.toml");
-                let mut config = toml::map::Map::new();
-                config.insert("enabled".to_string(), toml::Value::Boolean(true));
-                if let Some(b) = budget {
-                    config.insert("budget".to_string(), toml::Value::Integer(b as i64));
-                }
-                config.insert(
-                    "strategy".to_string(),
-                    toml::Value::String(strategy.clone()),
+                let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+                let val = handlers::build_autopilot_config(
+                    budget,
+                    &strategy,
+                    idle_threshold,
+                    cpu_threshold,
+                    &ts,
                 );
-                config.insert(
-                    "idle_threshold_minutes".to_string(),
-                    toml::Value::Integer(idle_threshold as i64),
-                );
-                config.insert(
-                    "cpu_threshold_percent".to_string(),
-                    toml::Value::Integer(cpu_threshold as i64),
-                );
-                config.insert(
-                    "updated".to_string(),
-                    toml::Value::String(
-                        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-                    ),
-                );
-                let val = toml::Value::Table(config);
                 std::fs::write(&ap_path, toml::to_string_pretty(&val)?)?;
-                println!("Autopilot enabled:");
-                if let Some(b) = budget {
-                    println!("  Budget:         ${}/month", b);
-                }
-                println!("  Strategy:       {}", strategy);
-                println!("  Idle threshold: {} min", idle_threshold);
-                println!("  CPU threshold:  {}%", cpu_threshold);
+                println!(
+                    "{}",
+                    handlers::format_autopilot_enabled(
+                        budget,
+                        &strategy,
+                        idle_threshold,
+                        cpu_threshold
+                    )
+                );
                 println!("Saved to {}", ap_path.display());
             }
             azlin_cli::AutopilotAction::Disable { keep_config } => {
@@ -4810,25 +4794,14 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             }
             azlin_cli::AutopilotAction::Status => {
                 let ap_path = home_dir()?.join(".azlin").join("autopilot.toml");
-                if ap_path.exists() {
+                let config = if ap_path.exists() {
                     let content = std::fs::read_to_string(&ap_path)?;
                     let val: toml::Value = toml::from_str(&content)?;
-                    if let Some(t) = val.as_table() {
-                        let enabled = t.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                        println!(
-                            "Autopilot: {}",
-                            if enabled { "ENABLED" } else { "DISABLED" }
-                        );
-                        for (k, v) in t {
-                            if k != "enabled" {
-                                println!("  {}: {}", k, v);
-                            }
-                        }
-                    }
+                    Some(val)
                 } else {
-                    println!("Autopilot: not configured");
-                    println!("Enable with: azlin autopilot enable");
-                }
+                    None
+                };
+                println!("{}", handlers::format_autopilot_status(config.as_ref()));
             }
             azlin_cli::AutopilotAction::Config { set, show } => {
                 let ap_path = home_dir()?.join(".azlin").join("autopilot.toml");
@@ -4868,23 +4841,15 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                 let vm_manager = azlin_azure::VmManager::new(&auth);
                 let vms = vm_manager.list_vms(&rg)?;
                 let ap_path = home_dir()?.join(".azlin").join("autopilot.toml");
-                let (idle_threshold, cost_limit) = if ap_path.exists() {
+                let ap_config = if ap_path.exists() {
                     let content = std::fs::read_to_string(&ap_path)?;
                     let val: toml::Value = toml::from_str(&content)?;
-                    let thresh = val
-                        .as_table()
-                        .and_then(|t| t.get("idle_threshold_minutes"))
-                        .and_then(|v| v.as_integer())
-                        .unwrap_or(30) as u32;
-                    let limit = val
-                        .as_table()
-                        .and_then(|t| t.get("cost_limit_usd"))
-                        .and_then(|v| v.as_float())
-                        .unwrap_or(0.0);
-                    (thresh, limit)
+                    Some(val)
                 } else {
-                    (30, 0.0)
+                    None
                 };
+                let (idle_threshold, cost_limit) =
+                    handlers::parse_autopilot_thresholds(ap_config.as_ref());
                 println!(
                     "Autopilot check (idle threshold: {} min, cost limit: ${:.2}):",
                     idle_threshold, cost_limit
@@ -4919,11 +4884,19 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                                     lines.first().and_then(|s| s.parse().ok()).unwrap_or(100.0);
                                 let uptime_secs: f64 =
                                     lines.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
-                                let idle_mins = idle_threshold as f64;
-                                if cpu_pct < 5.0 && uptime_secs > idle_mins * 60.0 {
-                                    println!("  ⚠ {} — CPU {} for {:.0}min — IDLE (recommend deallocate)",
-                                             vm.name, health_helpers::format_percentage(cpu_pct as f32), uptime_secs / 60.0);
-                                    actions.push((vm.name.clone(), "deallocate".to_string()));
+                                if let Some(action_name) = handlers::classify_autopilot_vm(
+                                    cpu_pct,
+                                    uptime_secs,
+                                    idle_threshold,
+                                ) {
+                                    println!(
+                                        "  ⚠ {} — CPU {} for {:.0}min — IDLE (recommend {})",
+                                        vm.name,
+                                        health_helpers::format_percentage(cpu_pct as f32),
+                                        uptime_secs / 60.0,
+                                        action_name
+                                    );
+                                    actions.push((vm.name.clone(), action_name));
                                 } else {
                                     println!(
                                         "  ✓ {} — CPU {} — active",
@@ -4943,10 +4916,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                 if actions.is_empty() {
                     println!("No cost-saving actions needed at this time.");
                 } else if dry_run {
-                    println!("\nDry run — {} action(s) would be taken:", actions.len());
-                    for (name, action) in &actions {
-                        println!("  {} → {}", name, action);
-                    }
+                    println!("{}", handlers::format_autopilot_dry_run(&actions));
                 } else {
                     println!("\nApplying {} action(s):", actions.len());
                     for (name, action) in &actions {
@@ -4977,7 +4947,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                         .unwrap_or_default();
                     let ctx_list = contexts::list_contexts(&ctx_dir, &active)?;
                     if ctx_list.is_empty() {
-                        println!("No contexts found. Create one with: azlin context create <name>");
+                        println!("{}", handlers::format_no_contexts());
                     } else {
                         let rows: Vec<Vec<String>> = ctx_list
                             .iter()
@@ -4990,13 +4960,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             .collect();
                         match &cli.output {
                             azlin_cli::OutputFormat::Table => {
-                                for (name, is_active) in &ctx_list {
-                                    if *is_active {
-                                        println!("* {}", name);
-                                    } else {
-                                        println!("  {}", name);
-                                    }
-                                }
+                                print!("{}", handlers::format_context_list_table(&ctx_list));
                             }
                             _ => {
                                 azlin_cli::table::render_rows(
@@ -5011,12 +4975,13 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                 azlin_cli::ContextAction::Show { .. } => {
                     match std::fs::read_to_string(&active_ctx_path) {
                         Ok(name) => {
-                            let name = name.trim();
-                            println!("Current context: {}", name);
+                            let name = name.trim().to_string();
                             let path = ctx_dir.join(format!("{}.toml", name));
-                            if let Ok(content) = std::fs::read_to_string(&path) {
-                                println!("{}", content.trim());
-                            }
+                            let content = std::fs::read_to_string(&path).ok();
+                            println!(
+                                "{}",
+                                handlers::format_context_show(&name, content.as_deref())
+                            );
                         }
                         Err(_) => println!("No context selected."),
                     }
@@ -5030,7 +4995,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                         anyhow::bail!("Context '{}' not found.", name);
                     }
                     std::fs::write(&active_ctx_path, &name)?;
-                    println!("Switched to context '{}'", name);
+                    println!("{}", handlers::format_context_switched(&name));
                 }
                 azlin_cli::ContextAction::Create {
                     name,
@@ -5054,7 +5019,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     )?;
                     let path = ctx_dir.join(format!("{}.toml", name));
                     std::fs::write(&path, &toml_str)?;
-                    println!("Created context '{}'", name);
+                    println!("{}", handlers::format_context_created(&name));
                 }
                 azlin_cli::ContextAction::Delete { name, force, .. } => {
                     if let Err(e) = name_validation::validate_name(&name) {
@@ -5081,7 +5046,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             let _ = std::fs::remove_file(&active_ctx_path);
                         }
                     }
-                    println!("Deleted context '{}'", name);
+                    println!("{}", handlers::format_context_deleted(&name));
                 }
                 azlin_cli::ContextAction::Rename {
                     old_name, new_name, ..
@@ -5099,7 +5064,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             std::fs::write(&active_ctx_path, &new_name)?;
                         }
                     }
-                    println!("Renamed context '{}' → '{}'", old_name, new_name);
+                    println!("{}", handlers::format_context_renamed(&old_name, &new_name));
                 }
                 azlin_cli::ContextAction::Migrate { force, .. } => {
                     // Check for legacy config.toml with subscription/tenant at top level
@@ -5830,8 +5795,8 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                                     table.add_row(vec![Cell::new(&date), Cell::new(&cost)]);
                                 }
                                 println!(
-                                    "Cost history for '{}' (last {} days):",
-                                    resource_group, days
+                                    "{}",
+                                    handlers::format_cost_history_header(&resource_group, days)
                                 );
                                 println!("{table}");
                             }
@@ -5909,7 +5874,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                         if output.status.success() {
                             let text = String::from_utf8_lossy(&output.stdout);
                             if text.trim().is_empty() {
-                                println!("No budgets found for '{}'.", resource_group);
+                                println!("{}", handlers::format_no_budgets(&resource_group));
                             } else {
                                 print!("{}", text);
                             }
@@ -5935,7 +5900,7 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             ])
                             .output()?;
                         if output.status.success() {
-                            println!("Budget deleted for '{}'.", resource_group);
+                            println!("{}", handlers::format_budget_deleted(&resource_group));
                         } else {
                             let stderr = String::from_utf8_lossy(&output.stderr);
                             eprintln!(
@@ -5955,19 +5920,8 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                     resource_group,
                     priority,
                 } => {
-                    let mut cmd_args = vec![
-                        "advisor".to_string(),
-                        "recommendation".to_string(),
-                        "list".to_string(),
-                        "--resource-group".to_string(),
-                        resource_group.clone(),
-                        "-o".to_string(),
-                        "json".to_string(),
-                    ];
-                    if let Some(ref pri) = priority {
-                        cmd_args.push("--query".to_string());
-                        cmd_args.push(format!("[?impact=='{}']", pri));
-                    }
+                    let cmd_args =
+                        handlers::build_advisor_args(&resource_group, priority.as_deref());
                     let output = std::process::Command::new("az").args(&cmd_args).output()?;
 
                     if output.status.success() {
@@ -5978,8 +5932,11 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                                     if recs.is_empty() {
                                         let pri = priority.unwrap_or_else(|| "all".to_string());
                                         println!(
-                                            "No cost recommendations found for '{}' (priority: {})",
-                                            resource_group, pri
+                                            "{}",
+                                            handlers::format_no_recommendations(
+                                                &resource_group,
+                                                &pri
+                                            )
                                         );
                                     } else {
                                         let mut table = Table::new();
@@ -6001,7 +5958,12 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                                                 Cell::new(&problem),
                                             ]);
                                         }
-                                        println!("Cost recommendations for '{}':", resource_group);
+                                        println!(
+                                            "{}",
+                                            handlers::format_recommendations_header(
+                                                &resource_group
+                                            )
+                                        );
                                         println!("{table}");
                                     }
                                 }
@@ -6042,7 +6004,10 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                             Ok(data) => {
                                 if let Some(recs) = data.as_array() {
                                     if recs.is_empty() {
-                                        println!("No pending cost actions in '{}'", resource_group);
+                                        println!(
+                                            "{}",
+                                            handlers::format_no_cost_actions(&resource_group)
+                                        );
                                     } else {
                                         let mut table = Table::new();
                                         table
@@ -6064,17 +6029,14 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                                                 Cell::new(&problem),
                                             ]);
                                         }
-                                        if dry_run {
-                                            println!(
-                                                "Would {} the following cost actions in '{}':",
-                                                action, resource_group
-                                            );
-                                        } else {
-                                            println!(
-                                                "Cost actions ({}) in '{}':",
-                                                action, resource_group
-                                            );
-                                        }
+                                        println!(
+                                            "{}",
+                                            handlers::format_cost_actions_header(
+                                                &action,
+                                                &resource_group,
+                                                dry_run
+                                            )
+                                        );
                                         println!("{table}");
                                         // Apply actions if not dry-run
                                         if !dry_run && action == "apply" {
@@ -6228,10 +6190,8 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             let rg = resolve_resource_group(resource_group)?;
 
             println!(
-                "{}Scanning for orphaned resources in '{}' (older than {} days)...",
-                if dry_run { "Dry run — " } else { "" },
-                rg,
-                age_days
+                "{}",
+                handlers::format_cleanup_scan_header(&rg, age_days, dry_run)
             );
 
             // Helper: run an az CLI query and return stdout as String
@@ -6463,9 +6423,8 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                 }
             }
             println!(
-                "Cleanup complete. Deleted {}/{} orphaned resources.",
-                deleted,
-                all_orphans.len()
+                "{}",
+                handlers::format_cleanup_complete(deleted, all_orphans.len())
             );
         }
 
