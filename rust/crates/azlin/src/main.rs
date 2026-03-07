@@ -893,6 +893,7 @@ mod cmd_monitoring;
 mod cmd_network;
 mod cmd_network_ops;
 mod cmd_network_ops2;
+mod cmd_self_update;
 mod cmd_session;
 mod cmd_snapshot;
 mod cmd_snapshot_ops;

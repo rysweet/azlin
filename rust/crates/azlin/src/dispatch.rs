@@ -115,6 +115,9 @@ pub(crate) async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
         | cmd @ azlin_cli::Commands::Logs { .. } => {
             crate::cmd_sync::dispatch(cmd, cli.verbose, &cli.output).await?;
         }
+        azlin_cli::Commands::SelfUpdate => {
+            crate::cmd_self_update::handle_self_update()?;
+        }
         azlin_cli::Commands::Completions { shell } => {
             let mut cmd = azlin_cli::Cli::command();
             clap_complete::generate(shell, &mut cmd, "azlin", &mut std::io::stdout());

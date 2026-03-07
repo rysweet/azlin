@@ -969,6 +969,10 @@ pub enum Commands {
     /// Display version information
     Version,
 
+    /// Update azlin to the latest version from GitHub Releases
+    #[command(name = "self-update")]
+    SelfUpdate,
+
     /// Generate shell completions
     Completions {
         /// Shell to generate completions for
