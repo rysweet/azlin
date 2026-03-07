@@ -3,6 +3,10 @@
 //! Each handler function accepts `&dyn AzureOps` instead of `&VmManager`,
 //! enabling mock-based testing without live Azure credentials.
 //!
+//! Some functions are only called from tests currently — they provide
+//! covered logic that mirrors main.rs command handlers.
+#![allow(dead_code)]
+//!
 //! The handlers produce structured output (strings, data) rather than directly
 //! printing, so tests can assert on return values.
 //!
