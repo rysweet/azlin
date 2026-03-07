@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::CommandFactory;
 use console::Style;
 
@@ -16,53 +16,9 @@ pub(crate) async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
         azlin_cli::Commands::Version => {
             println!("azlin {} (rust)", env!("CARGO_PKG_VERSION"));
         }
-        azlin_cli::Commands::Config { action } => match action {
-            azlin_cli::ConfigAction::Show => {
-                let config = azlin_core::AzlinConfig::load()?;
-                let json = serde_json::to_value(&config)?;
-                let key_style = Style::new().cyan().bold();
-                let val_style = Style::new().white();
-                if let Some(obj) = json.as_object() {
-                    for (k, v) in obj {
-                        let display = match v {
-                            serde_json::Value::String(s) => s.clone(),
-                            serde_json::Value::Null => "null".to_string(),
-                            other => other.to_string(),
-                        };
-                        println!(
-                            "{}: {}",
-                            key_style.apply_to(k),
-                            val_style.apply_to(&display)
-                        );
-                    }
-                }
-            }
-            azlin_cli::ConfigAction::Get { key } => {
-                let config = azlin_core::AzlinConfig::load()?;
-                let json = serde_json::to_value(&config)?;
-                match json.get(&key) {
-                    Some(serde_json::Value::String(s)) => println!("{s}"),
-                    Some(val) => println!("{val}"),
-                    None => eprintln!("Unknown config key: {key}"),
-                }
-            }
-            azlin_cli::ConfigAction::Set { key, value } => {
-                let mut config = azlin_core::AzlinConfig::load()?;
-                let mut json = serde_json::to_value(&config)?;
-                if let Some(obj) = json.as_object() {
-                    if !obj.contains_key(&key) {
-                        anyhow::bail!("Unknown config key: {key}");
-                    }
-                }
-                let validated = azlin_core::AzlinConfig::validate_field(&key, &value)?;
-                if let Some(obj) = json.as_object_mut() {
-                    obj.insert(key.clone(), validated);
-                    config = serde_json::from_value(json)?;
-                    config.save()?;
-                    println!("Set {key} = {value}");
-                }
-            }
-        },
+        azlin_cli::Commands::Config { action } => {
+            handle_config(action)?;
+        }
         cmd @ azlin_cli::Commands::List { .. } => {
             crate::cmd_list::dispatch(cmd, cli.verbose, &cli.output).await?;
         }
@@ -98,36 +54,7 @@ pub(crate) async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             estimate,
             ..
         } => {
-            let auth = create_auth()?;
-            let rg = resolve_resource_group(resource_group)?;
-            let cost_timeout = azlin_core::AzlinConfig::load()
-                .map(|c| c.az_cli_timeout)
-                .unwrap_or(120);
-
-            let pb = indicatif::ProgressBar::new_spinner();
-            pb.set_message("Fetching cost data...");
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            match azlin_azure::get_cost_summary(&auth, &rg, cost_timeout) {
-                Ok(summary) => {
-                    pb.finish_and_clear();
-                    let fmt_str = match &cli.output {
-                        azlin_cli::OutputFormat::Json => "json",
-                        azlin_cli::OutputFormat::Csv => "csv",
-                        azlin_cli::OutputFormat::Table => "table",
-                    };
-                    println!(
-                        "{}",
-                        handlers::format_cost_summary(
-                            &summary, fmt_str, &from, &to, estimate, by_vm
-                        )
-                    );
-                }
-                Err(e) => {
-                    pb.finish_and_clear();
-                    eprintln!("⚠ Cost data unavailable: {e}");
-                    eprintln!("  Run 'az consumption usage list' for cost data via Azure CLI.");
-                }
-            }
+            handle_cost(resource_group, &cli.output, from, to, estimate, by_vm)?;
         }
         cmd @ azlin_cli::Commands::Snapshot { .. } => {
             crate::cmd_snapshot::dispatch(cmd, cli.verbose, &cli.output).await?;
@@ -200,145 +127,94 @@ pub(crate) async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
     Ok(())
 }
 
-fn create_auth() -> Result<azlin_azure::AzureAuth> {
-    azlin_azure::AzureAuth::new().map_err(|e| {
-        anyhow::anyhow!(
-            "Azure authentication failed: {e}\n\
-             Run 'az login' to authenticate with Azure CLI."
-        )
-    })
-}
-
-fn resolve_resource_group(explicit: Option<String>) -> Result<String> {
-    if let Some(rg) = explicit {
-        return Ok(rg);
-    }
-    let config = azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
-    config.default_resource_group.ok_or_else(|| {
-        anyhow::anyhow!(
-            "No resource group configured.\n\n\
-             Quick setup:\n\
-             1. azlin context create <name> --subscription-id <sub> --tenant-id <tenant>\n\
-             2. azlin context use <name>\n\
-             3. azlin config set default_resource_group <rg-name>\n\n\
-             Or pass --resource-group <name> to any command.\n\
-             Run 'az account show' to find your subscription and tenant IDs."
-        )
-    })
-}
-
-/// Get the user's home directory, returning a clear error on failure.
-fn home_dir() -> Result<std::path::PathBuf> {
-    dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))
-}
-
-/// Escape a value for safe inclusion in a shell command.
-fn shell_escape(s: &str) -> String {
-    let mut escaped = String::with_capacity(s.len() + 2);
-    escaped.push('\'');
-    for c in s.chars() {
-        if c == '\'' {
-            escaped.push_str("'\\''");
-        } else {
-            escaped.push(c);
+fn handle_config(action: azlin_cli::ConfigAction) -> Result<()> {
+    match action {
+        azlin_cli::ConfigAction::Show => {
+            let config = azlin_core::AzlinConfig::load()?;
+            let json = serde_json::to_value(&config)?;
+            let key_style = Style::new().cyan().bold();
+            let val_style = Style::new().white();
+            if let Some(obj) = json.as_object() {
+                for (k, v) in obj {
+                    let display = match v {
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Null => "null".to_string(),
+                        other => other.to_string(),
+                    };
+                    println!(
+                        "{}: {}",
+                        key_style.apply_to(k),
+                        val_style.apply_to(&display)
+                    );
+                }
+            }
+        }
+        azlin_cli::ConfigAction::Get { key } => {
+            let config = azlin_core::AzlinConfig::load()?;
+            let json = serde_json::to_value(&config)?;
+            match json.get(&key) {
+                Some(serde_json::Value::String(s)) => println!("{s}"),
+                Some(val) => println!("{val}"),
+                None => eprintln!("Unknown config key: {key}"),
+            }
+        }
+        azlin_cli::ConfigAction::Set { key, value } => {
+            let mut config = azlin_core::AzlinConfig::load()?;
+            let mut json = serde_json::to_value(&config)?;
+            if let Some(obj) = json.as_object() {
+                if !obj.contains_key(&key) {
+                    anyhow::bail!("Unknown config key: {key}");
+                }
+            }
+            let validated = azlin_core::AzlinConfig::validate_field(&key, &value)?;
+            if let Some(obj) = json.as_object_mut() {
+                obj.insert(key.clone(), validated);
+                config = serde_json::from_value(json)?;
+                config.save()?;
+                println!("Set {key} = {value}");
+            }
         }
     }
-    escaped.push('\'');
-    escaped
+    Ok(())
 }
 
-/// Resolve a single VM to a `VmSshTarget`, using --ip flag if provided.
-/// Routes through bastion automatically for private-IP-only VMs.
-async fn resolve_vm_ssh_target(
-    vm_name: &str,
-    ip_flag: Option<&str>,
+fn handle_cost(
     resource_group: Option<String>,
-) -> Result<VmSshTarget> {
-    if let Some(ip) = ip_flag {
-        return Ok(VmSshTarget {
-            vm_name: vm_name.to_string(),
-            ip: ip.to_string(),
-            user: DEFAULT_ADMIN_USERNAME.to_string(),
-            bastion: None,
-        });
-    }
+    output: &azlin_cli::OutputFormat,
+    from: Option<String>,
+    to: Option<String>,
+    estimate: bool,
+    by_vm: bool,
+) -> Result<()> {
     let auth = create_auth()?;
-    let vm_manager = azlin_azure::VmManager::new(&auth);
     let rg = resolve_resource_group(resource_group)?;
-    let vm = vm_manager.get_vm(&rg, vm_name)?;
-    let bastion_map: std::collections::HashMap<String, String> =
-        list_helpers::detect_bastion_hosts(&rg)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(name, location, _)| (location, name))
-            .collect();
-    let ssh_key = resolve_ssh_key();
-    let target = build_ssh_target(&vm, vm_manager.subscription_id(), &bastion_map, &ssh_key);
-    if target.ip.is_empty() {
-        anyhow::bail!("No IP address found for VM '{}'", vm_name);
+    let cost_timeout = azlin_core::AzlinConfig::load()
+        .map(|c| c.az_cli_timeout)
+        .unwrap_or(120);
+
+    let pb = indicatif::ProgressBar::new_spinner();
+    pb.set_message("Fetching cost data...");
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    match azlin_azure::get_cost_summary(&auth, &rg, cost_timeout) {
+        Ok(summary) => {
+            pb.finish_and_clear();
+            let fmt_str = match output {
+                azlin_cli::OutputFormat::Json => "json",
+                azlin_cli::OutputFormat::Csv => "csv",
+                azlin_cli::OutputFormat::Table => "table",
+            };
+            println!(
+                "{}",
+                handlers::format_cost_summary(&summary, fmt_str, &from, &to, estimate, by_vm)
+            );
+        }
+        Err(e) => {
+            pb.finish_and_clear();
+            eprintln!("Cost data unavailable: {e}");
+            eprintln!("  Run 'az consumption usage list' for cost data via Azure CLI.");
+        }
     }
-    Ok(target)
+    Ok(())
 }
 
-/// Resolve targets for W/Ps/Top: single VM (--vm/--ip) or all VMs via Azure.
-/// Returns `Vec<VmSshTarget>` with bastion routing for private-IP-only VMs.
-async fn resolve_vm_targets(
-    vm_flag: Option<&str>,
-    ip_flag: Option<&str>,
-    resource_group: Option<String>,
-) -> Result<Vec<VmSshTarget>> {
-    if let Some(ip) = ip_flag {
-        let name = vm_flag.unwrap_or(ip);
-        return Ok(vec![VmSshTarget {
-            vm_name: name.to_string(),
-            ip: ip.to_string(),
-            user: DEFAULT_ADMIN_USERNAME.to_string(),
-            bastion: None,
-        }]);
-    }
-    if let Some(vm_name) = vm_flag {
-        let auth = create_auth()?;
-        let vm_manager = azlin_azure::VmManager::new(&auth);
-        let rg = resolve_resource_group(resource_group)?;
-        let vm = vm_manager.get_vm(&rg, vm_name)?;
-        let bastion_map: std::collections::HashMap<String, String> =
-            list_helpers::detect_bastion_hosts(&rg)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(name, location, _)| (location, name))
-                .collect();
-        let ssh_key = resolve_ssh_key();
-        let target = build_ssh_target(&vm, vm_manager.subscription_id(), &bastion_map, &ssh_key);
-        if target.ip.is_empty() {
-            anyhow::bail!("No IP address found for VM '{}'", vm_name);
-        }
-        return Ok(vec![target]);
-    }
-    // List all running VMs
-    let auth = create_auth()?;
-    let vm_manager = azlin_azure::VmManager::new(&auth);
-    let rg = resolve_resource_group(resource_group)?;
-    let bastion_map: std::collections::HashMap<String, String> =
-        list_helpers::detect_bastion_hosts(&rg)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(name, location, _)| (location, name))
-            .collect();
-    let sub_id = vm_manager.subscription_id().to_string();
-    let ssh_key = resolve_ssh_key();
-    let vms = vm_manager.list_vms(&rg)?;
-    let mut targets = Vec::new();
-    for vm in vms {
-        if vm.power_state != azlin_core::models::PowerState::Running {
-            continue;
-        }
-        if vm.public_ip.is_none() && vm.private_ip.is_none() {
-            continue;
-        }
-        targets.push(build_ssh_target(&vm, &sub_id, &bastion_map, &ssh_key));
-    }
-    if targets.is_empty() {
-        anyhow::bail!("No running VMs found. Use --vm or --ip to target a specific VM.");
-    }
-    Ok(targets)
-}
+// Utility functions live in dispatch_helpers module; accessed via `use super::*`.

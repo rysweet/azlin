@@ -240,3 +240,7 @@ pub fn query_vm_size_specs(vm_size: &str, location: &str) -> (String, String) {
 #[cfg(test)]
 #[path = "display_helpers_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "display_helpers_tests2.rs"]
+mod tests2;

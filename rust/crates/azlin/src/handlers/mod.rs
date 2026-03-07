@@ -30,12 +30,16 @@ mod storage;
 mod tags;
 
 pub use autopilot::*;
+pub use batch::*;
 pub use cleanup::*;
 pub use connect::*;
 pub use context::*;
 pub use costs::*;
+pub use create::*;
+pub use health::*;
 pub use help::*;
 pub use keys::*;
+pub use list::*;
 pub use show::*;
 pub use snapshot::*;
 pub use storage::*;

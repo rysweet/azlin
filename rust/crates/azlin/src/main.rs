@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
 };
@@ -35,6 +36,7 @@ use tracing_subscriber::EnvFilter;
 
 /// Estimated monthly cost for an orphaned Azure Standard public IP address.
 mod dispatch;
+mod dispatch_helpers;
 const ORPHANED_PUBLIC_IP_MONTHLY_COST: f64 = 3.65;
 
 /// Default admin username for Azure VMs.
@@ -735,148 +737,11 @@ async fn async_main() -> Result<()> {
     dispatch::dispatch_command(cli).await
 }
 
-fn create_auth() -> Result<azlin_azure::AzureAuth> {
-    azlin_azure::AzureAuth::new().map_err(|e| {
-        anyhow::anyhow!(
-            "Azure authentication failed: {e}\n\
-             Run 'az login' to authenticate with Azure CLI."
-        )
-    })
-}
-
-fn resolve_resource_group(explicit: Option<String>) -> Result<String> {
-    if let Some(rg) = explicit {
-        return Ok(rg);
-    }
-    let config = azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
-    config.default_resource_group.ok_or_else(|| {
-        anyhow::anyhow!(
-            "No resource group configured.\n\n\
-             Quick setup:\n\
-             1. azlin context create <name> --subscription-id <sub> --tenant-id <tenant>\n\
-             2. azlin context use <name>\n\
-             3. azlin config set default_resource_group <rg-name>\n\n\
-             Or pass --resource-group <name> to any command.\n\
-             Run 'az account show' to find your subscription and tenant IDs."
-        )
-    })
-}
-
-/// Get the user's home directory, returning a clear error on failure.
-fn home_dir() -> Result<std::path::PathBuf> {
-    dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))
-}
-
-/// Escape a value for safe inclusion in a shell command.
-fn shell_escape(s: &str) -> String {
-    let mut escaped = String::with_capacity(s.len() + 2);
-    escaped.push('\'');
-    for c in s.chars() {
-        if c == '\'' {
-            escaped.push_str("'\\''");
-        } else {
-            escaped.push(c);
-        }
-    }
-    escaped.push('\'');
-    escaped
-}
-
-/// Resolve a single VM to a `VmSshTarget`, using --ip flag if provided.
-/// Routes through bastion automatically for private-IP-only VMs.
-async fn resolve_vm_ssh_target(
-    vm_name: &str,
-    ip_flag: Option<&str>,
-    resource_group: Option<String>,
-) -> Result<VmSshTarget> {
-    if let Some(ip) = ip_flag {
-        return Ok(VmSshTarget {
-            vm_name: vm_name.to_string(),
-            ip: ip.to_string(),
-            user: DEFAULT_ADMIN_USERNAME.to_string(),
-            bastion: None,
-        });
-    }
-    let auth = create_auth()?;
-    let vm_manager = azlin_azure::VmManager::new(&auth);
-    let rg = resolve_resource_group(resource_group)?;
-    let vm = vm_manager.get_vm(&rg, vm_name)?;
-    let bastion_map: std::collections::HashMap<String, String> =
-        list_helpers::detect_bastion_hosts(&rg)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(name, location, _)| (location, name))
-            .collect();
-    let ssh_key = resolve_ssh_key();
-    let target = build_ssh_target(&vm, vm_manager.subscription_id(), &bastion_map, &ssh_key);
-    if target.ip.is_empty() {
-        anyhow::bail!("No IP address found for VM '{}'", vm_name);
-    }
-    Ok(target)
-}
-
-/// Resolve targets for W/Ps/Top: single VM (--vm/--ip) or all VMs via Azure.
-/// Returns `Vec<VmSshTarget>` with bastion routing for private-IP-only VMs.
-async fn resolve_vm_targets(
-    vm_flag: Option<&str>,
-    ip_flag: Option<&str>,
-    resource_group: Option<String>,
-) -> Result<Vec<VmSshTarget>> {
-    if let Some(ip) = ip_flag {
-        let name = vm_flag.unwrap_or(ip);
-        return Ok(vec![VmSshTarget {
-            vm_name: name.to_string(),
-            ip: ip.to_string(),
-            user: DEFAULT_ADMIN_USERNAME.to_string(),
-            bastion: None,
-        }]);
-    }
-    if let Some(vm_name) = vm_flag {
-        let auth = create_auth()?;
-        let vm_manager = azlin_azure::VmManager::new(&auth);
-        let rg = resolve_resource_group(resource_group)?;
-        let vm = vm_manager.get_vm(&rg, vm_name)?;
-        let bastion_map: std::collections::HashMap<String, String> =
-            list_helpers::detect_bastion_hosts(&rg)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(name, location, _)| (location, name))
-                .collect();
-        let ssh_key = resolve_ssh_key();
-        let target = build_ssh_target(&vm, vm_manager.subscription_id(), &bastion_map, &ssh_key);
-        if target.ip.is_empty() {
-            anyhow::bail!("No IP address found for VM '{}'", vm_name);
-        }
-        return Ok(vec![target]);
-    }
-    // List all running VMs
-    let auth = create_auth()?;
-    let vm_manager = azlin_azure::VmManager::new(&auth);
-    let rg = resolve_resource_group(resource_group)?;
-    let bastion_map: std::collections::HashMap<String, String> =
-        list_helpers::detect_bastion_hosts(&rg)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(name, location, _)| (location, name))
-            .collect();
-    let sub_id = vm_manager.subscription_id().to_string();
-    let ssh_key = resolve_ssh_key();
-    let vms = vm_manager.list_vms(&rg)?;
-    let mut targets = Vec::new();
-    for vm in vms {
-        if vm.power_state != azlin_core::models::PowerState::Running {
-            continue;
-        }
-        if vm.public_ip.is_none() && vm.private_ip.is_none() {
-            continue;
-        }
-        targets.push(build_ssh_target(&vm, &sub_id, &bastion_map, &ssh_key));
-    }
-    if targets.is_empty() {
-        anyhow::bail!("No running VMs found. Use --vm or --ip to target a specific VM.");
-    }
-    Ok(targets)
-}
+// Re-export common utilities from dispatch_helpers for cmd_* modules via `use super::*`.
+pub(crate) use dispatch_helpers::{
+    create_auth, home_dir, resolve_resource_group, resolve_vm_ssh_target, resolve_vm_targets,
+    shell_escape,
+};
 
 mod handlers;
 
@@ -1050,17 +915,21 @@ mod batch_helpers;
 
 // Command dispatch modules
 mod cmd_ai;
+mod cmd_ai_ops;
+mod cmd_ai_ops2;
 mod cmd_auth;
-// Note: cmd_list, cmd_snapshot, cmd_storage are used from dispatch.rs
 mod cmd_autopilot;
 mod cmd_batch;
 mod cmd_cleanup;
 mod cmd_cleanup_costs;
 mod cmd_cleanup_costs2;
+mod cmd_cleanup_ops;
 mod cmd_connect;
 mod cmd_context;
 mod cmd_env;
 mod cmd_infra;
+mod cmd_infra_ops;
+mod cmd_infra_ops2;
 mod cmd_keys;
 mod cmd_lifecycle;
 mod cmd_list;
@@ -1068,12 +937,21 @@ mod cmd_list_data;
 mod cmd_list_render;
 mod cmd_monitoring;
 mod cmd_network;
+mod cmd_network_ops;
+mod cmd_network_ops2;
 mod cmd_session;
 mod cmd_snapshot;
+mod cmd_snapshot_ops;
+mod cmd_snapshot_ops2;
 mod cmd_storage;
+mod cmd_storage_ops;
+mod cmd_storage_ops2;
 mod cmd_sync;
+mod cmd_sync_ops;
 mod cmd_tag;
 mod cmd_vm;
+mod cmd_vm_ops;
+mod cmd_vm_ops2;
 
 #[cfg(test)]
 #[allow(deprecated)]
