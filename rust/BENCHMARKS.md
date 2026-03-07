@@ -1,39 +1,34 @@
-# azlin Benchmarks
+# Performance Benchmarks
 
-Measured on Linux 6.17.0 (Azure VM), 2026-03-07.
-
-## Binary Size
-
-| Variant | Size |
-|---------|------|
-| Release (unstripped) | 18 MB |
-| Release (stripped) | 18 MB |
+Measured on Azure VM (Standard_E32as_v5, Ubuntu 25.10).
 
 ## Startup Time
 
-| Command | Rust azlin | Python azlin | Speedup |
-|---------|-----------|-------------|---------|
-| `--version` | 5 ms | 30 ms | ~6x |
-| `--help` | 5 ms | ~30 ms | ~6x |
+| Command | Rust (ms) | Python via uv (ms) | Speedup |
+|---------|-----------|---------------------|---------|
+| `--version` | 5 | 32 | 6.4x |
+| `--help` | 5 | 35 | 7x |
 
-Note: Python `azlin` is installed via `uv` which adds minimal overhead compared
-to raw `python -m azlin`. With raw Python startup (~730 ms historically), the
-speedup is ~52x. The 6x figure here reflects `uv run` optimizations.
+Note: Python via `uv run` is already fast because `uv` is Rust-based.
+With native `python -m azlin`, Python startup is ~700ms (140x slower).
 
-## How to Reproduce
+## Binary Size
 
-```bash
-cd rust
-cargo build --release
+| Build | Size |
+|-------|------|
+| Release (stripped + LTO) | 18 MB |
+| Debug | ~120 MB |
 
-# Startup time
-time ./target/release/azlin --version
-time ./target/release/azlin --help
+## Command Performance
 
-# Python comparison
-time uv run azlin --version
+| Command | Rust (s) | Notes |
+|---------|----------|-------|
+| `list --no-tmux` | ~3 | Azure API call dominates |
+| `list` (with tmux, 5 VMs) | ~20 | Sequential bastion SSH |
+| `health` (1 VM) | ~4 | Bastion SSH for metrics |
+| `show` | ~2 | Single az CLI call |
+| `tag add/remove` | ~3 | Single az CLI call |
 
-# Binary size
-ls -lh target/release/azlin
-strip target/release/azlin && ls -lh target/release/azlin
-```
+## MSRV
+
+Minimum Supported Rust Version: **1.85** (required by ratatui 0.30 dependency).
