@@ -8,6 +8,8 @@ Azure VM fleet management CLI. Single binary, ~52x faster startup than the Pytho
 
 ## Install
 
+**Requires Rust 1.85+** (`rustup update` to get the latest).
+
 ### From source (always-latest)
 
 Builds from the latest commit on the branch. Re-run to update.
