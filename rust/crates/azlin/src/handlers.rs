@@ -1091,7 +1091,11 @@ pub fn build_extended_help(command_name: Option<&str>) -> String {
         None => {
             let mut out = String::from("azlin -- Azure VM fleet management CLI\n\n");
             out.push_str("Run 'azlin --help' for a list of commands.\n");
-            out.push_str("Run 'azlin <command> --help' for command-specific help.");
+            out.push_str("Run 'azlin <command> --help' for command-specific help.\n\n");
+            out.push_str("Tip: Generate shell completions with:\n");
+            out.push_str("  azlin completions bash >> ~/.bashrc\n");
+            out.push_str("  azlin completions zsh  >> ~/.zshrc\n");
+            out.push_str("  azlin completions fish >  ~/.config/fish/completions/azlin.fish\n");
             out
         }
     }
@@ -3432,6 +3436,9 @@ mod tests {
         assert!(out.contains("azlin"));
         assert!(out.contains("Azure VM fleet management CLI"));
         assert!(out.contains("<command> --help"));
+        assert!(out.contains("completions bash"));
+        assert!(out.contains("completions zsh"));
+        assert!(out.contains("completions fish"));
     }
 
     // ── List footer tests ───────────────────────────────────────────

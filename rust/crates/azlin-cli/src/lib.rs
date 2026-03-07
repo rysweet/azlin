@@ -12,7 +12,8 @@ use clap::{Parser, Subcommand};
     version,
     about = "Azure VM fleet management CLI",
     long_about = "Provision, manage, and monitor development VMs on Azure.\n\n\
-                  Use 'azlin <command> --help' for more information about a command."
+                  Use 'azlin <command> --help' for more information about a command.\n\
+                  For detailed help: azlin azlin-help <command>"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -1702,7 +1703,7 @@ pub enum TemplateAction {
         /// Template name
         name: String,
         /// Skip confirmation prompt
-        #[arg(long)]
+        #[arg(short = 'y', long)]
         force: bool,
     },
     /// Export a template to file
@@ -2048,7 +2049,7 @@ pub enum SessionsAction {
         /// Session name
         session_name: String,
         /// Skip confirmation prompt
-        #[arg(long, short)]
+        #[arg(short = 'y', long)]
         force: bool,
     },
     /// List saved sessions
