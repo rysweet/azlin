@@ -19,10 +19,12 @@ pub(crate) async fn dispatch(
                 ..
             } => {
                 let rg = resolve_resource_group(resource_group)?;
-                let filter_msg = tag.as_deref().unwrap_or("all");
+                let filter_msg = crate::batch_helpers::resolve_filter_display(tag.as_deref());
                 if !confirm {
+                    let prompt =
+                        crate::batch_helpers::build_confirmation_prompt("Stop", filter_msg, &rg);
                     let ok = Confirm::new()
-                        .with_prompt(format!("Stop VMs matching '{}' in {}?", filter_msg, rg))
+                        .with_prompt(prompt)
                         .default(false)
                         .interact()?;
                     if !ok {
@@ -38,7 +40,7 @@ pub(crate) async fn dispatch(
                 let tsv = std::str::from_utf8(&list_output.stdout).unwrap_or("");
                 let ids = crate::batch_helpers::parse_vm_ids(tsv);
                 if ids.is_empty() {
-                    println!("No VMs found in resource group '{}'", rg);
+                    println!("{}", crate::batch_helpers::format_no_vms_message(&rg));
                 } else {
                     let args = crate::batch_helpers::build_batch_args("deallocate", &ids);
                     let output = std::process::Command::new("az").args(&args).output()?;
@@ -58,10 +60,12 @@ pub(crate) async fn dispatch(
                 ..
             } => {
                 let rg = resolve_resource_group(resource_group)?;
-                let filter_msg = tag.as_deref().unwrap_or("all");
+                let filter_msg = crate::batch_helpers::resolve_filter_display(tag.as_deref());
                 if !confirm {
+                    let prompt =
+                        crate::batch_helpers::build_confirmation_prompt("Start", filter_msg, &rg);
                     let ok = Confirm::new()
-                        .with_prompt(format!("Start VMs matching '{}' in {}?", filter_msg, rg))
+                        .with_prompt(prompt)
                         .default(false)
                         .interact()?;
                     if !ok {
@@ -77,7 +81,7 @@ pub(crate) async fn dispatch(
                 let tsv = std::str::from_utf8(&list_output.stdout).unwrap_or("");
                 let ids = crate::batch_helpers::parse_vm_ids(tsv);
                 if ids.is_empty() {
-                    println!("No VMs found in resource group '{}'", rg);
+                    println!("{}", crate::batch_helpers::format_no_vms_message(&rg));
                 } else {
                     let args = crate::batch_helpers::build_batch_args("start", &ids);
                     let output = std::process::Command::new("az").args(&args).output()?;
@@ -111,9 +115,15 @@ pub(crate) async fn dispatch(
                 pb.finish_and_clear();
 
                 if vms.is_empty() {
-                    println!("No running VMs found in resource group '{}'", rg);
+                    println!(
+                        "{}",
+                        crate::batch_helpers::format_no_running_vms_message(&rg)
+                    );
                 } else {
-                    println!("Running '{}' on {} VM(s)...", command, vms.len());
+                    println!(
+                        "{}",
+                        crate::batch_helpers::format_fleet_run_message(&command, vms.len())
+                    );
                     run_on_fleet(&vms, &command, show_output);
                 }
             }
@@ -128,7 +138,10 @@ pub(crate) async fn dispatch(
 
                 let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
                 if vms.is_empty() {
-                    println!("No running VMs found in resource group '{}'", rg);
+                    println!(
+                        "{}",
+                        crate::batch_helpers::format_no_running_vms_message(&rg)
+                    );
                     return Ok(());
                 }
 
@@ -198,9 +211,15 @@ pub(crate) async fn dispatch(
                     pb.finish_and_clear();
 
                     if vms.is_empty() {
-                        println!("No running VMs found in resource group '{}'", rg);
+                        println!(
+                            "{}",
+                            crate::batch_helpers::format_no_running_vms_message(&rg)
+                        );
                     } else {
-                        println!("Running '{}' across {} VM(s)...", command, vms.len());
+                        println!(
+                            "{}",
+                            crate::batch_helpers::format_fleet_across_message(&command, vms.len())
+                        );
                         run_on_fleet(&vms, &command, true);
                         println!("Fleet execution complete.");
                     }
@@ -242,7 +261,10 @@ pub(crate) async fn dispatch(
 
                     let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
                     if vms.is_empty() {
-                        println!("No running VMs found in resource group '{}'", rg);
+                        println!(
+                            "{}",
+                            crate::batch_helpers::format_no_running_vms_message(&rg)
+                        );
                         return Ok(());
                     }
 
@@ -251,25 +273,20 @@ pub(crate) async fn dispatch(
                         workflow_file.display(),
                         vms.len()
                     );
-                    for (i, step) in steps.iter().enumerate() {
-                        let default_name = format!("step-{}", i + 1);
-                        let step_name = step
-                            .get("name")
-                            .and_then(|n| n.as_str())
-                            .unwrap_or(&default_name);
-                        let cmd = step
-                            .get("command")
-                            .or_else(|| step.get("run"))
-                            .and_then(|c| c.as_str());
+                    for (i, step_val) in steps.iter().enumerate() {
+                        let step = crate::batch_helpers::extract_workflow_step(step_val, i);
 
-                        if let Some(cmd) = cmd {
-                            println!("\n── Step {}: {} ──", i + 1, step_name);
+                        if let Some(cmd) = &step.command {
+                            println!(
+                                "{}",
+                                crate::batch_helpers::format_step_header(i + 1, &step.name)
+                            );
                             run_on_fleet(&vms, cmd, true);
                         } else {
                             eprintln!(
                                 "Step {} ('{}') has no 'command' or 'run' field, skipping",
                                 i + 1,
-                                step_name
+                                step.name
                             );
                         }
                     }

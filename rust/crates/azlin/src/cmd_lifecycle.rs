@@ -25,10 +25,12 @@ pub(crate) async fn dispatch(
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
             pb.set_prefix(format!("{:>20}", vm_name));
-            pb.set_message(format!("Starting {}...", vm_name));
+            pb.set_message(crate::lifecycle_helpers::progress_message(
+                "Starting", &vm_name,
+            ));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             let msg = crate::handlers::handle_start(&vm_manager, &rg, &vm_name)?;
-            pb.finish_with_message(format!("✓ {}", msg));
+            pb.finish_with_message(crate::lifecycle_helpers::finished_ok(&msg));
         }
         azlin_cli::Commands::Stop {
             vm_name,
@@ -44,10 +46,10 @@ pub(crate) async fn dispatch(
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
             pb.set_prefix(format!("{:>20}", vm_name));
-            pb.set_message(format!("{} {}...", action, vm_name));
+            pb.set_message(crate::lifecycle_helpers::progress_message(action, &vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             let msg = crate::handlers::handle_stop(&vm_manager, &rg, &vm_name, deallocate)?;
-            pb.finish_with_message(format!("✓ {}", msg));
+            pb.finish_with_message(crate::lifecycle_helpers::finished_ok(&msg));
         }
         azlin_cli::Commands::Delete {
             vm_name,
@@ -61,7 +63,7 @@ pub(crate) async fn dispatch(
 
             if !force {
                 let confirmed = Confirm::new()
-                    .with_prompt(format!("Delete VM '{}'? This cannot be undone.", vm_name))
+                    .with_prompt(crate::lifecycle_helpers::delete_confirm_prompt(&vm_name))
                     .default(false)
                     .interact()?;
                 if !confirmed {
@@ -73,10 +75,12 @@ pub(crate) async fn dispatch(
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
             pb.set_prefix(format!("{:>20}", vm_name));
-            pb.set_message(format!("Deleting {}...", vm_name));
+            pb.set_message(crate::lifecycle_helpers::progress_message(
+                "Deleting", &vm_name,
+            ));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             let msg = crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
-            pb.finish_with_message(format!("✓ {}", msg));
+            pb.finish_with_message(crate::lifecycle_helpers::finished_ok(&msg));
         }
         azlin_cli::Commands::Kill {
             vm_name,
@@ -90,10 +94,12 @@ pub(crate) async fn dispatch(
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
             pb.set_prefix(format!("{:>20}", vm_name));
-            pb.set_message(format!("Killing {}...", vm_name));
+            pb.set_message(crate::lifecycle_helpers::progress_message(
+                "Killing", &vm_name,
+            ));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             let _msg = crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
-            pb.finish_with_message(format!("✓ Killed {}", vm_name));
+            pb.finish_with_message(crate::lifecycle_helpers::killed_message(&vm_name));
         }
         azlin_cli::Commands::Destroy {
             vm_name,
@@ -111,7 +117,7 @@ pub(crate) async fn dispatch(
 
             if !force {
                 let confirmed = Confirm::new()
-                    .with_prompt(format!("Destroy VM '{}'? This cannot be undone.", vm_name))
+                    .with_prompt(crate::lifecycle_helpers::destroy_confirm_prompt(&vm_name))
                     .default(false)
                     .interact()?;
                 if !confirmed {
@@ -126,10 +132,13 @@ pub(crate) async fn dispatch(
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
             pb.set_prefix(format!("{:>20}", vm_name));
-            pb.set_message(format!("Destroying {}...", vm_name));
+            pb.set_message(crate::lifecycle_helpers::progress_message(
+                "Destroying",
+                &vm_name,
+            ));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
-            pb.finish_with_message(format!("✓ Destroyed {}", vm_name));
+            pb.finish_with_message(crate::lifecycle_helpers::destroyed_message(&vm_name));
         }
         azlin_cli::Commands::Killall {
             resource_group,
@@ -140,9 +149,8 @@ pub(crate) async fn dispatch(
             let rg = resolve_resource_group(resource_group)?;
             if !force {
                 let ok = Confirm::new()
-                    .with_prompt(format!(
-                        "Delete ALL VMs with prefix '{}' in '{}'? This cannot be undone.",
-                        prefix, rg
+                    .with_prompt(crate::lifecycle_helpers::killall_confirm_prompt(
+                        &prefix, &rg,
                     ))
                     .default(false)
                     .interact()?;
@@ -153,28 +161,25 @@ pub(crate) async fn dispatch(
             }
 
             let pb = indicatif::ProgressBar::new_spinner();
-            pb.set_message(format!("Deleting VMs with prefix '{}'...", prefix));
+            pb.set_message(crate::lifecycle_helpers::progress_message(
+                "Deleting VMs with prefix",
+                &format!("'{}'", prefix),
+            ));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-            let output = std::process::Command::new("az")
-                .args([
-                    "vm",
-                    "list",
-                    "--resource-group",
-                    &rg,
-                    "--query",
-                    &format!("[?starts_with(name, '{}')].id", prefix),
-                    "--output",
-                    "tsv",
-                ])
-                .output()?;
+            let query = crate::lifecycle_helpers::killall_jmespath_query(&prefix);
+            let args = crate::lifecycle_helpers::killall_list_args(&rg, &query);
+            let output = std::process::Command::new("az").args(&args).output()?;
 
             if output.status.success() {
-                let ids = String::from_utf8_lossy(&output.stdout);
-                let id_list: Vec<&str> = ids.lines().filter(|l| !l.is_empty()).collect();
+                let ids_raw = String::from_utf8_lossy(&output.stdout);
+                let id_list = crate::lifecycle_helpers::parse_vm_ids(&ids_raw);
                 if id_list.is_empty() {
                     pb.finish_and_clear();
-                    println!("No VMs found with prefix '{}'", prefix);
+                    println!(
+                        "{}",
+                        crate::lifecycle_helpers::killall_empty_message(&prefix)
+                    );
                 } else {
                     let del = std::process::Command::new("az")
                         .args(["vm", "delete", "--ids"])
@@ -183,7 +188,13 @@ pub(crate) async fn dispatch(
                         .output()?;
                     pb.finish_and_clear();
                     if del.status.success() {
-                        println!("Deleted {} VMs with prefix '{}'", id_list.len(), prefix);
+                        println!(
+                            "{}",
+                            crate::lifecycle_helpers::killall_success_message(
+                                id_list.len(),
+                                &prefix
+                            )
+                        );
                     } else {
                         let stderr = String::from_utf8_lossy(&del.stderr);
                         anyhow::bail!(
@@ -198,7 +209,7 @@ pub(crate) async fn dispatch(
             }
         }
 
-        // ── Cleanup / Prune ──────────────────────────────────────────
+        // -- Cleanup / Prune --
         azlin_cli::Commands::OsUpdate {
             vm_identifier,
             resource_group,
@@ -230,7 +241,9 @@ pub(crate) async fn dispatch(
                 let green = Style::new().green();
                 println!(
                     "{}",
-                    green.apply_to(format!("OS update completed on '{}'", vm_identifier))
+                    green.apply_to(crate::lifecycle_helpers::os_update_success_message(
+                        &vm_identifier
+                    ))
                 );
                 if !stdout.trim().is_empty() {
                     println!("{}", stdout.trim());
@@ -241,12 +254,10 @@ pub(crate) async fn dispatch(
                     "{}",
                     red.apply_to(format!("OS update failed on '{}'", vm_identifier))
                 );
-                let detail = if stderr.trim().is_empty() {
-                    String::new()
-                } else {
-                    format!(": {}", azlin_core::sanitizer::sanitize(stderr.trim()))
-                };
-                anyhow::bail!("OS update failed on '{}'{}", vm_identifier, detail);
+                anyhow::bail!(
+                    "{}",
+                    crate::lifecycle_helpers::os_update_failure_message(&vm_identifier, &stderr)
+                );
             }
         }
         _ => unreachable!(),

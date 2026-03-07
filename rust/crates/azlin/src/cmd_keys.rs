@@ -26,13 +26,10 @@ pub(crate) async fn dispatch(
                     let entry = entry?;
                     let name = entry.file_name().to_string_lossy().to_string();
 
-                    let is_key = name.ends_with(".pub")
-                        || ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"].contains(&name.as_str())
+                    let is_key = crate::key_helpers::is_known_key_name(&name)
                         || (!name.starts_with('.')
                             && !name.ends_with(".pub")
-                            && std::path::Path::new(&ssh_dir)
-                                .join(format!("{}.pub", name))
-                                .exists());
+                            && ssh_dir.join(format!("{}.pub", name)).exists());
 
                     if !is_key {
                         continue;
@@ -86,7 +83,7 @@ pub(crate) async fn dispatch(
                     for entry in std::fs::read_dir(&ssh_dir)? {
                         let entry = entry?;
                         let name = entry.file_name().to_string_lossy().to_string();
-                        if name.starts_with("id_") {
+                        if crate::key_helpers::is_key_backup_candidate(&name) {
                             std::fs::copy(entry.path(), backup_dir.join(&name))?;
                         }
                     }
@@ -102,17 +99,10 @@ pub(crate) async fn dispatch(
                     }
                 }
 
+                let key_path_str = new_key.to_string_lossy();
+                let keygen_args = crate::key_helpers::build_keygen_args(&key_path_str);
                 let keygen = std::process::Command::new("ssh-keygen")
-                    .args([
-                        "-t",
-                        "ed25519",
-                        "-f",
-                        &new_key.to_string_lossy(),
-                        "-N",
-                        "",
-                        "-C",
-                        "azlin-rotated",
-                    ])
+                    .args(&keygen_args)
                     .output()?;
 
                 if !keygen.status.success() {
@@ -121,10 +111,10 @@ pub(crate) async fn dispatch(
                 println!("Generated new ed25519 key pair");
 
                 let prefix_filter = if all_vms { "" } else { &vm_prefix };
-                let query = format!("[?starts_with(name, '{}')]", prefix_filter);
+                let query = crate::key_helpers::build_vm_prefix_query(prefix_filter);
                 let mut az_args = vec!["vm", "list", "--resource-group", &rg, "--output", "json"];
-                if !prefix_filter.is_empty() {
-                    az_args.extend(["--query", query.as_str()]);
+                if let Some(ref q) = query {
+                    az_args.extend(["--query", q.as_str()]);
                 }
 
                 let output = std::process::Command::new("az").args(&az_args).output()?;
@@ -175,10 +165,7 @@ pub(crate) async fn dispatch(
             azlin_cli::KeysAction::Export { output } => {
                 let ssh_dir = home_dir()?.join(".ssh");
 
-                let pub_key = ["id_ed25519_azlin.pub", "id_ed25519.pub", "id_rsa.pub"]
-                    .iter()
-                    .map(|f| ssh_dir.join(f))
-                    .find(|p| p.exists());
+                let pub_key = crate::key_helpers::find_preferred_pubkey(&ssh_dir);
 
                 match pub_key {
                     Some(src) => {
@@ -215,7 +202,7 @@ pub(crate) async fn dispatch(
                 for entry in std::fs::read_dir(&ssh_dir)? {
                     let entry = entry?;
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with("id_") {
+                    if crate::key_helpers::is_key_backup_candidate(&name) {
                         std::fs::copy(entry.path(), backup_dir.join(&name))?;
                         count += 1;
                     }

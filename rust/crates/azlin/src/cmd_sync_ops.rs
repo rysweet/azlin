@@ -18,10 +18,12 @@ pub(crate) fn handle_sync(
     if dry_run {
         let target_name = target_vm.as_deref().unwrap_or("all VMs");
         println!(
-            "Would sync {} to {} in '{}'",
-            home_sync_dir.display(),
-            target_name,
-            rg
+            "{}",
+            crate::sync_helpers::format_sync_dry_run(
+                &home_sync_dir.display().to_string(),
+                target_name,
+                &rg,
+            )
         );
     } else {
         let auth = create_auth()?;
@@ -55,10 +57,8 @@ pub(crate) fn handle_sync(
                     .as_deref()
                     .unwrap_or(DEFAULT_ADMIN_USERNAME);
                 println!("Syncing dotfiles to {}...", vm.name);
-                let mut args: Vec<&str> = vec!["-avz", "--progress"];
-                let file_refs: Vec<&str> = dotfiles.iter().map(|s| s.as_str()).collect();
-                args.extend_from_slice(&file_refs);
-                let dest = format!("{}@{}:~/", user, ip);
+                let (mut args, dest) =
+                    crate::sync_helpers::build_sync_rsync_args(&dotfiles, user, ip);
                 args.push(&dest);
                 let status = std::process::Command::new("rsync").args(&args).status()?;
                 if status.success() {
@@ -83,10 +83,7 @@ pub(crate) fn handle_sync_keys(
     let rg = resolve_resource_group(resource_group)?;
     let ssh_dir = home_dir()?.join(".ssh");
 
-    let pub_key = ["id_ed25519_azlin.pub", "id_ed25519.pub", "id_rsa.pub"]
-        .iter()
-        .map(|f| ssh_dir.join(f))
-        .find(|p| p.exists());
+    let pub_key = crate::key_helpers::find_preferred_pubkey(&ssh_dir);
 
     match pub_key {
         Some(key_path) => {
@@ -259,7 +256,7 @@ pub(crate) async fn handle_logs(
         ));
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-        let tail_cmd = format!("sudo tail -n {} {}", lines, log_path);
+        let tail_cmd = crate::sync_helpers::build_tail_command(lines, log_path);
         let result = target.exec(&tail_cmd);
 
         pb.finish_and_clear();

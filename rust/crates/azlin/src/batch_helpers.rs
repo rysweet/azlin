@@ -44,3 +44,65 @@ pub fn summarise_batch(action: &str, rg: &str, success: bool) -> String {
         format!("Batch {} failed. Run commands individually.", action)
     }
 }
+
+/// Resolve a tag filter to a user-facing display string.
+/// Returns `"all"` when no tag filter is provided.
+pub fn resolve_filter_display(tag: Option<&str>) -> &str {
+    tag.unwrap_or("all")
+}
+
+/// Build the confirmation prompt for a batch action.
+/// `action` is the verb shown to the user (e.g. "Stop", "Start").
+pub fn build_confirmation_prompt(action: &str, filter_display: &str, rg: &str) -> String {
+    format!("{} VMs matching '{}' in {}?", action, filter_display, rg)
+}
+
+/// Represents a single step extracted from a workflow YAML file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowStep {
+    pub name: String,
+    pub command: Option<String>,
+}
+
+/// Extract the name and command from a workflow YAML step value.
+/// Falls back to `"step-N"` when no `name` field is present.
+/// Looks for `command` first, then `run` for the command string.
+pub fn extract_workflow_step(step: &serde_yaml::Value, index: usize) -> WorkflowStep {
+    let default_name = format!("step-{}", index + 1);
+    let name = step
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or(&default_name)
+        .to_string();
+    let command = step
+        .get("command")
+        .or_else(|| step.get("run"))
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string());
+    WorkflowStep { name, command }
+}
+
+/// Format the step header shown during workflow execution.
+pub fn format_step_header(step_number: usize, step_name: &str) -> String {
+    format!("\n── Step {}: {} ──", step_number, step_name)
+}
+
+/// Format the "no VMs found" message for a resource group.
+pub fn format_no_vms_message(rg: &str) -> String {
+    format!("No VMs found in resource group '{}'", rg)
+}
+
+/// Format the "no running VMs found" message for a resource group.
+pub fn format_no_running_vms_message(rg: &str) -> String {
+    format!("No running VMs found in resource group '{}'", rg)
+}
+
+/// Format the fleet execution start message.
+pub fn format_fleet_run_message(command: &str, vm_count: usize) -> String {
+    format!("Running '{}' on {} VM(s)...", command, vm_count)
+}
+
+/// Format the fleet execution start message for `fleet run`.
+pub fn format_fleet_across_message(command: &str, vm_count: usize) -> String {
+    format!("Running '{}' across {} VM(s)...", command, vm_count)
+}

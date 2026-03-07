@@ -60,18 +60,8 @@ struct HealthMetrics {
 
 /// Run an SSH command on a remote host and return (exit_code, stdout, stderr).
 fn ssh_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
-    let output = std::process::Command::new("ssh")
-        .args([
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            "-o",
-            "ConnectTimeout=10",
-            "-o",
-            "BatchMode=yes",
-            &format!("{}@{}", user, ip),
-            cmd,
-        ])
-        .output()?;
+    let args = ssh_arg_helpers::build_ssh_args(ip, user, cmd);
+    let output = std::process::Command::new("ssh").args(&args).output()?;
     Ok((
         output.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -88,31 +78,17 @@ fn bastion_ssh_exec(
     ssh_key: Option<&std::path::Path>,
     cmd: &str,
 ) -> Result<(i32, String, String)> {
-    let mut args = vec![
-        "network",
-        "bastion",
-        "ssh",
-        "--name",
+    let key_str = ssh_key.map(|k| k.to_string_lossy().to_string());
+    let args = ssh_arg_helpers::build_bastion_ssh_args(
         bastion_name,
-        "--resource-group",
         resource_group,
-        "--target-resource-id",
         vm_resource_id,
-        "--auth-type",
-        "ssh-key",
-        "--username",
         user,
-    ];
-    let key_str;
-    if let Some(key) = ssh_key {
-        key_str = key.to_string_lossy().to_string();
-        args.push("--ssh-key");
-        args.push(&key_str);
-    }
-    args.push("--");
-    args.push(cmd);
-
-    azlin_azure::run_with_timeout("az", &args, 60)
+        key_str.as_deref(),
+        cmd,
+    );
+    let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    azlin_azure::run_with_timeout("az", &arg_refs, 60)
 }
 
 /// Named bastion routing info, replacing the opaque 4-tuple.
@@ -298,23 +274,18 @@ fn build_ssh_target(
     bastion_map: &std::collections::HashMap<String, String>,
     ssh_key: &Option<std::path::PathBuf>,
 ) -> VmSshTarget {
-    let ip = vm
-        .public_ip
-        .as_deref()
-        .or(vm.private_ip.as_deref())
-        .unwrap_or("")
-        .to_string();
+    let ip = ssh_arg_helpers::pick_ssh_ip(vm.public_ip.as_deref(), vm.private_ip.as_deref());
     let user = vm
         .admin_username
         .clone()
         .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
-    let bastion = if vm.public_ip.is_none() {
-        // Private IP only — need bastion
+    let bastion = if ssh_arg_helpers::needs_bastion(vm.public_ip.as_deref()) {
         bastion_map.get(&vm.location).map(|bastion_name| {
-            let vm_rid = format!(
-                "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
-                subscription_id, vm.resource_group, vm.name
+            let vm_rid = ssh_arg_helpers::build_vm_resource_id(
+                subscription_id,
+                &vm.resource_group,
+                &vm.name,
             );
             BastionRoute {
                 bastion_name: bastion_name.clone(),
@@ -392,16 +363,7 @@ fn collect_health_metrics(
     // Agent status from walinuxagent service
     let agent = exec("systemctl is-active walinuxagent 2>/dev/null || echo \"N/A\"")
         .ok()
-        .map(|(_, out, _)| {
-            let trimmed = out.trim();
-            if trimmed == "active" {
-                "OK".to_string()
-            } else if trimmed == "inactive" {
-                "Down".to_string()
-            } else {
-                "N/A".to_string()
-            }
-        })
+        .map(|(_, out, _)| ssh_arg_helpers::classify_agent_status(&out).to_string())
         .unwrap_or_else(|| "N/A".to_string());
 
     // Error count from journalctl (last hour)
@@ -421,6 +383,15 @@ fn collect_health_metrics(
     }
 }
 
+/// Map a threshold classification to a comfy_table Color.
+fn threshold_to_table_color(level: error_helpers::ThresholdLevel) -> Color {
+    match level {
+        error_helpers::ThresholdLevel::Normal => Color::Green,
+        error_helpers::ThresholdLevel::Warning => Color::Yellow,
+        error_helpers::ThresholdLevel::Critical => Color::Red,
+    }
+}
+
 /// Render a health metrics table.
 fn render_health_table(metrics: &[HealthMetrics]) {
     let mut table = new_table(&[
@@ -428,44 +399,18 @@ fn render_health_table(metrics: &[HealthMetrics]) {
     ]);
 
     for m in metrics {
-        let state_color = match m.power_state.as_str() {
-            "running" => Color::Green,
-            "stopped" | "deallocated" => Color::Red,
-            _ => Color::Yellow,
-        };
-        let agent_color = match m.agent_status.as_str() {
-            "OK" => Color::Green,
-            "Down" => Color::Red,
-            _ => Color::Yellow,
-        };
-        let error_color = if m.error_count > 10 {
-            Color::Red
-        } else if m.error_count > 0 {
-            Color::Yellow
-        } else {
-            Color::Green
-        };
-        let cpu_color = if m.cpu_percent > 90.0 {
-            Color::Red
-        } else if m.cpu_percent > 70.0 {
-            Color::Yellow
-        } else {
-            Color::Green
-        };
-        let mem_color = if m.mem_percent > 90.0 {
-            Color::Red
-        } else if m.mem_percent > 70.0 {
-            Color::Yellow
-        } else {
-            Color::Green
-        };
-        let disk_color = if m.disk_percent > 90.0 {
-            Color::Red
-        } else if m.disk_percent > 70.0 {
-            Color::Yellow
-        } else {
-            Color::Green
-        };
+        let state_color =
+            threshold_to_table_color(error_helpers::classify_power_state(&m.power_state));
+        let agent_color =
+            threshold_to_table_color(error_helpers::classify_agent_level(&m.agent_status));
+        let error_color =
+            threshold_to_table_color(error_helpers::classify_error_count(m.error_count));
+        let cpu_color =
+            threshold_to_table_color(error_helpers::classify_metric_70_90(m.cpu_percent));
+        let mem_color =
+            threshold_to_table_color(error_helpers::classify_metric_70_90(m.mem_percent));
+        let disk_color =
+            threshold_to_table_color(error_helpers::classify_metric_70_90(m.disk_percent));
 
         table.add_row(vec![
             Cell::new(&m.vm_name),
@@ -717,15 +662,13 @@ fn main() {
         // Use {e:#} to show the full error chain (not just the outermost context)
         eprintln!("Error: {e:#}");
 
-        if msg.contains("az login") || msg.contains("authentication") || msg.contains("Azure") {
-            eprintln!("\n💡 Suggestion: Run 'az login' to authenticate with Azure");
-        }
-        if msg.contains("ANTHROPIC_API_KEY") {
-            eprintln!("\n💡 Suggestion: Set ANTHROPIC_API_KEY environment variable");
-            eprintln!("   Get a key at: https://console.anthropic.com/");
-        }
-        if msg.contains("not found") && msg.contains("VM") {
-            eprintln!("\n💡 Suggestion: Run 'azlin list' to see available VMs");
+        let suggestions = error_helpers::error_suggestions(&msg);
+        for (i, s) in suggestions.iter().enumerate() {
+            if i == 0 {
+                eprintln!("\n\u{1f4a1} Suggestion: {s}");
+            } else {
+                eprintln!("   {s}");
+            }
         }
 
         std::process::exit(1);
@@ -918,6 +861,12 @@ mod autopilot_parse_helpers;
 /// Pure helpers for batch handler result parsing and aggregation.
 mod batch_helpers;
 
+/// Pure helpers for SSH argument building and target classification.
+mod ssh_arg_helpers;
+
+/// Pure helpers for error suggestion generation and metric threshold classification.
+mod error_helpers;
+
 // Command dispatch modules
 mod cmd_ai;
 mod cmd_ai_ops;
@@ -957,6 +906,7 @@ mod cmd_tag;
 mod cmd_vm;
 mod cmd_vm_ops;
 mod cmd_vm_ops2;
+mod lifecycle_helpers;
 
 #[cfg(test)]
 #[allow(deprecated)]
