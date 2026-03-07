@@ -742,4 +742,23 @@ mod tests {
         let loaded: AzlinConfig = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(loaded.default_resource_group, Some("test-rg".to_string()));
     }
+
+    #[test]
+    fn test_config_ignores_unknown_python_fields() {
+        // Python azlin may write fields the Rust version doesn't know about.
+        // Verify they are silently ignored (no deny_unknown_fields).
+        let toml_with_extras = r#"
+            default_region = "westus2"
+            default_vm_size = "Standard_B1ms"
+            python_only_field = "should be ignored"
+            auto_shutdown_time = 1800
+            nested_extra = { a = 1, b = "two" }
+        "#;
+        let config: AzlinConfig = toml::from_str(toml_with_extras).unwrap();
+        assert_eq!(config.default_region, "westus2");
+        assert_eq!(config.default_vm_size, "Standard_B1ms");
+        // Defaults for fields not in the TOML
+        assert_eq!(config.az_cli_timeout, 120);
+        assert!(config.ssh_auto_sync_keys);
+    }
 }
