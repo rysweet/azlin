@@ -28,4 +28,3 @@ Documentation = "https://rysweet.github.io/azlin/"
 [tool.maturin]
 manifest-path = "crates/azlin/Cargo.toml"
 bindings = "bin"
-strip = true

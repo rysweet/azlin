@@ -1530,15 +1530,11 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             let vm = vm_manager.get_vm(&rg, &name)?;
             pb.finish_and_clear();
 
-            let ip = vm
-                .public_ip
-                .or(vm.private_ip)
-                .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", name))?;
             let username = vm.admin_username.unwrap_or_else(|| user.clone());
+            let use_bastion = vm.public_ip.is_none();
 
-            let mut ssh_args = connect_helpers::build_ssh_args(&username, &ip, key.as_deref());
-
-            if !no_tmux {
+            // Build the remote command (with optional tmux wrapping)
+            let tmux_sess = if !no_tmux {
                 let sess = tmux_session.as_deref().unwrap_or("azlin");
                 if !sess
                     .chars()
@@ -1548,21 +1544,71 @@ async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
                         "Invalid tmux session name: must be alphanumeric, underscore, or hyphen"
                     );
                 }
-                // Wrap SSH in tmux attach-or-create
-                if remote_command.is_empty() {
-                    ssh_args.push("-t".to_string());
-                    ssh_args.push(format!("tmux new-session -A -s {}", sess));
-                } else {
-                    ssh_args.extend(remote_command.iter().cloned());
-                }
-            } else if !remote_command.is_empty() {
-                ssh_args.extend(remote_command.iter().cloned());
-            }
+                Some(sess.to_string())
+            } else {
+                None
+            };
 
             let mut attempt = 0u32;
             let max = if no_reconnect { 1 } else { max_retries + 1 };
             loop {
-                let status = std::process::Command::new("ssh").args(&ssh_args).status()?;
+                let status = if use_bastion {
+                    // Route through Azure Bastion for private-only VMs
+                    let bastion_map: std::collections::HashMap<String, String> =
+                        if let Ok(bastions) = list_helpers::detect_bastion_hosts(&rg) {
+                            bastions.into_iter().map(|(n, l, _)| (l, n)).collect()
+                        } else {
+                            std::collections::HashMap::new()
+                        };
+                    let bastion_name = bastion_map.get(&vm.location).ok_or_else(|| {
+                        anyhow::anyhow!("No bastion host found for region '{}'. Cannot connect to private VM.", vm.location)
+                    })?;
+                    let vm_rid = format!(
+                        "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+                        vm_manager.subscription_id(), rg, name
+                    );
+                    let ssh_key = resolve_ssh_key();
+                    let mut args = vec![
+                        "network".to_string(), "bastion".to_string(), "ssh".to_string(),
+                        "--name".to_string(), bastion_name.clone(),
+                        "--resource-group".to_string(), rg.clone(),
+                        "--target-resource-id".to_string(), vm_rid,
+                        "--auth-type".to_string(), "ssh-key".to_string(),
+                        "--username".to_string(), username.clone(),
+                    ];
+                    if let Some(ref k) = ssh_key {
+                        args.push("--ssh-key".to_string());
+                        args.push(k.to_string_lossy().to_string());
+                    }
+                    args.push("--".to_string());
+                    // Build the remote command
+                    if let Some(ref sess) = tmux_sess {
+                        if remote_command.is_empty() {
+                            args.push(format!("tmux new-session -A -s {}", sess));
+                        } else {
+                            args.extend(remote_command.iter().cloned());
+                        }
+                    } else if !remote_command.is_empty() {
+                        args.extend(remote_command.iter().cloned());
+                    }
+                    let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                    std::process::Command::new("az").args(&str_args).status()?
+                } else {
+                    // Direct SSH for VMs with public IPs
+                    let ip = vm.public_ip.as_deref().unwrap();
+                    let mut ssh_args = connect_helpers::build_ssh_args(&username, ip, key.as_deref());
+                    if let Some(ref sess) = tmux_sess {
+                        if remote_command.is_empty() {
+                            ssh_args.push("-t".to_string());
+                            ssh_args.push(format!("tmux new-session -A -s {}", sess));
+                        } else {
+                            ssh_args.extend(remote_command.iter().cloned());
+                        }
+                    } else if !remote_command.is_empty() {
+                        ssh_args.extend(remote_command.iter().cloned());
+                    }
+                    std::process::Command::new("ssh").args(&ssh_args).status()?
+                };
                 attempt += 1;
                 if status.success() || attempt >= max {
                     std::process::exit(status.code().unwrap_or(1));
