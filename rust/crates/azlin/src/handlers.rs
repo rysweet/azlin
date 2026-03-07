@@ -1443,7 +1443,7 @@ pub fn format_orphan_report(resources: &[OrphanedResourceInfo]) -> String {
 /// Build a SnapshotScheduleInfo from raw schedule parameters.
 pub fn build_snapshot_enable_output(
     vm_name: &str,
-    resource_group: &str,
+    _resource_group: &str,
     every_hours: u32,
     keep_count: u32,
 ) -> String {
