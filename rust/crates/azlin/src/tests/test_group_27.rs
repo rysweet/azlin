@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 // ── NEW: auth_helpers additional tests ───────────────────────
 
 #[test]

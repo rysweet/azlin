@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use crate::*;
 use std::fs;
 use tempfile::TempDir;

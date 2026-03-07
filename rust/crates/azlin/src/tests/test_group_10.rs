@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 #[test]
 fn test_keys_export_help() {
     assert_cmd::Command::cargo_bin("azlin")

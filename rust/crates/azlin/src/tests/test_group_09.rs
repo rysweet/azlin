@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 // ── CLI integration: subcommand --help coverage ──────────────
 
 #[test]

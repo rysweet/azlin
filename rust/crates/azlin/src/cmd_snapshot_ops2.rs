@@ -146,34 +146,17 @@ pub(crate) async fn handle_snapshot_sync(vm: Option<&str>, _rg: &str) -> Result<
             pb.set_message(format!("Creating snapshot {}...", snap_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-            let disk_id_output = std::process::Command::new("az")
-                .args([
-                    "vm",
-                    "show",
-                    "--resource-group",
-                    &sched.resource_group,
-                    "--name",
-                    &sched.vm_name,
-                    "--query",
-                    "storageProfile.osDisk.managedDisk.id",
-                    "--output",
-                    "tsv",
-                ])
-                .output()?;
+            let disk_info =
+                crate::dispatch_helpers::lookup_vm_disk_info(&sched.resource_group, &sched.vm_name);
 
-            if !disk_id_output.status.success() {
-                pb.finish_and_clear();
-                eprintln!(
-                    "Failed to get disk ID for VM '{}': {}",
-                    sched.vm_name,
-                    String::from_utf8_lossy(&disk_id_output.stderr).trim()
-                );
-                continue;
-            }
-
-            let disk_id = String::from_utf8_lossy(&disk_id_output.stdout)
-                .trim()
-                .to_string();
+            let (disk_id, location) = match disk_info {
+                Ok(info) => info,
+                Err(e) => {
+                    pb.finish_and_clear();
+                    eprintln!("Failed to get disk ID for VM '{}': {}", sched.vm_name, e);
+                    continue;
+                }
+            };
 
             let create_output = std::process::Command::new("az")
                 .args([
@@ -185,6 +168,8 @@ pub(crate) async fn handle_snapshot_sync(vm: Option<&str>, _rg: &str) -> Result<
                     &snap_name,
                     "--source",
                     &disk_id,
+                    "--location",
+                    &location,
                     "--output",
                     "json",
                 ])
@@ -197,10 +182,11 @@ pub(crate) async fn handle_snapshot_sync(vm: Option<&str>, _rg: &str) -> Result<
                     snap_name, sched.vm_name
                 );
             } else {
+                let stderr = String::from_utf8_lossy(&create_output.stderr);
                 eprintln!(
                     "Failed to create snapshot for VM '{}': {}",
                     sched.vm_name,
-                    String::from_utf8_lossy(&create_output.stderr).trim()
+                    azlin_core::sanitizer::sanitize(stderr.trim())
                 );
             }
         }

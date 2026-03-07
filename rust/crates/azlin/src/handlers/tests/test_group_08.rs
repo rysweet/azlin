@@ -1,8 +1,4 @@
 use super::super::*;
-use super::common::*;
-use azlin_azure::AzureOps;
-use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
-use std::collections::HashMap;
 
 // ── Costs handler tests ─────────────────────────────────────────────
 

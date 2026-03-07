@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 // ── format_os_display tests ─────────────────────────────────────
 
 #[test]

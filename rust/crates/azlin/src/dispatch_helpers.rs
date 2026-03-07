@@ -49,6 +49,41 @@ pub(crate) fn shell_escape(s: &str) -> String {
     escaped
 }
 
+/// Look up a VM's OS disk resource ID and location via `az vm show`.
+/// Returns `(disk_id, location)` for use in snapshot/clone operations.
+pub(crate) fn lookup_vm_disk_info(rg: &str, vm_name: &str) -> Result<(String, String)> {
+    let output = std::process::Command::new("az")
+        .args([
+            "vm",
+            "show",
+            "--resource-group",
+            rg,
+            "--name",
+            vm_name,
+            "--query",
+            "[storageProfile.osDisk.managedDisk.id, location]",
+            "--output",
+            "tsv",
+        ])
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "Failed to get OS disk for VM '{}': {}",
+            vm_name,
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        );
+    }
+
+    let raw = String::from_utf8_lossy(&output.stdout);
+    let parts: Vec<&str> = raw.trim().lines().collect();
+    if parts.len() < 2 || parts[0].is_empty() {
+        anyhow::bail!("No OS disk found for VM '{}'", vm_name);
+    }
+    Ok((parts[0].to_string(), parts[1].to_string()))
+}
+
 /// Resolve a single VM to a `VmSshTarget`, using --ip flag if provided.
 /// Routes through bastion automatically for private-IP-only VMs.
 pub(crate) async fn resolve_vm_ssh_target(

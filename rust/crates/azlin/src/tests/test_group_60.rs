@@ -1,7 +1,4 @@
 use super::common::*;
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
 
 // ── Additional Azure-dependent inproc tests (require az login) ──────
 // Tagged #[ignore] — counted by: cargo llvm-cov -- --include-ignored

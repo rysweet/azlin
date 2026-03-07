@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 // ── Security & business-logic tests ─────────────────────────────
 
 // 1. Config path traversal

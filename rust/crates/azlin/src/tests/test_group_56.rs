@@ -1,7 +1,4 @@
 use super::common::*;
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_dispatch_autopilot_full_lifecycle() {

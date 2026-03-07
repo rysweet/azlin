@@ -1,7 +1,7 @@
 use super::super::*;
 use super::common::*;
 use azlin_azure::AzureOps;
-use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
+use azlin_core::models::PowerState;
 use std::collections::HashMap;
 
 // ── Additional edge case tests ──────────────────────────────────────

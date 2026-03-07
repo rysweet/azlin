@@ -210,7 +210,7 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str])
         } else {
             crate::display_helpers::truncate_vm_name(&vm.name, 20)
         };
-        let mut row = vec![Cell::new(session)];
+        let mut row = vec![Cell::new(session).fg(Color::Cyan)];
         if cfg.show_tmux_col {
             row.push(Cell::new(&tmux));
         }
@@ -220,13 +220,16 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str])
         row.extend_from_slice(&[
             Cell::new(&os_display),
             Cell::new(vm.power_state.to_string()).fg(state_color),
-            Cell::new(&ip_display),
-            Cell::new(&vm.location),
+            Cell::new(&ip_display).fg(Color::DarkYellow),
+            Cell::new(&vm.location).fg(Color::Grey),
         ]);
         if cfg.wide {
             row.push(Cell::new(&vm.vm_size));
         }
-        row.extend_from_slice(&[Cell::new(&cpu), Cell::new(&mem)]);
+        row.extend_from_slice(&[
+            Cell::new(&cpu).fg(Color::Grey),
+            Cell::new(&mem).fg(Color::Grey),
+        ]);
         if cfg.with_latency {
             let lat = data
                 .latencies
@@ -249,28 +252,47 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str])
                 .get(&vm.name)
                 .cloned()
                 .unwrap_or_else(|| "-".to_string());
-            row.push(Cell::new(p));
+            row.push(Cell::new(p).fg(Color::Green));
         }
         table.add_row(row);
     }
     println!("{table}");
 
-    // Summary footer
+    // Summary footer (bold, matching Python)
     let total = data.vms.len();
+    let running = data
+        .vms
+        .iter()
+        .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
+        .count();
     let total_tmux: usize = data.tmux_sessions.values().map(|v| v.len()).sum();
     println!();
-    if total_tmux > 0 {
-        println!("Total: {} VMs | {} tmux sessions", total, total_tmux);
+    let bold = console::Style::new().bold();
+    let cyan = console::Style::new().cyan();
+    let dim = console::Style::new().dim();
+    let summary = if total_tmux > 0 {
+        format!(
+            "Total: {} VMs | {} running | {} tmux sessions",
+            total, running, total_tmux
+        )
     } else {
-        println!("Total: {} VMs", total);
-    }
+        format!("Total: {} VMs | {} running", total, running)
+    };
+    println!("{}", bold.apply_to(&summary));
     if !cfg.show_all_vms {
         println!();
-        println!("Hints:");
-        println!("  azlin list -a        Show all VMs across all resource groups");
-        println!("  azlin list -w        Wide mode (show VM Name, SKU columns)");
-        println!("  azlin list -r        Restore all tmux sessions in new terminal window");
-        println!("  azlin list -q        Show quota usage (slower)");
-        println!("  azlin list -v        Verbose mode (show tunnel/SSH details)");
+        println!("{}", dim.apply_to("Hints:"));
+        for (flag, desc) in [
+            ("azlin list -a", "Show all VMs across all resource groups"),
+            ("azlin list -w", "Wide mode (show VM Name, SKU columns)"),
+            (
+                "azlin list -r",
+                "Restore all tmux sessions in new terminal window",
+            ),
+            ("azlin list -q", "Show quota usage (slower)"),
+            ("azlin list -v", "Verbose mode (show tunnel/SSH details)"),
+        ] {
+            println!("  {}  {}", cyan.apply_to(flag), dim.apply_to(desc));
+        }
     }
 }

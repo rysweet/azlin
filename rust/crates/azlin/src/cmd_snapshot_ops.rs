@@ -4,6 +4,8 @@ use anyhow::Result;
 use dialoguer::Confirm;
 
 pub(crate) async fn handle_snapshot_create(vm_name: &str, rg: &str) -> Result<()> {
+    let (disk_id, location) = crate::dispatch_helpers::lookup_vm_disk_info(rg, vm_name)?;
+
     let ts = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
     let snapshot_name = crate::snapshot_helpers::build_snapshot_name(vm_name, &ts);
     let pb = indicatif::ProgressBar::new_spinner();
@@ -16,10 +18,12 @@ pub(crate) async fn handle_snapshot_create(vm_name: &str, rg: &str) -> Result<()
             "create",
             "--resource-group",
             rg,
-            "--source-disk",
-            &format!("{}_OsDisk", vm_name),
+            "--source",
+            &disk_id,
             "--name",
             &snapshot_name,
+            "--location",
+            &location,
             "--output",
             "json",
         ])
@@ -58,11 +62,7 @@ pub(crate) async fn handle_snapshot_list(vm_name: &str, rg: &str) -> Result<()> 
         if filtered.is_empty() {
             println!("No snapshots found for VM '{}'.", vm_name);
         } else {
-            let mut table = Table::new();
-            table
-                .load_preset(UTF8_FULL)
-                .apply_modifier(UTF8_ROUND_CORNERS)
-                .set_header(vec!["Name", "Disk Size (GB)", "Time Created", "State"]);
+            let mut table = new_table(&["Name", "Disk Size (GB)", "Time Created", "State"]);
             for snap in &filtered {
                 let row = crate::snapshot_helpers::snapshot_row(snap);
                 table.add_row(row);

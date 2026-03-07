@@ -1,5 +1,3 @@
-use crate::*;
-use std::fs;
 use tempfile::TempDir;
 
 // ── validate_repo_url ──────────────────────────────────────────

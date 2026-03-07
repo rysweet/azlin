@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 #[test]
 fn test_autopilot_status_help() {
     assert_cmd::Command::cargo_bin("azlin")

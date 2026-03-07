@@ -1,7 +1,4 @@
 use super::common::*;
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
 
 // ── Non-auth dispatch tests (no Azure required) ────────────────────
 // These test dispatch_command branches that operate locally (filesystem, config,

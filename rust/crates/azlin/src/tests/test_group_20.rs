@@ -1,7 +1,4 @@
 use super::common::*;
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
 
 // ── Env subcommands ─────────────────────────────────────────────
 

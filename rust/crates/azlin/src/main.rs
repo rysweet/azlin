@@ -6,11 +6,16 @@ use comfy_table::{
 };
 
 /// Create a styled table with the standard UTF8 rounded preset and bold headers.
+/// Automatically adapts width to the current terminal size.
 fn new_table(headers: &[&str]) -> Table {
     let mut table = Table::new();
+    let term_width = crossterm::terminal::size()
+        .map(|(w, _)| w as u16)
+        .unwrap_or(120);
     table
         .load_preset(UTF8_FULL)
         .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_width(term_width)
         .set_header(
             headers
                 .iter()

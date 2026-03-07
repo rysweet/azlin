@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 // ── NEW: vm_validation additional tests ──────────────────────
 
 #[test]

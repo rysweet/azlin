@@ -61,6 +61,8 @@ pub(crate) fn handle_vm_clone(
         source_vm, num_replicas
     );
 
+    let (disk_id, location) = crate::dispatch_helpers::lookup_vm_disk_info(&rg, source_vm)?;
+
     let pb = indicatif::ProgressBar::new_spinner();
     pb.set_message(format!("Snapshotting {}...", source_vm));
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
@@ -71,10 +73,12 @@ pub(crate) fn handle_vm_clone(
             "create",
             "--resource-group",
             &rg,
-            "--source-disk",
-            &format!("{}_OsDisk", source_vm),
+            "--source",
+            &disk_id,
             "--name",
             &snapshot_name,
+            "--location",
+            &location,
             "--output",
             "json",
         ])

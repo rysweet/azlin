@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 // ── VM name validation edge cases ───────────────────────────────
 
 #[test]

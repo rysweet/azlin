@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 // ── Additional pure function tests for coverage gaps ──────────────
 
 #[test]

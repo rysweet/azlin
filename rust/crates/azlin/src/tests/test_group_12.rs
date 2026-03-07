@@ -1,5 +1,3 @@
-use crate::*;
-use std::fs;
 use tempfile::TempDir;
 
 // ── CLI integration: top-level command --help ────────────────

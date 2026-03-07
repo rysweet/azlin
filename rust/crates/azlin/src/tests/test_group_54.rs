@@ -1,7 +1,4 @@
 use super::common::*;
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
 
 // ── Live Azure in-process tests (for coverage) ──────────────────────
 // These call dispatch_command directly so llvm-cov sees the code paths.

@@ -30,20 +30,26 @@ mod storage;
 mod tags;
 
 pub use autopilot::*;
-pub use batch::*;
 pub use cleanup::*;
 pub use connect::*;
 pub use context::*;
 pub use costs::*;
-pub use create::*;
-pub use health::*;
 pub use help::*;
 pub use keys::*;
-pub use list::*;
 pub use show::*;
 pub use snapshot::*;
 pub use storage::*;
 pub use tags::*;
+
+// Re-exported for test modules only (handler functions used in test assertions)
+#[allow(unused_imports)]
+pub use batch::*;
+#[allow(unused_imports)]
+pub use create::*;
+#[allow(unused_imports)]
+pub use health::*;
+#[allow(unused_imports)]
+pub use list::*;
 
 #[cfg(test)]
 mod tests;

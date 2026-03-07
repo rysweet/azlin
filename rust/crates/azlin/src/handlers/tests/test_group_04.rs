@@ -1,8 +1,6 @@
 use super::super::*;
 use super::common::*;
-use azlin_azure::AzureOps;
-use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
-use std::collections::HashMap;
+use azlin_core::models::PowerState;
 
 // ── List CSV format tests ───────────────────────────────────────
 

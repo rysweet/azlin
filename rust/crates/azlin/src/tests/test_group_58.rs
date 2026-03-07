@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 #[test]
 fn test_update_log_type_to_path() {
     assert_eq!(
@@ -283,5 +279,6 @@ fn test_snapshot_helpers_load_all_schedules_empty_dir() {
     // load_all_schedules returns empty vec on missing dir
     let result = crate::snapshot_helpers::load_all_schedules();
     // It reads from the real home dir schedules — just verify no panic
-    assert!(result.len() >= 0);
+    // Verify no panic — any length is fine
+    let _ = result.len();
 }

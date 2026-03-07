@@ -1,7 +1,3 @@
-use crate::*;
-use std::fs;
-use tempfile::TempDir;
-
 // ── Tests for extracted helper functions ─────────────────────────
 
 #[test]

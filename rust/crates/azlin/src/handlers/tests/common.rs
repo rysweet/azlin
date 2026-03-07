@@ -1,4 +1,3 @@
-use super::super::*;
 use anyhow::Result;
 use azlin_azure::AzureOps;
 use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
